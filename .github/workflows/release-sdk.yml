@@ -1,0 +1,115 @@
+name: Release SDK
+
+# Publishes @agent-nexus/sdk to npm WITH provenance attestations whenever a
+# sdk-v<version> tag is pushed to main. Same trigger model as release-cli.yml
+# — tags are produced by the upstream mirror sync (lives in NexusGPT/nexus)
+# when packages/sdk/package.json version changes.
+#
+# SDK has zero runtime dependencies and is fully hand-written — no codegen,
+# no Prisma, no workspace deps. Build is plain tsup, publish is plain npm.
+#
+# Auth + provenance: identical model to release-cli.yml. OIDC trusted
+# publisher configured at npmjs.com/package/@agent-nexus/sdk → Settings →
+# Trusted publishers → NexusGPT/agent-nexus + .github/workflows/release-sdk.yml.
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. sdk-v0.1.18). Must already exist."
+        type: string
+        required: true
+
+concurrency:
+  group: release-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish:
+    name: "SDK: Publish with provenance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout at the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          set -eo pipefail
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${REF#sdk-v}"
+          if [[ "$VERSION" == "$REF" ]]; then
+            echo "::error::Tag '$REF' does not match sdk-v* pattern."
+            exit 1
+          fi
+          PKG_VERSION=$(jq -r .version packages/sdk/package.json)
+          if [[ "$PKG_VERSION" != "$VERSION" ]]; then
+            echo "::error::Tag version ($VERSION) does not match package.json version ($PKG_VERSION) at this ref."
+            echo "::error::Re-tag the commit that actually bumps the version."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing @agent-nexus/sdk@$VERSION"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Same Node 24 rationale as release-cli.yml — npm 11.5.1+ for OIDC.
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build SDK
+        # SDK has no workspace deps — `--filter @agent-nexus/sdk` alone
+        # is enough, no trailing `...` needed.
+        run: pnpm --filter @agent-nexus/sdk build
+
+      - name: Publish to npm with provenance
+        working-directory: packages/sdk
+        run: |
+          pnpm pack
+          npm publish ./*.tgz --access public --provenance
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ steps.version.outputs.version }}
+          name: "@agent-nexus/sdk ${{ steps.version.outputs.version }}"
+          body: |
+            Published to npm: https://www.npmjs.com/package/@agent-nexus/sdk/v/${{ steps.version.outputs.version }}
+
+            Verify the provenance attestation:
+            ```bash
+            npm audit signatures @agent-nexus/sdk@${{ steps.version.outputs.version }}
+            ```
+          generate_release_notes: true
+
+      - if: failure()
+        name: Telegram alert on failure
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        run: |
+          if [[ -z "$TG_TOKEN" ]]; then
+            echo "TG_TOKEN secret not set — skipping Telegram alert."
+            exit 0
+          fi
+          VERSION="${{ steps.version.outputs.version }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="6527005186" \
+            -d text="SDK release failed — version=${VERSION:-unknown}. Run: ${RUN_URL}" \
+            || echo "Telegram alert failed (non-fatal)"

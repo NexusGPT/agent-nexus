@@ -1,0 +1,155 @@
+name: Release CLI
+
+# Publishes @agent-nexus/cli to npm WITH provenance attestations whenever a
+# cli-v<version> tag is pushed to main. Tags are pushed by the upstream
+# mirror sync action (lives in NexusGPT/nexus) when packages/cli/package.json
+# version field changes between syncs — so a CLI release here = a CLI
+# version bump in the monorepo, period.
+#
+# Auth: OIDC trusted publisher. NO NPM_TOKEN secret. Trust is configured
+# on the @agent-nexus/cli npm package settings page and binds this exact
+# triple: repository (NexusGPT/agent-nexus), workflow file
+# (.github/workflows/release-cli.yml), environment (none). Any drift in
+# those three values blocks publish until trust is re-configured.
+#
+# Provenance: --provenance flag triggers Sigstore signing + attestation
+# bundle upload. npm verifies the OIDC token's repository_visibility
+# claim equals "public" — satisfied because this repo IS public, which
+# was the entire point of the M258 mirror split. See the M258 mission
+# doc for the empirical proof (run 26369612091 on nbstr/m258-provenance-spike).
+#
+# Failure modes worth knowing:
+#   * Version already on npm → npm rejects 403 EPUBLISHCONFLICT. Correct
+#     signal, not a bug. Bump version + push again.
+#   * Provenance attestation fails → npm rejects 422. Almost always means
+#     trusted publisher config drift OR repository visibility flipped to
+#     private. Verify both before debugging the workflow.
+#   * SDK build fails (CLI bundles SDK at build time via tsup) → cli
+#     publish never runs. Fix SDK first.
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. cli-v0.2.9). Must already exist."
+        type: string
+        required: true
+
+concurrency:
+  group: release-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # OIDC trusted-publisher: npm verifies the GitHub-issued OIDC token
+  # against the trust configured for @agent-nexus/cli.
+  id-token: write
+  # softprops/action-gh-release needs this to create the GitHub release
+  # alongside the published npm tarball.
+  contents: write
+
+jobs:
+  publish:
+    name: "CLI: Publish with provenance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout at the release tag
+        uses: actions/checkout@v4
+        with:
+          # Tag the workflow fires on (or the workflow_dispatch input) is
+          # the exact ref we publish — never publish from a moving target.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          set -eo pipefail
+          # github.ref for tag pushes is refs/tags/cli-v0.2.9; strip the
+          # prefixes deterministically.
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${REF#cli-v}"
+          if [[ "$VERSION" == "$REF" ]]; then
+            echo "::error::Tag '$REF' does not match cli-v* pattern."
+            exit 1
+          fi
+          # Sanity: the tag's version must match what's actually in
+          # package.json on that ref. A mismatch means someone hand-pushed
+          # a tag against the wrong commit.
+          PKG_VERSION=$(jq -r .version packages/cli/package.json)
+          if [[ "$PKG_VERSION" != "$VERSION" ]]; then
+            echo "::error::Tag version ($VERSION) does not match package.json version ($PKG_VERSION) at this ref."
+            echo "::error::This usually means the tag was pushed against a stale commit. Re-tag the commit that actually bumps the version."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing @agent-nexus/cli@$VERSION"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 ships npm >=11.5.1 — the minimum that supports OIDC
+          # trusted publishing AND provenance attestations. Lower npm
+          # falls through to classic-token auth (ENEEDAUTH) or silently
+          # publishes without provenance.
+          node-version: 24
+          cache: pnpm
+          # Do NOT set registry-url — setup-node would write
+          # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into
+          # ~/.npmrc, making npm prefer classic-token auth over OIDC.
+
+      - name: Install dependencies
+        # The mirror's workspace is only cli + sdk — no Prisma bootstrap,
+        # no full-monorepo postinstall — so --ignore-scripts is unnecessary.
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build CLI (and its workspace dep, SDK)
+        # `pnpm --filter @agent-nexus/cli...` (note the trailing dots)
+        # means "this package AND its workspace dependencies." tsup bundles
+        # SDK source into the CLI binary at build time, so SDK's dist/
+        # must exist before CLI builds.
+        run: pnpm --filter "@agent-nexus/cli..." build
+
+      - name: Publish to npm with provenance
+        working-directory: packages/cli
+        run: |
+          # `pnpm pack && npm publish` instead of `pnpm publish` because
+          # pnpm 10's publish wrapper doesn't pass --provenance through to
+          # npm reliably (see pnpm/pnpm#6607). Repacking and shelling out
+          # to npm 11.5.1+ directly is the proven path.
+          pnpm pack
+          npm publish ./*.tgz --access public --provenance
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cli-v${{ steps.version.outputs.version }}
+          name: "@agent-nexus/cli ${{ steps.version.outputs.version }}"
+          body: |
+            Published to npm: https://www.npmjs.com/package/@agent-nexus/cli/v/${{ steps.version.outputs.version }}
+
+            Verify the provenance attestation:
+            ```bash
+            npm audit signatures @agent-nexus/cli@${{ steps.version.outputs.version }}
+            ```
+          generate_release_notes: true
+
+      - if: failure()
+        name: Telegram alert on failure
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        run: |
+          if [[ -z "$TG_TOKEN" ]]; then
+            echo "TG_TOKEN secret not set — skipping Telegram alert."
+            exit 0
+          fi
+          VERSION="${{ steps.version.outputs.version }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id="6527005186" \
+            -d text="CLI release failed — version=${VERSION:-unknown}. Run: ${RUN_URL}" \
+            || echo "Telegram alert failed (non-fatal)"

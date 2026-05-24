@@ -1,0 +1,85 @@
+name: CLI Sweep
+
+# Validates @agent-nexus/cli against the live staging API on every mirror
+# sync. Runs the read-only sweep with --strict (WARN promoted to FAIL —
+# the JSON contract is load-bearing customer-facing behaviour).
+#
+# Difference from the monorepo's cli-sweep.yml:
+#   * Triggers on push to main (mirror is force-pushed by sync, no PRs)
+#     and on schedule (catch contract drift even between syncs).
+#   * No path filter on push — every sync should re-validate, even if
+#     only the SDK changed (CLI bundles SDK at build time).
+#
+# Required secret: NEXUS_STAGING_API_KEY — read-only staging API key for
+# a CI service profile. Until provisioned the auth step fails loud with
+# a clear remediation message.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Every 12h. The cli-e2e workflow on this same repo handles 6h
+    # cadence — sweep is cheaper and runs in parallel anyway, so doubling
+    # cadence catches drift faster without much extra runtime.
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max-old-space-size=6144
+  # Same conventions as the monorepo cli-sweep: NEXUS_BIN is the multi-word
+  # CLI invocation (bash splits on whitespace into argv), NEXUS_BASE_URL
+  # pins staging. The CLI's --env flag only knows dev/production, so
+  # staging must be reached via the env var.
+  NEXUS_BIN: node packages/cli/dist/index.js
+  NEXUS_BASE_URL: https://api-staging.gpt.nexus
+
+jobs:
+  sweep:
+    name: "CLI: Sweep against staging"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-sweep-deps-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build CLI from the synced sources
+        # Build SDK first (workspace dep) then CLI — `...` filter syntax.
+        run: pnpm --filter "@agent-nexus/cli..." build
+
+      - name: Authenticate against staging
+        env:
+          NEXUS_STAGING_API_KEY: ${{ secrets.NEXUS_STAGING_API_KEY }}
+        run: |
+          if [[ -z "$NEXUS_STAGING_API_KEY" ]]; then
+            echo "::error::NEXUS_STAGING_API_KEY secret is not configured on this repo."
+            echo "::error::Provision a read-only staging API key and add it via:"
+            echo "::error::  gh secret set NEXUS_STAGING_API_KEY --repo NexusGPT/agent-nexus"
+            exit 1
+          fi
+          set -eo pipefail
+          $NEXUS_BIN auth login \
+            --api-key "$NEXUS_STAGING_API_KEY" \
+            --profile ci
+          $NEXUS_BIN auth list --json
+          $NEXUS_BIN --profile ci auth whoami
+
+      - name: Run sweep (strict — WARN counts as FAIL)
+        run: bash packages/cli/scripts/sweep.sh --profile ci --strict

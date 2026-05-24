@@ -1,0 +1,102 @@
+name: CLI E2E
+
+# End-to-end CLI flows against staging. Where sweep.yml tests each leaf in
+# isolation (exit code + JSON parse), this exercises the chain across calls
+# — data returned by one command is used by the next — so Zod schema drift
+# that the per-leaf sweep can't see surfaces here.
+#
+# Three flows: hello-agent, workflow-attach, knowledge-attach. Each is a
+# self-contained bash script under packages/cli/test/e2e/, idempotent +
+# self-cleaning.
+#
+# Triggers:
+#   * push to main — every mirror sync re-validates the chain
+#   * schedule — every 6h against staging, catches backend deploy drift
+#     even when no CLI change is in flight
+#   * workflow_dispatch — manual ad-hoc run for debugging
+#
+# Required secret: NEXUS_E2E_API_KEY — write-scoped staging API key.
+# Distinct from the read-only NEXUS_STAGING_API_KEY used by sweep so the
+# two concerns stay separable.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max-old-space-size=6144
+  NEXUS_BIN: node packages/cli/dist/index.js
+  NEXUS_BASE_URL: https://api-staging.gpt.nexus
+  # Every flow script honours NEXUS_PROFILE, so setting it once here
+  # spares each step from re-stating --profile ci.
+  NEXUS_PROFILE: ci
+
+jobs:
+  e2e:
+    name: "CLI: E2E flows"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-e2e-deps-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build CLI from the synced sources
+        run: pnpm --filter "@agent-nexus/cli..." build
+
+      - name: Authenticate against staging
+        id: auth
+        env:
+          NEXUS_E2E_API_KEY: ${{ secrets.NEXUS_E2E_API_KEY }}
+        run: |
+          if [[ -z "$NEXUS_E2E_API_KEY" ]]; then
+            echo "::error::NEXUS_E2E_API_KEY secret is not configured on this repo."
+            echo "::error::Provision a write-scoped staging API key (separate from"
+            echo "::error::the read-only NEXUS_STAGING_API_KEY used by sweep) and add it via:"
+            echo "::error::  gh secret set NEXUS_E2E_API_KEY --repo NexusGPT/agent-nexus"
+            exit 1
+          fi
+          set -eo pipefail
+          $NEXUS_BIN auth login \
+            --api-key "$NEXUS_E2E_API_KEY" \
+            --profile ci
+          $NEXUS_BIN --profile ci auth whoami
+
+      # Each flow gates on auth-success and not-cancelled so one broken
+      # contract doesn't mask drift in another, but a single auth/build
+      # failure surfaces as one error instead of three identical 403s.
+
+      - name: Flow A — hello-agent
+        id: flow_a
+        if: ${{ !cancelled() && steps.auth.outcome == 'success' }}
+        run: bash packages/cli/test/e2e/01-hello-agent.sh
+
+      - name: Flow B — workflow-attach
+        id: flow_b
+        if: ${{ !cancelled() && steps.auth.outcome == 'success' }}
+        run: bash packages/cli/test/e2e/02-workflow-attach.sh
+
+      - name: Flow C — knowledge-attach
+        id: flow_c
+        if: ${{ !cancelled() && steps.auth.outcome == 'success' }}
+        run: bash packages/cli/test/e2e/03-knowledge-attach.sh

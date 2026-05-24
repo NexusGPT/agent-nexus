@@ -1,0 +1,6 @@
+# Vendored skills bundle — treated like a lockfile. Source-of-truth at
+# build time. Regenerate with `pnpm gen:skills` after bumping
+# `skills-nexus.lock`, then commit both files together.
+#
+# (Intentionally empty after the skills-nexus migration. If you add a new
+# gitignored artifact here, document why above the pattern.)

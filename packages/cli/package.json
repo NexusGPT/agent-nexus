@@ -1,0 +1,48 @@
+{
+  "name": "@agent-nexus/cli",
+  "version": "0.2.8",
+  "description": "Official CLI for the Nexus AI agent platform.",
+  "license": "MIT",
+  "keywords": [
+    "nexus",
+    "nexusgpt",
+    "ai-agents",
+    "cli",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nexusgpt/nexus.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/nexusgpt/nexus/tree/main/packages/cli#readme",
+  "bin": {
+    "nexus": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "gen:skills": "tsx scripts/bundle-skills.ts",
+    "build": "tsup",
+    "build:refresh-skills": "pnpm run gen:skills && tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@agent-nexus/sdk": "workspace:*",
+    "@types/node": "24.6.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}

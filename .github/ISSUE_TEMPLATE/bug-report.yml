@@ -1,0 +1,59 @@
+name: Bug report
+description: Something is broken in @agent-nexus/cli or @agent-nexus/sdk
+labels: ["bug", "triage"]
+body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which package is affected?
+      options:
+        - "@agent-nexus/cli"
+        - "@agent-nexus/sdk"
+        - Both
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `nexus --version` or the version pinned in your package.json
+      placeholder: "0.2.8"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, OS, and anything else relevant
+      placeholder: "Node 20.11.0, macOS 14.4, zsh"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include the actual vs expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps to reproduce. If the bug involves the CLI, paste the exact command(s) you ran and the output.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, related issues, or anything that might help us debug faster.
+    validations:
+      required: false

@@ -1,0 +1,49 @@
+name: Auto-close PRs
+
+# This repo is a downstream mirror — PRs cannot be merged here because the next
+# upstream sync would overwrite them. Auto-close with a pointer to the right flow.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close PR with explanation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Thanks for the contribution!",
+              "",
+              "This repo is a one-way mirror of `packages/cli/` and `packages/sdk/` from",
+              "the private [NexusGPT/nexus](https://github.com/NexusGPT/nexus) monorepo —",
+              "any changes merged here would be overwritten on the next upstream sync.",
+              "",
+              "To submit this change:",
+              "",
+              "1. [Open an issue here](https://github.com/NexusGPT/agent-nexus/issues/new/choose) describing the change with a sketch of the diff",
+              "2. A maintainer will land it upstream and credit you in the release notes",
+              "",
+              "See [CONTRIBUTING.md](https://github.com/NexusGPT/agent-nexus/blob/main/CONTRIBUTING.md) for details. Sorry for the friction — it's the trade-off for getting npm provenance attestations on every release.",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              state: "closed",
+            });

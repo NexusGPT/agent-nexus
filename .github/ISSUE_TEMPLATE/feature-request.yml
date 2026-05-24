@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a new command, flag, or SDK capability
+labels: ["enhancement", "triage"]
+body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which package should this affect?
+      options:
+        - "@agent-nexus/cli"
+        - "@agent-nexus/sdk"
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the pain point you're hitting today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work? Sketch a command, flag, or API.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other approaches and why they don't quite fit.
+    validations:
+      required: false

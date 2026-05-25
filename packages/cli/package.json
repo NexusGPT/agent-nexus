@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [
@@ -12,10 +12,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nexusgpt/nexus.git",
+    "url": "git+https://github.com/NexusGPT/agent-nexus.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/nexusgpt/nexus/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/NexusGPT/agent-nexus/tree/main/packages/cli#readme",
   "bin": {
     "nexus": "dist/index.js"
   },

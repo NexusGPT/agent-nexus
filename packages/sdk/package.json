@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/sdk",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Official TypeScript SDK for the Nexus Public API — manage agents, tools, folders, and versions programmatically.",
   "license": "MIT",
   "keywords": [
@@ -13,10 +13,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/nexusgpt/nexus",
+    "url": "https://github.com/NexusGPT/agent-nexus",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/nexusgpt/nexus/tree/main/packages/sdk#readme",
+  "homepage": "https://github.com/NexusGPT/agent-nexus/tree/main/packages/sdk#readme",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

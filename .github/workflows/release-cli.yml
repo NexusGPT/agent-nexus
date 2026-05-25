@@ -138,18 +138,3 @@ jobs:
             ```
           generate_release_notes: true
 
-      - if: failure()
-        name: Telegram alert on failure
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-        run: |
-          if [[ -z "$TG_TOKEN" ]]; then
-            echo "TG_TOKEN secret not set — skipping Telegram alert."
-            exit 0
-          fi
-          VERSION="${{ steps.version.outputs.version }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          curl -sS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -d chat_id="6527005186" \
-            -d text="CLI release failed — version=${VERSION:-unknown}. Run: ${RUN_URL}" \
-            || echo "Telegram alert failed (non-fatal)"

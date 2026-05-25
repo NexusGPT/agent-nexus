@@ -9,6 +9,7 @@ import { ConversationsResource } from "./resources/conversations";
 import { CredentialsResource } from "./resources/credentials";
 import { CuePromptEditorResource } from "./resources/cue-prompt-editor";
 import { CustomModelsResource } from "./resources/custom-models";
+import { CustomersResource } from "./resources/customers";
 import { DeploymentFoldersResource } from "./resources/deployment-folders";
 import { DeploymentsResource } from "./resources/deployments";
 import { DocsResource } from "./resources/docs";
@@ -21,6 +22,7 @@ import { MeResource } from "./resources/me";
 import { ModelsResource } from "./resources/models";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
 import { PromptAssistantResource } from "./resources/prompt-assistant";
+import { SkillFoldersResource } from "./resources/skill-folders";
 import { SkillsResource } from "./resources/skills";
 import { TicketsResource } from "./resources/tickets";
 import { ToolConnectionResource } from "./resources/tool-connection";
@@ -169,6 +171,9 @@ export class NexusClient {
   /** Chat with AI to generate high-quality prompts for agents and AI tasks. */
   public readonly promptAssistant: PromptAssistantResource;
 
+  /** Organize workflows and AI tasks into skill folders. */
+  public readonly skillFolders: SkillFoldersResource;
+
   /** Search, buy, and manage phone numbers for SMS/Voice deployments. */
   public readonly phoneNumbers: PhoneNumbersResource;
 
@@ -186,6 +191,9 @@ export class NexusClient {
 
   /** Manage credentials and access cards for enterprise credential inventory. */
   public readonly credentials: CredentialsResource;
+
+  /** Manage CRM customers. */
+  public readonly customers: CustomersResource;
 
   /** Cue AI subsystem — prompt editor and (future) other subsystems. */
   public readonly cue: {
@@ -232,12 +240,14 @@ export class NexusClient {
     this.evaluations = new EvaluationsResource(http);
     this.cloudImports = new CloudImportsResource(http);
     this.promptAssistant = new PromptAssistantResource(http);
+    this.skillFolders = new SkillFoldersResource(http);
     this.phoneNumbers = new PhoneNumbersResource(http);
     this.tickets = new TicketsResource(http);
     this.channels = new ChannelsResource(http);
     this.tracing = new TracingResource(http);
     this.conversations = new ConversationsResource(http);
     this.credentials = new CredentialsResource(http);
+    this.customers = new CustomersResource(http);
     this.cue = {
       promptEditor: new CuePromptEditorResource(http)
     };

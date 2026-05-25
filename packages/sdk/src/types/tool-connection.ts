@@ -49,3 +49,22 @@ export interface HandshakeStatusResponse {
   errorMessage: string | null;
   expiresAt: string | null;
 }
+
+// ============================================================================
+// Create Pipedream credential
+// ============================================================================
+
+/** Body for creating a Pipedream credential after OAuth via connect link. */
+export interface CreatePipedreamCredentialBody {
+  accountId: string;
+  name?: string;
+}
+
+/** Response when a Pipedream credential is created. */
+export interface CreatePipedreamCredentialResponse {
+  id: string;
+  name: string | null;
+  type: string;
+  status: string;
+  createdAt: string;
+}

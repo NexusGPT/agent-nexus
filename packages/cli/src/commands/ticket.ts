@@ -274,4 +274,32 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // ── attachments ───────────────────────────────────────────────────────
+  ticket
+    .command("attachments")
+    .description("List attachments on a ticket")
+    .argument("<id>", "Ticket ID or identifier")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus ticket attachments TKT-42
+  $ nexus ticket attachments TKT-42 --json`
+    )
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tickets.listAttachments(id);
+        const attachments = (result as any).attachments ?? result;
+        printList(attachments as unknown as Record<string, unknown>[], undefined, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "fileName", label: "FILE", width: 30 },
+          { key: "mimeType", label: "TYPE", width: 15 },
+          { key: "createdAt", label: "CREATED", width: 20 }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
 }

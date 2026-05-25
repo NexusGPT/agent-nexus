@@ -440,11 +440,11 @@ All commands follow the pattern: `nexus <group> <action> [arguments] [options]`
 
 ### Skills & Tasks
 
-| Command                                                          | Subcommands                                       | Description            |
-| ---------------------------------------------------------------- | ------------------------------------------------- | ---------------------- |
-| [`task`](docs/command-reference.md#nexus-task)                   | `list` `get` `create` `update` `delete` `execute` | AI task management     |
-| [`template`](docs/command-reference.md#nexus-template)           | `list` `get` `create` `upload` `generate`         | Document templates     |
-| [`external-tool`](docs/command-reference.md#nexus-external-tool) | `list` `get` `create` `update` `delete` `test`    | OpenAPI external tools |
+| Command                                                          | Subcommands                                    | Description            |
+| ---------------------------------------------------------------- | ---------------------------------------------- | ---------------------- |
+| [`task`](docs/command-reference.md#nexus-task)                   | `list` `get` `create` `update` `execute`       | AI task management     |
+| [`template`](docs/command-reference.md#nexus-template)           | `list` `get` `create` `upload` `generate`      | Document templates     |
+| [`external-tool`](docs/command-reference.md#nexus-external-tool) | `list` `get` `create` `update` `delete` `test` | OpenAPI external tools |
 
 ### Deployment & Testing
 
@@ -458,9 +458,9 @@ All commands follow the pattern: `nexus <group> <action> [arguments] [options]`
 
 ### Marketplace & Discovery
 
-| Command                                        | Subcommands                                                              | Description                |
-| ---------------------------------------------- | ------------------------------------------------------------------------ | -------------------------- |
-| [`tool`](docs/command-reference.md#nexus-tool) | `search` `get` `credentials` `connect` `resolve-options` `skills` `test` | Marketplace tool discovery |
+| Command                                        | Subcommands                                                                                                                                    | Description                |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| [`tool`](docs/command-reference.md#nexus-tool) | `search` `get` `credentials` `connect` `resolve-options` `skills` `test` `execute` `connection-status` `create-credential` `delete-credential` | Marketplace tool discovery |
 
 ### Analytics & Operations
 

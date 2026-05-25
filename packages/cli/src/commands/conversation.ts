@@ -463,6 +463,36 @@ Examples:
       }
     });
 
+  // ── assigned-users ────────────────────────────────────────────────────
+  conversation
+    .command("assigned-users")
+    .description("Get assigned users for a conversation")
+    .argument("<id>", "Conversation ID")
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.conversations.getAssignedUsers(id);
+        printRecord(result as unknown as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── mark-as-read ──────────────────────────────────────────────────────
+  conversation
+    .command("mark-as-read")
+    .description("Mark a conversation as read")
+    .argument("<id>", "Conversation ID")
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        await client.conversations.markAsRead(id);
+        printSuccess("Conversation marked as read.", { id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── close ─────────────────────────────────────────────────────────────
   conversation
     .command("close")

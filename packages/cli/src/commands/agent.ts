@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -278,6 +281,49 @@ Examples:
           id: (agent as any).id,
           name: `${(agent as any).firstName} ${(agent as any).lastName}`
         });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── upload-profile-picture ────────────────────────────────────────────
+  agent
+    .command("upload-profile-picture")
+    .description("Upload a profile picture for an agent")
+    .argument("<id>", "Agent ID")
+    .requiredOption("--file <path>", "Path to the image file")
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const absPath = path.resolve(opts.file);
+        if (!fs.existsSync(absPath)) {
+          console.error(`Error: File not found: ${absPath}`);
+          process.exitCode = 1;
+          return;
+        }
+        const buffer = fs.readFileSync(absPath);
+        const blob = new Blob([buffer]);
+        const result = await client.agents.uploadProfilePicture(id, blob);
+        printSuccess("Profile picture uploaded.", result as unknown as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── generate-profile-picture ──────────────────────────────────────────
+  agent
+    .command("generate-profile-picture")
+    .description("Generate an AI profile picture for an agent")
+    .argument("<id>", "Agent ID")
+    .option("--prompt <text>", "Custom prompt to guide image style")
+    .option("--body <json>", "Request body as JSON")
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const body = mergeBodyWithFlags(base, opts.prompt ? { customPrompt: opts.prompt } : {});
+        const result = await client.agents.generateProfilePicture(id, body as any);
+        printSuccess("Profile picture generated.", result as unknown as Record<string, unknown>);
       } catch (err) {
         process.exitCode = handleError(err);
       }

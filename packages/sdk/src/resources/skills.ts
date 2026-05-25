@@ -26,6 +26,7 @@ import type {
   TaskDetail,
   TestExternalToolBody,
   TestExternalToolResponse,
+  UpdateTaskBody,
   WorkflowSummary
 } from "../types/skills";
 import { BaseResource } from "./base-resource";
@@ -294,6 +295,17 @@ export class SkillsResource extends BaseResource {
    */
   async createTask(body: CreateTaskBody): Promise<TaskDetail> {
     return this.http.request<TaskDetail>("POST", "/skills/tasks", { body });
+  }
+
+  /**
+   * Partially update an existing AI task (name, prompt, model, generation config, etc.).
+   *
+   * @param taskId - AI Task UUID.
+   * @param body - Fields to update.
+   * @returns Updated task detail including prompt.
+   */
+  async updateTask(taskId: string, body: UpdateTaskBody): Promise<TaskDetail> {
+    return this.http.request<TaskDetail>("PATCH", `/skills/tasks/${taskId}`, { body });
   }
 
   /**

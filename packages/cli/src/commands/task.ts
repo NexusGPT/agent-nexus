@@ -54,7 +54,8 @@ Examples:
       `
 Examples:
   $ nexus task get task-123
-  $ nexus task get task-123 --json`
+  $ nexus task get task-123 --json
+  $ nexus task get task-123 --json | jq -r '.prompt'`
     )
     .action(async (id: string) => {
       try {
@@ -67,7 +68,8 @@ Examples:
           { key: "modelName", label: "Model" },
           { key: "modelProvider", label: "Provider" },
           { key: "inputFormat", label: "Input Format" },
-          { key: "outputFormat", label: "Output Format" }
+          { key: "outputFormat", label: "Output Format" },
+          { key: "prompt", label: "Prompt" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -81,6 +83,8 @@ Examples:
     .requiredOption("--name <name>", "Task name")
     .requiredOption("--model-name <model>", "Model name (e.g. gpt-4o)")
     .requiredOption("--model-provider <provider>", "Model provider (e.g. OPEN_AI)")
+    .option("--description <text>", "Task description")
+    .option("--prompt <file-or-->", "Task prompt (file path, or '-' for stdin)")
     .option("--expected-input <text>", "Description of expected input")
     .option("--expected-output <text>", "Description of expected output")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -89,7 +93,8 @@ Examples:
       `
 Examples:
   $ nexus task create --name "Summarize Email" --model-name gpt-4o --model-provider OPEN_AI
-  $ nexus task create --name "Classify" --model-name gpt-4o --model-provider OPEN_AI --expected-input "Raw text" --expected-output "Category label"
+  $ nexus task create --name "Summarize" --model-name gpt-4o --model-provider OPEN_AI --prompt "Summarize the following:"
+  $ cat task-prompt.md | nexus task create --name "Classify" --model-name gpt-4o --model-provider OPEN_AI --prompt -
   $ nexus task create --body '{"name":"Summarize","modelName":"gpt-4o","modelProvider":"OPEN_AI"}'`
     )
     .action(async (opts) => {
@@ -98,8 +103,10 @@ Examples:
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
+        if (opts.description !== undefined) flags.description = opts.description;
         if (opts.modelName !== undefined) flags.modelName = opts.modelName;
         if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
+        if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
 
         if (opts.expectedInput || opts.expectedOutput) {
           flags.generation = {
@@ -115,6 +122,54 @@ Examples:
           id: (t as any).id,
           name: (t as any).name
         });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── update ────────────────────────────────────────────────────────────
+  task
+    .command("update")
+    .description("Update an AI task")
+    .argument("<id>", "Task ID")
+    .option("--name <name>", "Task name")
+    .option("--description <text>", "Task description")
+    .option("--prompt <file-or-->", "Task prompt (file path, or '-' for stdin)")
+    .option("--model-name <model>", "Model name (e.g. gpt-4o)")
+    .option("--model-provider <provider>", "Model provider (e.g. OPEN_AI)")
+    .option("--expected-input <text>", "Description of expected input")
+    .option("--expected-output <text>", "Description of expected output")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus task update task-123 --prompt "Summarize the following email:"
+  $ cat task-prompt.md | nexus task update task-123 --prompt -
+  $ nexus task update task-123 --body '{"prompt":"New prompt text"}'
+  $ nexus task update task-123 --model-name gpt-4o --model-provider OPEN_AI`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const flags: Record<string, unknown> = {};
+        if (opts.name !== undefined) flags.name = opts.name;
+        if (opts.description !== undefined) flags.description = opts.description;
+        if (opts.modelName !== undefined) flags.modelName = opts.modelName;
+        if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
+        if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
+
+        if (opts.expectedInput !== undefined || opts.expectedOutput !== undefined) {
+          flags.generation = {
+            ...(opts.expectedInput !== undefined && { expectedInput: opts.expectedInput }),
+            ...(opts.expectedOutput !== undefined && { expectedOutput: opts.expectedOutput })
+          };
+        }
+
+        const body = mergeBodyWithFlags(base, flags);
+        const t = await client.skills.updateTask(id, body as any);
+        printSuccess("Task updated.", { id: (t as any).id, name: (t as any).name });
       } catch (err) {
         process.exitCode = handleError(err);
       }

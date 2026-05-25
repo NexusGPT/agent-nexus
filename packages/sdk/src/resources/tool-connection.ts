@@ -2,6 +2,8 @@ import type {
   ConnectToolBody,
   ConnectToolHttpResponse,
   ConnectToolOAuthResponse,
+  CreatePipedreamCredentialBody,
+  CreatePipedreamCredentialResponse,
   HandshakeStatusResponse
 } from "../types/tool-connection";
 import { BaseResource } from "./base-resource";
@@ -54,6 +56,23 @@ export class ToolConnectionResource extends BaseResource {
     return this.http.request<HandshakeStatusResponse>(
       "GET",
       `/tools/connect/${handshakeId}/status`
+    );
+  }
+
+  /**
+   * Create a Pipedream credential after the user completes OAuth via the connect link.
+   *
+   * @param toolId - Marketplace tool ID.
+   * @param body - Pipedream account ID and optional credential name.
+   */
+  async createPipedreamCredential(
+    toolId: string,
+    body: CreatePipedreamCredentialBody
+  ): Promise<CreatePipedreamCredentialResponse> {
+    return this.http.request<CreatePipedreamCredentialResponse>(
+      "POST",
+      `/tools/${toolId}/credentials`,
+      { body }
     );
   }
 

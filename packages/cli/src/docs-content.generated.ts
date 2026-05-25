@@ -3031,19 +3031,18 @@ nexus task list [options]
 | Option             | Description    |
 | ------------------ | -------------- |
 | \`--search <query>\` | Search by name |
-| \`--page <number>\`  | Page number    |
-| \`--limit <number>\` | Items per page |
+| \`--limit <number>\` | Max results    |
 
 \`\`\`bash
 nexus task list
 nexus task list --search "summarize" --json
 \`\`\`
 
-**SDK equivalent:** \`client.tasks.list({ search, page, limit })\`
+**SDK equivalent:** \`client.skills.listTasks({ search, limit })\`
 
 ### task get
 
-Get task details.
+Get task details including prompt.
 
 \`\`\`
 nexus task get <id>
@@ -3056,32 +3055,54 @@ nexus task get <id>
 \`\`\`bash
 nexus task get task-123
 nexus task get task-123 --json
+nexus task get task-123 --json | jq -r '.prompt'
 \`\`\`
 
-**SDK equivalent:** \`client.tasks.get(id)\`
+**SDK equivalent:** \`client.skills.getTask(id)\`
 
 ### task create
 
-Create a new task.
+Create a new GENERATION AI task.
 
 \`\`\`
 nexus task create [options]
 \`\`\`
 
-| Option                 | Required | Description                                          |
-| ---------------------- | -------- | ---------------------------------------------------- |
-| \`--name <name>\`        | Yes      | Task name                                            |
-| \`--description <text>\` | No       | Task description                                     |
-| \`--prompt <text-or->\`  | No       | Task prompt (string, file path, or \`-\` for stdin)    |
-| \`--body <json>\`        | No       | Request body as JSON, \`.json\` file, or \`-\` for stdin |
+| Option                    | Required | Description                                          |
+| ------------------------- | -------- | ---------------------------------------------------- |
+| \`--name <name>\`           | Yes      | Task name                                            |
+| \`--model-name <model>\`    | Yes      | Model name (e.g. gpt-4o)                             |
+| \`--model-provider <provider>\` | Yes  | Model provider (OPEN_AI, ANTHROPIC, GOOGLE_AI)       |
+| \`--description <text>\`    | No       | Task description                                     |
+| \`--prompt <text-or->\`     | No       | Task prompt (string, file path, or \`-\` for stdin)    |
+| \`--body <json>\`           | No       | Request body as JSON, \`.json\` file, or \`-\` for stdin |
 
 \`\`\`bash
-nexus task create --name "Summarize Email" --prompt "Summarize the following email:"
-nexus task create --name "Extract Data" --description "Extract structured data"
-cat task-prompt.md | nexus task create --name "Complex Task" --prompt -
+nexus task create --name "Summarize Email" --model-name gpt-4o --model-provider OPEN_AI --prompt "Summarize the following email:"
+cat task-prompt.md | nexus task create --name "Complex Task" --model-name gpt-4o --model-provider OPEN_AI --prompt -
 \`\`\`
 
-**SDK equivalent:** \`client.tasks.create({ name, description, prompt })\`
+**SDK equivalent:** \`client.skills.createTask({ name, modelName, modelProvider, prompt, generation })\`
+
+### task update
+
+Partially update an AI task.
+
+\`\`\`
+nexus task update <id> [options]
+\`\`\`
+
+| Option                 | Description                                          |
+| ---------------------- | ---------------------------------------------------- |
+| \`--prompt <text-or->\`  | Task prompt (string, file path, or \`-\` for stdin)    |
+| \`--body <json>\`        | Request body as JSON, \`.json\` file, or \`-\` for stdin |
+
+\`\`\`bash
+nexus task update task-123 --prompt "Summarize the following email:"
+cat task-prompt.md | nexus task update task-123 --prompt -
+\`\`\`
+
+**SDK equivalent:** \`client.skills.updateTask(id, { prompt, ... })\`
 
 ### task execute
 
@@ -3095,18 +3116,17 @@ nexus task execute <id> [options]
 | -------- | ----------- |
 | \`id\`     | Task ID     |
 
-| Option           | Description                                          |
-| ---------------- | ---------------------------------------------------- |
-| \`--input <json>\` | Input data as JSON                                   |
-| \`--body <json>\`  | Request body as JSON, \`.json\` file, or \`-\` for stdin |
+| Option              | Description                                          |
+| ------------------- | ---------------------------------------------------- |
+| \`--input <text-or->\`| Input text, file path, or \`-\` for stdin              |
+| \`--body <json>\`     | Request body as JSON, \`.json\` file, or \`-\` for stdin |
 
 \`\`\`bash
-nexus task execute task-123 --input '{"text":"Please summarize this..."}'
-nexus task execute task-123 --body '{"input":{"email":"Hello..."}}'
-nexus task execute task-123 --json
+nexus task execute task-123 --input "Please summarize this..."
+cat document.txt | nexus task execute task-123 --input -
 \`\`\`
 
-**SDK equivalent:** \`client.tasks.execute(id, { input })\`
+**SDK equivalent:** \`client.skills.executeTask(id, { input })\`
 
 ---
 

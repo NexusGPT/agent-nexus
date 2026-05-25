@@ -250,4 +250,185 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // ── update ────────────────────────────────────────────────────────────
+  document
+    .command("update")
+    .description("Update document metadata")
+    .argument("<id>", "Document ID")
+    .option("--name <name>", "Document name")
+    .option("--description <text>", "Document description")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus document update doc-123 --name "Updated Report"
+  $ nexus document update doc-123 --body '{"description":"Q4 report"}'`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const flags: Record<string, unknown> = {};
+        if (opts.name !== undefined) flags.name = opts.name;
+        if (opts.description !== undefined) flags.description = opts.description;
+        const body = mergeBodyWithFlags(base, flags);
+
+        const doc = await client.documents.update(id, body as any);
+        printSuccess("Document updated.", { id: (doc as any).id ?? id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── download ──────────────────────────────────────────────────────────
+  document
+    .command("download")
+    .description("Get a signed download URL for a document")
+    .argument("<id>", "Document ID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus document download doc-123
+  $ nexus document download doc-123 --json`
+    )
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.documents.getDownloadUrl(id);
+        printRecord(result as unknown as Record<string, unknown>, [
+          { key: "url", label: "URL" },
+          { key: "fileName", label: "File Name" },
+          { key: "mimeType", label: "MIME Type" },
+          { key: "expiresIn", label: "Expires In (s)" }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── children ──────────────────────────────────────────────────────────
+  addPaginationOptions(
+    document
+      .command("children")
+      .description("List child documents in a folder")
+      .argument("<id>", "Folder document ID")
+      .addHelpText(
+        "after",
+        `
+Examples:
+  $ nexus document children doc-123
+  $ nexus document children doc-123 --limit 20 --json`
+      )
+  ).action(async (id: string, opts) => {
+    try {
+      const client = createClient(program.optsWithGlobals());
+      const { data, meta } = await client.documents.listChildren(id, getPaginationParams(opts));
+      printList(data as Record<string, unknown>[], meta as unknown as Record<string, unknown>, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "name", label: "NAME", width: 30 },
+        { key: "type", label: "TYPE", width: 12 },
+        { key: "status", label: "STATUS", width: 12 }
+      ]);
+    } catch (err) {
+      process.exitCode = handleError(err);
+    }
+  });
+
+  // ── reprocess ─────────────────────────────────────────────────────────
+  document
+    .command("reprocess")
+    .description("Reprocess a document for embedding/indexing")
+    .argument("<id>", "Document ID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus document reprocess doc-123
+  $ nexus document reprocess doc-123 --json`
+    )
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.documents.reprocess(id);
+        printSuccess("Document reprocessing started.", {
+          id,
+          ...(typeof result === "object" && result !== null
+            ? (result as Record<string, unknown>)
+            : {})
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── create-folder ─────────────────────────────────────────────────────
+  document
+    .command("create-folder")
+    .description("Create a document folder")
+    .requiredOption("--name <name>", "Folder name")
+    .option("--parent-id <id>", "Parent folder document ID")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus document create-folder --name "Reports"
+  $ nexus document create-folder --name "Q4" --parent-id folder-123`
+    )
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const flags: Record<string, unknown> = { name: opts.name };
+        if (opts.parentId !== undefined) flags.parentId = opts.parentId;
+        const body = mergeBodyWithFlags(base, flags);
+
+        const folder = await client.documents.createFolder(body as any);
+        printSuccess("Folder created.", {
+          id: (folder as any).id,
+          name: (folder as any).name ?? opts.name
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── create-google-sheet ───────────────────────────────────────────────
+  document
+    .command("create-google-sheet")
+    .description("Import a Google Sheet as document(s)")
+    .requiredOption("--name <name>", "Document name")
+    .requiredOption("--url <url>", "Google Sheet URL")
+    .option("--description <text>", "Document description")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus document create-google-sheet --name "Catalog" --url "https://docs.google.com/spreadsheets/d/..."
+  $ nexus document create-google-sheet --body '{"name":"Catalog","url":"https://..."}'`
+    )
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const flags: Record<string, unknown> = {
+          name: opts.name,
+          url: opts.url
+        };
+        if (opts.description !== undefined) flags.description = opts.description;
+        const body = mergeBodyWithFlags(base, flags);
+
+        const result = await client.documents.createGoogleSheet(body as any);
+        printSuccess("Google Sheet imported.", {
+          folderId: (result as any).folder?.id,
+          sheets: (result as any).sheets?.length
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
 }

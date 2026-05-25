@@ -227,6 +227,49 @@ Examples:
       }
     });
 
+  // ── search-multiple ───────────────────────────────────────────────────
+  collection
+    .command("search-multiple")
+    .description("Search across multiple collections")
+    .requiredOption("--query <query>", "Search query")
+    .requiredOption("--collection-ids <ids>", "Comma-separated collection IDs")
+    .option("--limit <number>", "Max results", parseInt)
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus collection search-multiple --query "pricing" --collection-ids col-1,col-2
+  $ nexus collection search-multiple --query "reset password" --collection-ids col-1 --limit 5 --json`
+    )
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const collectionIds = opts.collectionIds.split(",").map((id: string) => id.trim());
+        const result = await client.skills.searchMultipleCollections({
+          query: opts.query,
+          collectionIds,
+          limit: opts.limit
+        });
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const results = (result as any).results ?? result;
+          if (Array.isArray(results)) {
+            for (const r of results) {
+              console.log(
+                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${(r as any).content?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+              );
+            }
+          } else {
+            console.log(JSON.stringify(result, null, 2));
+          }
+        }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── documents ──────────────────────────────────────────────────────────
   addPaginationOptions(
     collection

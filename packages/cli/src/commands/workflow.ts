@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -370,6 +373,43 @@ Examples:
             branches: Object.keys(created.branches ?? {}).length
           });
         }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── upload-icon ───────────────────────────────────────────────────────
+  workflow
+    .command("upload-icon")
+    .description("Upload an icon image for a workflow")
+    .argument("<id>", "Workflow ID")
+    .requiredOption("--file <path>", "Path to the image file (PNG, JPG, or SVG)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workflow upload-icon wf-123 --file ./icon.png
+  $ nexus workflow upload-icon wf-123 --file ./logo.svg`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const absPath = path.resolve(opts.file);
+
+        if (!fs.existsSync(absPath)) {
+          console.error(`Error: File not found: ${absPath}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const buffer = fs.readFileSync(absPath);
+        const blob = new Blob([buffer]);
+
+        const result = await client.workflows.uploadIcon(id, blob);
+        printSuccess("Workflow icon uploaded.", {
+          id,
+          iconUrl: (result as any).iconUrl ?? (result as any).url
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

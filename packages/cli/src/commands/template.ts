@@ -168,7 +168,122 @@ Examples:
         const body = await resolveBody(opts.body);
 
         const result = await client.skills.generateDocumentTemplate(id, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        printSuccess("Document template generated.", result as unknown as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── folder sub-group ──────────────────────────────────────────────────
+  const tplFolder = template.command("folder").description("Manage document template folders");
+
+  tplFolder
+    .command("list")
+    .description("List document template folders")
+    .action(async () => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.documentTemplateFolders.list();
+        const folders = (result as any).folders ?? result;
+        printList(Array.isArray(folders) ? folders : [folders], undefined, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "name", label: "NAME", width: 30 },
+          { key: "parentId", label: "PARENT", width: 36 }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  tplFolder
+    .command("create")
+    .description("Create a document template folder")
+    .requiredOption("--name <name>", "Folder name")
+    .option("--parent-id <id>", "Parent folder ID")
+    .option("--body <json>", "Request body as JSON")
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const body = mergeBodyWithFlags(base, {
+          name: opts.name,
+          ...(opts.parentId !== undefined && { parentId: opts.parentId })
+        });
+        const folder = await client.documentTemplateFolders.create(body as any);
+        printSuccess("Template folder created.", { id: (folder as any).id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  tplFolder
+    .command("update")
+    .description("Update a document template folder")
+    .argument("<id>", "Folder ID")
+    .option("--name <name>", "Folder name")
+    .option("--parent-id <id>", "Parent folder ID (use 'null' for root)")
+    .option("--body <json>", "Request body as JSON")
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const flags: Record<string, unknown> = {};
+        if (opts.name !== undefined) flags.name = opts.name;
+        if (opts.parentId !== undefined) {
+          flags.parentId = opts.parentId === "null" ? null : opts.parentId;
+        }
+        const body = mergeBodyWithFlags(base, flags);
+        await client.documentTemplateFolders.update(id, body as any);
+        printSuccess("Template folder updated.", { id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  tplFolder
+    .command("delete")
+    .description("Delete a document template folder")
+    .argument("<id>", "Folder ID")
+    .option("--yes", "Skip confirmation")
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        if (!opts.yes && process.stdout.isTTY) {
+          const readline = await import("node:readline/promises");
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await rl.question(`Delete template folder ${id}? [y/N] `);
+          rl.close();
+          if (answer.toLowerCase() !== "y") {
+            console.log("Aborted.");
+            return;
+          }
+        }
+        await client.documentTemplateFolders.delete(id);
+        printSuccess("Template folder deleted.", { id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  tplFolder
+    .command("assign")
+    .description("Assign a template to a folder")
+    .requiredOption("--template-id <id>", "Template ID")
+    .requiredOption("--folder-id <id>", "Folder ID (use 'null' to unassign)")
+    .option("--body <json>", "Request body as JSON")
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+        const body = mergeBodyWithFlags(base, {
+          templateId: opts.templateId,
+          folderId: opts.folderId === "null" ? null : opts.folderId
+        });
+        await client.documentTemplateFolders.assign(body as any);
+        printSuccess("Template assigned to folder.", {
+          templateId: opts.templateId,
+          folderId: opts.folderId
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -79,6 +79,8 @@ export interface TaskSummary {
 
 /** Full AI task detail (extends summary with schemas). */
 export interface TaskDetail extends TaskSummary {
+  /** Task prompt template. `null` if not set. */
+  prompt: string | null;
   /**
    * JSON Schema describing the structured input when `inputFormat === "JSON"`.
    * `null` for text-only input tasks.
@@ -237,6 +239,26 @@ export interface CreateTaskBody {
     /** JSON output schema (required when outputFormat is "json"). */
     jsonOutputSchema?: unknown;
     /** Document template ID (required when outputFormat is "template"). */
+    documentTemplateId?: string;
+  };
+}
+
+/** Body for `client.skills.updateTask()`. All fields are optional. */
+export interface UpdateTaskBody {
+  name?: string;
+  description?: string;
+  modelName?: string;
+  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI";
+  prompt?: string;
+  temperature?: number;
+  inputFormat?: "text" | "json";
+  outputFormat?: "text" | "json" | "template";
+  generation?: {
+    multimodal?: boolean;
+    expectedInput?: string;
+    jsonInputSchema?: unknown;
+    expectedOutput?: string;
+    jsonOutputSchema?: unknown;
     documentTemplateId?: string;
   };
 }

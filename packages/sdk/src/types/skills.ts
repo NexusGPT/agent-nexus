@@ -381,6 +381,21 @@ export interface CreateExternalToolBody {
   auth: ExternalToolAuth;
 }
 
+/** Body for `client.skills.updateExternalTool()`. All fields are optional. */
+export interface UpdateExternalToolBody {
+  name?: string;
+  description?: string | null;
+  documentation?: string | null;
+  openApiSpec?: string;
+  endpointUrl?: string;
+  auth?: ExternalToolAuth;
+}
+
+/** Response from `client.skills.deleteExternalTool()`. */
+export interface DeleteExternalToolResponse {
+  deleted: true;
+}
+
 // ============================================================================
 // CREATE BODIES (continued)
 // ============================================================================

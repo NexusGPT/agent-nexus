@@ -9,6 +9,7 @@ import type {
   CreateDocumentTemplateBody,
   CreateExternalToolBody,
   CreateTaskBody,
+  DeleteExternalToolResponse,
   DocumentTemplateDetail,
   ExecuteTaskBody,
   ExecuteTaskResponse,
@@ -26,6 +27,7 @@ import type {
   TaskDetail,
   TestExternalToolBody,
   TestExternalToolResponse,
+  UpdateExternalToolBody,
   UpdateTaskBody,
   WorkflowSummary
 } from "../types/skills";
@@ -478,6 +480,9 @@ export class SkillsResource extends BaseResource {
   /**
    * Update the auth configuration on an existing external tool.
    *
+   * Use `updateExternalTool` for general field updates; this method exists
+   * for the auth-only path that was shipped first.
+   *
    * @param externalToolId - External tool UUID.
    * @param auth - New auth configuration.
    * @returns Updated external tool detail.
@@ -490,6 +495,63 @@ export class SkillsResource extends BaseResource {
       "PATCH",
       `/skills/external-tools/${externalToolId}`,
       { body: { auth } }
+    );
+  }
+
+  /**
+   * Partial update of an external tool (name, description, documentation,
+   * openApiSpec, endpointUrl, or auth).
+   *
+   * @param externalToolId - External tool UUID.
+   * @param body - Fields to update; omit a field to leave it unchanged.
+   * @returns Updated external tool detail.
+   *
+   * @example
+   * ```ts
+   * await client.skills.updateExternalTool("tool-uuid", { name: "Renamed Tool" });
+   * ```
+   */
+  async updateExternalTool(
+    externalToolId: string,
+    body: UpdateExternalToolBody
+  ): Promise<ExternalToolDetail> {
+    return this.http.request<ExternalToolDetail>(
+      "PATCH",
+      `/skills/external-tools/${externalToolId}`,
+      { body }
+    );
+  }
+
+  /**
+   * Delete an external tool.
+   *
+   * Refuses with 409 (and a sample of attached agent tool configs) if anything
+   * depends on this tool. Pass `force: true` to cascade — the referencing
+   * AgentToolConfig rows are deleted alongside the tool. ToolCredentials are
+   * always cleaned up regardless of `force`.
+   *
+   * @param externalToolId - External tool UUID.
+   * @param opts.force - When true, cascade-delete dependents (default false).
+   * @returns `{ deleted: true }` on success.
+   *
+   * @example
+   * ```ts
+   * try {
+   *   await client.skills.deleteExternalTool("tool-uuid");
+   * } catch (err) {
+   *   // 409 if attached; inspect err.details.sample / err.details.total
+   *   await client.skills.deleteExternalTool("tool-uuid", { force: true });
+   * }
+   * ```
+   */
+  async deleteExternalTool(
+    externalToolId: string,
+    opts?: { force?: boolean }
+  ): Promise<DeleteExternalToolResponse> {
+    const query = opts?.force ? "?force=true" : "";
+    return this.http.request<DeleteExternalToolResponse>(
+      "DELETE",
+      `/skills/external-tools/${externalToolId}${query}`
     );
   }
 

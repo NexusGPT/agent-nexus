@@ -15,12 +15,9 @@ export interface SkillEntry {
 export const SKILLS: Record<string, SkillEntry> = {
   "nexus-agent-management": {
     slug: "nexus-agent-management",
-    description:
-      "> Building agent from scratch? → `AGENT_BUILDER_LIFECYCLE.md` (8-phase gated process).",
+    description: "> Building agent from scratch? → `AGENT_BUILDER_LIFECYCLE.md` (8-phase gated process).",
     files: [
-      {
-        path: "AGENT_BUILDER_LIFECYCLE.md",
-        content: `# Agent Builder Lifecycle
+      { path: "AGENT_BUILDER_LIFECYCLE.md", content: `# Agent Builder Lifecycle
 
 An agent is the culmination of everything in the platform — it ties together prompts, skills (plugins, workflows, AI tasks), knowledge (documents, collections), deployments, and testing. Building an agent well requires reading and cross-referencing EVERY relevant skill doc, iteratively gathering information from the user, validating feasibility against the live platform, and testing at every milestone.
 
@@ -189,11 +186,8 @@ After attaching, TEST: send a knowledge question via emulator. Verify the agent 
 - [ ] Version checkpoint created: nexus version create <agentId> --name "v1.0"
 - [ ] Dashboard link provided to user
 - [ ] User action items listed (OAuth connections, document uploads, etc.)
-\`\`\``
-      },
-      {
-        path: "SKILL.md",
-        content: `---
+\`\`\`` },
+      { path: "SKILL.md", content: `---
 name: nexus-agent-management
 description: Creates, configures, and manages Nexus AI agents, their tool configurations, prompt versions, and folder organization via the Nexus CLI. Use when the user asks to create agents, configure agent tools, manage prompt versions, organize agents in folders, or attach workflows/collections/tasks to agents.
 ---
@@ -503,11 +497,8 @@ Every Q through AUQ (R#3). Design → \`nexus-getting-started/reference/clarific
 | Folder destination | \`nexus folder list --json\` |
 | Prompt style | Domain-fixed short list |
 
-CLI setup + envelopes + dashboard URLs → CLAUDE.md (Environment, API Envelopes, Dashboard Links).`
-      },
-      {
-        path: "examples/01-agent-crud.ts",
-        content: `#!/usr/bin/env npx tsx
+CLI setup + envelopes + dashboard URLs → CLAUDE.md (Environment, API Envelopes, Dashboard Links).` },
+      { path: "examples/01-agent-crud.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Agent CRUD -- Full lifecycle
  *
@@ -733,11 +724,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/02-configure-agent-tools.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-configure-agent-tools.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Configure Agent Tools -- Multiple tool types
  *
@@ -1037,11 +1025,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/03-version-management.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-version-management.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Version Management -- Checkpoints, publish, restore, delete
  *
@@ -1337,11 +1322,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/04-folder-organization.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-folder-organization.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Folder Organization -- Create, nest, assign, move, unassign, delete
  *
@@ -1628,11 +1610,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/05-attach-workflow-to-agent.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/05-attach-workflow-to-agent.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Attach Workflow to Agent -- Cross-domain recipe
  *
@@ -1889,11 +1868,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/agent-collections.md",
-        content: `# Agent Collections
+});` },
+      { path: "reference/agent-collections.md", content: `# Agent Collections
 
 ## Two Attachment Methods
 
@@ -1931,11 +1907,8 @@ nexus agent-tool attach-collection <agentId> \\
   --collection-id "<collId>" \\
   --label "Product KB" \\
   --instructions "Search when user asks about product features" --json
-\`\`\``
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Agent Management CLI Reference
+\`\`\`` },
+      { path: "reference/endpoints.md", content: `# Agent Management CLI Reference
 
 All commands require authentication via \`nexus auth login\` or the \`NEXUS_API_KEY\` environment variable.
 Add \`--json\` to any command to get machine-readable JSON output.
@@ -2564,17 +2537,14 @@ nexus folder assign --agent-id <agentId> --folder-id <folderId> [--body <json>]
 
 To move an agent, call this again with the new folder ID. To unassign, pass \`--folder-id null\`.
 
-**Status codes:** 200 OK, 400 Validation error, 401 Unauthorized`
-      }
-    ]
+**Status codes:** 200 OK, 400 Validation error, 401 Unauthorized` }
+    ],
   },
   "nexus-analytics": {
     slug: "nexus-analytics",
     description: "Org metrics, usage, satisfaction feedback. Setup/envelope → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-analytics
 description: Retrieves organization-wide analytics including conversation metrics, cost tracking, token usage, channel breakdowns, and satisfaction feedback via the Nexus CLI.
 ---
@@ -2619,11 +2589,8 @@ E.g., \`nexus external-tool execute <stripeId> --action stripe-list-charges --in
 
 ## Fallback
 
-Untyped operations → \`nexus api <METHOD> <path>\` per R#1. E.g., \`nexus api GET /analytics/overview --query timePeriod=last_7_days --json\`.`
-      },
-      {
-        path: "examples/01-overview-metrics.ts",
-        content: `/**
+Untyped operations → \`nexus api <METHOD> <path>\` per R#1. E.g., \`nexus api GET /analytics/overview --query timePeriod=last_7_days --json\`.` },
+      { path: "examples/01-overview-metrics.ts", content: `/**
  * Get organization analytics overview.
  * Run: npx tsx examples/01-overview-metrics.ts
  */
@@ -2645,17 +2612,14 @@ async function main() {
   console.log(\`Tokens: \${data.tokenUsage.inputTokens} in / \${data.tokenUsage.outputTokens} out\`);
 }
 
-main().catch(console.error);`
-      }
-    ]
+main().catch(console.error);` }
+    ],
   },
   "nexus-cloud-imports": {
     slug: "nexus-cloud-imports",
     description: "Import docs from cloud providers into Nexus KB. Setup/envelope → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-cloud-imports
 description: Imports documents from Google Drive, SharePoint, and Notion into the Nexus knowledge base via OAuth flows and the Public API v1.
 ---
@@ -2716,18 +2680,14 @@ Full named-but-absent acquisition fork → \`nexus-knowledge-base/SKILL.md\` Q0.
 - OAuth endpoints require valid auth code from provider's consent screen (R#G10 — present URL + poll for completion).
 - Import endpoints create docs ASYNC → check status via \`nexus document get <id> --json\`.
 - Imported docs auto-processed + embedded for KB search.
-- Fallback for untyped ops → \`nexus api <METHOD> <path>\` per R#1.`
-      }
-    ]
+- Fallback for untyped ops → \`nexus api <METHOD> <path>\` per R#1.` }
+    ],
   },
   "nexus-deployments": {
     slug: "nexus-deployments",
-    description:
-      "Deploy agents to comm channels + manage lifecycle. Setup/envelope/dashboard URLs → CLAUDE.md.",
+    description: "Deploy agents to comm channels + manage lifecycle. Setup/envelope/dashboard URLs → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-deployments
 description: Deploys agents to channels (web widget, WhatsApp, Telegram, email, Slack, Teams, SMS, phone), manages deployment settings, embed widget configuration, deployment folders, and monitors deployment statistics via the Public API v1.
 ---
@@ -2801,11 +2761,8 @@ Pre-populate from:
 | WhatsApp sender | \`nexus channel whatsapp-sender list --json\` |
 | Existing deployment | \`nexus deployment list --json\` |
 
-Design → \`nexus-getting-started/reference/clarification-guide.md\`.`
-      },
-      {
-        path: "channels/api.md",
-        content: `# API Deployment Setup
+Design → \`nexus-getting-started/reference/clarification-guide.md\`.` },
+      { path: "channels/api.md", content: `# API Deployment Setup
 
 ## Prerequisites
 
@@ -2821,11 +2778,8 @@ nexus deployment create --name "API Access" --type API --agent-id <agent-uuid> -
 
 \`\`\`bash
 nexus deployment create --name "API Access" --type API --agent-id X
-\`\`\``
-      },
-      {
-        path: "channels/embed.md",
-        content: `# Web Widget (Embed) Deployment Setup
+\`\`\`` },
+      { path: "channels/embed.md", content: `# Web Widget (Embed) Deployment Setup
 
 ## Prerequisites
 
@@ -2960,11 +2914,8 @@ nexus deployment update <id> \\
 nexus deployment create --name "Website Chat" --type EMBED --agent-id X --body '{"settings":{}}' --json
 nexus deployment embed-config <id> --json
 nexus deployment embed-config-update <id> --body '{"primaryColor":"#4F46E5"}'
-\`\`\``
-      },
-      {
-        path: "channels/gmail.md",
-        content: `# Gmail Deployment Setup
+\`\`\`` },
+      { path: "channels/gmail.md", content: `# Gmail Deployment Setup
 
 ## Prerequisites
 
@@ -3025,11 +2976,8 @@ nexus deployment update <deployment-id> \\
   --body '{"settings":{"whitelistDomains":["company.com"]}}' --json
 \`\`\`
 
-> **Tip:** Start with \`"draft": true\` during testing — the agent creates draft replies you can review before anything is sent.`
-      },
-      {
-        path: "channels/outlook.md",
-        content: `# Outlook Deployment Setup
+> **Tip:** Start with \`"draft": true\` during testing — the agent creates draft replies you can review before anything is sent.` },
+      { path: "channels/outlook.md", content: `# Outlook Deployment Setup
 
 ## Prerequisites
 
@@ -3093,11 +3041,8 @@ nexus deployment create --name "Support Inbox" --type OUTLOOK --agent-id <agent-
   --body '{"oauthConnectionId":"<outlook-oauth-id>","settings":{"sharedMailboxEmail":"support@company.com","whitelistDomains":["company.com"]}}' --json
 \`\`\`
 
-> **Tip:** Start with \`"draft": true\` during testing — the agent creates draft replies you can review before anything is sent.`
-      },
-      {
-        path: "channels/slack.md",
-        content: `# Slack Deployment Setup
+> **Tip:** Start with \`"draft": true\` during testing — the agent creates draft replies you can review before anything is sent.` },
+      { path: "channels/slack.md", content: `# Slack Deployment Setup
 
 ## Prerequisites
 
@@ -3192,11 +3137,8 @@ nexus deployment update <deployment-id> \\
   --body '{"settings":{"loadingMessages":["On it...","Thinking...","One moment please..."]}}' --json
 \`\`\`
 
-> **Tip:** Start with \`"channelMode": "dm_only"\` during testing — the bot only responds in direct messages, so you can verify behavior before exposing it to channels.`
-      },
-      {
-        path: "channels/teams.md",
-        content: `# Microsoft Teams Deployment Setup
+> **Tip:** Start with \`"channelMode": "dm_only"\` during testing — the bot only responds in direct messages, so you can verify behavior before exposing it to channels.` },
+      { path: "channels/teams.md", content: `# Microsoft Teams Deployment Setup
 
 ## Prerequisites
 
@@ -3250,11 +3192,8 @@ nexus deployment update <deployment-id> \\
   --body '{"settings":{"distributionMode":"specific_groups","allowedGroups":[{"id":"<ms-graph-group-id>","displayName":"Support Team"}]}}' --json
 \`\`\`
 
-> **Note:** User and group IDs come from the Microsoft Graph API. Use the Graph Explorer or your Azure AD admin portal to look up the correct object IDs before configuring \`allowedUsers\` or \`allowedGroups\`.`
-      },
-      {
-        path: "channels/telegram.md",
-        content: `# Telegram Deployment Setup
+> **Note:** User and group IDs come from the Microsoft Graph API. Use the Graph Explorer or your Azure AD admin portal to look up the correct object IDs before configuring \`allowedUsers\` or \`allowedGroups\`.` },
+      { path: "channels/telegram.md", content: `# Telegram Deployment Setup
 
 ## Prerequisites
 
@@ -3305,11 +3244,8 @@ nexus deployment update <deployment-id> \\
   --body '{"settings":{"multiMessageHandling":{"debounceMs":10000}}}' --json
 \`\`\`
 
-> **Tip:** The default \`sequential\` concurrency strategy with a 3-second debounce works well for most bots. Increase \`debounceMs\` if your users tend to send multiple short messages in a row before expecting a reply.`
-      },
-      {
-        path: "channels/twilio-sms.md",
-        content: `# SMS Deployment Setup
+> **Tip:** The default \`sequential\` concurrency strategy with a 3-second debounce works well for most bots. Increase \`debounceMs\` if your users tend to send multiple short messages in a row before expecting a reply.` },
+      { path: "channels/twilio-sms.md", content: `# SMS Deployment Setup
 
 ## Prerequisites
 
@@ -3344,11 +3280,8 @@ nexus channel connection create
 nexus phone-number search --country US --sms
 nexus phone-number buy --phone-number +1... --country US --price 1.15
 nexus deployment create --name "SMS Bot" --type TWILIO_SMS --agent-id X --body '{"phoneNumberId":"...","apiKeyConnectionId":"..."}'
-\`\`\``
-      },
-      {
-        path: "channels/twilio-voice.md",
-        content: `# Voice Deployment Setup
+\`\`\`` },
+      { path: "channels/twilio-voice.md", content: `# Voice Deployment Setup
 
 ## Prerequisites
 
@@ -3476,11 +3409,8 @@ nexus deployment update <deployment-id> \\
   --body '{"settings":{"enableSms":true}}' --json
 \`\`\`
 
-> **Tip:** Start with default turn detection settings and adjust after real calls. Lowering \`silence_duration_ms\` makes the agent respond faster but may cut off slow speakers. Raising \`threshold\` reduces false triggers from background noise.`
-      },
-      {
-        path: "channels/whatsapp.md",
-        content: `# WhatsApp Deployment Setup
+> **Tip:** Start with default turn detection settings and adjust after real calls. Lowering \`silence_duration_ms\` makes the agent respond faster but may cut off slow speakers. Raising \`threshold\` reduces false triggers from background noise.` },
+      { path: "channels/whatsapp.md", content: `# WhatsApp Deployment Setup
 
 ## Prerequisites
 
@@ -4072,11 +4002,8 @@ nexus api POST /deployments/<deploymentId>/whatsapp-templates --body '{
 | \`Templates can only be managed on WhatsApp deployments\` | Wrong deployment type                     | Use a WHATSAPP deployment, not EMBED/SLACK/etc.                     |
 | \`Template already attached\`                             | Duplicate templateId on deployment        | Template is already attached, use \`update\` to modify config         |
 | Approval status \`rejected\`                              | Meta rejected the template                | Check \`rejection_reason\` and fix template content, then resubmit    |
-| \`too many variables for its length\`                     | Card body/title is mostly variables       | Add more descriptive static text around \`{{N}}\` placeholders        |`
-      },
-      {
-        path: "examples/01-create-web-widget.ts",
-        content: `/**
+| \`too many variables for its length\`                     | Card body/title is mostly variables       | Add more descriptive static text around \`{{N}}\` placeholders        |` },
+      { path: "examples/01-create-web-widget.ts", content: `/**
  * Create a web widget deployment for an agent.
  * Run: npx tsx examples/01-create-web-widget.ts
  */
@@ -4127,11 +4054,8 @@ async function main() {
   console.log("Deployment deleted");
 }
 
-main().catch(console.error);`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Deployment Endpoints
+main().catch(console.error);` },
+      { path: "reference/endpoints.md", content: `# Deployment Endpoints
 
 ## Deployments CRUD
 
@@ -4369,18 +4293,14 @@ Response: \`{ success: true, data: { detached: true } }\`
 ### Update Deployment Template Settings
 
 \`PATCH /deployments/:deploymentId/whatsapp-templates/settings\`
-Body: \`{ allowAgentToCreateAndSendTemplates?: boolean }\``
-      }
-    ]
+Body: \`{ allowAgentToCreateAndSendTemplates?: boolean }\`` }
+    ],
   },
   "nexus-emulator": {
     slug: "nexus-emulator",
-    description:
-      "Test a deployment w/o real channels. Session emulates deployment's channel type; multi-participant.",
+    description: "Test a deployment w/o real channels. Session emulates deployment's channel type; multi-participant.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-emulator
 description: Test deployments via the emulator — create sessions, send messages with debug info, save and replay scenarios. Use when the user wants to test an agent deployment without real external channels (WhatsApp, Slack, email, etc.).
 ---
@@ -4490,11 +4410,8 @@ All Qs via AUQ (R#3) per \`nexus-getting-started/reference/clarification-guide.m
 |---|---|
 | \`nexus-deployments\` | Create/configure deployment before testing |
 | \`nexus-agent-management\` | Configure agent behind deployment |
-| \`nexus-tool-execute\` | Seed external state before session |`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Emulator Endpoints Reference
+| \`nexus-tool-execute\` | Seed external state before session |` },
+      { path: "reference/endpoints.md", content: `# Emulator Endpoints Reference
 
 All paths are relative to \`\${NEXUS_BASE_URL}/api/public/v1\` (default: \`https://api.nexusgpt.io\`).
 All requests require the \`api-key: nxs_...\` header.
@@ -4790,18 +4707,14 @@ Replays the scenario's messages asynchronously against the specified deployment.
 DELETE /emulator/scenarios/:scenarioId
 \`\`\`
 
-**Response:** 204 No Content (no body)`
-      }
-    ]
+**Response:** 204 No Content (no body)` }
+    ],
   },
   "nexus-evaluations": {
     slug: "nexus-evaluations",
-    description:
-      "Benchmark + quality-test AI tasks via eval sessions. Setup/envelope/dashboard → CLAUDE.md.",
+    description: "Benchmark + quality-test AI tasks via eval sessions. Setup/envelope/dashboard → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-evaluations
 description: Creates evaluation sessions for AI tasks, uploads test datasets, runs evaluations, judges results with AI, and retrieves scored results via the Public API v1.
 ---
@@ -4846,11 +4759,8 @@ E.g., \`nexus external-tool execute <hubspotId> --action hubspot-list-contacts -
 | Dataset source (existing / upload / generate) | \`nexus eval dataset list --json\` or Domain-fixed |
 | Judge model | \`nexus model list --json\` |
 
-Design → \`nexus-getting-started/reference/clarification-guide.md\`.`
-      },
-      {
-        path: "examples/01-full-eval-pipeline.ts",
-        content: `/**
+Design → \`nexus-getting-started/reference/clarification-guide.md\`.` },
+      { path: "examples/01-full-eval-pipeline.ts", content: `/**
  * Full evaluation pipeline: create session → add rows → execute → judge → results.
  * Run: npx tsx examples/01-full-eval-pipeline.ts
  */
@@ -4907,18 +4817,14 @@ async function main() {
   console.log("Session cleaned up");
 }
 
-main().catch(console.error);`
-      }
-    ]
+main().catch(console.error);` }
+    ],
   },
   "nexus-getting-started": {
     slug: "nexus-getting-started",
-    description:
-      "You are Claude Code acting on behalf of a Nexus org admin. Authentication, response envelopes, pagination, DELETE beh...",
+    description: "You are Claude Code acting on behalf of a Nexus org admin. Authentication, response envelopes, pagination, DELETE beh...",
     files: [
-      {
-        path: "NEEDS_ASSESSMENT_GUIDE.md",
-        content: `# Nexus Needs Assessment Guide
+      { path: "NEEDS_ASSESSMENT_GUIDE.md", content: `# Nexus Needs Assessment Guide
 
 ## What This Guide Does
 
@@ -5274,11 +5180,8 @@ Sometimes both an agent and a workflow are valid. Use these criteria to recommen
 | "Score new leads and update HubSpot" | Webhook workflow: HubSpot trigger --> enrich --> score (AI task) --> update (plugin) | "Every new lead" = trigger. "Update HubSpot" = external call. |
 | "Help my team prepare meeting briefs" | Agent with workflow skills + knowledge | "Help" = interactive. Team asks agent. Agent invokes research workflow. |
 | "Alert me when competitors are in the news" | Scheduled workflow: news trigger --> filter (AI task) --> notify (Slack plugin) | "Alert when" = monitoring. No conversation. |
-| "Upload PDFs so my agent knows policies" | Upload documents --> create collection --> attach as knowledge | "Upload so agent knows" = knowledge store. |`
-      },
-      {
-        path: "SKILL.md",
-        content: `---
+| "Upload PDFs so my agent knows policies" | Upload documents --> create collection --> attach as knowledge | "Upload so agent knows" = knowledge store. |` },
+      { path: "SKILL.md", content: `---
 name: nexus-getting-started
 description: Foundation skill for the Nexus Public API v1. Covers authentication, API concepts, and cross-domain recipes. Use when the user asks about setting up API access, understanding Nexus concepts, or performing operations that span multiple domains (agents, workflows, tools, knowledge).
 ---
@@ -5420,11 +5323,8 @@ Cross-skill only. Domain-specific gotchas live in each skill's \`reference/gotch
 | 7 | DELETE returns 204 (no body) for workflow nodes + edges; 200 w/ \`{id, deleted:true}\` for agent/folder/tool/version |
 | 8 | Integer 0 is valid — use \`!= null\`, not \`\\|\\|\` fallbacks |
 | 9 | Skills endpoints use \`offset\`/\`limit\`, not \`page\`/\`limit\` |
-| 10 | Workflow must be PUBLISHED before attaching as agent tool — DRAFT silently fails at runtime |`
-      },
-      {
-        path: "examples/01-hello-nexus.ts",
-        content: `#!/usr/bin/env npx tsx
+| 10 | Workflow must be PUBLISHED before attaching as agent tool — DRAFT silently fails at runtime |` },
+      { path: "examples/01-hello-nexus.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 01-hello-nexus.ts -- First API call
  *
@@ -5572,11 +5472,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/02-create-agent-with-tools.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-create-agent-with-tools.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 02-create-agent-with-tools.ts -- Agent with marketplace plugin tool
  *
@@ -5874,11 +5771,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/03-end-to-end.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-end-to-end.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 03-end-to-end.ts -- Full deployment pipeline
  *
@@ -6321,11 +6215,8 @@ main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   if (err.details) console.error("Details:", JSON.stringify(err.details, null, 2));
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/04-error-handling.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-error-handling.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 04-error-handling.ts -- Error handling patterns
  *
@@ -6707,11 +6598,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFatal:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/05-pagination-and-search.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/05-pagination-and-search.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 05-pagination-and-search.ts -- Pagination, search, and filtering
  *
@@ -7086,11 +6974,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/api-overview.md",
-        content: `# Nexus Public API v1 -- Complete Endpoint Reference
+});` },
+      { path: "reference/api-overview.md", content: `# Nexus Public API v1 -- Complete Endpoint Reference
 
 All endpoints are prefixed with \`/api/public/v1\`. Every request requires the \`api-key\` header.
 
@@ -7601,11 +7486,8 @@ Query params for \`nexus workflow list\`: \`--page\`, \`--limit\`, \`--status\` 
 | Channel Setup                | 7       |
 | Models                       | 1       |
 | Custom Models                | 5       |
-| **Total**                    | **~200**|`
-      },
-      {
-        path: "reference/async-patterns.md",
-        content: `# Async Patterns
+| **Total**                    | **~200**|` },
+      { path: "reference/async-patterns.md", content: `# Async Patterns
 
 Polling + cleanup patterns for SDK / TypeScript code that drives the Nexus API. Live operational waiting (background bash loops, ScheduleWakeup, multi-async coordination) is owned by \`CLAUDE.md\` R#29 — read that first for the runtime cadence + multi-op coordination rules. This file is the in-code companion.
 
@@ -7687,11 +7569,8 @@ For node-types-overview, handler selection rules, and the \`{{UUID}}\` wrapping 
 - Foundation concepts → \`../SKILL.md\`
 - Background polling cadence + multi-op coordination → \`CLAUDE.md\` R#29
 - Programmatic verification (capture → parse → branch) → \`CLAUDE.md\` R#20
-- Reference index → \`CLAUDE.md\` Reference File Index`
-      },
-      {
-        path: "reference/authentication.md",
-        content: `# Nexus API v1 -- Authentication
+- Reference index → \`CLAUDE.md\` Reference File Index` },
+      { path: "reference/authentication.md", content: `# Nexus API v1 -- Authentication
 
 ## Getting an API Key
 
@@ -7860,11 +7739,8 @@ console.log(\`Found \${meta.total} agents\`);
 | \`401 INVALID_API_KEY\`   | Wrong or revoked key         | Generate a new key in the dashboard     |
 | \`404\` on known resource | Key belongs to different org | Use key from the correct organization   |
 | \`ECONNREFUSED\`          | Server not running           | Start backend with \`pnpm dev:backend\`   |
-| \`fetch is not defined\`  | Node < 18                    | Use Node 18+ or install \`node-fetch\`    |`
-      },
-      {
-        path: "reference/clarification-guide.md",
-        content: `# Clarification Guide — AskUserQuestion Craft
+| \`fetch is not defined\`  | Node < 18                    | Use Node 18+ or install \`node-fetch\`    |` },
+      { path: "reference/clarification-guide.md", content: `# Clarification Guide — AskUserQuestion Craft
 
 This guide is the HOW of clarifying user intent when Step 3 of the systematic approach (see root \`CLAUDE.md\` \`## How to Approach Any Request\`) calls for an AskUserQuestion tool invocation. It covers schema, craft principles, patterns, and failure modes.
 
@@ -7958,11 +7834,8 @@ Fallback: visible-degradation prefix "⚠ AskUserQuestion unavailable in this se
 
 **WRONG** — respond to "help me build a sales enrichment agent" with 5 plain-text markdown questions mixing platform-answerable with user-only, below a 400-word pre-drafted architecture.
 
-**RIGHT** — (a) parallel platform queries (\`nexus agent list\`, \`nexus tool search --query "crm"\`, \`nexus tool search --query "slack teams"\`); (b) \`ToolSearch("select:AskUserQuestion")\`; (c) ONE AskUserQuestion call with 3 questions — "Which CRM?" (single_choice, options pre-populated, HubSpot first if most common), "Which enrichment? Select all that apply." (multiple_choice, options MECE), "Where should enriched leads go?" (single_choice, first=most common), each with unique UUID id + ≤12-char header. (d) Propose architecture using actual answers, not guesses.`
-      },
-      {
-        path: "reference/cli-setup.md",
-        content: `# CLI Setup — TTY / CI / Non-Interactive Environments
+**RIGHT** — (a) parallel platform queries (\`nexus agent list\`, \`nexus tool search --query "crm"\`, \`nexus tool search --query "slack teams"\`); (b) \`ToolSearch("select:AskUserQuestion")\`; (c) ONE AskUserQuestion call with 3 questions — "Which CRM?" (single_choice, options pre-populated, HubSpot first if most common), "Which enrichment? Select all that apply." (multiple_choice, options MECE), "Where should enriched leads go?" (single_choice, first=most common), each with unique UUID id + ≤12-char header. (d) Propose architecture using actual answers, not guesses.` },
+      { path: "reference/cli-setup.md", content: `# CLI Setup — TTY / CI / Non-Interactive Environments
 
 Some Nexus operations (OAuth flows in particular) require a human to open a URL in a browser. They cannot complete in CI / containers / non-interactive shells. Detect first, fail loudly, document the call shape.
 
@@ -8005,11 +7878,8 @@ CLI equivalent: when \`nexus tool connect\` is invoked in CI, supply credentials
 - Foundation concepts → \`../SKILL.md\`
 - Full OAuth walkthrough → \`nexus-tool-connection/reference/oauth-flow-example.md\`
 - Tool connection lifecycle → \`nexus-tool-connection/SKILL.md\`
-- Reference index → \`CLAUDE.md\` Reference File Index`
-      },
-      {
-        path: "reference/cross-domain-recipes.md",
-        content: `# Cross-Domain Recipes
+- Reference index → \`CLAUDE.md\` Reference File Index` },
+      { path: "reference/cross-domain-recipes.md", content: `# Cross-Domain Recipes
 
 These recipes combine multiple API domains to accomplish complete workflows. Each recipe
 includes the full sequence of API calls with realistic data.
@@ -8676,11 +8546,8 @@ nexus emulator send <deployment-id> <session-id> --content "Send me my order sta
 - Template approval (step 7-8) typically takes seconds for UTILITY, minutes for MARKETING
 - The agent can now use the attached template when initiating outbound conversations
 - Within a 24-hour customer-initiated conversation window, the agent can send free-form text
-- After 24 hours of inactivity, templates are required again to re-initiate`
-      },
-      {
-        path: "reference/sdk-guide.md",
-        content: `# TypeScript SDK Guide
+- After 24 hours of inactivity, templates are required again to re-initiate` },
+      { path: "reference/sdk-guide.md", content: `# TypeScript SDK Guide
 
 The \`@agent-nexus/sdk\` package provides a typed client over the Public API v1. Reads \`NEXUS_API_KEY\` + \`NEXUS_BASE_URL\` from env (same vars as the CLI — see \`CLAUDE.md\` Environment).
 
@@ -8720,11 +8587,8 @@ await client.agents.delete(agent.id);
 ## Back-refs
 
 - Foundation concepts → \`../SKILL.md\` (Domain Model, Tool Config Types)
-- CLI vs SDK rule of thumb: CLI for ops + scripts; SDK for typed app code. CLAUDE.md R#1 mandates \`nexus\` CLI for ops — SDK is for application code only.`
-      },
-      {
-        path: "reference/thinking-dialects.md",
-        content: `# Model Thinking Dialects — Reference
+- CLI vs SDK rule of thumb: CLI for ops + scripts; SDK for typed app code. CLAUDE.md R#1 mandates \`nexus\` CLI for ops — SDK is for application code only.` },
+      { path: "reference/thinking-dialects.md", content: `# Model Thinking Dialects — Reference
 
 Every model declares a \`thinkingDialect\`. The dialect determines the VALID \`thinkingLevel\` vocabulary. Hardcoding levels = 400 invalid-level errors when the model changes.
 
@@ -8762,18 +8626,14 @@ esac
 
 - CLAUDE.md R#8, G#17
 - \`nexus-agent-management/SKILL.md\` model section
-- \`nexus-skills-and-tasks/SKILL.md\` model selection`
-      }
-    ]
+- \`nexus-skills-and-tasks/SKILL.md\` model selection` }
+    ],
   },
   "nexus-inbox-management": {
     slug: "nexus-inbox-management",
-    description:
-      "Manage inbox conversations programmatically: list, search, reply as agent, update statuses, assign users, add interna...",
+    description: "Manage inbox conversations programmatically: list, search, reply as agent, update statuses, assign users, add interna...",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-inbox-management
 description: Lists, searches, and manages inbox conversations — view messages, send agent replies, manage statuses and assignments, add comments, send WhatsApp templates, and close conversations via the Nexus CLI. Use when the user asks to manage inbox chats, reply to customers, assign conversations, update ticket statuses, or interact with WhatsApp channels.
 domain_paths:
@@ -9154,18 +9014,14 @@ For operations not covered by the CLI, use the raw API command:
 nexus api GET /conversations
 nexus api POST /conversations/{id}/agent-message --body '{"content":"Hello"}'
 nexus api PATCH /conversations/{id}/statuses --body '{"ticketStatus":"RESOLVED"}'
-\`\`\``
-      }
-    ]
+\`\`\`` }
+    ],
   },
   "nexus-knowledge-base": {
     slug: "nexus-knowledge-base",
-    description:
-      "User asks to upload docs / create KB / import websites / manage collections → translate plain language → `nexus` CLI....",
+    description: "User asks to upload docs / create KB / import websites / manage collections → translate plain language → `nexus` CLI....",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-knowledge-base
 description: Manages documents, knowledge collections, and data imports in Nexus via the Nexus CLI. Handles file uploads, text documents, website crawling, Google Sheets imports, and collection management. Use when the user asks to upload files, create knowledge bases, import websites, or manage document collections.
 ---
@@ -9347,11 +9203,8 @@ Every user-facing Q goes through AUQ (R#3). Design → [\`nexus-getting-started/
 |---|---|
 | Document source type (upload / text / website / Sheets import) | Domain-fixed short list |
 | Collection to target | \`nexus collection list --json\` |
-| Crawl scope (single page / domain / sitemap) | Domain-fixed short list |`
-      },
-      {
-        path: "examples/01-upload-documents.ts",
-        content: `#!/usr/bin/env npx tsx
+| Crawl scope (single page / domain / sitemap) | Domain-fixed short list |` },
+      { path: "examples/01-upload-documents.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 01-upload-documents.ts -- Create and manage text documents
  *
@@ -9526,11 +9379,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/02-create-collections.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-create-collections.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 02-create-collections.ts -- Create and populate knowledge collections
  *
@@ -9780,11 +9630,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/03-google-sheets-import.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-google-sheets-import.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 03-google-sheets-import.ts -- Import data from Google Sheets
  *
@@ -9926,11 +9773,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/04-website-crawl.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-website-crawl.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 04-website-crawl.ts -- Import website content via crawling
  *
@@ -10098,11 +9942,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/collection-search.md",
-        content: `# Collection Management (Enhanced)
+});` },
+      { path: "reference/collection-search.md", content: `# Collection Management (Enhanced)
 
 ## List Collection Documents
 
@@ -10146,11 +9987,8 @@ nexus collection update <collectionId> [--display-name <name>] [--description <t
 
 \`\`\`bash
 nexus collection delete <collectionId> [--yes]
-\`\`\``
-      },
-      {
-        path: "reference/document-management.md",
-        content: `# Document Management (Enhanced)
+\`\`\`` },
+      { path: "reference/document-management.md", content: `# Document Management (Enhanced)
 
 ## List Documents
 
@@ -10198,11 +10036,8 @@ Queues the document for re-embedding. Useful after content updates.
 
 \`\`\`bash
 nexus api POST /documents/folder --body '{ "name": "My Folder", "parentId": "uuid-or-null" }' --json
-\`\`\``
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Knowledge Base CLI Reference
+\`\`\`` },
+      { path: "reference/endpoints.md", content: `# Knowledge Base CLI Reference
 
 All commands require authentication via \`nexus auth login\` or the \`NEXUS_API_KEY\` environment variable.
 Add \`--json\` to any command to get machine-readable JSON output.
@@ -10637,11 +10472,8 @@ nexus collection remove-document <collectionId> <documentId>
 
 \`\`\`bash
 nexus collection update <collectionId> [--display-name <name>] [--description <text>] [--k <number>] [--reranker true|false] [--body <json>] --json
-\`\`\``
-      },
-      {
-        path: "reference/faq-import-guide.md",
-        content: `# FAQ Import Guide
+\`\`\`` },
+      { path: "reference/faq-import-guide.md", content: `# FAQ Import Guide
 
 When a user needs to add FAQ knowledge from a website for a customer support agent, follow this end-to-end pipeline. The output is separate knowledge collections per language, each searchable by the agent.
 
@@ -10883,18 +10715,14 @@ If results are empty:
 nexus agent-tool attach-collection <agentId> --collection-id "<frCollId>" --label "FAQ FR" --instructions "Search this when user asks questions in French about hey! Telecom services" --json
 
 nexus agent-tool attach-collection <agentId> --collection-id "<nlCollId>" --label "FAQ NL" --instructions "Search this when user asks questions in Dutch about hey! Telecom services" --json
-\`\`\``
-      }
-    ]
+\`\`\`` }
+    ],
   },
   "nexus-prompt-assistant": {
     slug: "nexus-prompt-assistant",
-    description:
-      "PA = server-side AI that asks clarifying Qs about the use case → generates refined system prompt + structured metadat...",
+    description: "PA = server-side AI that asks clarifying Qs about the use case → generates refined system prompt + structured metadat...",
     files: [
-      {
-        path: "AGENT_CONVERSATION_GUIDE.md",
-        content: `## Before You Start: Validate the Agent Spec
+      { path: "AGENT_CONVERSATION_GUIDE.md", content: `## Before You Start: Validate the Agent Spec
 
 Do NOT start a PA conversation until you have a complete agent spec validated with the user. The PA asks 30-35 base questions + ~14 per skill. If you enter without a thorough spec, you'll give shallow answers producing a generic prompt.
 
@@ -11148,11 +10976,8 @@ Prompt mentions @lookup-linkedin-profile
      with description: "Use lookup_linkedin_profile when [trigger from prompt]"
 \`\`\`
 
-Follow the PLUGIN 7-step flow in \`nexus-agent-management/SKILL.md\` for each tool. The tool labels MUST match what the prompt references — mismatched names mean the agent can't find its own tools.`
-      },
-      {
-        path: "CONVERSATION_GUIDE.md",
-        content: `## Before You Start: Understand the AI Task PA
+Follow the PLUGIN 7-step flow in \`nexus-agent-management/SKILL.md\` for each tool. The tool labels MUST match what the prompt references — mismatched names mean the agent can't find its own tools.` },
+      { path: "CONVERSATION_GUIDE.md", content: `## Before You Start: Understand the AI Task PA
 
 > **Sub-agent invocations:** if you're orchestrating PA conversations from a parent agent (not running PA yourself), see \`SKILL.md\` "Sub-agent monitoring contract" — every sub-agent prompt MUST include the 6-clause contract or it fails silently.
 
@@ -11541,11 +11366,8 @@ When building workflows with 2+ AI tasks, PA conversations can run as background
 
 **Handoff:** Background agent completes the PA conversation and creates the task. It reports back: task ID, task name, input/output schema summary. Main agent uses the task ID to configure the \`aiTask\` node in the workflow.
 
-**Do NOT launch a background PA agent and then forget about it.** Every launched PA conversation must be tracked to completion before the workflow can be finalized.`
-      },
-      {
-        path: "SKILL.md",
-        content: `---
+**Do NOT launch a background PA agent and then forget about it.** Every launched PA conversation must be tracked to completion before the workflow can be finalized.` },
+      { path: "SKILL.md", content: `---
 name: nexus-prompt-assistant
 description: Uses the Nexus AI prompt-writing assistant to generate high-quality prompts for agents and AI tasks. Handles multi-turn conversations with the assistant, polls for prompt generation completion, and applies the generated prompt to create or update agents and tasks. Use when the user asks to create an agent or AI task with a well-crafted prompt, or wants AI help writing a prompt.
 ---
@@ -11839,11 +11661,8 @@ Every user-facing Q goes through AskUserQuestion (R#3). Design follows [\`nexus-
 |---|---|
 | Task type (generate/extract/classify/analyze/translate) | Domain-fixed short list |
 | Output language | Domain-fixed (ISO list, user's lang default) |
-| Input source | Domain-fixed (free-text / structured JSON / file upload) |`
-      },
-      {
-        path: "examples/01-generate-agent-prompt.ts",
-        content: `#!/usr/bin/env npx tsx
+| Input source | Domain-fixed (free-text / structured JSON / file upload) |` },
+      { path: "examples/01-generate-agent-prompt.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Generate an agent prompt via the Prompt Assistant, then create the agent.
  *
@@ -12073,11 +11892,8 @@ main().catch(async (err) => {
   console.error("\\n\\x1b[31m✗ FAILED:\\x1b[0m", err.message);
   await runCleanup();
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/02-generate-task-prompt.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-generate-task-prompt.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Generate an AI task prompt via the Prompt Assistant, then create the task.
  *
@@ -12278,11 +12094,8 @@ main().catch(async (err) => {
   console.error("\\n\\x1b[31m✗ FAILED:\\x1b[0m", err.message);
   await runCleanup();
   process.exit(1);
-});`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Prompt Assistant API Reference
+});` },
+      { path: "reference/endpoints.md", content: `# Prompt Assistant API Reference
 
 ## POST /prompt-assistant/chat
 
@@ -12383,11 +12196,8 @@ Delete a thread and all its messages.
 
 \`\`\`json
 { "success": true, "data": { "deleted": true } }
-\`\`\``
-      },
-      {
-        path: "reference/pa-ai-task-system-prompt-summary.md",
-        content: `# Prompt Assistant (AI Task Mode) — System Prompt Summary
+\`\`\`` },
+      { path: "reference/pa-ai-task-system-prompt-summary.md", content: `# Prompt Assistant (AI Task Mode) — System Prompt Summary
 
 > Full PA system prompt: \`/Users/assem/Documents/Doc-Assem/Claude Code/Cue v6/cue-ai-task-creation-mode-v2.9.md\` (4147 lines)
 > AI task output schema: See the spec structure in \`example-task-spec.json\` in this directory
@@ -12650,11 +12460,8 @@ Typical: 30-50 turns for Standard tasks. Longer for Complex/Comprehensive.
 
 ## Skip Mode
 
-Same as agent mode: exact string \`{{SKIP_TO_END}}\` triggers autonomous generation. PA fills gaps with smart defaults meeting tier minimums. No other phrase triggers it.`
-      },
-      {
-        path: "reference/pa-system-prompt-summary.md",
-        content: `# Prompt Assistant (Agent Mode) — System Prompt Summary
+Same as agent mode: exact string \`{{SKIP_TO_END}}\` triggers autonomous generation. PA fills gaps with smart defaults meeting tier minimums. No other phrase triggers it.` },
+      { path: "reference/pa-system-prompt-summary.md", content: `# Prompt Assistant (Agent Mode) — System Prompt Summary
 
 > Full PA system prompt: \`/Users/assem/Documents/Doc-Assem/Claude Code/Cue v6/cue-v6-creation-mode-v7.md\` (2247 lines)
 > Output schema: \`pa-output-schema.json\` in this directory (1421 lines)
@@ -12870,18 +12677,14 @@ Turn 19 (user): Confirms
 Turn 20: PA generates (1-20 min)
 \`\`\`
 
-Typical: 12-20 turns for agents. Longer for agents with many skills or complex workflows.`
-      }
-    ]
+Typical: 12-20 turns for agents. Longer for agents with many skills or complex workflows.` }
+    ],
   },
   "nexus-skills-and-tasks": {
     slug: "nexus-skills-and-tasks",
-    description:
-      "Browse skills, create AI tasks, generate from doc templates, operate existing external tools. Setup + envelope shapes...",
+    description: "Browse skills, create AI tasks, generate from doc templates, operate existing external tools. Setup + envelope shapes...",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-skills-and-tasks
 description: Browses and manages Nexus skills (workflows, AI tasks, collections, document templates, external tools) via the Nexus CLI. Creates AI tasks, executes them, manages document templates, and operates already-created external OpenAPI tools (list, get, upload-icon, execute). For NEW custom-API integration, route to \`nexus-tool-connection\` (lifecycle owner). Use when the user asks to create AI tasks, generate documents from templates, list available skills, or operate existing external tools.
 ---
@@ -13109,11 +12912,8 @@ Every user-facing question → AUQ (R#3). Design → \`nexus-getting-started/ref
 | Task output format (text / json / template) | Domain-fixed short list |
 | Existing task to reuse | \`nexus task list --json\` |
 | Model tier (frontier / balanced / efficient) | \`nexus model list --json\` filtered by tier |
-| Template type | Domain-fixed enum |`
-      },
-      {
-        path: "examples/01-browse-skills.ts",
-        content: `#!/usr/bin/env npx tsx
+| Template type | Domain-fixed enum |` },
+      { path: "examples/01-browse-skills.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 01-browse-skills.ts -- Browse available organization skills
  *
@@ -13316,11 +13116,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/02-create-ai-task.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-create-ai-task.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 02-create-ai-task.ts -- Create an AI task with model configuration
  *
@@ -13529,11 +13326,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/03-execute-task.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-execute-task.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 03-execute-task.ts -- Execute an AI task with input
  *
@@ -13774,11 +13568,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/04-document-templates.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-document-templates.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 04-document-templates.ts -- Create and generate documents from templates
  *
@@ -13977,11 +13768,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/05-external-tools.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/05-external-tools.ts", content: `#!/usr/bin/env npx tsx
 /**
  * 05-external-tools.ts -- Create and test external OpenAPI tools
  *
@@ -14280,11 +14068,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Skills and Tasks CLI Reference
+});` },
+      { path: "reference/endpoints.md", content: `# Skills and Tasks CLI Reference
 
 All commands require authentication via \`nexus auth login\` or the \`NEXUS_API_KEY\` environment variable.
 Add \`--json\` to any command to get machine-readable JSON output.
@@ -14948,11 +14733,8 @@ nexus api POST /skill-folders/assign --body '{ "skillId": "<workflowOrTaskId>", 
 
 To move a skill, call assign again with the new folder ID. To unassign, pass \`"folderId": null\`.
 
-**Status codes:** 200 OK, 400 Validation error, 401 Unauthorized, 404 Not found`
-      },
-      {
-        path: "reference/gotchas.md",
-        content: `# Skills + Tasks — Gotchas
+**Status codes:** 200 OK, 400 Validation error, 401 Unauthorized, 404 Not found` },
+      { path: "reference/gotchas.md", content: `# Skills + Tasks — Gotchas
 
 Domain-specific gotchas for AI tasks, document templates, and external-tool ops via \`nexus-skills-and-tasks\`. Cross-skill rules → CLAUDE.md Operating Rules + Universal Gotchas. PA-related gotchas → \`nexus-prompt-assistant/SKILL.md\`.
 
@@ -15025,11 +14807,8 @@ This skill is for operating tools ALREADY in your org. For NEW custom-API integr
 Back-refs:
 - \`nexus-skills-and-tasks/SKILL.md\`
 - CLAUDE.md Reference File Index
-- \`nexus-prompt-assistant/SKILL.md\` (Sub-Agent Contract clause 3 cross-refs gotcha #6)`
-      },
-      {
-        path: "reference/skill-folders.md",
-        content: `# Skill Folders
+- \`nexus-prompt-assistant/SKILL.md\` (Sub-Agent Contract clause 3 cross-refs gotcha #6)` },
+      { path: "reference/skill-folders.md", content: `# Skill Folders
 
 Organize skills (workflows and AI tasks) into folders. These operations use the fallback \`nexus api\` command since there are no dedicated CLI commands for skill folders.
 
@@ -15104,11 +14883,8 @@ nexus api POST /skill-folders/assign --body '{ "skillId": "uuid", "folderId": "u
 
 Response: \`{ "skillId": "...", "folderId": "...", "assigned": true }\`
 
-To move a skill, call assign again with the new folder ID. To unassign, pass \`"folderId": null\`.`
-      },
-      {
-        path: "reference/template-folders.md",
-        content: `# Document Template Folders
+To move a skill, call assign again with the new folder ID. To unassign, pass \`"folderId": null\`.` },
+      { path: "reference/template-folders.md", content: `# Document Template Folders
 
 Organize document templates into folders. These operations use the fallback \`nexus api\` command since there are no dedicated CLI commands for template folders.
 
@@ -15140,17 +14916,14 @@ nexus api DELETE /document-template-folders/<folderId> --json
 
 \`\`\`bash
 nexus api POST /document-template-folders/assign --body '{ "templateId": "uuid", "folderId": "uuid-or-null" }' --json
-\`\`\``
-      }
-    ]
+\`\`\`` }
+    ],
   },
   "nexus-tickets": {
     slug: "nexus-tickets",
     description: "Translate user-described problems into structured `nexus ticket` calls.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-tickets
 description: Reports bugs, requests features, and tracks issues on the Nexus platform. Tickets are created on Linear and can be managed via the CLI, API, SDK, or MCP tools. Use when the user encounters errors, wants to report bugs, request features, or manage existing tickets.
 ---
@@ -15293,11 +15066,8 @@ For UI/dashboard bugs (white screen, broken layout, click doesn't work) → Play
 
 ## Fallback
 
-For ops not in typed CLI: \`nexus api <METHOD> <PATH> --body '<json>'\` (or \`--file\` for uploads).`
-      },
-      {
-        path: "examples/01-create-bug-ticket.ts",
-        content: `#!/usr/bin/env npx tsx
+For ops not in typed CLI: \`nexus api <METHOD> <PATH> --body '<json>'\` (or \`--file\` for uploads).` },
+      { path: "examples/01-create-bug-ticket.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Create Bug Ticket -- Report a bug with structured context
  *
@@ -15443,11 +15213,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/02-list-and-update.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-list-and-update.ts", content: `#!/usr/bin/env npx tsx
 /**
  * List, Get, Update, and Comment -- Ticket management lifecycle
  *
@@ -15634,11 +15401,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Ticket CLI Reference
+});` },
+      { path: "reference/endpoints.md", content: `# Ticket CLI Reference
 
 All commands require authentication via \`nexus auth login\` or the \`NEXUS_API_KEY\` environment variable.
 Add \`--json\` to any command to get machine-readable JSON output.
@@ -15957,11 +15721,8 @@ nexus api GET /tickets/<ticketId>/attachments --json
 }
 \`\`\`
 
-**Status codes:** 200 OK, 401 Unauthorized, 404 \`TICKET_NOT_FOUND\``
-      },
-      {
-        path: "reference/visual-bug-reporting.md",
-        content: `# Visual Bug Reporting w/ Playwright
+**Status codes:** 200 OK, 401 Unauthorized, 404 \`TICKET_NOT_FOUND\`` },
+      { path: "reference/visual-bug-reporting.md", content: `# Visual Bug Reporting w/ Playwright
 
 Capture visual evidence for Nexus dashboard / frontend UI bugs where API context alone can't describe the problem. Use Playwright (via \`web-browser\` agent / MCP tools) to navigate, screenshot, extract console + network errors, then attach to a ticket.
 
@@ -16035,18 +15796,14 @@ nexus emulator send <deploymentId> <sessionId> --message "msg that triggers bug"
 # Response includes debug: { modelUsed, tokensUsed, toolsInvoked, latencyMs } — paste into ticket context
 nexus emulator scenario save --name "Bug repro: wrong tool invoked" \\
   --session-id <sessionId> --deployment-id <deploymentId> --json
-\`\`\``
-      }
-    ]
+\`\`\`` }
+    ],
   },
   "nexus-tool-connection": {
     slug: "nexus-tool-connection",
-    description:
-      "User describes plain-language need → translate to `nexus` CLI. Auth + envelope shape → CLAUDE.md.",
+    description: "User describes plain-language need → translate to `nexus` CLI. Auth + envelope shape → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-tool-connection
 description: Discovers marketplace tools, connects OAuth and HTTP credentials, resolves dynamic dropdown options, manages org-wide credentials, and configures access cards (policy-based permission scoping) via the Nexus Public API v1. Use when the user asks to find tools, connect accounts (Google Sheets, Gmail, Slack, etc.), manage API keys, configure Pipedream integrations, manage credentials, or create access cards.
 ---
@@ -16259,11 +16016,8 @@ nexus access-card create --credential-id cred-uuid --name "Send Only" --data '{
 | \`reference/oauth-flow-example.md\` | 7-step Pipedream OAuth walkthrough |
 | \`reference/custom-tool-integration-guide.md\` | OpenAPI / undocumented API lifecycle (6 steps) |
 | \`reference/auth-flows.md\` | Detailed connection flow diagrams |
-| \`reference/endpoints.md\` | Tool discovery + connection + credentials + access-card endpoint catalogs |`
-      },
-      {
-        path: "examples/01-search-marketplace.ts",
-        content: `#!/usr/bin/env npx tsx
+| \`reference/endpoints.md\` | Tool discovery + connection + credentials + access-card endpoint catalogs |` },
+      { path: "examples/01-search-marketplace.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Search Marketplace -- Discover tools, browse actions, inspect parameters
  *
@@ -16472,11 +16226,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/02-connect-pipedream-tool.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-connect-pipedream-tool.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Connect Pipedream Tool -- Full OAuth flow
  *
@@ -16703,11 +16454,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/03-connect-http-tool.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-connect-http-tool.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Connect HTTP Tool -- Create API key credential
  *
@@ -16932,11 +16680,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/04-resolve-dynamic-options.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-resolve-dynamic-options.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Resolve Dynamic Options -- Dropdown values for Pipedream tools
  *
@@ -17207,11 +16952,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/05-manage-credentials.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/05-manage-credentials.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Manage Credentials (Org-Wide) -- List, get, rename, delete credentials
  *
@@ -17365,11 +17107,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/06-access-card-crud.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/06-access-card-crud.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Access Card CRUD -- Full lifecycle: discover actions, create, list, update, delete
  *
@@ -17580,11 +17319,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\n\\x1b[31mFailed:\\x1b[0m", err.message);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "reference/auth-flows.md",
-        content: `# Authentication Flows Reference
+});` },
+      { path: "reference/auth-flows.md", content: `# Authentication Flows Reference
 
 This document describes the three credential connection patterns supported by the Nexus Tool Connection API.
 
@@ -17767,11 +17503,8 @@ Some services have OAuth flows managed directly by Nexus (not Pipedream). The AP
 
 ### Credential Conflicts
 
-If a credential already exists for the same account, the API may return the existing credential instead of creating a new one. Always run \`nexus tool credentials <toolId> --json\` after connection to get the canonical credential ID.`
-      },
-      {
-        path: "reference/custom-tool-integration-guide.md",
-        content: `# Custom Tool Integration Guide
+If a credential already exists for the same account, the API may return the existing credential instead of creating a new one. Always run \`nexus tool credentials <toolId> --json\` after connection to get the canonical credential ID.` },
+      { path: "reference/custom-tool-integration-guide.md", content: `# Custom Tool Integration Guide
 
 When a user needs a tool that's not in the marketplace, or when a marketplace tool is missing the action they need, follow this process to create a custom integration via OpenAPI spec.
 
@@ -18104,11 +17837,8 @@ If test fails:
 
 **For agents:** Follow the PLUGIN 7-step flow in \`nexus-agent-management/SKILL.md\` starting from Step 2 (action is already known from the \`operationId\`).
 
-**For workflows:** Create a \`plugin\` node, set \`toolId\` and \`selectedAction\` to the \`operationId\`. Configure \`parametersSetup\` manually (CUSTOM_MANIFEST tools don't support \`reload-props\`).`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Tool Connection Endpoints Reference
+**For workflows:** Create a \`plugin\` node, set \`toolId\` and \`selectedAction\` to the \`operationId\`. Configure \`parametersSetup\` manually (CUSTOM_MANIFEST tools don't support \`reload-props\`).` },
+      { path: "reference/endpoints.md", content: `# Tool Connection Endpoints Reference
 
 All paths are relative to \`\${NEXUS_BASE_URL}/api/public/v1\` (default: \`https://api.nexusgpt.io\`).
 All requests require the \`api-key: nxs_...\` header.
@@ -18945,11 +18675,8 @@ Returns the list of action identifiers that can be used in access card policies.
 
 **Status codes:** 200 OK, 401 Unauthorized, 404 Credential not found
 
-**SDK:** \`nexus.credentials.cards.availableActions(credentialId)\``
-      },
-      {
-        path: "reference/oauth-flow-example.md",
-        content: `# OAuth Flow Example — 7 Steps
+**SDK:** \`nexus.credentials.cards.availableActions(credentialId)\`` },
+      { path: "reference/oauth-flow-example.md", content: `# OAuth Flow Example — 7 Steps
 
 Concrete walkthrough: search marketplace → check existing credentials → initiate OAuth → poll → verify. Back to [\`../SKILL.md\`](../SKILL.md). Envelope + auth setup → \`.claude/CLAUDE.md\` (Reference File Index).
 
@@ -18985,18 +18712,14 @@ nexus tool credentials google_sheets --json
 # => { credentials: [{ id: "cred-uuid", name: "Google Sheets", ... }] }
 \`\`\`
 
-**Next step:** attach to agent as PLUGIN tool config (→ \`nexus-agent-management\`) OR execute directly (→ \`nexus external-tool execute\`, see SKILL.md "Direct Tool Execution").`
-      }
-    ]
+**Next step:** attach to agent as PLUGIN tool config (→ \`nexus-agent-management\`) OR execute directly (→ \`nexus external-tool execute\`, see SKILL.md "Direct Tool Execution").` }
+    ],
   },
   "nexus-tool-execute": {
     slug: "nexus-tool-execute",
-    description:
-      "Run ONE external action via `nexus external-tool execute` — send, fetch, verify, seed, or a 2-3-step chain. Translate...",
+    description: "Run ONE external action via `nexus external-tool execute` — send, fetch, verify, seed, or a 2-3-step chain. Translate...",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-tool-execute
 description: Executes a single external tool action via the Nexus CLI — outside of any workflow, agent, or marketplace-connection flow. Handles discovery, credential selection, parameter resolution, risk-tiered confirmation, invocation, and result verification. Use when the user asks to run one action NOW — send one email, fetch one row, verify one credential, seed one test record, chain two tools for a one-off — rather than wire up a workflow or attach a skill to an agent.
 ---
@@ -19502,11 +19225,8 @@ RIGHT: *"just send this one email real quick"* → "Sending is IRREVERSIBLE — 
 
 ---
 
-Cue's job is not fastest. Fastest WITHOUT being wrong. Execute one action well. User's trust > round-trip time.`
-      },
-      {
-        path: "TOOL_EXECUTION_GUIDE.md",
-        content: `# Nexus Tool Execution — Thinking Guide
+Cue's job is not fastest. Fastest WITHOUT being wrong. Execute one action well. User's trust > round-trip time.` },
+      { path: "TOOL_EXECUTION_GUIDE.md", content: `# Nexus Tool Execution — Thinking Guide
 
 Read this guide BEFORE executing any external tool action. It teaches you how to think about standalone tool execution: what it IS, what it is NOT, when to use it vs build a workflow or attach to an agent, and how to stay safe with destructive actions and multi-tool chains. The companion [\`SKILL.md\`](SKILL.md) covers the operational methodology (CLI reference, phase procedures, gotcha index). The [\`reference/patterns/\`](reference/patterns/) folder contains copy-paste recipes for the eight most common shapes.
 
@@ -19988,11 +19708,8 @@ If any item is missing, the task is not done. Finish it. Don't leave the user wi
 - [\`reference/action-taxonomy.md\`](reference/action-taxonomy.md) — 40+ classified example actions
 - [\`reference/gotchas.md\`](reference/gotchas.md) — 30+ WRONG/RIGHT entries
 - [\`../nexus-tool-connection/SKILL.md\`](../nexus-tool-connection/SKILL.md) — discovery, credential connection, access cards (the boundary partner)
-- [\`../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when a chain is too big to be a tool execution`
-      },
-      {
-        path: "reference/action-taxonomy.md",
-        content: `# Action Taxonomy
+- [\`../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when a chain is too big to be a tool execution` },
+      { path: "reference/action-taxonomy.md", content: `# Action Taxonomy
 
 Every tool action falls into ONE of four reversibility tiers. Your execution procedure — confirmation depth, credential selection, recovery strategy, user validation — changes based on the tier. Misclassifying an action is how test emails land in prod inboxes, test charges hit real cards, and test rows leak into production sheets.
 
@@ -20301,11 +20018,8 @@ If any checkbox is unchecked, STOP and resolve it before executing.
 - \`validation-rules.md\` — pre-execute validation checklist.
 - \`endpoints.md\` — CLI reference for \`nexus external-tool execute\` and related commands.
 - \`patterns/patterns/05-destructive-with-preview.md\` — destructive-action procedure applied.
-- \`patterns/patterns/06-read-then-write-chain.md\` — chaining patterns across tiers.`
-      },
-      {
-        path: "reference/cross-skill-recipes.md",
-        content: `# Cross-Skill Recipes
+- \`patterns/patterns/06-read-then-write-chain.md\` — chaining patterns across tiers.` },
+      { path: "reference/cross-skill-recipes.md", content: `# Cross-Skill Recipes
 
 Recipes for invoking \`nexus-tool-execute\` from inside the phases of other Nexus skills. Each recipe answers one question: *"I'm in skill X, phase Y — why and how do I run a single external-tool action RIGHT NOW, without spinning up a workflow or an agent?"*
 
@@ -20827,11 +20541,8 @@ echo "Credential can see $COUNT files in folder. If 0, check scope + folder shar
 - **Cleanup obligation.** Every write-tier recipe documents its cleanup path. SOFT-REVERSIBLE actions (drafts, labels, contacts with no delete) put an obligation on the user — say so explicitly in chat so they know an artifact persists.
 
 **Full taxonomy + per-tier procedures:** \`reference/action-taxonomy.md\`.
-**Pattern deep-dives:** \`reference/patterns/patterns/01-discover-and-execute.md\` through \`08-error-recovery.md\`.`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Endpoints Reference
+**Pattern deep-dives:** \`reference/patterns/patterns/01-discover-and-execute.md\` through \`08-error-recovery.md\`.` },
+      { path: "reference/endpoints.md", content: `# Endpoints Reference
 
 Complete CLI + API reference for standalone tool execution. The canonical surface is the CLI — specifically \`nexus external-tool execute\`. The underlying API endpoint is documented here for completeness, but some raw paths return 404 via \`nexus api\` (see "Known issues" below). **Prefer the CLI.**
 
@@ -21252,11 +20963,8 @@ echo "$RESULT" | jq '{id: .result.id, message_id: .result.message.id}'
 - \`patterns/patterns/01-discover-and-execute.md\` — the minimal discovery + execute flow.
 - \`patterns/patterns/08-error-recovery.md\` — what to do when the envelope / os-stream fails.
 - \`nexus-tool-connection/SKILL.md\` — credential discovery, connection, resolve-options.
-- \`nexus-tool-connection/reference/endpoints.md\` — historical endpoints doc (response envelope section is STALE — use this document's envelope instead).`
-      },
-      {
-        path: "reference/gotchas.md",
-        content: `# Gotchas
+- \`nexus-tool-connection/reference/endpoints.md\` — historical endpoints doc (response envelope section is STALE — use this document's envelope instead).` },
+      { path: "reference/gotchas.md", content: `# Gotchas
 
 33 common mistakes when executing standalone tool actions via the Nexus CLI. Each gotcha shows the wrong approach, explains why it breaks, and shows the correct approach. Grouped by theme: envelope/error handling, destructive/reversibility, credential selection, parameters/schema, CLI identification, output handling, and edge cases.
 
@@ -22475,11 +22183,8 @@ Consequence: without the parse, a silent upstream failure reaches the user wrapp
 - \`endpoints.md\` — CLI reference and real response envelope (covers gotchas #2, #23-27).
 - \`patterns/patterns/05-destructive-with-preview.md\` — destructive-action procedure.
 - \`patterns/patterns/06-read-then-write-chain.md\` — chaining patterns (covers gotcha #10).
-- \`patterns/patterns/08-error-recovery.md\` — recovery strategies (covers gotchas #1, #3, #4, #10).`
-      },
-      {
-        path: "reference/patterns/README.md",
-        content: `# Tool Execution Patterns
+- \`patterns/patterns/08-error-recovery.md\` — recovery strategies (covers gotchas #1, #3, #4, #10).` },
+      { path: "reference/patterns/README.md", content: `# Tool Execution Patterns
 
 Before executing any tool, find the closest matching pattern below. Each pattern file contains the purpose, when-to-use, architecture diagram, step-by-step procedure with CLI examples, WRONG/RIGHT pairs, pattern-specific gotchas, and cross-references. Eight patterns cover every shape of standalone tool execution we've classified.
 
@@ -22599,11 +22304,8 @@ If any checkbox is unchecked, the pattern invocation will either guess (wrong) o
 - [\`../gotchas.md\`](../gotchas.md) — 30+ WRONG/RIGHT entries
 - [\`../endpoints.md\`](../endpoints.md) — full CLI + underlying API reference
 - [\`../../../nexus-tool-connection/SKILL.md\`](../../../nexus-tool-connection/SKILL.md) — tool discovery, credential connection, access cards
-- [\`../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when to leave this skill and build a workflow`
-      },
-      {
-        path: "reference/patterns/patterns/01-discover-and-execute.md",
-        content: `# Pattern 01 — Discover and Execute
+- [\`../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when to leave this skill and build a workflow` },
+      { path: "reference/patterns/patterns/01-discover-and-execute.md", content: `# Pattern 01 — Discover and Execute
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). If you see a naked \`nexus external-tool execute\` without \`RESULT=$(...)\` capture and \`jq\` verification below it, that is a typo — re-read SKILL.md before copying. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -22787,11 +22489,8 @@ echo "Found $LABEL_COUNT Gmail labels. Top: $(echo "$RESULT" | jq -r '.result.la
 - [\`06-read-then-write-chain.md\`](06-read-then-write-chain.md) — when the read feeds a downstream write
 - [\`08-error-recovery.md\`](08-error-recovery.md) — layered on top when upstream errors need handling
 - [\`../../gotchas.md\`](../../gotchas.md) — action-key naming, schema discovery
-- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — \`nexus tool search\`, \`nexus tool credentials\``
-      },
-      {
-        path: "reference/patterns/patterns/02-seed-test-data.md",
-        content: `# Pattern 02 — Seed Test Data
+- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — \`nexus tool search\`, \`nexus tool credentials\`` },
+      { path: "reference/patterns/patterns/02-seed-test-data.md", content: `# Pattern 02 — Seed Test Data
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). If you see a naked \`nexus external-tool execute\` without \`RESULT=$(...)\` capture and \`jq\` verification below it, that is a typo — re-read SKILL.md before copying. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -22994,11 +22693,8 @@ echo "Seeded record $RECORD_ID"
 - [\`07-batch-execution.md\`](07-batch-execution.md) — seeding 10+ records
 - [\`08-error-recovery.md\`](08-error-recovery.md) — error handling
 - [\`../../../../nexus-workflow-builder/SKILL.md\`](../../../../nexus-workflow-builder/SKILL.md) — plugin trigger configuration (the downstream consumer)
-- [\`../../../../nexus-emulator/SKILL.md\`](../../../../nexus-emulator/SKILL.md) — scenario preconditioning`
-      },
-      {
-        path: "reference/patterns/patterns/03-pre-attachment-validation.md",
-        content: `# Pattern 03 — Pre-Attachment Validation
+- [\`../../../../nexus-emulator/SKILL.md\`](../../../../nexus-emulator/SKILL.md) — scenario preconditioning` },
+      { path: "reference/patterns/patterns/03-pre-attachment-validation.md", content: `# Pattern 03 — Pre-Attachment Validation
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). If you see a naked \`nexus external-tool execute\` without \`RESULT=$(...)\` capture and \`jq\` verification below it, that is a typo — re-read SKILL.md before copying. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -23213,11 +22909,8 @@ RIGHT:
 - [\`02-seed-test-data.md\`](02-seed-test-data.md) — related, but for downstream trigger firing, not attach-validation
 - [\`08-error-recovery.md\`](08-error-recovery.md) — when either probe half fails
 - [\`../../../../nexus-agent-management/SKILL.md\`](../../../../nexus-agent-management/SKILL.md) — the attach step (after validation passes)
-- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — credentials, access cards`
-      },
-      {
-        path: "reference/patterns/patterns/04-knowledge-fetch.md",
-        content: `# Pattern 04 — Knowledge Fetch
+- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — credentials, access cards` },
+      { path: "reference/patterns/patterns/04-knowledge-fetch.md", content: `# Pattern 04 — Knowledge Fetch
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). If you see a naked \`nexus external-tool execute\` without \`RESULT=$(...)\` capture and \`jq\` verification below it, that is a typo — re-read SKILL.md before copying. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -23414,11 +23107,8 @@ RANGE="\${2:-A2:B1000}"
 - [\`01-discover-and-execute.md\`](01-discover-and-execute.md) — the fetch is a READ action
 - [\`07-batch-execution.md\`](07-batch-execution.md) — when fetching > 5000 rows or multiple sheets
 - [\`../../../../nexus-knowledge-base/SKILL.md\`](../../../../nexus-knowledge-base/SKILL.md) — collection creation, document management, search verification
-- [\`../../../../nexus-cloud-imports/SKILL.md\`](../../../../nexus-cloud-imports/SKILL.md) — native Drive/SharePoint/Notion import (alternative path)`
-      },
-      {
-        path: "reference/patterns/patterns/05-destructive-with-preview.md",
-        content: `# Pattern 05 — Destructive with Preview
+- [\`../../../../nexus-cloud-imports/SKILL.md\`](../../../../nexus-cloud-imports/SKILL.md) — native Drive/SharePoint/Notion import (alternative path)` },
+      { path: "reference/patterns/patterns/05-destructive-with-preview.md", content: `# Pattern 05 — Destructive with Preview
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). For IRREVERSIBLE actions this is non-negotiable — the envelope \`success: true\` can coexist with \`.result.os[0].k === "error"\` (gotcha #1), which means "Nexus reached Google" not "Gmail sent the email." Programmatic verification is the only verification (gotcha #35). A naked \`nexus external-tool execute\` here is how users report "sent" emails that never left the drafts queue.**
 
@@ -23702,11 +23392,8 @@ RIGHT:
 - [\`07-batch-execution.md\`](07-batch-execution.md) — when destructive actions run over many items (extra care required)
 - [\`08-error-recovery.md\`](08-error-recovery.md) — when step 8's error parse surfaces failure
 - [\`../action-taxonomy.md\`](../../action-taxonomy.md) — IRREVERSIBLE examples catalog
-- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — credential selection for sandbox vs production`
-      },
-      {
-        path: "reference/patterns/patterns/06-read-then-write-chain.md",
-        content: `# Pattern 06 — Read-Then-Write Chain
+- [\`../../../../nexus-tool-connection/SKILL.md\`](../../../../nexus-tool-connection/SKILL.md) — credential selection for sandbox vs production` },
+      { path: "reference/patterns/patterns/06-read-then-write-chain.md", content: `# Pattern 06 — Read-Then-Write Chain
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). Each step in the chain must pass verify BEFORE the next step fires — an unverified step's output (which may be an error message) becomes the next step's input, and chains silently commit garbage downstream. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -23946,11 +23633,8 @@ RIGHT:
 - [\`05-destructive-with-preview.md\`](05-destructive-with-preview.md) — required protocol when step B is IRREVERSIBLE
 - [\`07-batch-execution.md\`](07-batch-execution.md) — when step B runs over many items from step A
 - [\`08-error-recovery.md\`](08-error-recovery.md) — cross-step error handling, retry policy
-- [\`../../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when to stop chaining and build a workflow`
-      },
-      {
-        path: "reference/patterns/patterns/07-batch-execution.md",
-        content: `# Pattern 07 — Batch Execution
+- [\`../../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md\`](../../../../nexus-workflow-builder/WORKFLOW_DESIGN_GUIDE.md) — when to stop chaining and build a workflow` },
+      { path: "reference/patterns/patterns/07-batch-execution.md", content: `# Pattern 07 — Batch Execution
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). In a batch, each iteration must verify BEFORE continuing — otherwise a silent rate-limit or auth failure can invalidate the rest of the loop while the exit code stays 0. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35).**
 
@@ -24163,11 +23847,8 @@ RIGHT:
 - [\`02-seed-test-data.md\`](02-seed-test-data.md) — small-batch seeding (often runs through Pattern 07)
 - [\`05-destructive-with-preview.md\`](05-destructive-with-preview.md) — required per-item if the action is IRREVERSIBLE and pacing allows user review
 - [\`08-error-recovery.md\`](08-error-recovery.md) — retry strategy for transient failures inside the loop
-- [\`../../../../nexus-workflow-builder/reference/workflow-patterns/patterns/loop-per-item-ai.md\`](../../../../nexus-workflow-builder/reference/workflow-patterns/patterns/loop-per-item-ai.md) — the workflow \`loop\` node alternative for N > 100`
-      },
-      {
-        path: "reference/patterns/patterns/08-error-recovery.md",
-        content: `# Pattern 08 — Error Recovery
+- [\`../../../../nexus-workflow-builder/reference/workflow-patterns/patterns/loop-per-item-ai.md\`](../../../../nexus-workflow-builder/reference/workflow-patterns/patterns/loop-per-item-ai.md) — the workflow \`loop\` node alternative for N > 100` },
+      { path: "reference/patterns/patterns/08-error-recovery.md", content: `# Pattern 08 — Error Recovery
 
 > **Every execute invocation in this pattern uses the canonical execute-verify-summarize block from [SKILL.md Phase 4.2](../../../SKILL.md#42-worked-examples--every-example-uses-the-canonical-block). This pattern IS the verify — every other pattern in this skill relies on the block documented here to distinguish envelope success from upstream success. The envelope lies when upstream errors occur (gotcha #1); programmatic verification is the only verification (gotcha #35). A naked \`nexus external-tool execute\` without capture+verify below it defeats the entire purpose of this file.**
 
@@ -24445,11 +24126,8 @@ RIGHT:
 - [\`07-batch-execution.md\`](07-batch-execution.md) — per-item error handling in batches
 - [\`../../gotchas.md\`](../../gotchas.md) — expanded error catalog
 - [\`../../endpoints.md\`](../../endpoints.md) — envelope shape and error codes
-- [\`../../../../nexus-tickets/SKILL.md\`](../../../../nexus-tickets/SKILL.md) — how to file a 500-error ticket`
-      },
-      {
-        path: "reference/validation-rules.md",
-        content: `# Validation Rules
+- [\`../../../../nexus-tickets/SKILL.md\`](../../../../nexus-tickets/SKILL.md) — how to file a 500-error ticket` },
+      { path: "reference/validation-rules.md", content: `# Validation Rules
 
 Pre-execute validation rules enforced (or recommended) when running \`nexus external-tool execute\`. Unlike workflow-builder validation (which is enforced server-side before publish), standalone tool execution has WEAK server-side validation — Nexus does not validate required parameters, credential scoping at the action level, or access card policies before dispatching to Pipedream. This document enumerates the checks the skill must perform client-side, in order, before executing.
 
@@ -24874,18 +24552,14 @@ Any unchecked box on a non-READ action: STOP and resolve.
 - \`action-taxonomy.md\` — tier classification procedure (Stage 3).
 - \`endpoints.md\` — CLI reference for all commands used in validation.
 - \`patterns/patterns/05-destructive-with-preview.md\` — destructive-action protocol.
-- \`patterns/patterns/08-error-recovery.md\` — what to do when Stage 6 fails.`
-      }
-    ]
+- \`patterns/patterns/08-error-recovery.md\` — what to do when Stage 6 fails.` }
+    ],
   },
   "nexus-tracing": {
     slug: "nexus-tracing",
-    description:
-      "View LLM execution traces; analyze cost + tokens; debug generation behavior. Setup/envelope → CLAUDE.md.",
+    description: "View LLM execution traces; analyze cost + tokens; debug generation behavior. Setup/envelope → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-tracing
 description: Views and analyzes LLM execution traces, inspects individual generations (with full prompt/response data), tracks costs and token usage, runs analytics queries (summary, cost breakdown, timeline), exports trace data in JSON/CSV, and deletes traces via the Public API v1.
 ---
@@ -24952,11 +24626,8 @@ Slow workflow? Re-run plugin action w/ \`nexus external-tool execute\` standalon
 
 ## Data Retention
 
-Traces auto-expire (default 7 days, min 7 days). Not configurable via public API.`
-      },
-      {
-        path: "examples/01-list-and-inspect-traces.ts",
-        content: `#!/usr/bin/env npx tsx
+Traces auto-expire (default 7 days, min 7 days). Not configurable via public API.` },
+      { path: "examples/01-list-and-inspect-traces.ts", content: `#!/usr/bin/env npx tsx
 /**
  * List and Inspect Traces
  *
@@ -25023,11 +24694,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\nFailed:", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/02-debug-failed-generations.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/02-debug-failed-generations.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Debug Failed Generations
  *
@@ -25088,11 +24756,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\nFailed:", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/03-analytics-dashboard.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/03-analytics-dashboard.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Analytics Dashboard
  *
@@ -25178,11 +24843,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\nFailed:", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/04-cost-analysis.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/04-cost-analysis.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Cost Analysis
  *
@@ -25263,11 +24925,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\nFailed:", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "examples/05-export-traces.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/05-export-traces.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Export Traces
  *
@@ -25341,11 +25000,8 @@ async function main() {
 main().catch((err) => {
   console.error("\\nFailed:", err.message);
   process.exit(1);
-});`
-      },
-      {
-        path: "reference/analytics.md",
-        content: `# Tracing Analytics Reference
+});` },
+      { path: "reference/analytics.md", content: `# Tracing Analytics Reference
 
 ## Summary Endpoint
 
@@ -25437,11 +25093,8 @@ Points are sorted chronologically (ascending). Each point represents one time bu
 
 - Points with zero activity are omitted (no zero-fill)
 - The \`totalCost\` in timeline points may double-count if a trace has multiple generations (cost is summed from traces, not generations)
-- \`avgDurationMs\` is the average trace duration for traces that started in that bucket`
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Tracing API Endpoints
+- \`avgDurationMs\` is the average trace duration for traces that started in that bucket` },
+      { path: "reference/endpoints.md", content: `# Tracing API Endpoints
 
 ## Traces
 
@@ -25595,11 +25248,8 @@ const timeline = await client.tracing.getTimeline({ granularity: "day" });
 // Export
 const exported = await client.tracing.exportTrace(traceId, { format: "csv" });
 const bulk = await client.tracing.bulkExport({ format: "json", limit: 50 });
-\`\`\``
-      },
-      {
-        path: "reference/export.md",
-        content: `# Export Reference
+\`\`\`` },
+      { path: "reference/export.md", content: `# Export Reference
 
 ## Formats
 
@@ -25685,17 +25335,14 @@ const bulk = await client.tracing.bulkExport({
   limit: 200
 });
 fs.writeFileSync(bulk.filename, bulk.content);
-\`\`\``
-      }
-    ]
+\`\`\`` }
+    ],
   },
   "nexus-workflow-builder": {
     slug: "nexus-workflow-builder",
     description: "User = Nexus org admin. They describe outcomes; you translate → `nexus` CLI.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-workflow-builder
 description: Creates, configures, tests, and manages Nexus workflows via the Public API v1. Handles workflow CRUD, node creation and configuration, edge wiring, branching logic, loop patterns, Pipedream plugin integration, testing, validation, and publishing. Use when the user asks to build, modify, test, or deploy workflows.
 ---
@@ -26292,11 +25939,8 @@ Every user-facing question goes through AskUserQuestion (R#3). Design per [\`../
 | Credential for plugin | \`nexus tool credentials <toolId> --json\` |
 | Branching condition mode | Domain-fixed (prompt vs static) |
 | Output language | User's language (confirm — may differ) |
-| Output destination | Fixed vs dynamic; existing sheet vs new |`
-      },
-      {
-        path: "WORKFLOW_DESIGN_GUIDE.md",
-        content: `# Nexus Workflow Design Guide
+| Output destination | Fixed vs dynamic; existing sheet vs new |` },
+      { path: "WORKFLOW_DESIGN_GUIDE.md", content: `# Nexus Workflow Design Guide
 
 Read this guide BEFORE designing any workflow. It teaches you how to think about workflow architecture, when to use a workflow vs other approaches, and which patterns fit which problems. The companion [SKILL.md](SKILL.md) covers the operational methodology (CLI commands, 4-phase build process, pre-flight questions).
 
@@ -27237,11 +26881,8 @@ RIGHT: Scheduled workflow processes data, sends a Slack/email summary of what ha
 The agent's prompt references these parameters. If the trigger schema has \`q\` and \`maxR\`, the agent can't describe what it needs from the user. Name them \`searchQuery\` and \`maxResults\`.
 
 **Webhook-triggered workflows: the URL IS the deliverable.**
-The user cannot use the workflow until the external system is configured to POST to the webhook URL. After publishing, retrieve the URL (\`nexus workflow get\` → trigger node's \`data.webhookUrl\`) and present it directly with service-specific setup instructions (e.g., "In CircleBack: Settings → Integrations → Webhooks → paste this URL as a POST endpoint"). "Check the dashboard for the URL" is not a deliverable — the user hired you to build the integration end-to-end.`
-      },
-      {
-        path: "examples/crud/01-create-workflow.ts",
-        content: `#!/usr/bin/env npx tsx
+The user cannot use the workflow until the external system is configured to POST to the webhook URL. After publishing, retrieve the URL (\`nexus workflow get\` → trigger node's \`data.webhookUrl\`) and present it directly with service-specific setup instructions (e.g., "In CircleBack: Settings → Integrations → Webhooks → paste this URL as a POST endpoint"). "Check the dashboard for the URL" is not a deliverable — the user hired you to build the integration end-to-end.` },
+      { path: "examples/crud/01-create-workflow.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Workflow CRUD — Create a workflow
  *
@@ -27307,11 +26948,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/crud/02-list-and-search.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/crud/02-list-and-search.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Workflow CRUD — List and search workflows
  *
@@ -27381,11 +27019,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/crud/03-update-and-duplicate.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/crud/03-update-and-duplicate.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Workflow CRUD — Update and duplicate workflows
  *
@@ -27449,11 +27084,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/crud/04-publish-unpublish.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/crud/04-publish-unpublish.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Workflow CRUD — Publish and unpublish workflows
  *
@@ -27537,11 +27169,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/edges/01-connect-nodes.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/edges/01-connect-nodes.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Edges — Connect nodes in a workflow
  *
@@ -27626,11 +27255,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/edges/02-edge-validation.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/edges/02-edge-validation.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Edges — Validation rules demonstration
  *
@@ -27724,11 +27350,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/patterns/01-linear-pipeline.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/patterns/01-linear-pipeline.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Pattern: Linear Pipeline
  *
@@ -27848,11 +27471,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/patterns/02-branching-router.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/patterns/02-branching-router.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Pattern: Branching Router
  *
@@ -27969,11 +27589,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/patterns/03-loop-processor.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/patterns/03-loop-processor.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Pattern: Loop Processor
  *
@@ -28080,11 +27697,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/patterns/04-kitchen-sink.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/patterns/04-kitchen-sink.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Pattern: Kitchen Sink — Everything Combined
  *
@@ -28255,11 +27869,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/patterns/05-variables-and-references.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/patterns/05-variables-and-references.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Pattern: Variable References
  *
@@ -28376,11 +27987,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/templates/customer-onboarding.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/templates/customer-onboarding.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Template: Customer Onboarding Pipeline
  *
@@ -28485,11 +28093,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/templates/data-sync-pipeline.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/templates/data-sync-pipeline.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Template: Data Sync Pipeline
  *
@@ -28605,11 +28210,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/templates/lead-processing-pipeline.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/templates/lead-processing-pipeline.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Template: Lead Processing Pipeline
  *
@@ -28787,11 +28389,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/testing/01-test-single-node.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/testing/01-test-single-node.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Testing — Test a single node
  *
@@ -28862,11 +28461,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/testing/02-test-full-workflow.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/testing/02-test-full-workflow.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Testing — Test a full workflow
  *
@@ -28955,11 +28551,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/testing/03-poll-execution.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/testing/03-poll-execution.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Testing — Poll execution status and stop
  *
@@ -29077,11 +28670,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "examples/testing/04-validate-workflow.ts",
-        content: `#!/usr/bin/env npx tsx
+});` },
+      { path: "examples/testing/04-validate-workflow.ts", content: `#!/usr/bin/env npx tsx
 /**
  * Testing — Validate a workflow
  *
@@ -29175,11 +28765,8 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   runCleanup().then(() => process.exit(1));
-});`
-      },
-      {
-        path: "node-types/logic/branching/GUIDE.md",
-        content: `# Branching (Decision Point)
+});` },
+      { path: "node-types/logic/branching/GUIDE.md", content: `# Branching (Decision Point)
 
 ## Node Type Identifier
 
@@ -29640,11 +29227,8 @@ Route to "Sales" if it mentions pricing or purchasing.
 Route to "Support" if it describes a problem or issue.
 \`\`\`
 
-**Output:** The branching node outputs \`{chosenBranch, chosenBranchId}\`. Downstream nodes can reference \`{{branchNodeUUID.chosenBranch}}\` (the branch name) and \`{{branchNodeUUID.chosenBranchId}}\` (the branch ID), as well as any upstream node data.`
-      },
-      {
-        path: "node-types/logic/branching/PROMPT_MODE_GUIDE.md",
-        content: `# Branching Prompt Mode — Instructions Writing Guide
+**Output:** The branching node outputs \`{chosenBranch, chosenBranchId}\`. Downstream nodes can reference \`{{branchNodeUUID.chosenBranch}}\` (the branch name) and \`{{branchNodeUUID.chosenBranchId}}\` (the branch ID), as well as any upstream node data.` },
+      { path: "node-types/logic/branching/PROMPT_MODE_GUIDE.md", content: `# Branching Prompt Mode — Instructions Writing Guide
 
 When a branching node uses \`type: "prompt"\`, the AI reads the \`instructions\` field plus the branch names and descriptions to decide which branch to take. This guide teaches how to write effective instructions.
 
@@ -29807,11 +29391,8 @@ Neutral tone, asking questions → standard_inquiry.
 - [ ] At least one \`{{nodeUUID.field}}\` variable reference to upstream data
 - [ ] If branches can overlap, tiebreaker rule is stated
 - [ ] Criteria use observable signals (keywords, field values, patterns), not abstract judgments
-- [ ] Instructions would work for ANY input matching the trigger schema, not just the test data`
-      },
-      {
-        path: "node-types/logic/human-input/GUIDE.md",
-        content: `# Human Input
+- [ ] Instructions would work for ANY input matching the trigger schema, not just the test data` },
+      { path: "node-types/logic/human-input/GUIDE.md", content: `# Human Input
 
 ## Node Type Identifier
 
@@ -30483,11 +30064,8 @@ You can also reference the entire output as a whole object (useful in aiTask or 
 - [Human-in-the-Loop pattern](../../../reference/workflow-patterns/patterns/human-in-the-loop.md) -- architecture diagrams, data flow examples, production workflows
 - [Content Generation template](../../../reference/workflow-patterns/templates/content-generation.md) -- complete workflow using humanInput for storyline validation
 - [Branching GUIDE -- Logic Mode](../branching/GUIDE.md) -- branch on humanInput output with \`equals\`, \`array_is_empty\`
-- [Gotchas #25-27](../../../reference/gotchas.md) -- endConversationSchema format, instructions as system prompt, array branching`
-      },
-      {
-        path: "node-types/logic/loop/GUIDE.md",
-        content: `# Loop
+- [Gotchas #25-27](../../../reference/gotchas.md) -- endConversationSchema format, instructions as system prompt, array branching` },
+      { path: "node-types/logic/loop/GUIDE.md", content: `# Loop
 
 ## Node Type Identifier
 
@@ -30953,11 +30531,8 @@ nexus execution node-result "<execId>" "<innerNodeId2>" --json
 WRONG: Test loopStart → test inner nodes individually → each has no loop data.
 RIGHT: Test the loop node → inspect inner results via \`nexus execution node-result\`.
 
-The full workflow test (Phase 5) is NOT a substitute for this. The full test may not expose per-inner-node results.`
-      },
-      {
-        path: "node-types/logic/sub-workflow/GUIDE.md",
-        content: `# Sub-Workflow
+The full workflow test (Phase 5) is NOT a substitute for this. The full test may not expose per-inner-node results.` },
+      { path: "node-types/logic/sub-workflow/GUIDE.md", content: `# Sub-Workflow
 
 ## Node Type Identifier
 
@@ -31161,11 +30736,8 @@ The \`parametersSetup\` field supports variable references for dynamic input:
 {{SUBWORKFLOW_NODE_UUID.result.fieldName}}
 \`\`\`
 
-The output structure depends on the target workflow's output node configuration.`
-      },
-      {
-        path: "node-types/output/output-node/GUIDE.md",
-        content: `# Output Node
+The output structure depends on the target workflow's output node configuration.` },
+      { path: "node-types/output/output-node/GUIDE.md", content: `# Output Node
 
 ## Node Type Identifier
 
@@ -31336,11 +30908,8 @@ For "text" mode:
 Results: {{PROCESSING_NODE_UUID.count}} items processed with status {{PROCESSING_NODE_UUID.status}}
 \`\`\`
 
-**Output:** The output node is terminal -- it does not produce variables for downstream nodes. Its output is the workflow's final result, returned in the workflow execution response.`
-      },
-      {
-        path: "node-types/processing/ai-node/GUIDE.md",
-        content: `# AI Node (AI Task)
+**Output:** The output node is terminal -- it does not produce variables for downstream nodes. Its output is the workflow's final result, returned in the workflow execution response.` },
+      { path: "node-types/processing/ai-node/GUIDE.md", content: `# AI Node (AI Task)
 
 > Object-typed fields in \`jsonInputSchema\` / \`jsonOutputSchema\` must declare \`properties\` — see CLAUDE.md G#13.
 
@@ -31714,11 +31283,8 @@ The \`parametersSetup\` entries support variable references in the \`variable\` 
 {{AI_NODE_UUID.action_items}}
 \`\`\`
 
-The output structure depends on the selected task's output schema.`
-      },
-      {
-        path: "node-types/processing/custom-script/GUIDE.md",
-        content: `# Custom Script
+The output structure depends on the selected task's output schema.` },
+      { path: "node-types/processing/custom-script/GUIDE.md", content: `# Custom Script
 
 > Object-typed fields in \`outputFormat\` must declare \`properties\` — see CLAUDE.md G#13.
 
@@ -31971,11 +31537,8 @@ The custom script node does not use \`{{...}}\` variable references in its \`cod
 {{SCRIPT_NODE_UUID.total}}
 \`\`\`
 
-If the function returns an object, downstream nodes can access individual properties via dot notation.`
-      },
-      {
-        path: "node-types/processing/json-parse/GUIDE.md",
-        content: `# JSON Parse
+If the function returns an object, downstream nodes can access individual properties via dot notation.` },
+      { path: "node-types/processing/json-parse/GUIDE.md", content: `# JSON Parse
 
 ## Node Type Identifier
 
@@ -32092,11 +31655,8 @@ The \`jsonString\` field supports inline variable references:
 {{JSON_PARSE_NODE_UUID.tags[0]}}
 \`\`\`
 
-The output structure mirrors whatever JSON was parsed.`
-      },
-      {
-        path: "node-types/processing/jsonata/GUIDE.md",
-        content: `# JSONata
+The output structure mirrors whatever JSON was parsed.` },
+      { path: "node-types/processing/jsonata/GUIDE.md", content: `# JSONata
 
 ## Node Type Identifier
 
@@ -32237,11 +31797,8 @@ The API translates these references bidirectionally (to/from internal HTML menti
 {{JSONATA_NODE_UUID.items}}
 \`\`\`
 
-The output structure depends on what the JSONata expression produces.`
-      },
-      {
-        path: "node-types/processing/parallel-ai/GUIDE.md",
-        content: `# Parallel AI
+The output structure depends on what the JSONata expression produces.` },
+      { path: "node-types/processing/parallel-ai/GUIDE.md", content: `# Parallel AI
 
 > **⚠ STOP — Schema Capacity gate (RECURRING failure mode).** Before configuring any \`parallelai → <consumer>\` chain, count the consumer's required input fields and compare to the capacity of a single \`parallelai\` at the chosen tier: \`nexus task get <consumerId> --json | jq '.jsonInputSchema | keys | length'\` and read the Processor Tiers table for your tier's typical capacity. **If consumer-required > single-node-capacity-at-acceptable-tier, single-\`parallelai\` is BLOCKED — fan-out by theme/dimension is the architecture, not a recommendation.** Bucket by whatever themes make sense for your domain (e.g., firmographics + leadership + domain-signals + per-person deep dives for sales enrichment; or features + benchmarks + reviews + technical-spec for product research) — feeding a \`customScript\` spread-merge into the consumer. NEVER compress the consumer schema or pad missing fields with prose defaults — that's silent quality failure (see CLAUDE.md Universal Gotcha #19 + #20).
 >
@@ -32588,11 +32145,8 @@ Best for: "Find all AI startups in YC F25 batch", "Discover all PE funds in Belg
 | Text input mode for structured data | Less precise, harder to map fields | Use \`inputMode: "json"\` with structured inputSchema |
 | Not configuring output node | Workflow returns nothing useful | Set \`outputType: "previous"\` and \`instructions: "{{parallelaiNodeId}}"\` (NOT \`output\`, NOT \`"custom"\`) |
 | Using \`outputType: "custom"\` on output node | "custom" invokes an LLM that corrupts structured JSON — you get generic AI responses instead of your research data | Use \`outputType: "previous"\` with \`instructions: "{{parallelaiNodeId}}"\` for passthrough |
-| Using \`parametersSchema\` for trigger | Fields don't show in dashboard | Use \`parameters\` (not \`parametersSchema\`) for agent input trigger |`
-      },
-      {
-        path: "node-types/processing/plugin/GUIDE.md",
-        content: `# Plugin (Integration Node)
+| Using \`parametersSchema\` for trigger | Fields don't show in dashboard | Use \`parameters\` (not \`parametersSchema\`) for agent input trigger |` },
+      { path: "node-types/processing/plugin/GUIDE.md", content: `# Plugin (Integration Node)
 
 ## Node Type Identifier
 
@@ -33053,11 +32607,8 @@ nexus api POST /tools/<toolId>/resolve-options --body '{
 
 **Without \`configuredProps\`** the resolver has no context — returns empty options or errors. Always pass the parent prop value(s).
 
-**At design time** (configuring the plugin node in the dashboard), the UI does this automatically. **At CLI build time** (you constructing \`parametersSetup\` programmatically), you must call \`resolve-options\` per dependent prop in order. Persist the chosen \`value\` (not \`label\`) into the node's \`parametersSetup\`.`
-      },
-      {
-        path: "node-types/processing/search-collection/GUIDE.md",
-        content: `# Search Collection
+**At design time** (configuring the plugin node in the dashboard), the UI does this automatically. **At CLI build time** (you constructing \`parametersSetup\` programmatically), you must call \`resolve-options\` per dependent prop in order. Persist the chosen \`value\` (not \`label\`) into the node's \`parametersSetup\`.` },
+      { path: "node-types/processing/search-collection/GUIDE.md", content: `# Search Collection
 
 ## Node Type Identifier
 
@@ -33190,11 +32741,8 @@ The \`parametersSetup\` entries support variable references in the \`variable\` 
 {{SEARCH_NODE_UUID.results[0].score}}
 \`\`\`
 
-The output typically includes an array of matching document chunks with content and relevance scores.`
-      },
-      {
-        path: "node-types/processing/text-formatter/GUIDE.md",
-        content: `# Text Formatter
+The output typically includes an array of matching document chunks with content and relevance scores.` },
+      { path: "node-types/processing/text-formatter/GUIDE.md", content: `# Text Formatter
 
 ## Node Type Identifier
 
@@ -33312,11 +32860,8 @@ The API automatically translates these references to the internal format on writ
 {{TEXT_FORMATTER_NODE_UUID}}
 \`\`\`
 
-There is no nested path on the output -- the entire output is the resolved text string.`
-      },
-      {
-        path: "node-types/processing/timer/GUIDE.md",
-        content: `# Timer
+There is no nested path on the output -- the entire output is the resolved text string.` },
+      { path: "node-types/processing/timer/GUIDE.md", content: `# Timer
 
 ## Node Type Identifier
 
@@ -33423,11 +32968,8 @@ The timer node does not use \`{{...}}\` variable references in its configuration
 {{UPSTREAM_NODE_UUID.someField}}
 \`\`\`
 
-The timer itself does not add any data to the workflow context.`
-      },
-      {
-        path: "node-types/triggers/agent-input-trigger/GUIDE.md",
-        content: `# Agent Input Trigger
+The timer itself does not add any data to the workflow context.` },
+      { path: "node-types/triggers/agent-input-trigger/GUIDE.md", content: `# Agent Input Trigger
 
 > Object-typed \`parameters[]\` (when \`type: "object"\`) must declare \`properties\` — see CLAUDE.md G#13.
 
@@ -33575,11 +33117,8 @@ The output schema corresponds directly to the \`parameters\` object you defined:
     "max_results": "number"
   }
 }
-\`\`\``
-      },
-      {
-        path: "node-types/triggers/platform-listener-trigger/GUIDE.md",
-        content: `# Platform Listener Trigger
+\`\`\`` },
+      { path: "node-types/triggers/platform-listener-trigger/GUIDE.md", content: `# Platform Listener Trigger
 
 ## Node Type Identifier
 
@@ -33681,11 +33220,8 @@ nexus api POST "/workflows/$WF/nodes" --body '{
 
 - \`../../../reference/node-types-overview.md\` — full trigger list
 - CLAUDE.md G#14 — \`workflow test\` only fires sync triggers
-- CLAUDE.md G#13 — object schema \`properties\` rule`
-      },
-      {
-        path: "node-types/triggers/plugin-trigger/GUIDE.md",
-        content: `# Plugin Trigger
+- CLAUDE.md G#13 — object schema \`properties\` rule` },
+      { path: "node-types/triggers/plugin-trigger/GUIDE.md", content: `# Plugin Trigger
 
 ## Node Type Identifier
 
@@ -33847,11 +33383,8 @@ Why: a Pipedream source (the actual event listener on Pipedream's infra) is prov
 
 ## \`runOutput\` is TRIGGER-ONLY
 
-\`runOutput\` is a trigger-only field. Attempting to set it on any non-trigger node (aiTask, plugin, branching, outputNode) via \`nexus workflow node update\` or \`nexus api PATCH\` returns 200 but silently drops the value (root Rule #20 SILENT ACCEPTANCE sub-pattern). To seed realistic test data for downstream nodes, set \`runOutput\` on THIS trigger node with data that flows through the test chain. See workflow-builder SKILL.md Phase 2 step 6 for details.`
-      },
-      {
-        path: "node-types/triggers/schedule-trigger/GUIDE.md",
-        content: `# Schedule Trigger
+\`runOutput\` is a trigger-only field. Attempting to set it on any non-trigger node (aiTask, plugin, branching, outputNode) via \`nexus workflow node update\` or \`nexus api PATCH\` returns 200 but silently drops the value (root Rule #20 SILENT ACCEPTANCE sub-pattern). To seed realistic test data for downstream nodes, set \`runOutput\` on THIS trigger node with data that flows through the test chain. See workflow-builder SKILL.md Phase 2 step 6 for details.` },
+      { path: "node-types/triggers/schedule-trigger/GUIDE.md", content: `# Schedule Trigger
 
 ## Node Type Identifier
 
@@ -33973,11 +33506,8 @@ nexus workflow node update "$WF_ID" "$TRIGGER_ID" --body '{
 
 Schedule triggers do not produce output variables. Downstream nodes cannot reference data from a schedule trigger because it carries no payload. The trigger merely starts execution at the scheduled time.
 
-If downstream nodes need an initial data source, add a plugin node, custom script, or API call as the first processing step to fetch data.`
-      },
-      {
-        path: "node-types/triggers/webhook-trigger/GUIDE.md",
-        content: `# Webhook Trigger
+If downstream nodes need an initial data source, add a plugin node, custom script, or API call as the first processing step to fetch data.` },
+      { path: "node-types/triggers/webhook-trigger/GUIDE.md", content: `# Webhook Trigger
 
 > Object-typed schema fields in \`exampleData\` (nested objects) must declare \`properties\` — see CLAUDE.md G#13.
 
@@ -34201,11 +33731,8 @@ The output schema of a webhook trigger is:
   "headers": "object (the request headers)",
   "query": "object (URL query parameters)"
 }
-\`\`\``
-      },
-      {
-        path: "reference/batch-scaffolding.md",
-        content: `# Batch Scaffolding Reference
+\`\`\`` },
+      { path: "reference/batch-scaffolding.md", content: `# Batch Scaffolding Reference
 
 > **⚠ Pre-flight before batch:** every plugin action you plan to include MUST be probed via \`nexus external-tool execute\` (see \`node-types/processing/plugin/GUIDE.md\` Pre-flight section) BEFORE batch scaffold. Cost: 30s per action. Skipping it costs 1–2 turns of rework when a Pipedream component turns out to lack body fields, has wrong required fields, or is rate-limited under your credential.
 
@@ -34599,11 +34126,8 @@ WRONG: Using \`@loopStart\` when your loop ref is \`my_loop\`.
 RIGHT: Using \`@{loop_ref}Start\` — match the actual ref name.
 \`\`\`json
 { "source": "@my_loopStart", "target": "@process" }
-\`\`\``
-      },
-      {
-        path: "reference/endpoints.md",
-        content: `# Workflow Endpoints Reference
+\`\`\`` },
+      { path: "reference/endpoints.md", content: `# Workflow Endpoints Reference
 
 All paths are relative to \`\${NEXUS_BASE_URL}/api/public/v1\` (default: \`https://api.nexusgpt.io\`).
 All requests require the \`api-key: nxs_...\` header.
@@ -35618,11 +35142,8 @@ No request body.
 
 **Status codes:** 200 OK, 400 Not cancellable (already completed), 404 Not found
 
-**SDK:** \`api.post("/workflows/<wfId>/executions/<execId>/stop")\``
-      },
-      {
-        path: "reference/gotchas.md",
-        content: `# Gotchas
+**SDK:** \`api.post("/workflows/<wfId>/executions/<execId>/stop")\`` },
+      { path: "reference/gotchas.md", content: `# Gotchas
 
 18 common mistakes when building workflows via the CLI. Each gotcha shows the wrong approach and the correct approach.
 
@@ -36897,11 +36418,8 @@ ANY object-typed schema field across ANY node type that declares \`{type: "objec
 
 Verified across: humanInput \`endConversationSchema\` object fields, agentInputTrigger object-typed \`parameters[]\`, webhookTrigger nested \`exampleData\` objects, aiTask \`jsonInputSchema\`/\`jsonOutputSchema\` object fields, parallelai schemas, customScript \`outputFormat\` object types.
 
-**Canonical rule:** CLAUDE.md G#13. **Fix:** declare \`properties\` w/ each allowed key + its type + a description. If keys are truly unknown at design time, use a \`prompt\`-mode handler (LLM extraction) + document the free-form convention in the field description.`
-      },
-      {
-        path: "reference/internet-search-guide.md",
-        content: `# Internet Search Decision Guide
+**Canonical rule:** CLAUDE.md G#13. **Fix:** declare \`properties\` w/ each allowed key + its type + a description. If keys are truly unknown at design time, use a \`prompt\`-mode handler (LLM extraction) + document the free-form convention in the field description.` },
+      { path: "reference/internet-search-guide.md", content: `# Internet Search Decision Guide
 
 When a workflow needs data from the internet, choose the right provider and action based on what you need.
 
@@ -36992,11 +36510,8 @@ Medium cost. Pricing depends on usage tier. Good for AI-powered search with sema
 | \`node-types/processing/parallel-ai/GUIDE.md\` | Full parallelai node configuration, tested examples, action types, common mistakes |
 | \`reference/parallel-output-schema-guidelines.md\` | 6-component field description structure, entity standards, search strategy, anti-patterns |
 | \`reference/parallel-openapi.json\` | Complete Parallel API OpenAPI spec |
-| \`reference/parallel-pricing.md\` | Synthesized pricing tables for all Parallel products |`
-      },
-      {
-        path: "reference/node-types-overview.md",
-        content: `# Node Types Overview
+| \`reference/parallel-pricing.md\` | Synthesized pricing tables for all Parallel products |` },
+      { path: "reference/node-types-overview.md", content: `# Node Types Overview
 
 This document lists every workflow node type available in Nexus. Use it to find the right \`type\` value for \`nexus workflow node create\` or \`nexus workflow trigger\`.
 
@@ -37276,11 +36791,8 @@ There are no limits on the number of outgoing edges a node can have (fan-out). F
 
 ---
 
-This table was generated from the live API on 2026-04-05. If types are missing, run \`nexus workflow node-type --json\` for the authoritative list.`
-      },
-      {
-        path: "reference/parallel-output-schema-guidelines.md",
-        content: `# JSON Schema Guidelines for Parallel Internet Research Tasks
+This table was generated from the live API on 2026-04-05. If types are missing, run \`nexus workflow node-type --json\` for the authoritative list.` },
+      { path: "reference/parallel-output-schema-guidelines.md", content: `# JSON Schema Guidelines for Parallel Internet Research Tasks
 
 ## Overview
 
@@ -37561,11 +37073,8 @@ Before finalizing any schema:
 
 **REMEMBER**: These guidelines apply to researching ANY topic - organizations, people, events, products, locations, concepts. The principles remain constant while specific implementations adapt to the research domain.
 
-Use this as both specification and quality gate. Any schema not meeting these standards requires revision until achieving Production-level certification.`
-      },
-      {
-        path: "reference/parallel-pricing.md",
-        content: `# Parallel API Pricing
+Use this as both specification and quality gate. Any schema not meeting these standards requires revision until achieving Production-level certification.` },
+      { path: "reference/parallel-pricing.md", content: `# Parallel API Pricing
 
 ## Task API Processors
 
@@ -37599,11 +37108,8 @@ Use this as both specification and quality gate. Any schema not meeting these st
 | Core | $2.00 + $0.15/match |
 | Pro | $10.00 + $1.00/match |
 
-FindAll enrichments use Task API processor pricing.`
-      },
-      {
-        path: "reference/pipedream-plugins.md",
-        content: `# Pipedream Plugin Lifecycle
+FindAll enrichments use Task API processor pricing.` },
+      { path: "reference/pipedream-plugins.md", content: `# Pipedream Plugin Lifecycle
 
 Plugin (\`plugin\`) and plugin trigger (\`pluginTrigger\`) nodes integrate with 2,000+ third-party services via Pipedream. This document covers the complete lifecycle from searching for a tool to testing the configured node.
 
@@ -38169,11 +37675,8 @@ nexus workflow node update "$WF_ID" "$NODE_ID" --body '{"data": {"parametersSetu
 
 # 10. Test
 nexus workflow node test "$WF_ID" "$NODE_ID" --json
-\`\`\``
-      },
-      {
-        path: "reference/test-snippets.md",
-        content: `# Test snippets — workflow node testing helpers
+\`\`\`` },
+      { path: "reference/test-snippets.md", content: `# Test snippets — workflow node testing helpers
 
 Copy-paste bash helpers for the \`Configure → Test → Inspect\` cycle (workflow-builder SKILL.md Phase 3 + Phase 4). Addresses G#37 (tracking-ref \`executionId\` ≠ real execId).
 
@@ -38233,11 +37736,8 @@ Empty array → all customScripts have populated outputFormat (every script was 
 **Back-refs:**
 - \`nexus-workflow-builder/SKILL.md\` Phase 3/4 (test-and-inspect cycle)
 - CLAUDE.md Reference File Index
-- \`nexus-workflow-builder/reference/gotchas.md\` G#37 (executionId tracking-ref vs real execId)`
-      },
-      {
-        path: "reference/validation-rules.md",
-        content: `# Validation Rules
+- \`nexus-workflow-builder/reference/gotchas.md\` G#37 (executionId tracking-ref vs real execId)` },
+      { path: "reference/validation-rules.md", content: `# Validation Rules
 
 This document covers every validation rule enforced by the workflow builder: edge validation, per-node config status, variable reference validation, and full graph validation.
 
@@ -38477,11 +37977,8 @@ You never need to worry about the internal format. Write \`{{nodeUUID.property}}
 
 - **critical** -- Missing required field. Blocks publishing.
 - **error** -- Invalid variable reference. Blocks publishing.
-- **warning** -- Non-blocking issue (e.g., no output node, short schedule interval).`
-      },
-      {
-        path: "reference/webhook-discovery.md",
-        content: `# Webhook Payload Discovery
+- **warning** -- Non-blocking issue (e.g., no output node, short schedule interval).` },
+      { path: "reference/webhook-discovery.md", content: `# Webhook Payload Discovery
 
 Carved from \`SKILL.md\` Phase 1. Cited by: \`SKILL.md\` Tier 1 trigger Q, CLAUDE.md Reference File Index.
 
@@ -38517,11 +38014,8 @@ NEVER invent a schema and proceed silently. NEVER assume external service uses \
 
 ## Production webhook URL delivery (Phase 5 reminder)
 
-After publish, extract from \`nexus workflow get $WF_ID --json\` → \`nodes[type=webhookTrigger].data.webhookUrl\`. Deliver to user with service-specific configuration steps. The URL IS the deliverable — without it, nothing triggers. See SKILL.md Phase 5 post-publish enumeration.`
-      },
-      {
-        path: "reference/workflow-patterns/README.md",
-        content: `# Workflow Patterns
+After publish, extract from \`nexus workflow get $WF_ID --json\` → \`nodes[type=webhookTrigger].data.webhookUrl\`. Deliver to user with service-specific configuration steps. The URL IS the deliverable — without it, nothing triggers. See SKILL.md Phase 5 post-publish enumeration.` },
+      { path: "reference/workflow-patterns/README.md", content: `# Workflow Patterns
 
 Before designing a workflow from scratch, find the closest matching pattern below. Each pattern file contains the architecture, data flow with JSON examples at every stage, node type rationale, handler configuration, WRONG/RIGHT pairs, and production workflow references.
 
@@ -38663,11 +38157,8 @@ These are the atomic decisions that recur across all patterns. Each is covered i
 | Structured human output | \`endConversationSchema\` ensures typed, machine-readable human responses | \`humanInput\` | human-in-the-loop |
 | Logic-mode branching on structured data | Boolean/array checks after human or DB responses | \`branching\` (logic) | human-in-the-loop, db-check-branch |
 | JSONata for data mapping | Declarative transformation for nested API responses | \`jsonata\` | linear-pipeline |
-| Cross-cutting concerns at orchestrator level | Document generation + email delivery in parent, not sub-workflows | \`generateDocument\` + \`plugin\` | sub-workflow-composition |`
-      },
-      {
-        path: "reference/workflow-patterns/building-blocks/document-generation.md",
-        content: `# Building Block: Document Generation Pipeline
+| Cross-cutting concerns at orchestrator level | Document generation + email delivery in parent, not sub-workflows | \`generateDocument\` + \`plugin\` | sub-workflow-composition |` },
+      { path: "reference/workflow-patterns/building-blocks/document-generation.md", content: `# Building Block: Document Generation Pipeline
 
 ## What It Does
 
@@ -38828,11 +38319,8 @@ Note: \`to\` uses \`variable\` handler (it is an array). \`subject\` uses \`manu
 
 5. **HTML email vs plain text.** Always set \`bodyType: html\` and build the email in customScript. HTML enables branded formatting, tables, links, and conditional sections. The prep_email customScript gives full control over rendering.
 
-6. **Include the download link in email, not as attachment.** All production workflows pass the document URL in the email body rather than attaching the file. This avoids attachment size limits and ensures the recipient always gets the latest version.`
-      },
-      {
-        path: "reference/workflow-patterns/building-blocks/id-resolution.md",
-        content: `# Building Block: ID Resolution
+6. **Include the download link in email, not as attachment.** All production workflows pass the document URL in the email body rather than attaching the file. This avoids attachment size limits and ensures the recipient always gets the latest version.` },
+      { path: "reference/workflow-patterns/building-blocks/id-resolution.md", content: `# Building Block: ID Resolution
 
 ## What It Does
 
@@ -39008,11 +38496,8 @@ The downstream node receives all resolved ID arrays and builds API-ready query p
 
 5. **Cache company profiles.** When the same companies appear in multiple workflows, use \`use_cache: "if-present"\` on the LinkedIn plugin. For assessment workflows where freshness matters, use \`use_cache: "never"\`.
 
-6. **Never pass natural identifiers to APIs that expect IDs.** This is gotcha #37. Email addresses, channel names, company names, and filenames are NOT valid parameter values for most platform APIs. Always resolve to platform-specific IDs first. The entire purpose of this building block is to prevent this class of errors.`
-      },
-      {
-        path: "reference/workflow-patterns/building-blocks/parallel-ai-research.md",
-        content: `# Building Block: Parallel AI Research (Fan-Out / Fan-In)
+6. **Never pass natural identifiers to APIs that expect IDs.** This is gotcha #37. Email addresses, channel names, company names, and filenames are NOT valid parameter values for most platform APIs. Always resolve to platform-specific IDs first. The entire purpose of this building block is to prevent this class of errors.` },
+      { path: "reference/workflow-patterns/building-blocks/parallel-ai-research.md", content: `# Building Block: Parallel AI Research (Fan-Out / Fan-In)
 
 ## What It Does
 
@@ -39163,11 +38648,8 @@ Each input \`node\` field MUST use \`{{UUID}}\` wrapping (gotcha #43).
 
 5. **Feed consolidation into an AI assessment.** The merged object from consolidate typically feeds an aiTask that synthesizes findings into scores, ratings, or recommendations. The AI task receives the complete picture but each parallelai node was independently focused.
 
-6. **Use schema descriptions as prompts.** Leave the parallelai \`instructions\` field empty and encode all research guidance in the \`outputSchema\` field descriptions. Each field description specifies: what to search for, where to look, how to infer missing data, and how to format the result. This produces more structured output than general instructions.`
-      },
-      {
-        path: "reference/workflow-patterns/building-blocks/perplexity-research.md",
-        content: `# Building Block: Perplexity Research Pipeline
+6. **Use schema descriptions as prompts.** Leave the parallelai \`instructions\` field empty and encode all research guidance in the \`outputSchema\` field descriptions. Each field description specifies: what to search for, where to look, how to infer missing data, and how to format the result. This produces more structured output than general instructions.` },
+      { path: "reference/workflow-patterns/building-blocks/perplexity-research.md", content: `# Building Block: Perplexity Research Pipeline
 
 ## What It Does
 
@@ -39307,11 +38789,8 @@ Original identifiers are passed alongside research so the AI can verify it profi
 
 5. **Add a confidence field.** Include a \`confidence\` string field in the structurer's output. The AI evaluates how certain it is about the findings. Essential for person enrichment where name disambiguation is a real risk.
 
-6. **Skip the query_builder for simple cases.** If you already have a well-formed query (e.g., from a human or upstream node), pass it directly to Perplexity via \`manual\` handler with inline text: \`"Find all information about {{trigger.company_name}} ({{trigger.website}}) with sources"\`.`
-      },
-      {
-        path: "reference/workflow-patterns/building-blocks/schema-transform-before-ai.md",
-        content: `# Building Block: Schema Transform Before AI
+6. **Skip the query_builder for simple cases.** If you already have a well-formed query (e.g., from a human or upstream node), pass it directly to Perplexity via \`manual\` handler with inline text: \`"Find all information about {{trigger.company_name}} ({{trigger.website}}) with sources"\`.` },
+      { path: "reference/workflow-patterns/building-blocks/schema-transform-before-ai.md", content: `# Building Block: Schema Transform Before AI
 
 ## What It Does
 
@@ -39469,11 +38948,8 @@ Use \`variable\` handler when passing the entire normalized array/object. Use \`
 
 5. **Build dimension-specific bundles.** When an AI task has many parameters, a single pre-computation customScript can split the raw data into focused bundles. The #20 SESR Score workflow builds 5 separate input objects from one candidate profile, ensuring each AI scorer sees only relevant data.
 
-6. **Transform before loops, not inside.** If you need to normalize API output before iterating, place the customScript between the API call and the loop. The loop iterator then receives clean, typed objects. This prevents repeating normalization logic in every loop iteration.`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/batch-scoring.md",
-        content: `# Batch Scoring
+6. **Transform before loops, not inside.** If you need to normalize API output before iterating, place the customScript between the API call and the loop. The loop iterator then receives clean, typed objects. This prevents repeating normalization logic in every loop iteration.` },
+      { path: "reference/workflow-patterns/patterns/batch-scoring.md", content: `# Batch Scoring
 
 ## When to Use
 
@@ -39857,11 +39333,8 @@ Each task focuses exclusively on its dimension.
 |----------|-----|-------|--------------------|
 | SESR Score | \`f2da9bfa-5f8e-445e-8e25-7712b1381973\` | 9 | Pre-compute + 5x parallel aiTask fan-out + post-compute. Configurable weights. Single-candidate design (parent handles iteration). |
 | CFA Assessment | \`55dbe60a-93ac-4c6b-8dc1-2536c20f0e6d\` | 54 | 10-criterion evaluation with document extraction, parallel research, shared AI task template for writing, HTML report generation + email. Most complex scoring workflow. |
-| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | Batch loop with 13K-char deterministic scoring + AI verdict hybrid. DB dedup before scoring. Pre-generated SQL for persistence. |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/config-driven-monitoring.md",
-        content: `# Config-Driven Monitoring
+| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | Batch loop with 13K-char deterministic scoring + AI verdict hybrid. DB dedup before scoring. Pre-generated SQL for persistence. |` },
+      { path: "reference/workflow-patterns/patterns/config-driven-monitoring.md", content: `# Config-Driven Monitoring
 
 ## When to Use
 
@@ -40260,11 +39733,8 @@ and production. No reliance on trigger-level test data.
 | Workflow | ID | Nodes | Key Characteristic |
 |----------|-----|-------|--------------------|
 | Innovation Digest | \`28c5938e-dea8-4c1c-a95a-fc5d3dbd9b31\` | 20 | Daily, single Google Sheet config, 3-level nested loops, customScript dedup, Slack DM delivery |
-| News Monitoring | \`9d9b26f3-a8c1-422a-948b-e53d9d076425\` | 22 | Monthly, 4-dimension parallel config (actors/themes/signals/regions), combinatorial queries, AI pre-filter + parallelai extract, Slack channel delivery |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/db-check-branch.md",
-        content: `# DB Check and Branch
+| News Monitoring | \`9d9b26f3-a8c1-422a-948b-e53d9d076425\` | 22 | Monthly, 4-dimension parallel config (actors/themes/signals/regions), combinatorial queries, AI pre-filter + parallelai extract, Slack channel delivery |` },
+      { path: "reference/workflow-patterns/patterns/db-check-branch.md", content: `# DB Check and Branch
 
 ## When to Use
 
@@ -40583,11 +40053,8 @@ Re-running the workflow for the same company updates rather than duplicates.
 
 | Workflow | ID | Nodes | Key Characteristic |
 |----------|-----|-------|--------------------|
-| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | Batch loop with DB dedup, 13K-char deterministic scoring + aiTask verdict hybrid, pre-generated SQL, MERGE for people records. The canonical implementation of this pattern. |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/fan-out-fan-in.md",
-        content: `# Fan-Out / Fan-In
+| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | Batch loop with DB dedup, 13K-char deterministic scoring + aiTask verdict hybrid, pre-generated SQL, MERGE for people records. The canonical implementation of this pattern. |` },
+      { path: "reference/workflow-patterns/patterns/fan-out-fan-in.md", content: `# Fan-Out / Fan-In
 
 ## When to Use
 
@@ -40929,11 +40396,8 @@ across all dimensions. Cheaper (smaller prompts).
 |----------|-----|-------|-----------------|
 | DeepQualification | \`f2513d9b-41fc-4ca7-b7d4-f8b0bf08c688\` | 13 | 7x parallelai research fan-out, customScript merge, aiTask assessment, customScript SQL gen, plugin DB write |
 | Company Search v2 | \`4af08cae-ec39-45a0-9213-56ac696c3c37\` | 12 | 3x parallelai + 5x aiTask normalizer two-tier fan-out, Exa preprocessing, flat merge output |
-| SESR Score | \`f2da9bfa-5f8e-445e-8e25-7712b1381973\` | 9 | Pre-compute + 5x aiTask evaluation fan-out + post-compute weighted aggregation |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/human-in-the-loop.md",
-        content: `# Human-in-the-Loop
+| SESR Score | \`f2da9bfa-5f8e-445e-8e25-7712b1381973\` | 9 | Pre-compute + 5x aiTask evaluation fan-out + post-compute weighted aggregation |` },
+      { path: "reference/workflow-patterns/patterns/human-in-the-loop.md", content: `# Human-in-the-Loop
 
 ## When to Use
 
@@ -41266,11 +40730,8 @@ Use Pattern A when branches produce different data shapes. Use Pattern B when th
 |----------|-----|-------|---------------|
 | LinkedIn Post Human | \`ba9f5de1-650c-4125-9560-c12f1964ac6c\` | 32 | After storyline generation, before writing + image generation. Logic-mode branching on \`extra_searches array_is_empty\`. Duplicated post-branches. |
 | Deep Research | \`d65d9ecb-2627-4756-bdaf-dd2bcb7e1765\` | 33 | After research plan generation, before 3-level nested search execution. Human validates plan structure to prevent runaway costs. |
-| Brand Report | \`6e717231-e24e-4e20-a36e-315c9e29b058\` | 77 | After AI insights generation, before document creation. Human validates business interpretation of KPI trends. |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/linear-pipeline.md",
-        content: `# Linear Pipeline
+| Brand Report | \`6e717231-e24e-4e20-a36e-315c9e29b058\` | 77 | After AI insights generation, before document creation. Human validates business interpretation of KPI trends. |` },
+      { path: "reference/workflow-patterns/patterns/linear-pipeline.md", content: `# Linear Pipeline
 
 ## When to Use
 
@@ -41503,11 +40964,8 @@ without an LLM call. Faster, cheaper, deterministic.
 | Workflow | ID | Nodes | Key Characteristic |
 |----------|-----|-------|--------------------|
 | Person Enrichment | \`3f0efc00-809a-45e8-94ba-2ebcc3ae8fd5\` | 5 | Simplest: generate-research-structure, 3 aiTask/plugin nodes in a chain |
-| SESR Enrich | \`657ba98c-43f2-451d-af5d-aeda70144a27\` | 7 | Loop variant: array input, plugin fetch + jsonata transform per item |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/loop-per-item-ai.md",
-        content: `# Loop Per-Item AI
+| SESR Enrich | \`657ba98c-43f2-451d-af5d-aeda70144a27\` | 7 | Loop variant: array input, plugin fetch + jsonata transform per item |` },
+      { path: "reference/workflow-patterns/patterns/loop-per-item-ai.md", content: `# Loop Per-Item AI
 
 ## When to Use
 
@@ -41812,11 +41270,8 @@ The customScript merge gives AI reasoning priority but falls back to rules.
 | Workflow | ID | Nodes | Key Characteristic |
 |----------|-----|-------|--------------------|
 | Innovation Digest | \`28c5938e-dea8-4c1c-a95a-fc5d3dbd9b31\` | 20 | article_loop: parallel aiTask scoring per article, customScript dedup after |
-| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | assessment loop: plugin fetch + DB check + customScript scoring (13K chars) + aiTask verdict per company |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/nested-loops.md",
-        content: `# Nested Loops
+| Company Assessment DB | \`2d4013de-c20f-4fee-8469-5cf97ca4d170\` | 15 | assessment loop: plugin fetch + DB check + customScript scoring (13K chars) + aiTask verdict per company |` },
+      { path: "reference/workflow-patterns/patterns/nested-loops.md", content: `# Nested Loops
 
 ## When to Use
 
@@ -42194,11 +41649,8 @@ Prevents runaway costs on a misguided research plan.
 |----------|-----|-------|---------------|--------------------|
 | Innovation Digest | \`28c5938e-dea8-4c1c-a95a-fc5d3dbd9b31\` | 20 | 3 levels | read_loop (tabs) -> query_loop (queries) -> article_loop (articles). All parallel. Config-driven from Google Sheets. |
 | Deep Research | \`d65d9ecb-2627-4756-bdaf-dd2bcb7e1765\` | 33 | 3 levels | subtopics -> questions -> queries. Human-validated plan. Quality-gated branching inside innermost loop. |
-| Brand Report | \`6e717231-e24e-4e20-a36e-315c9e29b058\` | 77 | 2 levels (x9) | 9 parallel KPI loops, each iterating over quarter/year pairs. Same iterator source for all 9 loops. |`
-      },
-      {
-        path: "reference/workflow-patterns/patterns/sub-workflow-composition.md",
-        content: `# Sub-Workflow Composition
+| Brand Report | \`6e717231-e24e-4e20-a36e-315c9e29b058\` | 77 | 2 levels (x9) | 9 parallel KPI loops, each iterating over quarter/year pairs. Same iterator source for all 9 loops. |` },
+      { path: "reference/workflow-patterns/patterns/sub-workflow-composition.md", content: `# Sub-Workflow Composition
 
 ## When to Use
 
@@ -42550,11 +42002,8 @@ operations that warrant independent testing and reuse.
 | SESR Main | \`b4f2a60a-dbc5-4e55-ad5e-fae0f112bef3\` | 8 | Sequential orchestrator: Search -> Enrich -> Score -> Generate -> Email. Selective parameter forwarding. |
 | SESR Enrich-Score | \`0fb8a7e6-593d-4e68-9214-85c2d4f981d6\` | 4 | Micro-orchestrator: Enrich -> Score. Alternative entry point that skips Search. |
 | Screen Industry | \`2f35e516-5786-428e-a0d1-6511af2ba6a7\` | 19 | Loop-based composition: Find_peers sub-workflow per company + SearchCompany sub-workflow per company. Progressive list building. |
-| Find Peers | \`2f8c0d9e-1cb8-43a3-8780-eb0385b6173a\` | 12 | Reusable sub-workflow: 2-level LinkedIn snowball discovery. Called 3x within its own loops (same sub-workflow reused). |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/assessment-report.md",
-        content: `# Template: Assessment & Report
+| Find Peers | \`2f8c0d9e-1cb8-43a3-8780-eb0385b6173a\` | 12 | Reusable sub-workflow: 2-level LinkedIn snowball discovery. Called 3x within its own loops (same sub-workflow reused). |` },
+      { path: "reference/workflow-patterns/templates/assessment-report.md", content: `# Template: Assessment & Report
 
 ## When to Use
 
@@ -42887,11 +42336,8 @@ All 10 writing tasks use the **same AI task ID**. Each receives different assess
 |---------|----------|----|----|
 | A (Compact) | SESR Score | \`f2da9bfa\` | 9 |
 | A (Batch + DB) | Company Assessment DB | \`2d4013de\` | 15 |
-| B (Full pipeline) | CFA Assessment | \`55dbe60a\` | 54 |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/batch-qualification.md",
-        content: `# Template: Batch Qualification
+| B (Full pipeline) | CFA Assessment | \`55dbe60a\` | 54 |` },
+      { path: "reference/workflow-patterns/templates/batch-qualification.md", content: `# Template: Batch Qualification
 
 ## When to Use
 
@@ -43216,11 +42662,8 @@ function func(d1, d2, d3, basic_info) {
 | Variant | Workflow | ID | Nodes |
 |---------|----------|----|----|
 | A (Single + DB) | DeepQualification | \`f2513d9b\` | 13 |
-| B (Batch) | DeepQualificationBatch | \`1c71f4d6\` | 15 |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/content-generation.md",
-        content: `# Template: Content Generation
+| B (Batch) | DeepQualificationBatch | \`1c71f4d6\` | 15 |` },
+      { path: "reference/workflow-patterns/templates/content-generation.md", content: `# Template: Content Generation
 
 ## When to Use
 
@@ -43577,11 +43020,8 @@ Output schema: \`{ thinking, storyline, missing_facts[] }\`. The \`missing_facts
 | Variant | Workflow | ID | Nodes |
 |---------|----------|----|----|
 | A (Autonomous) | LinkedIn Post Autonomous | \`8c60ecb0\` | 18 |
-| B (Human-validated) | LinkedIn Post Human | \`ba9f5de1\` | 32 |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/monitoring-digest.md",
-        content: `# Template: Monitoring & Digest
+| B (Human-validated) | LinkedIn Post Human | \`ba9f5de1\` | 32 |` },
+      { path: "reference/workflow-patterns/templates/monitoring-digest.md", content: `# Template: Monitoring & Digest
 
 ## When to Use
 
@@ -44018,11 +43458,8 @@ function func(all_results) {
 | Variant | Workflow | ID | Nodes |
 |---------|----------|----|----|
 | A (Daily keyword) | Innovation Daily Digest | \`28c5938e\` | 20 |
-| B (Monthly deep) | News Monitoring Digest | \`9d9b26f3\` | 22 |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/multi-stage-pipeline.md",
-        content: `# Template: Multi-Stage Pipeline (Orchestrator + Sub-Workflows)
+| B (Monthly deep) | News Monitoring Digest | \`9d9b26f3\` | 22 |` },
+      { path: "reference/workflow-patterns/templates/multi-stage-pipeline.md", content: `# Template: Multi-Stage Pipeline (Orchestrator + Sub-Workflows)
 
 ## When to Use
 
@@ -44330,11 +43767,8 @@ Generates complete HTML with branding. Typically includes a summary table and do
 | Stage 2 | SESR Enrich | \`657ba98c\` | 7 |
 | Stage 3 | SESR Score | \`f2da9bfa\` | 9 |
 | Micro-orchestrator | SESR Enrich-Score | \`0fb8a7e6\` | 4 |
-| Total unique nodes | -- | -- | 65 |`
-      },
-      {
-        path: "reference/workflow-patterns/templates/research-enrichment.md",
-        content: `# Template: Research & Enrichment
+| Total unique nodes | -- | -- | 65 |` },
+      { path: "reference/workflow-patterns/templates/research-enrichment.md", content: `# Template: Research & Enrichment
 
 ## When to Use
 
@@ -44602,17 +44036,14 @@ Input: { entity: { name: "Waterland", website_url: "waterlandpe.com",
 | Variant | Workflow | ID | Nodes |
 |---------|----------|----|----|
 | A (Simple) | Basic Person Enrichment | \`3f0efc00\` | 5 |
-| B (Deep) | SearchCompany v2 | \`4af08cae\` | 12 |`
-      }
-    ]
+| B (Deep) | SearchCompany v2 | \`4af08cae\` | 12 |` }
+    ],
   },
   "nexus-workflow-executions": {
     slug: "nexus-workflow-executions",
     description: "Debug WF runs + inspect node-level results. Setup/envelope → CLAUDE.md.",
     files: [
-      {
-        path: "SKILL.md",
-        content: `---
+      { path: "SKILL.md", content: `---
 name: nexus-workflow-executions
 description: Views workflow execution history, debugs failed runs, inspects node-level results, retries failed nodes, and exports execution data via the Public API v1.
 ---
@@ -44655,11 +44086,8 @@ E.g., \`nexus external-tool execute <gmailId> --action gmail-find-email --input 
 | PENDING | Queued, not started |
 | RUNNING | Currently executing |
 | COMPLETED | Finished successfully |
-| FAILED | Encountered an error |`
-      },
-      {
-        path: "examples/01-debug-failed-run.ts",
-        content: `/**
+| FAILED | Encountered an error |` },
+      { path: "examples/01-debug-failed-run.ts", content: `/**
  * Find and debug a failed workflow execution.
  * Run: npx tsx examples/01-debug-failed-run.ts
  */
@@ -44695,31 +44123,12 @@ async function main() {
   }
 }
 
-main().catch(console.error);`
-      }
-    ]
+main().catch(console.error);` }
+    ],
   }
 };
 
-export const SKILL_LIST: string[] = [
-  "nexus-agent-management",
-  "nexus-analytics",
-  "nexus-cloud-imports",
-  "nexus-deployments",
-  "nexus-emulator",
-  "nexus-evaluations",
-  "nexus-getting-started",
-  "nexus-inbox-management",
-  "nexus-knowledge-base",
-  "nexus-prompt-assistant",
-  "nexus-skills-and-tasks",
-  "nexus-tickets",
-  "nexus-tool-connection",
-  "nexus-tool-execute",
-  "nexus-tracing",
-  "nexus-workflow-builder",
-  "nexus-workflow-executions"
-];
+export const SKILL_LIST: string[] = ["nexus-agent-management","nexus-analytics","nexus-cloud-imports","nexus-deployments","nexus-emulator","nexus-evaluations","nexus-getting-started","nexus-inbox-management","nexus-knowledge-base","nexus-prompt-assistant","nexus-skills-and-tasks","nexus-tickets","nexus-tool-connection","nexus-tool-execute","nexus-tracing","nexus-workflow-builder","nexus-workflow-executions"];
 
 export const CLAUDE_MD: string = `# Nexus — Claude Code Skills
 
@@ -45235,9 +44644,7 @@ Common codes: \`VALIDATION_ERROR\`, \`INVALID_API_KEY\`, \`NOT_FOUND\`, \`CONFLI
 \`SANDBOX_READY_TIMEOUT\` / \`SANDBOX_PROVISIONING_FAILED\` = transient; server retries (build-then-swap rotation). Surface to user only if persists after server retry — don't wrap in client-side retry logic.`;
 
 export const SHARED_FILES: SkillFile[] = [
-  {
-    path: "SKILL.md",
-    content: `---
+  { path: "SKILL.md", content: `---
 name: shared
 description: Shared utilities and helpers used by other skills. This is not a skill — do not route user intents here. Contains reusable code (API client, SDK client, helpers) that skills import internally.
 ---
@@ -45252,11 +44659,8 @@ This is **not a skill**. It contains shared utilities that other skills depend o
 |------|---------|
 | \`api-client.ts\` | Low-level API client for Nexus endpoints |
 | \`sdk-client.ts\` | SDK client wrapper |
-| \`helpers.ts\` | Common helper functions used across skills |`
-  },
-  {
-    path: "api-client.ts",
-    content: `/**
+| \`helpers.ts\` | Common helper functions used across skills |` },
+  { path: "api-client.ts", content: `/**
  * Nexus Public API v1 — Lightweight HTTP Client
  *
  * Zero dependencies. Uses native fetch.
@@ -45383,11 +44787,8 @@ export function createClient(opts: ClientOptions = {}) {
   };
 }
 
-export type NexusClient = ReturnType<typeof createClient>;`
-  },
-  {
-    path: "helpers.ts",
-    content: `/**
+export type NexusClient = ReturnType<typeof createClient>;` },
+  { path: "helpers.ts", content: `/**
  * Shared helpers for Claude Code Skills examples.
  *
  * Provides assertions, polling, cleanup, and logging utilities.
@@ -45489,11 +44890,8 @@ export function fail(message: string) {
 export function dashboardUrl(path: string): string {
   const base = (process.env.NEXUS_DASHBOARD_URL ?? "https://gpt.nexus").replace(/\\/+$/, "");
   return \`\${base}\${path}\`;
-}`
-  },
-  {
-    path: "sdk-client.ts",
-    content: `/**
+}` },
+  { path: "sdk-client.ts", content: `/**
  * SDK-based Nexus client alternative.
  *
  * Uses the @agent-nexus/sdk package for typed API access.
@@ -45512,8 +44910,7 @@ export function createSdkClient(opts?: { apiKey?: string; baseUrl?: string }) {
     apiKey: opts?.apiKey ?? process.env.NEXUS_API_KEY,
     baseUrl: opts?.baseUrl ?? process.env.NEXUS_BASE_URL ?? "http://localhost:3001"
   });
-}`
-  }
+}` }
 ];
 
 export const SKILLS_NEXUS_SHA: string = "6c4151af588a939c61f4b119b7e95471226526dd";

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { NexusApiError } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -319,4 +320,100 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // ── update ─────────────────────────────────────────────────────────────
+  externalTool
+    .command("update")
+    .description(
+      "Update an external tool (name, description, documentation, endpointUrl, openApiSpec, auth)"
+    )
+    .argument("<id>", "External tool ID")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .option("--name <name>", "Override / set the tool name")
+    .option("--description <text>", "Override / set the description")
+    .option("--endpoint-url <url>", "Override / set the endpoint URL")
+    .addHelpText(
+      "after",
+      `
+PATCH path on the Public API: /skills/external-tools/{id}
+
+Examples:
+  $ nexus external-tool update ext-123 --name "Renamed Tool"
+  $ nexus external-tool update ext-123 --body update.json
+  $ nexus external-tool update ext-123 --body update.json --description "New description"`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = opts.body ? await resolveBody(opts.body) : {};
+        const flags: Record<string, unknown> = {};
+        if (opts.name) flags.name = opts.name;
+        if (opts.description) flags.description = opts.description;
+        if (opts.endpointUrl) flags.endpointUrl = opts.endpointUrl;
+        const body = mergeBodyWithFlags(base, flags);
+
+        const t = await client.skills.updateExternalTool(id, body as any);
+        printSuccess("External tool updated.", { id: t.id, name: t.name });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── delete ─────────────────────────────────────────────────────────────
+  externalTool
+    .command("delete")
+    .description("Delete an external tool")
+    .argument("<id>", "External tool ID")
+    .option("--force", "Cascade-delete: also remove any agent tool configs referencing this tool")
+    .addHelpText(
+      "after",
+      `
+By default this refuses to delete if any agent tool config references the
+tool — the error lists up to 10 references plus the remaining count. Re-run
+with --force to cascade-delete the references along with the tool.
+
+Examples:
+  $ nexus external-tool delete ext-123
+  $ nexus external-tool delete ext-123 --force`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        await client.skills.deleteExternalTool(id, { force: !!opts.force });
+        printSuccess("External tool deleted.", { id });
+      } catch (err) {
+        // Special-case the 409 from the "has attachments" guard so we can
+        // print the sample list and the --force hint. Everything else
+        // falls through to the generic error handler.
+        const attachments = extractToolHasAttachmentsDetails(err);
+        if (attachments) {
+          printToolHasAttachmentsError(attachments);
+          process.exitCode = 1;
+          return;
+        }
+        process.exitCode = handleError(err);
+      }
+    });
+}
+
+type AttachmentsDetails = {
+  total: number;
+  sample: Array<{ id: string; label: string; agentId: string; agentName: string }>;
+};
+
+function extractToolHasAttachmentsDetails(err: unknown): AttachmentsDetails | null {
+  if (!(err instanceof NexusApiError)) return null;
+  if (err.status !== 409 || err.code !== "TOOL_HAS_ATTACHMENTS") return null;
+  return (err.details as AttachmentsDetails) ?? null;
+}
+
+function printToolHasAttachmentsError({ total, sample }: AttachmentsDetails): void {
+  console.error(`Cannot delete: ${total} agent tool config(s) reference this external tool:`);
+  for (const a of sample) {
+    console.error(`  • ${a.label}  (agent: ${a.agentName})`);
+  }
+  if (total > sample.length) {
+    console.error(`  • … and ${total - sample.length} more`);
+  }
+  console.error("\nRe-run with --force to cascade-delete the references along with the tool.");
 }

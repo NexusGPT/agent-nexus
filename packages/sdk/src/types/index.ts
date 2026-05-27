@@ -134,6 +134,7 @@ export type {
   CreateDocumentTemplateBody,
   CreateExternalToolBody,
   CreateTaskBody,
+  DeleteExternalToolResponse,
   DocumentTemplateDetail,
   DocumentTemplateSummary,
   ExternalToolAuth,
@@ -148,6 +149,7 @@ export type {
   TaskSummary,
   TestExternalToolBody,
   TestExternalToolResponse,
+  UpdateExternalToolBody,
   WorkflowSummary
 } from "./skills";
 export type {

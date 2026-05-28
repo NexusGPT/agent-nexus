@@ -104,6 +104,7 @@ export class ToolConnectionResource extends BaseResource {
       status: "EXPIRED",
       connectionId: null,
       errorMessage: "Polling timed out",
+      errorCode: null,
       expiresAt: null
     };
   }

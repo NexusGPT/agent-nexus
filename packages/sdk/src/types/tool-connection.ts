@@ -42,11 +42,24 @@ export interface ConnectToolHttpResponse {
 // Handshake status
 // ============================================================================
 
+/**
+ * Stable, machine-readable classification for FAILED/EXPIRED handshakes
+ * so SDK consumers can branch on the cause without parsing the
+ * human-readable `errorMessage`. Null on PENDING/COMPLETED and on
+ * unclassified FAILED outcomes. Mirrors the backend's
+ * `HandshakeStatusResponseSchema` (`packages/types/src/api/public/v1/schemas/tool-connection.schemas.ts`).
+ */
+export type HandshakeErrorCode =
+  | "ORG_HAS_NO_MEMBERS"
+  | "PIPEDREAM_TOOL_NOT_IN_MARKETPLACE"
+  | "PIPEDREAM_INVALID_ACCOUNT";
+
 /** Status of an OAuth handshake polling request. */
 export interface HandshakeStatusResponse {
   status: "PENDING" | "COMPLETED" | "FAILED" | "EXPIRED";
   connectionId: string | null;
   errorMessage: string | null;
+  errorCode: HandshakeErrorCode | null;
   expiresAt: string | null;
 }
 

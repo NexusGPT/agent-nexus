@@ -5,7 +5,13 @@ import { Command } from "commander";
 
 import { handleError } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
-import { SKILL_LIST, type SkillEntry, SKILLS } from "../skills-content.generated";
+import {
+  CLAUDE_MD,
+  SHARED_FILES,
+  SKILL_LIST,
+  type SkillEntry,
+  SKILLS
+} from "../skills-content.generated";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +50,61 @@ interface WriteResult {
 
 function resolveSkillsDir(opts: { dir?: string }): string {
   return path.resolve(opts.dir || path.join(".claude", "skills"));
+}
+
+/**
+ * Resolve the project root where CLAUDE.md should live. Claude Code auto-loads
+ * project memory from `<root>/CLAUDE.md`, so for the conventional
+ * `<root>/.claude/skills` layout we walk up to `<root>`. For a custom `--dir`
+ * that doesn't follow that layout, fall back to the current working directory
+ * — still the project root the user invoked us from.
+ */
+function resolveProjectRoot(skillsDir: string): string {
+  const parent = path.dirname(skillsDir);
+  if (path.basename(skillsDir) === "skills" && path.basename(parent) === ".claude") {
+    return path.dirname(parent);
+  }
+  return process.cwd();
+}
+
+type ClaudeMdStatus = "created" | "updated" | "skipped" | "preserved";
+
+/**
+ * Write the bundled CLAUDE.md (the cross-cutting Cue system prompt every
+ * SKILL.md cross-references) to the project root. Unlike the namespaced skill
+ * files under `.claude/skills`, CLAUDE.md lives at the project root where a
+ * user may already keep their own project memory — so we never silently
+ * clobber an existing, differing file. Overwriting requires `--force`.
+ */
+function writeRootClaudeMd(
+  target: string,
+  content: Buffer,
+  opts: { force?: boolean }
+): ClaudeMdStatus {
+  let existingStat: fs.Stats | null = null;
+  try {
+    existingStat = fs.lstatSync(target);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    if (code !== "ENOENT") throw err;
+  }
+
+  if (existingStat) {
+    if (!existingStat.isFile()) {
+      throw new Error(
+        `Refusing to overwrite "${target}" — not a regular file (symlink or directory).`
+      );
+    }
+    const existing = fs.readFileSync(target);
+    if (existing.equals(content)) return "skipped";
+    if (!opts.force) return "preserved";
+    fs.writeFileSync(target, content);
+    return "updated";
+  }
+
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content);
+  return "created";
 }
 
 async function confirmOrAbort(
@@ -196,6 +257,7 @@ CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@lates
     .option("--force", "Overwrite existing files without prompting")
     .option("--yes", "Skip confirmation prompt")
     .option("--dry-run", "Show what would be installed without writing")
+    .option("--no-claude-md", "Skip writing the CLAUDE.md system prompt to the project root")
     .addHelpText(
       "after",
       `
@@ -206,6 +268,15 @@ Examples:
   $ nexus claude-code install --dir ./my-skills               # Custom directory
   $ nexus claude-code install --dry-run                       # Preview only
   $ nexus claude-code install --force                         # Overwrite without prompting
+  $ nexus claude-code install --no-claude-md                  # Skills only, leave CLAUDE.md alone
+
+Alongside the skills, install writes:
+  • shared/        — api-client + helpers the skill example scripts import
+  • CLAUDE.md      — the cross-cutting Cue system prompt every SKILL.md
+                     references; placed at the project root so Claude Code
+                     auto-loads it. An existing, differing CLAUDE.md is
+                     preserved unless --force is passed; skip it entirely
+                     with --no-claude-md.
 
 Skills are bundled with the CLI binary at build time from the canonical
 claude-code-skills-nexus repository. No network calls, no API key required.
@@ -221,10 +292,13 @@ skills.`
           force?: boolean;
           yes?: boolean;
           dryRun?: boolean;
+          claudeMd?: boolean;
         }
       ) => {
         try {
           const skillsDir = resolveSkillsDir(opts);
+          const projectRoot = resolveProjectRoot(skillsDir);
+          const claudeMdTarget = path.join(projectRoot, "CLAUDE.md");
 
           // 2. Filter to the requested subset (or all)
           const availableSlugs = new Set(SKILL_LIST);
@@ -251,7 +325,28 @@ skills.`
 
           const selected = bundleToInstallables(selectedSlugs);
 
-          const totalFiles = selected.reduce((acc, s) => acc + s.files.length, 0);
+          // shared/ holds the api-client + helpers every skill's example
+          // scripts import via `../../shared/...`. It lives alongside the
+          // skills under .claude/skills/shared and ships whenever any skill
+          // is installed, otherwise those imports dangle.
+          const sharedInstallable: InstallableSkill = {
+            slug: "shared",
+            files: SHARED_FILES.map((f) => ({
+              path: f.path,
+              content: Buffer.from(f.content, "utf-8")
+            }))
+          };
+          const skillInstallables = [...selected, sharedInstallable];
+
+          // CLAUDE.md is the cross-cutting Cue system prompt every SKILL.md
+          // cross-references; it goes to the project root (not .claude/skills)
+          // so Claude Code auto-loads it. Opt out with --no-claude-md.
+          const installClaudeMd = opts.claudeMd !== false && CLAUDE_MD.length > 0;
+          const claudeMdContent = Buffer.from(CLAUDE_MD, "utf-8");
+
+          const totalFiles =
+            skillInstallables.reduce((acc, s) => acc + s.files.length, 0) +
+            (installClaudeMd ? 1 : 0);
 
           // 3. Show plan
           if (!isJsonMode()) {
@@ -260,9 +355,14 @@ skills.`
                 `\nInstalling ${selected.length} Claude Code skill${selected.length === 1 ? "" : "s"} to ${skillsDir}\n`
               )
             );
-            for (const skill of selected) {
+            for (const skill of skillInstallables) {
               console.log(
                 `  ${color.cyan(skill.slug.padEnd(32))} ${color.dim(`${skill.files.length} files`)}`
+              );
+            }
+            if (installClaudeMd) {
+              console.log(
+                `  ${color.cyan("CLAUDE.md".padEnd(32))} ${color.dim(`→ ${claudeMdTarget}`)}`
               );
             }
             console.log();
@@ -276,6 +376,8 @@ skills.`
                   {
                     dryRun: true,
                     skills: selected.map((s) => s.slug),
+                    shared: sharedInstallable.files.length,
+                    claudeMd: installClaudeMd ? claudeMdTarget : null,
                     directory: skillsDir,
                     fileCount: totalFiles
                   },
@@ -302,12 +404,20 @@ skills.`
           let totalCreated = 0;
           let totalUpdated = 0;
           let totalSkipped = 0;
-          for (const skill of selected) {
+          for (const skill of skillInstallables) {
             const targetDir = path.join(skillsDir, skill.slug);
             const result = writeSkillFiles(targetDir, skill.files);
             totalCreated += result.created.length;
             totalUpdated += result.updated.length;
             totalSkipped += result.skipped.length;
+          }
+
+          let claudeMdStatus: ClaudeMdStatus | null = null;
+          if (installClaudeMd) {
+            claudeMdStatus = writeRootClaudeMd(claudeMdTarget, claudeMdContent, opts);
+            if (claudeMdStatus === "created") totalCreated += 1;
+            else if (claudeMdStatus === "updated") totalUpdated += 1;
+            else if (claudeMdStatus === "skipped") totalSkipped += 1;
           }
 
           // 7. Summary
@@ -317,6 +427,10 @@ skills.`
                 {
                   success: true,
                   skills: selected.map((s) => s.slug),
+                  shared: sharedInstallable.files.length,
+                  claudeMd: claudeMdStatus
+                    ? { path: claudeMdTarget, status: claudeMdStatus }
+                    : null,
                   directory: skillsDir,
                   created: totalCreated,
                   updated: totalUpdated,
@@ -333,18 +447,30 @@ skills.`
             if (totalSkipped > 0) {
               console.log(color.dim(`  ${totalSkipped} files already up to date`));
             }
+            if (claudeMdStatus === "created") {
+              console.log(color.dim(`  CLAUDE.md written to ${claudeMdTarget}`));
+            } else if (claudeMdStatus === "updated") {
+              console.log(color.dim(`  CLAUDE.md updated at ${claudeMdTarget}`));
+            } else if (claudeMdStatus === "preserved") {
+              console.log(
+                color.yellow(
+                  `  CLAUDE.md left unchanged at ${claudeMdTarget} — a different file already exists. Re-run with --force to overwrite.`
+                )
+              );
+            }
           }
         } catch (err: unknown) {
-          if (
-            err &&
-            typeof err === "object" &&
-            "code" in err &&
-            (err as { code: string }).code === "EACCES"
-          ) {
+          const errno = err as NodeJS.ErrnoException | null;
+          if (errno?.code === "EACCES") {
+            // Report the path the OS actually rejected — writes now target both
+            // the skills dir and the project-root CLAUDE.md, so a hard-coded
+            // skills-dir path would mislead when CLAUDE.md is the culprit.
+            const failedPath = errno.path ?? resolveSkillsDir(opts);
             console.error(
               color.red("Error:") +
-                ` Permission denied. Cannot write to ${resolveSkillsDir(opts)}.\n` +
-                `Try a different directory with --dir or check permissions.`
+                ` Permission denied. Cannot write to ${failedPath}.\n` +
+                `Check permissions, install skills elsewhere with --dir, or skip the ` +
+                `project-root CLAUDE.md with --no-claude-md.`
             );
             process.exitCode = 1;
           } else {

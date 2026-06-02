@@ -35,7 +35,8 @@ export {
   ToolDiscoveryResource,
   VersionsResource,
   WorkflowExecutionsResource,
-  WorkflowsResource
+  WorkflowsResource,
+  WorkspacesResource
 } from "./resources";
 
 // HTTP client (for advanced usage)
@@ -114,6 +115,8 @@ export type {
   CreateTicketBody,
   CreateTicketCommentBody,
   CreateWorkflowBody,
+  // Workspaces
+  CreateWorkspaceBody,
   Credential,
   CredentialCreator,
   CredentialLinkedDeployment,
@@ -123,6 +126,7 @@ export type {
   DeleteAccessCardResponse,
   DeleteCredentialResponse,
   DeleteResponse,
+  DeleteWorkspaceResponse,
   DocumentInfo,
   DocumentTemplateDetail,
   DocumentTemplateSummary,
@@ -160,6 +164,8 @@ export type {
   ListVersionsParams,
   ListWorkflowsParams,
   ListWorkflowsResponse,
+  ListWorkspaceFilesParams,
+  ListWorkspacesResponse,
   MarketplaceToolDetail,
   MarketplaceToolItem,
   // Models
@@ -182,6 +188,7 @@ export type {
   ReloadPropsBody,
   ReloadPropsResponse,
   RemoteOption,
+  RenameWorkspaceBody,
   ReplaceTriggerBody,
   ReplayEmulatorScenarioBody,
   ResolveRemoteOptionsBody,
@@ -244,5 +251,12 @@ export type {
   WorkflowNode,
   WorkflowOverview,
   WorkflowStatus,
-  WorkflowSummary
+  WorkflowSummary,
+  Workspace,
+  WorkspaceFileEntry,
+  WorkspaceFileUrl,
+  WorkspaceFolderEntry,
+  WorkspaceListing,
+  WorkspaceStats,
+  WorkspaceSummary
 } from "./types";

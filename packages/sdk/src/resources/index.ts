@@ -30,3 +30,4 @@ export { ToolDiscoveryResource } from "./tool-discovery";
 export { VersionsResource } from "./versions";
 export { WorkflowExecutionsResource } from "./workflow-executions";
 export { WorkflowsResource } from "./workflows";
+export { WorkspacesResource } from "./workspaces";

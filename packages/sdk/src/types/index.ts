@@ -241,3 +241,17 @@ export type {
   WorkflowOverview,
   WorkflowStatus
 } from "./workflows";
+export type {
+  CreateWorkspaceBody,
+  DeleteWorkspaceResponse,
+  ListWorkspaceFilesParams,
+  ListWorkspacesResponse,
+  RenameWorkspaceBody,
+  Workspace,
+  WorkspaceFileEntry,
+  WorkspaceFileUrl,
+  WorkspaceFolderEntry,
+  WorkspaceListing,
+  WorkspaceStats,
+  WorkspaceSummary
+} from "./workspaces";

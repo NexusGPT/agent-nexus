@@ -30,6 +30,7 @@ import { ToolDiscoveryResource } from "./resources/tool-discovery";
 import { TracingResource } from "./resources/tracing";
 import { WorkflowExecutionsResource } from "./resources/workflow-executions";
 import { WorkflowsResource } from "./resources/workflows";
+import { WorkspacesResource } from "./resources/workspaces";
 
 // ============================================================================
 // Client options
@@ -138,6 +139,9 @@ export class NexusClient {
   /** Manage workflows, nodes, edges, and test executions. */
   public readonly workflows: WorkflowsResource;
 
+  /** Manage workspaces (shared file drives) and browse their files. */
+  public readonly workspaces: WorkspacesResource;
+
   /** Connect tools via OAuth or HTTP credentials. */
   public readonly toolConnection: ToolConnectionResource;
 
@@ -229,6 +233,7 @@ export class NexusClient {
     this.tools = new ToolDiscoveryResource(http);
     this.skills = new SkillsResource(http);
     this.workflows = new WorkflowsResource(http);
+    this.workspaces = new WorkspacesResource(http);
     this.toolConnection = new ToolConnectionResource(http);
     this.deployments = new DeploymentsResource(http);
     this.emulator = new EmulatorResource(http);

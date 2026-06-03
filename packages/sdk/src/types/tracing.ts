@@ -71,9 +71,35 @@ export interface TracingSummary {
   } | null;
 }
 
+/** Dimensions a cost breakdown can group by. */
+export type CostBreakdownGroupBy =
+  | "model"
+  | "agent"
+  | "workflow"
+  // FK-enforced attribution dimensions. "workflow" groups by workflow
+  // definition; "workflowExecution" by a single run.
+  | "deployment"
+  | "customer"
+  | "workflowExecution";
+
+/** Time-bucket granularity shared by the timeline and cost-breakdown bucketing. */
+export type TimelineGranularity = "hour" | "day" | "week";
+
 export interface CostBreakdownEntry {
+  /**
+   * Single-dimension: the dimension value (e.g. a deployment id). Multi-dimension:
+   * a composite `value0|value1[|value2]` key, unique per combination (excludes the
+   * bucket — buckets share a groupKey, see `bucket`).
+   */
   groupKey: string;
+  /** Single-dimension display label; for multi-dimension see `groupLabels`. */
   groupLabel: string | null;
+  /** Multi-dimension only: named per-dimension keys, e.g. `{ deployment, agent }`. */
+  groupKeys?: Record<string, string>;
+  /** Multi-dimension only: named per-dimension labels (null when unresolved). */
+  groupLabels?: Record<string, string | null>;
+  /** ISO timestamp of the bucket start when `bucket` was requested; null otherwise. */
+  bucket: string | null;
   totalCostUsd: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -82,6 +108,8 @@ export interface CostBreakdownEntry {
 }
 
 export interface CostBreakdown {
+  /** Echoes the requested dimensions in order. Length 1 = single-dimension. */
+  dimensions: CostBreakdownGroupBy[];
   entries: CostBreakdownEntry[];
 }
 
@@ -154,13 +182,27 @@ export interface AnalyticsSummaryParams {
 export interface CostBreakdownParams {
   startDate?: string;
   endDate?: string;
-  groupBy?: "model" | "agent" | "workflow";
+  /**
+   * One to three dimensions. A single value is the legacy single-dimension
+   * breakdown; two or three cross-tabulate (one row per combination) and are
+   * restricted to trace-grain dimensions — `model` is generation-grain and is
+   * rejected with 400 when combined with any other dimension. Defaults to
+   * `"model"` server-side when omitted.
+   */
+  groupBy?: CostBreakdownGroupBy | CostBreakdownGroupBy[];
+  /**
+   * Optional time bucketing: one entry per (group key × bucket). Supported only
+   * when every requested dimension is an FK attribution dimension
+   * (`deployment`, `customer`, `workflowExecution`); `model`/`agent`/`workflow`
+   * reject it with 400 — use {@link TracingResource.getTimeline} for org-wide series.
+   */
+  bucket?: TimelineGranularity;
 }
 
 export interface TimelineParams {
   startDate?: string;
   endDate?: string;
-  granularity?: "hour" | "day" | "week";
+  granularity?: TimelineGranularity;
 }
 
 export interface ExportTraceParams {

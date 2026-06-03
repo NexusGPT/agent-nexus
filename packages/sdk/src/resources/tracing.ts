@@ -68,8 +68,10 @@ export class TracingResource extends BaseResource {
   }
 
   async getCostBreakdown(params?: CostBreakdownParams): Promise<CostBreakdown> {
+    // groupBy may be a single dimension or an array; the http layer serializes
+    // arrays as repeated query params, which the API parses into a 1–3 dim list.
     return this.http.request<CostBreakdown>("GET", "/tracing/analytics/cost-breakdown", {
-      query: params as Record<string, string | number | undefined>
+      query: params as Record<string, string | number | string[] | undefined>
     });
   }
 

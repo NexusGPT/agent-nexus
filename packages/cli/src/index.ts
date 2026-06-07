@@ -4,6 +4,7 @@ import { Command } from "commander";
 
 import { getBanner } from "./banner";
 import { registerAccessCardCommands } from "./commands/access-card";
+import { registerAdminCommands } from "./commands/admin";
 import { registerAgentCommands } from "./commands/agent";
 import { registerAgentCollectionCommands } from "./commands/agent-collection";
 import { registerAgentToolCommands } from "./commands/agent-tool";
@@ -39,6 +40,7 @@ import { registerToolCommands } from "./commands/tool";
 import { registerTracingCommands } from "./commands/tracing";
 import { registerUpgradeCommand, UPGRADE_ALIASES } from "./commands/upgrade";
 import { registerVersionCommands } from "./commands/version";
+import { registerVibeCommands } from "./commands/vibe";
 import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
@@ -103,6 +105,7 @@ program.configureHelp({
 
 // Register all command groups
 registerAuthCommands(program);
+registerAdminCommands(program);
 registerAgentCommands(program);
 registerAgentCollectionCommands(program);
 registerAgentToolCommands(program);
@@ -137,6 +140,7 @@ registerCustomerCommands(program);
 registerAccessCardCommands(program);
 registerClaudeCodeCommands(program);
 registerCloudImportCommands(program);
+registerVibeCommands(program);
 registerUpgradeCommand(program);
 registerDocsCommand(program);
 

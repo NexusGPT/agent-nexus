@@ -36,8 +36,8 @@ Examples:
       try {
         const globals = program.optsWithGlobals();
         const http = new HttpClient({
-          baseUrl: resolveBaseUrl(globals.baseUrl),
-          apiKey: resolveApiKey(globals.apiKey),
+          baseUrl: resolveBaseUrl(globals.baseUrl, globals.profile),
+          apiKey: resolveApiKey(globals.apiKey, globals.profile),
           timeout: opts.timeout ? Number(opts.timeout) : undefined
         });
 

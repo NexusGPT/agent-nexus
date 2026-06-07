@@ -287,27 +287,28 @@ export function resolveProfile(opts?: {
   baseUrl?: string;
   profile?: string;
 }): ResolvedProfile {
-  // 1. Direct API key override bypasses profiles entirely
-  const directKey = opts?.apiKey || process.env.NEXUS_API_KEY;
-  if (directKey) {
+  // Precedence: explicit --api-key > explicit --profile > NEXUS_API_KEY env >
+  // NEXUS_PROFILE env > .nexusrc > active profile > default. An explicit flag
+  // always outranks an ambient env var, so `--profile prod` is honored even
+  // when NEXUS_API_KEY is exported.
+
+  // 1. Explicit --api-key bypasses profiles entirely (most specific credential).
+  if (opts?.apiKey) {
     return {
       name: "override",
-      profile: {
-        apiKey: directKey,
-        baseUrl: opts?.baseUrl || process.env.NEXUS_BASE_URL
-      },
+      profile: { apiKey: opts.apiKey, baseUrl: opts?.baseUrl ?? process.env.NEXUS_BASE_URL },
       source: "override"
     };
   }
 
-  const config = loadConfig();
-  const profileNames = Object.keys(config.profiles);
-
-  // Helper to look up a profile name and throw a clear error if missing
+  // Config is loaded lazily: a headless caller relying on NEXUS_API_KEY may
+  // have no config file at all and must not be forced to create one.
+  let cachedConfig: ReturnType<typeof loadConfig> | undefined;
   const lookup = (name: string, source: ProfileSource, rcPath?: string): ResolvedProfile => {
+    const config = (cachedConfig ??= loadConfig());
     const profile = config.profiles[name];
     if (!profile) {
-      const available = profileNames.join(", ");
+      const available = Object.keys(config.profiles).join(", ");
       const sourceHint =
         source === "flag"
           ? `(from --profile flag)`
@@ -329,33 +330,45 @@ export function resolveProfile(opts?: {
     return { name, profile, source, rcPath };
   };
 
-  // 2. --profile flag
+  // 2. Explicit --profile flag (outranks ambient env vars).
   if (opts?.profile) {
     return lookup(opts.profile, "flag");
   }
 
-  // 3. NEXUS_PROFILE env
+  // 3. NEXUS_API_KEY env (no config file required — headless usage).
+  if (process.env.NEXUS_API_KEY) {
+    return {
+      name: "override",
+      profile: {
+        apiKey: process.env.NEXUS_API_KEY,
+        baseUrl: opts?.baseUrl ?? process.env.NEXUS_BASE_URL
+      },
+      source: "override"
+    };
+  }
+
+  // 4. NEXUS_PROFILE env
   if (process.env.NEXUS_PROFILE) {
     return lookup(process.env.NEXUS_PROFILE, "env");
   }
 
-  // 4. .nexusrc directory pinning
+  // 5. .nexusrc directory pinning
   const rc = findNexusRc();
   if (rc) {
     return lookup(rc.profile, "directory", rc.rcPath);
   }
 
-  // 5. activeProfile from config
+  // 6. activeProfile from config, then "default"
+  const config = (cachedConfig ??= loadConfig());
   if (config.activeProfile && config.profiles[config.activeProfile]) {
     return lookup(config.activeProfile, "active");
   }
-
-  // 6. Fallback to "default" profile
   if (config.profiles["default"]) {
     return lookup("default", "default");
   }
 
   // 7. No profiles at all
+  const profileNames = Object.keys(config.profiles);
   if (profileNames.length > 0) {
     throw new Error(
       `No active profile set. Available: ${profileNames.join(", ")}.\n` +
@@ -372,21 +385,34 @@ export function resolveProfile(opts?: {
 
 /**
  * Resolve the API key.
- * Signature unchanged from V1 — all 23 command files continue working.
- * Priority: explicit override → NEXUS_API_KEY env → active profile → error
+ * Precedence: explicit --api-key override → the named --profile's key →
+ * NEXUS_API_KEY env → active profile's key → error. An explicit --profile
+ * outranks the ambient env var (resolution delegates to resolveProfile).
  */
-export function resolveApiKey(override?: string): string {
+export function resolveApiKey(override?: string, profile?: string): string {
   if (override) return override;
-  return resolveProfile().profile.apiKey;
+  return resolveProfile({ profile }).profile.apiKey;
 }
 
 /**
  * Resolve the API base URL.
- * Signature unchanged from V1.
- * Priority: explicit override → NEXUS_BASE_URL env → active profile → NEXUS_ENV → production
+ * Precedence: explicit --base-url override → the named --profile's base →
+ * NEXUS_BASE_URL env → active profile's base → NEXUS_ENV map → production. An
+ * explicit --profile outranks the ambient env var, mirroring resolveProfile.
  */
-export function resolveBaseUrl(override?: string): string {
+export function resolveBaseUrl(override?: string, profile?: string): string {
   if (override) return override;
+
+  // An explicit --profile's base outranks ambient NEXUS_BASE_URL.
+  if (profile) {
+    try {
+      const resolved = resolveProfile({ profile });
+      if (resolved.profile.baseUrl) return resolved.profile.baseUrl;
+    } catch {
+      // Named profile missing — fall through to env / defaults.
+    }
+  }
+
   if (process.env.NEXUS_BASE_URL) return process.env.NEXUS_BASE_URL;
 
   try {

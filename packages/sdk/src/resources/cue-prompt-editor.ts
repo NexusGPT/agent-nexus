@@ -73,7 +73,7 @@ export interface CueConversationDetail {
     content: string | null;
     quote?: string | null;
     suggestion?: CueSuggestion;
-    suggestionStatus?: "accepted" | "rejected" | "pending" | "failed" | "auto_rejected";
+    suggestionStatus?: "accepted" | "rejected" | "pending" | "failed";
     createdAt: string;
   }>;
   plan?: CuePlan;

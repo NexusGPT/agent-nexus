@@ -7,6 +7,7 @@ import { registerAccessCardCommands } from "./commands/access-card";
 import { registerAdminCommands } from "./commands/admin";
 import { registerAgentCommands } from "./commands/agent";
 import { registerAgentCollectionCommands } from "./commands/agent-collection";
+import { registerAgentEvalCommands } from "./commands/agent-eval";
 import { registerAgentToolCommands } from "./commands/agent-tool";
 import { registerAnalyticsCommands } from "./commands/analytics";
 import { registerApiCommand } from "./commands/api";
@@ -107,6 +108,7 @@ program.configureHelp({
 registerAuthCommands(program);
 registerAdminCommands(program);
 registerAgentCommands(program);
+registerAgentEvalCommands(program);
 registerAgentCollectionCommands(program);
 registerAgentToolCommands(program);
 registerVersionCommands(program);

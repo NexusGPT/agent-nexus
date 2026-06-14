@@ -443,8 +443,7 @@ type VibeTenantClusterStatus =
 /** Discriminated outcome of an operator-triggered provision. */
 type VibeTenantClusterProvisionOutcome =
   | { kind: "provisioning"; reprovisioned: boolean }
-  | { kind: "already_active"; status: VibeTenantClusterStatus }
-  | { kind: "provision_failed_degraded"; retryable: boolean; reason: string };
+  | { kind: "already_active"; status: VibeTenantClusterStatus };
 
 /** Discriminated outcome of an operator-triggered disable. */
 type VibeTenantClusterDisableOutcome =
@@ -473,14 +472,11 @@ Examples:
   $ nexus admin vibe-tenant-cluster provision org_abc --region eu-central-1 --json
 
 Outcome shapes:
-  provisioning                A cluster row is PROVISIONING and the
-                              provisioner was fired. reprovisioned=true
-                              when re-opting-in from a retired cluster.
+  provisioning                A cluster row is PROVISIONING. reprovisioned=true
+                              when re-opting-in from a retired cluster. The
+                              reconcile loop converges it to HEALTHY.
   already_active              The org already has a live / mid-lifecycle
                               cluster; provision is a no-op (status shown).
-  provision_failed_degraded   The provisioner refused the dispatch; the
-                              fresh row was marked failed. retryable
-                              surfaces the provisioner's classification.
 
 Notes:
   --region is constrained to EU AWS regions for RGPD data residency,
@@ -1325,18 +1321,6 @@ function printProvisionOutcome(data: VibeTenantClusterProvisionOutcome): void {
       printRecord(raw, [
         { key: "kind", label: "Outcome", format: () => color.dim("already_active (no-op)") },
         { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    case "provision_failed_degraded": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.red("provision_failed_degraded") },
-        {
-          key: "retryable",
-          label: "Retryable",
-          format: (v) => (v ? "yes (transient)" : "no (permanent)")
-        },
-        { key: "reason", label: "Reason" }
       ]);
       return;
     }

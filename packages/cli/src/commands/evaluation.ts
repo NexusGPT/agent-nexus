@@ -8,8 +8,11 @@ import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
 export function registerEvaluationCommands(program: Command): void {
   const eval_ = program
-    .command("eval")
-    .description('Manage evaluations for AI tasks (note: command is "eval", not "evaluation")');
+    .command("task-eval")
+    .alias("eval")
+    .description(
+      'Manage evaluations for AI tasks (renamed from "eval"; the "eval" alias still works)'
+    );
 
   // ═══════════════════════════════════════════════════════════════════════
   // session sub-group
@@ -28,9 +31,9 @@ export function registerEvaluationCommands(program: Command): void {
       "after",
       `
 Examples:
-  $ nexus eval session create task-123 --name "Accuracy Test v1"
-  $ nexus eval session create task-123 --name "Edge cases" --description "Tests edge cases"
-  $ nexus eval session create task-123 --body '{"name":"Full test","description":"..."}'`
+  $ nexus task-eval session create task-123 --name "Accuracy Test v1"
+  $ nexus task-eval session create task-123 --name "Edge cases" --description "Tests edge cases"
+  $ nexus task-eval session create task-123 --body '{"name":"Full test","description":"..."}'`
     )
     .action(async (taskId: string, opts) => {
       try {
@@ -64,9 +67,9 @@ Examples:
         "after",
         `
 Examples:
-  $ nexus eval session list task-123
-  $ nexus eval session list task-123 --limit 10
-  $ nexus eval session list task-123 --json`
+  $ nexus task-eval session list task-123
+  $ nexus task-eval session list task-123 --limit 10
+  $ nexus task-eval session list task-123 --json`
       )
   ).action(async (taskId: string, opts) => {
     try {
@@ -100,8 +103,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval session get task-123 sess-456
-  $ nexus eval session get task-123 sess-456 --json`
+  $ nexus task-eval session get task-123 sess-456
+  $ nexus task-eval session get task-123 sess-456 --json`
     )
     .action(async (taskId: string, sessionId: string) => {
       try {
@@ -131,8 +134,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval session delete task-123 sess-456
-  $ nexus eval session delete task-123 sess-456 --yes`
+  $ nexus task-eval session delete task-123 sess-456
+  $ nexus task-eval session delete task-123 sess-456 --yes`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -172,9 +175,9 @@ Examples:
         "after",
         `
 Examples:
-  $ nexus eval dataset list task-123 sess-456
-  $ nexus eval dataset list task-123 sess-456 --limit 20
-  $ nexus eval dataset list task-123 sess-456 --json`
+  $ nexus task-eval dataset list task-123 sess-456
+  $ nexus task-eval dataset list task-123 sess-456 --limit 20
+  $ nexus task-eval dataset list task-123 sess-456 --json`
       )
   ).action(async (taskId: string, sessionId: string, opts) => {
     try {
@@ -208,8 +211,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval dataset add task-123 sess-456 --body '{"input":"Hello","expectedOutput":"Hi there"}'
-  $ nexus eval dataset add task-123 sess-456 --body dataset-row.json`
+  $ nexus task-eval dataset add task-123 sess-456 --body '{"input":"Hello","expectedOutput":"Hi there"}'
+  $ nexus task-eval dataset add task-123 sess-456 --body dataset-row.json`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -239,8 +242,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval execute task-123 sess-456
-  $ nexus eval execute task-123 sess-456 --json`
+  $ nexus task-eval execute task-123 sess-456
+  $ nexus task-eval execute task-123 sess-456 --json`
     )
     .action(async (taskId: string, sessionId: string) => {
       try {
@@ -265,9 +268,9 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval judge task-123 sess-456
-  $ nexus eval judge task-123 sess-456 --body '{"judgeModel":"gpt-4o","judgePrompt":"Rate accuracy"}'
-  $ nexus eval judge task-123 sess-456 --json`
+  $ nexus task-eval judge task-123 sess-456
+  $ nexus task-eval judge task-123 sess-456 --body '{"judgeModel":"gpt-4o","judgePrompt":"Rate accuracy"}'
+  $ nexus task-eval judge task-123 sess-456 --json`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -293,9 +296,9 @@ Examples:
         "after",
         `
 Examples:
-  $ nexus eval results task-123 sess-456
-  $ nexus eval results task-123 sess-456 --limit 50
-  $ nexus eval results task-123 sess-456 --json`
+  $ nexus task-eval results task-123 sess-456
+  $ nexus task-eval results task-123 sess-456 --limit 50
+  $ nexus task-eval results task-123 sess-456 --json`
       )
   ).action(async (taskId: string, sessionId: string, opts) => {
     try {
@@ -330,8 +333,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval formats
-  $ nexus eval formats --json`
+  $ nexus task-eval formats
+  $ nexus task-eval formats --json`
     )
     .action(async () => {
       try {
@@ -359,8 +362,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus eval judges
-  $ nexus eval judges --json`
+  $ nexus task-eval judges
+  $ nexus task-eval judges --json`
     )
     .action(async () => {
       try {

@@ -5,7 +5,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { color, formatFolder, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { registerWorkflowBuilderCommands } from "./workflow-builder";
@@ -20,13 +20,15 @@ export function registerWorkflowCommands(program: Command): void {
       .description("List workflows")
       .option("--status <status>", "Filter by status (DRAFT, PUBLISHED)")
       .option("--search <query>", "Search by name")
+      .option("--folder <name|id>", "Filter by folder name or id")
       .addHelpText(
         "after",
         `
 Examples:
   $ nexus workflow list
   $ nexus workflow list --status PUBLISHED --limit 10
-  $ nexus workflow list --search "onboarding" --json`
+  $ nexus workflow list --search "onboarding" --json
+  $ nexus workflow list --folder "Notion"`
       )
   ).action(async (opts) => {
     try {
@@ -34,7 +36,8 @@ Examples:
       const { data, meta } = await client.workflows.list({
         ...getPaginationParams(opts),
         status: opts.status,
-        search: opts.search
+        search: opts.search,
+        folder: opts.folder
       } as any);
 
       printList(
@@ -44,6 +47,7 @@ Examples:
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
           { key: "status", label: "STATUS", width: 12 },
+          { key: "folder", label: "FOLDER", width: 20, format: formatFolder },
           { key: "createdAt", label: "CREATED", width: 20 }
         ]
       );

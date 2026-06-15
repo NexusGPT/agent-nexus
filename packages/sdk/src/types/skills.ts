@@ -1,3 +1,5 @@
+import type { FolderRef } from "./workflows";
+
 // ============================================================================
 // SHARED
 // ============================================================================
@@ -10,6 +12,11 @@ export interface ListSkillsCommonParams {
   limit?: number;
   /** Offset for pagination (default 0). */
   offset?: number;
+  /**
+   * Filter to skills in a folder, by folder id or name (case-insensitive).
+   * Applies to list endpoints that support folders (workflows, AI tasks).
+   */
+  folder?: string;
 }
 
 // ============================================================================
@@ -35,6 +42,8 @@ export interface WorkflowSummary {
    * this workflow. `null` if the workflow takes no structured input.
    */
   agentInputSchema: unknown | null;
+  /** Folder the workflow belongs to, or `null` if unassigned. */
+  folder: FolderRef | null;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   /** ISO 8601 last-updated timestamp. */
@@ -71,6 +80,8 @@ export interface TaskSummary {
   modelProvider: string;
   /** Model name (e.g. "gpt-4o"). */
   modelName: string;
+  /** Folder the task belongs to, or `null` if unassigned. */
+  folder: FolderRef | null;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   /** ISO 8601 last-updated timestamp. */

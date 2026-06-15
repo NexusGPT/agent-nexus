@@ -5,6 +5,15 @@
 /** Workflow lifecycle status. */
 export type WorkflowStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
+/**
+ * Folder a resource belongs to, surfaced on list responses. `null` when the
+ * resource is not assigned to any folder.
+ */
+export interface FolderRef {
+  id: string;
+  name: string;
+}
+
 /** Summary view of a workflow returned by list endpoints. */
 export interface WfSummary {
   id: string;
@@ -13,6 +22,8 @@ export interface WfSummary {
   status: WorkflowStatus;
   triggerType: string | null;
   nodeCount: number;
+  /** Folder the workflow belongs to, or `null` if unassigned. */
+  folder: FolderRef | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +73,8 @@ export interface ListWorkflowsParams {
   limit?: number;
   status?: WorkflowStatus;
   search?: string;
+  /** Filter to workflows in a folder, by folder id or name (case-insensitive). */
+  folder?: string;
 }
 
 // ============================================================================

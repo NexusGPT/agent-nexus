@@ -69,169 +69,212 @@ Notes:
       }
       const resolvedBaseUrl = baseUrl ?? resolveBaseUrl();
 
-      // ── Step 1: Get API key ──────────────────────────────────────────
-      let apiKey = effective.apiKey as string | undefined;
-
-      if (!apiKey) {
-        console.log(`Opening ${color.cyan(SETTINGS_URL)} ...`);
-        console.log("Create or copy an API key from the settings page.\n");
-        openUrl(SETTINGS_URL);
-
-        const rl = readline.createInterface({ input: stdin, output: stdout });
-        try {
-          apiKey = (await rl.question("Paste your API key (nxs_...): ")).trim();
-        } finally {
-          rl.close();
+      // A single readline interface is shared across every prompt below, with
+      // a line queue so input survives the async gaps between prompts.
+      //
+      // The old code opened a fresh `createInterface` per prompt and `close()`d
+      // it immediately. On piped stdin the first close() left the stream at EOF,
+      // so the second prompt's question() never resolved and the process exited
+      // 0 without ever calling saveProfile(). Even a single shared interface is
+      // not enough on its own: while we `await` the validation fetch between the
+      // key prompt and the profile-name prompt, readline keeps draining the pipe
+      // and emits/closes before the next question() attaches — losing the line
+      // (and throwing "readline was closed"). Buffering every `line` event into
+      // a queue lets a later ask() pick up a line that already arrived. If the
+      // input ends before a prompt is answered we reject loudly instead of
+      // silently exiting. (NEX-1879 defect 3)
+      let rl: readline.Interface | undefined;
+      const lineQueue: string[] = [];
+      const waiters: Array<(line: string | null) => void> = [];
+      let inputClosed = false;
+      const ask = (question: string): Promise<string> => {
+        if (!rl) {
+          rl = readline.createInterface({ input: stdin, output: stdout });
+          rl.on("line", (line) => {
+            const waiter = waiters.shift();
+            if (waiter) waiter(line);
+            else lineQueue.push(line);
+          });
+          rl.on("close", () => {
+            inputClosed = true;
+            while (waiters.length) (waiters.shift() as (l: string | null) => void)(null);
+          });
         }
-      }
-
-      if (!apiKey) {
-        console.error(color.red("Error:") + " No key entered. Aborting.");
-        process.exitCode = 1;
-        return;
-      }
-
-      if (!apiKey.startsWith("nxs_")) {
-        console.error(
-          color.red("Error:") +
-            ' Invalid key format — API keys start with "nxs_".\n' +
-            "  nexus auth login --api-key nxs_YOUR_KEY"
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      // ── Step 2: Validate the key ─────────────────────────────────────
-      console.log("Validating...");
-      const validateRes = await fetch(`${resolvedBaseUrl}/api/public/v1/agents?limit=1`, {
-        headers: { "api-key": apiKey, Accept: "application/json" },
-        signal: AbortSignal.timeout(30_000)
-      });
-
-      if (!validateRes.ok) {
-        console.error(
-          color.red("Error:") +
-            ` Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      // ── Step 3: Fetch org info ───────────────────────────────────────
-      let orgName: string | undefined;
-      let orgId: string | undefined;
+        stdout.write(question);
+        const buffered = lineQueue.shift();
+        if (buffered !== undefined) return Promise.resolve(buffered);
+        if (inputClosed) {
+          return Promise.reject(new Error("Input ended before all prompts were answered."));
+        }
+        return new Promise<string>((resolve, reject) => {
+          waiters.push((line) => {
+            if (line === null) reject(new Error("Input ended before all prompts were answered."));
+            else resolve(line);
+          });
+        });
+      };
 
       try {
-        const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
+        await runLogin();
+      } catch (err) {
+        console.error(color.red("Error:") + " " + (err as Error).message);
+        process.exitCode = 1;
+      } finally {
+        rl?.close();
+      }
+
+      async function runLogin(): Promise<void> {
+        // ── Step 1: Get API key ──────────────────────────────────────────
+        let apiKey = effective.apiKey as string | undefined;
+
+        if (!apiKey) {
+          console.log(`Opening ${color.cyan(SETTINGS_URL)} ...`);
+          console.log("Create or copy an API key from the settings page.\n");
+          openUrl(SETTINGS_URL);
+
+          apiKey = (await ask("Paste your API key (nxs_...): ")).trim();
+        }
+
+        if (!apiKey) {
+          console.error(color.red("Error:") + " No key entered. Aborting.");
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!apiKey.startsWith("nxs_")) {
+          console.error(
+            color.red("Error:") +
+              ' Invalid key format — API keys start with "nxs_".\n' +
+              "  nexus auth login --api-key nxs_YOUR_KEY"
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // ── Step 2: Validate the key ─────────────────────────────────────
+        console.log("Validating...");
+        const validateRes = await fetch(`${resolvedBaseUrl}/api/public/v1/agents?limit=1`, {
           headers: { "api-key": apiKey, Accept: "application/json" },
           signal: AbortSignal.timeout(30_000)
         });
-        if (meRes.ok) {
-          const meJson = (await meRes.json()) as {
-            success?: boolean;
-            data?: { orgId?: string; orgName?: string };
-          };
-          if (meJson.data) {
-            orgName = meJson.data.orgName;
-            orgId = meJson.data.orgId;
+
+        if (!validateRes.ok) {
+          console.error(
+            color.red("Error:") +
+              ` Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        // ── Step 3: Fetch org info ───────────────────────────────────────
+        let orgName: string | undefined;
+        let orgId: string | undefined;
+
+        try {
+          const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
+            headers: { "api-key": apiKey, Accept: "application/json" },
+            signal: AbortSignal.timeout(30_000)
+          });
+          if (meRes.ok) {
+            const meJson = (await meRes.json()) as {
+              success?: boolean;
+              data?: { orgId?: string; orgName?: string };
+            };
+            if (meJson.data) {
+              orgName = meJson.data.orgName;
+              orgId = meJson.data.orgId;
+            }
           }
+        } catch {
+          // /me endpoint may not exist yet — continue without org info
         }
-      } catch {
-        // /me endpoint may not exist yet — continue without org info
-      }
 
-      if (orgName) {
-        console.log(`Organization: ${color.cyan(orgName)}`);
-      }
+        if (orgName) {
+          console.log(`Organization: ${color.cyan(orgName)}`);
+        }
 
-      // ── Step 4: Determine profile name ───────────────────────────────
-      let profileName = effective.profile as string | undefined;
+        // ── Step 4: Determine profile name ───────────────────────────────
+        let profileName = effective.profile as string | undefined;
 
-      if (!profileName) {
-        const suggested = orgName ? slugifyProfileName(orgName) : "default";
-
-        const rl = readline.createInterface({ input: stdin, output: stdout });
-        try {
-          const answer = (await rl.question(`Profile name [${suggested}]: `)).trim();
+        if (!profileName) {
+          const suggested = orgName ? slugifyProfileName(orgName) : "default";
+          const answer = (await ask(`Profile name [${suggested}]: `)).trim();
           profileName = answer || suggested;
-        } finally {
-          rl.close();
         }
-      }
 
-      // Validate profile name
-      const nameError = validateProfileName(profileName);
-      if (nameError) {
-        console.error(color.red("Error:") + " " + nameError);
-        process.exitCode = 1;
-        return;
-      }
+        // Validate profile name
+        const nameError = validateProfileName(profileName);
+        if (nameError) {
+          console.error(color.red("Error:") + " " + nameError);
+          process.exitCode = 1;
+          return;
+        }
 
-      // ── Step 5: Check for existing profile ───────────────────────────
-      const existing = getProfile(profileName);
-      if (existing) {
-        const existingLabel = existing.orgName ? ` (${existing.orgName})` : "";
-        const rl = readline.createInterface({ input: stdin, output: stdout });
-        try {
+        // ── Step 5: Check for existing profile ───────────────────────────
+        const existing = getProfile(profileName);
+        if (existing) {
+          const existingLabel = existing.orgName ? ` (${existing.orgName})` : "";
           const answer = (
-            await rl.question(
-              `Profile "${profileName}"${existingLabel} already exists. Overwrite? [y/N]: `
-            )
+            await ask(`Profile "${profileName}"${existingLabel} already exists. Overwrite? [y/N]: `)
           ).trim();
           if (answer.toLowerCase() !== "y") {
             console.log("Aborted.");
             return;
           }
-        } finally {
-          rl.close();
         }
-      }
 
-      // ── Step 6: Save the profile ─────────────────────────────────────
-      saveProfile(profileName, {
-        apiKey,
-        ...(baseUrl ? { baseUrl } : {}),
-        ...(dashboardUrl ? { dashboardUrl } : {}),
-        ...(orgName ? { orgName } : {}),
-        ...(orgId ? { orgId } : {})
-      });
+        // ── Step 6: Save the profile ─────────────────────────────────────
+        saveProfile(profileName, {
+          apiKey,
+          ...(baseUrl ? { baseUrl } : {}),
+          ...(dashboardUrl ? { dashboardUrl } : {}),
+          ...(orgName ? { orgName } : {}),
+          ...(orgId ? { orgId } : {})
+        });
 
-      printSuccess(`Saved profile "${profileName}".`, {
-        ...(orgName ? { organization: orgName } : {}),
-        profile: profileName,
-        config: "~/.nexus-mcp/config.json"
-      });
+        printSuccess(`Saved profile "${profileName}".`, {
+          ...(orgName ? { organization: orgName } : {}),
+          profile: profileName,
+          config: "~/.nexus-mcp/config.json"
+        });
 
-      // Tip for second+ profile
-      const { profiles } = listProfiles();
-      if (Object.keys(profiles).length > 1) {
-        console.log(
-          "\n" +
-            color.dim("Tip: You have multiple profiles. Consider pinning directories:") +
+        // Tip for second+ profile
+        const { profiles } = listProfiles();
+        if (Object.keys(profiles).length > 1) {
+          console.log(
             "\n" +
-            color.dim(`  nexus auth pin ${profileName}    (in your project directory)`)
-        );
+              color.dim("Tip: You have multiple profiles. Consider pinning directories:") +
+              "\n" +
+              color.dim(`  nexus auth pin ${profileName}    (in your project directory)`)
+          );
+        }
       }
     });
 
   // ── logout ────────────────────────────────────────────────────────────
   auth
     .command("logout")
-    .description("Remove stored credentials")
-    .argument("[name]", "Specific profile to remove (default: active profile)")
-    .option("--all", "Remove all profiles")
+    .description("Delete a stored profile (API key + org metadata)")
+    .argument("[name]", "Specific profile to delete (default: active profile)")
+    .option("--all", "Delete all profiles")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus auth logout           # removes active profile
-  $ nexus auth logout work      # removes "work" profile
-  $ nexus auth logout --all     # removes all profiles`
+  $ nexus auth logout           # deletes active profile
+  $ nexus auth logout work      # deletes "work" profile
+  $ nexus auth logout --all     # deletes all profiles
+
+Notes:
+  logout fully deletes the profile entry from ~/.nexus-mcp/config.json —
+  the stored API key AND its org metadata (orgName, orgId, baseUrl). This is
+  a deletion, not a temporary sign-out. Run "nexus auth login" to re-create it.`
     )
     .action((name: string | undefined, opts: { all?: boolean }) => {
       if (opts.all) {
         clearConfig();
-        printSuccess("All profiles removed.");
+        printSuccess("Deleted all profiles. Run: nexus auth login to authenticate again.");
         return;
       }
 
@@ -253,10 +296,13 @@ Examples:
       const remaining = Object.keys(profiles).filter((p) => p !== target);
 
       if (remaining.length === 0) {
-        printSuccess(`Removed profile "${target}". No profiles remaining. Run: nexus auth login`);
+        printSuccess(
+          `Deleted profile "${target}" (API key + org metadata removed). ` +
+            `No profiles remaining. Run: nexus auth login`
+        );
       } else {
         const { activeProfile: newActive } = listProfiles();
-        printSuccess(`Removed profile "${target}".`, {
+        printSuccess(`Deleted profile "${target}" (API key + org metadata removed).`, {
           remaining: remaining.join(", "),
           ...(newActive ? { active: newActive } : {})
         });

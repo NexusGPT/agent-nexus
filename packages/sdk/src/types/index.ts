@@ -235,6 +235,7 @@ export type {
   CreateNodeBody,
   CreateWorkflowBody,
   ExecutionStatus,
+  FolderRef,
   IconResult,
   ListWorkflowsParams,
   NodeExecutionResult,

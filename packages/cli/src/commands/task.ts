@@ -2,7 +2,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { isJsonMode, printRecord, printSuccess, printTable } from "../output";
+import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 import { resolveInputValue } from "../util/stdin";
 
@@ -15,20 +15,23 @@ export function registerTaskCommands(program: Command): void {
     .description("List AI tasks")
     .option("--search <query>", "Search by name")
     .option("--limit <number>", "Max results", parseInt)
+    .option("--folder <name|id>", "Filter by folder name or id")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus task list
   $ nexus task list --search "summarize" --limit 10
-  $ nexus task list --json`
+  $ nexus task list --json
+  $ nexus task list --folder "Notion"`
     )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.skills.listTasks({
           search: opts.search,
-          limit: opts.limit
+          limit: opts.limit,
+          folder: opts.folder
         });
 
         const items = (result as any).items ?? [];
@@ -37,7 +40,8 @@ Examples:
           { key: "name", label: "NAME", width: 30 },
           { key: "category", label: "CATEGORY", width: 15 },
           { key: "inputFormat", label: "INPUT", width: 10 },
-          { key: "outputFormat", label: "OUTPUT", width: 10 }
+          { key: "outputFormat", label: "OUTPUT", width: 10 },
+          { key: "folder", label: "FOLDER", width: 20, format: formatFolder }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);

@@ -45,6 +45,18 @@ interface Column {
   format?: (val: unknown) => string;
 }
 
+/**
+ * Column formatter for a `folder` field (`{ id, name } | null`) — renders the
+ * folder name, or a dash when the resource is not in a folder. JSON output keeps
+ * the full object untouched; this only affects the human-readable table.
+ */
+export function formatFolder(val: unknown): string {
+  if (val && typeof val === "object" && "name" in val) {
+    return String((val as { name: unknown }).name ?? "—");
+  }
+  return "—";
+}
+
 export function printTable(rows: Record<string, unknown>[], columns: Column[]): void {
   if (_jsonMode) {
     console.log(JSON.stringify(rows, null, 2));

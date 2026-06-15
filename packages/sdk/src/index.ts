@@ -142,6 +142,7 @@ export type {
   EmulatorSessionDetail,
   ExecutionStatus,
   FolderAssignment,
+  FolderRef,
   GetConversationParams,
   GetMessagesParams,
   GetToolDetailParams,

@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [
@@ -33,6 +33,7 @@
     "build": "tsup",
     "build:refresh-skills": "pnpm run gen:skills && tsup",
     "dev": "tsup --watch",
+    "test:auth": "tsx scripts/test-auth-login.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
   },

@@ -499,6 +499,48 @@ Examples:
       }
     });
 
+  // ── restore ──────────────────────────────────────────────────────────────
+  ws.command("restore")
+    .description("Restore a deleted file or folder from backup (within the recovery window)")
+    .argument("<slug>", "Workspace slug")
+    .argument("<path>", "The deleted file or folder path (relative to the workspace root)")
+    .addHelpText(
+      "after",
+      `
+Recovers a file or folder that was deleted from a workspace, using the S3
+backup (version history, retained ~30 days — past the 72h soft-delete window).
+Pass the path that was deleted; everything currently deleted at/under it is
+restored. Live files are never overwritten.
+
+Examples:
+  $ nexus workspace restore support-docs reports/q3.pdf
+  $ nexus workspace restore support-docs reports      # restore a whole folder`
+    )
+    .action(async (slug: string, filePath: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.workspaces.restore(slug, { path: filePath });
+        if (isJsonMode()) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        if (result.count === 0) {
+          console.log(
+            color.dim(
+              `Nothing to restore at "${filePath}" — it isn't in the recovery window, was never deleted, or is already present.`
+            )
+          );
+          return;
+        }
+        printSuccess(`Restored ${result.count} file${result.count === 1 ? "" : "s"} to "${slug}"`);
+        for (const p of result.restored) {
+          console.log(color.dim(`  ${p}`));
+        }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── mount ────────────────────────────────────────────────────────────────
   ws.command("mount")
     .description("Mount a workspace as a live drive so local Claude Code can use it")

@@ -93,6 +93,8 @@ export interface ConversationDetail extends ConversationSummary {
   deploymentName: string | null;
   channelType: string | null;
   memberCount: number;
+  /** Custom metadata stored on the conversation (`Chat.metadata`). Null if none set. */
+  metadata: Record<string, unknown> | null;
   satisfaction?: Satisfaction;
 }
 
@@ -112,6 +114,15 @@ export interface SetAssignedUsersBody {
 
 export interface UpdateConversationTopicBody {
   topic: string;
+}
+
+/**
+ * Body for `conversations.updateMetadata`. The patch is shallow-merged into the
+ * conversation's existing metadata: a non-null value overwrites that key, a
+ * `null` value clears it, and absent keys are left untouched.
+ */
+export interface UpdateConversationMetadataBody {
+  metadata: Record<string, unknown>;
 }
 
 export interface AddConversationCommentBody {

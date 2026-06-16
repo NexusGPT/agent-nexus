@@ -4,6 +4,8 @@ import type {
   ListWorkspaceFilesParams,
   ListWorkspacesResponse,
   RenameWorkspaceBody,
+  RestoreWorkspaceBody,
+  RestoreWorkspaceResponse,
   Workspace,
   WorkspaceFileUrl,
   WorkspaceListing
@@ -59,6 +61,20 @@ export class WorkspacesResource extends BaseResource {
       "GET",
       `/workspaces/${encodeURIComponent(slug)}/file`,
       { query: { path } }
+    );
+  }
+
+  /**
+   * Restore a soft-deleted file or folder from the S3 backup. `path` is the
+   * deleted file or folder; everything currently deleted at/under it is
+   * recovered (live files are left untouched). The recovery window is bounded
+   * by backup retention (~30 days, covering the 72h soft-delete window).
+   */
+  async restore(slug: string, body: RestoreWorkspaceBody): Promise<RestoreWorkspaceResponse> {
+    return this.http.request<RestoreWorkspaceResponse>(
+      "POST",
+      `/workspaces/${encodeURIComponent(slug)}/restore`,
+      { body }
     );
   }
 }

@@ -13,6 +13,7 @@ import type {
   SendAgentMessageBody,
   SendWhatsappTemplateBody,
   SetAssignedUsersBody,
+  UpdateConversationMetadataBody,
   UpdateConversationStatusesBody,
   UpdateConversationTopicBody
 } from "../types/conversations";
@@ -102,6 +103,24 @@ export class ConversationsResource extends BaseResource {
     return this.http.request<ConversationDetail>(
       "PATCH",
       `/conversations/${conversationId}/topic`,
+      { body }
+    );
+  }
+
+  async getMetadata(conversationId: string): Promise<{ metadata: Record<string, unknown> }> {
+    return this.http.request<{ metadata: Record<string, unknown> }>(
+      "GET",
+      `/conversations/${conversationId}/metadata`
+    );
+  }
+
+  async updateMetadata(
+    conversationId: string,
+    body: UpdateConversationMetadataBody
+  ): Promise<ConversationDetail> {
+    return this.http.request<ConversationDetail>(
+      "PATCH",
+      `/conversations/${conversationId}/metadata`,
       { body }
     );
   }

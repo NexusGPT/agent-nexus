@@ -88,3 +88,19 @@ export interface ListWorkspaceFilesParams {
 export interface DeleteWorkspaceResponse {
   deleted: true;
 }
+
+/** Request body for `client.workspaces.restore()`. */
+export interface RestoreWorkspaceBody {
+  /** A deleted file path or folder prefix, relative to the workspace root. */
+  path: string;
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+}
+
+/** Response from `client.workspaces.restore()`. */
+export interface RestoreWorkspaceResponse {
+  /** Workspace-relative paths of the files brought back (folder markers excluded). */
+  restored: string[];
+  /** Convenience count of `restored.length`. */
+  count: number;
+}

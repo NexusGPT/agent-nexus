@@ -69,6 +69,7 @@ export type {
   SendAgentMessageBody,
   SendWhatsappTemplateBody,
   SetAssignedUsersBody,
+  UpdateConversationMetadataBody,
   UpdateConversationStatusesBody,
   UpdateConversationTopicBody
 } from "./conversations";

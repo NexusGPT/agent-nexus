@@ -335,6 +335,89 @@ Examples:
       }
     });
 
+  // ── get-metadata ──────────────────────────────────────────────────────
+  conversation
+    .command("get-metadata")
+    .description("Get the custom metadata stored on a conversation")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus conversation get-metadata <id>
+  $ nexus conversation get-metadata <id> --json`
+    )
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.conversations.getMetadata(id);
+        printRecord(result.metadata as unknown as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── update-metadata ───────────────────────────────────────────────────
+  conversation
+    .command("update-metadata")
+    .description("Shallow-merge custom metadata into a conversation")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
+    .option("--body <json>", "Metadata patch as JSON, .json file, or '-' for stdin")
+    .option(
+      "--set <key=value...>",
+      "Set keys (value parsed as JSON when valid, else string). Repeatable."
+    )
+    .option("--unset <key...>", "Clear keys (sends null to delete them). Repeatable.")
+    .addHelpText(
+      "after",
+      `
+Merge semantics: a non-null value overwrites that key, a null value clears it,
+and keys you don't mention are left untouched.
+
+Examples:
+  $ nexus conversation update-metadata <id> --set priority=high externalId=CRM-123
+  $ nexus conversation update-metadata <id> --set 'flags={"vip":true}'
+  $ nexus conversation update-metadata <id> --unset legacyField
+  $ nexus conversation update-metadata <id> --body '{"priority":"high","old":null}'`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = (await resolveBody(opts.body)) as Record<string, unknown>;
+        const metadata: Record<string, unknown> = { ...base };
+
+        for (const pair of (opts.set as string[] | undefined) ?? []) {
+          const eq = pair.indexOf("=");
+          if (eq === -1) {
+            throw new Error(`--set expects key=value (got '${pair}')`);
+          }
+          const key = pair.slice(0, eq);
+          const rawValue = pair.slice(eq + 1);
+          if (!key) throw new Error(`--set key must not be empty (got '${pair}')`);
+          let parsed: unknown = rawValue;
+          try {
+            parsed = JSON.parse(rawValue);
+          } catch {
+            // Leave as a plain string when the value isn't valid JSON.
+          }
+          metadata[key] = parsed;
+        }
+
+        for (const key of (opts.unset as string[] | undefined) ?? []) {
+          metadata[key] = null;
+        }
+
+        if (Object.keys(metadata).length === 0) {
+          throw new Error("Provide a metadata patch via --body, --set, or --unset");
+        }
+
+        const conv = await client.conversations.updateMetadata(id, { metadata });
+        printRecord((conv as any).metadata as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── assign ────────────────────────────────────────────────────────────
   conversation
     .command("assign")

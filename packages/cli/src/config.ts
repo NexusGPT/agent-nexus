@@ -36,6 +36,8 @@ export interface NexusProfile {
   dashboardUrl?: string;
   orgName?: string;
   orgId?: string;
+  /** Email of the user that owns the API key (captured at login from /me). */
+  userEmail?: string;
 }
 
 /** V2 config: multiple named profiles with one active. */

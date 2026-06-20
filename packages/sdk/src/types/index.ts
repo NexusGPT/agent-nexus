@@ -136,6 +136,7 @@ export type {
   CreateExternalToolBody,
   CreateTaskBody,
   DeleteExternalToolResponse,
+  DeleteTaskResponse,
   DocumentTemplateDetail,
   DocumentTemplateSummary,
   ExternalToolAuth,

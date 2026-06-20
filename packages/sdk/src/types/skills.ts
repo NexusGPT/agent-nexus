@@ -407,6 +407,12 @@ export interface DeleteExternalToolResponse {
   deleted: true;
 }
 
+/** Response from `client.skills.deleteTask()`. */
+export interface DeleteTaskResponse {
+  id: string;
+  deleted: true;
+}
+
 // ============================================================================
 // CREATE BODIES (continued)
 // ============================================================================

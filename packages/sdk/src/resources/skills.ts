@@ -10,6 +10,7 @@ import type {
   CreateExternalToolBody,
   CreateTaskBody,
   DeleteExternalToolResponse,
+  DeleteTaskResponse,
   DocumentTemplateDetail,
   ExecuteTaskBody,
   ExecuteTaskResponse,
@@ -308,6 +309,29 @@ export class SkillsResource extends BaseResource {
    */
   async updateTask(taskId: string, body: UpdateTaskBody): Promise<TaskDetail> {
     return this.http.request<TaskDetail>("PATCH", `/skills/tasks/${taskId}`, { body });
+  }
+
+  /**
+   * Permanently delete an AI task.
+   *
+   * Refuses with 409 if the task is still attached to any agent skill or
+   * workflow (draft or published) — `err.details` carries the dependent
+   * agents/workflows so they can be detached first.
+   *
+   * @param taskId - AI Task UUID.
+   * @returns `{ id, deleted: true }` on success.
+   *
+   * @example
+   * ```ts
+   * try {
+   *   await client.skills.deleteTask("task-uuid");
+   * } catch (err) {
+   *   // 409 if attached; inspect err.details.agents / err.details.workflows
+   * }
+   * ```
+   */
+  async deleteTask(taskId: string): Promise<DeleteTaskResponse> {
+    return this.http.request<DeleteTaskResponse>("DELETE", `/skills/tasks/${taskId}`);
   }
 
   /**

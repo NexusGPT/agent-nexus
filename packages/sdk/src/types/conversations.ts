@@ -50,8 +50,12 @@ export interface ConversationSummary {
   deploymentId: string | null;
   assignedUserIds: string[];
   unread: boolean;
+  /** ID of the most recent message (`Message.id`), or null when the chat has no messages. */
+  lastMessageId: string | null;
   lastMessagePreview: string | null;
   lastMessageAt: string | null;
+  /** Same value as `lastMessageAt` (`Chat.lastMessageUpdatedAt`); matches inbox.list shape. */
+  lastMessageUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

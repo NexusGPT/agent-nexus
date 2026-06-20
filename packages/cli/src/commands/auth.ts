@@ -8,6 +8,7 @@ import {
   clearConfig,
   getProfile,
   listProfiles,
+  type NexusProfile,
   removeNexusRc,
   removeProfile,
   resolveBaseUrl,
@@ -170,6 +171,7 @@ Notes:
         // ── Step 3: Fetch org info ───────────────────────────────────────
         let orgName: string | undefined;
         let orgId: string | undefined;
+        let userEmail: string | undefined;
 
         try {
           const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
@@ -179,19 +181,23 @@ Notes:
           if (meRes.ok) {
             const meJson = (await meRes.json()) as {
               success?: boolean;
-              data?: { orgId?: string; orgName?: string };
+              data?: { orgId?: string; orgName?: string; userEmail?: string };
             };
             if (meJson.data) {
-              orgName = meJson.data.orgName;
-              orgId = meJson.data.orgId;
+              orgName = meJson.data.orgName ?? undefined;
+              orgId = meJson.data.orgId ?? undefined;
+              userEmail = meJson.data.userEmail ?? undefined;
             }
           }
         } catch {
-          // /me endpoint may not exist yet — continue without org info
+          // /me may be unreachable on older backends — continue without org info
         }
 
         if (orgName) {
           console.log(`Organization: ${color.cyan(orgName)}`);
+        }
+        if (userEmail) {
+          console.log(`User: ${color.cyan(userEmail)}`);
         }
 
         // ── Step 4: Determine profile name ───────────────────────────────
@@ -230,7 +236,8 @@ Notes:
           ...(baseUrl ? { baseUrl } : {}),
           ...(dashboardUrl ? { dashboardUrl } : {}),
           ...(orgName ? { orgName } : {}),
-          ...(orgId ? { orgId } : {})
+          ...(orgId ? { orgId } : {}),
+          ...(userEmail ? { userEmail } : {})
         });
 
         printSuccess(`Saved profile "${profileName}".`, {
@@ -454,10 +461,21 @@ Notes:
         console.log(
           `Using profile ${color.cyan(`"${resolved.name}"`)}${orgPart} — ${color.dim(sourceExplanation[resolved.source])}`
         );
+        if (resolved.profile.orgId) {
+          console.log(`  ${color.dim("org id:")} ${resolved.profile.orgId}`);
+        }
+        if (resolved.profile.userEmail) {
+          console.log(`  ${color.dim("user:")} ${resolved.profile.userEmail}`);
+        }
         console.log(
           `  ${color.dim("key:")} ${resolved.profile.apiKey.slice(0, 8)}...${resolved.profile.apiKey.slice(-4)}`
         );
         console.log(`  ${color.dim("api:")} ${resolved.profile.baseUrl ?? resolveBaseUrl()}`);
+        if (!resolved.profile.orgName && !resolved.profile.orgId) {
+          console.log(
+            color.dim('\n  Run "nexus auth whoami" to resolve and cache org/user identity.')
+          );
+        }
       } catch (err) {
         console.error(color.red("Error:") + " " + (err as Error).message);
         process.exitCode = 1;
@@ -467,42 +485,163 @@ Notes:
   // ── whoami ────────────────────────────────────────────────────────────
   auth
     .command("whoami")
-    .description("Show current authentication status")
+    .description("Show the active profile, organization, and authenticated user")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus auth whoami`
+  $ nexus auth whoami
+
+Notes:
+  Calls the API live to resolve the current org name, org ID, and user email
+  for the active profile's key, so you always know which org you're acting on.`
     )
     .action(async () => {
+      let resolved;
       try {
-        const resolved = resolveProfile(program.optsWithGlobals());
-        const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+        resolved = resolveProfile(program.optsWithGlobals());
+      } catch {
+        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
+        process.exitCode = 1;
+        return;
+      }
 
-        const res = await fetch(`${baseUrl}/api/public/v1/agents?limit=1`, {
-          headers: { "api-key": resolved.profile.apiKey, Accept: "application/json" },
-          signal: AbortSignal.timeout(30_000)
-        });
+      const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+      const keyHint =
+        resolved.profile.apiKey.slice(0, 8) + "..." + resolved.profile.apiKey.slice(-4);
 
-        if (!res.ok) {
+      // whoami is a LIVE verification command: any failure to confirm the key
+      // (network error, timeout, or a non-ok server response) must be reported
+      // as such — never a false "Authenticated.". The only graceful path is a
+      // 404 from /me, which means the backend predates this endpoint; there we
+      // fall back to the legacy /agents validity probe and show stored fields.
+      const requestInit = {
+        headers: { "api-key": resolved.profile.apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(30_000)
+      };
+
+      const invalidKey = (): void => {
+        console.error(
+          color.red("Error:") + " API key is invalid or expired. Run: nexus auth login"
+        );
+        process.exitCode = 1;
+      };
+
+      let identity:
+        | { orgId?: string; orgName?: string; userEmail?: string; userName?: string; role?: string }
+        | undefined;
+      try {
+        const res = await fetch(`${baseUrl}/api/public/v1/me`, requestInit);
+
+        if (res.status === 401 || res.status === 403) {
+          invalidKey();
+          return;
+        }
+
+        if (res.ok) {
+          const json = (await res.json()) as {
+            data?: {
+              orgId?: string;
+              orgName?: string;
+              userEmail?: string;
+              userName?: string;
+              role?: string;
+            };
+          };
+          identity = json.data;
+
+          // Mirror the authoritative /me identity into the stored profile so
+          // `list`/`status` reflect reality. This is a SYNC, not a merge: a
+          // field the live response omits/nulls is cleared from the cache, so a
+          // stale org or email can't linger after the real value changes.
+          //
+          // Skip the write for an ephemeral `--api-key` / `NEXUS_API_KEY`
+          // override — `resolveProfile` names that result "override"; persisting
+          // it would write a bogus "override" profile into config.json.
+          if (identity && resolved.source !== "override") {
+            const synced: NexusProfile = { ...resolved.profile };
+            setOrClear(synced, "orgName", identity.orgName);
+            setOrClear(synced, "orgId", identity.orgId);
+            setOrClear(synced, "userEmail", identity.userEmail);
+            if (
+              synced.orgName !== resolved.profile.orgName ||
+              synced.orgId !== resolved.profile.orgId ||
+              synced.userEmail !== resolved.profile.userEmail
+            ) {
+              // Best-effort cache refresh: a write failure (read-only FS, disk
+              // full, permissions) must not fail whoami or surface as the outer
+              // catch's "could not reach the API" — auth already succeeded and
+              // the live identity is still shown below.
+              try {
+                saveProfile(resolved.name, synced);
+              } catch {
+                // ignore — caching is an optimization, not the command's purpose
+              }
+            }
+          }
+        } else if (res.status === 404) {
+          // Older backend without /me — fall back to a plain validity probe so
+          // whoami still works, just without live org/user identity.
+          const probe = await fetch(`${baseUrl}/api/public/v1/agents?limit=1`, requestInit);
+          if (probe.status === 401 || probe.status === 403) {
+            invalidKey();
+            return;
+          }
+          if (!probe.ok) {
+            console.error(
+              color.red("Error:") +
+                ` Could not verify credentials (HTTP ${probe.status}). Try again.`
+            );
+            process.exitCode = 1;
+            return;
+          }
+        } else {
           console.error(
-            color.red("Error:") + " API key is invalid or expired. Run: nexus auth login"
+            color.red("Error:") + ` Could not verify credentials (HTTP ${res.status}). Try again.`
           );
           process.exitCode = 1;
           return;
         }
-
-        printSuccess("Authenticated.", {
-          profile: resolved.name,
-          ...(resolved.profile.orgName ? { organization: resolved.profile.orgName } : {}),
-          api: baseUrl,
-          key: resolved.profile.apiKey.slice(0, 8) + "..." + resolved.profile.apiKey.slice(-4)
-        });
-      } catch (err) {
-        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
+      } catch {
+        console.error(
+          color.red("Error:") +
+            " Could not reach the API to verify credentials. Check your connection and try again."
+        );
         process.exitCode = 1;
+        return;
       }
+
+      // Reaching here means the key was verified. When /me answered, its
+      // identity is authoritative — show exactly that (don't fall back to a
+      // just-cleared stale profile value). Only the 404 legacy path, where we
+      // have no live identity, reads the locally stored profile.
+      const orgName = identity ? identity.orgName : resolved.profile.orgName;
+      const orgId = identity ? identity.orgId : resolved.profile.orgId;
+      const userEmail = identity ? identity.userEmail : resolved.profile.userEmail;
+
+      printSuccess("Authenticated.", {
+        profile: resolved.name,
+        ...(orgName ? { organization: orgName } : {}),
+        ...(orgId ? { "org id": orgId } : {}),
+        ...(userEmail ? { user: userEmail } : {}),
+        ...(identity?.role ? { role: identity.role } : {}),
+        api: baseUrl,
+        key: keyHint
+      });
     });
+}
+
+/**
+ * Mirror an authoritative live value into a profile field: set it when present,
+ * delete it when the live response omits/nulls it (so stale values don't linger).
+ */
+function setOrClear(
+  profile: NexusProfile,
+  key: "orgName" | "orgId" | "userEmail",
+  value: string | undefined | null
+): void {
+  if (value) profile[key] = value;
+  else delete profile[key];
 }
 
 function openUrl(url: string): void {

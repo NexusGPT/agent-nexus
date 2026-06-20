@@ -31,6 +31,11 @@ export function handleError(err: unknown): number {
         `Validation error: ${err.message}`,
         err.details ? `Details: ${JSON.stringify(err.details)}` : undefined
       );
+    } else if (err.status === 409) {
+      printCliError(
+        `Conflict: ${err.message}`,
+        err.details ? `Details: ${JSON.stringify(err.details)}` : undefined
+      );
     } else {
       printCliError(`API error (${err.status}): ${err.message}`);
     }

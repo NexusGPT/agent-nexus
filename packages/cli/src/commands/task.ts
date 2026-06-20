@@ -179,6 +179,45 @@ Examples:
       }
     });
 
+  // ── delete ────────────────────────────────────────────────────────────
+  task
+    .command("delete")
+    .description("Delete an AI task")
+    .argument("<id>", "Task ID")
+    .option("--yes", "Skip confirmation")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus task delete task-123
+  $ nexus task delete task-123 --yes
+
+Notes:
+  Fails with 409 if the task is still attached to an agent skill or workflow.
+  Detach it from those dependents (listed in the error) before deleting.`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+
+        if (!opts.yes && process.stdout.isTTY) {
+          const readline = await import("node:readline/promises");
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await rl.question(`Delete task ${id}? [y/N] `);
+          rl.close();
+          if (answer.toLowerCase() !== "y") {
+            console.log("Aborted.");
+            return;
+          }
+        }
+
+        await client.skills.deleteTask(id);
+        printSuccess("Task deleted.", { id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── execute ───────────────────────────────────────────────────────────
   task
     .command("execute")

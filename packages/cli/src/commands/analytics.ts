@@ -2,8 +2,9 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { printList, printRecord } from "../output";
+import { isJsonMode, printList, printRecord } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { parseTimePeriod, TIME_PERIOD_HELP } from "../util/time-period";
 
 export function registerAnalyticsCommands(program: Command): void {
   const analytics = program.command("analytics").description("View analytics and metrics");
@@ -12,7 +13,7 @@ export function registerAnalyticsCommands(program: Command): void {
   analytics
     .command("overview")
     .description("Get analytics overview")
-    .option("--time-period <period>", "Time period (7d, 30d, 90d, etc.)")
+    .option("--time-period <period>", TIME_PERIOD_HELP, parseTimePeriod)
     .option("--deployment-id <id>", "Filter by deployment ID")
     .addHelpText(
       "after",
@@ -40,7 +41,7 @@ Examples:
     analytics
       .command("feedback")
       .description("List satisfaction feedback")
-      .option("--time-period <period>", "Time period")
+      .option("--time-period <period>", TIME_PERIOD_HELP, parseTimePeriod)
       .option("--deployment-id <id>", "Filter by deployment")
       .option("--score <number>", "Filter by score", parseInt)
       .addHelpText(
@@ -79,7 +80,7 @@ Examples:
   analytics
     .command("export")
     .description("Export analytics as CSV")
-    .option("--time-period <period>", "Time period")
+    .option("--time-period <period>", TIME_PERIOD_HELP, parseTimePeriod)
     .option("--deployment-id <id>", "Filter by deployment")
     .addHelpText(
       "after",
@@ -110,4 +111,140 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // ── query ─────────────────────────────────────────────────────────────
+  analytics
+    .command("query <sql>")
+    .description("Run a read-only SQL query over the curated analytics views")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus analytics query 'SELECT count(*) AS n FROM analytics_traces'
+  $ nexus analytics query 'SELECT "modelName", SUM("costUsd") AS spend FROM analytics_generations GROUP BY 1 ORDER BY spend DESC' --json
+
+Notes:
+  Read-only, single statement, org-scoped. Views: analytics_generations, analytics_traces.`
+    )
+    .action(async (sql: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.analytics.query({ query: sql });
+
+        if (result.error) {
+          process.stderr.write(`query error: ${result.error}\n`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const columns = result.fields.map((f) => ({ key: f.name, label: f.name, width: 28 }));
+        printList(result.rows, undefined, columns);
+
+        if (!isJsonMode()) {
+          const note = result.truncated ? " (truncated)" : "";
+          process.stderr.write(
+            `\n${result.rowCount} row(s) in ${result.executionTimeMs}ms${note}\n`
+          );
+        }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── metrics (structured, non-SQL) ─────────────────────────────────────────
+  analytics
+    .command("metrics <view>")
+    .description("Run a structured (non-SQL) query over a curated analytics view")
+    .option("-m, --metric <metric...>", 'metric(s): "count" or "<agg>:<column>" (sum|avg|min|max)')
+    .option("-g, --group-by <dimension...>", "dimension(s) to group by")
+    .option(
+      "-f, --filter <expr...>",
+      'filter(s) as "field:op:value" (op = eq|neq|in|gt|gte|lt|lte)'
+    )
+    .option("--granularity <granularity>", "time bucket: hour | day | week | month")
+    .option("-p, --period <period>", "time period (default last_30_days)")
+    .option("--order-by <alias>", "metric alias, groupBy field, or 'bucket'")
+    .option("--order <order>", "asc | desc")
+    .option("--limit <n>", "max rows", (v) => parseInt(v, 10))
+    .option("--show-sql", "print the generated SQL to stderr")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus analytics metrics conversations -m count -g agentId --period last_7_days
+  $ nexus analytics metrics node_runs -m count -g nodeType -f status:eq:ERROR --json
+  $ nexus analytics metrics generations -m sum:costUsd -g modelName --granularity day --order-by bucket
+
+Views: generations, traces, conversations, messages, executions, node_runs, scores.`
+    )
+    .action(
+      async (
+        view: string,
+        opts: {
+          metric?: string[];
+          groupBy?: string[];
+          filter?: string[];
+          granularity?: string;
+          period?: string;
+          orderBy?: string;
+          order?: string;
+          limit?: number;
+          showSql?: boolean;
+        }
+      ) => {
+        try {
+          const filters = (opts.filter ?? []).map((raw) => {
+            const idx1 = raw.indexOf(":");
+            const idx2 = raw.indexOf(":", idx1 + 1);
+            if (idx1 === -1 || idx2 === -1) {
+              throw new Error(`Invalid filter "${raw}". Use "field:op:value".`);
+            }
+            const op = raw.slice(idx1 + 1, idx2);
+            const rawValue = raw.slice(idx2 + 1);
+            return {
+              field: raw.slice(0, idx1),
+              op,
+              value: op === "in" ? rawValue.split(",") : rawValue
+            } as {
+              field: string;
+              op: "eq" | "neq" | "in" | "gt" | "gte" | "lt" | "lte";
+              value: string | string[];
+            };
+          });
+
+          const client = createClient(program.optsWithGlobals());
+          const result = await client.analytics.queryStructured({
+            view,
+            metrics: opts.metric ?? ["count"],
+            groupBy: opts.groupBy,
+            filters,
+            granularity: opts.granularity as "hour" | "day" | "week" | "month" | undefined,
+            period: opts.period,
+            orderBy: opts.orderBy,
+            order: opts.order as "asc" | "desc" | undefined,
+            limit: opts.limit
+          });
+
+          if (result.error) {
+            process.stderr.write(`query error: ${result.error}\n`);
+            process.exitCode = 1;
+            return;
+          }
+
+          if (opts.showSql) process.stderr.write(`SQL: ${result.generatedSql}\n`);
+
+          const columns = result.fields.map((f) => ({ key: f.name, label: f.name, width: 28 }));
+          printList(result.rows, undefined, columns);
+
+          if (!isJsonMode()) {
+            const note = result.truncated ? " (truncated)" : "";
+            process.stderr.write(
+              `\n${result.rowCount} row(s) in ${result.executionTimeMs}ms${note}\n`
+            );
+          }
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
 }

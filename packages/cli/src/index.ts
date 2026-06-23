@@ -19,7 +19,6 @@ import { registerCloudImportCommands } from "./commands/cloud-import";
 import { registerCollectionCommands } from "./commands/collection";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerCredentialCommands } from "./commands/credential";
-import { registerCueCommands } from "./commands/cue";
 import { registerCustomModelCommands } from "./commands/custom-model";
 import { registerCustomerCommands } from "./commands/customer";
 import { registerDeploymentCommands } from "./commands/deployment";
@@ -34,6 +33,7 @@ import { registerModelCommands } from "./commands/model";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
 import { registerPromptAssistantCommands } from "./commands/prompt-assistant";
 import { registerSkillFolderCommands } from "./commands/skill-folder";
+import { registerSkillsCommands } from "./commands/skills";
 import { registerTaskCommands } from "./commands/task";
 import { registerTemplateCommands } from "./commands/template";
 import { registerTicketCommands } from "./commands/ticket";
@@ -81,6 +81,7 @@ const program = new Command()
       "status",
       "docs",
       "claude-code",
+      "skills",
       ...UPGRADE_ALIASES
     ].includes(cmdName);
     if (!skipBanner && !isJsonMode()) {
@@ -129,7 +130,6 @@ registerEmulatorCommands(program);
 registerEvaluationCommands(program);
 registerTemplateCommands(program);
 registerExternalToolCommands(program);
-registerCueCommands(program);
 registerPromptAssistantCommands(program);
 registerSkillFolderCommands(program);
 registerModelCommands(program);
@@ -141,6 +141,7 @@ registerCredentialCommands(program);
 registerCustomerCommands(program);
 registerAccessCardCommands(program);
 registerClaudeCodeCommands(program);
+registerSkillsCommands(program);
 registerCloudImportCommands(program);
 registerVibeCommands(program);
 registerUpgradeCommand(program);

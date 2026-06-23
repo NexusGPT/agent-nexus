@@ -1,199 +1,26 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import { Command } from "commander";
 
 import { handleError } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
+import { SKILL_LIST, SKILLS } from "../skills-content.generated";
 import {
-  CLAUDE_MD,
-  SHARED_FILES,
-  SKILL_LIST,
-  type SkillEntry,
-  SKILLS
-} from "../skills-content.generated";
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface InstallableSkill {
-  slug: string;
-  files: { path: string; content: Buffer }[];
-}
-
-/**
- * Convert the build-time bundle into the byte-shaped form `writeSkillFiles`
- * expects. The bundle stores file contents as UTF-8 strings (they're inlined
- * into TypeScript constants); `writeSkillFiles` writes raw buffers so it can
- * handle binary skill assets if any ever appear. UTF-8 round-trip is lossless
- * for the .md / .ts files we ship today.
- */
-function bundleToInstallables(slugs: readonly string[]): InstallableSkill[] {
-  return slugs.map((slug) => {
-    const entry: SkillEntry = SKILLS[slug];
-    return {
-      slug: entry.slug,
-      files: entry.files.map((f) => ({
-        path: f.path,
-        content: Buffer.from(f.content, "utf-8")
-      }))
-    };
-  });
-}
-
-interface WriteResult {
-  created: string[];
-  updated: string[];
-  skipped: string[];
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function resolveSkillsDir(opts: { dir?: string }): string {
-  return path.resolve(opts.dir || path.join(".claude", "skills"));
-}
-
-/**
- * Resolve the project root where CLAUDE.md should live. Claude Code auto-loads
- * project memory from `<root>/CLAUDE.md`, so for the conventional
- * `<root>/.claude/skills` layout we walk up to `<root>`. For a custom `--dir`
- * that doesn't follow that layout, fall back to the current working directory
- * — still the project root the user invoked us from.
- */
-function resolveProjectRoot(skillsDir: string): string {
-  const parent = path.dirname(skillsDir);
-  if (path.basename(skillsDir) === "skills" && path.basename(parent) === ".claude") {
-    return path.dirname(parent);
-  }
-  return process.cwd();
-}
-
-type ClaudeMdStatus = "created" | "updated" | "skipped" | "preserved";
-
-/**
- * Write the bundled CLAUDE.md (the cross-cutting Cue system prompt every
- * SKILL.md cross-references) to the project root. Unlike the namespaced skill
- * files under `.claude/skills`, CLAUDE.md lives at the project root where a
- * user may already keep their own project memory — so we never silently
- * clobber an existing, differing file. Overwriting requires `--force`.
- */
-function writeRootClaudeMd(
-  target: string,
-  content: Buffer,
-  opts: { force?: boolean }
-): ClaudeMdStatus {
-  let existingStat: fs.Stats | null = null;
-  try {
-    existingStat = fs.lstatSync(target);
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException | null)?.code;
-    if (code !== "ENOENT") throw err;
-  }
-
-  if (existingStat) {
-    if (!existingStat.isFile()) {
-      throw new Error(
-        `Refusing to overwrite "${target}" — not a regular file (symlink or directory).`
-      );
-    }
-    const existing = fs.readFileSync(target);
-    if (existing.equals(content)) return "skipped";
-    if (!opts.force) return "preserved";
-    fs.writeFileSync(target, content);
-    return "updated";
-  }
-
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, content);
-  return "created";
-}
-
-async function confirmOrAbort(
-  message: string,
-  opts: { yes?: boolean; force?: boolean }
-): Promise<boolean> {
-  if (opts.yes || opts.force) return true;
-
-  if (!process.stdout.isTTY) {
-    console.error(
-      color.red("Error:") + " Cannot prompt in non-interactive mode. Use --yes or --force."
-    );
-    process.exitCode = 1;
-    return false;
-  }
-
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(message);
-  rl.close();
-  return answer.toLowerCase() === "y" || answer === "";
-}
-
-/**
- * Resolve `relativePath` against `basePath` and only return the resulting
- * absolute path when it is strictly contained within `basePath`. Returns
- * `null` on absolute paths, `..` traversal, or any entry that would escape
- * the target directory (Zip Slip hardening).
- */
-function safeResolveWithinBase(basePath: string, relativePath: string): string | null {
-  if (!relativePath || relativePath.includes("\0")) return null;
-  if (path.isAbsolute(relativePath)) return null;
-
-  const normalizedBase = path.resolve(basePath);
-  const resolved = path.resolve(normalizedBase, relativePath);
-  const baseWithSep = normalizedBase + path.sep;
-  if (resolved !== normalizedBase && !resolved.startsWith(baseWithSep)) return null;
-  return resolved;
-}
-
-function writeSkillFiles(
-  basePath: string,
-  files: { path: string; content: Buffer }[]
-): WriteResult {
-  const result: WriteResult = { created: [], updated: [], skipped: [] };
-
-  for (const file of files) {
-    const fullPath = safeResolveWithinBase(basePath, file.path);
-    if (!fullPath) {
-      throw new Error(
-        `Refusing to write unsafe path "${file.path}" — the downloaded skills bundle contains an entry that escapes the target directory.`
-      );
-    }
-    const dir = path.dirname(fullPath);
-    fs.mkdirSync(dir, { recursive: true });
-
-    // Use lstat (not existsSync) so we detect symlinks BEFORE we follow them.
-    // existsSync follows symlinks and returns false for dangling links, which
-    // would let writeFileSync then create a file at the symlink's target —
-    // possibly outside basePath.
-    let existingStat: fs.Stats | null = null;
-    try {
-      existingStat = fs.lstatSync(fullPath);
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException | null)?.code;
-      if (code !== "ENOENT") throw err;
-    }
-
-    if (existingStat) {
-      if (!existingStat.isFile()) {
-        throw new Error(
-          `Refusing to overwrite "${fullPath}" — not a regular file (symlink or directory).`
-        );
-      }
-      const existing = fs.readFileSync(fullPath);
-      if (existing.equals(file.content)) {
-        result.skipped.push(file.path);
-        continue;
-      }
-      fs.writeFileSync(fullPath, file.content);
-      result.updated.push(file.path);
-    } else {
-      fs.writeFileSync(fullPath, file.content);
-      result.created.push(file.path);
-    }
-  }
-
-  return result;
-}
+  bundleToInstallables,
+  claudeMdContent,
+  type ClaudeMdStatus,
+  type ClaudeTarget,
+  confirmOrAbort,
+  hookInstallables,
+  type InstallableSkill,
+  resolveClaudeTarget,
+  settingsJsonContent,
+  sharedInstallable,
+  writeHookFiles,
+  writeRootClaudeMd,
+  writeRootSettingsJson,
+  writeSkillFiles
+} from "../util/skills-install";
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 
@@ -213,7 +40,7 @@ Examples:
   $ nexus claude-code list
   $ nexus claude-code list --json
 
-Skills are version-locked to the CLI binary — \`nexus claude-code install\`
+Skills are version-locked to the CLI binary — \`nexus skills update\`
 writes the same set this command lists. Run \`nexus --version\` to see the
 CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@latest\`.`
     )
@@ -238,7 +65,7 @@ CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@lates
       }
       console.log(
         color.dim(
-          `Install the latest skills: nexus claude-code install\nInstall specific ones: nexus claude-code install <skill>\n`
+          `Install the latest skills: nexus skills update\nInstall specific ones: nexus skills update <skill>\n`
         )
       );
     });
@@ -249,6 +76,9 @@ CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@lates
   // at build time from the canonical claude-code-skills-nexus repo) and
   // writes the selected skills to the target dir. No network call, no
   // auth — the bundle is version-locked to the CLI binary.
+  //
+  // This is the original entry point; `nexus skills update` (skills.ts) wraps
+  // the same machinery with project-root auto-detection. Kept for back-compat.
 
   cc.command("install")
     .description("Install the Claude Code skills bundled with this CLI version to your project")
@@ -258,6 +88,10 @@ CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@lates
     .option("--yes", "Skip confirmation prompt")
     .option("--dry-run", "Show what would be installed without writing")
     .option("--no-claude-md", "Skip writing the CLAUDE.md system prompt to the project root")
+    .option(
+      "--no-settings",
+      "Skip writing .claude/settings.json + .claude/hooks (permission posture)"
+    )
     .addHelpText(
       "after",
       `
@@ -269,6 +103,11 @@ Examples:
   $ nexus claude-code install --dry-run                       # Preview only
   $ nexus claude-code install --force                         # Overwrite without prompting
   $ nexus claude-code install --no-claude-md                  # Skills only, leave CLAUDE.md alone
+  $ nexus claude-code install --no-settings                   # Skip the settings.json + hooks posture
+
+Tip: \`nexus skills update\` runs the same install but auto-detects your
+project's existing .claude folder instead of always writing to the current
+directory.
 
 Alongside the skills, install writes:
   • shared/        — api-client + helpers the skill example scripts import
@@ -277,6 +116,12 @@ Alongside the skills, install writes:
                      auto-loads it. An existing, differing CLAUDE.md is
                      preserved unless --force is passed; skip it entirely
                      with --no-claude-md.
+  • settings.json  — the scoped permission posture written to
+                     .claude/settings.json. An existing, differing file is
+                     preserved unless --force is passed.
+  • hooks/         — the firewall + lifecycle hooks settings.json invokes,
+                     written to .claude/hooks (Python marked executable).
+                     Skip both settings.json and hooks with --no-settings.
 
 Skills are bundled with the CLI binary at build time from the canonical
 claude-code-skills-nexus repository. No network calls, no API key required.
@@ -293,190 +138,299 @@ skills.`
           yes?: boolean;
           dryRun?: boolean;
           claudeMd?: boolean;
+          settings?: boolean;
         }
       ) => {
-        try {
-          const skillsDir = resolveSkillsDir(opts);
-          const projectRoot = resolveProjectRoot(skillsDir);
-          const claudeMdTarget = path.join(projectRoot, "CLAUDE.md");
-
-          // 2. Filter to the requested subset (or all)
-          const availableSlugs = new Set(SKILL_LIST);
-          let selectedSlugs: readonly string[] = SKILL_LIST;
-
-          if (skillArgs.length > 0) {
-            const unknown = skillArgs.filter((s) => !availableSlugs.has(s));
-            if (unknown.length > 0) {
-              console.error(
-                color.red("Error:") +
-                  ` Unknown skill${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.\n\n` +
-                  `Available skills in this CLI bundle:\n` +
-                  [...availableSlugs]
-                    .sort()
-                    .map((s) => `  ${s}`)
-                    .join("\n")
-              );
-              process.exitCode = 1;
-              return;
-            }
-            const requested = new Set(skillArgs);
-            selectedSlugs = SKILL_LIST.filter((s) => requested.has(s));
-          }
-
-          const selected = bundleToInstallables(selectedSlugs);
-
-          // shared/ holds the api-client + helpers every skill's example
-          // scripts import via `../../shared/...`. It lives alongside the
-          // skills under .claude/skills/shared and ships whenever any skill
-          // is installed, otherwise those imports dangle.
-          const sharedInstallable: InstallableSkill = {
-            slug: "shared",
-            files: SHARED_FILES.map((f) => ({
-              path: f.path,
-              content: Buffer.from(f.content, "utf-8")
-            }))
-          };
-          const skillInstallables = [...selected, sharedInstallable];
-
-          // CLAUDE.md is the cross-cutting Cue system prompt every SKILL.md
-          // cross-references; it goes to the project root (not .claude/skills)
-          // so Claude Code auto-loads it. Opt out with --no-claude-md.
-          const installClaudeMd = opts.claudeMd !== false && CLAUDE_MD.length > 0;
-          const claudeMdContent = Buffer.from(CLAUDE_MD, "utf-8");
-
-          const totalFiles =
-            skillInstallables.reduce((acc, s) => acc + s.files.length, 0) +
-            (installClaudeMd ? 1 : 0);
-
-          // 3. Show plan
-          if (!isJsonMode()) {
-            console.log(
-              color.bold(
-                `\nInstalling ${selected.length} Claude Code skill${selected.length === 1 ? "" : "s"} to ${skillsDir}\n`
-              )
-            );
-            for (const skill of skillInstallables) {
-              console.log(
-                `  ${color.cyan(skill.slug.padEnd(32))} ${color.dim(`${skill.files.length} files`)}`
-              );
-            }
-            if (installClaudeMd) {
-              console.log(
-                `  ${color.cyan("CLAUDE.md".padEnd(32))} ${color.dim(`→ ${claudeMdTarget}`)}`
-              );
-            }
-            console.log();
-          }
-
-          // 4. Dry run
-          if (opts.dryRun) {
-            if (isJsonMode()) {
-              console.log(
-                JSON.stringify(
-                  {
-                    dryRun: true,
-                    skills: selected.map((s) => s.slug),
-                    shared: sharedInstallable.files.length,
-                    claudeMd: installClaudeMd ? claudeMdTarget : null,
-                    directory: skillsDir,
-                    fileCount: totalFiles
-                  },
-                  null,
-                  2
-                )
-              );
-            } else {
-              console.log(
-                color.dim(`Dry run — ${totalFiles} files would be written. No changes made.`)
-              );
-            }
-            return;
-          }
-
-          // 5. Confirm
-          const confirmed = await confirmOrAbort("Proceed? [Y/n] ", opts);
-          if (!confirmed) {
-            if (process.exitCode !== 1) console.log("Aborted.");
-            return;
-          }
-
-          // 6. Write
-          let totalCreated = 0;
-          let totalUpdated = 0;
-          let totalSkipped = 0;
-          for (const skill of skillInstallables) {
-            const targetDir = path.join(skillsDir, skill.slug);
-            const result = writeSkillFiles(targetDir, skill.files);
-            totalCreated += result.created.length;
-            totalUpdated += result.updated.length;
-            totalSkipped += result.skipped.length;
-          }
-
-          let claudeMdStatus: ClaudeMdStatus | null = null;
-          if (installClaudeMd) {
-            claudeMdStatus = writeRootClaudeMd(claudeMdTarget, claudeMdContent, opts);
-            if (claudeMdStatus === "created") totalCreated += 1;
-            else if (claudeMdStatus === "updated") totalUpdated += 1;
-            else if (claudeMdStatus === "skipped") totalSkipped += 1;
-          }
-
-          // 7. Summary
-          if (isJsonMode()) {
-            console.log(
-              JSON.stringify(
-                {
-                  success: true,
-                  skills: selected.map((s) => s.slug),
-                  shared: sharedInstallable.files.length,
-                  claudeMd: claudeMdStatus
-                    ? { path: claudeMdTarget, status: claudeMdStatus }
-                    : null,
-                  directory: skillsDir,
-                  created: totalCreated,
-                  updated: totalUpdated,
-                  skipped: totalSkipped
-                },
-                null,
-                2
-              )
-            );
-          } else {
-            printSuccess(
-              `Installed ${selected.length} skill${selected.length === 1 ? "" : "s"} (${totalCreated + totalUpdated} files) to ${skillsDir}`
-            );
-            if (totalSkipped > 0) {
-              console.log(color.dim(`  ${totalSkipped} files already up to date`));
-            }
-            if (claudeMdStatus === "created") {
-              console.log(color.dim(`  CLAUDE.md written to ${claudeMdTarget}`));
-            } else if (claudeMdStatus === "updated") {
-              console.log(color.dim(`  CLAUDE.md updated at ${claudeMdTarget}`));
-            } else if (claudeMdStatus === "preserved") {
-              console.log(
-                color.yellow(
-                  `  CLAUDE.md left unchanged at ${claudeMdTarget} — a different file already exists. Re-run with --force to overwrite.`
-                )
-              );
-            }
-          }
-        } catch (err: unknown) {
-          const errno = err as NodeJS.ErrnoException | null;
-          if (errno?.code === "EACCES") {
-            // Report the path the OS actually rejected — writes now target both
-            // the skills dir and the project-root CLAUDE.md, so a hard-coded
-            // skills-dir path would mislead when CLAUDE.md is the culprit.
-            const failedPath = errno.path ?? resolveSkillsDir(opts);
-            console.error(
-              color.red("Error:") +
-                ` Permission denied. Cannot write to ${failedPath}.\n` +
-                `Check permissions, install skills elsewhere with --dir, or skip the ` +
-                `project-root CLAUDE.md with --no-claude-md.`
-            );
-            process.exitCode = 1;
-          } else {
-            process.exitCode = handleError(err);
-          }
-        }
+        await runSkillsInstall(skillArgs, opts);
       }
     );
 }
+
+// ── Shared install runner ──────────────────────────────────────────────────────
+//
+// Used by both `nexus claude-code install` and `nexus skills update`. The
+// caller resolves the target (explicit --dir vs auto-detection) and passes its
+// options in; everything downstream — filtering, planning, confirmation,
+// writing, reporting — is identical.
+
+export interface SkillsInstallOpts {
+  dir?: string;
+  global?: boolean;
+  here?: boolean;
+  force?: boolean;
+  yes?: boolean;
+  dryRun?: boolean;
+  claudeMd?: boolean;
+  /** When false (`--no-settings`), skip .claude/settings.json + .claude/hooks. */
+  settings?: boolean;
+}
+
+export async function runSkillsInstall(
+  skillArgs: string[],
+  opts: SkillsInstallOpts
+): Promise<void> {
+  await runSkillsInstallToTarget(skillArgs, resolveClaudeTarget(opts), opts);
+}
+
+/**
+ * Lower-level runner: install `skillArgs` into an already-resolved target.
+ * `nexus skills update` resolves (and may interactively re-pick) the target
+ * itself, then calls this directly so the global / current-dir / detected
+ * choice is honored byte-for-byte instead of being re-derived from `--dir`.
+ */
+export async function runSkillsInstallToTarget(
+  skillArgs: string[],
+  target: ClaudeTarget,
+  opts: SkillsInstallOpts
+): Promise<void> {
+  try {
+    const skillsDir = target.skillsDir;
+    const claudeMdTarget = target.claudeMdPath;
+
+    // Filter to the requested subset (or all)
+    const availableSlugs = new Set(SKILL_LIST);
+    let selectedSlugs: readonly string[] = SKILL_LIST;
+
+    if (skillArgs.length > 0) {
+      const unknown = skillArgs.filter((s) => !availableSlugs.has(s));
+      if (unknown.length > 0) {
+        console.error(
+          color.red("Error:") +
+            ` Unknown skill${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.\n\n` +
+            `Available skills in this CLI bundle:\n` +
+            [...availableSlugs]
+              .sort()
+              .map((s) => `  ${s}`)
+              .join("\n")
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const requested = new Set(skillArgs);
+      selectedSlugs = SKILL_LIST.filter((s) => requested.has(s));
+    }
+
+    const selected = bundleToInstallables(selectedSlugs);
+    const shared = sharedInstallable();
+    const skillInstallables = [...selected, shared];
+
+    // CLAUDE.md is the cross-cutting Cue system prompt every SKILL.md
+    // cross-references; it goes to the project root (not .claude/skills)
+    // so Claude Code auto-loads it. Opt out with --no-claude-md.
+    const content = claudeMdContent();
+    const installClaudeMd = opts.claudeMd !== false && content.length > 0;
+
+    // settings.json + hooks/ — the scoped permission posture. Coupled under one
+    // opt-out (`--no-settings`): settings.json references the hooks, and the
+    // hooks are inert without it, so installing one without the other is never
+    // useful. Both are skipped when the bundle ships them empty.
+    //
+    // The posture is inherently PROJECT-scoped: settings.json invokes the hooks
+    // via `${CLAUDE_PROJECT_DIR}/.claude/hooks/…`, which Claude Code resolves to
+    // the open project at runtime — never `~/.claude/hooks`. Writing it to the
+    // user-global `~/.claude` would (a) leave the global hooks unreachable and
+    // (b) impose Nexus's permission rules on every project the user opens. So
+    // for a global target we skip it and tell the user to install per-project.
+    const settingsContent = settingsJsonContent();
+    const hooks = hookInstallables();
+    const settingsSupported = target.reason !== "global";
+    const installSettings =
+      opts.settings !== false &&
+      settingsSupported &&
+      settingsContent.length > 0 &&
+      hooks.files.length > 0;
+    const settingsSkippedForGlobal = opts.settings !== false && !settingsSupported;
+
+    const totalFiles =
+      skillInstallables.reduce((acc, s) => acc + s.files.length, 0) +
+      (installClaudeMd ? 1 : 0) +
+      (installSettings ? hooks.files.length + 1 : 0);
+
+    // Show plan
+    if (!isJsonMode()) {
+      console.log(
+        color.bold(
+          `\nInstalling ${selected.length} Claude Code skill${selected.length === 1 ? "" : "s"} to ${skillsDir}\n`
+        )
+      );
+      for (const skill of skillInstallables) {
+        console.log(
+          `  ${color.cyan(skill.slug.padEnd(32))} ${color.dim(`${skill.files.length} files`)}`
+        );
+      }
+      if (installClaudeMd) {
+        console.log(`  ${color.cyan("CLAUDE.md".padEnd(32))} ${color.dim(`→ ${claudeMdTarget}`)}`);
+      }
+      if (installSettings) {
+        console.log(
+          `  ${color.cyan("settings.json".padEnd(32))} ${color.dim(`→ ${target.settingsJsonPath}`)}`
+        );
+        console.log(
+          `  ${color.cyan("hooks".padEnd(32))} ${color.dim(`${hooks.files.length} files → ${target.hooksDir}`)}`
+        );
+      }
+      if (settingsSkippedForGlobal) {
+        console.log(
+          color.yellow(
+            `  settings.json + hooks skipped — the permission posture is project-scoped ` +
+              `(its hooks resolve via $CLAUDE_PROJECT_DIR). Install it per-project, not with --global.`
+          )
+        );
+      }
+      console.log();
+    }
+
+    // Dry run
+    if (opts.dryRun) {
+      if (isJsonMode()) {
+        console.log(
+          JSON.stringify(
+            {
+              dryRun: true,
+              skills: selected.map((s) => s.slug),
+              shared: shared.files.length,
+              claudeMd: installClaudeMd ? claudeMdTarget : null,
+              settings: installSettings ? target.settingsJsonPath : null,
+              hooks: installSettings ? { dir: target.hooksDir, files: hooks.files.length } : null,
+              settingsSkippedForGlobal,
+              directory: skillsDir,
+              targetReason: target.reason,
+              fileCount: totalFiles
+            },
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(color.dim(`Dry run — ${totalFiles} files would be written. No changes made.`));
+      }
+      return;
+    }
+
+    // Confirm
+    const confirmed = await confirmOrAbort("Proceed? [Y/n] ", opts);
+    if (!confirmed) {
+      if (process.exitCode !== 1) console.log("Aborted.");
+      return;
+    }
+
+    // Write
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    for (const skill of skillInstallables) {
+      const targetDir = path.join(skillsDir, skill.slug);
+      const result = writeSkillFiles(targetDir, skill.files);
+      totalCreated += result.created.length;
+      totalUpdated += result.updated.length;
+      totalSkipped += result.skipped.length;
+    }
+
+    let claudeMdStatus: ClaudeMdStatus | null = null;
+    if (installClaudeMd) {
+      claudeMdStatus = writeRootClaudeMd(claudeMdTarget, content, opts);
+      if (claudeMdStatus === "created") totalCreated += 1;
+      else if (claudeMdStatus === "updated") totalUpdated += 1;
+      else if (claudeMdStatus === "skipped") totalSkipped += 1;
+    }
+
+    // Hooks first (Nexus-owned, refreshed in place like skills), then
+    // settings.json (preserve-unless-force, since the user may have customised
+    // it). Ordering matters: settings.json references the hooks, so the hooks
+    // should exist by the time it lands.
+    let settingsStatus: ClaudeMdStatus | null = null;
+    if (installSettings) {
+      const hooksResult = writeHookFiles(target.hooksDir, hooks.files);
+      totalCreated += hooksResult.created.length;
+      totalUpdated += hooksResult.updated.length;
+      totalSkipped += hooksResult.skipped.length;
+
+      settingsStatus = writeRootSettingsJson(target.settingsJsonPath, settingsContent, opts);
+      if (settingsStatus === "created") totalCreated += 1;
+      else if (settingsStatus === "updated") totalUpdated += 1;
+      else if (settingsStatus === "skipped") totalSkipped += 1;
+    }
+
+    // Summary
+    if (isJsonMode()) {
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            skills: selected.map((s) => s.slug),
+            shared: shared.files.length,
+            claudeMd: claudeMdStatus ? { path: claudeMdTarget, status: claudeMdStatus } : null,
+            settings: settingsStatus
+              ? { path: target.settingsJsonPath, status: settingsStatus, hooksDir: target.hooksDir }
+              : null,
+            settingsSkippedForGlobal,
+            directory: skillsDir,
+            targetReason: target.reason,
+            created: totalCreated,
+            updated: totalUpdated,
+            skipped: totalSkipped
+          },
+          null,
+          2
+        )
+      );
+    } else {
+      printSuccess(
+        `Installed ${selected.length} skill${selected.length === 1 ? "" : "s"} (${totalCreated + totalUpdated} files) to ${skillsDir}`
+      );
+      if (totalSkipped > 0) {
+        console.log(color.dim(`  ${totalSkipped} files already up to date`));
+      }
+      if (claudeMdStatus === "created") {
+        console.log(color.dim(`  CLAUDE.md written to ${claudeMdTarget}`));
+      } else if (claudeMdStatus === "updated") {
+        console.log(color.dim(`  CLAUDE.md updated at ${claudeMdTarget}`));
+      } else if (claudeMdStatus === "preserved") {
+        console.log(
+          color.yellow(
+            `  CLAUDE.md left unchanged at ${claudeMdTarget} — a different file already exists. Re-run with --force to overwrite.`
+          )
+        );
+      }
+      if (settingsStatus === "created") {
+        console.log(color.dim(`  settings.json written to ${target.settingsJsonPath}`));
+      } else if (settingsStatus === "updated") {
+        console.log(color.dim(`  settings.json updated at ${target.settingsJsonPath}`));
+      } else if (settingsStatus === "preserved") {
+        console.log(
+          color.yellow(
+            `  settings.json left unchanged at ${target.settingsJsonPath} — a different file already exists. Re-run with --force to overwrite.`
+          )
+        );
+      }
+      if (settingsSkippedForGlobal) {
+        console.log(
+          color.yellow(
+            `  settings.json + hooks skipped — the permission posture is project-scoped ` +
+              `(its hooks resolve via $CLAUDE_PROJECT_DIR). Install it per-project, not with --global.`
+          )
+        );
+      }
+    }
+  } catch (err: unknown) {
+    const errno = err as NodeJS.ErrnoException | null;
+    if (errno?.code === "EACCES") {
+      // Report the path the OS actually rejected — writes target both the
+      // skills dir and the project-root CLAUDE.md, so a hard-coded skills-dir
+      // path would mislead when CLAUDE.md is the culprit.
+      const failedPath = errno.path ?? target.skillsDir;
+      console.error(
+        color.red("Error:") +
+          ` Permission denied. Cannot write to ${failedPath}.\n` +
+          `Check permissions, install skills elsewhere with --dir, or skip the ` +
+          `project-root CLAUDE.md with --no-claude-md.`
+      );
+      process.exitCode = 1;
+    } else {
+      process.exitCode = handleError(err);
+    }
+  }
+}
+
+// Re-exported for back-compat with any importer expecting these here.
+export type { InstallableSkill };

@@ -40,16 +40,27 @@ function escapeForTemplate(content: string): string {
 
 /** Recursively collect all .md and .ts files from a directory. */
 function collectFiles(dir: string, basePath: string = ""): FileEntry[] {
+  return collectFilesMatching(dir, /\.(md|ts)$/, basePath);
+}
+
+/**
+ * Recursively collect files whose name matches `match` from a directory.
+ * `collectFiles` (skills/shared) wants .md/.ts only; the hooks/ tree ships
+ * Python hooks plus their lib/ + docs, so it needs a broader matcher.
+ * Editor/OS cruft (dotfiles, __pycache__, compiled .pyc) is always skipped.
+ */
+function collectFilesMatching(dir: string, match: RegExp, basePath: string = ""): FileEntry[] {
   const entries: FileEntry[] = [];
   if (!fs.existsSync(dir)) return entries;
 
   for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (item.name.startsWith(".") || item.name === "__pycache__") continue;
     const relPath = basePath ? `${basePath}/${item.name}` : item.name;
     const fullPath = path.join(dir, item.name);
 
     if (item.isDirectory()) {
-      entries.push(...collectFiles(fullPath, relPath));
-    } else if (/\.(md|ts)$/.test(item.name)) {
+      entries.push(...collectFilesMatching(fullPath, match, relPath));
+    } else if (match.test(item.name) && !item.name.endsWith(".pyc")) {
       entries.push({
         path: relPath,
         content: fs.readFileSync(fullPath, "utf-8").trim()
@@ -184,6 +195,8 @@ async function main(): Promise<void> {
   const extracted = await downloadAndExtractTarball(sha, token);
   const skillsRoot = path.join(extracted, "skills");
   const claudeMdPath = path.join(extracted, "CLAUDE.md");
+  const settingsJsonPath = path.join(extracted, "settings.json");
+  const hooksRoot = path.join(extracted, "hooks");
 
   if (!fs.existsSync(skillsRoot)) {
     throw new Error(`Tarball is missing a top-level skills/ directory: ${skillsRoot}`);
@@ -231,6 +244,23 @@ async function main(): Promise<void> {
     )
     .join(",\n");
 
+  // settings.json + hooks/ — the scoped permission posture (NEX-2461). The
+  // top-level settings.json installs to .claude/settings.json; the hooks/ tree
+  // (Python firewall + lib/ + docs) installs to .claude/hooks/. Collect every
+  // file under hooks/ (not just .md/.ts) since the hooks are .py with a lib/.
+  const settingsJson = fs.existsSync(settingsJsonPath)
+    ? fs.readFileSync(settingsJsonPath, "utf-8").trim()
+    : "";
+  const hookFiles = collectFilesMatching(hooksRoot, /.*/);
+  const hookFilesStr = hookFiles
+    .map(
+      (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
+    )
+    .join(",\n");
+  console.log(
+    `Found settings.json (${settingsJson.length} bytes) and ${hookFiles.length} hook files`
+  );
+
   const output = [
     "// AUTO-GENERATED — do not edit. Run: pnpm run gen:skills",
     `// Source: ${REPO}@${sha}`,
@@ -256,6 +286,12 @@ async function main(): Promise<void> {
     "",
     `export const SHARED_FILES: SkillFile[] = [`,
     sharedStr,
+    "];",
+    "",
+    `export const SETTINGS_JSON: string = \`${escapeForTemplate(settingsJson)}\`;`,
+    "",
+    `export const HOOK_FILES: SkillFile[] = [`,
+    hookFilesStr,
     "];",
     "",
     `export const SKILLS_NEXUS_SHA: string = ${JSON.stringify(sha)};`,

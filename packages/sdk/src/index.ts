@@ -17,6 +17,7 @@ export {
   AgentsResource,
   AgentToolsResource,
   AnalyticsResource,
+  ApiKeyConnectionsResource,
   CloudImportsResource,
   ConversationsResource,
   CredentialsResource,
@@ -70,6 +71,9 @@ export type {
   // Agent Tools
   AgentToolConfig,
   AgentToolConfigType,
+  // API Key Connections
+  ApiKeyConnection,
+  ApiKeyService,
   AssignAgentToFolderBody,
   AssignAgentToFolderResponse,
   AttachCollectionDocumentsBody,
@@ -103,6 +107,7 @@ export type {
   CreateAccessCardBody,
   CreateAgentBody,
   CreateAgentToolBody,
+  CreateApiKeyConnectionBody,
   CreateBranchBody,
   CreateCheckpointBody,
   CreateEdgeBody,

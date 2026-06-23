@@ -475,13 +475,32 @@ All commands follow the pattern: `nexus <group> <action> [arguments] [options]`
 
 ### Utility
 
-| Command                                              | Subcommands     | Description                    |
-| ---------------------------------------------------- | --------------- | ------------------------------ |
-| [`api`](docs/command-reference.md#nexus-api)         | (passthrough)   | Call any API endpoint directly |
-| [`docs`](docs/command-reference.md#nexus-docs)       | (topic browser) | View built-in documentation    |
-| [`upgrade`](docs/command-reference.md#nexus-upgrade) | (self-update)   | Upgrade the CLI to latest      |
+| Command                                              | Subcommands                       | Description                                                                  |
+| ---------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| [`api`](docs/command-reference.md#nexus-api)         | (passthrough)                     | Call any API endpoint directly                                               |
+| [`docs`](docs/command-reference.md#nexus-docs)       | (topic browser)                   | View built-in documentation                                                  |
+| [`upgrade`](docs/command-reference.md#nexus-upgrade) | (self-update)                     | Upgrade the CLI **binary** to latest                                         |
+| `skills`                                             | `update` `list` `version` `where` | Install/refresh the bundled `.claude` (skills + CLAUDE.md) into your project |
 
 > **Full reference:** See [docs/command-reference.md](docs/command-reference.md) for complete documentation of every command, option, and example.
+
+### Keeping the Claude Code skills up to date
+
+`nexus upgrade` updates the **CLI binary** only. The `.claude` behavior layer
+(CLAUDE.md + `skills/`) is bundled with each CLI release, so pull the latest
+into your project separately:
+
+```bash
+nexus upgrade            # 1. get the newest binary (and bundled skill set)
+nexus skills update      # 2. write that .claude into your project
+```
+
+`nexus skills update` auto-detects the project's existing `.claude` folder by
+walking up from the current directory (existing `.claude/` → `CLAUDE.md` →
+git root), so it refreshes the owning project instead of dropping a stray
+`.claude` in a subfolder. An existing, differing project `CLAUDE.md` is
+**preserved** unless you pass `--force`. Use `nexus skills where` to preview
+the target, `--global` for `~/.claude`, or `--dir` for an explicit path.
 
 ---
 

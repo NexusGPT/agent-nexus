@@ -26,10 +26,17 @@ export function createClient(opts?: {
   const resolved = resolveProfile(opts);
   _lastResolved = resolved;
 
+  // Personal (cross-org) tokens act on the profile's selected org via the
+  // organization-id header. An explicit NEXUS_ORGANIZATION_ID env wins (headless),
+  // then the profile's orgId. Harmless for org-scoped keys (server ignores it for
+  // keys that carry their own org). See NEX-2474.
+  const organizationId = process.env.NEXUS_ORGANIZATION_ID || resolved.profile.orgId;
+
   return new NexusClient({
     apiKey: opts?.apiKey ?? resolved.profile.apiKey,
     baseUrl:
       opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
+    ...(organizationId ? { organizationId } : {}),
     timeout: opts?.timeout
   });
 }

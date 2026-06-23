@@ -214,6 +214,33 @@ Examples:
       }
     });
 
+  // ── node test-payload ──────────────────────────────────────────────────
+  node
+    .command("test-payload")
+    .description("Get a webhook trigger's URLs and the last received test payload")
+    .argument("<wf-id>", "Workflow ID")
+    .argument("<node-id>", "Webhook trigger node ID")
+    .addHelpText(
+      "after",
+      `
+Returns the test + production webhook URLs (available pre-publish) and the last
+payload a test event delivered. Fire a test event at the testWebhookUrl, then
+run this again to read it back.
+
+Examples:
+  $ nexus workflow node test-payload wf-123 node-456
+  $ nexus workflow node test-payload wf-123 node-456 --json`
+    )
+    .action(async (wfId: string, nodeId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.workflows.getWebhookTestPayload(wfId, nodeId);
+        printRecord(result as unknown as Record<string, unknown>);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── node reload-props ──────────────────────────────────────────────────
   node
     .command("reload-props")

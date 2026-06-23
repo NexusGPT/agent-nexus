@@ -65,6 +65,11 @@ export interface UpdateTicketBody {
   description?: string;
   type?: TicketType;
   priority?: TicketPriority;
+  /**
+   * Workflow-state name to transition the ticket to, e.g. "Canceled", "Done",
+   * "In Progress". Accepts the same state names as `tickets.list({ status })`.
+   */
+  status?: string;
 }
 
 export interface CreateTicketCommentBody {
@@ -82,6 +87,37 @@ export interface ListTicketsParams {
   priority?: TicketPriority;
   status?: string;
   search?: string;
+}
+
+/** A ticket annotated with the organization it belongs to (cross-org listing). */
+export interface CrossOrgTicketSummary extends TicketSummary {
+  organizationId: string;
+  organizationName: string | null;
+}
+
+/** Filters for `client.tickets.listAcrossOrganizations()`. `page`/`limit` page the merged result. */
+export interface ListTicketsAcrossOrganizationsParams {
+  page?: number;
+  limit?: number;
+  type?: TicketType;
+  priority?: TicketPriority;
+  status?: string;
+  search?: string;
+}
+
+/** Result of `client.tickets.listAcrossOrganizations()`. */
+export interface CrossOrgTicketsResult {
+  tickets: CrossOrgTicketSummary[];
+  /** Total tickets gathered across orgs (bounded — duplicate-scan aid, not exhaustive). */
+  total: number;
+  /** Current page (1-based) of the merged result. */
+  page: number;
+  /** Whether more pages exist after the current one. */
+  hasMore: boolean;
+  /** How many organizations the caller belongs to. */
+  organizationCount: number;
+  /** Orgs whose ticket fetch failed and were skipped (best-effort aggregation). */
+  skippedOrganizationIds: string[];
 }
 
 // ============================================================================

@@ -110,8 +110,12 @@ Examples:
           { key: "completedAt", label: "Completed" }
         ]);
 
+        // In JSON mode the trace object already carries `generations` nested,
+        // so printRecord above emitted them inside the single JSON document.
+        // Only render the human-readable generations table for non-JSON output —
+        // emitting a second JSON value here would break parsers (NEX-2176).
         const gens = (trace as any).generations;
-        if (gens && gens.length > 0) {
+        if (!isJsonMode() && gens && gens.length > 0) {
           console.log(`\n${color.bold("Generations")} (${gens.length}):\n`);
           printList(gens as Record<string, unknown>[], undefined, [
             { key: "id", label: "ID", width: 36 },

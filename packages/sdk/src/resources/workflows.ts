@@ -28,6 +28,7 @@ import type {
   UpdateNodeBody,
   UpdateWorkflowBody,
   ValidationReport,
+  WebhookTestPayload,
   WfSummary,
   WorkflowDetail,
   WorkflowEdge,
@@ -440,6 +441,25 @@ export class WorkflowsResource extends BaseResource {
     return this.http.request<OutputFormat>(
       "GET",
       `/workflows/${workflowId}/nodes/${nodeId}/output-format`
+    );
+  }
+
+  /**
+   * Get a webhook trigger node's test + production URLs and the last payload a
+   * test event delivered to it.
+   *
+   * The URLs are available pre-publish. After firing a test event at the
+   * returned `testWebhookUrl`, call this again to read back the captured
+   * payload (`received: true`).
+   *
+   * @param workflowId - Workflow UUID.
+   * @param nodeId - Webhook trigger node UUID.
+   * @returns Webhook URLs plus the last received test payload (if any).
+   */
+  async getWebhookTestPayload(workflowId: string, nodeId: string): Promise<WebhookTestPayload> {
+    return this.http.request<WebhookTestPayload>(
+      "GET",
+      `/workflows/${workflowId}/nodes/${nodeId}/test-payload`
     );
   }
 

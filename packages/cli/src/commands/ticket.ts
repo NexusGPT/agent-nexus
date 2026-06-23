@@ -150,6 +150,10 @@ Notes:
     .option("--type <type>", "Updated type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
     .option("--priority <priority>", "Updated priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
     .option("--description <text>", "Updated description")
+    .option(
+      "--status <status>",
+      "Transition status (Triage, Backlog, Todo, In Progress, In Review, Done, Canceled)"
+    )
     .option("--data <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -157,6 +161,8 @@ Notes:
 Examples:
   $ nexus ticket update TKT-42 --priority URGENT
   $ nexus ticket update TKT-42 --title "Updated title" --type BUG
+  $ nexus ticket update TKT-42 --status "In Progress"
+  $ nexus ticket update TKT-42 --status Canceled
   $ nexus ticket update TKT-42 --data '{"priority":"URGENT"}'`
     )
     .action(async (id: string, opts) => {
@@ -168,10 +174,50 @@ Examples:
           ...(opts.title !== undefined && { title: opts.title }),
           ...(opts.type !== undefined && { type: opts.type }),
           ...(opts.priority !== undefined && { priority: opts.priority }),
-          ...(opts.description !== undefined && { description: opts.description })
+          ...(opts.description !== undefined && { description: opts.description }),
+          ...(opts.status !== undefined && { status: opts.status })
         });
 
         const t = await client.tickets.update(id, body as any);
+        printRecord(t as unknown as Record<string, unknown>, [
+          { key: "id", label: "ID" },
+          { key: "identifier", label: "Identifier" },
+          { key: "title", label: "Title" },
+          { key: "type", label: "Type" },
+          { key: "priority", label: "Priority" },
+          { key: "status", label: "Status" },
+          { key: "url", label: "URL" }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── close ─────────────────────────────────────────────────────────────
+  ticket
+    .command("close")
+    .description("Close a ticket by transitioning it to a terminal status")
+    .argument("<id>", "Ticket ID or identifier")
+    .option("--as <status>", "Status to close as (e.g. Canceled, Done)", "Canceled")
+    .option("--comment <text-or-->", "Optional comment to add before closing ('-' for stdin)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus ticket close TKT-42
+  $ nexus ticket close TKT-42 --as Done
+  $ nexus ticket close TKT-42 --as Canceled --comment "Duplicate of TKT-41"`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+
+        if (opts.comment !== undefined) {
+          const commentBody = await resolveInputValue(opts.comment);
+          await client.tickets.addComment(id, { body: commentBody });
+        }
+
+        const t = await client.tickets.update(id, { status: opts.as });
         printRecord(t as unknown as Record<string, unknown>, [
           { key: "id", label: "ID" },
           { key: "identifier", label: "Identifier" },

@@ -26,6 +26,11 @@ export type {
   UploadProfilePictureResponse
 } from "./agents";
 export type {
+  ApiKeyConnection,
+  ApiKeyService,
+  CreateApiKeyConnectionBody
+} from "./api-key-connections";
+export type {
   AutoProvisionBody,
   ChannelSetupResponse,
   ChannelSetupStep,
@@ -269,13 +274,20 @@ export type {
   CreateWorkspaceBody,
   DeleteWorkspaceResponse,
   ListWorkspaceFilesParams,
+  ListWorkspacesParams,
   ListWorkspacesResponse,
   RenameWorkspaceBody,
+  RestoreWorkspaceBody,
+  RestoreWorkspaceResponse,
   Workspace,
   WorkspaceFileEntry,
   WorkspaceFileUrl,
   WorkspaceFolderEntry,
+  WorkspaceFolderStats,
   WorkspaceListing,
+  WorkspaceSearchHit,
+  WorkspaceSearchParams,
+  WorkspaceSearchResponse,
   WorkspaceStats,
   WorkspaceSummary
 } from "./workspaces";

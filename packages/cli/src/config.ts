@@ -38,6 +38,13 @@ export interface NexusProfile {
   orgId?: string;
   /** Email of the user that owns the API key (captured at login from /me). */
   userEmail?: string;
+  /**
+   * True when `apiKey` is a personal (cross-org) token (`nxs_p_` prefix) — one
+   * key usable across every org the user belongs to. The active org is `orgId`,
+   * sent as the `organization-id` header; switch it with `nexus auth use-org`.
+   * See NEX-2474.
+   */
+  personalToken?: boolean;
 }
 
 /** V2 config: multiple named profiles with one active. */
@@ -184,6 +191,22 @@ export function setActiveProfile(name: string): void {
     );
   }
   config.activeProfile = name;
+  saveConfig(config);
+}
+
+/**
+ * Set the active organization on a profile (for personal cross-org tokens).
+ * Persists `orgId`/`orgName` so later commands send the `organization-id` header.
+ * Throws if the profile doesn't exist.
+ */
+export function setProfileOrganization(name: string, orgId: string, orgName?: string): void {
+  const config = loadConfig();
+  const profile = config.profiles[name];
+  if (!profile) {
+    throw new Error(`Profile "${name}" not found. Run: nexus auth list`);
+  }
+  profile.orgId = orgId;
+  if (orgName !== undefined) profile.orgName = orgName;
   saveConfig(config);
 }
 

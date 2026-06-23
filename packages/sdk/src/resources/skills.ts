@@ -526,22 +526,33 @@ export class SkillsResource extends BaseResource {
    * Partial update of an external tool (name, description, documentation,
    * openApiSpec, endpointUrl, or auth).
    *
+   * Refreshing `openApiSpec` re-parses the spec and rebuilds the action list
+   * while preserving the toolId, auth, credentials, icon, and downstream wiring.
+   * If the refresh would drop or rename an action key still bound by a workflow
+   * node or agent tool config, it fails with 409 (code TOOL_SPEC_BREAKING_CHANGE;
+   * inspect `err.details.removedActions` / `err.details.bindings`). Pass
+   * `{ force: true }` to override.
+   *
    * @param externalToolId - External tool UUID.
    * @param body - Fields to update; omit a field to leave it unchanged.
+   * @param opts.force - When true, skip the breaking-change guard (default false).
    * @returns Updated external tool detail.
    *
    * @example
    * ```ts
    * await client.skills.updateExternalTool("tool-uuid", { name: "Renamed Tool" });
+   * await client.skills.updateExternalTool("tool-uuid", { openApiSpec }, { force: true });
    * ```
    */
   async updateExternalTool(
     externalToolId: string,
-    body: UpdateExternalToolBody
+    body: UpdateExternalToolBody,
+    opts?: { force?: boolean }
   ): Promise<ExternalToolDetail> {
+    const query = opts?.force ? "?force=true" : "";
     return this.http.request<ExternalToolDetail>(
       "PATCH",
-      `/skills/external-tools/${externalToolId}`,
+      `/skills/external-tools/${externalToolId}${query}`,
       { body }
     );
   }

@@ -3,6 +3,7 @@ export { AgentCollectionsResource } from "./agent-collections";
 export { AgentToolsResource } from "./agent-tools";
 export { AgentsResource } from "./agents";
 export { AnalyticsResource } from "./analytics";
+export { ApiKeyConnectionsResource } from "./api-key-connections";
 export { BaseResource } from "./base-resource";
 export { ChannelsResource } from "./channels";
 export { CloudImportsResource } from "./cloud-imports";

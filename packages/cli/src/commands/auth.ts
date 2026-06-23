@@ -12,16 +12,40 @@ import {
   removeNexusRc,
   removeProfile,
   resolveBaseUrl,
+  type ResolvedProfile,
   resolveProfile,
   saveProfile,
   setActiveProfile,
+  setProfileOrganization,
   slugifyProfileName,
   validateProfileName,
   writeNexusRc
 } from "../config";
-import { color, printSuccess, printTable } from "../output";
+import { color, printSuccess, printTable, printWarning } from "../output";
 
 const SETTINGS_URL = "https://app.nexusgpt.io/app/settings/api-keys";
+
+/** Prefix that marks a personal (cross-org) token. See NEX-2474. */
+const PERSONAL_TOKEN_PREFIX = "nxs_p_";
+
+interface UserOrganization {
+  organizationId: string;
+  name: string | null;
+  role: string;
+}
+
+/** Fetch the organizations a token can act on (GET /me/organizations). */
+async function fetchOrganizations(baseUrl: string, apiKey: string): Promise<UserOrganization[]> {
+  const res = await fetch(`${baseUrl}/api/public/v1/me/organizations`, {
+    headers: { "api-key": apiKey, Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!res.ok) {
+    throw new Error(`Could not list organizations (HTTP ${res.status}).`);
+  }
+  const json = (await res.json()) as { data?: UserOrganization[] };
+  return json.data ?? [];
+}
 
 export function registerAuthCommands(program: Command): void {
   const auth = program.command("auth").description("Manage authentication and profiles");
@@ -152,45 +176,115 @@ Notes:
           return;
         }
 
-        // ── Step 2: Validate the key ─────────────────────────────────────
-        console.log("Validating...");
-        const validateRes = await fetch(`${resolvedBaseUrl}/api/public/v1/agents?limit=1`, {
-          headers: { "api-key": apiKey, Accept: "application/json" },
-          signal: AbortSignal.timeout(30_000)
-        });
+        const isPersonalToken = apiKey.startsWith(PERSONAL_TOKEN_PREFIX);
 
-        if (!validateRes.ok) {
-          console.error(
-            color.red("Error:") +
-              ` Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        // ── Step 3: Fetch org info ───────────────────────────────────────
         let orgName: string | undefined;
         let orgId: string | undefined;
         let userEmail: string | undefined;
 
-        try {
-          const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
+        if (isPersonalToken) {
+          // ── Personal (cross-org) token: validate by listing orgs, pick one ──
+          console.log("Validating personal token...");
+          let organizations: UserOrganization[];
+          try {
+            organizations = await fetchOrganizations(resolvedBaseUrl, apiKey);
+          } catch (err) {
+            console.error(color.red("Error:") + " " + (err as Error).message);
+            process.exitCode = 1;
+            return;
+          }
+
+          if (organizations.length === 0) {
+            console.error(
+              color.red("Error:") + " This token's user does not belong to any organization."
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          console.log(
+            `\nThis is a ${color.cyan("personal token")} — one key across ${color.cyan(
+              String(organizations.length)
+            )} organization(s).`
+          );
+
+          let chosen: UserOrganization;
+          if (organizations.length === 1) {
+            chosen = organizations[0];
+            console.log(`Active organization: ${color.cyan(chosen.name ?? chosen.organizationId)}`);
+          } else {
+            organizations.forEach((org, i) => {
+              console.log(
+                `  ${color.cyan(String(i + 1))}. ${org.name ?? org.organizationId} ${color.dim(
+                  `(${org.role})`
+                )}`
+              );
+            });
+            const answer = (await ask(`Select active organization [1]: `)).trim();
+            const index = answer ? Number.parseInt(answer, 10) - 1 : 0;
+            if (Number.isNaN(index) || index < 0 || index >= organizations.length) {
+              console.error(color.red("Error:") + " Invalid selection.");
+              process.exitCode = 1;
+              return;
+            }
+            chosen = organizations[index];
+          }
+          orgId = chosen.organizationId;
+          orgName = chosen.name ?? undefined;
+
+          // Resolve the owning user's email for the chosen org (best-effort).
+          try {
+            const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
+              headers: {
+                "api-key": apiKey,
+                "organization-id": orgId,
+                Accept: "application/json"
+              },
+              signal: AbortSignal.timeout(30_000)
+            });
+            if (meRes.ok) {
+              const meJson = (await meRes.json()) as { data?: { userEmail?: string } };
+              userEmail = meJson.data?.userEmail ?? undefined;
+            }
+          } catch {
+            // best-effort
+          }
+        } else {
+          // ── Org-scoped key: validate via a cheap authenticated probe ───────
+          console.log("Validating...");
+          const validateRes = await fetch(`${resolvedBaseUrl}/api/public/v1/agents?limit=1`, {
             headers: { "api-key": apiKey, Accept: "application/json" },
             signal: AbortSignal.timeout(30_000)
           });
-          if (meRes.ok) {
-            const meJson = (await meRes.json()) as {
-              success?: boolean;
-              data?: { orgId?: string; orgName?: string; userEmail?: string };
-            };
-            if (meJson.data) {
-              orgName = meJson.data.orgName ?? undefined;
-              orgId = meJson.data.orgId ?? undefined;
-              userEmail = meJson.data.userEmail ?? undefined;
-            }
+
+          if (!validateRes.ok) {
+            console.error(
+              color.red("Error:") +
+                ` Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
+            );
+            process.exitCode = 1;
+            return;
           }
-        } catch {
-          // /me may be unreachable on older backends — continue without org info
+
+          try {
+            const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
+              headers: { "api-key": apiKey, Accept: "application/json" },
+              signal: AbortSignal.timeout(30_000)
+            });
+            if (meRes.ok) {
+              const meJson = (await meRes.json()) as {
+                success?: boolean;
+                data?: { orgId?: string; orgName?: string; userEmail?: string };
+              };
+              if (meJson.data) {
+                orgName = meJson.data.orgName ?? undefined;
+                orgId = meJson.data.orgId ?? undefined;
+                userEmail = meJson.data.userEmail ?? undefined;
+              }
+            }
+          } catch {
+            // /me may be unreachable on older backends — continue without org info
+          }
         }
 
         if (orgName) {
@@ -237,14 +331,27 @@ Notes:
           ...(dashboardUrl ? { dashboardUrl } : {}),
           ...(orgName ? { orgName } : {}),
           ...(orgId ? { orgId } : {}),
-          ...(userEmail ? { userEmail } : {})
+          ...(userEmail ? { userEmail } : {}),
+          ...(isPersonalToken ? { personalToken: true } : {})
         });
 
         printSuccess(`Saved profile "${profileName}".`, {
           ...(orgName ? { organization: orgName } : {}),
+          ...(isPersonalToken ? { type: "personal token (cross-org)" } : {}),
           profile: profileName,
           config: "~/.nexus-mcp/config.json"
         });
+
+        if (isPersonalToken) {
+          console.log(
+            "\n" +
+              color.dim("Tip: switch the active org without re-authenticating:") +
+              "\n" +
+              color.dim("  nexus auth orgs              list your organizations") +
+              "\n" +
+              color.dim("  nexus auth use-org <orgId>   switch the active organization")
+          );
+        }
 
         // Tip for second+ profile
         const { profiles } = listProfiles();
@@ -340,6 +447,41 @@ Examples:
       const profile = getProfile(name);
       const orgPart = profile?.orgName ? ` (${profile.orgName})` : "";
       printSuccess(`Switched to "${name}"${orgPart}.`);
+
+      // Wrong-org guard (NEX-2361): switching the active profile only changes
+      // what `active` resolution picks. A higher-precedence selector that
+      // PERSISTS across processes — NEXUS_API_KEY (override), NEXUS_PROFILE, or
+      // a .nexusrc pin — still wins, so a subsequent command keeps using THAT
+      // credential, not the one just switched to. Left silent,
+      // `auth switch org-b && workspace mount` would operate on the override's
+      // org while the user believes they're on org B. Detect the mismatch, warn
+      // loudly, and exit non-zero so the dangerous `&&` chain halts.
+      //
+      // Resolve with NO opts: we're predicting what the NEXT process resolves
+      // to, and the ephemeral --api-key / --profile flags on THIS invocation do
+      // not carry over to it. Forwarding them would falsely flag
+      // `nexus --api-key X auth switch org-b && nexus workspace mount`, whose
+      // second (flag-less) command correctly resolves to org-b.
+      let effective: ReturnType<typeof resolveProfile> | undefined;
+      try {
+        effective = resolveProfile();
+      } catch {
+        // No resolvable profile (shouldn't happen right after a successful
+        // switch) — nothing to compare against, so skip the guard.
+        effective = undefined;
+      }
+
+      // An "override" source means the NEXUS_API_KEY env credential wins; its
+      // name is the literal sentinel "override", NOT a real profile identity,
+      // so we must warn even when the just-switched profile is itself named
+      // "override" (a legal profile name) — the env key still shadows it. For
+      // NEXUS_PROFILE / .nexusrc the name IS a real profile, so a true match
+      // means the switch is effective and no warning is needed.
+      const shadowed = effective && (effective.source === "override" || effective.name !== name);
+      if (shadowed && effective) {
+        warnSwitchIneffective(name, effective);
+        process.exitCode = 1;
+      }
     });
 
   // ── list ──────────────────────────────────────────────────────────────
@@ -430,6 +572,152 @@ Examples:
       printSuccess("Removed .nexusrc from current directory.");
     });
 
+  // ── orgs ──────────────────────────────────────────────────────────────
+  auth
+    .command("orgs")
+    .description("List the organizations the active token can act on")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus auth orgs
+
+Notes:
+  For a personal (cross-org) token, lists every organization you belong to and
+  marks the active one (▸). Switch with "nexus auth use-org <orgId>".`
+    )
+    .action(async () => {
+      let resolved;
+      try {
+        resolved = resolveProfile(program.optsWithGlobals());
+      } catch {
+        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
+        process.exitCode = 1;
+        return;
+      }
+
+      const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+      let organizations: UserOrganization[];
+      try {
+        organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
+      } catch (err) {
+        console.error(color.red("Error:") + " " + (err as Error).message);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (organizations.length === 0) {
+        console.log(color.dim("No organizations found for this token."));
+        return;
+      }
+
+      const rows = organizations.map((org) => ({
+        marker: org.organizationId === resolved.profile.orgId ? "▸" : " ",
+        name: org.name ?? color.dim("—"),
+        role: org.role,
+        organizationId: org.organizationId
+      }));
+
+      printTable(rows, [
+        { key: "marker", label: " ", width: 2 },
+        { key: "name", label: "ORGANIZATION" },
+        { key: "role", label: "ROLE" },
+        { key: "organizationId", label: "ORG ID" }
+      ]);
+    });
+
+  // ── use-org ───────────────────────────────────────────────────────────
+  auth
+    .command("use-org")
+    .description("Switch the active organization for a personal (cross-org) token")
+    .argument("<orgId>", "Organization ID to activate (see: nexus auth orgs)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus auth use-org org_abc123
+
+Notes:
+  Personal tokens act on one organization at a time, selected with the
+  organization-id header. This sets the active org for the resolved profile
+  without re-authenticating. Verifies you are a member first.`
+    )
+    .action(async (orgId: string) => {
+      let resolved;
+      try {
+        resolved = resolveProfile(program.optsWithGlobals());
+      } catch {
+        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
+        process.exitCode = 1;
+        return;
+      }
+
+      if (resolved.source === "override") {
+        console.error(
+          color.red("Error:") +
+            " Cannot set an active org for an --api-key / NEXUS_API_KEY override. " +
+            "Use the NEXUS_ORGANIZATION_ID env var instead."
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      // Only personal tokens honor the organization-id header server-side. An
+      // org-scoped key is permanently bound to its key's org, so switching the
+      // profile's active org would silently do nothing — refuse rather than
+      // report a success that doesn't take effect. The `nxs_p_` prefix is the
+      // authoritative signal (the stored flag may be absent on a manually-added
+      // or older-config profile).
+      const isPersonalToken =
+        resolved.profile.personalToken === true ||
+        resolved.profile.apiKey.startsWith(PERSONAL_TOKEN_PREFIX);
+      if (!isPersonalToken) {
+        console.error(
+          color.red("Error:") +
+            ` Profile "${resolved.name}" uses an organization-scoped key, which is bound to a ` +
+            "single organization and cannot switch. Create a personal token to act across orgs: " +
+            "Settings → API Keys → Personal Tokens, then `nexus auth login`."
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+      let organizations: UserOrganization[];
+      try {
+        organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
+      } catch (err) {
+        console.error(color.red("Error:") + " " + (err as Error).message);
+        process.exitCode = 1;
+        return;
+      }
+
+      const match = organizations.find((org) => org.organizationId === orgId);
+      if (!match) {
+        console.error(
+          color.red("Error:") +
+            ` You are not a member of "${orgId}", or it does not exist. ` +
+            "Run: nexus auth orgs"
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        setProfileOrganization(resolved.name, match.organizationId, match.name ?? undefined);
+      } catch (err) {
+        console.error(color.red("Error:") + " " + (err as Error).message);
+        process.exitCode = 1;
+        return;
+      }
+
+      printSuccess(`Active organization set to "${match.name ?? match.organizationId}".`, {
+        profile: resolved.name,
+        "org id": match.organizationId,
+        role: match.role
+      });
+    });
+
   // ── status ────────────────────────────────────────────────────────────
   auth
     .command("status")
@@ -461,6 +749,13 @@ Notes:
         console.log(
           `Using profile ${color.cyan(`"${resolved.name}"`)}${orgPart} — ${color.dim(sourceExplanation[resolved.source])}`
         );
+        if (resolved.profile.personalToken) {
+          console.log(
+            `  ${color.dim("type:")} personal token (cross-org) — ${color.dim(
+              'switch org with "nexus auth use-org <orgId>"'
+            )}`
+          );
+        }
         if (resolved.profile.orgId) {
           console.log(`  ${color.dim("org id:")} ${resolved.profile.orgId}`);
         }
@@ -642,6 +937,48 @@ function setOrClear(
 ): void {
   if (value) profile[key] = value;
   else delete profile[key];
+}
+
+/**
+ * Warn that a just-completed `auth switch` will NOT take effect because a
+ * higher-precedence selector resolves to a different credential. The message is
+ * tailored to the winning source so the user knows exactly what to unset.
+ */
+function warnSwitchIneffective(switchedTo: string, effective: ResolvedProfile): void {
+  // Resolution runs with no ephemeral flags, so an "override" source here can
+  // only come from the persistent NEXUS_API_KEY env var.
+  if (effective.source === "override") {
+    printWarning(
+      `NEXUS_API_KEY is set — the switched profile will NOT take effect.`,
+      `Unset it (unset NEXUS_API_KEY), or pass --profile ${switchedTo} per command.`,
+      `Commands keep using the NEXUS_API_KEY credential until then.`
+    );
+    return;
+  }
+
+  if (effective.source === "env") {
+    printWarning(
+      `NEXUS_PROFILE="${effective.name}" overrides the active profile — the switch will NOT take effect.`,
+      `Unset it (unset NEXUS_PROFILE), or pass --profile ${switchedTo} per command.`,
+      `Commands keep using profile "${effective.name}" until then.`
+    );
+    return;
+  }
+
+  if (effective.source === "directory") {
+    printWarning(
+      `This directory is pinned to "${effective.name}" via .nexusrc — the switch will NOT take effect here.`,
+      `Run "nexus auth unpin", or pass --profile ${switchedTo} per command.`,
+      `Commands in this directory keep using profile "${effective.name}" until then.`
+    );
+    return;
+  }
+
+  // Fallback for any other unexpected mismatch.
+  printWarning(
+    `The switch may NOT take effect — commands resolve to profile "${effective.name}", not "${switchedTo}".`,
+    `Pass --profile ${switchedTo} per command to be explicit.`
+  );
 }
 
 function openUrl(url: string): void {

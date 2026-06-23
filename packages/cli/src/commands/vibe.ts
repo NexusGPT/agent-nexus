@@ -287,6 +287,21 @@ interface DeleteEnvVarResponse {
   deletedId: string;
 }
 
+// Git credentials — mirror packages/types/src/api/domains/vibe/schemas/
+// git-credentials.schemas.ts. The CLI ships standalone (`@nexus/types` is
+// not a runtime dep); keep this in lockstep with the schema.
+interface VibeGitCredentialsDto {
+  gitHostName: string;
+  forgejoOrg: string;
+  username: string;
+  pushToken: string;
+  cloneUrlBase: string;
+}
+
+interface GetGitCredentialsResponse {
+  credentials: VibeGitCredentialsDto;
+}
+
 // ============================================================
 // Root vibe command + audit subcommand registration
 // ============================================================
@@ -299,13 +314,14 @@ export function registerVibeCommands(program: Command): void {
       "after",
       `
 Subcommands:
-  app          Manage Vibe apps — create, list, get, update, register as a tool.
-  deploy       Trigger a deployment for an app from a commit sha.
-  deployments  List / inspect an app's deployments and their build jobs.
-  env          Manage an app's plaintext env vars — list, set, remove.
-  approvals    Review gated deployments — pending queue, get, approve/reject.
-  audit        Inspect the per-org Vibe audit feed (deployments, approvals,
-               cost-safety state changes, rollbacks).
+  app              Manage Vibe apps — create, list, get, update, register as a tool.
+  git-credentials  Fetch your tenant git push token + clone address.
+  deploy           Trigger a deployment for an app from a commit sha.
+  deployments      List / inspect an app's deployments and their build jobs.
+  env              Manage an app's plaintext env vars — list, set, remove.
+  approvals        Review gated deployments — pending queue, get, approve/reject.
+  audit            Inspect the per-org Vibe audit feed (deployments, approvals,
+                   cost-safety state changes, rollbacks).
 
 This surface is feature-flagged — your org must have the VIBE feature
 flag enabled. If you get a 403, ping platform-ops to flip the flag.
@@ -313,6 +329,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
     );
 
   registerAppCommands(vibe, program);
+  registerGitCredentialsCommand(vibe, program);
   registerDeployCommand(vibe, program);
   registerDeploymentsCommands(vibe, program);
   registerEnvCommands(vibe, program);
@@ -571,6 +588,83 @@ function resolveDecision(cmdOpts: {
   if (cmdOpts.approve) return "APPROVE";
   if (cmdOpts.reject) return "REJECT";
   throw new Error("A decision is required. Pass --approve or --reject.");
+}
+
+// ============================================================
+// vibe git-credentials
+// ============================================================
+
+function registerGitCredentialsCommand(vibe: Command, program: Command): void {
+  vibe
+    .command("git-credentials")
+    .description("Fetch your org's git push token + tenant git host address")
+    .addHelpText(
+      "after",
+      `
+The last brick of self-service: returns the push token + clone address for
+your tenant's git host, so you can push code with no manual admin step.
+Org-scoped — the credential is your own (your org API key authenticates).
+
+Push a repo (the repo name is your Vibe app's repo on the host). --json
+prints the credential fields at the top level:
+  $ creds=$(nexus vibe git-credentials --json)
+  $ base=$(echo "$creds" | jq -r '.cloneUrlBase')
+  $ user=$(echo "$creds" | jq -r '.username')
+  $ tok=$(echo "$creds" | jq -r '.pushToken')
+  $ host="\${base#https://}"
+  $ git push "https://$user:$tok@\${host}<repo>.git" HEAD:main
+
+The pushToken is a LIVE SECRET — it grants git push to your repos. Treat the
+whole payload as sensitive (don't paste it into shared logs).
+
+Returns 404 if your org has no dedicated git host, 409 if the host has not
+finished provisioning yet (retry shortly).
+
+Examples:
+  $ nexus vibe git-credentials
+  $ nexus vibe git-credentials --json | jq -r '.cloneUrlBase'
+`
+    )
+    .action(async () => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<GetGitCredentialsResponse>(opts, {
+          method: "GET",
+          path: "/api/vibe/git-credentials"
+        });
+        printGitCredentials(data.credentials);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+}
+
+/**
+ * Render the served git credential. In --json mode the credential object is
+ * printed verbatim. In human mode we print the addressing fields plus a
+ * ready-to-use authenticated remote base (`https://user:token@host/org/`) —
+ * the token IS surfaced here on purpose; that is the command's whole job.
+ */
+function printGitCredentials(creds: VibeGitCredentialsDto): void {
+  if (isJsonMode()) {
+    console.log(JSON.stringify(creds, null, 2));
+    return;
+  }
+
+  const host = creds.cloneUrlBase.replace(/^https:\/\//, "");
+  const authedBase = `https://${creds.username}:${creds.pushToken}@${host}`;
+
+  printRecord(creds as unknown as Record<string, unknown>, [
+    { key: "gitHostName", label: "Git host" },
+    { key: "forgejoOrg", label: "Org" },
+    { key: "username", label: "Username" },
+    { key: "pushToken", label: "Push token" },
+    { key: "cloneUrlBase", label: "Clone base" }
+  ]);
+  console.log("");
+  console.log(`${color.dim("Authenticated remote base (append <repo>.git):")}`);
+  console.log(`  ${authedBase}`);
+  console.log(color.dim("The push token is a live secret — keep it out of shared logs."));
 }
 
 // ============================================================

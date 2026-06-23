@@ -332,6 +332,10 @@ Examples:
     .option("--name <name>", "Override / set the tool name")
     .option("--description <text>", "Override / set the description")
     .option("--endpoint-url <url>", "Override / set the endpoint URL")
+    .option(
+      "--force",
+      "When refreshing openApiSpec, override the breaking-change guard (drop/rename bound action keys)"
+    )
     .addHelpText(
       "after",
       `
@@ -340,7 +344,10 @@ PATCH path on the Public API: /skills/external-tools/{id}
 Examples:
   $ nexus external-tool update ext-123 --name "Renamed Tool"
   $ nexus external-tool update ext-123 --body update.json
-  $ nexus external-tool update ext-123 --body update.json --description "New description"`
+  $ nexus external-tool update ext-123 --body update.json --description "New description"
+
+To refresh just the OpenAPI spec from a file, prefer:
+  $ nexus external-tool update-spec ext-123 --file openapi.yaml`
     )
     .action(async (id: string, opts) => {
       try {
@@ -352,9 +359,75 @@ Examples:
         if (opts.endpointUrl) flags.endpointUrl = opts.endpointUrl;
         const body = mergeBodyWithFlags(base, flags);
 
-        const t = await client.skills.updateExternalTool(id, body as any);
+        const t = await client.skills.updateExternalTool(id, body as any, { force: !!opts.force });
         printSuccess("External tool updated.", { id: t.id, name: t.name });
       } catch (err) {
+        const breaking = extractSpecBreakingChangeDetails(err);
+        if (breaking) {
+          printSpecBreakingChangeError(breaking);
+          process.exitCode = 1;
+          return;
+        }
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── update-spec ──────────────────────────────────────────────────────────
+  externalTool
+    .command("update-spec")
+    .description("Refresh an external tool's OpenAPI spec without recreating it")
+    .argument("<id>", "External tool ID")
+    .option("--file <path>", "Path to the OpenAPI spec file (JSON or YAML)")
+    .option(
+      "--body <json>",
+      "Spec inline as '{\"openApiSpec\":\"...\"}' (JSON, .json file, or '-' for stdin)"
+    )
+    .option(
+      "--force",
+      "Override the breaking-change guard (refresh even if it drops/renames a bound action key)"
+    )
+    .addHelpText(
+      "after",
+      `
+Re-parses the spec and rebuilds the action list on the EXISTING tool, preserving
+its toolId, auth, credentials, icon, and downstream wiring (workflow nodes +
+agent attachments). PATCH path: /skills/external-tools/{id}
+
+If the refresh would drop or rename an action key still bound by a workflow node
+or agent tool config, it is rejected — re-run with --force to override.
+
+Examples:
+  $ nexus external-tool update-spec ext-123 --file openapi.yaml
+  $ nexus external-tool update-spec ext-123 --file openapi.json --json
+  $ nexus external-tool update-spec ext-123 --body '{"openApiSpec":"openapi: 3.0.0\\n..."}'
+  $ nexus external-tool update-spec ext-123 --file openapi.yaml --force
+  $ cat openapi.yaml | nexus external-tool update-spec ext-123 --file -`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const openApiSpec = await resolveSpecString(opts);
+        if (openApiSpec === null) {
+          console.error(
+            "Error: provide the spec via --file <path> or --body '{\"openApiSpec\":...}'"
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        const client = createClient(program.optsWithGlobals());
+        const t = await client.skills.updateExternalTool(
+          id,
+          { openApiSpec },
+          { force: !!opts.force }
+        );
+        printSuccess("External tool spec refreshed.", { id: t.id, name: t.name });
+      } catch (err) {
+        const breaking = extractSpecBreakingChangeDetails(err);
+        if (breaking) {
+          printSpecBreakingChangeError(breaking);
+          process.exitCode = 1;
+          return;
+        }
         process.exitCode = handleError(err);
       }
     });
@@ -416,4 +489,63 @@ function printToolHasAttachmentsError({ total, sample }: AttachmentsDetails): vo
     console.error(`  • … and ${total - sample.length} more`);
   }
   console.error("\nRe-run with --force to cascade-delete the references along with the tool.");
+}
+
+/**
+ * Resolve the OpenAPI spec string for `update-spec` from --file (raw JSON/YAML
+ * text, or '-' for stdin) or --body (a JSON object carrying `openApiSpec`).
+ * Returns null when neither is provided.
+ */
+async function resolveSpecString(opts: { file?: string; body?: string }): Promise<string | null> {
+  if (opts.file) {
+    if (opts.file === "-") {
+      return fs.readFileSync(0, "utf8");
+    }
+    const absPath = path.resolve(opts.file);
+    if (!fs.existsSync(absPath)) {
+      throw new Error(`File not found: ${absPath}`);
+    }
+    return fs.readFileSync(absPath, "utf8");
+  }
+  if (opts.body) {
+    const parsed = await resolveBody(opts.body);
+    const spec = (parsed as Record<string, unknown>)?.openApiSpec;
+    if (typeof spec !== "string" || spec.length === 0) {
+      throw new Error('--body must be a JSON object with a non-empty "openApiSpec" string');
+    }
+    return spec;
+  }
+  return null;
+}
+
+type SpecBreakingChangeDetails = {
+  removedActions: string[];
+  total: number;
+  bindings: Array<{ kind: "workflow" | "agent"; id: string; label: string; action: string }>;
+};
+
+function extractSpecBreakingChangeDetails(err: unknown): SpecBreakingChangeDetails | null {
+  if (!(err instanceof NexusApiError)) return null;
+  if (err.status !== 409 || err.code !== "TOOL_SPEC_BREAKING_CHANGE") return null;
+  return (err.details as SpecBreakingChangeDetails) ?? null;
+}
+
+function printSpecBreakingChangeError({
+  removedActions,
+  total,
+  bindings
+}: SpecBreakingChangeDetails): void {
+  console.error(
+    `Refusing to refresh: the new spec removes ${removedActions.length} action(s) still bound downstream:`
+  );
+  console.error(`  removed action(s): ${removedActions.join(", ")}`);
+  console.error(`  bound by ${total} reference(s):`);
+  for (const b of bindings) {
+    console.error(`  • [${b.kind}] ${b.label}  → ${b.action}`);
+  }
+  if (total > bindings.length) {
+    console.error(`  • … and ${total - bindings.length} more`);
+  }
+  console.error("\nRe-run with --force to refresh anyway (downstream nodes binding a removed");
+  console.error("action will need to be repointed manually).");
 }

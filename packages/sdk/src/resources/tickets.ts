@@ -3,6 +3,8 @@ import type { PageResponse } from "../types/common";
 import type {
   CreateTicketBody,
   CreateTicketCommentBody,
+  CrossOrgTicketsResult,
+  ListTicketsAcrossOrganizationsParams,
   ListTicketsParams,
   TicketAttachment,
   TicketComment,
@@ -22,6 +24,29 @@ export class TicketsResource extends BaseResource {
       query: params as Record<string, string | number | undefined>
     });
     return { data, meta: meta! };
+  }
+
+  /**
+   * List tickets across EVERY organization the caller belongs to, annotated with
+   * the org each ticket came from. Personal (cross-org) tokens only — org-scoped
+   * keys get a 403. Useful for spotting duplicate reports across orgs. See NEX-2470.
+   */
+  async listAcrossOrganizations(
+    params?: ListTicketsAcrossOrganizationsParams
+  ): Promise<CrossOrgTicketsResult> {
+    // The endpoint puts pagination (total/page/hasMore) in the envelope meta
+    // (like tickets.list), so read it via requestWithMeta and fold it into the result.
+    const { data, meta } = await this.http.requestWithMeta<
+      Omit<CrossOrgTicketsResult, "total" | "page" | "hasMore">
+    >("GET", "/tickets/across-organizations", {
+      query: params as Record<string, string | number | undefined>
+    });
+    return {
+      ...data,
+      total: meta?.total ?? data.tickets.length,
+      page: meta?.page ?? 1,
+      hasMore: meta?.hasMore ?? false
+    };
   }
 
   async get(ticketId: string): Promise<TicketDetail> {

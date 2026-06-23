@@ -2,13 +2,16 @@ import type {
   CreateWorkspaceBody,
   DeleteWorkspaceResponse,
   ListWorkspaceFilesParams,
+  ListWorkspacesParams,
   ListWorkspacesResponse,
   RenameWorkspaceBody,
   RestoreWorkspaceBody,
   RestoreWorkspaceResponse,
   Workspace,
   WorkspaceFileUrl,
-  WorkspaceListing
+  WorkspaceListing,
+  WorkspaceSearchParams,
+  WorkspaceSearchResponse
 } from "../types/workspaces";
 import { BaseResource } from "./base-resource";
 
@@ -21,9 +24,15 @@ import { BaseResource } from "./base-resource";
  * `nexus workspace mount <slug>` (served over WebDAV at `/api/dav`).
  */
 export class WorkspacesResource extends BaseResource {
-  /** List the organization's workspaces, each with aggregate stats. */
-  async list(): Promise<ListWorkspacesResponse> {
-    return this.http.request<ListWorkspacesResponse>("GET", "/workspaces");
+  /**
+   * List the organization's workspaces, each with aggregate stats. Pass
+   * `{ folderStats: true }` to additionally get a depth-1 per-folder breakdown
+   * under each workspace's `stats.folders`.
+   */
+  async list(params?: ListWorkspacesParams): Promise<ListWorkspacesResponse> {
+    return this.http.request<ListWorkspacesResponse>("GET", "/workspaces", {
+      query: params?.folderStats ? { include: "folder-stats" } : undefined
+    });
   }
 
   /** Create a new workspace. The slug is derived from `name` at creation. */
@@ -61,6 +70,28 @@ export class WorkspacesResource extends BaseResource {
       "GET",
       `/workspaces/${encodeURIComponent(slug)}/file`,
       { query: { path } }
+    );
+  }
+
+  /**
+   * Search the workspace's text docs server-side by keyword and/or frontmatter
+   * — one call, no mount and no recursive client-side glob. Returns matching
+   * paths with snippets and parsed frontmatter. At least one of `query` /
+   * `frontmatter` must be provided. `frontmatter` filters are `key=value`
+   * strings (all must hold); `path` scopes the search to a subfolder.
+   */
+  async search(slug: string, params: WorkspaceSearchParams): Promise<WorkspaceSearchResponse> {
+    return this.http.request<WorkspaceSearchResponse>(
+      "GET",
+      `/workspaces/${encodeURIComponent(slug)}/search`,
+      {
+        query: {
+          query: params.query,
+          frontmatter: params.frontmatter,
+          path: params.path,
+          limit: params.limit
+        }
+      }
     );
   }
 

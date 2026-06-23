@@ -37,6 +37,11 @@ interface MountRecord {
   engine: Engine;
   mountPath: string;
   baseUrl: string;
+  /** True when the admin-shared workspace was mounted (via `--shared`), not the
+   *  same-slug org-owned one. Absent on records written before NEX-2362. */
+  shared?: boolean;
+  /** Immutable id of the mounted workspace, when resolved from the list. */
+  workspaceId?: string;
   /** Present only for the rclone engine; native WebDAV has no tracked process. */
   pid?: number;
   mountedAt: string;
@@ -173,6 +178,45 @@ function defaultMountPath(slug: string): string {
   return path.join(os.homedir(), "nexus", slug);
 }
 
+/** What `resolveMountTarget` learned about the slug we're about to mount. */
+interface MountTarget {
+  /** True when an admin-shared workspace owns this slug. */
+  shared: boolean;
+  /** True when the calling org owns a workspace with this slug. */
+  orgOwned: boolean;
+  /** Immutable id of the copy we'll actually mount (the chosen one). */
+  workspaceId?: string;
+}
+
+/**
+ * Inspect the org's workspace list to learn whether `slug` is owned by an
+ * org-owned workspace, an admin-shared one, or both — and pick the id of the
+ * copy the mount will serve (shared when `wantShared`, else org-owned-first,
+ * matching the server's bare-slug resolution). Returns null if the list can't
+ * be fetched, so the caller falls back to a plain bare-slug mount.
+ */
+export async function resolveMountTarget(
+  client: ReturnType<typeof createClient>,
+  slug: string,
+  wantShared: boolean
+): Promise<MountTarget | null> {
+  let workspaces: { id: string; slug: string; isShared: boolean }[];
+  try {
+    ({ workspaces } = await client.workspaces.list());
+  } catch {
+    return null;
+  }
+  const matches = workspaces.filter((w) => w.slug === slug);
+  const shared = matches.find((w) => w.isShared);
+  const orgOwned = matches.find((w) => !w.isShared);
+  const chosen = wantShared ? shared : (orgOwned ?? shared);
+  return {
+    shared: !!shared,
+    orgOwned: !!orgOwned,
+    workspaceId: chosen?.id
+  };
+}
+
 function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -206,6 +250,7 @@ async function mintMountToken(baseUrl: string, apiKey: string): Promise<string> 
 
 async function mountWebdav(
   slug: string,
+  davPath: string,
   baseUrl: string,
   apiKey: string,
   mountPath: string,
@@ -226,7 +271,7 @@ async function mountWebdav(
   // visible in this mount process's argv to the same local user — it's scoped +
   // expiring (not the raw key); use `--engine rclone` if even that matters.
   const token = await mintMountToken(baseUrl, apiKey);
-  const url = `${baseUrl}/api/dav/_t/${encodeURIComponent(token)}/${slug}`;
+  const url = `${baseUrl}/api/dav/_t/${encodeURIComponent(token)}/${davPath}`;
 
   const args: string[] = [];
   if (readOnly) args.push("-o", "ro");
@@ -392,39 +437,141 @@ export function registerWorkspaceCommands(program: Command): void {
   // ── list ─────────────────────────────────────────────────────────────────
   ws.command("list")
     .description("List the workspaces in your organization")
+    .option(
+      "--folder-stats",
+      "Include a per-top-level-folder breakdown (depth-1) in each workspace's stats"
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus workspace list
-  $ nexus workspace list --json`
+  $ nexus workspace list --json
+  $ nexus workspace list --folder-stats --json`
     )
-    .action(async () => {
+    .action(async (opts: { folderStats?: boolean }) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const { workspaces } = await client.workspaces.list();
+        const { workspaces } = await client.workspaces.list({ folderStats: opts.folderStats });
         if (isJsonMode()) {
           console.log(JSON.stringify(workspaces, null, 2));
           return;
         }
+        // Surface which copy is which: a slug can name both an org-owned and an
+        // admin-shared workspace, and the bare slug mounts the org-owned one
+        // (NEX-2362). The "Kind" column makes the collision visible at a glance.
         printTable(
           workspaces.map((w) => ({
             slug: w.slug,
             name: w.name,
+            kind: w.isShared ? "shared" : "org",
             files: w.stats.fileCount,
-            size: formatBytes(w.stats.totalBytes)
+            size: formatBytes(w.stats.totalBytes),
+            ...(opts.folderStats ? { folders: w.stats.folders?.length ?? 0 } : {})
           })) as unknown as Record<string, unknown>[],
           [
             { key: "slug", label: "Slug" },
             { key: "name", label: "Name" },
+            { key: "kind", label: "Kind" },
             { key: "files", label: "Files" },
-            { key: "size", label: "Size" }
+            { key: "size", label: "Size" },
+            ...(opts.folderStats ? [{ key: "folders", label: "Folders" }] : [])
           ]
         );
       } catch (err) {
         process.exitCode = handleError(err);
       }
     });
+
+  // ── search ─────────────────────────────────────────────────────────────────
+  ws.command("search")
+    .description("Search a workspace's docs server-side by keyword and/or frontmatter (no mount)")
+    .argument("<slug>", "Workspace slug")
+    .option(
+      "--query <text>",
+      "Keyword (case-insensitive substring over content, frontmatter, path)"
+    )
+    .option(
+      "--frontmatter <key=value>",
+      "Frontmatter filter (repeatable); all must hold, e.g. --frontmatter status=done",
+      (val: string, acc: string[]) => {
+        acc.push(val);
+        return acc;
+      },
+      [] as string[]
+    )
+    .option("--path <folder>", "Restrict the search to a subfolder (workspace-relative)")
+    .option("--limit <n>", "Max results to return (1–200, default 50)", (v) => parseInt(v, 10))
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workspace search support-docs --query "refund policy"
+  $ nexus workspace search support-docs --frontmatter status=published
+  $ nexus workspace search support-docs --query onboarding --frontmatter owner=growth --json
+  $ nexus workspace search support-docs --query api --path guides --limit 20`
+    )
+    .action(
+      async (
+        slug: string,
+        opts: { query?: string; frontmatter: string[]; path?: string; limit?: number }
+      ) => {
+        try {
+          if (!opts.query && opts.frontmatter.length === 0) {
+            throw new Error(
+              "Provide --query and/or at least one --frontmatter key=value filter to search."
+            );
+          }
+          for (const f of opts.frontmatter) {
+            if (!f.includes("=") || f.split("=", 1)[0].trim().length === 0) {
+              throw new Error(
+                `Invalid --frontmatter "${f}". Use key=value form with a non-empty key.`
+              );
+            }
+          }
+
+          const client = createClient(program.optsWithGlobals());
+          const res = await client.workspaces.search(slug, {
+            query: opts.query,
+            frontmatter: opts.frontmatter.length > 0 ? opts.frontmatter : undefined,
+            path: opts.path,
+            limit: opts.limit
+          });
+
+          if (isJsonMode()) {
+            console.log(JSON.stringify(res, null, 2));
+            return;
+          }
+
+          if (res.results.length === 0) {
+            console.log(`No matches (scanned ${res.scanned} file${res.scanned === 1 ? "" : "s"}).`);
+            return;
+          }
+
+          printTable(
+            res.results.map((hit) => ({
+              path: hit.path,
+              match: hit.matchedIn.join(", "),
+              snippet: (hit.snippet ?? "").replace(/\s+/g, " ").slice(0, 80)
+            })) as unknown as Record<string, unknown>[],
+            [
+              { key: "path", label: "Path" },
+              { key: "match", label: "Matched" },
+              { key: "snippet", label: "Snippet" }
+            ]
+          );
+          const shown = `${res.results.length} match${res.results.length === 1 ? "" : "es"}`;
+          const scanned = `scanned ${res.scanned} file${res.scanned === 1 ? "" : "s"}`;
+          console.error(
+            color.dim(
+              `${shown}, ${scanned}${res.truncated ? " (truncated — narrow your search)" : ""}`
+            )
+          );
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
 
   // ── create ───────────────────────────────────────────────────────────────
   ws.command("create")
@@ -548,6 +695,10 @@ Examples:
     .option("--at <path>", "Mount point (default: ~/nexus/<slug>)")
     .option("--read-only", "Mount read-only")
     .option(
+      "--shared",
+      "Mount the admin-shared workspace with this slug (not the same-slug org-owned one)"
+    )
+    .option(
       "--engine <engine>",
       "Mount engine: auto (default), webdav (native), or rclone (FUSE)",
       "auto"
@@ -560,7 +711,12 @@ Examples:
   $ nexus workspace mount support-docs
   $ nexus workspace mount support-docs --at ./ws --claude-md
   $ nexus workspace mount support-docs --read-only
+  $ nexus workspace mount support-docs --shared      # mount the admin-shared copy
   $ nexus workspace mount support-docs --engine rclone
+
+When a slug names BOTH an org-owned workspace and an admin-shared one, the bare
+slug resolves to the org-owned copy. The mount then warns and tells you the id
+it picked; pass --shared to mount the shared copy instead.
 
 Engines (auto picks per-OS):
   • webdav  — macOS native mount_webdav. No extra install, no macFUSE, no
@@ -575,7 +731,13 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
     .action(
       async (
         slug: string,
-        opts: { at?: string; readOnly?: boolean; engine?: string; claudeMd?: boolean }
+        opts: {
+          at?: string;
+          readOnly?: boolean;
+          shared?: boolean;
+          engine?: string;
+          claudeMd?: boolean;
+        }
       ) => {
         try {
           assertMountableSlug(slug);
@@ -590,21 +752,62 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
               `Workspace "${slug}" is already mounted at ${existing.mountPath}. Unmount it first.`
             );
           }
+
+          // Resolve which copy of the slug we're about to mount. A slug can name
+          // BOTH an org-owned workspace and an admin-shared one; the bare slug
+          // resolves to the org-owned copy server-side, so without this the user
+          // can silently mount the wrong drive (NEX-2362). Best-effort: a list
+          // hiccup degrades to the legacy bare-slug mount rather than blocking.
+          const client = createClient(program.optsWithGlobals());
+          const target = await resolveMountTarget(client, slug, !!opts.shared);
+
+          // `--shared` is an explicit request, so never proceed unverified: a
+          // missing list (target === null) means we couldn't confirm the shared
+          // workspace exists, and a confirmed-absent one is a hard error. Either
+          // way, mounting the `_shared/<slug>` path blindly would yield a live
+          // mount that 404s on every request (esp. under rclone). The default
+          // (bare-slug) path still degrades gracefully when the list is missing.
+          if (opts.shared) {
+            if (!target) {
+              throw new Error(
+                `Couldn't verify workspaces for "${slug}" — fetching the workspace list failed. ` +
+                  `Retry, or run \`nexus workspace list\` to confirm the admin-shared workspace exists.`
+              );
+            }
+            if (!target.shared) {
+              throw new Error(
+                `No admin-shared workspace has the slug "${slug}". ` +
+                  `Run \`nexus workspace list\` to see available workspaces.`
+              );
+            }
+          }
+
+          const useShared = !!opts.shared || (!!target?.shared && !target.orgOwned);
           ensureEmptyMountDir(mountPath);
 
-          const url = `${baseUrl}/api/dav/${slug}`;
+          const davPath = useShared ? `_shared/${slug}` : slug;
+          const url = `${baseUrl}/api/dav/${davPath}`;
           const record =
             engine === "webdav"
-              ? await mountWebdav(slug, baseUrl, apiKey, mountPath, !!opts.readOnly)
+              ? await mountWebdav(slug, davPath, baseUrl, apiKey, mountPath, !!opts.readOnly)
               : await mountRclone(slug, url, baseUrl, apiKey, mountPath, !!opts.readOnly);
 
-          mounts[slug] = record;
+          mounts[slug] = {
+            ...record,
+            shared: useShared,
+            ...(target?.workspaceId ? { workspaceId: target.workspaceId } : {})
+          };
           writeMounts(mounts);
 
           let claudeMdTarget: string | null = null;
           if (opts.claudeMd) {
             claudeMdTarget = writeClaudeMdNote(slug, mountPath, !!opts.readOnly);
           }
+
+          const kind = useShared ? "admin-shared" : "org-owned";
+          // Ambiguous = both copies exist. Warn whenever we resolved one while
+          // the other was reachable, so the user can tell which drive they got.
+          const ambiguous = !!target?.shared && !!target?.orgOwned;
 
           if (isJsonMode()) {
             console.log(
@@ -614,6 +817,10 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
                   slug,
                   engine,
                   mountPath,
+                  kind,
+                  shared: useShared,
+                  workspaceId: target?.workspaceId ?? null,
+                  ambiguous,
                   pid: record.pid ?? null,
                   readOnly: !!opts.readOnly,
                   claudeMd: claudeMdTarget
@@ -626,8 +833,21 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
           }
           printSuccess(`Mounted "${slug}" at ${mountPath}`, {
             engine,
+            kind,
             mode: opts.readOnly ? "read-only" : "read-write"
           });
+          if (ambiguous) {
+            const idNote = target?.workspaceId ? ` (id ${target.workspaceId})` : "";
+            const counterpart = useShared
+              ? `drop --shared to mount the org-owned copy`
+              : `pass --shared to mount the admin-shared copy instead`;
+            console.log(
+              color.yellow(
+                `  Note: "${slug}" exists as BOTH an org-owned and an admin-shared workspace. ` +
+                  `Mounted the ${kind} one${idNote}; ${counterpart}.`
+              )
+            );
+          }
           if (claudeMdTarget) {
             console.log(color.dim(`  Wrote workspace note to ${claudeMdTarget}`));
           }
@@ -687,6 +907,7 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
         const rows = Object.values(mounts).map((m) => ({
           slug: m.slug,
           engine: m.engine,
+          kind: m.shared ? "shared" : "org",
           mountPath: m.mountPath,
           live: isMountLive(m) ? "yes" : "no",
           mountedAt: m.mountedAt
@@ -702,6 +923,7 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
         printTable(rows as unknown as Record<string, unknown>[], [
           { key: "slug", label: "Slug" },
           { key: "engine", label: "Engine" },
+          { key: "kind", label: "Kind" },
           { key: "mountPath", label: "Mount point" },
           { key: "live", label: "Live" }
         ]);

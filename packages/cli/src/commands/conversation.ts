@@ -3,7 +3,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -216,14 +216,23 @@ Examples:
           before: opts.before
         });
 
-        printList(result.messages as unknown as Record<string, unknown>[], undefined, [
+        // Pagination state belongs in a JSON field, not a prose trailer.
+        // In JSON mode embed `hasMore` in meta so the output stays a single
+        // parseable document; in human mode keep the readable trailer (NEX-2176).
+        const columns = [
           { key: "id", label: "ID", width: 36 },
           { key: "role", label: "ROLE", width: 8 },
           { key: "content", label: "CONTENT", width: 60 },
           { key: "createdAt", label: "CREATED", width: 24 }
-        ]);
-        if (result.hasMore) {
-          console.log("\n(more messages available — use --before to paginate)");
+        ];
+        const messages = result.messages as unknown as Record<string, unknown>[];
+        if (isJsonMode()) {
+          printList(messages, { hasMore: result.hasMore }, columns);
+        } else {
+          printList(messages, undefined, columns);
+          if (result.hasMore) {
+            console.log("\n(more messages available — use --before to paginate)");
+          }
         }
       } catch (err) {
         process.exitCode = handleError(err);

@@ -7,7 +7,11 @@ import { getGlobalInstallCommand, getGlobalUpdateHint } from "./package-manager"
 const PACKAGE_NAME = "@agent-nexus/cli";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const FETCH_TIMEOUT_MS = 3_000; // don't slow down the CLI
-const CACHE_FILE = path.join(os.homedir(), ".nexus-mcp", "version-check.json");
+// Resolved lazily (not at import time) so the home dir is read when the cache
+// is actually used.
+function getCacheFile(): string {
+  return path.join(os.homedir(), ".nexus-mcp", "version-check.json");
+}
 
 interface VersionCache {
   lastChecked: number;
@@ -16,7 +20,7 @@ interface VersionCache {
 
 function loadCache(): VersionCache | null {
   try {
-    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as VersionCache;
+    return JSON.parse(fs.readFileSync(getCacheFile(), "utf-8")) as VersionCache;
   } catch {
     return null;
   }
@@ -24,9 +28,9 @@ function loadCache(): VersionCache | null {
 
 function saveCache(cache: VersionCache): void {
   try {
-    const dir = path.dirname(CACHE_FILE);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache), { mode: 0o600 });
+    const file = getCacheFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(cache), { mode: 0o600 });
   } catch {
     // Non-critical — silently ignore write failures
   }
@@ -99,12 +103,20 @@ export async function checkForUpdate(currentVersion: string): Promise<string | n
   }
 }
 
-function formatUpdateMessage(current: string, latest: string): string {
+export function formatUpdateMessage(current: string, latest: string): string {
   return (
     `\n  Update available: ${current} → ${latest}\n` +
-    `  Run "${getGlobalUpdateHint(PACKAGE_NAME)}" to update.\n` +
-    `  IMPORTANT: You MUST update before running any other nexus commands. Results from an outdated CLI may be incorrect.\n`
+    `  Run "${getGlobalUpdateHint(PACKAGE_NAME)}" to update.\n`
   );
+}
+
+/**
+ * One-line notice shown when a background auto-update could not complete
+ * (e.g. EACCES on a root-owned global install dir). The command already ran
+ * on the installed version, so this is informational — not a hard warning.
+ */
+export function formatAutoUpdateFailedMessage(latest: string): string {
+  return `\n  Auto-update to ${latest} failed. Run "${getGlobalInstallCommand(PACKAGE_NAME)}" to update manually.\n`;
 }
 
 /**
@@ -115,9 +127,9 @@ function formatUpdateMessage(current: string, latest: string): string {
  * - Returns a status message describing what happened.
  */
 export async function autoUpdate(currentVersion: string): Promise<string | null> {
+  let latest: string | null = null;
   try {
     const cache = loadCache();
-    let latest: string | null = null;
 
     if (cache && Date.now() - cache.lastChecked < CHECK_INTERVAL_MS) {
       latest = cache.latestVersion;
@@ -132,15 +144,20 @@ export async function autoUpdate(currentVersion: string): Promise<string | null>
       return null; // up-to-date or unable to check
     }
 
-    // Attempt the upgrade
+    // Attempt the upgrade.
+    // Capture (don't inherit) the installer's output: a failed background
+    // update — e.g. EACCES on a root-owned global dir — must not dump a
+    // multi-line npm error stack over the command's real output.
     const { execSync } = await import("node:child_process");
     process.stderr.write(`\n  Auto-updating: ${currentVersion} → ${latest}…\n`);
     execSync(getGlobalInstallCommand(PACKAGE_NAME), {
-      stdio: "inherit"
+      stdio: ["ignore", "ignore", "pipe"]
     });
     return `\n  Successfully auto-updated to ${latest}.\n`;
   } catch {
-    // Auto-update failed — fall back to showing the manual message
-    return formatUpdateMessage(currentVersion, loadCache()?.latestVersion ?? "latest");
+    // Auto-update failed. The command already ran on the installed version,
+    // so this is non-fatal — show a brief one-line notice, never the
+    // alarming "MUST update / results may be incorrect" warning.
+    return formatAutoUpdateFailedMessage(latest ?? loadCache()?.latestVersion ?? "latest");
   }
 }

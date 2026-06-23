@@ -293,6 +293,25 @@ export interface TestResult {
   executionId: string;
 }
 
+/**
+ * Webhook trigger URLs plus the last payload a test event delivered.
+ * Returned by `getWebhookTestPayload`.
+ */
+export interface WebhookTestPayload {
+  /** Production webhook URL (fires the published workflow). */
+  webhookUrl: string;
+  /** Test webhook URL (fire a test event here, then read it back). */
+  testWebhookUrl: string;
+  /** Whether a payload has been captured yet. */
+  received: boolean;
+  /** Where the payload came from, or null when none captured. */
+  source: "test_event" | "example_data" | null;
+  /** The captured payload, or null when none captured. */
+  payload: Record<string, unknown> | null;
+  /** Hint shown when no payload has been received yet. */
+  message?: string;
+}
+
 /** Status of a workflow execution. */
 export interface ExecutionStatus {
   id: string;

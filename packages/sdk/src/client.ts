@@ -3,11 +3,11 @@ import { HttpClient } from "./http-client";
 import { AgentCollectionsResource } from "./resources/agent-collections";
 import { AgentsResource } from "./resources/agents";
 import { AnalyticsResource } from "./resources/analytics";
+import { ApiKeyConnectionsResource } from "./resources/api-key-connections";
 import { ChannelsResource } from "./resources/channels";
 import { CloudImportsResource } from "./resources/cloud-imports";
 import { ConversationsResource } from "./resources/conversations";
 import { CredentialsResource } from "./resources/credentials";
-import { CuePromptEditorResource } from "./resources/cue-prompt-editor";
 import { CustomModelsResource } from "./resources/custom-models";
 import { CustomersResource } from "./resources/customers";
 import { DeploymentFoldersResource } from "./resources/deployment-folders";
@@ -54,6 +54,15 @@ export interface NexusClientOptions {
    * Defaults to the global `fetch`.
    */
   fetch?: typeof globalThis.fetch;
+
+  /**
+   * Organization to act on when authenticating with a personal (cross-org)
+   * token — a single token usable across every org the user belongs to. Sent
+   * as the `organization-id` header on every request. Falls back to the
+   * `NEXUS_ORGANIZATION_ID` env var. Ignored for org-scoped keys, which carry
+   * their own organization. See NEX-2474.
+   */
+  organizationId?: string;
 
   /**
    * Additional headers sent with every request.
@@ -196,14 +205,11 @@ export class NexusClient {
   /** Manage credentials and access cards for enterprise credential inventory. */
   public readonly credentials: CredentialsResource;
 
+  /** Create API key connections (e.g. SLACK_BOT bot tokens) for deployments. */
+  public readonly apiKeyConnections: ApiKeyConnectionsResource;
+
   /** Manage CRM customers. */
   public readonly customers: CustomersResource;
-
-  /** Cue AI subsystem — prompt editor and (future) other subsystems. */
-  public readonly cue: {
-    /** Edit agent prompts through conversational AI. */
-    promptEditor: CuePromptEditorResource;
-  };
 
   constructor(opts: NexusClientOptions = {}) {
     const apiKey = opts.apiKey ?? getEnv("NEXUS_API_KEY");
@@ -215,11 +221,19 @@ export class NexusClient {
 
     const baseUrl = opts.baseUrl ?? getEnv("NEXUS_BASE_URL") ?? "https://api.nexusgpt.io";
 
+    // Personal (cross-org) tokens select their acting org via the
+    // `organization-id` header; merge it ahead of any explicit defaultHeaders.
+    const organizationId = opts.organizationId ?? getEnv("NEXUS_ORGANIZATION_ID");
+    const defaultHeaders = {
+      ...(organizationId ? { "organization-id": organizationId } : {}),
+      ...opts.defaultHeaders
+    };
+
     const http = new HttpClient({
       baseUrl,
       apiKey,
       fetch: opts.fetch,
-      defaultHeaders: opts.defaultHeaders,
+      defaultHeaders,
       timeout: opts.timeout
     });
 
@@ -252,9 +266,7 @@ export class NexusClient {
     this.tracing = new TracingResource(http);
     this.conversations = new ConversationsResource(http);
     this.credentials = new CredentialsResource(http);
+    this.apiKeyConnections = new ApiKeyConnectionsResource(http);
     this.customers = new CustomersResource(http);
-    this.cue = {
-      promptEditor: new CuePromptEditorResource(http)
-    };
   }
 }

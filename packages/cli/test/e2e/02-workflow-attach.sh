@@ -180,18 +180,20 @@ nx workflow publish "${WORKFLOW_ID}" --json > "${PUBLISH_JSON}"
 stamp "attaching workflow as agent tool"
 # --config flattens its JSON into the top-level body (Object.assign),
 # which doesn't reach the API's nested `config` field. WORKFLOW tools
-# also require agentInputSchema (a JSON-Schema describing the agent's
-# invocation payload). --body delivers both correctly nested. --label
-# and --type are Commander requiredOption()s and must be passed even
-# when --body is used — mergeBodyWithFlags lets flag values win, which
-# is fine since we set them to the same values.
+# also require agentInputSchema, which must be a FLAT map of parameter
+# name → JSON Schema (e.g. { "city": { "type": "string" } }) — NOT a
+# wrapped JSON Schema document ({ "type": "object", "properties": {} }),
+# which the attach endpoint rejects since NEX-2411. --body delivers both
+# correctly nested. --label and --type are Commander requiredOption()s
+# and must be passed even when --body is used — mergeBodyWithFlags lets
+# flag values win, which is fine since we set them to the same values.
 nx agent-tool create "${AGENT_ID}" \
   --label "${TOOL_LABEL}" \
   --type  WORKFLOW \
   --body "$(jq -nc --arg wf "${WORKFLOW_ID}" '
     {
       config: { workflowId: $wf },
-      agentInputSchema: { type: "object", properties: {} }
+      agentInputSchema: { input: { type: "string" } }
     }
   ')" \
   --json > "${TOOL_JSON}"

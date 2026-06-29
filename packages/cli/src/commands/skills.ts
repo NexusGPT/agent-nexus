@@ -262,6 +262,7 @@ Examples:
               claudeMdPath: target.claudeMdPath,
               settingsJsonPath: target.settingsJsonPath,
               hooksDir: target.hooksDir,
+              agentsDir: target.agentsDir,
               reason: target.reason
             },
             null,
@@ -274,6 +275,7 @@ Examples:
       console.log(`  Skills →    ${color.cyan(target.skillsDir)}`);
       console.log(`  CLAUDE.md → ${color.cyan(target.claudeMdPath)}`);
       console.log(`  settings →  ${color.cyan(target.settingsJsonPath)}`);
-      console.log(`  hooks →     ${color.cyan(target.hooksDir)}\n`);
+      console.log(`  hooks →     ${color.cyan(target.hooksDir)}`);
+      console.log(`  agents →    ${color.cyan(target.agentsDir)}\n`);
     });
 }

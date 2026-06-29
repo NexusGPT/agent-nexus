@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  agentInstallables,
   detectProjectRoot,
   resolveClaudeTarget,
   safeResolveWithinBase,
@@ -154,7 +155,7 @@ describe("resolveClaudeTarget", () => {
     expect(t.claudeMdPath).toBe(path.join(root, "CLAUDE.md"));
   });
 
-  it("resolves settings.json + hooks beside the skills for an auto-detected root", () => {
+  it("resolves settings.json + hooks + agents beside the skills for an auto-detected root", () => {
     const root = mkdirp("proj");
     fs.mkdirSync(path.join(root, ".claude"));
     const deep = mkdirp("proj", "a");
@@ -162,15 +163,17 @@ describe("resolveClaudeTarget", () => {
     expect(t.claudeDir).toBe(path.join(root, ".claude"));
     expect(t.settingsJsonPath).toBe(path.join(root, ".claude", "settings.json"));
     expect(t.hooksDir).toBe(path.join(root, ".claude", "hooks"));
+    expect(t.agentsDir).toBe(path.join(root, ".claude", "agents"));
   });
 
-  it("--global puts settings.json + hooks under ~/.claude", () => {
+  it("--global puts settings.json + hooks + agents under ~/.claude", () => {
     const t = resolveClaudeTarget({ global: true }, tmpHome, tmpHome);
     expect(t.settingsJsonPath).toBe(path.join(tmpHome, ".claude", "settings.json"));
     expect(t.hooksDir).toBe(path.join(tmpHome, ".claude", "hooks"));
+    expect(t.agentsDir).toBe(path.join(tmpHome, ".claude", "agents"));
   });
 
-  it("--dir with the conventional layout keeps settings.json + hooks in that .claude", () => {
+  it("--dir with the conventional layout keeps settings.json + hooks + agents in that .claude", () => {
     const t = resolveClaudeTarget(
       { dir: path.join(tmpHome, "p", ".claude", "skills") },
       tmpHome,
@@ -179,6 +182,32 @@ describe("resolveClaudeTarget", () => {
     expect(t.claudeDir).toBe(path.join(tmpHome, "p", ".claude"));
     expect(t.settingsJsonPath).toBe(path.join(tmpHome, "p", ".claude", "settings.json"));
     expect(t.hooksDir).toBe(path.join(tmpHome, "p", ".claude", "hooks"));
+    expect(t.agentsDir).toBe(path.join(tmpHome, "p", ".claude", "agents"));
+  });
+});
+
+describe("agentInstallables", () => {
+  it("returns the bundled Nexus subagent definitions as flat .md files", () => {
+    const agents = agentInstallables();
+    expect(agents.slug).toBe("agents");
+    // The bundle ships at least one subagent definition; every entry is a
+    // flat .md file (no nested skill-style subdirectories) with content.
+    expect(agents.files.length).toBeGreaterThan(0);
+    for (const f of agents.files) {
+      expect(f.path).toMatch(/\.md$/);
+      expect(f.path).not.toContain("/");
+      expect(f.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("writes the agents into a flat .claude/agents directory", () => {
+    const agentsDir = path.join(tmpHome, ".claude", "agents");
+    const agents = agentInstallables();
+    const res = writeSkillFiles(agentsDir, agents.files);
+    expect(res.created.length).toBe(agents.files.length);
+    for (const f of agents.files) {
+      expect(fs.existsSync(path.join(agentsDir, f.path))).toBe(true);
+    }
   });
 });
 

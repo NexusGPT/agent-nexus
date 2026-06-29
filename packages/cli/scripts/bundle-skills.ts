@@ -197,6 +197,7 @@ async function main(): Promise<void> {
   const claudeMdPath = path.join(extracted, "CLAUDE.md");
   const settingsJsonPath = path.join(extracted, "settings.json");
   const hooksRoot = path.join(extracted, "hooks");
+  const agentsRoot = path.join(extracted, "agents");
 
   if (!fs.existsSync(skillsRoot)) {
     throw new Error(`Tarball is missing a top-level skills/ directory: ${skillsRoot}`);
@@ -261,6 +262,17 @@ async function main(): Promise<void> {
     `Found settings.json (${settingsJson.length} bytes) and ${hookFiles.length} hook files`
   );
 
+  // agents/ — the Nexus-owned subagent definitions (flat .md files). They land
+  // under .claude/agents and, like the skill files, are refreshed in place on
+  // every install. Collect the .md/.ts entries the same way skills/shared do.
+  const agentFiles = collectFiles(agentsRoot);
+  const agentFilesStr = agentFiles
+    .map(
+      (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
+    )
+    .join(",\n");
+  console.log(`Found ${agentFiles.length} agent files`);
+
   const output = [
     "// AUTO-GENERATED — do not edit. Run: pnpm run gen:skills",
     `// Source: ${REPO}@${sha}`,
@@ -294,6 +306,10 @@ async function main(): Promise<void> {
     hookFilesStr,
     "];",
     "",
+    `export const AGENT_FILES: SkillFile[] = [`,
+    agentFilesStr,
+    "];",
+    "",
     `export const SKILLS_NEXUS_SHA: string = ${JSON.stringify(sha)};`,
     ""
   ].join("\n");
@@ -309,7 +325,7 @@ async function main(): Promise<void> {
 
   console.log(
     `Generated ${path.relative(CLI_ROOT, OUTPUT_FILE)} ` +
-      `(${skillDirs.length} skills, ${totalFiles} files, ${output.length} bytes)`
+      `(${skillDirs.length} skills, ${totalFiles} files, ${agentFiles.length} agents, ${output.length} bytes)`
   );
 }
 

@@ -6,6 +6,7 @@ import { handleError } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
 import { SKILL_LIST, SKILLS } from "../skills-content.generated";
 import {
+  agentInstallables,
   bundleToInstallables,
   claudeMdContent,
   type ClaudeMdStatus,
@@ -122,6 +123,8 @@ Alongside the skills, install writes:
   • hooks/         — the firewall + lifecycle hooks settings.json invokes,
                      written to .claude/hooks (Python marked executable).
                      Skip both settings.json and hooks with --no-settings.
+  • agents/        — the Nexus subagent definitions, written to
+                     .claude/agents and refreshed in place on every install.
 
 Skills are bundled with the CLI binary at build time from the canonical
 claude-code-skills-nexus repository. No network calls, no API key required.
@@ -241,10 +244,18 @@ export async function runSkillsInstallToTarget(
       hooks.files.length > 0;
     const settingsSkippedForGlobal = opts.settings !== false && !settingsSupported;
 
+    // agents/ — the Nexus-owned subagent definitions. Like the skill files and
+    // shared/, they are always installed (no opt-out) and resolve fine at any
+    // scope, so unlike settings.json + hooks they ship for --global too. Gated
+    // only on the bundle actually carrying them (older bundles ship none).
+    const agents = agentInstallables();
+    const installAgents = agents.files.length > 0;
+
     const totalFiles =
       skillInstallables.reduce((acc, s) => acc + s.files.length, 0) +
       (installClaudeMd ? 1 : 0) +
-      (installSettings ? hooks.files.length + 1 : 0);
+      (installSettings ? hooks.files.length + 1 : 0) +
+      (installAgents ? agents.files.length : 0);
 
     // Show plan
     if (!isJsonMode()) {
@@ -267,6 +278,11 @@ export async function runSkillsInstallToTarget(
         );
         console.log(
           `  ${color.cyan("hooks".padEnd(32))} ${color.dim(`${hooks.files.length} files → ${target.hooksDir}`)}`
+        );
+      }
+      if (installAgents) {
+        console.log(
+          `  ${color.cyan("agents".padEnd(32))} ${color.dim(`${agents.files.length} files → ${target.agentsDir}`)}`
         );
       }
       if (settingsSkippedForGlobal) {
@@ -292,6 +308,7 @@ export async function runSkillsInstallToTarget(
               claudeMd: installClaudeMd ? claudeMdTarget : null,
               settings: installSettings ? target.settingsJsonPath : null,
               hooks: installSettings ? { dir: target.hooksDir, files: hooks.files.length } : null,
+              agents: installAgents ? { dir: target.agentsDir, files: agents.files.length } : null,
               settingsSkippedForGlobal,
               directory: skillsDir,
               targetReason: target.reason,
@@ -351,6 +368,15 @@ export async function runSkillsInstallToTarget(
       else if (settingsStatus === "skipped") totalSkipped += 1;
     }
 
+    // Agents (Nexus-owned, refreshed in place like skills/hooks). Written
+    // directly into .claude/agents — the flat .md files Claude Code discovers.
+    if (installAgents) {
+      const agentsResult = writeSkillFiles(target.agentsDir, agents.files);
+      totalCreated += agentsResult.created.length;
+      totalUpdated += agentsResult.updated.length;
+      totalSkipped += agentsResult.skipped.length;
+    }
+
     // Summary
     if (isJsonMode()) {
       console.log(
@@ -363,6 +389,7 @@ export async function runSkillsInstallToTarget(
             settings: settingsStatus
               ? { path: target.settingsJsonPath, status: settingsStatus, hooksDir: target.hooksDir }
               : null,
+            agents: installAgents ? { dir: target.agentsDir, files: agents.files.length } : null,
             settingsSkippedForGlobal,
             directory: skillsDir,
             targetReason: target.reason,
@@ -410,6 +437,9 @@ export async function runSkillsInstallToTarget(
               `(its hooks resolve via $CLAUDE_PROJECT_DIR). Install it per-project, not with --global.`
           )
         );
+      }
+      if (installAgents) {
+        console.log(color.dim(`  ${agents.files.length} agents written to ${target.agentsDir}`));
       }
     }
   } catch (err: unknown) {

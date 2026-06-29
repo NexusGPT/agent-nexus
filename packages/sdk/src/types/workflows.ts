@@ -286,6 +286,13 @@ export interface TestNodeBody {
 /** Body for testing an entire workflow. */
 export interface TestWorkflowBody {
   triggerData?: Record<string, unknown>;
+  /**
+   * Per-node sample caps for this test run, mapping a node id to the maximum
+   * number of array items that node may emit/iterate. Used to scope a test
+   * (e.g. iterate a loop over 5 items instead of 429) without editing the
+   * workflow definition. Only honored on test runs.
+   */
+  sampleConfig?: Record<string, number>;
 }
 
 /** Result of starting a test execution. */

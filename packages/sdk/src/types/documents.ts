@@ -38,6 +38,8 @@ export interface DocumentDetail {
   sourceUrl: string | null;
   /** File size in bytes. */
   size: number | null;
+  /** Processing failure reason; null unless status is "ERROR". */
+  errorMessage?: string | null;
   /** Total number of child documents. */
   totalChildren: number;
   /** Number of children with READY status. */

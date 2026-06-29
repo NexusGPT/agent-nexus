@@ -4,6 +4,7 @@ import { createClient } from "../client";
 import { handleError } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { runFollow, shortTag } from "../util/run-follow";
 
 export function registerExecutionCommands(program: Command): void {
   const execution = program.command("execution").description("View workflow execution history");
@@ -215,6 +216,56 @@ Examples:
         }
 
         printRecord(result as Record<string, unknown>, fields);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── follow ────────────────────────────────────────────────────────────
+  execution
+    .command("follow")
+    .description("Follow a running execution, printing per-node progress as it happens")
+    .argument("<id>", "Execution ID")
+    .option("--interval <ms>", "Polling interval in milliseconds (default: 1500)", "1500")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus execution follow exec-123
+  $ nexus execution follow exec-123 --interval 3000
+  $ nexus execution follow exec-123 --json   # NDJSON of per-node state changes`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const interval = Math.max(500, parseInt(opts.interval, 10) || 1500);
+
+        // Best-effort: derive the workflow id for the [wf …] prefix.
+        let wfTag = shortTag(id);
+        try {
+          const exec = (await client.workflowExecutions.get(id)) as Record<string, unknown>;
+          if (exec?.workflowId) wfTag = shortTag(exec.workflowId as string);
+        } catch {
+          // fall back to the execution short id
+        }
+
+        const finalStatus = await runFollow(client as any, id, {
+          interval,
+          wfTag,
+          json: isJsonMode()
+        });
+
+        if (!isJsonMode()) {
+          const paint =
+            finalStatus === "COMPLETED"
+              ? color.green
+              : finalStatus === "FAILED" ||
+                  finalStatus === "ERROR" ||
+                  finalStatus === "CANCELLED"
+                ? color.red
+                : color.yellow;
+          console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

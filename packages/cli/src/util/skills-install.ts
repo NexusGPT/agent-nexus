@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { color } from "../output";
 import {
+  AGENT_FILES,
   CLAUDE_MD,
   HOOK_FILES,
   SETTINGS_JSON,
@@ -57,6 +58,8 @@ export interface ClaudeTarget {
   settingsJsonPath: string;
   /** Directory where the firewall + lifecycle hooks are written (`.claude/hooks`). */
   hooksDir: string;
+  /** Directory where the Nexus subagent definitions are written (`.claude/agents`). */
+  agentsDir: string;
   /** How we picked this target. */
   reason: TargetReason;
 }
@@ -119,6 +122,23 @@ export function hookInstallables(): InstallableSkill {
   return {
     slug: "hooks",
     files: HOOK_FILES.map((f) => ({
+      path: f.path,
+      content: Buffer.from(f.content, "utf-8")
+    }))
+  };
+}
+
+/**
+ * The `agents/` tree — the Nexus-owned subagent definitions (flat `.md` files
+ * Claude Code auto-discovers under `.claude/agents`). Like the skill files they
+ * are Nexus-owned and refreshed in place on every install rather than
+ * preserved. Unlike settings.json + hooks, they resolve fine at any scope, so
+ * they install for both project and `--global` targets.
+ */
+export function agentInstallables(): InstallableSkill {
+  return {
+    slug: "agents",
+    files: AGENT_FILES.map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
@@ -224,6 +244,7 @@ export function resolveClaudeTarget(
       claudeMdPath: path.join(projectRoot, "CLAUDE.md"),
       settingsJsonPath: path.join(claudeDir, "settings.json"),
       hooksDir: path.join(claudeDir, "hooks"),
+      agentsDir: path.join(claudeDir, "agents"),
       reason: "explicit"
     };
   }
@@ -238,6 +259,7 @@ export function resolveClaudeTarget(
       claudeMdPath: path.join(root, "CLAUDE.md"),
       settingsJsonPath: path.join(root, "settings.json"),
       hooksDir: path.join(root, "hooks"),
+      agentsDir: path.join(root, "agents"),
       reason: "global"
     };
   }
@@ -266,6 +288,7 @@ function claudeTargetForRoot(root: string, reason: TargetReason): ClaudeTarget {
     claudeMdPath: path.join(root, "CLAUDE.md"),
     settingsJsonPath: path.join(claudeDir, "settings.json"),
     hooksDir: path.join(claudeDir, "hooks"),
+    agentsDir: path.join(claudeDir, "agents"),
     reason
   };
 }

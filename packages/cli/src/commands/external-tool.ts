@@ -7,7 +7,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { mergeBodyWithFlags, resolveBody, resolveInputJson } from "../util/body";
 
 export function registerExternalToolCommands(program: Command): void {
   const externalTool = program
@@ -209,7 +209,10 @@ Examples:
     .description("Test auth credentials for an external tool by calling an operation")
     .argument("<id>", "External tool ID")
     .option("--operation-id <op>", "Operation ID to test with")
-    .option("--input <json>", "Input parameters as JSON (default: {})")
+    .option(
+      "--input <json>",
+      "Input parameters as JSON, a file path, or '-' for stdin (default: {})"
+    )
     .addHelpText(
       "after",
       `
@@ -228,7 +231,10 @@ expired, the platform will attempt to refresh it automatically before calling th
           process.exitCode = 1;
           return;
         }
-        const input = opts.input ? JSON.parse(opts.input) : {};
+        const input = (opts.input ? await resolveInputJson(opts.input) : {}) as Record<
+          string,
+          unknown
+        >;
         const result = await client.skills.testExternalTool(id, {
           operationId: opts.operationId,
           input
@@ -254,7 +260,7 @@ expired, the platform will attempt to refresh it automatically before calling th
     .description("Execute a tool action directly (no workflow needed)")
     .argument("<toolId>", "Marketplace tool ID")
     .option("--action <key>", "Action key or operationId")
-    .option("--input <json>", "Input parameters as JSON")
+    .option("--input <json>", "Input parameters as JSON, a file path, or '-' for stdin")
     .option("--credential <id>", "Credential ID override")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -264,6 +270,7 @@ Examples:
   $ nexus external-tool execute <toolId> --action google_sheets-create-spreadsheet --input '{"title":"My Sheet"}'
   $ nexus external-tool execute <toolId> --action send_email --input '{"to":"a@b.com"}' --credential cred-123
   $ nexus external-tool execute <toolId> --body '{"action":"send_email","input":{"to":"a@b.com"}}'
+  $ nexus external-tool execute <toolId> --action send_email --input /tmp/input.json
   $ cat params.json | nexus external-tool execute <toolId> --action send_email --input -`
     )
     .action(async (toolId: string, opts) => {
@@ -272,7 +279,7 @@ Examples:
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.action) flags.action = opts.action;
-        if (opts.input) flags.input = JSON.parse(opts.input);
+        if (opts.input) flags.input = await resolveInputJson(opts.input);
         if (opts.credential) flags.credentialId = opts.credential;
         const body = mergeBodyWithFlags(base, flags);
 
@@ -295,7 +302,7 @@ Examples:
     .description("Test an external tool operation")
     .argument("<id>", "External tool ID")
     .option("--operation-id <op>", "Operation ID to test")
-    .option("--input <json>", "Input parameters as JSON")
+    .option("--input <json>", "Input parameters as JSON, a file path, or '-' for stdin")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -311,7 +318,7 @@ Examples:
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.operationId) flags.operationId = opts.operationId;
-        if (opts.input) flags.input = JSON.parse(opts.input);
+        if (opts.input) flags.input = await resolveInputJson(opts.input);
         const body = mergeBodyWithFlags(base, flags);
 
         const result = await client.skills.testExternalTool(id, body as any);

@@ -8,7 +8,14 @@ import { handleError } from "../errors";
 import { color, formatFolder, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { runFollow, shortTag } from "../util/run-follow";
+import { parseSampleConfig } from "../util/sample-config";
 import { registerWorkflowBuilderCommands } from "./workflow-builder";
+
+/** Commander collector for repeatable options. */
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 export function registerWorkflowCommands(program: Command): void {
   const workflow = program.command("workflow").description("Manage workflows");
@@ -298,12 +305,29 @@ Examples:
     .argument("<id>", "Workflow ID")
     .option("--input <json>", "Input JSON for the test")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .option("--follow", "Stream per-node progress as the execution runs")
+    .option("--stream", "Alias for --follow")
+    .option("--interval <ms>", "Follow polling interval in milliseconds (default: 1500)", "1500")
+    .option(
+      "--sample <n>",
+      "Cap the --sample-node loop to at most N items for this test run (no workflow edit)"
+    )
+    .option("--sample-node <nodeId>", "The loop node id to cap (used with --sample)")
+    .option(
+      "--limit-array <nodeId=N>",
+      "Cap a node's array to N items for this test run (repeatable)",
+      collect,
+      []
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus workflow test wf-123 --input '{"message": "hello"}'
   $ nexus workflow test wf-123 --body '{"message": "hello"}'
+  $ nexus workflow test wf-123 --follow
+  $ nexus workflow test wf-123 --sample 5 --sample-node loop-abc --follow
+  $ nexus workflow test wf-123 --limit-array loop-abc=5 --limit-array rows=10
   $ nexus workflow test wf-123 --json`
     )
     .action(async (id: string, opts) => {
@@ -311,8 +335,72 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
         const input = opts.input ? JSON.parse(opts.input) : (base ?? {});
-        const result = await client.workflows.testWorkflow(id, input);
-        printRecord(result as unknown as Record<string, unknown>);
+
+        const flagSampleConfig = parseSampleConfig({
+          sample: opts.sample,
+          sampleNode: opts.sampleNode,
+          limitArray: opts.limitArray
+        });
+        // Merge flag-derived caps onto any sampleConfig already in the body so
+        // per-node caps supplied via --body are preserved; flags win on conflict.
+        let body = input;
+        if (flagSampleConfig) {
+          const bodySampleConfig =
+            input && typeof input === "object" && typeof input.sampleConfig === "object"
+              ? (input.sampleConfig as Record<string, unknown>)
+              : undefined;
+          body = { ...input, sampleConfig: { ...bodySampleConfig, ...flagSampleConfig } };
+        }
+
+        const result = (await client.workflows.testWorkflow(id, body)) as unknown as Record<
+          string,
+          unknown
+        >;
+
+        const follow = !!(opts.follow || opts.stream);
+        const executionId = result?.executionId as string | null | undefined;
+
+        if (follow && executionId) {
+          if (!isJsonMode()) {
+            printRecord(result, [
+              { key: "executionId", label: "Execution ID" },
+              { key: "status", label: "Status" }
+            ]);
+            console.log();
+          }
+          const interval = Math.max(500, parseInt(opts.interval, 10) || 1500);
+          const finalStatus = await runFollow(client as any, executionId, {
+            interval,
+            wfTag: shortTag(id),
+            json: isJsonMode()
+          });
+          if (!isJsonMode()) {
+            const paint =
+              finalStatus === "COMPLETED"
+                ? color.green
+                : finalStatus === "FAILED" ||
+                    finalStatus === "ERROR" ||
+                    finalStatus === "CANCELLED"
+                  ? color.red
+                  : color.yellow;
+            console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
+          }
+          return;
+        }
+
+        if (follow && !executionId) {
+          printRecord(result);
+          if (!isJsonMode()) {
+            console.log(
+              color.dim(
+                "\nNothing to follow — this trigger has no immediate execution (e.g. it is awaiting an external call)."
+              )
+            );
+          }
+          return;
+        }
+
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -189,15 +189,18 @@ Examples:
   // ── search ────────────────────────────────────────────────────────────
   collection
     .command("search")
-    .description("Search a collection")
+    .description("Search a collection by document name (slug match — not content)")
     .argument("<id>", "Collection ID")
-    .requiredOption("--query <query>", "Search query")
+    .requiredOption("--query <query>", "Substring to match against document names")
     .option("--limit <number>", "Max results", parseInt)
     .addHelpText(
       "after",
       `
+Matches document NAMES only (case-insensitive substring). To search document
+CONTENT (the semantic retrieval your agents use), use "nexus collection query".
+
 Examples:
-  $ nexus collection search col-123 --query "how to reset password"
+  $ nexus collection search col-123 --query "invoice"
   $ nexus collection search col-123 --query "pricing" --limit 5 --json`
     )
     .action(async (id: string, opts) => {
@@ -215,7 +218,53 @@ Examples:
           if (Array.isArray(results)) {
             for (const r of results) {
               console.log(
-                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${(r as any).content?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+              );
+            }
+          } else {
+            console.log(JSON.stringify(result, null, 2));
+          }
+        }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── query (semantic content retrieval) ─────────────────────────────────
+  collection
+    .command("query")
+    .description("Query a collection's content (semantic retrieval via ZeroEntropy)")
+    .argument("<id>", "Collection ID")
+    .requiredOption("--query <query>", "Natural-language question or phrase")
+    .option("--limit <number>", "Max results", parseInt)
+    .option("--include-metadata", "Include document metadata in results")
+    .addHelpText(
+      "after",
+      `
+Searches document CONTENT — the same retrieval path your agents use at runtime.
+Use this (not "search") to verify a collection actually answers a question.
+
+Examples:
+  $ nexus collection query col-123 --query "how do I reset my PIN?"
+  $ nexus collection query col-123 --query "carte SIM" --limit 5 --json`
+    )
+    .action(async (id: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.skills.queryCollection(id, {
+          query: opts.query,
+          limit: opts.limit,
+          includeMetadata: opts.includeMetadata
+        });
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const results = (result as any).results ?? result;
+          if (Array.isArray(results)) {
+            for (const r of results) {
+              console.log(
+                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
               );
             }
           } else {
@@ -258,7 +307,7 @@ Examples:
           if (Array.isArray(results)) {
             for (const r of results) {
               console.log(
-                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${(r as any).content?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
               );
             }
           } else {

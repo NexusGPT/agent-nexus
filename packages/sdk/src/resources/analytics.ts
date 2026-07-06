@@ -19,7 +19,7 @@ export interface AnalyticsStructuredFilter {
 
 /** Body for a structured (non-SQL) analytics query. */
 export interface AnalyticsStructuredQuery {
-  /** Curated view: generations | traces | conversations | messages | executions | node_runs | scores. */
+  /** Curated view: generations | traces | conversations | messages | executions | node_runs | scores | score_events. */
   view: string;
   /** Each metric is `count` or `<agg>:<column>` (agg = sum|avg|min|max). */
   metrics: string[];

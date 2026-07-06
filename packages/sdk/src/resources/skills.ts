@@ -704,6 +704,17 @@ export class SkillsResource extends BaseResource {
     return this.http.request<any>("POST", `/skills/collections/${collectionId}/search`, { body });
   }
 
+  /**
+   * Semantic content retrieval within a collection (ZeroEntropy) — matches
+   * document content, unlike searchCollection which matches document names.
+   */
+  async queryCollection(
+    collectionId: string,
+    body: { query: string; limit?: number; includeMetadata?: boolean }
+  ): Promise<any> {
+    return this.http.request<any>("POST", `/skills/collections/${collectionId}/query`, { body });
+  }
+
   async searchMultipleCollections(body: {
     query: string;
     collectionIds: string[];

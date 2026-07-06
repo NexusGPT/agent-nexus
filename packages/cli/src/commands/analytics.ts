@@ -6,6 +6,26 @@ import { isJsonMode, printList, printRecord } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { parseTimePeriod, TIME_PERIOD_HELP } from "../util/time-period";
 
+// Curated analytics views. Keep in lockstep with `ANALYTICS_VIEW_NAMES` in
+// @nexus/types (packages/types/src/api/public/v1/schemas/analytics-catalog.ts,
+// the source of truth) — the CLI ships standalone, so it can't import it. The
+// `query` (raw-SQL) footer uses the physical `analytics_<name>` view; the
+// `metrics` (structured) footer uses the public `<name>`. Both derive from this
+// one list so they can never disagree.
+const ANALYTICS_VIEWS = [
+  "generations",
+  "traces",
+  "conversations",
+  "messages",
+  "executions",
+  "node_runs",
+  "scores",
+  "score_events"
+] as const;
+
+const ANALYTICS_PUBLIC_VIEWS = ANALYTICS_VIEWS.join(", ");
+const ANALYTICS_PHYSICAL_VIEWS = ANALYTICS_VIEWS.map((v) => `analytics_${v}`).join(", ");
+
 export function registerAnalyticsCommands(program: Command): void {
   const analytics = program.command("analytics").description("View analytics and metrics");
 
@@ -124,7 +144,7 @@ Examples:
   $ nexus analytics query 'SELECT "modelName", SUM("costUsd") AS spend FROM analytics_generations GROUP BY 1 ORDER BY spend DESC' --json
 
 Notes:
-  Read-only, single statement, org-scoped. Views: analytics_generations, analytics_traces.`
+  Read-only, single statement, org-scoped. Views: ${ANALYTICS_PHYSICAL_VIEWS}.`
     )
     .action(async (sql: string) => {
       try {
@@ -175,7 +195,7 @@ Examples:
   $ nexus analytics metrics node_runs -m count -g nodeType -f status:eq:ERROR --json
   $ nexus analytics metrics generations -m sum:costUsd -g modelName --granularity day --order-by bucket
 
-Views: generations, traces, conversations, messages, executions, node_runs, scores.`
+Views: ${ANALYTICS_PUBLIC_VIEWS}.`
     )
     .action(
       async (

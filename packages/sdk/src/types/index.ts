@@ -103,6 +103,7 @@ export type {
   CreateTextDocumentBody,
   DocumentDetail,
   DocumentInfo,
+  DocumentMetadataInput,
   GoogleSheetResult
 } from "./documents";
 export type {

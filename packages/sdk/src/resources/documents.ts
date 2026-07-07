@@ -5,6 +5,7 @@ import type {
   CreateTextDocumentBody,
   DocumentDetail,
   DocumentInfo,
+  DocumentMetadataInput,
   GoogleSheetResult
 } from "../types/documents";
 import { BaseResource } from "./base-resource";
@@ -56,11 +57,19 @@ export class DocumentsResource extends BaseResource {
    * console.log(doc.id, doc.status);
    * ```
    */
-  async uploadFile(file: Blob, fileName?: string, description?: string): Promise<DocumentInfo> {
+  async uploadFile(
+    file: Blob,
+    fileName?: string,
+    description?: string,
+    metadata?: DocumentMetadataInput
+  ): Promise<DocumentInfo> {
     const formData = new FormData();
     formData.append("file", file, fileName);
     if (description) {
       formData.append("description", description);
+    }
+    if (metadata && Object.keys(metadata).length > 0) {
+      formData.append("metadata", JSON.stringify(metadata));
     }
     return this.http.request<DocumentInfo>("POST", "/documents/file", { body: formData });
   }
@@ -138,7 +147,12 @@ export class DocumentsResource extends BaseResource {
 
   async update(
     documentId: string,
-    body: { name?: string; description?: string; tags?: string[] }
+    body: {
+      name?: string;
+      description?: string;
+      tags?: string[];
+      metadata?: DocumentMetadataInput;
+    }
   ): Promise<any> {
     return this.http.request<any>("PATCH", `/documents/${documentId}`, { body });
   }

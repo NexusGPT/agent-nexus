@@ -133,6 +133,7 @@ export type {
   DeleteResponse,
   DeleteWorkspaceResponse,
   DocumentInfo,
+  DocumentMetadataInput,
   DocumentTemplateDetail,
   DocumentTemplateSummary,
   EmulatorDebugInfo,

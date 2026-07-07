@@ -710,7 +710,12 @@ export class SkillsResource extends BaseResource {
    */
   async queryCollection(
     collectionId: string,
-    body: { query: string; limit?: number; includeMetadata?: boolean }
+    body: {
+      query: string;
+      limit?: number;
+      includeMetadata?: boolean;
+      metadataFilter?: Record<string, string | string[]>;
+    }
   ): Promise<any> {
     return this.http.request<any>("POST", `/skills/collections/${collectionId}/query`, { body });
   }

@@ -5,10 +5,16 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { parseMetadataPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+
+/** Commander collector for repeatable `--metadata key=value` options. */
+function collectMetadata(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 export function registerDocumentCommands(program: Command): void {
   const document = program.command("document").description("Manage knowledge documents");
@@ -85,13 +91,24 @@ Examples:
     .description("Upload a file as a document")
     .argument("<file-path>", "Path to the file")
     .option("--description <text>", "Document description")
+    .option(
+      "--metadata <key=value...>",
+      "Filterable metadata (repeatable). Overrides matching YAML frontmatter keys.",
+      collectMetadata,
+      []
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus document upload ./report.pdf
   $ nexus document upload ./data.csv --description "Q4 sales data"
-  $ nexus document upload ./manual.txt --json`
+  $ nexus document upload ./faq-fr.md --metadata language=fr --metadata content_type=faq-mobile
+  $ nexus document upload ./manual.txt --json
+
+Notes:
+  For .md/.txt files, YAML frontmatter (--- block at the top) is read as metadata
+  server-side. Explicit --metadata flags override matching frontmatter keys.`
     )
     .action(async (filePath: string, opts) => {
       try {
@@ -108,7 +125,10 @@ Examples:
         const blob = new Blob([buffer]);
         const fileName = path.basename(absPath);
 
-        const doc = await client.documents.uploadFile(blob, fileName, opts.description);
+        const metadataFlags = opts.metadata as string[];
+        const metadata = metadataFlags.length > 0 ? parseMetadataPairs(metadataFlags) : undefined;
+
+        const doc = await client.documents.uploadFile(blob, fileName, opts.description, metadata);
         printSuccess("Document uploaded.", {
           id: (doc as any).id,
           name: (doc as any).name ?? fileName
@@ -125,6 +145,7 @@ Examples:
     .requiredOption("--name <name>", "Document name")
     .requiredOption("--content <text-or-->", "Content (text, or '-' for stdin)")
     .option("--description <text>", "Document description")
+    .option("--metadata <key=value...>", "Filterable metadata (repeatable).", collectMetadata, [])
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -132,6 +153,7 @@ Examples:
 Examples:
   $ nexus document create-text --name "FAQ" --content "Q: How do I...\\nA: You can..."
   $ cat content.md | nexus document create-text --name "Guide" --content -
+  $ nexus document create-text --name "FAQ" --content - --metadata language=fr
   $ nexus document create-text --body '{"name":"FAQ","content":"..."}'`
     )
     .action(async (opts) => {
@@ -142,6 +164,8 @@ Examples:
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.content) flags.content = await resolveInputValue(opts.content);
         if (opts.description !== undefined) flags.description = opts.description;
+        const metadataFlags = opts.metadata as string[];
+        if (metadataFlags.length > 0) flags.metadata = parseMetadataPairs(metadataFlags);
 
         const body = mergeBodyWithFlags(base, flags);
 
@@ -161,6 +185,12 @@ Examples:
     .description("Crawl a website and create document(s)")
     .requiredOption("--url <url>", "Website URL")
     .option("--mode <mode>", "Crawl mode: sitemap, single, etc.", "single")
+    .option(
+      "--metadata <key=value...>",
+      "Filterable metadata (repeatable); inherited by every crawled page.",
+      collectMetadata,
+      []
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -168,15 +198,18 @@ Examples:
 Examples:
   $ nexus document add-website --url https://docs.example.com --mode sitemap
   $ nexus document add-website --url https://example.com/page --mode single
+  $ nexus document add-website --url https://docs.example.com --mode sitemap --metadata language=fr
   $ nexus document add-website --body '{"url":"https://example.com","mode":"sitemap"}'`
     )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
+        const metadataFlags = opts.metadata as string[];
         const body = mergeBodyWithFlags(base, {
           ...(opts.url !== undefined && { url: opts.url }),
-          ...(opts.mode !== undefined && { mode: opts.mode })
+          ...(opts.mode !== undefined && { mode: opts.mode }),
+          ...(metadataFlags.length > 0 && { metadata: parseMetadataPairs(metadataFlags) })
         });
 
         const doc = await client.documents.addWebsite(body as any);
@@ -258,13 +291,23 @@ Examples:
     .argument("<id>", "Document ID")
     .option("--name <name>", "Document name")
     .option("--description <text>", "Document description")
+    .option(
+      "--metadata <key=value...>",
+      "Filterable metadata (repeatable). Re-run 'document reprocess' to re-index it.",
+      collectMetadata,
+      []
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus document update doc-123 --name "Updated Report"
-  $ nexus document update doc-123 --body '{"description":"Q4 report"}'`
+  $ nexus document update doc-123 --metadata language=fr
+  $ nexus document update doc-123 --body '{"description":"Q4 report"}'
+
+Notes:
+  Metadata changes are re-indexed on the next 'nexus document reprocess <id>'.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -273,10 +316,21 @@ Examples:
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.description !== undefined) flags.description = opts.description;
+        const metadataFlags = opts.metadata as string[];
+        if (metadataFlags.length > 0) flags.metadata = parseMetadataPairs(metadataFlags);
         const body = mergeBodyWithFlags(base, flags);
 
         const doc = await client.documents.update(id, body as any);
         printSuccess("Document updated.", { id: (doc as any).id ?? id });
+        // A metadata edit only writes the DB column; ZeroEntropy stays stale
+        // until the document is reprocessed. Nudge the user so the change is
+        // not silently invisible to search/retrieval.
+        if (metadataFlags.length > 0) {
+          printWarning(
+            "Metadata changed but not yet searchable.",
+            `Run:  nexus document reprocess ${id}`
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -82,6 +82,8 @@ export interface CreateTextDocumentBody {
   content: string;
   /** Optional description. */
   description?: string;
+  /** Optional filterable metadata (e.g. `{ language: "fr" }`). */
+  metadata?: DocumentMetadataInput;
 }
 
 /** Body for `client.documents.addWebsite()`. */
@@ -98,6 +100,8 @@ export interface AddWebsiteDocumentBody {
   };
   /** Optional description. */
   description?: string;
+  /** Optional filterable metadata, inherited by every crawled page. */
+  metadata?: DocumentMetadataInput;
 }
 
 /** Body for `client.documents.createGoogleSheet()`. */
@@ -111,6 +115,20 @@ export interface CreateGoogleSheetDocumentBody {
     hasHeaderRow?: boolean;
   };
 }
+
+// ============================================================================
+// METADATA
+// ============================================================================
+
+/**
+ * User-declared, filterable document attributes (e.g. `{ language: "fr" }`).
+ * Mirrors the Public API contract: scalars and arrays of scalars are accepted;
+ * the server coerces every value to a string / string[] and strips reserved keys.
+ */
+export type DocumentMetadataInput = Record<
+  string,
+  string | number | boolean | Array<string | number | boolean>
+>;
 
 // ============================================================================
 // COLLECTION LINKING

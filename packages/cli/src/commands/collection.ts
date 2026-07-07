@@ -4,7 +4,13 @@ import { createClient } from "../client";
 import { handleError } from "../errors";
 import { isJsonMode, printList, printRecord, printSuccess, printTable } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { parseFilterPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+
+/** Commander collector for repeatable `--filter key=value` options. */
+function collectFilter(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 export function registerCollectionCommands(program: Command): void {
   const collection = program.command("collection").description("Manage knowledge collections");
@@ -238,23 +244,35 @@ Examples:
     .requiredOption("--query <query>", "Natural-language question or phrase")
     .option("--limit <number>", "Max results", parseInt)
     .option("--include-metadata", "Include document metadata in results")
+    .option(
+      "--filter <key=value...>",
+      "Restrict retrieval to documents matching metadata (repeatable).",
+      collectFilter,
+      []
+    )
     .addHelpText(
       "after",
       `
 Searches document CONTENT — the same retrieval path your agents use at runtime.
 Use this (not "search") to verify a collection actually answers a question.
+--filter constrains retrieval to matching documents. Repeat a key to match any
+of several values: --filter region=eu --filter region=us (region in [eu, us]).
 
 Examples:
   $ nexus collection query col-123 --query "how do I reset my PIN?"
-  $ nexus collection query col-123 --query "carte SIM" --limit 5 --json`
+  $ nexus collection query col-123 --query "carte SIM" --limit 5 --json
+  $ nexus collection query col-123 --query "réinitialiser le PIN" --filter language=fr
+  $ nexus collection query col-123 --query "roaming" --filter region=eu --filter region=us`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
+        const filterFlags = opts.filter as string[];
         const result = await client.skills.queryCollection(id, {
           query: opts.query,
           limit: opts.limit,
-          includeMetadata: opts.includeMetadata
+          includeMetadata: opts.includeMetadata,
+          ...(filterFlags.length > 0 && { metadataFilter: parseFilterPairs(filterFlags) })
         });
 
         if (isJsonMode()) {

@@ -905,7 +905,8 @@ PENDING; the build executor clones --git-url at the pushed sha. The git
 URL is optional here and can be set at provision time only — a deploy
 needs it, so pass it unless you are wiring the repo up by other means.
 
-Re-provisioning an app that already has a repository returns 409.
+Provisioning an app that already has a repository returns 409. If a repo's
+provisioning FAILED, use "reprovision-repo" to retry it.
 
 Examples:
   $ nexus vibe app provision-repo 11111111-… --git-url file:///tmp/my-repo
@@ -919,6 +920,37 @@ Examples:
           method: "POST",
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository`,
           body: { gitRemoteUrl: cmdOpts.gitUrl }
+        });
+        printVibeRepository(data.repository);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
+    .command("reprovision-repo <appId>")
+    .description("Retry provisioning a FAILED repository")
+    .addHelpText(
+      "after",
+      `
+A repository whose in-cluster materialization FAILED is otherwise a dead
+end — the provision path 409s on the one-repo-per-app constraint. This
+re-arms the FAILED repo back to PENDING so the agent re-materializes it on
+its next pull; nothing else changes (same repo id, same git URL).
+
+Only a FAILED repo can be retried — READY / PENDING / ARCHIVED return 409,
+and an app with no repository returns 404.
+
+Examples:
+  $ nexus vibe app reprovision-repo 11111111-…
+`
+    )
+    .action(async (appId: string) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<SingleVibeRepositoryResponse>(opts, {
+          method: "POST",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository/reprovision`
         });
         printVibeRepository(data.repository);
       } catch (err) {

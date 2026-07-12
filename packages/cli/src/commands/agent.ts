@@ -130,7 +130,7 @@ Notes:
         if (opts.model !== undefined) flags.model = opts.model;
         if (opts.modelName !== undefined || opts.modelProvider !== undefined) {
           flags.modelConfig = {
-            modelName: opts.modelName ?? "gpt-4o",
+            modelName: opts.modelName ?? "gpt-5.6-sol",
             modelProvider: opts.modelProvider ?? "OPEN_AI"
           };
         }

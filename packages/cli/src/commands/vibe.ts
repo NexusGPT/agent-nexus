@@ -135,6 +135,7 @@ interface VibeAppDto {
   resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
   healthCheckConfig: Record<string, unknown>;
   publicUrl: string | null;
+  visibility: "PRIVATE" | "PUBLIC";
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -810,6 +811,10 @@ Examples:
     .command("create <name>")
     .description("Create a new Vibe app")
     .option("--description <text>", "Optional app description.")
+    .option(
+      "--public",
+      "Make the app browser-reachable (no per-app edge-auth token). Default is private — reachable only via agent tool calls."
+    )
     .addHelpText(
       "after",
       `
@@ -818,19 +823,30 @@ with a lowercase letter, then lowercase letters / digits / hyphens, ≤ 63
 chars (it backs the app's subdomain). The canonical public URL and the
 default deploy branch (main) are stamped server-side at creation.
 
+Visibility (default PRIVATE): a private app carries a per-app edge-auth
+token, so its URL is reachable only by callers that send the token — the
+platform injects it on agent tool calls, so private apps are agent-tool-only.
+--public skips the token, so anyone with the URL reaches the app (a
+browser-viewable site / dashboard / docs / public webhook — no app auth).
+
 Examples:
   $ nexus vibe app create stripe-handler
   $ nexus vibe app create orders-api --description "Order webhook handler"
+  $ nexus vibe app create landing --public
 `
     )
-    .action(async (name: string, cmdOpts: { description?: string }) => {
+    .action(async (name: string, cmdOpts: { description?: string; public?: boolean }) => {
       try {
         const appName = resolveAppName(name);
         const opts = resolveTenantOpts(program);
         const data = await tenantRequest<SingleVibeAppResponse>(opts, {
           method: "POST",
           path: "/api/vibe/apps",
-          body: { name: appName, description: cmdOpts.description }
+          body: {
+            name: appName,
+            description: cmdOpts.description,
+            visibility: cmdOpts.public ? "PUBLIC" : "PRIVATE"
+          }
         });
         printVibeApp(data.app);
       } catch (err) {
@@ -1426,6 +1442,11 @@ function printVibeApp(app: VibeAppDto): void {
     },
     { key: "description", label: "Description", format: (v) => (v === null ? "—" : String(v)) },
     { key: "publicUrl", label: "Public URL", format: (v) => (v === null ? "—" : String(v)) },
+    {
+      key: "visibility",
+      label: "Visibility",
+      format: (v) => (v === "PUBLIC" ? "public (browser-reachable)" : "private (agent-tool only)")
+    },
     {
       key: "resourceQuotas",
       label: "Quotas",

@@ -132,6 +132,20 @@ export type {
   ListFoldersResponse,
   UpdateFolderBody
 } from "./folders";
+export type {
+  CreateHtmlMessageTemplateBody,
+  DeleteHtmlMessageTemplateResponse,
+  FillHtmlMessageTemplateBody,
+  FillHtmlMessageTemplateResponse,
+  HtmlMessageTemplate,
+  HtmlMessageTemplateInputSchema,
+  HtmlMessageTemplateSummary,
+  ListHtmlMessageTemplatesParams,
+  ListHtmlMessageTemplatesResponse,
+  RenderHtmlMessageTemplateBody,
+  RenderHtmlMessageTemplateResponse,
+  UpdateHtmlMessageTemplateBody
+} from "./html-message-templates";
 export type { MeResponse } from "./me";
 export type { ModelSummary } from "./models";
 export type {

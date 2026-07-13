@@ -28,6 +28,7 @@ export {
   EmulatorResource,
   EvaluationsResource,
   FoldersResource,
+  HtmlMessageTemplatesResource,
   ModelsResource,
   PromptAssistantResource,
   SkillsResource,

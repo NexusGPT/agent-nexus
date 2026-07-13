@@ -18,6 +18,7 @@ import { DocumentsResource } from "./resources/documents";
 import { EmulatorResource } from "./resources/emulator";
 import { EvaluationsResource } from "./resources/evaluations";
 import { FoldersResource } from "./resources/folders";
+import { HtmlMessageTemplatesResource } from "./resources/html-message-templates";
 import { MeResource } from "./resources/me";
 import { ModelsResource } from "./resources/models";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
@@ -166,6 +167,9 @@ export class NexusClient {
   /** Organize document templates into folders. */
   public readonly documentTemplateFolders: DocumentTemplateFoldersResource;
 
+  /** Author and render agent-filled HTML message templates for the embed. */
+  public readonly htmlMessageTemplates: HtmlMessageTemplatesResource;
+
   /** Organization analytics and metrics. */
   public readonly analytics: AnalyticsResource;
 
@@ -253,6 +257,7 @@ export class NexusClient {
     this.emulator = new EmulatorResource(http);
     this.deploymentFolders = new DeploymentFoldersResource(http);
     this.documentTemplateFolders = new DocumentTemplateFoldersResource(http);
+    this.htmlMessageTemplates = new HtmlMessageTemplatesResource(http);
     this.analytics = new AnalyticsResource(http);
     this.agentCollections = new AgentCollectionsResource(http);
     this.workflowExecutions = new WorkflowExecutionsResource(http);

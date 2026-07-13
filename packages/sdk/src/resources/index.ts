@@ -19,6 +19,7 @@ export { DocumentsResource } from "./documents";
 export { EmulatorResource } from "./emulator";
 export { EvaluationsResource } from "./evaluations";
 export { FoldersResource } from "./folders";
+export { HtmlMessageTemplatesResource } from "./html-message-templates";
 export { MeResource } from "./me";
 export { ModelsResource } from "./models";
 export { PhoneNumbersResource } from "./phone-numbers";

@@ -149,11 +149,13 @@ interface SingleVibeAppResponse {
   app: VibeAppDto;
 }
 
-/** Subset of VibeRepositorySchema the CLI renders. */
-interface VibeRepositoryDto {
+/** Subset of VibeGitProjectSchema the CLI renders. */
+interface VibeGitProjectDto {
   id: string;
-  vibeAppId: string;
   organizationId: string;
+  name: string;
+  description: string | null;
+  defaultBranch: string;
   s3Prefix: string;
   hookSecretRef: string;
   gitRemoteUrl: string | null;
@@ -163,8 +165,24 @@ interface VibeRepositoryDto {
   updatedAt: string;
 }
 
-interface SingleVibeRepositoryResponse {
-  repository: VibeRepositoryDto;
+interface SingleVibeGitProjectResponse {
+  /** Canonical key; absent only on a pre-decoupling backend. */
+  gitProject?: VibeGitProjectDto;
+  /** Deprecated alias — always present, read as the fallback. */
+  repository: VibeGitProjectDto;
+}
+
+/**
+ * The standalone git-project routes are greenfield — they postdate the
+ * decoupling, so no pre-decoupling backend serves them and the deprecated
+ * `repository` alias key never appears. `gitProject` is always present.
+ */
+interface StandaloneVibeGitProjectResponse {
+  gitProject: VibeGitProjectDto;
+}
+
+interface ListVibeGitProjectsResponse {
+  gitProjects: VibeGitProjectDto[];
 }
 
 /** Subset of VibeDeploymentSchema the CLI renders. */
@@ -316,6 +334,7 @@ export function registerVibeCommands(program: Command): void {
       `
 Subcommands:
   app              Manage Vibe apps — create, list, get, update, register as a tool.
+  git-project      Manage git projects — the standalone code store apps deploy from.
   git-credentials  Fetch your tenant git push token + clone address.
   deploy           Trigger a deployment for an app from a commit sha.
   deployments      List / inspect an app's deployments and their build jobs.
@@ -330,6 +349,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
     );
 
   registerAppCommands(vibe, program);
+  registerGitProjectCommands(vibe, program);
   registerGitCredentialsCommand(vibe, program);
   registerDeployCommand(vibe, program);
   registerDeploymentsCommands(vibe, program);
@@ -908,7 +928,7 @@ Examples:
 
   app
     .command("provision-repo <appId>")
-    .description("Provision the git repository backing for a Vibe app")
+    .description("Provision a git project for a Vibe app")
     .option(
       "--git-url <url>",
       "Git remote the build executor clones at deploy time (e.g. file:///path/to/repo or https://…)."
@@ -916,13 +936,14 @@ Examples:
     .addHelpText(
       "after",
       `
-A Vibe app has exactly one repository (1:1). Provisioning creates it in
-PENDING; the build executor clones --git-url at the pushed sha. The git
-URL is optional here and can be set at provision time only — a deploy
-needs it, so pass it unless you are wiring the repo up by other means.
+Creates a git project (the standalone code store) in PENDING and attaches
+the app to it; the project takes the app's name and deploy branch. The
+build executor clones --git-url at the pushed sha. The git URL is optional
+here and can be set at provision time only — a deploy needs it, so pass it
+unless you are wiring the project up by other means.
 
-Provisioning an app that already has a repository returns 409. If a repo's
-provisioning FAILED, use "reprovision-repo" to retry it.
+Provisioning an app that already has a git project returns 409. If a
+project's provisioning FAILED, use "reprovision-repo" to retry it.
 
 Examples:
   $ nexus vibe app provision-repo 11111111-… --git-url file:///tmp/my-repo
@@ -932,12 +953,15 @@ Examples:
     .action(async (appId: string, cmdOpts: { gitUrl?: string }) => {
       try {
         const opts = resolveTenantOpts(program);
-        const data = await tenantRequest<SingleVibeRepositoryResponse>(opts, {
+        const data = await tenantRequest<SingleVibeGitProjectResponse>(opts, {
           method: "POST",
+          // Legacy path segment on purpose — prod backends may predate the
+          // rename for days after this CLI publishes; the canonical
+          // `git-project` segment takes over next release.
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository`,
           body: { gitRemoteUrl: cmdOpts.gitUrl }
         });
-        printVibeRepository(data.repository);
+        printVibeGitProject(data.gitProject ?? data.repository);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -945,17 +969,17 @@ Examples:
 
   app
     .command("reprovision-repo <appId>")
-    .description("Retry provisioning a FAILED repository")
+    .description("Retry provisioning a FAILED git project")
     .addHelpText(
       "after",
       `
-A repository whose in-cluster materialization FAILED is otherwise a dead
-end — the provision path 409s on the one-repo-per-app constraint. This
-re-arms the FAILED repo back to PENDING so the agent re-materializes it on
-its next pull; nothing else changes (same repo id, same git URL).
+A git project whose in-cluster materialization FAILED is otherwise a dead
+end — the provision path 409s on the already-attached guard. This re-arms
+the FAILED project back to PENDING so the agent re-materializes it on its
+next pull; nothing else changes (same project id, same git URL).
 
-Only a FAILED repo can be retried — READY / PENDING / ARCHIVED return 409,
-and an app with no repository returns 404.
+Only a FAILED project can be retried — READY / PENDING / ARCHIVED return
+409, and an app with no git project returns 404.
 
 Examples:
   $ nexus vibe app reprovision-repo 11111111-…
@@ -964,11 +988,177 @@ Examples:
     .action(async (appId: string) => {
       try {
         const opts = resolveTenantOpts(program);
-        const data = await tenantRequest<SingleVibeRepositoryResponse>(opts, {
+        const data = await tenantRequest<SingleVibeGitProjectResponse>(opts, {
           method: "POST",
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository/reprovision`
         });
-        printVibeRepository(data.repository);
+        printVibeGitProject(data.gitProject ?? data.repository);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+}
+
+// ============================================================
+// vibe git-project
+// ============================================================
+
+function registerGitProjectCommands(vibe: Command, program: Command): void {
+  const project = vibe
+    .command("git-project")
+    .description("Manage git projects — the standalone code store apps deploy from")
+    .addHelpText(
+      "after",
+      `
+A git project is the git primitive: an org-scoped code store materialized as
+a repository on your tenant's git host. It stands on its own — a project with
+no app attached is a pure code store. Push to it and its refs advance; nothing
+deploys, because deployment is an app's job.
+
+Apps point at a project ("many apps → one project"), so one code store can
+back several apps watching different branches. "nexus vibe app provision-repo"
+is the app-centric shortcut that creates a project and attaches it in one step.
+
+Examples:
+  $ nexus vibe git-project create my-lib
+  $ nexus vibe git-project list
+  $ nexus vibe git-project get 11111111-…
+`
+    );
+
+  project
+    .command("create <name>")
+    .description("Create a standalone git project (no app attached)")
+    .option("--description <text>", "Human-readable description of the project.")
+    .option("--default-branch <branch>", 'Branch the repo is created with (default: "main").')
+    .option(
+      "--git-url <url>",
+      "Git remote the build executor clones (e.g. file:///path/to/repo or https://…). Normally omitted — your tenant reports its own remote once the repo materializes."
+    )
+    .addHelpText(
+      "after",
+      `
+The name is org-unique and becomes the repository name on the git host, so it
+must be a lowercase slug: start with a letter, then letters / digits / hyphens,
+≤ 63 characters. It is stamped at creation and stable for the project's life.
+
+The project lands in PENDING and your tenant materializes the repository
+shortly after; "get" shows it flip to READY. (A project only materializes once
+your tenant's git host is healthy — until then it simply stays PENDING.)
+
+Choose the name deliberately: a name taken in your org returns 409, and there
+is no way to release one yet — projects cannot currently be deleted. Naming a
+standalone project after an app you have not created yet will block that app
+from provisioning its own repo later.
+
+Examples:
+  $ nexus vibe git-project create shared-lib
+  $ nexus vibe git-project create shared-lib --description "Shared helpers" --default-branch trunk
+`
+    )
+    .action(
+      async (
+        name: string,
+        cmdOpts: { description?: string; defaultBranch?: string; gitUrl?: string }
+      ) => {
+        try {
+          const opts = resolveTenantOpts(program);
+          const data = await tenantRequest<StandaloneVibeGitProjectResponse>(opts, {
+            method: "POST",
+            path: "/api/vibe/git-projects",
+            body: {
+              name,
+              description: cmdOpts.description,
+              defaultBranch: cmdOpts.defaultBranch,
+              gitRemoteUrl: cmdOpts.gitUrl
+            }
+          });
+          printVibeGitProject(data.gitProject);
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
+
+  project
+    .command("list")
+    .description("List your organization's git projects, newest first")
+    .addHelpText(
+      "after",
+      `
+Lists every project in your org — standalone code stores and the ones apps
+are attached to alike, in every lifecycle status.
+
+Examples:
+  $ nexus vibe git-project list
+  $ nexus vibe --json git-project list
+`
+    )
+    .action(async () => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<ListVibeGitProjectsResponse>(opts, {
+          method: "GET",
+          path: "/api/vibe/git-projects"
+        });
+        printVibeGitProjectList(data);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  project
+    .command("get <projectId>")
+    .description("Get a git project by id")
+    .addHelpText(
+      "after",
+      `
+Shows the project's lifecycle status and its clone URL. A PENDING project has
+not been materialized on the git host yet; READY is serving. FAILED means
+materialization failed — retry it with "git-project reprovision".
+
+Examples:
+  $ nexus vibe git-project get 11111111-…
+`
+    )
+    .action(async (projectId: string) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<StandaloneVibeGitProjectResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}`
+        });
+        printVibeGitProject(data.gitProject);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  project
+    .command("reprovision <projectId>")
+    .description("Retry provisioning a FAILED git project")
+    .addHelpText(
+      "after",
+      `
+A project whose materialization FAILED is otherwise a dead end — its name is
+taken, so you cannot simply create it again. This re-arms it back to PENDING
+and your tenant re-materializes it on its next pass; nothing else changes
+(same project id, same URL).
+
+Only a FAILED project can be retried — READY / PENDING / ARCHIVED return 409.
+
+Examples:
+  $ nexus vibe git-project reprovision 11111111-…
+`
+    )
+    .action(async (projectId: string) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<StandaloneVibeGitProjectResponse>(opts, {
+          method: "POST",
+          path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}/reprovision`
+        });
+        printVibeGitProject(data.gitProject);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1604,19 +1794,49 @@ function printDecisionResult(data: RecordApprovalDecisionResponse): void {
   printApprovalRequest(data.request);
 }
 
-function printVibeRepository(repo: VibeRepositoryDto): void {
+function printVibeGitProject(project: VibeGitProjectDto): void {
   if (isJsonMode()) {
-    console.log(JSON.stringify(repo, null, 2));
+    console.log(JSON.stringify(project, null, 2));
     return;
   }
 
-  printRecord(repo as unknown as Record<string, unknown>, [
+  printRecord(project as unknown as Record<string, unknown>, [
     { key: "id", label: "Id" },
-    { key: "vibeAppId", label: "App" },
+    { key: "name", label: "Name" },
+    { key: "defaultBranch", label: "Default branch" },
     { key: "status", label: "Status" },
     { key: "gitRemoteUrl", label: "Git URL", format: (v) => (v === null ? "—" : String(v)) },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) },
     { key: "updatedAt", label: "Updated", format: (v) => formatTimestamp(String(v)) }
+  ]);
+}
+
+function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
+  if (isJsonMode()) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  if (data.gitProjects.length === 0) {
+    console.log(color.dim("No Vibe git projects yet."));
+    return;
+  }
+
+  const rows = data.gitProjects.map((p) => ({
+    id: shortenId(p.id),
+    name: p.name,
+    defaultBranch: p.defaultBranch,
+    status: p.status,
+    gitRemoteUrl: p.gitRemoteUrl ?? color.dim("—"),
+    createdAt: formatTimestamp(p.createdAt)
+  }));
+
+  printTable(rows as unknown as Record<string, unknown>[], [
+    { key: "id", label: "Id", width: 10 },
+    { key: "name", label: "Name", width: 24 },
+    { key: "defaultBranch", label: "Default branch", width: 16 },
+    { key: "status", label: "Status", width: 10 },
+    { key: "gitRemoteUrl", label: "Git URL", width: 40 },
+    { key: "createdAt", label: "Created", width: 21 }
   ]);
 }
 

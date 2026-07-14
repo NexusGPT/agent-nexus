@@ -158,6 +158,19 @@ interface VibeGitProjectDto {
   defaultBranch: string;
   s3Prefix: string;
   hookSecretRef: string;
+  /**
+   * What the build executor clones — NEVER a push URL, so don't label it
+   * "Git URL": a user's push remote comes from `nexus vibe git-credentials`,
+   * which composes the public `cloneUrlBase`
+   * (`https://git.<tenant>.<domain>/<org>/`).
+   *
+   * Its reachability varies by provenance, so don't assert one: when the agent
+   * materializes the repo it composes this from Forgejo's in-VPC baseUrl
+   * (unreachable from a user's machine — the web console refuses to render it
+   * for exactly that reason), but `--git-url` on provision sets it to whatever
+   * the user supplied, which per schema.prisma's `VibeGitProject.gitRemoteUrl`
+   * comment may be a local path, `file://`, or a public https URL.
+   */
   gitRemoteUrl: string | null;
   status: string;
   createdByUserId: string | null;
@@ -1113,9 +1126,12 @@ Examples:
     .addHelpText(
       "after",
       `
-Shows the project's lifecycle status and its clone URL. A PENDING project has
-not been materialized on the git host yet; READY is serving. FAILED means
+Shows the project's lifecycle status and its build source. A PENDING project
+has not been materialized on the git host yet; READY is serving. FAILED means
 materialization failed — retry it with "git-project reprovision".
+
+Build source is what the build executor clones — it is not your push remote.
+Run "nexus vibe git-credentials" for the URL and token you push with.
 
 Examples:
   $ nexus vibe git-project get 11111111-…
@@ -1805,10 +1821,16 @@ function printVibeGitProject(project: VibeGitProjectDto): void {
     { key: "name", label: "Name" },
     { key: "defaultBranch", label: "Default branch" },
     { key: "status", label: "Status" },
-    { key: "gitRemoteUrl", label: "Git URL", format: (v) => (v === null ? "—" : String(v)) },
+    {
+      key: "gitRemoteUrl",
+      label: "Build source",
+      format: (v) => (v === null ? "—" : String(v))
+    },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) },
     { key: "updatedAt", label: "Updated", format: (v) => formatTimestamp(String(v)) }
   ]);
+  console.log("");
+  console.log(color.dim("To push to this project, run: nexus vibe git-credentials"));
 }
 
 function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
@@ -1821,12 +1843,15 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
     return;
   }
 
+  // gitRemoteUrl is deliberately absent: it is the build executor's in-VPC
+  // address, unreachable from a user's machine, and at 40 columns it crowded
+  // out the fields a list is actually scanned for. `status` already carries
+  // whether the repo materialized. The push URL comes from git-credentials.
   const rows = data.gitProjects.map((p) => ({
     id: shortenId(p.id),
     name: p.name,
     defaultBranch: p.defaultBranch,
     status: p.status,
-    gitRemoteUrl: p.gitRemoteUrl ?? color.dim("—"),
     createdAt: formatTimestamp(p.createdAt)
   }));
 
@@ -1835,9 +1860,10 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
     { key: "name", label: "Name", width: 24 },
     { key: "defaultBranch", label: "Default branch", width: 16 },
     { key: "status", label: "Status", width: 10 },
-    { key: "gitRemoteUrl", label: "Git URL", width: 40 },
     { key: "createdAt", label: "Created", width: 21 }
   ]);
+  console.log("");
+  console.log(color.dim("To push to a project, run: nexus vibe git-credentials"));
 }
 
 /** Render the first 8 chars of an id so the table stays readable. */

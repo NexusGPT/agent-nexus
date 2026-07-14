@@ -17,8 +17,16 @@ vi.mock("../client", () => ({
   createClient: () => fakeClient
 }));
 
+// The vibe commands don't go through the SDK client — they call the tenant API
+// directly via tenantRequest, so they need their own seam.
+const tenantRequest = vi.fn();
+vi.mock("../util/tenant-http", () => ({
+  tenantRequest: (...args: unknown[]) => tenantRequest(...args)
+}));
+
 import { registerConversationCommands } from "./conversation";
 import { registerTracingCommands } from "./tracing";
+import { registerVibeCommands } from "./vibe";
 
 /**
  * Build a fresh program with the global --json flag, register the commands,
@@ -33,6 +41,7 @@ async function runJson(argv: string[]): Promise<string> {
   program.name("nexus").option("--json", "Output as JSON");
   registerConversationCommands(program);
   registerTracingCommands(program);
+  registerVibeCommands(program);
 
   // The real CLI sets JSON mode in a preAction hook off the --json flag;
   // mirror that here so the output module formats as JSON.
@@ -118,5 +127,50 @@ describe("NEX-2176: --json output is a single parseable JSON document", () => {
     expect(parsed.id).toBe("trace-123");
     expect(Array.isArray(parsed.generations)).toBe(true);
     expect(parsed.generations).toHaveLength(2);
+  });
+
+  // Both vibe git-project printers append a human-mode pointer at
+  // "nexus vibe git-credentials" (the push URL does not come from these
+  // commands). That trailer must stay behind the isJsonMode() early-return.
+  const GIT_PROJECT = {
+    id: "11111111-1111-4111-8111-111111111111",
+    organizationId: "org_1",
+    name: "svc",
+    description: null,
+    defaultBranch: "main",
+    s3Prefix: "",
+    hookSecretRef: "",
+    gitRemoteUrl: "http://forgejo.internal:3000/vibe/svc.git",
+    status: "READY",
+    createdByUserId: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z"
+  };
+
+  it("vibe git-project get --json emits one JSON object (no git-credentials trailer)", async () => {
+    tenantRequest.mockResolvedValue({ gitProject: GIT_PROJECT });
+
+    const out = await runJson(["vibe", "git-project", "get", GIT_PROJECT.id]);
+
+    expect(out).not.toContain("git-credentials");
+
+    const parsed = JSON.parse(out);
+    expect(parsed.name).toBe("svc");
+    // --json stays the verbatim API shape: presentation changes must not
+    // reshape the contract scripts parse.
+    expect(parsed.gitRemoteUrl).toBe(GIT_PROJECT.gitRemoteUrl);
+  });
+
+  it("vibe git-project list --json emits one JSON object (no trailer, gitRemoteUrl retained)", async () => {
+    tenantRequest.mockResolvedValue({ gitProjects: [GIT_PROJECT] });
+
+    const out = await runJson(["vibe", "git-project", "list"]);
+
+    expect(out).not.toContain("git-credentials");
+
+    const parsed = JSON.parse(out);
+    expect(parsed.gitProjects).toHaveLength(1);
+    // The human table drops this column; --json must still carry it.
+    expect(parsed.gitProjects[0].gitRemoteUrl).toBe(GIT_PROJECT.gitRemoteUrl);
   });
 });

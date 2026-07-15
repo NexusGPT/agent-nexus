@@ -429,8 +429,8 @@ surface lands with the Vault wiring). Long values are truncated in the
 table; use --json for the full value.
 
 Examples:
-  $ nexus vibe env list 11111111-…
-  $ nexus vibe env list 11111111-… --json | jq '.envVars[].name'
+  $ nexus vibe env list 11111111-2222-4333-8444-555555555555
+  $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.envVars[].name'
 `
     )
     .action(async (appId: string) => {
@@ -459,9 +459,9 @@ The value is everything after the first '=', so it may itself contain
 '=' and may be empty (NAME= sets an empty value).
 
 Examples:
-  $ nexus vibe env set 11111111-… LOG_LEVEL=debug
-  $ nexus vibe env set 11111111-… DATABASE_URL=postgres://… --scope PROD
-  $ nexus vibe env set 11111111-… FEATURE_OFF=
+  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 LOG_LEVEL=debug
+  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 DATABASE_URL=postgres://… --scope PROD
+  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 FEATURE_OFF=
 `
     )
     .action(async (appId: string, assignment: string, cmdOpts: { scope?: string }) => {
@@ -490,7 +490,7 @@ Removal is by env-var id, not name — list first to get the id. Scoped to
 your org + the named app; a wrong id returns 404.
 
 Examples:
-  $ nexus vibe env rm 11111111-… 22222222-…
+  $ nexus vibe env rm 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
 `
     )
     .action(async (appId: string, envVarId: string) => {
@@ -551,7 +551,7 @@ Returns 404 when the deployment is ungated (no approval gate) or not in
 your org.
 
 Examples:
-  $ nexus vibe approvals get 11111111-… 22222222-…
+  $ nexus vibe approvals get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
 `
     )
     .action(async (appId: string, deploymentId: string) => {
@@ -580,8 +580,8 @@ Pass exactly one of --approve / --reject. You cannot decide your own
 deployment (403); a duplicate or already-decided/expired request is 409.
 
 Examples:
-  $ nexus vibe approvals decide 11111111-… 22222222-… --approve
-  $ nexus vibe approvals decide 11111111-… 22222222-… --reject --note "needs a migration first"
+  $ nexus vibe approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --approve
+  $ nexus vibe approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --reject --note "needs a migration first"
 `
     )
     .action(
@@ -723,8 +723,8 @@ forward asynchronously. If the app has approvals enabled, the deploy waits
 in AWAITING_APPROVAL until a reviewer decides.
 
 Examples:
-  $ nexus vibe deploy 11111111-… --sha 1a2b3c4
-  $ nexus vibe deploy 11111111-… --sha 1a2b3c4d…full40 --builder dockerfile
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40 --builder dockerfile
 `
     )
     .action(async (appId: string, cmdOpts: { sha: string; builder?: string }) => {
@@ -809,9 +809,9 @@ left untouched). At least one flag is required. --resource-quotas and
 fully validates the new shape, so pass every field.
 
 Examples:
-  $ nexus vibe app update 11111111-… --deploy-branch release/prod
-  $ nexus vibe app update 11111111-… --require-approvals true
-  $ nexus vibe app update 11111111-… --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
+  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
+  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --require-approvals true
+  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
 `
     )
     .action(
@@ -910,9 +910,9 @@ defaults to none at v1 — a deployed Vibe app is reachable without extra
 credentials; tighten per-app as Vault-backed secrets land.
 
 Examples:
-  $ nexus vibe app register-as-tool 11111111-… --spec-file ./openapi.json
-  $ nexus vibe app register-as-tool 11111111-… --spec-file ./api.yaml --name "Orders API"
-  $ nexus vibe app register-as-tool 11111111-… --spec-file ./openapi.json --json | jq .id
+  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json
+  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./api.yaml --name "Orders API"
+  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json --json | jq .id
 `
     )
     .action(
@@ -959,8 +959,8 @@ Provisioning an app that already has a git project returns 409. If a
 project's provisioning FAILED, use "reprovision-repo" to retry it.
 
 Examples:
-  $ nexus vibe app provision-repo 11111111-… --git-url file:///tmp/my-repo
-  $ nexus vibe app provision-repo 11111111-… --git-url https://github.com/acme/svc.git
+  $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url file:///tmp/my-repo
+  $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url https://github.com/acme/svc.git
 `
     )
     .action(async (appId: string, cmdOpts: { gitUrl?: string }) => {
@@ -995,7 +995,7 @@ Only a FAILED project can be retried — READY / PENDING / ARCHIVED return
 409, and an app with no git project returns 404.
 
 Examples:
-  $ nexus vibe app reprovision-repo 11111111-…
+  $ nexus vibe app reprovision-repo 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (appId: string) => {
@@ -1035,7 +1035,7 @@ is the app-centric shortcut that creates a project and attaches it in one step.
 Examples:
   $ nexus vibe git-project create my-lib
   $ nexus vibe git-project list
-  $ nexus vibe git-project get 11111111-…
+  $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
 `
     );
 
@@ -1134,7 +1134,7 @@ Build source is what the build executor clones — it is not your push remote.
 Run "nexus vibe git-credentials" for the URL and token you push with.
 
 Examples:
-  $ nexus vibe git-project get 11111111-…
+  $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (projectId: string) => {
@@ -1164,7 +1164,7 @@ and your tenant re-materializes it on its next pass; nothing else changes
 Only a FAILED project can be retried — READY / PENDING / ARCHIVED return 409.
 
 Examples:
-  $ nexus vibe git-project reprovision 11111111-…
+  $ nexus vibe git-project reprovision 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (projectId: string) => {
@@ -1207,7 +1207,7 @@ function registerAuditCommands(vibe: Command, program: Command): void {
 Examples:
   $ nexus vibe audit list
   $ nexus vibe audit list --limit 20
-  $ nexus vibe audit list --type DEPLOYMENT_TRIGGERED --app 11111111-…
+  $ nexus vibe audit list --type DEPLOYMENT_TRIGGERED --app 11111111-2222-4333-8444-555555555555
   $ nexus vibe audit list --cursor "2026-05-25T12:00:00.000Z|abc…"
   $ nexus vibe audit list --json | jq '.events[]'
 
@@ -1323,10 +1323,14 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
   }
 
   const rows = data.events.map((e) => ({
+    // The event id is shortened: `vibe audit` only lists, so no command
+    // takes it. The APP id is not — it is the argument to `app get`,
+    // `deployments list` and `deploy`, and this feed is often where a
+    // reader first sees it.
     id: shortenId(e.id),
     createdAt: formatTimestamp(e.createdAt),
     eventType: colorizeEventType(e.payload.eventType),
-    vibeAppId: e.vibeAppId === null ? color.dim("—") : shortenId(e.vibeAppId),
+    vibeAppId: e.vibeAppId === null ? color.dim("—") : e.vibeAppId,
     actor: e.actorUserId === null ? color.dim("system") : shortenId(e.actorUserId),
     details: formatPayloadDetails(e.payload)
   }));
@@ -1335,7 +1339,7 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
     { key: "id", label: "Id", width: 10 },
     { key: "createdAt", label: "Created" },
     { key: "eventType", label: "Event" },
-    { key: "vibeAppId", label: "App", width: 10 },
+    { key: "vibeAppId", label: "App" },
     { key: "actor", label: "Actor", width: 10 },
     { key: "details", label: "Details" }
   ]);
@@ -1550,8 +1554,9 @@ function printDeploymentList(data: ListDeploymentsResponse): void {
     return;
   }
 
+  // Full id: `deployments get <appId> <deploymentId>` takes it.
   const rows = data.deployments.map((d) => ({
-    id: shortenId(d.id),
+    id: d.id,
     status: colorizeStatus(d.status),
     slot: d.color,
     commit: d.triggerSha.slice(0, 7),
@@ -1559,7 +1564,7 @@ function printDeploymentList(data: ListDeploymentsResponse): void {
   }));
 
   printTable(rows as unknown as Record<string, unknown>[], [
-    { key: "id", label: "Id", width: 10 },
+    { key: "id", label: "Id" },
     { key: "status", label: "Status" },
     { key: "slot", label: "Slot" },
     { key: "commit", label: "Commit" },
@@ -1611,8 +1616,10 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
     return;
   }
 
+  // Full id: this list is where users get the app id, and every other
+  // `vibe` command takes it as an argument.
   const rows = data.apps.map((a) => ({
-    id: shortenId(a.id),
+    id: a.id,
     name: a.name,
     deployBranch: a.deployBranch,
     approvals: a.requireApprovals ? color.yellow("required") : color.dim("off"),
@@ -1621,7 +1628,7 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
   }));
 
   printTable(rows as unknown as Record<string, unknown>[], [
-    { key: "id", label: "Id", width: 10 },
+    { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "deployBranch", label: "Deploy" },
     { key: "approvals", label: "Approvals" },
@@ -1847,8 +1854,10 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
   // address, unreachable from a user's machine, and at 40 columns it crowded
   // out the fields a list is actually scanned for. `status` already carries
   // whether the repo materialized. The push URL comes from git-credentials.
+  // Full id: `git-project get <projectId>` and `git-project reprovision
+  // <projectId>` take it.
   const rows = data.gitProjects.map((p) => ({
-    id: shortenId(p.id),
+    id: p.id,
     name: p.name,
     defaultBranch: p.defaultBranch,
     status: p.status,
@@ -1856,7 +1865,7 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
   }));
 
   printTable(rows as unknown as Record<string, unknown>[], [
-    { key: "id", label: "Id", width: 10 },
+    { key: "id", label: "Id" },
     { key: "name", label: "Name", width: 24 },
     { key: "defaultBranch", label: "Default branch", width: 16 },
     { key: "status", label: "Status", width: 10 },
@@ -1867,6 +1876,16 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
 }
 
 /** Render the first 8 chars of an id so the table stays readable. */
+/**
+ * Shorten an id for DISPLAY ONLY — never for an id the user has to type
+ * back.
+ *
+ * Every `vibe` command that takes an id takes the full uuid, and the API
+ * rejects anything else. So a shortened id in a list is a trap: it is the
+ * only id the reader has, it looks complete enough to copy, and pasting it
+ * back fails. Reserve this for ids no command accepts (actor / decider
+ * user ids), and print command-argument ids in full.
+ */
 function shortenId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }

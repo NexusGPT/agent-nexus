@@ -24,6 +24,11 @@ import { Command } from "commander";
 import { handleError } from "../errors";
 import { color, isJsonMode, printPaginationMeta, printRecord, printTable } from "../output";
 import { type TenantHttpOptions, tenantRequest } from "../util/tenant-http";
+import {
+  isVibeAllowedRegion,
+  VIBE_ALLOWED_REGIONS,
+  type VibeTenantClusterStatus
+} from "../vibe-regions";
 
 // ============================================================
 // Wire types — mirror packages/types/src/api/domains/vibe/schemas/
@@ -346,6 +351,7 @@ export function registerVibeCommands(program: Command): void {
       "after",
       `
 Subcommands:
+  cluster          Provision / inspect your org's dedicated Vibe cluster.
   app              Manage Vibe apps — create, list, get, update, register as a tool.
   git-project      Manage git projects — the standalone code store apps deploy from.
   git-credentials  Fetch your tenant git push token + clone address.
@@ -361,6 +367,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
 `
     );
 
+  registerClusterCommands(vibe, program);
   registerAppCommands(vibe, program);
   registerGitProjectCommands(vibe, program);
   registerGitCredentialsCommand(vibe, program);
@@ -369,6 +376,193 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
   registerEnvCommands(vibe, program);
   registerApprovalsCommands(vibe, program);
   registerAuditCommands(vibe, program);
+}
+
+// ============================================================
+// vibe cluster
+// ============================================================
+
+/** The cluster health the GET surface reports. `null` cluster = none provisioned. */
+interface VibeClusterHealthDto {
+  status: VibeTenantClusterStatus;
+  statusReason: string | null;
+  gitHostStatus: string | null;
+  telemetryStatus: string | null;
+}
+
+interface GetVibeClusterResponse {
+  cluster: VibeClusterHealthDto | null;
+}
+
+/** Discriminated outcome of an org's own opt-in. Mirrors the operator surface's. */
+type ProvisionVibeClusterOutcome =
+  | { kind: "provisioning"; reprovisioned: boolean }
+  | { kind: "already_active"; status: VibeTenantClusterStatus };
+
+interface ProvisionVibeClusterResponse {
+  outcome: ProvisionVibeClusterOutcome;
+}
+
+/**
+ * An org's own cluster surface. The same two endpoints the console banner
+ * drives, so a terminal never has to become a browser to get unblocked — the
+ * operator path (`nexus admin vibe-tenant-cluster`) acts on ANOTHER org and is
+ * not what a tenant reaches for.
+ */
+function registerClusterCommands(vibe: Command, program: Command): void {
+  const cluster = vibe
+    .command("cluster")
+    .description("Provision / inspect your org's dedicated Vibe cluster");
+
+  cluster
+    .command("status")
+    .description("Show your org's dedicated cluster, or that it has none")
+    .addHelpText(
+      "after",
+      `
+No cluster is not an error: apps still build and deploy on shared
+infrastructure, and a git project created with --git-url needs no cluster
+at all. A cluster is what lets Nexus HOST your code (the tenant git host)
+and hold your secrets.
+
+Examples:
+  $ nexus vibe cluster status
+  $ nexus vibe cluster status --json
+`
+    )
+    .action(async () => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<GetVibeClusterResponse>(opts, {
+          method: "GET",
+          path: "/api/vibe/cluster"
+        });
+        printVibeCluster(data);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  cluster
+    .command("provision")
+    .description("Provision your org's dedicated cluster (EU regions only — RGPD)")
+    .requiredOption(
+      "--region <region>",
+      `Region the cluster lands in. EU only: ${VIBE_ALLOWED_REGIONS.join(", ")}.`
+    )
+    .addHelpText(
+      "after",
+      `
+The region is IMMUTABLE for the cluster's lifetime — relocating means a
+full teardown and re-provision — so it is required rather than defaulted.
+Pick for data residency first; all choices are EU (RGPD).
+
+Provisioning is declarative and asynchronous: this records the intent and
+returns immediately, then the cluster converges on its own (typically tens
+of minutes). You do not need to wait — a git project created meanwhile is
+accepted and materializes once the cluster is up. Poll with
+"nexus vibe cluster status".
+
+Idempotent: running it again while PROVISIONING, or against a cluster
+that is already live, reports the current state instead of erroring.
+
+Examples:
+  $ nexus vibe cluster provision --region eu-west-3
+  $ nexus vibe cluster provision --region eu-central-1 --json
+`
+    )
+    .action(async (cmdOpts: { region: string }) => {
+      try {
+        const region = cmdOpts.region.trim();
+        // Rejected locally so a typo costs no round-trip; the backend's Zod
+        // boundary is the actual enforcement point and rejects it too.
+        if (!isVibeAllowedRegion(region)) {
+          throw new Error(
+            `Invalid --region "${cmdOpts.region}". EU regions only (RGPD): ${VIBE_ALLOWED_REGIONS.join(", ")}.`
+          );
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<ProvisionVibeClusterResponse>(opts, {
+          method: "POST",
+          path: "/api/vibe/cluster/provision",
+          body: { region }
+        });
+        printProvisionOutcome(data.outcome, region);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+}
+
+function printVibeCluster(data: GetVibeClusterResponse): void {
+  if (isJsonMode()) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  if (data.cluster === null) {
+    console.log(color.dim("No dedicated cluster."));
+    console.log(
+      color.dim(
+        "Apps still build and deploy on shared infrastructure. Provision one to have\nNexus host your code: nexus vibe cluster provision --region <region>"
+      )
+    );
+    return;
+  }
+  printRecord({
+    Status: data.cluster.status,
+    Reason: data.cluster.statusReason ?? color.dim("—"),
+    "Git host": data.cluster.gitHostStatus ?? color.dim("not reported yet"),
+    Telemetry: data.cluster.telemetryStatus ?? color.dim("not reported yet")
+  });
+}
+
+/**
+ * What to do about a cluster that provision declined to touch.
+ *
+ * A `Record` over every status, so a new one is a compile error rather than
+ * silently inheriting advice written for a different state. Not all of these
+ * reach `already_active` today (the server handles absent / PROVISIONING /
+ * retired before it gets here) — but which ones do is the SERVER's business,
+ * and "nothing to do" is wrong for a cluster mid-teardown: that one needs a
+ * re-run once it lands, not a shrug.
+ */
+const ALREADY_ACTIVE_ADVICE: Record<VibeTenantClusterStatus, string> = {
+  HEALTHY: "Nothing to do — it is serving.",
+  UPDATING: "It is converging; nothing to do.",
+  DEGRADED: "It is up but drifted, and converges on its own. Check: nexus vibe cluster status",
+  DISABLING: "It is being torn down. Wait for it to finish, then run this again to revive it.",
+  DESTROYING: "It is being destroyed. Wait for it to finish, then run this again for a fresh one.",
+  PROVISIONING: "It is already being provisioned — poll with: nexus vibe cluster status",
+  DISABLED_RETAINED: "It is disabled. Running this again revives it in place.",
+  DESTROYED: "It is destroyed. Running this again provisions a fresh one."
+};
+
+function printProvisionOutcome(outcome: ProvisionVibeClusterOutcome, region: string): void {
+  if (isJsonMode()) {
+    console.log(JSON.stringify({ outcome }, null, 2));
+    return;
+  }
+  // Exhaustive over the outcome union: a new kind is a compile error here
+  // rather than a silent "provisioned!" for something that did not happen.
+  switch (outcome.kind) {
+    case "provisioning":
+      console.log(
+        outcome.reprovisioned
+          ? `Re-provisioning your retired cluster in ${region}.`
+          : `Provisioning your cluster in ${region}.`
+      );
+      console.log(color.dim("It converges on its own — poll with: nexus vibe cluster status"));
+      return;
+    case "already_active":
+      console.log(`Your cluster is already ${outcome.status}.`);
+      console.log(color.dim(ALREADY_ACTIVE_ADVICE[outcome.status]));
+      return;
+    default: {
+      const exhaustive: never = outcome;
+      void exhaustive;
+    }
+  }
 }
 
 // ============================================================

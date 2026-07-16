@@ -21,6 +21,11 @@ import { Command } from "commander";
 import { color, printRecord } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { type AdminHttpOptions, adminRequest } from "../util/admin-http";
+import {
+  isVibeAllowedRegion,
+  VIBE_ALLOWED_REGIONS,
+  type VibeTenantClusterStatus
+} from "../vibe-regions";
 
 // ============================================================
 // Shared response types — mirror the backend's ZAdminVibe* schemas.
@@ -402,44 +407,6 @@ function parseCapFlag(flag: string, raw: string): CapPatchValue {
 // zadmin-vibe-tenant-cluster.ts — keep them in lockstep when the
 // canonical schema evolves.
 
-/**
- * Regions an operator may provision a tenant cluster into. Locked to EU
- * AWS regions for RGPD data residency — every tenant's data plane stays
- * in-region. Mirrors VIBE_ALLOWED_REGIONS in the backend schema; we
- * pre-validate here so a non-EU region is rejected locally before the
- * HTTP call (the backend's Zod boundary rejects it too). London
- * (eu-west-2) is intentionally absent — post-Brexit the UK is outside
- * the EU.
- */
-const VIBE_ALLOWED_REGIONS = [
-  "eu-west-1", // Ireland
-  "eu-west-3", // Paris
-  "eu-central-1", // Frankfurt
-  "eu-north-1", // Stockholm
-  "eu-south-1", // Milan
-  "eu-south-2" // Spain
-] as const;
-type VibeAllowedRegion = (typeof VIBE_ALLOWED_REGIONS)[number];
-
-function isVibeAllowedRegion(v: string): v is VibeAllowedRegion {
-  return (VIBE_ALLOWED_REGIONS as readonly string[]).includes(v);
-}
-
-/**
- * Tenant-cluster lifecycle states — mirrors $Enums.VibeTenantClusterStatus.
- * The CLI never validates these locally (they only ever arrive from the
- * server in an outcome), so a plain type union is enough — no runtime array.
- */
-type VibeTenantClusterStatus =
-  | "PROVISIONING"
-  | "HEALTHY"
-  | "UPDATING"
-  | "DEGRADED"
-  | "DISABLING"
-  | "DISABLED_RETAINED"
-  | "DESTROYING"
-  | "DESTROYED";
-
 /** Discriminated outcome of an operator-triggered provision. */
 type VibeTenantClusterProvisionOutcome =
   | { kind: "provisioning"; reprovisioned: boolean }
@@ -481,8 +448,8 @@ Outcome shapes:
 Notes:
   --region is constrained to EU AWS regions for RGPD data residency,
   rejected locally before the HTTP call (mirrors the backend's Zod
-  boundary). Operator-driven by design — Phase 1 provisioning is manual,
-  not self-serve.
+  boundary). This is the cross-org OPERATOR path; an org provisions its
+  own cluster with "nexus vibe cluster provision" or from its console.
 `
     )
     .action(async (organizationId: string, cmdOpts: { region: string }) => {

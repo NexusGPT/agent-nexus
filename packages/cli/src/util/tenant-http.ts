@@ -64,6 +64,97 @@ interface ApiErrorEnvelope {
 }
 
 /**
+ * A handler that names its own failure: `{ code, message }` at the TOP level.
+ *
+ * Which shape a given error arrives in depends on the ENVIRONMENT, not on the
+ * handler. `SentryFilter` is a catch-all registered only `if (SENTRY_DSN)`
+ * (`main.ts`), and a catch-all outranks the app's `HttpExceptionFilter`, so:
+ *
+ *   DSN set (staging/prod) — Sentry's filter defers to Nest's base filter,
+ *     which replies with the exception's payload verbatim → this bare shape,
+ *     carrying the handler's real code. Verified against prod.
+ *   no DSN (local dev)     — `HttpExceptionFilter` wraps it in the envelope
+ *     below AND derives the code from the STATUS (`HTTP_409`), so the
+ *     handler's own code is lost there no matter what this client does.
+ *
+ * Both are read because both are real. Worth knowing when a code-keyed
+ * behaviour works against prod and not against a local backend: that is this
+ * split, not a bug in the caller.
+ */
+interface NamedApiError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * The `{ success: false, error: { … } }` envelope. `code` is tolerated as
+ * absent — the message is the part a caller cannot do without, and reading the
+ * two together would drop a perfectly good message over a missing code.
+ */
+function asErrorEnvelope(parsed: unknown): NamedApiError | null {
+  if (!isRecord(parsed) || !isRecord(parsed.error)) return null;
+  const { code, message, details } = parsed.error;
+  if (typeof message !== "string") return null;
+  return { code: typeof code === "string" ? code : "HTTP_ERROR", message, details };
+}
+
+/** The bare `{ code, message }` a handler throws to name its own failure. */
+function asNamedError(parsed: unknown): NamedApiError | null {
+  if (!isRecord(parsed)) return null;
+  const { code, message, details } = parsed;
+  return typeof code === "string" && typeof message === "string"
+    ? { code, message, details }
+    : null;
+}
+
+/**
+ * Nest's own default — `{ statusCode, error: "Forbidden", message }` — where
+ * `error` is a generic label, not a code. A guard rejection on these routes
+ * lands here. There is no code to offer, but the message still says more than
+ * the request's name does.
+ */
+function asMessageOnlyError(parsed: unknown): NamedApiError | null {
+  if (!isRecord(parsed) || typeof parsed.message !== "string") return null;
+  return { code: "HTTP_ERROR", message: parsed.message };
+}
+
+/**
+ * Turn a non-2xx body into a typed error, reading every shape the backend
+ * actually sends.
+ *
+ * Only the envelope was read before, so a handler that named its own condition
+ * lost both halves of what it said: the code became "HTTP_ERROR" and the
+ * message became "POST /path failed with HTTP 409". The reason a caller was
+ * owed — "your organization has no dedicated Vibe cluster …" — never reached
+ * the terminal, and `err.code` could not be branched on, so a surface could
+ * offer no next step for a condition the API had gone to the trouble of naming.
+ *
+ * Ordered most-specific first. A `{ code, message }` also has a message, so it
+ * must be read before the message-only shape or its code would be thrown away
+ * again. Naming the request is the last resort, so an empty or unrecognised
+ * body is still legible rather than an empty string.
+ */
+function toTenantApiError(
+  parsed: unknown,
+  req: { method: string; path: string },
+  status: number
+): NexusApiError {
+  const named = asErrorEnvelope(parsed) ?? asNamedError(parsed) ?? asMessageOnlyError(parsed);
+  return named === null
+    ? new NexusApiError(
+        "HTTP_ERROR",
+        `${req.method} ${req.path} failed with HTTP ${status}`,
+        status
+      )
+    : new NexusApiError(named.code, named.message, status, named.details);
+}
+
+/**
  * Send a request against a tenant endpoint outside `/api/public/v1`.
  * Returns the unwrapped `data` field. Throws SDK error classes on
  * non-2xx + network failures so `handleError(err)` in `errors.ts`
@@ -131,15 +222,7 @@ export async function tenantRequest<T>(
 
   if (!response.ok) {
     if (response.status === 401) throw new NexusAuthenticationError();
-    const envelope = parsed as ApiErrorEnvelope | undefined;
-    const message =
-      envelope?.error?.message ?? `${req.method} ${req.path} failed with HTTP ${response.status}`;
-    throw new NexusApiError(
-      envelope?.error?.code ?? "HTTP_ERROR",
-      message,
-      response.status,
-      envelope?.error?.details
-    );
+    throw toTenantApiError(parsed, req, response.status);
   }
 
   const envelope = parsed as ApiSuccessEnvelope<T> | undefined;

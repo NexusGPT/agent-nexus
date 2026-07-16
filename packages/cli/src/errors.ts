@@ -11,6 +11,40 @@ import { color, isJsonMode } from "./output";
  * Handle errors from SDK calls and print actionable messages.
  * Returns the exit code to use.
  */
+/**
+ * What the CLI can offer for a specific API error code.
+ *
+ * The API's message names the CONDITION in surface-neutral terms, because the
+ * console renders the very same string — a message that said "run nexus ..."
+ * would name a control a browser user does not have. The command that resolves
+ * it therefore belongs here, on the surface that knows the reader is in a
+ * terminal. Keyed by the error CODE, never by message text, so rewording the
+ * API's prose cannot silently drop the next step.
+ */
+const NEXT_STEPS_BY_CODE: Record<string, string> = {
+  // The org has no dedicated cluster (or its cluster cannot host code). Two
+  // ways forward, and the second is the one nobody guesses: a project that
+  // carries its own remote is cloned straight from there by the build and
+  // never needs a cluster at all.
+  VIBE_GIT_PROJECT_CLUSTER_NOT_READY: [
+    "Provision your cluster (EU regions, immutable once set):",
+    "  nexus vibe cluster provision --region eu-west-3",
+    "  nexus vibe cluster status",
+    "",
+    "Or host the code yourself — no cluster needed, the build clones your remote:",
+    "  nexus vibe app provision-repo <appId> --git-url https://github.com/acme/svc.git"
+  ].join("\n")
+};
+
+/**
+ * The CLI-actionable next step for an API error, or null when we have nothing
+ * better to say than the API already did. A code the API sends but this table
+ * does not know is not an error — the caller still gets the API's message.
+ */
+function nextStepsFor(err: NexusApiError): string | null {
+  return NEXT_STEPS_BY_CODE[err.code] ?? null;
+}
+
 export function handleError(err: unknown): number {
   if (err instanceof NexusAuthenticationError) {
     printCliError(
@@ -34,7 +68,7 @@ export function handleError(err: unknown): number {
     } else if (err.status === 409) {
       printCliError(
         `Conflict: ${err.message}`,
-        err.details ? `Details: ${JSON.stringify(err.details)}` : undefined
+        nextStepsFor(err) ?? (err.details ? `Details: ${JSON.stringify(err.details)}` : undefined)
       );
     } else {
       printCliError(`API error (${err.status}): ${err.message}`);

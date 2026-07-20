@@ -208,6 +208,9 @@ interface VibeDeploymentDto {
   id: string;
   vibeAppId: string;
   color: string;
+  /// User-facing monotonic version (`v{n}`). `color` is the internal
+  /// blue/green slot and is no longer rendered.
+  versionNumber: number;
   status: string;
   triggerSha: string;
   imageRef: string;
@@ -1687,8 +1690,8 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
   console.log(color.green("✓") + " Deployment triggered");
   printRecord({ ...d, builder: data.buildJob.builder } as unknown as Record<string, unknown>, [
     { key: "id", label: "Deployment" },
+    { key: "versionNumber", label: "Version", format: (v) => `v${String(v)}` },
     { key: "status", label: "Status" },
-    { key: "color", label: "Slot" },
     { key: "triggerSha", label: "Commit", format: (v) => String(v).slice(0, 7) },
     { key: "builder", label: "Builder" },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) }
@@ -1751,16 +1754,16 @@ function printDeploymentList(data: ListDeploymentsResponse): void {
   // Full id: `deployments get <appId> <deploymentId>` takes it.
   const rows = data.deployments.map((d) => ({
     id: d.id,
+    version: `v${d.versionNumber}`,
     status: colorizeStatus(d.status),
-    slot: d.color,
     commit: d.triggerSha.slice(0, 7),
     createdAt: formatTimestamp(d.createdAt)
   }));
 
   printTable(rows as unknown as Record<string, unknown>[], [
     { key: "id", label: "Id" },
+    { key: "version", label: "Version" },
     { key: "status", label: "Status" },
-    { key: "slot", label: "Slot" },
     { key: "commit", label: "Commit" },
     { key: "createdAt", label: "Created" }
   ]);
@@ -1775,8 +1778,8 @@ function printDeploymentDetail(data: GetDeploymentResponse): void {
   const d = data.deployment;
   printRecord(d as unknown as Record<string, unknown>, [
     { key: "id", label: "Deployment" },
+    { key: "versionNumber", label: "Version", format: (v) => `v${String(v)}` },
     { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
-    { key: "color", label: "Slot" },
     { key: "triggerSha", label: "Commit", format: (v) => String(v).slice(0, 7) },
     { key: "imageRef", label: "Image", format: (v) => (v === "" ? "—" : String(v)) },
     { key: "errorReason", label: "Error", format: (v) => (v === null ? "—" : String(v)) },

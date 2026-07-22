@@ -733,7 +733,7 @@ sudo npm install -g @agent-nexus/cli@latest
 | `~/.nexus-mcp/version-check.json` | Update check cache (auto-managed, checked once/day)           | `0600`      |
 | `.nexusrc`                        | Directory-level profile pinning (created by `nexus auth pin`) | —           |
 
-The `~/.nexus-mcp/` directory is created with `0700` permissions. This path is shared with the [`@nexus/mcp-server`](../mcp-server/) package.
+The `~/.nexus-mcp/` directory is created with `0700` permissions. This path is shared with the [`@agent-nexus/mcp-server`](../mcp-server/) package.
 
 ### Config File Format (V2)
 

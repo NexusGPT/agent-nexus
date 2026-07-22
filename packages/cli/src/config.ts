@@ -83,7 +83,7 @@ export interface ResolvedProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Config file I/O — shared with @nexus/mcp-server
+// Config file I/O — shared with @agent-nexus/mcp-server
 // ---------------------------------------------------------------------------
 
 /**

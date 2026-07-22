@@ -726,7 +726,7 @@ sudo npm install -g @agent-nexus/cli@latest
 | \`~/.nexus-mcp/version-check.json\` | Update check cache (auto-managed, checked once/day)           | \`0600\`      |
 | \`.nexusrc\`                        | Directory-level profile pinning (created by \`nexus auth pin\`) | —           |
 
-The \`~/.nexus-mcp/\` directory is created with \`0700\` permissions. This path is shared with the [\`@nexus/mcp-server\`](../mcp-server/) package.
+The \`~/.nexus-mcp/\` directory is created with \`0700\` permissions. This path is shared with the [\`@agent-nexus/mcp-server\`](../mcp-server/) package.
 
 ### Config File Format (V2)
 
@@ -4765,7 +4765,7 @@ nexus auth login
 # Saves to ~/.nexus-mcp/config.json
 \`\`\`
 
-This file is also read by \`@nexus/mcp-server\`. Logging in or out via the CLI affects the MCP server too.
+This file is also read by \`@agent-nexus/mcp-server\`. Logging in or out via the CLI affects the MCP server too.
 
 **Right mental model:** \`~/.nexus-mcp/config.json\` is a shared credential store. If you need different credentials for different contexts, use environment variables:
 

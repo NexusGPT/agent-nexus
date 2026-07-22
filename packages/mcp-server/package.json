@@ -1,0 +1,61 @@
+{
+  "name": "@agent-nexus/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP bridge for the Nexus Public API — exposes the full Public API v1 tool surface to any MCP client. Tools are derived from the API at request time, never hand-maintained.",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "nexus",
+    "nexusgpt",
+    "ai-agents",
+    "llm-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NexusGPT/agent-nexus.git",
+    "directory": "packages/mcp-server"
+  },
+  "homepage": "https://github.com/NexusGPT/agent-nexus/tree/main/packages/mcp-server#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "nexus-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start:stdio": "node dist/cli.js",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "24.6.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

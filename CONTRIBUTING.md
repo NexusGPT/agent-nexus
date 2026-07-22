@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for your interest in `@agent-nexus/cli` and `@agent-nexus/sdk`.
+Thanks for your interest in `@agent-nexus/cli`, `@agent-nexus/sdk` and `@agent-nexus/mcp-server`.
 
 ## How this repo works
 
-This repo is an **automated, one-way mirror** of two packages that live in the private [NexusGPT/nexus](https://github.com/NexusGPT/nexus) monorepo. Every merge to the monorepo's `main` triggers a sync action that copies `packages/cli/` and `packages/sdk/` into this repo and force-pushes the result.
+This repo is an **automated, one-way mirror** of three packages that live in the private [NexusGPT/nexus](https://github.com/NexusGPT/nexus) monorepo. Every merge to the monorepo's `main` triggers a sync action that copies `packages/cli/`, `packages/sdk/` and `packages/mcp-server/` into this repo and force-pushes the result.
 
 This means: **edits made directly here are overwritten on the next upstream merge.** That's by design — the architecture lets us publish to npm with provenance attestations (which require a public source repo) while keeping the actual development experience inside the monorepo.
 

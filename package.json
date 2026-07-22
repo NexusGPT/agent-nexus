@@ -2,7 +2,7 @@
   "name": "agent-nexus",
   "version": "0.0.0",
   "private": true,
-  "description": "Public mirror of @agent-nexus/cli and @agent-nexus/sdk. Source of truth: NexusGPT/nexus monorepo.",
+  "description": "Public mirror of @agent-nexus/cli, @agent-nexus/sdk and @agent-nexus/mcp-server. Source of truth: NexusGPT/nexus monorepo.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NexusGPT/agent-nexus.git"

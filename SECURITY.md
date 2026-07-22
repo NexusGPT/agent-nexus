@@ -12,7 +12,7 @@ We support the latest published version of each package on npm. Always upgrade t
 
 Include:
 
-- Affected package (`@agent-nexus/cli` or `@agent-nexus/sdk`) and version(s)
+- Affected package (`@agent-nexus/cli`, `@agent-nexus/sdk` or `@agent-nexus/mcp-server`) and version(s)
 - A short description of the vulnerability and its impact
 - Reproduction steps or a minimal proof-of-concept
 - Your suggested mitigation, if any
@@ -21,7 +21,7 @@ We aim to acknowledge new reports within **2 business days** and to have a fix o
 
 ## Provenance + supply chain
 
-Every published release of `@agent-nexus/cli` and `@agent-nexus/sdk` carries a signed npm provenance attestation linking the published tarball back to the GitHub Actions workflow run that built it. Verify with:
+Every published release of `@agent-nexus/cli`, `@agent-nexus/sdk` and `@agent-nexus/mcp-server` carries a signed npm provenance attestation linking the published tarball back to the GitHub Actions workflow run that built it. Verify with:
 
 ```bash
 npm audit signatures @agent-nexus/cli

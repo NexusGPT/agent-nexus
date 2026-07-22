@@ -6,33 +6,28 @@ name: Release MCP Server
 # packages/mcp-server/package.json version field changes between syncs — so an
 # MCP server release here = a version bump in the monorepo, period.
 #
-# Auth: NPM_TOKEN, deliberately, unlike release-cli.yml and release-sdk.yml.
-# npm's trusted-publisher configuration lives on an EXISTING package's settings
-# page, so a package that has never been published cannot have one — the first
-# publish has to authenticate with a token. Provenance itself does not depend on
-# trusted publishing: it needs `id-token: write`, a cloud-hosted runner and the
-# --provenance flag, all of which hold here.
+# Auth: OIDC trusted publisher. NO NPM_TOKEN secret. Trust is configured on the
+# @agent-nexus/mcp-server npm package settings page and binds this exact triple:
+# repository (NexusGPT/agent-nexus), workflow file
+# (.github/workflows/release-mcp-server.yml), environment (none). Any drift in
+# those three values blocks publish until trust is re-configured.
 #
-# Cutover to OIDC, once 1.0.0 is on npm:
-#   1. npmjs.com → @agent-nexus/mcp-server → Settings → Trusted Publisher
-#      → GitHub Actions, repository NexusGPT/agent-nexus, workflow
-#      release-mcp-server.yml, no environment.
-#   2. Delete the `registry-url` line from the setup-node step and the
-#      NODE_AUTH_TOKEN env from the publish step.
-# That leaves this file byte-equivalent in behaviour to release-cli.yml.
-# Both must not be left in place: setup-node writes
-# //registry.npmjs.org/:_authToken into ~/.npmrc, and npm then prefers
-# classic-token auth over OIDC.
+# 1.0.0 was published by hand, from a local checkout, without provenance. That
+# was not a shortcut: npm's trusted-publisher configuration lives on an EXISTING
+# package's settings page, so a package that has never been published cannot
+# have one, and the very first publish has to come from somewhere else. Every
+# version from 1.0.1 on goes out through this workflow, with provenance.
 #
 # Failure modes worth knowing:
 #   * Version already on npm → npm rejects 403 EPUBLISHCONFLICT. Correct
 #     signal, not a bug. Bump version + push again.
-#   * ENEEDAUTH → NPM_TOKEN is missing/expired (it is an org-level secret on
-#     NexusGPT, shared with all repos), or trust was configured on npm and the
-#     token lines were removed at different times.
-#   * Provenance attestation fails → npm rejects 422. Means repository
-#     visibility flipped to private, or package.json's repository field stopped
-#     matching this repo.
+#   * ENEEDAUTH → trusted publisher config drift. Check the triple above.
+#     Also check no step reintroduced `registry-url` on setup-node: it writes
+#     //registry.npmjs.org/:_authToken into ~/.npmrc and npm then prefers
+#     token auth over OIDC, silently.
+#   * Provenance attestation fails → npm rejects 422. Almost always means trust
+#     config drift OR repository visibility flipped to private. Verify both
+#     before debugging the workflow.
 
 on:
   push:
@@ -50,9 +45,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  # Required for provenance attestations — npm exchanges this OIDC token with
-  # Sigstore to sign the build. Needed with token auth too, not only for
-  # trusted publishing.
+  # OIDC trusted-publisher: npm verifies the GitHub-issued OIDC token against
+  # the trust configured for @agent-nexus/mcp-server, and exchanges it with
+  # Sigstore to sign the provenance attestation.
   id-token: write
   # softprops/action-gh-release needs this to create the GitHub release
   # alongside the published npm tarball.
@@ -104,11 +99,9 @@ jobs:
           # trusted publishing AND provenance attestations.
           node-version: 24
           cache: pnpm
-          # Writes //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into
-          # ~/.npmrc. Remove this line at the same time as NODE_AUTH_TOKEN
-          # below when cutting over to OIDC — npm prefers token auth whenever
-          # this is present.
-          registry-url: "https://registry.npmjs.org"
+          # Do NOT set registry-url — setup-node would write
+          # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into ~/.npmrc,
+          # making npm prefer classic-token auth over OIDC.
 
       - name: Install dependencies
         # The mirror's workspace is only the mirrored packages — no Prisma
@@ -126,8 +119,6 @@ jobs:
 
       - name: Publish to npm with provenance
         working-directory: packages/mcp-server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           # `pnpm pack && npm publish` instead of `pnpm publish` because
           # pnpm 10's publish wrapper doesn't pass --provenance through to

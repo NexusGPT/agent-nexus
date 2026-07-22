@@ -1,0 +1,151 @@
+name: Release MCP Server
+
+# Publishes @agent-nexus/mcp-server to npm WITH provenance attestations
+# whenever an mcp-server-v<version> tag is pushed to main. Tags are pushed by
+# the upstream mirror sync action (lives in NexusGPT/nexus) when
+# packages/mcp-server/package.json version field changes between syncs — so an
+# MCP server release here = a version bump in the monorepo, period.
+#
+# Auth: NPM_TOKEN, deliberately, unlike release-cli.yml and release-sdk.yml.
+# npm's trusted-publisher configuration lives on an EXISTING package's settings
+# page, so a package that has never been published cannot have one — the first
+# publish has to authenticate with a token. Provenance itself does not depend on
+# trusted publishing: it needs `id-token: write`, a cloud-hosted runner and the
+# --provenance flag, all of which hold here.
+#
+# Cutover to OIDC, once 1.0.0 is on npm:
+#   1. npmjs.com → @agent-nexus/mcp-server → Settings → Trusted Publisher
+#      → GitHub Actions, repository NexusGPT/agent-nexus, workflow
+#      release-mcp-server.yml, no environment.
+#   2. Delete the `registry-url` line from the setup-node step and the
+#      NODE_AUTH_TOKEN env from the publish step.
+# That leaves this file byte-equivalent in behaviour to release-cli.yml.
+# Both must not be left in place: setup-node writes
+# //registry.npmjs.org/:_authToken into ~/.npmrc, and npm then prefers
+# classic-token auth over OIDC.
+#
+# Failure modes worth knowing:
+#   * Version already on npm → npm rejects 403 EPUBLISHCONFLICT. Correct
+#     signal, not a bug. Bump version + push again.
+#   * ENEEDAUTH → NPM_TOKEN is missing/expired (it is an org-level secret on
+#     NexusGPT, shared with all repos), or trust was configured on npm and the
+#     token lines were removed at different times.
+#   * Provenance attestation fails → npm rejects 422. Means repository
+#     visibility flipped to private, or package.json's repository field stopped
+#     matching this repo.
+
+on:
+  push:
+    tags:
+      - "mcp-server-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. mcp-server-v1.0.0). Must already exist."
+        type: string
+        required: true
+
+concurrency:
+  group: release-mcp-server-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # Required for provenance attestations — npm exchanges this OIDC token with
+  # Sigstore to sign the build. Needed with token auth too, not only for
+  # trusted publishing.
+  id-token: write
+  # softprops/action-gh-release needs this to create the GitHub release
+  # alongside the published npm tarball.
+  contents: write
+
+jobs:
+  publish:
+    name: "MCP Server: Publish with provenance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout at the release tag
+        uses: actions/checkout@v4
+        with:
+          # Tag the workflow fires on (or the workflow_dispatch input) is
+          # the exact ref we publish — never publish from a moving target.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          set -eo pipefail
+          # github.ref for tag pushes is refs/tags/mcp-server-v1.0.0; strip the
+          # prefixes deterministically.
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${REF#mcp-server-v}"
+          if [[ "$VERSION" == "$REF" ]]; then
+            echo "::error::Tag '$REF' does not match mcp-server-v* pattern."
+            exit 1
+          fi
+          # Sanity: the tag's version must match what's actually in
+          # package.json on that ref. A mismatch means someone hand-pushed
+          # a tag against the wrong commit.
+          PKG_VERSION=$(jq -r .version packages/mcp-server/package.json)
+          if [[ "$PKG_VERSION" != "$VERSION" ]]; then
+            echo "::error::Tag version ($VERSION) does not match package.json version ($PKG_VERSION) at this ref."
+            echo "::error::This usually means the tag was pushed against a stale commit. Re-tag the commit that actually bumps the version."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing @agent-nexus/mcp-server@$VERSION"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 ships npm >=11.5.1 — the minimum that supports OIDC
+          # trusted publishing AND provenance attestations.
+          node-version: 24
+          cache: pnpm
+          # Writes //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into
+          # ~/.npmrc. Remove this line at the same time as NODE_AUTH_TOKEN
+          # below when cutting over to OIDC — npm prefers token auth whenever
+          # this is present.
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        # The mirror's workspace is only the mirrored packages — no Prisma
+        # bootstrap, no full-monorepo postinstall — so --ignore-scripts is
+        # unnecessary.
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build MCP server
+        run: pnpm --filter "@agent-nexus/mcp-server..." build
+
+      - name: Test MCP server
+        # The proxy is what users run via npx; a broken sync must not reach
+        # npm. Cheap enough (single vitest file) to gate the publish on.
+        run: pnpm --filter "@agent-nexus/mcp-server" test
+
+      - name: Publish to npm with provenance
+        working-directory: packages/mcp-server
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # `pnpm pack && npm publish` instead of `pnpm publish` because
+          # pnpm 10's publish wrapper doesn't pass --provenance through to
+          # npm reliably (see pnpm/pnpm#6607). Repacking and shelling out
+          # to npm 11.5.1+ directly is the proven path.
+          pnpm pack
+          npm publish ./*.tgz --access public --provenance
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mcp-server-v${{ steps.version.outputs.version }}
+          name: "@agent-nexus/mcp-server ${{ steps.version.outputs.version }}"
+          body: |
+            Published to npm: https://www.npmjs.com/package/@agent-nexus/mcp-server/v/${{ steps.version.outputs.version }}
+
+            Verify the provenance attestation:
+            ```bash
+            npm audit signatures @agent-nexus/mcp-server@${{ steps.version.outputs.version }}
+            ```
+          generate_release_notes: true

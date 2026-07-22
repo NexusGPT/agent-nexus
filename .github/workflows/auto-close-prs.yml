@@ -22,7 +22,8 @@ jobs:
             const body = [
               "Thanks for the contribution!",
               "",
-              "This repo is a one-way mirror of `packages/cli/` and `packages/sdk/` from",
+              "This repo is a one-way mirror of `packages/cli/`, `packages/sdk/` and",
+              "`packages/mcp-server/` from",
               "the private [NexusGPT/nexus](https://github.com/NexusGPT/nexus) monorepo —",
               "any changes merged here would be overwritten on the next upstream sync.",
               "",

@@ -277,11 +277,23 @@ interface ListPendingApprovalsResponse {
   requests: VibeApprovalRequestDto[];
 }
 
-interface TriggerDeploymentResponse {
-  deployment: VibeDeploymentDto;
-  buildJob: VibeBuildJobDto;
-  approvalRequest: VibeApprovalRequestDto | null;
-}
+/**
+ * Trigger response — discriminated on `status`, mirroring
+ * `TriggerVibeDeploymentResponseSchema`. BOTH arms come back on a 2xx: an
+ * org over its usage SOFT cap is ASKED whether to spend, never refused, so
+ * `confirmation_required` is a normal success body and not an HTTP error.
+ */
+type TriggerDeploymentResponse =
+  | {
+      status: "created";
+      deployment: VibeDeploymentDto;
+      buildJob: VibeBuildJobDto;
+      approvalRequest: VibeApprovalRequestDto | null;
+    }
+  | {
+      status: "confirmation_required";
+      reason: { costSafetyStatus: string; message: string };
+    };
 
 interface ListDeploymentsResponse {
   deployments: VibeDeploymentDto[];
@@ -911,6 +923,10 @@ function registerDeployCommand(vibe: Command, program: Command): void {
       "--builder <kind>",
       "Build strategy: nixpacks or dockerfile. Omit to let the runner auto-detect."
     )
+    .option(
+      "--confirm-overage",
+      "Confirm upfront that the deploy may exceed the org's usage soft limit."
+    )
     .addHelpText(
       "after",
       `
@@ -919,26 +935,60 @@ and its sibling build job in PENDING; the build + deploy runners carry it
 forward asynchronously. If the app has approvals enabled, the deploy waits
 in AWAITING_APPROVAL until a reviewer decides.
 
+Usage soft limit: if the org is over its Vibe usage cap for the current
+billing period, the deploy is not refused — it ASKS. Interactively you get
+a y/N prompt; non-interactively nothing is deployed and the command exits
+non-zero, printing the exact --confirm-overage re-run. Pass
+--confirm-overage upfront to answer the question in advance. It does NOT
+bypass an admin suspension, which still fails with 403.
+
 Examples:
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40 --builder dockerfile
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
 `
     )
-    .action(async (appId: string, cmdOpts: { sha: string; builder?: string }) => {
-      try {
-        const triggerSha = resolveTriggerSha(cmdOpts.sha);
-        const builder = resolveBuilder(cmdOpts.builder);
-        const opts = resolveTenantOpts(program);
-        const data = await tenantRequest<TriggerDeploymentResponse>(opts, {
-          method: "POST",
-          path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`,
-          body: { triggerSha, builder }
-        });
-        printTriggeredDeployment(data, appId);
-      } catch (err) {
-        process.exitCode = handleError(err);
+    .action(
+      async (
+        appId: string,
+        cmdOpts: { sha: string; builder?: string; confirmOverage?: boolean }
+      ) => {
+        try {
+          const triggerSha = resolveTriggerSha(cmdOpts.sha);
+          const builder = resolveBuilder(cmdOpts.builder);
+          const opts = resolveTenantOpts(program);
+          const path = `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`;
+          const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
+            tenantRequest<TriggerDeploymentResponse>(opts, {
+              method: "POST",
+              path,
+              body: { triggerSha, builder, confirmOverage }
+            });
+
+          const confirmedUpfront = cmdOpts.confirmOverage === true;
+          let data = await send(confirmedUpfront);
+
+          if (data.status === "confirmation_required") {
+            const answered = await confirmOverageInteractively(data, appId, cmdOpts.sha, builder);
+            // Non-interactive, or the user declined: nothing was created and
+            // nothing will be. Exit NON-ZERO — a scripted deploy that stops
+            // while reporting success is worse than any refusal.
+            if (!answered) {
+              process.exitCode = 1;
+              return;
+            }
+            data = await send(true);
+            // A confirmed re-send that still asks means the org's state moved
+            // mid-flight. Nothing was created, so this must not exit clean.
+            if (data.status === "confirmation_required") process.exitCode = 1;
+          }
+
+          printTriggeredDeployment(data, appId);
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
       }
-    });
+    );
 }
 
 // ============================================================
@@ -1680,9 +1730,67 @@ function resolveEnvScope(raw: string | undefined): VibeEnvVarScope | undefined {
   return v;
 }
 
+/**
+ * Handle the soft-limit question. Returns true only when the caller
+ * explicitly said yes and the deploy should be re-sent confirmed.
+ *
+ * Interactive: print the situation and ask y/N (same readline idiom as the
+ * destructive-delete confirmations elsewhere in the CLI).
+ *
+ * Non-interactive (piped, CI, `--json`): NEVER auto-confirm and never exit
+ * clean. Print the exact re-run with `--confirm-overage` and return false so
+ * the command exits non-zero — a scripted deploy that silently stops while
+ * reporting success is the worst possible outcome for a spend gate.
+ */
+async function confirmOverageInteractively(
+  data: Extract<TriggerDeploymentResponse, { status: "confirmation_required" }>,
+  appId: string,
+  shaArg: string,
+  builder: string | undefined
+): Promise<boolean> {
+  const rerun =
+    `nexus vibe deploy ${appId} --sha ${shaArg}` +
+    (builder === undefined ? "" : ` --builder ${builder.toLowerCase()}`) +
+    " --confirm-overage";
+
+  if (isJsonMode()) {
+    console.log(JSON.stringify(data, null, 2));
+    console.error(`Spend confirmation required. Re-run confirmed:\n  ${rerun}`);
+    return false;
+  }
+
+  console.log(color.yellow("Spend confirmation required — nothing was deployed."));
+  console.log(`  Cost-safety status: ${data.reason.costSafetyStatus}`);
+  console.log(`  ${data.reason.message}`);
+
+  if (!process.stdout.isTTY) {
+    console.error(`\nRe-run confirmed:\n  ${rerun}`);
+    return false;
+  }
+
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question("Deploy anyway and accept the additional spend? [y/N] ");
+  rl.close();
+  if (answer.toLowerCase() !== "y") {
+    console.log("Aborted.");
+    console.log(color.dim(`Re-run confirmed:\n  ${rerun}`));
+    return false;
+  }
+  return true;
+}
+
 function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string): void {
   if (isJsonMode()) {
     console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  // Defensive: the caller only reaches here after answering the question, so
+  // a second confirmation_required means the org's state changed mid-flight.
+  if (data.status === "confirmation_required") {
+    console.log(color.yellow("Spend confirmation required — nothing was deployed."));
+    console.log(`  ${data.reason.message}`);
     return;
   }
 

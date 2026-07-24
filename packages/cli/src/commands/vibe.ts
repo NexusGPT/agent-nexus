@@ -223,7 +223,8 @@ interface VibeBuildJobDto {
   id: string;
   vibeDeploymentId: string;
   status: string;
-  builder: string;
+  /// Null until the executor reports which strategy it actually used.
+  builder: string | null;
   logsRef: string;
   durationMs: number | null;
   errorReason: string | null;
@@ -920,10 +921,6 @@ function registerDeployCommand(vibe: Command, program: Command): void {
     .description("Trigger a deployment for an app from a commit sha")
     .requiredOption("--sha <sha>", "Commit sha to deploy (7–40 hex chars).")
     .option(
-      "--builder <kind>",
-      "Build strategy: nixpacks or dockerfile. Omit to let the runner auto-detect."
-    )
-    .option(
       "--confirm-overage",
       "Confirm upfront that the deploy may exceed the org's usage soft limit."
     )
@@ -944,51 +941,45 @@ bypass an admin suspension, which still fails with 403.
 
 Examples:
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40 --builder dockerfile
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
 `
     )
-    .action(
-      async (
-        appId: string,
-        cmdOpts: { sha: string; builder?: string; confirmOverage?: boolean }
-      ) => {
-        try {
-          const triggerSha = resolveTriggerSha(cmdOpts.sha);
-          const builder = resolveBuilder(cmdOpts.builder);
-          const opts = resolveTenantOpts(program);
-          const path = `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`;
-          const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
-            tenantRequest<TriggerDeploymentResponse>(opts, {
-              method: "POST",
-              path,
-              body: { triggerSha, builder, confirmOverage }
-            });
+    .action(async (appId: string, cmdOpts: { sha: string; confirmOverage?: boolean }) => {
+      try {
+        const triggerSha = resolveTriggerSha(cmdOpts.sha);
+        const opts = resolveTenantOpts(program);
+        const path = `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`;
+        const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
+          tenantRequest<TriggerDeploymentResponse>(opts, {
+            method: "POST",
+            path,
+            body: { triggerSha, confirmOverage }
+          });
 
-          const confirmedUpfront = cmdOpts.confirmOverage === true;
-          let data = await send(confirmedUpfront);
+        const confirmedUpfront = cmdOpts.confirmOverage === true;
+        let data = await send(confirmedUpfront);
 
-          if (data.status === "confirmation_required") {
-            const answered = await confirmOverageInteractively(data, appId, cmdOpts.sha, builder);
-            // Non-interactive, or the user declined: nothing was created and
-            // nothing will be. Exit NON-ZERO — a scripted deploy that stops
-            // while reporting success is worse than any refusal.
-            if (!answered) {
-              process.exitCode = 1;
-              return;
-            }
-            data = await send(true);
-            // A confirmed re-send that still asks means the org's state moved
-            // mid-flight. Nothing was created, so this must not exit clean.
-            if (data.status === "confirmation_required") process.exitCode = 1;
+        if (data.status === "confirmation_required") {
+          const answered = await confirmOverageInteractively(data, appId, cmdOpts.sha);
+          // Non-interactive, or the user declined: nothing was created and
+          // nothing will be. Exit NON-ZERO — a scripted deploy that stops
+          // while reporting success is worse than any refusal.
+          if (!answered) {
+            process.exitCode = 1;
+            return;
           }
-
-          printTriggeredDeployment(data, appId);
-        } catch (err) {
-          process.exitCode = handleError(err);
+          data = await send(true);
+          // A confirmed re-send that still asks means the org's state moved
+          // mid-flight. Nothing was created, so this must not exit clean.
+          if (data.status === "confirmation_required") process.exitCode = 1;
         }
+
+        printTriggeredDeployment(data, appId);
+      } catch (err) {
+        process.exitCode = handleError(err);
       }
-    );
+    });
 }
 
 // ============================================================
@@ -1689,15 +1680,6 @@ function resolveTriggerSha(raw: string): string {
   return sha;
 }
 
-/** Map the friendly --builder value to the API enum; undefined = auto-detect. */
-function resolveBuilder(raw: string | undefined): "NIXPACKS" | "DOCKERFILE" | undefined {
-  if (raw === undefined) return undefined;
-  const v = raw.trim().toLowerCase();
-  if (v === "nixpacks") return "NIXPACKS";
-  if (v === "dockerfile") return "DOCKERFILE";
-  throw new Error(`Invalid --builder "${raw}". Expected "nixpacks" or "dockerfile".`);
-}
-
 /**
  * Split a `NAME=VALUE` assignment. The value is everything after the
  * first `=`, so values may contain `=` and may be empty. NAME is
@@ -1745,13 +1727,9 @@ function resolveEnvScope(raw: string | undefined): VibeEnvVarScope | undefined {
 async function confirmOverageInteractively(
   data: Extract<TriggerDeploymentResponse, { status: "confirmation_required" }>,
   appId: string,
-  shaArg: string,
-  builder: string | undefined
+  shaArg: string
 ): Promise<boolean> {
-  const rerun =
-    `nexus vibe deploy ${appId} --sha ${shaArg}` +
-    (builder === undefined ? "" : ` --builder ${builder.toLowerCase()}`) +
-    " --confirm-overage";
+  const rerun = `nexus vibe deploy ${appId} --sha ${shaArg} --confirm-overage`;
 
   if (isJsonMode()) {
     console.log(JSON.stringify(data, null, 2));
@@ -1796,12 +1774,16 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
 
   const d = data.deployment;
   console.log(color.green("✓") + " Deployment triggered");
-  printRecord({ ...d, builder: data.buildJob.builder } as unknown as Record<string, unknown>, [
+  // No Builder row here on purpose: the build has not run yet, and which
+  // strategy it will use is decided inside the executor over a checkout that
+  // has not been cloned. It shows up on `vibe deployment get` once the build
+  // reports. This line used to print the requested builder, which the executor
+  // never read.
+  printRecord(d as unknown as Record<string, unknown>, [
     { key: "id", label: "Deployment" },
     { key: "versionNumber", label: "Version", format: (v) => `v${String(v)}` },
     { key: "status", label: "Status" },
     { key: "triggerSha", label: "Commit", format: (v) => String(v).slice(0, 7) },
-    { key: "builder", label: "Builder" },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) }
   ]);
 
@@ -1904,7 +1886,7 @@ function printDeploymentDetail(data: GetDeploymentResponse): void {
   printRecord(b as unknown as Record<string, unknown>, [
     { key: "id", label: "Id" },
     { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
-    { key: "builder", label: "Builder" },
+    { key: "builder", label: "Builder", format: (v) => (v === null ? "—" : String(v)) },
     { key: "durationMs", label: "Duration", format: (v) => (v === null ? "—" : `${String(v)}ms`) },
     { key: "logsRef", label: "Logs", format: (v) => (v === "" ? "—" : String(v)) },
     { key: "errorReason", label: "Error", format: (v) => (v === null ? "—" : String(v)) }

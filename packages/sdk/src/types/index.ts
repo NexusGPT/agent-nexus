@@ -149,6 +149,12 @@ export type {
 export type { MeResponse } from "./me";
 export type { ModelSummary } from "./models";
 export type {
+  AvailablePhoneNumber,
+  ListPhoneNumbersParams,
+  PhoneNumber,
+  SearchAvailablePhoneNumbersParams
+} from "./phone-numbers";
+export type {
   CollectionDetail,
   CollectionSummary,
   CreateCollectionBody,

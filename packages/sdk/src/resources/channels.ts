@@ -14,6 +14,13 @@ import type {
   WhatsAppSender,
   WhatsAppTemplate
 } from "../types/channels";
+import type { PageResponse } from "../types/common";
+import type {
+  AvailablePhoneNumber,
+  ListPhoneNumbersParams,
+  PhoneNumber,
+  SearchAvailablePhoneNumbersParams
+} from "../types/phone-numbers";
 import { BaseResource } from "./base-resource";
 
 export class ChannelsResource extends BaseResource {
@@ -51,15 +58,11 @@ export class ChannelsResource extends BaseResource {
   // Phone Numbers (mirrors /phone-numbers under /channels/)
   // ===========================================================================
 
-  async searchAvailablePhoneNumbers(params: {
-    country: string;
-    areaCode?: string;
-    type?: "mobile" | "local";
-    sms?: boolean;
-    mms?: boolean;
-    voice?: boolean;
-  }): Promise<any[]> {
-    return this.http.request<any[]>("GET", "/channels/phone-numbers/available", {
+  /** Mirrors `phoneNumbers.searchAvailable`, including its `limit` default of 5. */
+  async searchAvailablePhoneNumbers(
+    params: SearchAvailablePhoneNumbersParams
+  ): Promise<AvailablePhoneNumber[]> {
+    return this.http.request<AvailablePhoneNumber[]>("GET", "/channels/phone-numbers/available", {
       query: params as Record<string, string | number | boolean | undefined>
     });
   }
@@ -73,8 +76,17 @@ export class ChannelsResource extends BaseResource {
     return this.http.request<any>("POST", "/channels/phone-numbers/buy", { body });
   }
 
-  async listPhoneNumbers(): Promise<any[]> {
-    return this.http.request<any[]>("GET", "/channels/phone-numbers");
+  /**
+   * List the organization's phone numbers, one page at a time. Mirrors
+   * `phoneNumbers.list` and is paginated the same way.
+   */
+  async listPhoneNumbers(params?: ListPhoneNumbersParams): Promise<PageResponse<PhoneNumber>> {
+    const { data, meta } = await this.http.requestWithMeta<PhoneNumber[]>(
+      "GET",
+      "/channels/phone-numbers",
+      { query: params as Record<string, string | number | undefined> }
+    );
+    return { data, meta: meta! };
   }
 
   async getPhoneNumber(phoneNumberId: string): Promise<any> {

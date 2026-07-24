@@ -40,6 +40,15 @@ export type {
   WhatsAppSender
 } from "./channels";
 export type {
+  BrowseCloudItemsParams,
+  CloudImportProvider,
+  CloudImportProviderList,
+  CloudImportProviderSlug,
+  CloudItem,
+  CloudItemPage,
+  SearchCloudItemsParams
+} from "./cloud-imports";
+export type {
   AgentModel,
   AgentStatus,
   AgentToolConfigType,

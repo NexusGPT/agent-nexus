@@ -30,6 +30,7 @@ import type {
   TestExternalToolResponse,
   UpdateExternalToolBody,
   UpdateTaskBody,
+  UpdateTaskResult,
   WorkflowSummary
 } from "../types/skills";
 import { BaseResource } from "./base-resource";
@@ -305,10 +306,10 @@ export class SkillsResource extends BaseResource {
    *
    * @param taskId - AI Task UUID.
    * @param body - Fields to update.
-   * @returns Updated task detail including prompt.
+   * @returns Updated task detail, plus the version snapshot this edit created.
    */
-  async updateTask(taskId: string, body: UpdateTaskBody): Promise<TaskDetail> {
-    return this.http.request<TaskDetail>("PATCH", `/skills/tasks/${taskId}`, { body });
+  async updateTask(taskId: string, body: UpdateTaskBody): Promise<UpdateTaskResult> {
+    return this.http.request<UpdateTaskResult>("PATCH", `/skills/tasks/${taskId}`, { body });
   }
 
   /**

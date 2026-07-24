@@ -178,6 +178,7 @@ export type {
   TestExternalToolBody,
   TestExternalToolResponse,
   UpdateExternalToolBody,
+  UpdateTaskResult,
   WorkflowSummary
 } from "./skills";
 export type {

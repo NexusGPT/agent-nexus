@@ -111,6 +111,18 @@ export interface TaskDetail extends TaskSummary {
   documentTemplateId: string | null;
 }
 
+/**
+ * Result of `client.skills.updateTask()`. The task detail plus the version
+ * snapshot taken alongside the edit, so the caller can surface it or roll back
+ * to it. Both fields are `null` for a no-op update, which creates no version.
+ */
+export interface UpdateTaskResult extends TaskDetail {
+  /** Id of the version snapshotted by this update. `null` if nothing changed. */
+  versionId: string | null;
+  /** ISO 8601 timestamp of that snapshot. `null` if nothing changed. */
+  versionCreatedAt: string | null;
+}
+
 /** Response from `client.skills.listTasks()`. */
 export interface ListTasksResponse {
   /** Matching AI tasks (paginated). */

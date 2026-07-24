@@ -173,7 +173,13 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
         const t = await client.skills.updateTask(id, body as any);
-        printSuccess("Task updated.", { id: (t as any).id, name: (t as any).name });
+        printSuccess("Task updated.", {
+          id: t.id,
+          name: t.name,
+          // Null when nothing changed — that update deliberately creates no version.
+          versionId: t.versionId,
+          versionCreatedAt: t.versionCreatedAt
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

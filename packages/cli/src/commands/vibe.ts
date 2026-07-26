@@ -141,6 +141,14 @@ interface VibeAppDto {
   healthCheckConfig: Record<string, unknown>;
   publicUrl: string | null;
   visibility: "PRIVATE" | "PUBLIC";
+  /**
+   * What the tenant's edge last said about this app's public host. `null` means
+   * NEVER OBSERVED — the probe only asks about a healthy, settled deployment —
+   * and must never be printed as if it meant healthy.
+   */
+  edgeReachability: "ROUTED" | "UNROUTED" | "UNAVAILABLE" | "NO_SUCH_APP" | "UNKNOWN" | null;
+  edgeReachabilityAt: string | null;
+  edgeReachabilityDetail: string | null;
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -152,6 +160,18 @@ interface ListVibeAppsResponse {
 
 interface SingleVibeAppResponse {
   app: VibeAppDto;
+}
+
+interface SetVisibilityResponse {
+  app: VibeAppDto;
+  /**
+   * The freshly-minted plaintext edge token, present only when going PRIVATE.
+   * Deliberately NOT printed: this command's job is the posture change, and the
+   * token has its own reveal command that says what it is.
+   */
+  edgeToken: string | null;
+  /** True when the app is registered as a tool and its edge token was rotated. */
+  toolResyncRequired: boolean;
 }
 
 /** Subset of VibeGitProjectSchema the CLI renders. */
@@ -1126,6 +1146,69 @@ Examples:
     });
 
   app
+    .command("visibility <appId> <mode>")
+    .description("Set who may reach a deployed app: public (anyone) or private (identity required)")
+    .addHelpText(
+      "after",
+      `
+private requires an identity on every request: an agent tool call carries
+the app's edge token automatically, and a person is sent to sign in with
+Nexus and admitted if the app's access list allows them. An API client with
+neither gets a 401 — never a silent 404.
+
+public requires nothing at all. Anyone with the URL opens the app, and the
+app's access list stops gating anything until it is private again.
+
+Going private mints a FRESH edge token, so an app already registered as a
+tool must be re-registered to pick it up.
+
+Examples:
+  $ nexus vibe app visibility 11111111-2222-4333-8444-555555555555 public
+  $ nexus vibe app visibility 11111111-2222-4333-8444-555555555555 private
+`
+    )
+    .action(async (appId: string, mode: string) => {
+      try {
+        // Validated here rather than sent on: a typo would otherwise reach the
+        // server as a 400 whose message is about a Zod enum, when the real
+        // answer is the two words this command accepts.
+        const normalized = mode.trim().toLowerCase();
+        if (normalized !== "public" && normalized !== "private") {
+          throw new Error(`Visibility must be "public" or "private", got "${mode}".`);
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<SetVisibilityResponse>(opts, {
+          method: "PATCH",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/visibility`,
+          body: { visibility: normalized === "public" ? "PUBLIC" : "PRIVATE" }
+        });
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify(data, null, 2));
+          return;
+        }
+        console.log(
+          normalized === "public"
+            ? color.green("App is now public — anyone with the URL can open it.")
+            : color.green("App is now private — a sign-in or the app token is required.")
+        );
+        // The re-register warning is the one thing a user cannot recover from by
+        // guessing: the old token silently stops working on a tool that looks
+        // configured.
+        if (data.toolResyncRequired) {
+          console.log(
+            color.yellow(
+              "This app is registered as a tool. Re-register it — a fresh edge token was minted and the old one no longer works."
+            )
+          );
+        }
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
     .command("register-as-tool <appId>")
     .description("Register a deployed Vibe app as a CUSTOM_MANIFEST agent tool")
     .option("--spec-file <path>", "Path to the app's OpenAPI spec file (JSON or YAML).")
@@ -1943,9 +2026,29 @@ function printVibeApp(app: VibeAppDto): void {
     { key: "description", label: "Description", format: (v) => (v === null ? "—" : String(v)) },
     { key: "publicUrl", label: "Public URL", format: (v) => (v === null ? "—" : String(v)) },
     {
+      // "private (agent-tool only)" was true until a person could sign in to a
+      // private app with their Nexus login. Printing it now would tell someone
+      // their app is unreachable by humans when it is not.
       key: "visibility",
       label: "Visibility",
-      format: (v) => (v === "PUBLIC" ? "public (browser-reachable)" : "private (agent-tool only)")
+      format: (v) =>
+        v === "PUBLIC" ? "public (no sign-in required)" : "private (sign-in or app token)"
+    },
+    {
+      key: "edgeReachability",
+      label: "Edge",
+      // `null` prints as "not checked yet", never as a tick. The probe only asks
+      // about a healthy, settled deployment, so most apps are null most of the
+      // time — and treating that as health is the silently-green failure the
+      // probe exists to end. UNROUTED is the platform's own fault, so it says so.
+      format: (v) => {
+        if (v === null || v === undefined) return color.dim("not checked yet");
+        if (v === "UNROUTED") return color.red("running but unreachable (platform fault)");
+        if (v === "ROUTED") return color.green("reachable");
+        if (v === "UNAVAILABLE") return "nothing serving it yet";
+        if (v === "NO_SUCH_APP") return "not published to the edge yet";
+        return color.dim("last check was inconclusive");
+      }
     },
     {
       key: "resourceQuotas",

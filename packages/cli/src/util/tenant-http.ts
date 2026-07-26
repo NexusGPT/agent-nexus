@@ -66,20 +66,21 @@ interface ApiErrorEnvelope {
 /**
  * A handler that names its own failure: `{ code, message }` at the TOP level.
  *
- * Which shape a given error arrives in depends on the ENVIRONMENT, not on the
- * handler. `SentryFilter` is a catch-all registered only `if (SENTRY_DSN)`
- * (`main.ts`), and a catch-all outranks the app's `HttpExceptionFilter`, so:
+ * This is the shape the endpoints reached through THIS client send, in every
+ * environment. The backend's envelope rewrapper (`HttpExceptionFilter`) is
+ * scoped to `/api/public/v1`, and everything here is deliberately outside that
+ * prefix, so Nest replies with the exception's payload verbatim.
  *
- *   DSN set (staging/prod) — Sentry's filter defers to Nest's base filter,
- *     which replies with the exception's payload verbatim → this bare shape,
- *     carrying the handler's real code. Verified against prod.
- *   no DSN (local dev)     — `HttpExceptionFilter` wraps it in the envelope
- *     below AND derives the code from the STATUS (`HTTP_409`), so the
- *     handler's own code is lost there no matter what this client does.
+ * CORRECTION (NEX-2993). This comment used to say the shape "depends on the
+ * ENVIRONMENT, not on the handler" — bare against staging/prod, enveloped with
+ * the code flattened to `HTTP_409` against a local backend — because the whole
+ * filter stack was registered only `if (SENTRY_DSN)`. That split was real and is
+ * now gone: the rewrapper is registered unconditionally and scoped by path, so a
+ * code-keyed behaviour that works against prod works against a local backend too.
  *
- * Both are read because both are real. Worth knowing when a code-keyed
- * behaviour works against prod and not against a local backend: that is this
- * split, not a bug in the caller.
+ * The envelope reader below is still correct and still first: `/api/public/v1`
+ * responses (reached through the SDK's `HttpClient`, not this file) wear it, and
+ * a handler here is free to build one itself.
  */
 interface NamedApiError {
   code: string;

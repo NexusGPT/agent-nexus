@@ -241,3 +241,150 @@ describe("cloud-import commands", () => {
     expect(request).toHaveBeenCalledWith("GET", "/documents/imports/providers");
   });
 });
+
+/**
+ * The import commands used to print "not implemented" and then call an endpoint
+ * that reported importing nothing. They now reach the route that really imports.
+ */
+describe("cloud-import import commands", () => {
+  const IMPORTED = {
+    importedCount: 2,
+    documents: [
+      { id: "d1", name: "Report.pdf", status: "PENDING" },
+      { id: "d2", name: "Notes.md", status: "PENDING" }
+    ]
+  };
+
+  beforeEach(() => {
+    request.mockReset();
+    request.mockResolvedValue(IMPORTED);
+  });
+
+  it("imports through the provider-agnostic endpoint", async () => {
+    await run([
+      "cloud-import",
+      "import",
+      "google-drive",
+      "--connection-id",
+      CONNECTION_ID,
+      "--item-ids",
+      "f1,f2"
+    ]);
+
+    expect(request).toHaveBeenCalledWith("POST", "/documents/imports/google-drive/import", {
+      body: {
+        connectionId: CONNECTION_ID,
+        itemIds: ["f1", "f2"],
+        parentId: undefined,
+        siteId: undefined
+      }
+    });
+  });
+
+  it("splits and trims a comma-separated id list", async () => {
+    await run([
+      "cloud-import",
+      "notion",
+      "import",
+      "--connection-id",
+      CONNECTION_ID,
+      "--item-ids",
+      " p1 , d1 ,"
+    ]);
+
+    const [, , options] = request.mock.calls[0] ?? [];
+    expect((options as { body: { itemIds: string[] } }).body.itemIds).toEqual(["p1", "d1"]);
+  });
+
+  it("keeps the site id on a SharePoint import", async () => {
+    await run([
+      "cloud-import",
+      "sharepoint",
+      "import",
+      "--connection-id",
+      CONNECTION_ID,
+      "--site-id",
+      "site-1",
+      "--item-ids",
+      "f1"
+    ]);
+
+    expect(request).toHaveBeenCalledWith("POST", "/documents/imports/sharepoint/import", {
+      body: {
+        connectionId: CONNECTION_ID,
+        siteId: "site-1",
+        itemIds: ["f1"],
+        parentId: undefined
+      }
+    });
+  });
+
+  it("sends page and database ids together, unlabelled", async () => {
+    // Notion page and database ids are indistinguishable, so the CLI must not
+    // ask the user to sort them — the server resolves each one.
+    await run([
+      "cloud-import",
+      "notion",
+      "import",
+      "--connection-id",
+      CONNECTION_ID,
+      "--item-ids",
+      "p1,d1"
+    ]);
+
+    expect(request).toHaveBeenCalledWith("POST", "/documents/imports/notion/import", {
+      body: { connectionId: CONNECTION_ID, itemIds: ["p1", "d1"], parentId: undefined }
+    });
+  });
+
+  it("rejects a provider the API does not serve, without calling it", async () => {
+    await expect(
+      run([
+        "cloud-import",
+        "import",
+        "dropbox",
+        "--connection-id",
+        CONNECTION_ID,
+        "--item-ids",
+        "f1"
+      ])
+    ).resolves.toBeUndefined();
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("reports the count in table mode, not only in JSON", async () => {
+    const out = await runTable([
+      "cloud-import",
+      "google-drive",
+      "import",
+      "--connection-id",
+      CONNECTION_ID,
+      "--item-ids",
+      "f1,f2"
+    ]);
+
+    // The count is the answer to "did it work"; the generic pagination footer
+    // understands total/page/hasMore and would drop it.
+    expect(out).toContain("Imported 2 documents.");
+  });
+
+  it("warns about nothing — these commands are implemented now", async () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await run([
+      "cloud-import",
+      "google-drive",
+      "import",
+      "--connection-id",
+      CONNECTION_ID,
+      "--item-ids",
+      "f1"
+    ]);
+
+    // printWarning writes to STDERR. A leftover "not implemented" banner over a
+    // working import would teach callers to ignore the real ones.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});

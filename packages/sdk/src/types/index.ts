@@ -46,6 +46,9 @@ export type {
   CloudImportProviderSlug,
   CloudItem,
   CloudItemPage,
+  ImportCloudItemsParams,
+  ImportedDocument,
+  ImportResult,
   SearchCloudItemsParams
 } from "./cloud-imports";
 export type {

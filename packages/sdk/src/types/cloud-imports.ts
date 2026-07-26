@@ -61,3 +61,34 @@ export interface SearchCloudItemsParams {
   folderId?: string;
   pageToken?: string;
 }
+
+export interface ImportCloudItemsParams {
+  /** OAuth connection to import through. */
+  connectionId: string;
+  /**
+   * Provider ids, exactly as `browse` and `search` return them. Notion page and
+   * database ids are indistinguishable, and the server resolves which is which.
+   */
+  itemIds: string[];
+  /** Destination folder in Nexus — a document id, not a folder at the provider. */
+  parentId?: string;
+  /** SharePoint addresses items within a site and requires it; ignored elsewhere. */
+  siteId?: string;
+}
+
+/** A document created by an import, with the processing status it starts in. */
+export interface ImportedDocument {
+  id: string;
+  name: string;
+  status: string;
+}
+
+/**
+ * What an import created. `importedCount` can be lower than the number of
+ * `itemIds` when an individual item is unreadable; an import that creates
+ * nothing fails rather than returning a count of zero.
+ */
+export interface ImportResult {
+  importedCount: number;
+  documents: ImportedDocument[];
+}

@@ -1,9 +1,9 @@
-import type { CloudImportProviderSlug, CloudItemPage } from "@agent-nexus/sdk";
+import type { CloudImportProviderSlug, CloudItemPage, ImportResult } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printRecord, printSuccess, printWarning } from "../output";
+import { isJsonMode, printList, printRecord, printWarning } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 
 const PROVIDER_SLUGS: CloudImportProviderSlug[] = ["google-drive", "sharepoint", "notion"];
@@ -14,6 +14,12 @@ const ITEM_COLUMNS = [
   { key: "isFolder", label: "FOLDER" },
   { key: "mimeType", label: "TYPE" },
   { key: "modifiedTime", label: "MODIFIED" }
+];
+
+const IMPORTED_COLUMNS = [
+  { key: "id", label: "ID" },
+  { key: "name", label: "NAME" },
+  { key: "status", label: "STATUS" }
 ];
 
 /**
@@ -30,6 +36,38 @@ function assertProvider(provider: string): CloudImportProviderSlug {
   }
 
   return provider as CloudImportProviderSlug;
+}
+
+/**
+ * Splits the id list once, here, so every import command rejects an empty list
+ * the same way instead of sending one and having the API answer for it.
+ */
+function parseItemIds(value: string): string[] {
+  const ids = value
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+
+  if (ids.length === 0) {
+    throw new Error("--item-ids needs at least one ID");
+  }
+
+  return ids;
+}
+
+function printImportResult(result: ImportResult): void {
+  printList(
+    result.documents as unknown as Record<string, unknown>[],
+    { importedCount: result.importedCount },
+    IMPORTED_COLUMNS
+  );
+
+  // printPaginationMeta only understands total/page/hasMore, so the count above
+  // is dropped in table mode — and the count is the answer to "did it work".
+  if (!isJsonMode()) {
+    const plural = result.importedCount === 1 ? "" : "s";
+    console.log(`\nImported ${result.importedCount} document${plural}.`);
+  }
 }
 
 function printItems(page: CloudItemPage): void {
@@ -118,9 +156,35 @@ export function registerCloudImportCommands(program: Command): void {
       }
     });
 
+  cloudImport
+    .command("import <provider>")
+    .description(`Import selected items into the knowledge base (${PROVIDER_SLUGS.join(" | ")})`)
+    .requiredOption("--connection-id <id>", "OAuth connection ID")
+    .requiredOption(
+      "--item-ids <ids>",
+      "Comma-separated item IDs from browse or search",
+      parseItemIds
+    )
+    .option("--parent-id <id>", "Destination folder in Nexus")
+    .option("--site-id <id>", "SharePoint site ID (required for SharePoint)")
+    .action(async (provider: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.cloudImports.import(assertProvider(provider), {
+          connectionId: opts.connectionId,
+          itemIds: opts.itemIds,
+          parentId: opts.parentId,
+          siteId: opts.siteId
+        });
+        printImportResult(result);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ==========================================================================
-  // Per-provider commands — the listings below now go through the browsing
-  // endpoints; the auth and import ones still reach stubs and say so.
+  // Per-provider commands — the listings and imports below go through the
+  // provider-agnostic endpoints; the auth ones still reach stubs and say so.
   // ==========================================================================
 
   const gdrive = cloudImport.command("google-drive").description("Google Drive imports");
@@ -196,17 +260,19 @@ export function registerCloudImportCommands(program: Command): void {
 
   gdrive
     .command("import")
-    .description("[deprecated] Import files from Google Drive")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .description("Import files and folders from Google Drive")
+    .requiredOption("--connection-id <id>", "OAuth connection ID")
+    .requiredOption("--item-ids <ids>", "Comma-separated file or folder IDs", parseItemIds)
+    .option("--parent-id <id>", "Destination folder in Nexus")
     .action(async (opts) => {
       try {
-        printWarning("cloud-import google-drive import is not implemented.", STUB_WARNING);
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.cloudImports.importGoogleDrive(
-          body as { accessToken: string; fileIds: string[] }
-        );
-        printSuccess("Google Drive import requested.", result as Record<string, unknown>);
+        const result = await client.cloudImports.import("google-drive", {
+          connectionId: opts.connectionId,
+          itemIds: opts.itemIds,
+          parentId: opts.parentId
+        });
+        printImportResult(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -255,17 +321,21 @@ export function registerCloudImportCommands(program: Command): void {
 
   sharepoint
     .command("import")
-    .description("[deprecated] Import files from SharePoint")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .description("Import files and folders from SharePoint")
+    .requiredOption("--connection-id <id>", "OAuth connection ID")
+    .requiredOption("--site-id <id>", "SharePoint site ID")
+    .requiredOption("--item-ids <ids>", "Comma-separated file or folder IDs", parseItemIds)
+    .option("--parent-id <id>", "Destination folder in Nexus")
     .action(async (opts) => {
       try {
-        printWarning("cloud-import sharepoint import is not implemented.", STUB_WARNING);
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.cloudImports.importSharePoint(
-          body as { connectionId: string; siteId: string; fileIds: string[] }
-        );
-        printSuccess("SharePoint import requested.", result as Record<string, unknown>);
+        const result = await client.cloudImports.import("sharepoint", {
+          connectionId: opts.connectionId,
+          siteId: opts.siteId,
+          itemIds: opts.itemIds,
+          parentId: opts.parentId
+        });
+        printImportResult(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -295,17 +365,21 @@ export function registerCloudImportCommands(program: Command): void {
 
   notion
     .command("import")
-    .description("[deprecated] Import pages/databases from Notion")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .description("Import pages and databases from Notion")
+    .requiredOption("--connection-id <id>", "OAuth connection ID")
+    // Page and database ids look identical, so both go here and the server
+    // resolves each one's kind — the caller never has to label them.
+    .requiredOption("--item-ids <ids>", "Comma-separated page or database IDs", parseItemIds)
+    .option("--parent-id <id>", "Destination folder in Nexus")
     .action(async (opts) => {
       try {
-        printWarning("cloud-import notion import is not implemented.", STUB_WARNING);
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.cloudImports.importNotion(
-          body as { connectionId: string; pageIds?: string[] }
-        );
-        printSuccess("Notion import requested.", result as Record<string, unknown>);
+        const result = await client.cloudImports.import("notion", {
+          connectionId: opts.connectionId,
+          itemIds: opts.itemIds,
+          parentId: opts.parentId
+        });
+        printImportResult(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -27,6 +27,21 @@ const SETTINGS_URL = "https://app.nexusgpt.io/app/settings/api-keys";
 
 /** Prefix that marks a personal (cross-org) token. See NEX-2474. */
 const PERSONAL_TOKEN_PREFIX = "nxs_p_";
+/**
+ * Platform-operator token (NEX-3037) — cross-org like a personal token, but its
+ * reach is not limited to the user's own memberships. From the CLI's point of
+ * view the two behave identically: both are org-unbound, both select the acting
+ * org with the `organization-id` header, so both must be accepted everywhere a
+ * personal token is.
+ */
+const PLATFORM_OPERATOR_TOKEN_PREFIX = "nxs_o_";
+
+/** True for any key whose acting org comes from the header rather than the key. */
+function isCrossOrgToken(apiKey: string): boolean {
+  return (
+    apiKey.startsWith(PERSONAL_TOKEN_PREFIX) || apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX)
+  );
+}
 
 interface UserOrganization {
   organizationId: string;
@@ -176,7 +191,10 @@ Notes:
           return;
         }
 
-        const isPersonalToken = apiKey.startsWith(PERSONAL_TOKEN_PREFIX);
+        // Both kinds are org-unbound and share every code path below; the flag
+        // means "selects its org via the header", not "is a personal token".
+        const isPersonalToken = isCrossOrgToken(apiKey);
+        const isPlatformOperatorKey = apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX);
 
         let orgName: string | undefined;
         let orgId: string | undefined;
@@ -184,7 +202,11 @@ Notes:
 
         if (isPersonalToken) {
           // ── Personal (cross-org) token: validate by listing orgs, pick one ──
-          console.log("Validating personal token...");
+          console.log(
+            isPlatformOperatorKey
+              ? "Validating platform-operator key..."
+              : "Validating personal token..."
+          );
           let organizations: UserOrganization[];
           try {
             organizations = await fetchOrganizations(resolvedBaseUrl, apiKey);
@@ -194,7 +216,40 @@ Notes:
             return;
           }
 
-          if (organizations.length === 0) {
+          // A platform-operator key acts on ANY org (NEX-3037), so the membership
+          // list is a convenience here, not the set of valid answers. Prompt for
+          // an org id whether or not memberships exist — gating this on an EMPTY
+          // list would have covered only the holder with no orgs at all, and left
+          // the motivating case (an operator who does have memberships, wanting a
+          // DIFFERENT org) able to pick only from their own.
+          if (isPlatformOperatorKey) {
+            console.log(
+              `\nThis is a ${color.cyan("platform-operator key")} — it acts on any ` +
+                "organization, including ones you are not a member of. Every request is " +
+                "recorded in the admin audit log."
+            );
+            if (organizations.length > 0) {
+              console.log(color.dim("Your own organizations, for convenience:"));
+              organizations.forEach((org) => {
+                console.log(color.dim(`  ${org.organizationId}  ${org.name ?? ""}`));
+              });
+            }
+            const entered = (await ask("Organization id to start on (org_...): ")).trim();
+            if (!entered) {
+              console.error(
+                color.red("Error:") +
+                  " A platform-operator key must name the organization it acts on."
+              );
+              process.exitCode = 1;
+              return;
+            }
+            orgId = entered;
+            orgName = organizations.find((o) => o.organizationId === entered)?.name ?? undefined;
+          }
+
+          // Personal tokens genuinely cannot act without a membership; the
+          // platform-operator case already has its org from the block above.
+          if (organizations.length === 0 && !isPlatformOperatorKey) {
             console.error(
               color.red("Error:") + " This token's user does not belong to any organization."
             );
@@ -202,37 +257,52 @@ Notes:
             return;
           }
 
-          console.log(
-            `\nThis is a ${color.cyan("personal token")} — one key across ${color.cyan(
-              String(organizations.length)
-            )} organization(s).`
-          );
+          // Skipped when the platform-operator branch above already took an org
+          // id by hand — `organizations` is empty there, so every index into it
+          // below would be undefined.
+          if (!orgId) {
+            console.log(
+              `\nThis is a ${color.cyan("personal token")} — one key across ${color.cyan(
+                String(organizations.length)
+              )} organization(s).`
+            );
 
-          let chosen: UserOrganization;
-          if (organizations.length === 1) {
-            chosen = organizations[0];
-            console.log(`Active organization: ${color.cyan(chosen.name ?? chosen.organizationId)}`);
-          } else {
-            organizations.forEach((org, i) => {
+            let chosen: UserOrganization;
+            if (organizations.length === 1) {
+              chosen = organizations[0];
               console.log(
-                `  ${color.cyan(String(i + 1))}. ${org.name ?? org.organizationId} ${color.dim(
-                  `(${org.role})`
-                )}`
+                `Active organization: ${color.cyan(chosen.name ?? chosen.organizationId)}`
               );
-            });
-            const answer = (await ask(`Select active organization [1]: `)).trim();
-            const index = answer ? Number.parseInt(answer, 10) - 1 : 0;
-            if (Number.isNaN(index) || index < 0 || index >= organizations.length) {
-              console.error(color.red("Error:") + " Invalid selection.");
-              process.exitCode = 1;
-              return;
+            } else {
+              organizations.forEach((org, i) => {
+                console.log(
+                  `  ${color.cyan(String(i + 1))}. ${org.name ?? org.organizationId} ${color.dim(
+                    `(${org.role})`
+                  )}`
+                );
+              });
+              const answer = (await ask(`Select active organization [1]: `)).trim();
+              const index = answer ? Number.parseInt(answer, 10) - 1 : 0;
+              if (Number.isNaN(index) || index < 0 || index >= organizations.length) {
+                console.error(color.red("Error:") + " Invalid selection.");
+                process.exitCode = 1;
+                return;
+              }
+              chosen = organizations[index];
             }
-            chosen = organizations[index];
+            orgId = chosen.organizationId;
+            orgName = chosen.name ?? undefined;
           }
-          orgId = chosen.organizationId;
-          orgName = chosen.name ?? undefined;
 
-          // Resolve the owning user's email for the chosen org (best-effort).
+          // Resolve the owning user's email — and the org's NAME — for the chosen
+          // org (best-effort).
+          //
+          // The name matters most in the case it was previously never filled:
+          // a platform-operator key targeting a FOREIGN org has no membership row
+          // to read a name from, so `auth status` and `auth orgs` would show a
+          // bare `org_...` id for the one tenant this credential exists to reach.
+          // This request is already being made and already carries the selected
+          // org, so the name comes back for free — it was simply not being read.
           try {
             const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
               headers: {
@@ -243,8 +313,12 @@ Notes:
               signal: AbortSignal.timeout(30_000)
             });
             if (meRes.ok) {
-              const meJson = (await meRes.json()) as { data?: { userEmail?: string } };
+              const meJson = (await meRes.json()) as {
+                data?: { userEmail?: string; orgName?: string };
+              };
               userEmail = meJson.data?.userEmail ?? undefined;
+              // Never overwrite a name already resolved from the membership list.
+              orgName = orgName ?? meJson.data?.orgName ?? undefined;
             }
           } catch {
             // best-effort
@@ -337,7 +411,13 @@ Notes:
 
         printSuccess(`Saved profile "${profileName}".`, {
           ...(orgName ? { organization: orgName } : {}),
-          ...(isPersonalToken ? { type: "personal token (cross-org)" } : {}),
+          ...(isPersonalToken
+            ? {
+                type: isPlatformOperatorKey
+                  ? "platform-operator key (any org, audited)"
+                  : "personal token (cross-org)"
+              }
+            : {}),
           profile: profileName,
           config: "~/.nexus-mcp/config.json"
         });
@@ -606,13 +686,35 @@ Notes:
         return;
       }
 
-      if (organizations.length === 0) {
+      // A platform-operator profile can be pointed at an org OUTSIDE the owner's
+      // memberships, and /me/organizations only ever returns memberships. Without
+      // this the active tenant simply would not appear — no row carries the ▸ —
+      // and the operator has no way to confirm from the CLI which org they are
+      // acting on, which is the one thing this command exists to answer.
+      const activeOrgId = resolved.profile.orgId;
+      const activeIsForeign =
+        activeOrgId !== undefined && !organizations.some((o) => o.organizationId === activeOrgId);
+
+      if (organizations.length === 0 && !activeIsForeign) {
         console.log(color.dim("No organizations found for this token."));
         return;
       }
 
-      const rows = organizations.map((org) => ({
-        marker: org.organizationId === resolved.profile.orgId ? "▸" : " ",
+      const listed: UserOrganization[] = activeIsForeign
+        ? [
+            {
+              organizationId: activeOrgId,
+              // Whatever was captured at login/switch. Hardcoding null here threw
+              // away a name we may well have.
+              name: resolved.profile.orgName ?? null,
+              role: "platform-operator"
+            },
+            ...organizations
+          ]
+        : organizations;
+
+      const rows = listed.map((org) => ({
+        marker: org.organizationId === activeOrgId ? "▸" : " ",
         name: org.name ?? color.dim("—"),
         role: org.role,
         organizationId: org.organizationId
@@ -624,6 +726,15 @@ Notes:
         { key: "role", label: "ROLE" },
         { key: "organizationId", label: "ORG ID" }
       ]);
+
+      if (activeIsForeign) {
+        console.log(
+          color.dim(
+            "\nThe active organization is outside your memberships — a platform-operator key " +
+              "is acting on it. Every request is recorded in the admin audit log."
+          )
+        );
+      }
     });
 
   // ── use-org ───────────────────────────────────────────────────────────
@@ -662,15 +773,14 @@ Notes:
         return;
       }
 
-      // Only personal tokens honor the organization-id header server-side. An
+      // Only org-unbound tokens honor the organization-id header server-side. An
       // org-scoped key is permanently bound to its key's org, so switching the
       // profile's active org would silently do nothing — refuse rather than
-      // report a success that doesn't take effect. The `nxs_p_` prefix is the
+      // report a success that doesn't take effect. The prefix is the
       // authoritative signal (the stored flag may be absent on a manually-added
       // or older-config profile).
       const isPersonalToken =
-        resolved.profile.personalToken === true ||
-        resolved.profile.apiKey.startsWith(PERSONAL_TOKEN_PREFIX);
+        resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey);
       if (!isPersonalToken) {
         console.error(
           color.red("Error:") +
@@ -692,15 +802,33 @@ Notes:
         return;
       }
 
-      const match = organizations.find((org) => org.organizationId === orgId);
+      let match = organizations.find((org) => org.organizationId === orgId);
       if (!match) {
-        console.error(
-          color.red("Error:") +
-            ` You are not a member of "${orgId}", or it does not exist. ` +
-            "Run: nexus auth orgs"
+        // `fetchOrganizations` lists MEMBERSHIPS. A platform-operator key
+        // (NEX-3037) is defined by reaching orgs its owner is not a member of,
+        // so refusing here would reject precisely the switch the credential
+        // exists to perform — the membership list can never contain the target.
+        //
+        // Client-side only: the server still authorizes every request against
+        // `PublicApiKey.isPlatformOperator`, so an ordinary user typing an
+        // `nxs_o_`-shaped key gains nothing from this branch.
+        if (!resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX)) {
+          console.error(
+            color.red("Error:") +
+              ` You are not a member of "${orgId}", or it does not exist. ` +
+              "Run: nexus auth orgs"
+          );
+          process.exitCode = 1;
+          return;
+        }
+        // The name is unknown — it is not our org — so show the id and say why.
+        console.log(
+          color.dim(
+            `Platform-operator key: "${orgId}" is not one of your organizations. ` +
+              "Switching anyway; every request will be recorded in the admin audit log."
+          )
         );
-        process.exitCode = 1;
-        return;
+        match = { organizationId: orgId, name: null, role: "org:admin" };
       }
 
       try {
@@ -749,11 +877,21 @@ Notes:
         console.log(
           `Using profile ${color.cyan(`"${resolved.name}"`)}${orgPart} — ${color.dim(sourceExplanation[resolved.source])}`
         );
-        if (resolved.profile.personalToken) {
+        // The stored flag is absent for a key supplied via --api-key or
+        // NEXUS_API_KEY (source "override"), which writes no profile — so gating
+        // on it alone meant the cross-tenant credential went unlabelled in
+        // exactly the ad-hoc invocation most likely to be a one-off against
+        // someone else's tenant. `use-org` already resolves this the same way.
+        if (resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey)) {
+          // The two org-unbound kinds are NOT interchangeable to the reader:
+          // one reaches your own orgs, the other reaches every tenant on the
+          // platform and audits each request. Printing both as "personal token"
+          // hides which credential is loaded, which is the thing `status` is for.
+          const isOperator = resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX);
           console.log(
-            `  ${color.dim("type:")} personal token (cross-org) — ${color.dim(
-              'switch org with "nexus auth use-org <orgId>"'
-            )}`
+            `  ${color.dim("type:")} ${
+              isOperator ? "platform-operator key (any org, audited)" : "personal token (cross-org)"
+            } — ${color.dim('switch org with "nexus auth use-org <orgId>"')}`
           );
         }
         if (resolved.profile.orgId) {

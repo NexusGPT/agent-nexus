@@ -39,7 +39,8 @@ export interface NexusProfile {
   /** Email of the user that owns the API key (captured at login from /me). */
   userEmail?: string;
   /**
-   * True when `apiKey` is a personal (cross-org) token (`nxs_p_` prefix) — one
+   * True when `apiKey` is org-unbound — a personal cross-org token (`nxs_p_`) or
+   * a platform-operator token (`nxs_o_`, NEX-3037). One
    * key usable across every org the user belongs to. The active org is `orgId`,
    * sent as the `organization-id` header; switch it with `nexus auth use-org`.
    * See NEX-2474.
@@ -195,9 +196,17 @@ export function setActiveProfile(name: string): void {
 }
 
 /**
- * Set the active organization on a profile (for personal cross-org tokens).
+ * Set the active organization on a profile (for org-unbound tokens).
  * Persists `orgId`/`orgName` so later commands send the `organization-id` header.
  * Throws if the profile doesn't exist.
+ *
+ * `orgName` is CLEARED when omitted, never left alone. The previous behaviour —
+ * `if (orgName !== undefined)` — meant switching to an org whose name we do not
+ * know (a platform-operator key targeting a tenant outside the owner's
+ * memberships, which has no membership row to read a name from) moved `orgId`
+ * while the OLD org's name stayed behind. `status` then showed the new id beside
+ * the previous tenant's name, which is worse than showing no name at all: it
+ * names the wrong customer.
  */
 export function setProfileOrganization(name: string, orgId: string, orgName?: string): void {
   const config = loadConfig();
@@ -206,7 +215,7 @@ export function setProfileOrganization(name: string, orgId: string, orgName?: st
     throw new Error(`Profile "${name}" not found. Run: nexus auth list`);
   }
   profile.orgId = orgId;
-  if (orgName !== undefined) profile.orgName = orgName;
+  profile.orgName = orgName;
   saveConfig(config);
 }
 

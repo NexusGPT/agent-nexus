@@ -4,9 +4,11 @@
  * rest of the tenant CLI.
  *
  * v1 scope: `audit list` (read the per-org audit feed), the `app` group
- * (create / list / get / update / register-as-tool), `deploy` (trigger a
- * deployment), and the `deployments` group (list / get). Approval /
- * template commands land in later slices.
+ * (create / list / get / update / delete / visibility / edge-token /
+ * rotate-edge-token / register-as-tool), the `git-project` group (create /
+ * list / get / reprovision / delete), `deploy` (trigger a deployment), and the
+ * `deployments` group (list / get). Approval / template commands land in later
+ * slices.
  *
  * Wire transport detour: these commands use `tenantRequest` (api-key
  * auth + absolute path) instead of the SDK's `createClient`, which
@@ -164,16 +166,58 @@ interface SingleVibeAppResponse {
   app: VibeAppDto;
 }
 
+/**
+ * An app's per-app edge-auth token — the shared secret the edge matches before
+ * admitting a request to a PRIVATE app. Mirrors `VibeEdgeTokenSchema` in
+ * packages/types/src/api/domains/vibe/schemas/edge-token.schemas.ts.
+ *
+ * `token` is a live credential: presenting it at the edge grants access to the
+ * deployed app. It is printed only by `app edge-token` and `app
+ * rotate-edge-token`, where revealing it is the whole point of the command.
+ */
+interface VibeEdgeTokenDto {
+  token: string;
+  /** The header the edge matches the token against (`X-Vibe-App-Token`). */
+  headerName: string;
+  /** The app's canonical public URL. Null only for pre-canonical-URL rows. */
+  publicUrl: string | null;
+}
+
 interface SetVisibilityResponse {
   app: VibeAppDto;
   /**
-   * The freshly-minted plaintext edge token, present only when going PRIVATE.
+   * The freshly-minted edge token, present only when going PRIVATE.
    * Deliberately NOT printed: this command's job is the posture change, and the
    * token has its own reveal command that says what it is.
+   *
+   * This was typed `string | null` until 2026-07-27, which the server contract
+   * never matched — `SetVibeAppVisibilityResponseSchema` has always nested the
+   * secret in the same three-field object as reveal and rotate. Nothing caught
+   * it because the field is never read, so the lie stayed inert: a future reader
+   * printing `data.edgeToken` would have rendered `[object Object]`.
    */
-  edgeToken: string | null;
+  edgeToken: VibeEdgeTokenDto | null;
   /** True when the app is registered as a tool and its edge token was rotated. */
   toolResyncRequired: boolean;
+}
+
+interface GetEdgeTokenResponse {
+  edgeToken: VibeEdgeTokenDto;
+}
+
+interface RotateEdgeTokenResponse {
+  edgeToken: VibeEdgeTokenDto;
+  /**
+   * True when the app is registered as an agent tool. Rotating invalidates the
+   * token baked into that tool's auth, so it must be re-registered or it starts
+   * 404-ing at the edge.
+   */
+  toolResyncRequired: boolean;
+}
+
+/** Both delete routes answer with the id they removed. */
+interface DeletedIdResponse {
+  deletedId: string;
 }
 
 /** Subset of VibeGitProjectSchema the CLI renders. */
@@ -959,6 +1003,10 @@ function registerDeployCommand(vibe: Command, program: Command): void {
       "Confirm upfront that the deploy may exceed the org's usage soft limit."
     )
     .option("--watch", "Block until the deployment is healthy AND served, then exit 0.")
+    .option(
+      "--force-rebuild",
+      "Build this sha again instead of reusing the image already in the registry."
+    )
     .addHelpText(
       "after",
       `
@@ -981,17 +1029,25 @@ exit code alone. In particular it does not exit 0 on HEALTHY: that is a
 verdict from a check against the container's own port, which never
 crosses the edge, so an app can be HEALTHY and unreachable.
 
+--force-rebuild builds the sha again rather than deploying the image the
+registry already holds for it. The registry is immutable and the tag comes
+from the commit, so ordinarily the FIRST build of a sha is the image that
+sha will ever have — which makes a redeploy free, and made a sha built
+badly once impossible to correct without an empty commit. Use it after a
+builder or base-image fix; it costs a full build, so it is not the default.
+
 Examples:
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --watch
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --force-rebuild
 `
     )
     .action(
       async (
         appId: string,
-        cmdOpts: { sha: string; confirmOverage?: boolean; watch?: boolean }
+        cmdOpts: { sha: string; confirmOverage?: boolean; watch?: boolean; forceRebuild?: boolean }
       ) => {
         try {
           const triggerSha = resolveTriggerSha(cmdOpts.sha);
@@ -1001,8 +1057,13 @@ Examples:
             opts,
             appId,
             triggerSha,
-            `nexus vibe deploy ${appId} --sha ${cmdOpts.sha} --confirm-overage`,
-            cmdOpts.confirmOverage === true
+            // The hint has to name the command the operator actually ran. A
+            // re-run that silently drops --force-rebuild would deploy the
+            // reused image they asked to replace and look like it worked.
+            `nexus vibe deploy ${appId} --sha ${cmdOpts.sha}` +
+              `${cmdOpts.forceRebuild === true ? " --force-rebuild" : ""} --confirm-overage`,
+            cmdOpts.confirmOverage === true,
+            cmdOpts.forceRebuild === true
           );
           // Nothing was created — declined, no TTY to ask, or the org's state
           // moved mid-flight. Nothing to watch, and it must not exit clean.
@@ -1402,6 +1463,137 @@ Examples:
     });
 
   app
+    .command("delete <appId>")
+    .description("Delete a Vibe app and stop serving it")
+    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
+    .addHelpText(
+      "after",
+      `
+The app is soft-deleted: it drops out of "app list" and out of the console at
+once, and its access grants are removed so they cannot outlive it. The name is
+released, so you can create a new app with the same name afterwards.
+
+The app's git project is NOT deleted — a project can back several apps, so it
+outlives any one of them. Remove it separately with "git-project delete" if
+nothing else needs it.
+
+Examples:
+  $ nexus vibe app delete 11111111-2222-4333-8444-555555555555
+  $ nexus vibe app delete 11111111-2222-4333-8444-555555555555 --yes
+`
+    )
+    .action(async (appId: string, cmdOpts: { yes?: boolean }) => {
+      try {
+        const ok = await confirmDestructive(
+          `Delete app ${appId}? It will stop being served.`,
+          `nexus vibe app delete ${appId} --yes`,
+          cmdOpts.yes
+        );
+        if (!ok) {
+          process.exitCode = 1;
+          return;
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<DeletedIdResponse>(opts, {
+          method: "DELETE",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}`
+        });
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify(data, null, 2));
+          return;
+        }
+        console.log(`${color.green("✓")} Deleted app ${data.deletedId}`);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
+    .command("edge-token <appId>")
+    .description("Reveal the token a caller needs to reach this app while it is private")
+    .addHelpText(
+      "after",
+      `
+A private app admits a request only when it carries this token in the
+X-Vibe-App-Token header. The platform injects it automatically on agent tool
+calls; this command is how everything else gets it — a partner system, a CI job,
+a developer with curl or Postman.
+
+That is the middle ground between the two extremes: the app stays private, and a
+caller you hand the token to can still reach it. Going --public to unblock a
+caller removes app-level auth for everyone, and is not the same trade.
+
+A PUBLIC app has no token and this command returns 409 — it needs none, since
+anyone with the URL already reaches it.
+
+The token is printed in full. Treat the output as a secret: pipe it, don't paste
+it into a shared terminal.
+
+Examples:
+  $ nexus vibe app edge-token 11111111-2222-4333-8444-555555555555
+  $ nexus --json vibe app edge-token 11111111-2222-4333-8444-555555555555
+`
+    )
+    .action(async (appId: string) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<GetEdgeTokenResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/edge-token`
+        });
+        printEdgeToken(data.edgeToken);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
+    .command("rotate-edge-token <appId>")
+    .description("Mint a fresh edge token for a private app and retire the old one")
+    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
+    .addHelpText(
+      "after",
+      `
+Rotation is immediate and there is no grace period: the moment it returns, every
+caller still sending the previous token is refused at the edge. Rotate when a
+token has leaked, or on whatever schedule you keep — but hand the new one out
+first if callers depend on it.
+
+If the app is registered as an agent tool, the tool holds a copy of the old
+token and must be re-registered. The command says so when that applies.
+
+Examples:
+  $ nexus vibe app rotate-edge-token 11111111-2222-4333-8444-555555555555
+  $ nexus vibe app rotate-edge-token 11111111-2222-4333-8444-555555555555 --yes
+`
+    )
+    .action(async (appId: string, cmdOpts: { yes?: boolean }) => {
+      try {
+        const ok = await confirmDestructive(
+          `Rotate the edge token for ${appId}? Callers using the current token stop working immediately.`,
+          `nexus vibe app rotate-edge-token ${appId} --yes`,
+          cmdOpts.yes
+        );
+        if (!ok) {
+          process.exitCode = 1;
+          return;
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<RotateEdgeTokenResponse>(opts, {
+          method: "POST",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/edge-token/rotate`
+        });
+
+        printEdgeToken(data.edgeToken, data.toolResyncRequired);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
     .command("register-as-tool <appId>")
     .description("Register a deployed Vibe app as a CUSTOM_MANIFEST agent tool")
     .option("--spec-file <path>", "Path to the app's OpenAPI spec file (JSON or YAML).")
@@ -1550,6 +1742,7 @@ Examples:
   $ nexus vibe git-project create my-lib
   $ nexus vibe git-project list
   $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
+  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555
 `
     );
 
@@ -1573,10 +1766,10 @@ The project lands in PENDING and your tenant materializes the repository
 shortly after; "get" shows it flip to READY. (A project only materializes once
 your tenant's git host is healthy — until then it simply stays PENDING.)
 
-Choose the name deliberately: a name taken in your org returns 409, and there
-is no way to release one yet — projects cannot currently be deleted. Naming a
-standalone project after an app you have not created yet will block that app
-from provisioning its own repo later.
+The name is taken within your org while the project lives, so creating a second
+project by that name returns 409 — as does an app trying to provision its own
+repo under it. Release the name with "git-project delete" when you no longer
+need the project.
 
 Examples:
   $ nexus vibe git-project create shared-lib
@@ -1689,6 +1882,53 @@ Examples:
           path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}/reprovision`
         });
         printVibeGitProject(data.gitProject);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  project
+    .command("delete <projectId>")
+    .description("Delete a git project and release its name")
+    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
+    .addHelpText(
+      "after",
+      `
+The project is soft-deleted and its name is released, so a later project — or an
+app provisioning its own repo — can take that name again.
+
+Any app still pointing at this project reads as having no project at all, which
+means it stops deploying on push. Check with "app get <appId>" before deleting a
+project you did not create standalone.
+
+Examples:
+  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555
+  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555 --yes
+`
+    )
+    .action(async (projectId: string, cmdOpts: { yes?: boolean }) => {
+      try {
+        const ok = await confirmDestructive(
+          `Delete git project ${projectId}? Apps pointing at it stop deploying.`,
+          `nexus vibe git-project delete ${projectId} --yes`,
+          cmdOpts.yes
+        );
+        if (!ok) {
+          process.exitCode = 1;
+          return;
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<DeletedIdResponse>(opts, {
+          method: "DELETE",
+          path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}`
+        });
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify(data, null, 2));
+          return;
+        }
+        console.log(`${color.green("✓")} Deleted git project ${data.deletedId} — name released`);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -2061,13 +2301,17 @@ async function triggerDeploymentAnsweringOverage(
   appId: string,
   triggerSha: string,
   rerun: string,
-  confirmedUpfront: boolean
+  confirmedUpfront: boolean,
+  forceRebuild = false
 ): Promise<Extract<TriggerDeploymentResponse, { status: "created" }> | null> {
   const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
     tenantRequest<TriggerDeploymentResponse>(opts, {
       method: "POST",
       path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`,
-      body: { triggerSha, confirmOverage }
+      // `forceRebuild` rides every send, including the post-confirmation one:
+      // the re-send is the SAME request answered, so dropping it there would
+      // silently deploy the reused image the operator asked to replace.
+      body: { triggerSha, confirmOverage, forceRebuild }
     });
 
   let data = await send(confirmedUpfront);
@@ -2085,6 +2329,45 @@ async function triggerDeploymentAnsweringOverage(
   }
 
   return data;
+}
+
+/**
+ * Gate a destructive command. Returns true only when the caller has actually
+ * agreed — either by passing `--yes` up front, or by answering y at the prompt.
+ *
+ * Non-interactive without `--yes` REFUSES: it prints the exact re-run and
+ * returns false, and the caller exits non-zero. The alternative idiom found
+ * elsewhere in this CLI — `if (!opts.yes && process.stdout.isTTY)` — inverts
+ * this, so a piped or CI invocation skips the prompt and deletes unprompted.
+ * That is the wrong direction for a gate: the environment least able to
+ * reconsider is the one it waves through. Same stance as
+ * `confirmOverageInteractively` above, for the same reason.
+ *
+ * Bare Enter is a NO. The prompt is spelled `[y/N]`, so the capital is a promise
+ * about which way the default falls, and only the literal `y` may pass.
+ */
+async function confirmDestructive(
+  question: string,
+  rerun: string,
+  yes: boolean | undefined
+): Promise<boolean> {
+  if (yes === true) return true;
+
+  if (isJsonMode() || !process.stdout.isTTY) {
+    console.error(`Refusing to proceed without confirmation. Re-run:\n  ${rerun}`);
+    return false;
+  }
+
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(`${question} [y/N] `);
+  rl.close();
+
+  if (answer.trim().toLowerCase() !== "y") {
+    console.log("Aborted.");
+    return false;
+  }
+  return true;
 }
 
 function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string): void {
@@ -2359,6 +2642,65 @@ function printEnvVarDeleted(data: DeleteEnvVarResponse): void {
     return;
   }
   console.log(`${color.green("✓")} Removed env var ${data.deletedId}`);
+}
+
+/**
+ * Reveal an edge token, and show the request that uses it.
+ *
+ * The `curl` line is the point of the command rather than a courtesy: the token
+ * is useless without knowing which header carries it, and that header name is
+ * exactly what NEX-2972 could not find from outside. Printing the two together
+ * means a reader never has to guess the pairing.
+ */
+function printEdgeToken(edgeToken: VibeEdgeTokenDto, toolResyncRequired?: boolean): void {
+  if (isJsonMode()) {
+    // Mirror the server's two response shapes exactly: reveal answers
+    // `{ edgeToken }`, rotate answers `{ edgeToken, toolResyncRequired }`. The
+    // flag is omitted rather than defaulted to false on the reveal path,
+    // because reveal changes nothing and so cannot have invalidated a tool —
+    // emitting `false` there would answer a question that was never asked.
+    console.log(
+      JSON.stringify(
+        toolResyncRequired === undefined ? { edgeToken } : { edgeToken, toolResyncRequired },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  printRecord(edgeToken as unknown as Record<string, unknown>, [
+    { key: "token", label: "Token" },
+    { key: "headerName", label: "Header" },
+    {
+      key: "publicUrl",
+      label: "App URL",
+      format: (v) => (v === null ? color.dim("— (no canonical URL yet)") : String(v))
+    }
+  ]);
+
+  if (edgeToken.publicUrl !== null) {
+    console.log("");
+    console.log(color.dim("Reach the app with:"));
+    console.log(`  curl -H '${edgeToken.headerName}: ${edgeToken.token}' ${edgeToken.publicUrl}`);
+  }
+
+  console.log("");
+  console.log(
+    color.yellow("This is a live credential — anyone holding it reaches the app. Do not commit it.")
+  );
+
+  // Owned by the printer, not the caller, so the JSON payload and the human
+  // warning cannot disagree about whether a tool was just broken. Rotation
+  // invalidates the token baked into a registered tool, and that is the one
+  // consequence an operator cannot infer from a successful-looking response.
+  if (toolResyncRequired === true) {
+    console.log(
+      color.yellow(
+        "This app is registered as a tool. Re-register it — the token it sends is now the old one."
+      )
+    );
+  }
 }
 
 function colorApprovalStatus(status: string): string {

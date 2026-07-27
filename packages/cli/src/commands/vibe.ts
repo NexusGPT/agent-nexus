@@ -19,6 +19,7 @@
 
 import { readFileSync } from "node:fs";
 
+import { NexusApiError } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { handleError } from "../errors";
@@ -29,6 +30,7 @@ import {
   VIBE_ALLOWED_REGIONS,
   type VibeTenantClusterStatus
 } from "../vibe-regions";
+import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watch";
 
 // ============================================================
 // Wire types — mirror packages/types/src/api/domains/vibe/schemas/
@@ -224,6 +226,16 @@ interface ListVibeGitProjectsResponse {
 }
 
 /** Subset of VibeDeploymentSchema the CLI renders. */
+/**
+ * `POST /api/vibe/apps/:id/rollback` — the predecessor re-activated, and the
+ * deployment it displaced. Both rows come back in full so the caller can name
+ * the two versions without a second read.
+ */
+interface RollbackAppResponse {
+  restoredDeployment: VibeDeploymentDto;
+  supersededDeployment: VibeDeploymentDto;
+}
+
 interface VibeDeploymentDto {
   id: string;
   vibeAppId: string;
@@ -392,6 +404,7 @@ Subcommands:
   git-project      Manage git projects — the standalone code store apps deploy from.
   git-credentials  Fetch your tenant git push token + clone address.
   deploy           Trigger a deployment for an app from a commit sha.
+  rollback         Roll an app back to its previous healthy version.
   deployments      List / inspect an app's deployments and their build jobs.
   env              Manage an app's plaintext env vars — list, set, remove.
   approvals        Review gated deployments — pending queue, get, approve/reject.
@@ -408,6 +421,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
   registerGitProjectCommands(vibe, program);
   registerGitCredentialsCommand(vibe, program);
   registerDeployCommand(vibe, program);
+  registerRollbackCommand(vibe, program);
   registerDeploymentsCommands(vibe, program);
   registerEnvCommands(vibe, program);
   registerApprovalsCommands(vibe, program);
@@ -944,6 +958,7 @@ function registerDeployCommand(vibe: Command, program: Command): void {
       "--confirm-overage",
       "Confirm upfront that the deploy may exceed the org's usage soft limit."
     )
+    .option("--watch", "Block until the deployment is healthy AND served, then exit 0.")
     .addHelpText(
       "after",
       `
@@ -959,47 +974,225 @@ non-zero, printing the exact --confirm-overage re-run. Pass
 --confirm-overage upfront to answer the question in advance. It does NOT
 bypass an admin suspension, which still fails with 403.
 
+--watch blocks until the deployment reaches a terminal state and then
+until the tenant's edge confirms the app is actually being SERVED. It
+exits 0 for that outcome and NOTHING else, so a script can branch on the
+exit code alone. In particular it does not exit 0 on HEALTHY: that is a
+verdict from a check against the container's own port, which never
+crosses the edge, so an app can be HEALTHY and unreachable.
+
 Examples:
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --watch
 `
     )
-    .action(async (appId: string, cmdOpts: { sha: string; confirmOverage?: boolean }) => {
-      try {
-        const triggerSha = resolveTriggerSha(cmdOpts.sha);
-        const opts = resolveTenantOpts(program);
-        const path = `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`;
-        const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
-          tenantRequest<TriggerDeploymentResponse>(opts, {
-            method: "POST",
-            path,
-            body: { triggerSha, confirmOverage }
-          });
+    .action(
+      async (
+        appId: string,
+        cmdOpts: { sha: string; confirmOverage?: boolean; watch?: boolean }
+      ) => {
+        try {
+          const triggerSha = resolveTriggerSha(cmdOpts.sha);
+          const opts = resolveTenantOpts(program);
 
-        const confirmedUpfront = cmdOpts.confirmOverage === true;
-        let data = await send(confirmedUpfront);
-
-        if (data.status === "confirmation_required") {
-          const answered = await confirmOverageInteractively(data, appId, cmdOpts.sha);
-          // Non-interactive, or the user declined: nothing was created and
-          // nothing will be. Exit NON-ZERO — a scripted deploy that stops
-          // while reporting success is worse than any refusal.
-          if (!answered) {
+          const data = await triggerDeploymentAnsweringOverage(
+            opts,
+            appId,
+            triggerSha,
+            `nexus vibe deploy ${appId} --sha ${cmdOpts.sha} --confirm-overage`,
+            cmdOpts.confirmOverage === true
+          );
+          // Nothing was created — declined, no TTY to ask, or the org's state
+          // moved mid-flight. Nothing to watch, and it must not exit clean.
+          if (data === null) {
             process.exitCode = 1;
             return;
           }
-          data = await send(true);
-          // A confirmed re-send that still asks means the org's state moved
-          // mid-flight. Nothing was created, so this must not exit clean.
-          if (data.status === "confirmation_required") process.exitCode = 1;
-        }
 
-        printTriggeredDeployment(data, appId);
-      } catch (err) {
-        process.exitCode = handleError(err);
+          // In --json a watched run prints exactly ONE document, and it is the
+          // watch outcome. Printing the trigger as well would put two documents
+          // on one stream, which no JSON consumer can read. Human output still
+          // shows both: there the trigger line is progress, not a parsed value.
+          const watching = cmdOpts.watch === true;
+          if (!watching || !isJsonMode()) printTriggeredDeployment(data, appId);
+
+          if (watching) {
+            process.exitCode = await runDeploymentWatch(program, appId, data.deployment.id);
+          }
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
       }
-    });
+    );
+}
+
+/**
+ * Drive {@link watchDeployment} against the live API and render the result.
+ * Shared by `deploy --watch` and `rollback --watch` — they watch the same thing
+ * (one deployment becoming the served version), so they must agree on what
+ * counts as success down to the exit code.
+ */
+async function runDeploymentWatch(
+  program: Command,
+  appId: string,
+  deploymentId: string
+): Promise<number> {
+  const opts = resolveTenantOpts(program);
+  const outcome = await watchDeployment(
+    {
+      readDeployment: async () => {
+        const data = await tenantRequest<GetDeploymentResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments/${encodeURIComponent(deploymentId)}`
+        });
+        return data.deployment;
+      },
+      readApp: async () => {
+        const data = await tenantRequest<SingleVibeAppResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}`
+        });
+        return data.app;
+      },
+      // 404 here means the deployment is UNGATED — the endpoint answers 404 for
+      // "no approval request", which is a fact, not a failure. Any other error
+      // propagates: a watch that silently treats a broken read as "no gate"
+      // would wait out a rejection it could have reported.
+      readApproval: async () => {
+        try {
+          const data = await tenantRequest<GetApprovalResponse>(opts, {
+            method: "GET",
+            path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments/${encodeURIComponent(deploymentId)}/approval`
+          });
+          return { status: data.request.status };
+        } catch (err) {
+          if (err instanceof NexusApiError && err.status === 404) return null;
+          throw err;
+        }
+      },
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      now: () => Date.now()
+    },
+    WATCH_DEFAULTS,
+    // Progress goes to STDERR so `--json` stdout stays a single parseable
+    // document; a watch that interleaves status lines into it is unpipeable.
+    (status) => {
+      if (!isJsonMode()) console.error(color.dim(`  … ${status}`));
+    }
+  );
+  return reportWatchOutcome(outcome, appId);
+}
+
+// ============================================================
+// vibe rollback
+// ============================================================
+
+function registerRollbackCommand(vibe: Command, program: Command): void {
+  vibe
+    .command("rollback <appId>")
+    .description("Roll an app back to its previous healthy version")
+    .option("--to <sha>", "Redeploy this specific commit sha instead of the previous version.")
+    .option(
+      "--confirm-overage",
+      "Only with --to: confirm the redeploy may exceed the org's usage soft limit."
+    )
+    .option("--watch", "Block until the restored version is healthy AND served, then exit 0.")
+    .addHelpText(
+      "after",
+      `
+Without --to this is NON-DESTRUCTIVE and deletes nothing: the server
+re-activates the app's previous SUPERSEDED deployment and its retained
+image in one atomic transaction, onto the slot opposite the current one.
+The version serving now keeps every request until the restored one is
+healthy, so availability never regresses.
+
+409 means there is nothing to roll back to — no live version, no previous
+version, or a deploy already in flight.
+
+--to <sha> is a different operation wearing the same name, and is offered
+because it is what you reach for when the previous version is ALSO bad:
+it triggers an ordinary build+deploy of that sha, exactly like
+\`deploy --sha\`. It is not atomic and it rebuilds.
+
+Examples:
+  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555
+  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555 --watch
+  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555 --to 1a2b3c4
+`
+    )
+    .action(
+      async (
+        appId: string,
+        cmdOpts: { to?: string; confirmOverage?: boolean; watch?: boolean }
+      ) => {
+        try {
+          const opts = resolveTenantOpts(program);
+
+          // --to is a redeploy, not a restore: same endpoint as `deploy --sha`,
+          // so it inherits the overage question and every other deploy rule
+          // rather than reimplementing them here.
+          if (cmdOpts.to !== undefined) {
+            const triggerSha = resolveTriggerSha(cmdOpts.to, "--to");
+            // The SAME flow `deploy --sha` runs, not a copy of it — including
+            // the y/N spend prompt and the re-run hint, which a partial copy
+            // here silently dropped. The hint names `rollback --to`, because
+            // telling someone to re-run `deploy` is a wrong instruction.
+            const data = await triggerDeploymentAnsweringOverage(
+              opts,
+              appId,
+              triggerSha,
+              `nexus vibe rollback ${appId} --to ${cmdOpts.to} --confirm-overage`,
+              cmdOpts.confirmOverage === true
+            );
+            if (data === null) {
+              process.exitCode = 1;
+              return;
+            }
+            // Same single-document rule as `deploy --watch`; see there.
+            const watchingRedeploy = cmdOpts.watch === true;
+            if (!watchingRedeploy || !isJsonMode()) printTriggeredDeployment(data, appId);
+            if (watchingRedeploy) {
+              process.exitCode = await runDeploymentWatch(program, appId, data.deployment.id);
+            }
+            return;
+          }
+
+          const data = await tenantRequest<RollbackAppResponse>(opts, {
+            method: "POST",
+            path: `/api/vibe/apps/${encodeURIComponent(appId)}/rollback`
+          });
+
+          const watching = cmdOpts.watch === true;
+          if (!watching || !isJsonMode()) printRollback(data);
+
+          if (watching) {
+            process.exitCode = await runDeploymentWatch(program, appId, data.restoredDeployment.id);
+          }
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
+}
+
+function printRollback(data: RollbackAppResponse): void {
+  if (isJsonMode()) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  const restored = data.restoredDeployment;
+  console.log(color.green("✓") + " Rollback started");
+  console.log(
+    `  v${String(data.supersededDeployment.versionNumber)} → v${String(restored.versionNumber)} (${restored.triggerSha.slice(0, 7)})`
+  );
+  // Said explicitly because the word "rollback" reads as destructive: the
+  // outgoing version keeps serving until the restored one is healthy.
+  console.log(
+    color.dim("  The version serving now keeps every request until the restored one is healthy.")
+  );
 }
 
 // ============================================================
@@ -1755,10 +1948,13 @@ function resolveAppName(raw: string): string {
 }
 
 /** Validate the trigger sha client-side for a clear message before the request. */
-function resolveTriggerSha(raw: string): string {
+function resolveTriggerSha(raw: string, flag = "--sha"): string {
   const sha = raw.trim();
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
-    throw new Error(`Invalid --sha "${raw}". Expected 7–40 hexadecimal characters.`);
+    // Named by the caller, because two verbs take a sha under two different
+    // flags. Telling someone who typed `--to` that their `--sha` is invalid
+    // sends them looking for a flag they never used.
+    throw new Error(`Invalid ${flag} "${raw}". Expected 7–40 hexadecimal characters.`);
   }
   return sha;
 }
@@ -1809,11 +2005,8 @@ function resolveEnvScope(raw: string | undefined): VibeEnvVarScope | undefined {
  */
 async function confirmOverageInteractively(
   data: Extract<TriggerDeploymentResponse, { status: "confirmation_required" }>,
-  appId: string,
-  shaArg: string
+  rerun: string
 ): Promise<boolean> {
-  const rerun = `nexus vibe deploy ${appId} --sha ${shaArg} --confirm-overage`;
-
   if (isJsonMode()) {
     console.log(JSON.stringify(data, null, 2));
     console.error(`Spend confirmation required. Re-run confirmed:\n  ${rerun}`);
@@ -1839,6 +2032,59 @@ async function confirmOverageInteractively(
     return false;
   }
   return true;
+}
+
+/**
+ * Trigger a deployment and carry the org's spend question through to an answer.
+ *
+ * Returns the CREATED deployment, or `null` when nothing was created — the
+ * caller exits non-zero on `null` and has nothing to watch. A scripted deploy
+ * that stops while reporting success is worse than any refusal, so "the user
+ * declined", "there was no TTY to ask" and "the org's state moved mid-flight"
+ * all collapse to the same `null`.
+ *
+ * This exists as ONE function because there are two verbs that trigger a
+ * deployment — `deploy --sha` and `rollback --to` — and the second was written
+ * as a partial copy of the first that dropped the y/N prompt and the
+ * `--confirm-overage` re-run hint entirely. A TTY user rolling back never got
+ * asked, and a script never got told how to answer, while the help text
+ * promised the path was exactly like `deploy --sha`. A second copy of a flow
+ * is a second place for it to be incomplete.
+ *
+ * `rerun` is passed in rather than composed here for the same reason: the hint
+ * has to name the command the operator actually ran, and a hardcoded
+ * `nexus vibe deploy …` printed at someone running `rollback` is a wrong
+ * instruction, not a missing one.
+ */
+async function triggerDeploymentAnsweringOverage(
+  opts: TenantHttpOptions,
+  appId: string,
+  triggerSha: string,
+  rerun: string,
+  confirmedUpfront: boolean
+): Promise<Extract<TriggerDeploymentResponse, { status: "created" }> | null> {
+  const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
+    tenantRequest<TriggerDeploymentResponse>(opts, {
+      method: "POST",
+      path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`,
+      body: { triggerSha, confirmOverage }
+    });
+
+  let data = await send(confirmedUpfront);
+
+  if (data.status === "confirmation_required") {
+    const answered = await confirmOverageInteractively(data, rerun);
+    if (!answered) return null;
+    data = await send(true);
+    // A confirmed re-send that still asks means the org's state moved
+    // mid-flight. Nothing was created, so this must not exit clean.
+    if (data.status === "confirmation_required") {
+      printTriggeredDeployment(data, appId);
+      return null;
+    }
+  }
+
+  return data;
 }
 
 function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string): void {

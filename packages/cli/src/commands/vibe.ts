@@ -41,6 +41,18 @@ import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watc
 // when the schema evolves.
 // ============================================================
 
+/**
+ * Mirrors `VIBE_APP_DEFAULT_CONTAINER_PORT` in
+ * `packages/types/src/schemas/VibeApp/container-port.ts`, re-declared for the
+ * same reason as the wire types above — this package cannot depend on
+ * `@nexus/types` at runtime.
+ *
+ * Used only to NAME the fallback in a message ("not detected — using 8080"),
+ * never to decide anything: the port that is actually published is resolved
+ * server-side. So a drift here misprints a hint; it cannot mis-deploy.
+ */
+const VIBE_DEFAULT_CONTAINER_PORT = 8080;
+
 const AUDIT_EVENT_TYPES = [
   "DEPLOYMENT_TRIGGERED",
   "DEPLOYMENT_APPROVED",
@@ -290,6 +302,11 @@ interface VibeDeploymentDto {
   status: string;
   triggerSha: string;
   imageRef: string;
+  /// The port the BUILD observed the image listening on. Null means NOT
+  /// OBSERVED — the deploy then falls back to the platform default, so a null
+  /// here and a `8080` here are different facts and must not render alike.
+  detectedPort: number | null;
+  forceRebuild: boolean;
   errorReason: string | null;
   createdAt: string;
 }
@@ -1687,6 +1704,46 @@ Examples:
     });
 
   app
+    .command("attach-repo <appId> <gitProjectId>")
+    .description("Attach an EXISTING git project to a Vibe app")
+    .addHelpText(
+      "after",
+      `
+The counterpart to "provision-repo", which MINTS a new project named after
+the app. Once a project already holds your code, that is the wrong verb —
+this one points the app at the project you already have.
+
+Why it matters: a push only deploys to apps ATTACHED to the project it went
+to. An app that was never attached is invisible to that fan-out, so every
+push advances the project's refs and deploys nothing — and, because a
+project with no apps is a legitimate code store, nothing reports it as
+wrong. If your app says "Never deployed" while your pushes succeed, this is
+almost certainly why. Check with "nexus vibe app get <appId>".
+
+Attaching to the project the app already has is a no-op success, so this is
+safe to re-run. Attaching to a DIFFERENT project returns 409 — an app is not
+re-pointed at another code store by accident.
+
+Examples:
+  $ nexus vibe app attach-repo 11111111-2222-4333-8444-555555555555 99999999-8888-4777-8666-555555555555
+  $ nexus vibe git-project list      # find the project id
+`
+    )
+    .action(async (appId: string, gitProjectId: string) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<SingleVibeGitProjectResponse>(opts, {
+          method: "POST",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/git-project/attach`,
+          body: { gitProjectId }
+        });
+        printVibeGitProject(data.gitProject ?? data.repository);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
     .command("reprovision-repo <appId>")
     .description("Retry provisioning a FAILED git project")
     .addHelpText(
@@ -2484,9 +2541,25 @@ function printDeploymentDetail(data: GetDeploymentResponse): void {
     { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
     { key: "triggerSha", label: "Commit", format: (v) => String(v).slice(0, 7) },
     { key: "imageRef", label: "Image", format: (v) => (v === "" ? "—" : String(v)) },
+    // "not detected" rather than "—": a dash reads as "nothing to show", and
+    // the reader is usually here BECAUSE the port is wrong. Saying the build
+    // observed nothing — and naming the default that therefore applies — is
+    // the answer to the question that brought them, in one line.
+    {
+      key: "detectedPort",
+      label: "Detected port",
+      format: (v) =>
+        v === null || v === undefined
+          ? color.dim(`not detected — using ${String(VIBE_DEFAULT_CONTAINER_PORT)}`)
+          : String(v)
+    },
     { key: "errorReason", label: "Error", format: (v) => (v === null ? "—" : String(v)) },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) }
   ]);
+
+  if (d.forceRebuild) {
+    console.log(color.dim("\nBuilt with --force-rebuild — hence the -v suffix on the image tag."));
+  }
 
   if (data.buildJob === null) {
     console.log(color.dim("\nNo build job."));

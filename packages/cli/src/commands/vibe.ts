@@ -379,7 +379,12 @@ interface ListPendingApprovalsResponse {
  */
 type TriggerDeploymentResponse =
   | {
-      status: "created";
+      /// `created` wrote a new deployment. `reused` found this app's newest
+      /// deployment already in flight for the same commit and returned it
+      /// untouched — nothing was written, not even a version number. Same
+      /// fields either way, so a caller that only wants its deployment reads
+      /// `.deployment` off both.
+      status: "created" | "reused";
       deployment: VibeDeploymentDto;
       buildJob: VibeBuildJobDto;
       approvalRequest: VibeApprovalRequestDto | null;
@@ -2360,7 +2365,7 @@ async function triggerDeploymentAnsweringOverage(
   rerun: string,
   confirmedUpfront: boolean,
   forceRebuild = false
-): Promise<Extract<TriggerDeploymentResponse, { status: "created" }> | null> {
+): Promise<Extract<TriggerDeploymentResponse, { status: "created" | "reused" }> | null> {
   const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
     tenantRequest<TriggerDeploymentResponse>(opts, {
       method: "POST",
@@ -2442,7 +2447,20 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
   }
 
   const d = data.deployment;
-  console.log(color.green("✓") + " Deployment triggered");
+  if (data.status === "reused") {
+    // Say what did NOT happen, and why that is the right outcome. Without
+    // this the operator sees a version number they did not expect and
+    // re-runs, which is the exact loop that produced the duplicate.
+    console.log(color.green("✓") + " Already deploying this commit — reusing it");
+    console.log(
+      color.dim(
+        "  Nothing new was started: a second deployment of one commit takes the first's\n" +
+          "  slot and fails it by timeout. Use --force-rebuild to build this commit again."
+      )
+    );
+  } else {
+    console.log(color.green("✓") + " Deployment triggered");
+  }
   // No Builder row here on purpose: the build has not run yet, and which
   // strategy it will use is decided inside the executor over a checkout that
   // has not been cloned. It shows up on `vibe deployment get` once the build

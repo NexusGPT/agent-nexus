@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [

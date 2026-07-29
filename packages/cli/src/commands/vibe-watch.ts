@@ -27,7 +27,8 @@ export type WatchDeploymentStatus =
   | "HEALTHY"
   | "FAILED"
   | "ROLLED_BACK"
-  | "SUPERSEDED";
+  | "SUPERSEDED"
+  | "DISPLACED";
 
 /**
  * What the tenant's edge last said about the app's public host. `null` means
@@ -105,6 +106,7 @@ export type WatchOutcome =
   | { kind: "served"; deployment: WatchDeploymentSnapshot; app: WatchAppSnapshot }
   | { kind: "failed"; deployment: WatchDeploymentSnapshot }
   | { kind: "superseded"; deployment: WatchDeploymentSnapshot }
+  | { kind: "displaced"; deployment: WatchDeploymentSnapshot }
   | {
       kind: "approval-refused";
       deployment: WatchDeploymentSnapshot;
@@ -169,6 +171,12 @@ export async function watchDeployment(
     // A different deployment took over this app. Nothing is broken, but the
     // thing being watched will never become live, so this cannot exit clean.
     if (deployment.status === "SUPERSEDED") return { kind: "superseded", deployment };
+    // Same verdict, different history, and the difference is why this is not
+    // folded into the branch above: a superseded version served traffic first,
+    // a displaced one never did. Returning here also stops the watch from
+    // sitting out the full deploy timeout on a deployment whose outcome is
+    // already settled — which is the whole complaint this status answers.
+    if (deployment.status === "DISPLACED") return { kind: "displaced", deployment };
 
     if (deployment.status === "AWAITING_APPROVAL") {
       const approval = await io.readApproval();
@@ -320,6 +328,17 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
       console.log(
         color.yellow("!") +
           ` v${String(outcome.deployment.versionNumber)} was superseded by a newer deployment — it will never go live.`
+      );
+      return 1;
+
+    case "displaced":
+      // Says "never went live", not "was superseded". Both end the watch the
+      // same way, but only one of them served, and someone reading this line is
+      // deciding whether anything needs looking at. Not "never started" — a
+      // deploy already handed to the executor may have started before it lost.
+      console.log(
+        color.yellow("!") +
+          ` v${String(outcome.deployment.versionNumber)} never went live — a newer deployment took over first. Nothing was interrupted.`
       );
       return 1;
 

@@ -2454,8 +2454,9 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
     console.log(color.green("✓") + " Already deploying this commit — reusing it");
     console.log(
       color.dim(
-        "  Nothing new was started: a second deployment of one commit takes the first's\n" +
-          "  slot and fails it by timeout. Use --force-rebuild to build this commit again."
+        "  Nothing new was started: an app rolls out one deployment at a time, so a second\n" +
+          "  one for the same commit leaves the first unplaced and it fails on the health\n" +
+          "  timeout. Use --force-rebuild to build this commit again."
       )
     );
   } else {

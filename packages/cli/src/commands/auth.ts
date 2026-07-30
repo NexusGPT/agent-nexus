@@ -43,6 +43,35 @@ function isCrossOrgToken(apiKey: string): boolean {
   );
 }
 
+/** Why `nexus auth use-org` cannot proceed, or `null` when it can. */
+export type UseOrgRefusal = "org-scoped-key" | "env-override" | null;
+
+/**
+ * Decide whether `use-org` can run, in PRECEDENCE order. Extracted and exported
+ * because the order IS the behaviour and is otherwise unreachable from a test.
+ *
+ * Being bound to one organization outranks the env-override complaint. An
+ * org-scoped key told "use the NEXUS_ORGANIZATION_ID env var instead" would be
+ * sent down a path that cannot work: the server refuses a mismatched org with
+ * `ORG_SCOPED_KEY_ORG_MISMATCH` rather than quietly answering from the key's own
+ * org (NEX-3175). Its real remedy — obtain a personal token — is the same with or
+ * without an override, so it is reported first.
+ */
+export function classifyUseOrgRefusal(input: {
+  apiKey: string;
+  personalToken?: boolean;
+  source: string;
+}): UseOrgRefusal {
+  const isPersonalToken = input.personalToken === true || isCrossOrgToken(input.apiKey);
+  if (!isPersonalToken) {
+    return "org-scoped-key";
+  }
+  if (input.source === "override") {
+    return "env-override";
+  }
+  return null;
+}
+
 interface UserOrganization {
   organizationId: string;
   name: string | null;
@@ -763,30 +792,31 @@ Notes:
         return;
       }
 
-      if (resolved.source === "override") {
-        console.error(
-          color.red("Error:") +
-            " Cannot set an active org for an --api-key / NEXUS_API_KEY override. " +
-            "Use the NEXUS_ORGANIZATION_ID env var instead."
-        );
-        process.exitCode = 1;
-        return;
-      }
+      // The prefix is the authoritative signal for "org-scoped" (the stored flag
+      // may be absent on a manually-added or older-config profile). Precedence
+      // lives in classifyUseOrgRefusal, which documents why.
+      const refusal = classifyUseOrgRefusal({
+        apiKey: resolved.profile.apiKey,
+        personalToken: resolved.profile.personalToken,
+        source: resolved.source
+      });
 
-      // Only org-unbound tokens honor the organization-id header server-side. An
-      // org-scoped key is permanently bound to its key's org, so switching the
-      // profile's active org would silently do nothing — refuse rather than
-      // report a success that doesn't take effect. The prefix is the
-      // authoritative signal (the stored flag may be absent on a manually-added
-      // or older-config profile).
-      const isPersonalToken =
-        resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey);
-      if (!isPersonalToken) {
+      if (refusal === "org-scoped-key") {
         console.error(
           color.red("Error:") +
             ` Profile "${resolved.name}" uses an organization-scoped key, which is bound to a ` +
             "single organization and cannot switch. Create a personal token to act across orgs: " +
             "Settings → API Keys → Personal Tokens, then `nexus auth login`."
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      if (refusal === "env-override") {
+        console.error(
+          color.red("Error:") +
+            " Cannot set an active org for an --api-key / NEXUS_API_KEY override. " +
+            "Use the NEXUS_ORGANIZATION_ID env var instead."
         );
         process.exitCode = 1;
         return;

@@ -60,8 +60,13 @@ export interface NexusClientOptions {
    * Organization to act on when authenticating with a personal (cross-org)
    * token — a single token usable across every org the user belongs to. Sent
    * as the `organization-id` header on every request. Falls back to the
-   * `NEXUS_ORGANIZATION_ID` env var. Ignored for org-scoped keys, which carry
-   * their own organization. See NEX-2474.
+   * `NEXUS_ORGANIZATION_ID` env var. See NEX-2474.
+   *
+   * An ORG-SCOPED key carries its own organization and cannot select another:
+   * this value is accepted while it matches that org, and a mismatch is refused
+   * with `ORG_SCOPED_KEY_ORG_MISMATCH` (403) rather than served from the key's
+   * own org, so a request about one tenant can never be answered with another
+   * tenant's data (NEX-3175).
    */
   organizationId?: string;
 

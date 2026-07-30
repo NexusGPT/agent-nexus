@@ -60,14 +60,23 @@ export interface ConversationSummary {
   updatedAt: string;
 }
 
-export type SatisfactionFramework = "LEGACY_5_STAR" | "NPS" | "CSAT" | "AI_PASSIVE" | "CUSTOM";
+export type SatisfactionFramework =
+  | "THUMBS"
+  | "LEGACY_5_STAR"
+  | "NPS"
+  | "CSAT"
+  | "AI_PASSIVE"
+  | "CUSTOM";
 export type SatisfactionSource = "CUSTOMER_PROMPTED" | "AI_PASSIVE" | "LEGACY";
 
 export interface SatisfactionScore {
   id: string;
   framework: SatisfactionFramework;
   source: SatisfactionSource;
-  /** Framework-aware integer (NPS 0-10, CSAT 1-5, AI_PASSIVE 1-5, LEGACY_5_STAR 1-5). */
+  /**
+   * Framework-aware integer: THUMBS -1..1, LEGACY_5_STAR 1-5, NPS 0-10,
+   * CSAT 1-5, AI_PASSIVE 1-5, CUSTOM open.
+   */
   rawScore: number;
   /** Legacy float score — kept for compatibility with pre-framework readers. */
   score: number;

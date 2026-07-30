@@ -28,8 +28,14 @@ export function createClient(opts?: {
 
   // Personal (cross-org) tokens act on the profile's selected org via the
   // organization-id header. An explicit NEXUS_ORGANIZATION_ID env wins (headless),
-  // then the profile's orgId. Harmless for org-scoped keys (server ignores it for
-  // keys that carry their own org). See NEX-2474.
+  // then the profile's orgId. See NEX-2474.
+  //
+  // For an ORG-SCOPED key this header is accepted only while it names that key's
+  // own org — which is the ordinary case, since `auth login` stores orgId from the
+  // key itself. Naming a different org is refused by the server with
+  // ORG_SCOPED_KEY_ORG_MISMATCH rather than answered from the key's own org, so
+  // setting NEXUS_ORGANIZATION_ID to another tenant fails loudly instead of
+  // returning the wrong tenant's rows (NEX-3175).
   const organizationId = process.env.NEXUS_ORGANIZATION_ID || resolved.profile.orgId;
 
   return new NexusClient({

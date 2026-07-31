@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { setJsonMode } from "../output";
 import {
+  reportWatchOutcome,
   type WatchApprovalSnapshot,
   type WatchAppSnapshot,
   watchDeployment,
   type WatchDeploymentSnapshot,
   type WatchIo,
-  type WatchOptions
+  type WatchOptions,
+  type WatchOutcome
 } from "./vibe-watch";
 
 const OPTIONS: WatchOptions = {
@@ -24,6 +27,10 @@ const DEPLOYMENT = (status: string): WatchDeploymentSnapshot => ({
 
 const APP = (over: Partial<WatchAppSnapshot> = {}): WatchAppSnapshot => ({
   publicUrl: "https://greeter.acme.gpt.nexus",
+  // PRIVATE is the platform default, so it is the default here too: a fixture
+  // that defaulted PUBLIC would make the case operators actually hit the one
+  // the suite never exercises.
+  visibility: "PRIVATE",
   edgeReachability: "ROUTED",
   edgeReachabilityAt: null,
   edgeReachabilityDetail: null,
@@ -305,5 +312,80 @@ describe("watchDeployment", () => {
     );
     await watchDeployment(io, OPTIONS, (s) => seen.push(s));
     expect(seen).toEqual(["BUILDING", "DEPLOYING", "HEALTHY"]);
+  });
+});
+
+/**
+ * Capture what the reporter actually wrote to stdout. Asserting on the rendered
+ * text rather than on a return value is the point: the whole defect here is
+ * that a correct outcome was reported in words an operator then acted on
+ * wrongly, and only the words can show that.
+ */
+function captureReport(outcome: WatchOutcome, appId = "app-1"): { code: number; text: string } {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    return { code: reportWatchOutcome(outcome, appId), text: lines.join("\n") };
+  } finally {
+    console.log = original;
+  }
+}
+
+const SERVED = (app: WatchAppSnapshot): WatchOutcome => ({
+  kind: "served",
+  deployment: DEPLOYMENT("HEALTHY"),
+  app
+});
+
+describe("reportWatchOutcome — served", () => {
+  it("names the app's visibility, so a PRIVATE 401 is not read as a failed deploy", () => {
+    const { code, text } = captureReport(SERVED(APP({ visibility: "PRIVATE" })));
+    expect(code).toBe(0);
+    expect(text).toContain("Private");
+    expect(text).toContain("401");
+  });
+
+  it("says the 401 is by design and names two checks that work on a private app", () => {
+    const { text } = captureReport(SERVED(APP({ visibility: "PRIVATE" })), "app-42");
+    expect(text).toContain("by design");
+    // The token path and the API path — the two the platform actually answers.
+    expect(text).toContain("nexus vibe app edge-token app-42");
+    expect(text).toContain("servingDeployment.triggerSha");
+  });
+
+  it("never tells a private app's operator to read the build stamp off a bare curl", () => {
+    // The stamp middleware is chained AFTER the authorizer, and Traefik unwinds
+    // right-to-left, so a 401 carries no stamp. Offering `curl -sI` here would
+    // hand the reader a second absent signal to misread as a broken deploy.
+    const { text } = captureReport(SERVED(APP({ visibility: "PRIVATE" })));
+    expect(text).not.toContain("curl");
+    expect(text).not.toContain("X-Vibe-Deployment");
+  });
+
+  it("says a public app is open, and does not warn about a 401 that cannot happen", () => {
+    const { text } = captureReport(SERVED(APP({ visibility: "PUBLIC" })));
+    expect(text).toContain("Public");
+    expect(text).not.toContain("401");
+  });
+
+  it("says nothing about visibility when there is no public URL to reach", () => {
+    // No URL means nothing is exposed through the edge at all, so a note about
+    // who may reach it would describe a request nobody can make.
+    const { text } = captureReport(SERVED(APP({ publicUrl: null, visibility: "PRIVATE" })));
+    expect(text).toContain("in-cluster only");
+    expect(text).not.toContain("401");
+  });
+
+  it("keeps --json a single parseable document, with visibility carried on the app", () => {
+    setJsonMode(true);
+    try {
+      const { code, text } = captureReport(SERVED(APP({ visibility: "PRIVATE" })));
+      expect(code).toBe(0);
+      const parsed: unknown = JSON.parse(text);
+      expect(parsed).toMatchObject({ outcome: "served", app: { visibility: "PRIVATE" } });
+    } finally {
+      setJsonMode(false);
+    }
   });
 });

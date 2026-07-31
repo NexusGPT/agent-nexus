@@ -6,7 +6,8 @@
  * v1 scope: `audit list` (read the per-org audit feed), the `app` group
  * (create / list / get / update / delete / visibility / edge-token /
  * rotate-edge-token / register-as-tool), the `git-project` group (create /
- * list / get / reprovision / delete), `deploy` (trigger a deployment), and the
+ * list / get / clone / pull / reprovision / delete), `deploy` (trigger a
+ * deployment), and the
  * `deployments` group (list / get). Approval / template commands land in later
  * slices.
  *
@@ -32,6 +33,15 @@ import {
   VIBE_ALLOWED_REGIONS,
   type VibeTenantClusterStatus
 } from "../vibe-regions";
+import {
+  assertGitAvailable,
+  assertGitRepository,
+  buildCloneArgs,
+  buildPullArgs,
+  composeCloneUrl,
+  resolveCloneDirectory,
+  runGitWithCredential
+} from "./vibe-git-local";
 import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watch";
 
 // ============================================================
@@ -59,7 +69,8 @@ const AUDIT_EVENT_TYPES = [
   "DEPLOYMENT_REJECTED",
   "APPROVAL_EXPIRED",
   "COST_SAFETY_AUTO_SUSPENDED",
-  "DEPLOYMENT_ROLLED_BACK_COST_SAFETY"
+  "DEPLOYMENT_ROLLED_BACK_COST_SAFETY",
+  "DEPLOYMENT_SERVED"
 ] as const;
 type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 
@@ -101,12 +112,34 @@ interface AuditPayloadDeploymentRolledBack {
   suspendedReason: string | null;
 }
 
+/**
+ * The terminal "it is actually live" — written when the app's public URL was
+ * observed answering FROM this deployment.
+ *
+ * `DEPLOYMENT_HEALTHY` does not mean that and cannot: it is the allocation's
+ * verdict and lands before the edge swaps content, by up to whole minutes. This
+ * is the event to poll for after a `nexus vibe deploy`; polling HEALTHY reads
+ * the previous build and looks like the wrong code shipped.
+ */
+interface AuditPayloadDeploymentServed {
+  eventType: "DEPLOYMENT_SERVED";
+  vibeDeploymentId: string;
+  triggerSha: string;
+  imageRef: string;
+  color: "BLUE" | "GREEN";
+  /// Milliseconds from the healthy flip to this observation. An UPPER bound —
+  /// the probe samples on a tick, so it notices the swap some time after it
+  /// happened.
+  healthyToServedMs: number;
+}
+
 type AuditPayload =
   | AuditPayloadDeploymentTriggered
   | AuditPayloadApprovalDecision
   | AuditPayloadApprovalExpired
   | AuditPayloadCostSafetyAutoSuspended
-  | AuditPayloadDeploymentRolledBack;
+  | AuditPayloadDeploymentRolledBack
+  | AuditPayloadDeploymentServed;
 
 interface VibeAuditEvent {
   id: string;
@@ -170,12 +203,86 @@ interface VibeAppDto {
   updatedAt: string;
 }
 
-interface ListVibeAppsResponse {
-  apps: VibeAppDto[];
+/**
+ * Why an app can or cannot deploy right now — the ONE thing standing in the
+ * way, named. Mirrors `VibeAppDeployability` in
+ * packages/types/src/shared/domain/vibe/app-deployability.ts.
+ *
+ * DERIVED server-side from the git project that resolves for the app, never
+ * stored, so it cannot go stale. It is the one-field answer to "why does my
+ * URL do nothing": before it, an app with no source at all rendered exactly
+ * like a correctly-wired app nobody had pushed to yet.
+ */
+type VibeAppDeployability = "DEPLOYABLE" | "NO_SOURCE_ATTACHED" | "SOURCE_NOT_READY";
+
+/**
+ * A reference to one git project, as the app envelopes carry it. Mirrors
+ * `VibeAppGitProjectSummarySchema`, which is the single backend shape behind
+ * BOTH uses: the project attached to an app (`GetApp`), and the project that
+ * already holds a name a new app wanted (`CreateApp`).
+ */
+interface VibeAppGitProjectSummaryDto {
+  id: string;
+  name: string;
+  status: string;
 }
 
+/**
+ * `deployability` and `gitProject` sit BESIDE the app on every envelope that
+ * carries them, never on the app itself — deliberately, per
+ * `GetVibeAppResponseSchema`'s own comment: they are a join, and putting them
+ * on the app would oblige every producer of a `VibeApp` (including create,
+ * which has no project yet) to resolve one.
+ *
+ * So they are mixed in HERE rather than added to {@link VibeAppDto}, and the
+ * printer takes them as a separate argument.
+ */
+interface VibeAppEnvelopeExtras {
+  deployability: VibeAppDeployability;
+  gitProject: VibeAppGitProjectSummaryDto | null;
+}
+
+/**
+ * The list read carries the extras per item, because the grid must be able to
+ * mark an app that will never build without an N+1 of git-project fetches.
+ */
+type VibeAppListItemDto = VibeAppDto & VibeAppEnvelopeExtras;
+
+interface ListVibeAppsResponse {
+  apps: VibeAppListItemDto[];
+}
+
+/**
+ * Just the app — `UpdateVibeAppResponseSchema` exactly, and the base that
+ * CREATE and GET each extend in their own direction.
+ *
+ * Neither of those extensions carries `deployability`: create has no project
+ * yet, and update does not resolve one. Typing them as the richer get-response
+ * below would be a lie the CLI could then print as `undefined`.
+ */
 interface SingleVibeAppResponse {
   app: VibeAppDto;
+}
+
+/** `GET /api/vibe/apps/:id` — the app PLUS the joins only this read resolves. */
+type GetVibeAppResponse = SingleVibeAppResponse & VibeAppEnvelopeExtras;
+
+/**
+ * `app create`'s response. Mirrors `CreateVibeAppResponseSchema` — the same
+ * app, plus a warning the plain single-app reads have no reason to carry.
+ */
+interface CreateVibeAppResponse extends SingleVibeAppResponse {
+  /**
+   * A live git project in the org that already goes by this app's name. The app
+   * was still created — this is a heads-up that `provision-repo` will 409 on
+   * that name, and that `attach-repo` is what the caller almost certainly wants
+   * instead.
+   *
+   * Optional as well as nullable: a published CLI outlives the backend release
+   * it was built against, so an older server omits the key entirely. Absent and
+   * `null` both mean "no collision", and the print site treats them alike.
+   */
+  gitProjectNameCollision?: VibeAppGitProjectSummaryDto | null;
 }
 
 /**
@@ -1307,11 +1414,21 @@ function registerAppCommands(vibe: Command, program: Command): void {
     .action(async (appId: string) => {
       try {
         const opts = resolveTenantOpts(program);
-        const data = await tenantRequest<SingleVibeAppResponse>(opts, {
+        const data = await tenantRequest<GetVibeAppResponse>(opts, {
           method: "GET",
           path: `/api/vibe/apps/${encodeURIComponent(appId)}`
         });
-        printVibeApp(data.app);
+        // Only claim the joins when this server actually reported them. On a
+        // backend predating `deployability` the field is simply absent, and
+        // rendering `Source: none` from that would assert the app has no git
+        // project when nobody was asked — the exact conflation this ticket
+        // exists to remove, reintroduced one layer up.
+        printVibeApp(
+          data.app,
+          data.deployability === undefined
+            ? undefined
+            : { deployability: data.deployability, gitProject: data.gitProject ?? null }
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1396,6 +1513,11 @@ platform injects it on agent tool calls, so private apps are agent-tool-only.
 --public skips the token, so anyone with the URL reaches the app (a
 browser-viewable site / dashboard / docs / public webhook — no app auth).
 
+If a git project already goes by this name, the app is still created and a
+warning names it: "provision-repo" mints a project named after the app, so it
+would conflict on that name — use "attach-repo" to point the app at the
+project that already exists.
+
 Examples:
   $ nexus vibe app create stripe-handler
   $ nexus vibe app create orders-api --description "Order webhook handler"
@@ -1406,7 +1528,7 @@ Examples:
       try {
         const appName = resolveAppName(name);
         const opts = resolveTenantOpts(program);
-        const data = await tenantRequest<SingleVibeAppResponse>(opts, {
+        const data = await tenantRequest<CreateVibeAppResponse>(opts, {
           method: "POST",
           path: "/api/vibe/apps",
           body: {
@@ -1416,6 +1538,22 @@ Examples:
           }
         });
         printVibeApp(data.app);
+        // The app was created; this is the collision the operator would
+        // otherwise meet several commands later as a bare `provision-repo` 409.
+        //
+        // stderr, and unguarded by `isJsonMode()`, on purpose: stdout stays the
+        // bare app object a `--json` caller pipes into jq, while a human sees
+        // the warning either way. Writing it to stdout would corrupt that JSON.
+        if (data.gitProjectNameCollision) {
+          const p = data.gitProjectNameCollision;
+          console.error(
+            color.yellow(
+              `A git project named "${p.name}" (${p.status}) already exists in this organization.\n` +
+                `"provision-repo" mints a project named after the app, so it will conflict on that name. ` +
+                `Attach the existing one instead:\n  nexus vibe app attach-repo ${data.app.id} ${p.id}`
+            )
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1435,8 +1573,13 @@ neither gets a 401 — never a silent 404.
 public requires nothing at all. Anyone with the URL opens the app, and the
 app's access list stops gating anything until it is private again.
 
-Going private mints a FRESH edge token, so an app already registered as a
-tool must be re-registered to pick it up.
+Going private mints a FRESH edge token, so a tool already registered against
+this app keeps sending the old one and starts failing at the edge. Repair it
+by re-pointing that tool's auth ("external-tool update-auth"), NOT with
+"register-as-tool" — that refuses an app which already has a linked tool.
+
+Re-asserting the visibility an app already has is a no-op: no token is
+minted and nothing is re-published.
 
 Examples:
   $ nexus vibe app visibility 11111111-2222-4333-8444-555555555555 public
@@ -1453,29 +1596,108 @@ Examples:
           throw new Error(`Visibility must be "public" or "private", got "${mode}".`);
         }
 
+        const target = normalized === "public" ? "PUBLIC" : "PRIVATE";
         const opts = resolveTenantOpts(program);
+
+        // Read the CURRENT visibility before writing, purely so the output can
+        // tell a real flip from a no-op. `SetVibeAppVisibilityUseCase` is
+        // idempotent — re-asserting the visibility an app already has returns
+        // without touching anything — and a delay notice printed over that
+        // would describe a propagation that is not happening.
+        //
+        // Best-effort: a failed pre-read must not block the write the operator
+        // actually asked for, so it degrades to `null` and the notice is simply
+        // omitted rather than guessed.
+        let priorVisibility: "PRIVATE" | "PUBLIC" | null = null;
+        try {
+          const before = await tenantRequest<SingleVibeAppResponse>(opts, {
+            method: "GET",
+            path: `/api/vibe/apps/${encodeURIComponent(appId)}`
+          });
+          priorVisibility = before.app.visibility;
+        } catch {
+          priorVisibility = null;
+        }
+
         const data = await tenantRequest<SetVisibilityResponse>(opts, {
           method: "PATCH",
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/visibility`,
-          body: { visibility: normalized === "public" ? "PUBLIC" : "PRIVATE" }
+          body: { visibility: target }
         });
 
         if (isJsonMode()) {
           console.log(JSON.stringify(data, null, 2));
           return;
         }
+
+        // Something actually changed iff the visibility moved, OR a token was
+        // minted. The second half is not redundant: an app that is ALREADY
+        // private but carries no token gets its first one here (the use case's
+        // `needsFirstToken` exception), which the edge does begin enforcing —
+        // so visibility alone would report that real change as a no-op.
+        const tokenMinted = data.edgeToken !== null && data.edgeToken !== undefined;
+        const changed = priorVisibility !== target || tokenMinted;
+
+        if (!changed && priorVisibility !== null) {
+          console.log(color.dim(`App was already ${normalized} — nothing changed.`));
+          return;
+        }
+
         console.log(
           normalized === "public"
             ? color.green("App is now public — anyone with the URL can open it.")
             : color.green("App is now private — a sign-in or the app token is required.")
         );
+        // The flip is a WRITE, not an effect. What the edge enforces comes from
+        // the authz table the agent republishes each reconcile pass, so until
+        // that lands the edge is still applying the PREVIOUS visibility.
+        //
+        // Said for both directions, but it is `→ PRIVATE` that matters: an
+        // operator locking an app down is doing something they believe took
+        // effect on the return of this command, and for one pass it has not.
+        //
+        // Printed only when something really moved — see `changed` above.
+        //
+        // No duration is printed. The pass is `VIBE_AGENT_RECONCILE_INTERVAL_MS`
+        // (default 15s) and a tenant may run any value, so a number here would
+        // be this machine's default asserted as that tenant's behaviour.
+        console.log(
+          color.dim(
+            normalized === "public"
+              ? "  Not instant — until the tenant's edge picks up the change, callers without\n" +
+                  "  the token still get 401."
+              : "  Not instant — until the tenant's edge picks up the change, the app stays\n" +
+                  "  reachable to anyone with the URL."
+          )
+        );
         // The re-register warning is the one thing a user cannot recover from by
         // guessing: the old token silently stops working on a tool that looks
         // configured.
+        //
+        // `register-as-tool` is deliberately NOT offered as the remedy. It
+        // refuses an app that already has a linked tool (409, and this warning
+        // fires only when one is linked), and it requires an OpenAPI spec — so
+        // a literal copy-paste of it fails twice over. Re-pointing the EXISTING
+        // tool's auth is the operation that repairs this, and it is the one
+        // `register-as-tool` performed when it baked the token in.
         if (data.toolResyncRequired) {
           console.log(
             color.yellow(
-              "This app is registered as a tool. Re-register it — a fresh edge token was minted and the old one no longer works."
+              "This app is registered as a tool. A fresh edge token was minted and the old one no longer works."
+            )
+          );
+          console.log(
+            color.yellow("  Re-point the tool at the new token (register-as-tool cannot — it 409s")
+          );
+          console.log(color.yellow("  on an app that already has one):"));
+          console.log(color.dim(`    nexus vibe app edge-token ${appId}`));
+          console.log(color.dim("      → the new token, and the header name to send it in"));
+          console.log(color.dim(`    nexus --json vibe app get ${appId} | jq -r .linkedToolId`));
+          console.log(color.dim("      → the tool to repair"));
+          console.log(color.dim("    nexus external-tool update-auth <toolId> --body \\"));
+          console.log(
+            color.dim(
+              `      '{"type":"service_http","authorization_type":"custom","custom_header_name":"<header>","apiKey":"<token>"}'`
             )
           );
         }
@@ -1800,10 +2022,16 @@ Apps point at a project ("many apps → one project"), so one code store can
 back several apps watching different branches. "nexus vibe app provision-repo"
 is the app-centric shortcut that creates a project and attaches it in one step.
 
+"clone" and "pull" drive a real git on this machine, so a project is usable
+end-to-end from the CLI: clone it, commit, push with the remote that
+"git-credentials" prints, then pull the next change back.
+
 Examples:
   $ nexus vibe git-project create my-lib
   $ nexus vibe git-project list
   $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
+  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 ./my-lib
+  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555 ./my-lib
   $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555
 `
     );
@@ -1914,6 +2142,136 @@ Examples:
           path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}`
         });
         printVibeGitProject(data.gitProject);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  project
+    .command("clone <projectId> [directory]")
+    .description("Clone a git project onto this machine")
+    .option("--branch <branch>", "Branch to check out (default: the project's default branch).")
+    .addHelpText(
+      "after",
+      `
+Resolves the project, fetches your org's git credential, and runs a real
+"git clone" against your tenant's git host. The directory defaults to the
+project's name.
+
+The push token is NOT written into the clone's .git/config: it is passed to
+git through a temporary 0600 credential file that is deleted when the command
+returns, and "origin" is left as the plain token-free URL. Re-authenticate
+later with "git-project pull", which supplies a fresh token the same way.
+
+The project must be READY — a PENDING project has not materialized on the git
+host yet, and cloning it would fail inside git with a much worse message.
+
+Examples:
+  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555
+  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 ./shared-lib
+  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 --branch trunk
+`
+    )
+    .action(
+      async (projectId: string, directory: string | undefined, cmdOpts: { branch?: string }) => {
+        try {
+          assertGitAvailable();
+          const opts = resolveTenantOpts(program);
+
+          const projectData = await tenantRequest<StandaloneVibeGitProjectResponse>(opts, {
+            method: "GET",
+            path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}`
+          });
+          const gitProject = projectData.gitProject;
+          if (gitProject.status !== "READY") {
+            throw new Error(
+              `Git project "${gitProject.name}" is ${gitProject.status}, not READY — it has not materialized on your git host yet. Check "nexus vibe git-project get ${projectId}".`
+            );
+          }
+
+          const credentialData = await tenantRequest<GetGitCredentialsResponse>(opts, {
+            method: "GET",
+            path: "/api/vibe/git-credentials"
+          });
+
+          const target = resolveCloneDirectory(directory, gitProject.name);
+          const cloneUrl = composeCloneUrl(
+            credentialData.credentials.cloneUrlBase,
+            gitProject.name
+          );
+          const branch = cmdOpts.branch ?? gitProject.defaultBranch;
+
+          runGitWithCredential(credentialData.credentials, "clone", (credentialPath) =>
+            buildCloneArgs(credentialPath, cloneUrl, target, branch)
+          );
+
+          if (isJsonMode()) {
+            console.log(
+              JSON.stringify(
+                {
+                  gitProjectId: gitProject.id,
+                  name: gitProject.name,
+                  branch,
+                  directory: target,
+                  cloneUrl
+                },
+                null,
+                2
+              )
+            );
+            return;
+          }
+          console.log(`${color.green("✓")} Cloned ${gitProject.name}@${branch} into ${target}`);
+          console.log(
+            color.dim(`Update it later with: nexus vibe git-project pull ${projectId} ${target}`)
+          );
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
+
+  project
+    .command("pull <projectId> [directory]")
+    .description("Fast-forward an already-cloned git project")
+    .addHelpText(
+      "after",
+      `
+Runs "git pull --ff-only" in an existing clone, supplying a freshly-fetched
+credential so the pull keeps working after your push token rotates (the clone
+deliberately stores no token). The directory defaults to the current one.
+
+--ff-only is deliberate: a Vibe git project cloned locally is normally a mirror
+you build from, so a refusal telling you the branch diverged is a better
+outcome than a merge commit created behind your back. Resolve a divergence
+yourself, then re-run.
+
+Examples:
+  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555
+  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555 ./shared-lib
+`
+    )
+    .action(async (projectId: string, directory: string | undefined) => {
+      try {
+        assertGitAvailable();
+        const target = directory?.trim() ? directory.trim() : ".";
+        assertGitRepository(target);
+
+        const opts = resolveTenantOpts(program);
+        const credentialData = await tenantRequest<GetGitCredentialsResponse>(opts, {
+          method: "GET",
+          path: "/api/vibe/git-credentials"
+        });
+
+        runGitWithCredential(credentialData.credentials, "pull", (credentialPath) =>
+          buildPullArgs(credentialPath, target)
+        );
+
+        if (isJsonMode()) {
+          console.log(JSON.stringify({ gitProjectId: projectId, directory: target }, null, 2));
+          return;
+        }
+        console.log(`${color.green("✓")} Pulled ${target} (fast-forward only)`);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -2613,6 +2971,11 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
     id: a.id,
     name: a.name,
     deployBranch: a.deployBranch,
+    // Compact on purpose — a table cell, where `app get` has room for the fix.
+    // It earns its column by separating the two apps that render identically in
+    // every other one: the app nobody has pushed to, and the app that has no
+    // source to push to.
+    source: formatDeployabilityCell(a.deployability),
     approvals: a.requireApprovals ? color.yellow("required") : color.dim("off"),
     publicUrl: a.publicUrl ?? color.dim("—"),
     createdAt: formatTimestamp(a.createdAt)
@@ -2622,23 +2985,110 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
     { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "deployBranch", label: "Deploy" },
+    { key: "source", label: "Source" },
     { key: "approvals", label: "Approvals" },
     { key: "publicUrl", label: "URL" },
     { key: "createdAt", label: "Created" }
   ]);
 }
 
-function printVibeApp(app: VibeAppDto): void {
+/**
+ * The table-cell rendering of {@link formatDeployability} — same three states,
+ * no remedy text. A cell cannot carry the fix, so `app get` does.
+ *
+ * `DEPLOYABLE` is dim and the two failures are coloured: in a fleet listing,
+ * the working rows are the background and the broken ones are what the eye
+ * should catch.
+ */
+export function formatDeployabilityCell(deployability: VibeAppDeployability): string {
+  if (deployability === "DEPLOYABLE") return color.dim("ready");
+  if (deployability === "NO_SOURCE_ATTACHED") return color.red("no source");
+  if (deployability === "SOURCE_NOT_READY") return color.yellow("not ready");
+  // Absent, not unknown — see `formatDeployability`. A dash is the table's
+  // existing vocabulary for "this server did not say".
+  return color.dim("—");
+}
+
+/**
+ * One line saying whether this app can deploy at all, and what to do when it
+ * cannot.
+ *
+ * `NO_SOURCE_ATTACHED` is red rather than dim because it is the state that used
+ * to be invisible: an app with no git project renders `Edge: not checked yet`
+ * and `Public URL: …` exactly like a wired app nobody has pushed to, so an
+ * operator asking "why does my URL do nothing" got no answer from this command
+ * at all. The two failing values name DIFFERENT fixes — attach a project, or
+ * wait for / repair the one already attached — which is the whole reason the
+ * enum has three values instead of a boolean.
+ */
+export function formatDeployability(
+  deployability: VibeAppDeployability,
+  gitProject: VibeAppGitProjectSummaryDto | null
+): string {
+  if (deployability === "DEPLOYABLE") {
+    return color.green("deployable") + color.dim(" — a push to the deploy branch builds");
+  }
+  if (deployability === "NO_SOURCE_ATTACHED") {
+    return (
+      color.red("no source attached") +
+      color.dim(" — nothing to build; attach one with `vibe app attach-repo`")
+    );
+  }
+  if (deployability === "SOURCE_NOT_READY") {
+    return (
+      color.yellow("source not ready") +
+      color.dim(
+        gitProject === null || gitProject === undefined
+          ? " — the attached git project is not READY"
+          : ` — git project "${gitProject.name}" is ${gitProject.status}`
+      )
+    );
+  }
+  // An if-chain with a fallback rather than an exhaustive switch, and the
+  // reason is version skew, not style: this CLI ships standalone to npm and is
+  // routinely pointed at a backend older than itself. `deployability` is a
+  // recent field, so it can be genuinely absent on the wire, and a switch the
+  // compiler believes is exhaustive would return `undefined` and print it. The
+  // same reflex is already visible three times in this file as
+  // `data.gitProject ?? data.repository`, and once next door as
+  // `edgeReachability`'s "last check was inconclusive".
+  return color.dim("not reported by this server");
+}
+
+function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
   if (isJsonMode()) {
-    console.log(JSON.stringify(app, null, 2));
+    // Merged rather than nested: this command has always printed the app at the
+    // top level, so `{ ...app }` keeps every existing key exactly where a script
+    // already reads it and the joins arrive as purely additive siblings.
+    console.log(JSON.stringify({ ...app, ...extras }, null, 2));
     return;
   }
 
   const q = app.resourceQuotas;
-  printRecord(app as unknown as Record<string, unknown>, [
+  printRecord({ ...app, ...extras } as unknown as Record<string, unknown>, [
     { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "deployBranch", label: "Deploy branch" },
+    // Only when the envelope actually carried them. CREATE and UPDATE answer
+    // with a bare `{ app }`, and printing "Source: —" there would assert the app
+    // has no git project when the read simply never asked.
+    ...(extras === undefined
+      ? []
+      : [
+          {
+            key: "gitProject",
+            label: "Source",
+            format: () =>
+              extras.gitProject === null
+                ? color.dim("none")
+                : `${extras.gitProject.name} (${extras.gitProject.status})`
+          },
+          {
+            key: "deployability",
+            label: "Deployability",
+            format: () => formatDeployability(extras.deployability, extras.gitProject)
+          }
+        ]),
     {
       key: "requireApprovals",
       label: "Approvals",
@@ -3014,6 +3464,14 @@ function formatPayloadDetails(payload: AuditPayload): string {
         ? ` reason="${truncate(payload.suspendedReason, 40)}"`
         : "";
       return `prior=${payload.priorStatus}${reason}`;
+    }
+    case "DEPLOYMENT_SERVED": {
+      const sha = payload.triggerSha.slice(0, 7);
+      // The lag is the whole point of this event, so it is printed even though
+      // it is the third field: a reader watching a deploy wants to know how far
+      // behind the healthy flip the edge actually was.
+      const lag = `+${Math.round(payload.healthyToServedMs / 1000)}s`;
+      return `sha=${sha} ${payload.color.toLowerCase()} ${lag}`;
     }
   }
 }

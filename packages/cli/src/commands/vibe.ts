@@ -29,6 +29,10 @@ import { handleError } from "../errors";
 import { color, isJsonMode, printPaginationMeta, printRecord, printTable } from "../output";
 import { type TenantHttpOptions, tenantRequest } from "../util/tenant-http";
 import {
+  VIBE_AUDIT_EVENT_TYPES,
+  type VibeAuditEventType
+} from "../vibe-audit-event-types.generated";
+import {
   isVibeAllowedRegion,
   VIBE_ALLOWED_REGIONS,
   type VibeTenantClusterStatus
@@ -63,19 +67,8 @@ import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watc
  */
 const VIBE_DEFAULT_CONTAINER_PORT = 8080;
 
-const AUDIT_EVENT_TYPES = [
-  "DEPLOYMENT_TRIGGERED",
-  "DEPLOYMENT_APPROVED",
-  "DEPLOYMENT_REJECTED",
-  "APPROVAL_EXPIRED",
-  "COST_SAFETY_AUTO_SUSPENDED",
-  "DEPLOYMENT_ROLLED_BACK_COST_SAFETY",
-  "DEPLOYMENT_SERVED"
-] as const;
-type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
-
-function isAuditEventType(v: string): v is AuditEventType {
-  return (AUDIT_EVENT_TYPES as readonly string[]).includes(v);
+function isAuditEventType(v: string): v is VibeAuditEventType {
+  return (VIBE_AUDIT_EVENT_TYPES as readonly string[]).includes(v);
 }
 
 interface AuditPayloadDeploymentTriggered {
@@ -133,13 +126,38 @@ interface AuditPayloadDeploymentServed {
   healthyToServedMs: number;
 }
 
-type AuditPayload =
+/** The event types this file declares a payload interface for. */
+type ModelledAuditPayload =
   | AuditPayloadDeploymentTriggered
   | AuditPayloadApprovalDecision
   | AuditPayloadApprovalExpired
   | AuditPayloadCostSafetyAutoSuspended
   | AuditPayloadDeploymentRolledBack
   | AuditPayloadDeploymentServed;
+
+/**
+ * Every OTHER event type the feed emits — 28 of the 34, at the time of
+ * writing — whose payload this file does not mirror field by field.
+ *
+ * They are not hypothetical and never were: the feed has always returned them
+ * and `vibe audit list` has always printed them. Leaving them out of the union
+ * did not keep them out of the output, it only left the printer believing the
+ * `switch` below was exhaustive — so an unmodelled row fell off the end of
+ * every `case` and printed the literal string `undefined` in its details
+ * column.
+ *
+ * Modelling them as a rest arm rather than 28 more interfaces is deliberate.
+ * The interfaces above exist because their fields are rendered SPECIFICALLY;
+ * these are rendered generically by `formatUnmodelledDetails`, so an interface
+ * per type would be 28 declarations no reader consults and no code narrows on.
+ * Promote one the moment its details column deserves its own `case`.
+ */
+interface AuditPayloadUnmodelled {
+  eventType: Exclude<VibeAuditEventType, ModelledAuditPayload["eventType"]>;
+  [field: string]: unknown;
+}
+
+type AuditPayload = ModelledAuditPayload | AuditPayloadUnmodelled;
 
 interface VibeAuditEvent {
   id: string;
@@ -185,6 +203,7 @@ interface VibeAppDto {
   name: string;
   description: string | null;
   requireApprovals: boolean;
+  requireVerification: boolean;
   deployBranch: string;
   resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
   healthCheckConfig: Record<string, unknown>;
@@ -1065,6 +1084,17 @@ prints the credential fields at the top level:
   $ host="\${base#https://}"
   $ git push "https://$user:$tok@\${host}<repo>.git" HEAD:main
 
+That push succeeds against a repo you have already pushed to. It does NOT
+succeed as your very FIRST push from a local repo you started yourself: every
+project's repo is created with an initial commit already on it, so your first
+push is a non-fast-forward and git rejects it with a bare "fetch first".
+
+Nothing on the git host can explain that rejection when it happens — git
+decides it locally, on your machine, and never contacts the server. So take
+one of these instead:
+  $ nexus vibe git-project clone <projectId>          # start from the repo
+  $ git fetch origin && git rebase origin/<branch>    # keep local work you have
+
 The pushToken is a LIVE SECRET — it grants git push to your repos. Treat the
 whole payload as sensitive (don't paste it into shared logs).
 
@@ -1116,6 +1146,16 @@ function printGitCredentials(creds: VibeGitCredentialsDto): void {
   console.log(`${color.dim("Authenticated remote base (append <repo>.git):")}`);
   console.log(`  ${authedBase}`);
   console.log(color.dim("The push token is a live secret — keep it out of shared logs."));
+  console.log("");
+  // The last surface before a push, and therefore the last chance to say this:
+  // the rejection itself is client-side, so no hook on the git host can carry
+  // the cause. Whoever skipped the provisioning output still passes through here.
+  console.log(
+    color.yellow('Repos are created seeded, so a virgin first push is rejected with "fetch first".')
+  );
+  console.log(
+    color.dim("Clone the project (nexus vibe git-project clone <id>), or rebase onto it first.")
+  );
 }
 
 // ============================================================
@@ -1135,6 +1175,10 @@ function registerDeployCommand(vibe: Command, program: Command): void {
     .option(
       "--force-rebuild",
       "Build this sha again instead of reusing the image already in the registry."
+    )
+    .option(
+      "--skip-verification",
+      "Ship even though the app requires its verification artifacts to be green."
     )
     .addHelpText(
       "after",
@@ -1165,18 +1209,38 @@ sha will ever have — which makes a redeploy free, and made a sha built
 badly once impossible to correct without an empty commit. Use it after a
 builder or base-image fix; it costs a full build, so it is not the default.
 
+--skip-verification ships past the server-side gate on an app that has
+verification turned on. Without it, such a deploy is REFUSED after its
+build succeeds if the repo's declared artifacts (docs/feature-manifest.md,
+docs/DESIGN.md, docs/SPEC.md, journeys/.last-pass, docs/COVERAGE.md) are
+missing at the deployed commit, or if COVERAGE.md records a FAIL/BLOCKED
+journey. The refusal is terminal FAILED and names the artifacts.
+
+It is a DELIBERATE, RECORDED bypass, not a quiet one: it writes a
+DEPLOYMENT_VERIFICATION_OVERRIDDEN audit row naming you and the commit. On
+an app that does not require verification it changes nothing and records
+nothing. Nothing is rebuilt either way — the gate runs after the build, so
+the image already exists and an override ships it as-is.
+
 Examples:
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --watch
   $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --force-rebuild
+  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --skip-verification
 `
     )
     .action(
       async (
         appId: string,
-        cmdOpts: { sha: string; confirmOverage?: boolean; watch?: boolean; forceRebuild?: boolean }
+        cmdOpts: {
+          sha: string;
+          confirmOverage?: boolean;
+          watch?: boolean;
+          forceRebuild?: boolean;
+          skipVerification?: boolean;
+        }
       ) => {
         try {
           const triggerSha = resolveTriggerSha(cmdOpts.sha);
@@ -1188,11 +1252,16 @@ Examples:
             triggerSha,
             // The hint has to name the command the operator actually ran. A
             // re-run that silently drops --force-rebuild would deploy the
-            // reused image they asked to replace and look like it worked.
+            // reused image they asked to replace and look like it worked —
+            // and one that drops --skip-verification would be refused by the
+            // gate the operator just chose to pass.
             `nexus vibe deploy ${appId} --sha ${cmdOpts.sha}` +
-              `${cmdOpts.forceRebuild === true ? " --force-rebuild" : ""} --confirm-overage`,
+              `${cmdOpts.forceRebuild === true ? " --force-rebuild" : ""}` +
+              `${cmdOpts.skipVerification === true ? " --skip-verification" : ""}` +
+              ` --confirm-overage`,
             cmdOpts.confirmOverage === true,
-            cmdOpts.forceRebuild === true
+            cmdOpts.forceRebuild === true,
+            cmdOpts.skipVerification === true
           );
           // Nothing was created — declined, no TTY to ask, or the org's state
           // moved mid-flight. Nothing to watch, and it must not exit clean.
@@ -1285,6 +1354,10 @@ function registerRollbackCommand(vibe: Command, program: Command): void {
     .description("Roll an app back to its previous healthy version")
     .option("--to <sha>", "Redeploy this specific commit sha instead of the previous version.")
     .option(
+      "--skip-verification",
+      "With --to: ship even though the app requires its verification artifacts to be green."
+    )
+    .option(
       "--confirm-overage",
       "Only with --to: confirm the redeploy may exceed the org's usage soft limit."
     )
@@ -1315,7 +1388,12 @@ Examples:
     .action(
       async (
         appId: string,
-        cmdOpts: { to?: string; confirmOverage?: boolean; watch?: boolean }
+        cmdOpts: {
+          to?: string;
+          confirmOverage?: boolean;
+          watch?: boolean;
+          skipVerification?: boolean;
+        }
       ) => {
         try {
           const opts = resolveTenantOpts(program);
@@ -1333,8 +1411,19 @@ Examples:
               opts,
               appId,
               triggerSha,
-              `nexus vibe rollback ${appId} --to ${cmdOpts.to} --confirm-overage`,
-              cmdOpts.confirmOverage === true
+              `nexus vibe rollback ${appId} --to ${cmdOpts.to}` +
+                `${cmdOpts.skipVerification === true ? " --skip-verification" : ""}` +
+                ` --confirm-overage`,
+              cmdOpts.confirmOverage === true,
+              // A `--to` rollback is an ordinary redeploy, so it meets the ship
+              // gate like any other. Exposed here because the commit being
+              // rolled BACK to is old and may predate the artifacts the app now
+              // requires — refusing the recovery lever during an incident is
+              // the wrong failure. The plain `rollback` (no --to) restores a
+              // SUPERSEDED deployment without a build and never meets the gate
+              // at all.
+              false,
+              cmdOpts.skipVerification === true
             );
             if (data === null) {
               process.exitCode = 1;
@@ -1443,6 +1532,10 @@ function registerAppCommands(vibe: Command, program: Command): void {
     )
     .option("--description <text>", "Set the app description.")
     .option("--require-approvals <bool>", "Gate prod deploys behind approval. One of: true, false.")
+    .option(
+      "--require-verification <bool>",
+      "Refuse deploys whose declared verification artifacts are missing or red. One of: true, false."
+    )
     .option(
       "--resource-quotas <json>",
       'Full Nomad quotas object, e.g. \'{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}\'. Replaces the whole object.'
@@ -1908,6 +2001,11 @@ unless you are wiring the project up by other means.
 Provisioning an app that already has a git project returns 409. If a
 project's provisioning FAILED, use "reprovision-repo" to retry it.
 
+The repo is created SEEDED — it carries an initial commit before you push
+anything — so a first push from a local repo you started yourself is rejected
+with a bare "fetch first". Clone the project instead, or rebase your local
+work onto it; the command's output prints both forms.
+
 Examples:
   $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url file:///tmp/my-repo
   $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url https://github.com/acme/svc.git
@@ -1924,7 +2022,7 @@ Examples:
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository`,
           body: { gitRemoteUrl: cmdOpts.gitUrl }
         });
-        printVibeGitProject(data.gitProject ?? data.repository);
+        printVibeGitProject(data.gitProject ?? data.repository, { freshlyProvisioned: true });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1995,7 +2093,7 @@ Examples:
           method: "POST",
           path: `/api/vibe/apps/${encodeURIComponent(appId)}/repository/reprovision`
         });
-        printVibeGitProject(data.gitProject ?? data.repository);
+        printVibeGitProject(data.gitProject ?? data.repository, { freshlyProvisioned: true });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -2056,6 +2154,11 @@ The project lands in PENDING and your tenant materializes the repository
 shortly after; "get" shows it flip to READY. (A project only materializes once
 your tenant's git host is healthy — until then it simply stays PENDING.)
 
+That repository is created SEEDED — it carries an initial commit before you
+push anything — so a first push from a local repo you started yourself is
+rejected with a bare "fetch first". Clone the project instead, or rebase your
+local work onto it; the command's output prints both forms.
+
 The name is taken within your org while the project lives, so creating a second
 project by that name returns 409 — as does an app trying to provision its own
 repo under it. Release the name with "git-project delete" when you no longer
@@ -2083,7 +2186,7 @@ Examples:
               gitRemoteUrl: cmdOpts.gitUrl
             }
           });
-          printVibeGitProject(data.gitProject);
+          printVibeGitProject(data.gitProject, { freshlyProvisioned: true });
         } catch (err) {
           process.exitCode = handleError(err);
         }
@@ -2301,7 +2404,7 @@ Examples:
           method: "POST",
           path: `/api/vibe/git-projects/${encodeURIComponent(projectId)}/reprovision`
         });
-        printVibeGitProject(data.gitProject);
+        printVibeGitProject(data.gitProject, { freshlyProvisioned: true });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -2371,7 +2474,7 @@ function registerAuditCommands(vibe: Command, program: Command): void {
     )
     .option(
       "--type <eventType>",
-      `Filter to a single event type. One of: ${AUDIT_EVENT_TYPES.join(", ")}.`
+      `Filter to a single event type. ${VIBE_AUDIT_EVENT_TYPES.length} values — listed under "Event types" below.`
     )
     .option("--limit <n>", "Page size, 1-100. Default 50.", "50")
     .option("--cursor <opaque>", "Cursor from a prior page's `nextCursor`. First-page calls omit.")
@@ -2382,8 +2485,16 @@ Examples:
   $ nexus vibe audit list
   $ nexus vibe audit list --limit 20
   $ nexus vibe audit list --type DEPLOYMENT_TRIGGERED --app 11111111-2222-4333-8444-555555555555
+  $ nexus vibe audit list --type DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK --app <appId>
   $ nexus vibe audit list --cursor "2026-05-25T12:00:00.000Z|abc…"
   $ nexus vibe audit list --json | jq '.events[]'
+
+Event types (--type takes exactly one):
+${formatEventTypeHelp()}
+  A deploy watcher polls the terminal states: DEPLOYMENT_SERVED (live and
+  serving), DEPLOYMENT_HEALTHY (allocation healthy, edge not yet swapped),
+  DEPLOYMENT_FAILED, DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK, BUILD_JOB_FAILED.
+  This list is generated from the schema, so it never lags the feed.
 
 Output:
   Human mode prints a table with the most-load-bearing field per
@@ -2407,8 +2518,12 @@ Pagination:
       try {
         const limit = parseLimit(cmdOpts.limit);
         if (cmdOpts.type !== undefined && !isAuditEventType(cmdOpts.type)) {
+          // The full list, not a pointer to --help. The whole defect this
+          // guard once carried was an operator being told a real event type
+          // did not exist; a refusal that does not name the alternatives
+          // reproduces the same dead end one step later.
           throw new Error(
-            `Invalid --type "${cmdOpts.type}". Allowed: ${AUDIT_EVENT_TYPES.join(", ")}.`
+            `Invalid --type "${cmdOpts.type}". Allowed values:\n${formatEventTypeHelp()}`
           );
         }
 
@@ -2555,6 +2670,7 @@ function buildAppUpdateBody(cmdOpts: {
   deployBranch?: string;
   description?: string;
   requireApprovals?: string;
+  requireVerification?: string;
   resourceQuotas?: string;
   healthCheck?: string;
 }): Record<string, unknown> {
@@ -2564,6 +2680,9 @@ function buildAppUpdateBody(cmdOpts: {
   if (cmdOpts.requireApprovals !== undefined) {
     body.requireApprovals = parseBoolFlag(cmdOpts.requireApprovals, "--require-approvals");
   }
+  if (cmdOpts.requireVerification !== undefined) {
+    body.requireVerification = parseBoolFlag(cmdOpts.requireVerification, "--require-verification");
+  }
   if (cmdOpts.resourceQuotas !== undefined) {
     body.resourceQuotas = parseJsonFlag(cmdOpts.resourceQuotas, "--resource-quotas");
   }
@@ -2572,7 +2691,7 @@ function buildAppUpdateBody(cmdOpts: {
   }
   if (Object.keys(body).length === 0) {
     throw new Error(
-      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --resource-quotas, --health-check."
+      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --require-verification, --resource-quotas, --health-check."
     );
   }
   return body;
@@ -2722,16 +2841,19 @@ async function triggerDeploymentAnsweringOverage(
   triggerSha: string,
   rerun: string,
   confirmedUpfront: boolean,
-  forceRebuild = false
+  forceRebuild = false,
+  skipVerification = false
 ): Promise<Extract<TriggerDeploymentResponse, { status: "created" | "reused" }> | null> {
   const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
     tenantRequest<TriggerDeploymentResponse>(opts, {
       method: "POST",
       path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`,
-      // `forceRebuild` rides every send, including the post-confirmation one:
-      // the re-send is the SAME request answered, so dropping it there would
-      // silently deploy the reused image the operator asked to replace.
-      body: { triggerSha, confirmOverage, forceRebuild }
+      // `forceRebuild` and `skipVerification` ride EVERY send, including the
+      // post-confirmation one: the re-send is the SAME request answered, so
+      // dropping either there would silently change what the operator asked
+      // for — a reused image they wanted replaced, or a deploy refused by a
+      // gate they had already chosen to pass.
+      body: { triggerSha, confirmOverage, forceRebuild, skipVerification }
     });
 
   let data = await send(confirmedUpfront);
@@ -3094,6 +3216,13 @@ function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
       label: "Approvals",
       format: (v) => (v === true ? "required" : "off")
     },
+    {
+      key: "requireVerification",
+      label: "Ship gate",
+      // "off" rather than "not required": the gate being off is the default and
+      // says nothing about the repo's artifacts, which may well be green.
+      format: (v) => (v === true ? "artifacts must be green" : "off")
+    },
     { key: "description", label: "Description", format: (v) => (v === null ? "—" : String(v)) },
     { key: "publicUrl", label: "Public URL", format: (v) => (v === null ? "—" : String(v)) },
     {
@@ -3337,7 +3466,47 @@ function printDecisionResult(data: RecordApprovalDecisionResponse): void {
   printApprovalRequest(data.request);
 }
 
-function printVibeGitProject(project: VibeGitProjectDto): void {
+/**
+ * The seeded-repo first-push warning, and the two commands that work.
+ *
+ * A tenant repo is materialized with `auto_init`, so it already carries a commit
+ * before the operator has pushed anything. Their first push from a local repo
+ * they started themselves is a non-fast-forward, and git refuses it with a bare
+ * `fetch first` that names no cause: the operator's repo is missing a commit
+ * they never made and were never told about.
+ *
+ * This MUST be said before the push, because nothing can say it during one. A
+ * non-fast-forward is rejected CLIENT-SIDE — the pusher's own git compares the
+ * advertised ref against local history and aborts without sending a single
+ * packet, so no server-side hook runs. Not `post-receive`, and not a
+ * `pre-receive` hook either: the git host is never told a push was attempted,
+ * and therefore has nothing to annotate. Provisioning is the last moment at
+ * which the platform can speak at all, which is why the sentence lives here
+ * rather than in a hook.
+ */
+export function formatSeededRepoFirstPushHint(project: {
+  id: string;
+  defaultBranch: string;
+}): string {
+  return [
+    color.yellow("This project's repo is created with an initial commit already on it."),
+    `A first push from a local repo you started yourself is rejected with "fetch first".`,
+    "Start from the repo, or replay local work you already have onto it:",
+    `  nexus vibe git-project clone ${project.id}`,
+    `  git fetch origin && git rebase origin/${project.defaultBranch}`
+  ].join("\n");
+}
+
+/**
+ * `freshlyProvisioned` marks the commands that MINT or re-materialize the repo —
+ * the ones after which a first push is imminent. `attach-repo` and `get` pass it
+ * false: those speak about a project that already holds the operator's code, so
+ * the seeded-repo warning would be noise at best and wrong at worst.
+ */
+function printVibeGitProject(
+  project: VibeGitProjectDto,
+  opts: { freshlyProvisioned?: boolean } = {}
+): void {
   if (isJsonMode()) {
     console.log(JSON.stringify(project, null, 2));
     return;
@@ -3358,6 +3527,10 @@ function printVibeGitProject(project: VibeGitProjectDto): void {
   ]);
   console.log("");
   console.log(color.dim("To push to this project, run: nexus vibe git-credentials"));
+  if (opts.freshlyProvisioned === true) {
+    console.log("");
+    console.log(formatSeededRepoFirstPushHint(project));
+  }
 }
 
 function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
@@ -3420,13 +3593,85 @@ function formatTimestamp(iso: string): string {
   return stripped;
 }
 
-function colorizeEventType(t: AuditEventType): string {
-  if (t === "COST_SAFETY_AUTO_SUSPENDED" || t === "DEPLOYMENT_ROLLED_BACK_COST_SAFETY") {
-    return color.red(t);
+/**
+ * The event types, two per line, indented to sit under a help heading.
+ *
+ * Shared by `--help` and the `--type` refusal so the two cannot disagree
+ * about what is accepted — the disagreement being the defect: `--help`
+ * documented 6 values while the feed emitted types it did not list.
+ */
+function formatEventTypeHelp(): string {
+  const width = Math.max(...VIBE_AUDIT_EVENT_TYPES.map((t) => t.length));
+  const lines: string[] = [];
+  for (let i = 0; i < VIBE_AUDIT_EVENT_TYPES.length; i += 2) {
+    const pair = VIBE_AUDIT_EVENT_TYPES.slice(i, i + 2);
+    lines.push(`  ${pair.map((t) => t.padEnd(width)).join("  ")}`.trimEnd());
   }
-  if (t === "DEPLOYMENT_REJECTED" || t === "APPROVAL_EXPIRED") return color.yellow(t);
-  if (t === "DEPLOYMENT_APPROVED") return color.green(t);
-  return t;
+  return lines.join("\n");
+}
+
+/** How an event reads at a glance, driving only its colour in the table. */
+type AuditEventTone = "failure" | "warning" | "success" | "neutral";
+
+/**
+ * Every event type's tone. A `Record` rather than an if/else chain on
+ * purpose: adding a member to the Prisma enum regenerates
+ * `VIBE_AUDIT_EVENT_TYPES`, and this map then fails to typecheck until
+ * somebody classifies the new event.
+ *
+ * That is the same discipline the `--type` list now has, applied to the
+ * other half of the surface. A fallthrough default would have let a new
+ * failure event print in the same neutral grey as a routine one — legible,
+ * plausible, and wrong in the direction that hides an incident.
+ */
+const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
+  DEPLOYMENT_TRIGGERED: "neutral",
+  DEPLOYMENT_APPROVED: "success",
+  DEPLOYMENT_REJECTED: "warning",
+  APPROVAL_EXPIRED: "warning",
+  COST_SAFETY_AUTO_SUSPENDED: "failure",
+  COST_SAFETY_SOFT_LIMIT_WARNING: "warning",
+  COST_SAFETY_MANUALLY_SUSPENDED: "failure",
+  COST_SAFETY_MANUALLY_WARNED: "warning",
+  COST_SAFETY_MANUALLY_RESUMED: "success",
+  COST_SAFETY_SOFT_LIMIT_CLEARED: "success",
+  DEPLOYMENT_ROLLED_BACK_COST_SAFETY: "failure",
+  BUILD_JOB_SUCCEEDED: "success",
+  DEPLOYMENT_BUILD_SUCCEEDED: "success",
+  BUILD_JOB_FAILED: "failure",
+  DEPLOYMENT_FAILED: "failure",
+  BUILD_JOB_TIMED_OUT: "failure",
+  DEPLOYMENT_HEALTHY: "success",
+  DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK: "failure",
+  DEPLOYMENT_SUPERSEDED: "neutral",
+  DEPLOYMENT_DISPLACED: "neutral",
+  DEPLOYMENT_ROLLED_BACK_USER: "warning",
+  SECRET_VALUE_STAGED: "neutral",
+  SECRET_VALUE_WRITTEN: "neutral",
+  CAPACITY_REQUESTED: "neutral",
+  CAPACITY_APPROVED: "success",
+  CAPACITY_REJECTED: "warning",
+  CAPACITY_EXPIRED: "warning",
+  CAPACITY_GROWN: "success",
+  APP_EDGE_UNROUTED: "failure",
+  GIT_PUSH_NO_DEPLOY: "neutral",
+  DEPLOYMENT_SERVED: "success",
+  DEPLOYMENT_VERIFICATION_REFUSED: "failure",
+  DEPLOYMENT_VERIFICATION_OVERRIDDEN: "warning",
+  DEPLOYMENT_VERIFICATION_WARNED: "warning"
+};
+
+function colorizeEventType(t: VibeAuditEventType): string {
+  switch (AUDIT_EVENT_TONE[t]) {
+    case "failure":
+      return color.red(t);
+    case "warning":
+      return color.yellow(t);
+    case "success":
+      return color.green(t);
+    case "neutral":
+      return t;
+  }
 }
 
 /**
@@ -3438,8 +3683,11 @@ function colorizeEventType(t: AuditEventType): string {
  *   - COST_SAFETY_AUTO_SUSPENDED → usageType + breachedSum/cap + period
  *   - DEPLOYMENT_ROLLED_BACK_COST_SAFETY → priorStatus + reason
  *
- * Discriminated-union narrowing means an exhaustiveness gap would
- * surface as a TypeScript error here, not a silent runtime branch.
+ * Every other event type falls to `formatUnmodelledDetails`, which renders
+ * the fields it recognises generically. The `default` arm is what makes the
+ * column honest: the feed emits 34 types and this file names 7, so before it
+ * existed a DEPLOYMENT_FAILED row printed the literal string `undefined`
+ * where its reason belonged.
  */
 function formatPayloadDetails(payload: AuditPayload): string {
   switch (payload.eventType) {
@@ -3473,7 +3721,54 @@ function formatPayloadDetails(payload: AuditPayload): string {
       const lag = `+${Math.round(payload.healthyToServedMs / 1000)}s`;
       return `sha=${sha} ${payload.color.toLowerCase()} ${lag}`;
     }
+    default:
+      return formatUnmodelledDetails(payload);
   }
+}
+
+/**
+ * The fields worth showing from a payload with no `case` of its own, in the
+ * order a reader wants them: what failed, what it was doing, which commit.
+ *
+ * `errorReason` leads because on the events this most often renders —
+ * DEPLOYMENT_FAILED, DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK, BUILD_JOB_FAILED —
+ * it is the only field that answers why, and it is the field the operator
+ * came to the feed for.
+ */
+const UNMODELLED_DETAIL_FIELDS = [
+  "errorReason",
+  "reason",
+  "priorStatus",
+  "color",
+  "triggerSha"
+] as const;
+
+/**
+ * Render a payload the CLI does not model field by field.
+ *
+ * Reaching for `--json` is always the complete answer, and the dim hint says
+ * so. What this must not do is print nothing, or print `undefined`: the
+ * details column is where a reader scanning `vibe audit list` decides whether
+ * a row matters, and a blank one on DEPLOYMENT_FAILED reads as "no further
+ * information exists" rather than "this printer has no case for it".
+ */
+function formatUnmodelledDetails(payload: AuditPayloadUnmodelled): string {
+  const parts: string[] = [];
+  for (const field of UNMODELLED_DETAIL_FIELDS) {
+    const value = payload[field];
+    if (typeof value === "number") {
+      parts.push(`${field}=${value}`);
+      continue;
+    }
+    if (typeof value !== "string" || value === "") continue;
+    // Shas are long, opaque and only ever compared by their prefix; every
+    // other field is prose worth reading, so it is truncated rather than cut
+    // to a fixed width.
+    parts.push(
+      field === "triggerSha" ? `sha=${value.slice(0, 7)}` : `${field}="${truncate(value, 48)}"`
+    );
+  }
+  return parts.length === 0 ? color.dim("— use --json") : parts.join(" ");
 }
 
 function truncate(s: string, max: number): string {

@@ -735,7 +735,8 @@ export class SkillsResource extends BaseResource {
       displayName?: string;
       description?: string;
       k?: number;
-      reranker?: boolean;
+      /** Reranking model name — the same shape `createCollection` accepts. */
+      reranker?: string;
       preciseResponses?: boolean;
       includeMetadata?: boolean;
     }

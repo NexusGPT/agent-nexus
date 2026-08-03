@@ -16,8 +16,7 @@ import { BaseResource } from "./base-resource";
  * Accessed via `client.cloudImports`.
  *
  * Everything here works from a `connectionId`; no method takes or returns an
- * access token. The deprecated methods at the bottom of this class do, and they
- * reach endpoints that return fabricated data — see each one's note.
+ * access token. Connect an account through the app to obtain one.
  */
 export class CloudImportsResource extends BaseResource {
   /**
@@ -162,79 +161,5 @@ export class CloudImportsResource extends BaseResource {
     parentId?: string;
   }): Promise<ImportResult> {
     return this.import("notion", params);
-  }
-
-  // ==========================================================================
-  // Deprecated — these reach the original per-provider endpoints, which are
-  // served by a stub. The listings answer with no files whether or not files
-  // exist, and the token methods return a credential whose tokens are empty
-  // strings. The three imports that used to live here are gone: `import` above
-  // replaces them, and it really imports.
-  // ==========================================================================
-
-  /** @deprecated Returns a credential with empty tokens. Connect through the app instead. */
-  async googleDriveAuth(body: { code: string }): Promise<unknown> {
-    return this.http.request<unknown>("POST", "/documents/google-drive/auth", { body });
-  }
-
-  /** @deprecated Returns a credential with empty tokens. */
-  async googleDriveRefresh(body: { refreshToken: string }): Promise<unknown> {
-    return this.http.request<unknown>("POST", "/documents/google-drive/refresh", { body });
-  }
-
-  /** @deprecated Always returns no files. Use {@link browse} with a connectionId. */
-  async listGoogleDriveFiles(params: {
-    accessToken: string;
-    folderId?: string;
-    pageToken?: string;
-  }): Promise<unknown> {
-    return this.http.request<unknown>("GET", "/documents/google-drive/files", {
-      query: params as Record<string, string | undefined>
-    });
-  }
-
-  /** @deprecated Returns a credential with empty tokens. Connect through the app instead. */
-  async sharePointAuth(body: { code: string }): Promise<unknown> {
-    return this.http.request<unknown>("POST", "/documents/sharepoint/auth", { body });
-  }
-
-  /** @deprecated Returns a credential with empty tokens. */
-  async sharePointRefresh(body: { refreshToken: string }): Promise<unknown> {
-    return this.http.request<unknown>("POST", "/documents/sharepoint/refresh", { body });
-  }
-
-  /** @deprecated Always returns no sites. */
-  async listSharePointSites(params: { connectionId: string }): Promise<unknown> {
-    return this.http.request<unknown>("GET", "/documents/sharepoint/sites", {
-      query: params as Record<string, string>
-    });
-  }
-
-  /** @deprecated Always returns no files. Use {@link browse} with `siteId`. */
-  async listSharePointFiles(params: {
-    connectionId: string;
-    siteId: string;
-    folderId?: string;
-  }): Promise<unknown> {
-    return this.http.request<unknown>("GET", "/documents/sharepoint/files", {
-      query: params as Record<string, string | undefined>
-    });
-  }
-
-  /** @deprecated Returns a credential with empty tokens. Connect through the app instead. */
-  async notionAuth(body: { code: string }): Promise<unknown> {
-    return this.http.request<unknown>("POST", "/documents/notion/auth", { body });
-  }
-
-  /** @deprecated Always returns no pages. Use {@link search}. */
-  async searchNotion(params: {
-    connectionId: string;
-    query?: string;
-    filter?: string;
-    cursor?: string;
-  }): Promise<unknown> {
-    return this.http.request<unknown>("GET", "/documents/notion/search", {
-      query: params as Record<string, string | undefined>
-    });
   }
 }

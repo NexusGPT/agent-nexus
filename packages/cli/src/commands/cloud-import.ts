@@ -3,8 +3,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printRecord, printWarning } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { isJsonMode, printList, printWarning } from "../output";
 
 const PROVIDER_SLUGS: CloudImportProviderSlug[] = ["google-drive", "sharepoint", "notion"];
 
@@ -21,12 +20,6 @@ const IMPORTED_COLUMNS = [
   { key: "name", label: "NAME" },
   { key: "status", label: "STATUS" }
 ];
-
-/**
- * The stub endpoints answer with empty data rather than an error, so a caller
- * cannot tell "nothing there" from "not implemented". Say it out loud.
- */
-const STUB_WARNING = "This endpoint is not implemented and always answers with empty data.";
 
 function assertProvider(provider: string): CloudImportProviderSlug {
   if (!PROVIDER_SLUGS.includes(provider as CloudImportProviderSlug)) {
@@ -183,33 +176,12 @@ export function registerCloudImportCommands(program: Command): void {
     });
 
   // ==========================================================================
-  // Per-provider commands — the listings and imports below go through the
-  // provider-agnostic endpoints; the auth ones still reach stubs and say so.
+  // Per-provider commands — every one of these goes through the
+  // provider-agnostic endpoints. There is no OAuth command: connecting an
+  // account happens in the app, which is what produces a connection id.
   // ==========================================================================
 
   const gdrive = cloudImport.command("google-drive").description("Google Drive imports");
-
-  gdrive
-    .command("auth")
-    .description("[deprecated] Exchange OAuth code for Google Drive tokens")
-    .requiredOption("--code <code>", "OAuth authorization code")
-    .option("--body <json>", "Request body as JSON")
-    .action(async (opts) => {
-      try {
-        printWarning(
-          "cloud-import google-drive auth is not implemented.",
-          "It returns a credential whose tokens are empty strings.",
-          "Connect Google Drive in the app, then use --connection-id with `cloud-import browse`."
-        );
-        const client = createClient(program.optsWithGlobals());
-        const base = await resolveBody(opts.body);
-        const body = mergeBodyWithFlags(base, { code: opts.code });
-        const result = await client.cloudImports.googleDriveAuth(body as { code: string });
-        printRecord(result as Record<string, unknown>);
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
 
   gdrive
     .command("list-files")
@@ -279,23 +251,6 @@ export function registerCloudImportCommands(program: Command): void {
     });
 
   const sharepoint = cloudImport.command("sharepoint").description("SharePoint imports");
-
-  sharepoint
-    .command("list-sites")
-    .description("[deprecated] List SharePoint sites")
-    .requiredOption("--connection-id <id>", "SharePoint connection ID")
-    .action(async (opts) => {
-      try {
-        printWarning("cloud-import sharepoint list-sites is not implemented.", STUB_WARNING);
-        const client = createClient(program.optsWithGlobals());
-        const result = await client.cloudImports.listSharePointSites({
-          connectionId: opts.connectionId
-        });
-        printRecord(result as Record<string, unknown>);
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
 
   sharepoint
     .command("list-files")

@@ -32,6 +32,13 @@ export interface AdminHttpOptions {
 interface AdminRequestOptions {
   method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
+  /**
+   * Query string parameters. `undefined` values are DROPPED rather than sent
+   * empty, so an omitted CLI flag leaves the server's own default in force
+   * instead of overriding it with a blank string. Booleans + numbers coerce
+   * to string. Same contract as `tenant-http.ts`, which mirrors this file.
+   */
+  query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
 }
 
@@ -56,7 +63,14 @@ export async function adminRequest<T>(
 ): Promise<T> {
   const token = resolveAdminToken(opts);
   const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
-  const url = `${baseUrl}${req.path}`;
+  const parsedUrl = new URL(`${baseUrl}${req.path}`);
+  if (req.query) {
+    for (const [key, value] of Object.entries(req.query)) {
+      if (value === undefined) continue;
+      parsedUrl.searchParams.append(key, String(value));
+    }
+  }
+  const url = parsedUrl.toString();
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,

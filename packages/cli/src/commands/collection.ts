@@ -71,7 +71,8 @@ Examples:
           { key: "displayName", label: "Display Name" },
           { key: "description", label: "Description" },
           { key: "k", label: "k (results)" },
-          { key: "reranker", label: "Reranker", format: (v) => (v ? "yes" : "no") },
+          // A model name, not a toggle — "yes" hid WHICH reranker was set.
+          { key: "reranker", label: "Reranker", format: (v) => (v ? String(v) : "none") },
           { key: "documentCount", label: "Documents" }
         ]);
       } catch (err) {
@@ -128,15 +129,19 @@ Notes:
     .option("--display-name <name>", "Display name")
     .option("--description <text>", "Description")
     .option("--k <number>", "Number of results", parseInt)
-    .option("--reranker <bool>", "Enable reranker (true/false)")
+    .option("--reranker <model>", "Reranking model name")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus collection update col-123 --display-name "Updated FAQ"
-  $ nexus collection update col-123 --k 20 --reranker true
-  $ nexus collection update col-123 --body '{"displayName":"Updated"}'`
+  $ nexus collection update col-123 --k 20 --reranker zerank-1
+  $ nexus collection update col-123 --body '{"displayName":"Updated"}'
+
+Notes:
+  --reranker takes a reranking MODEL NAME, passed through to the retrieval
+  provider. It is not an on/off switch, and "--reranker true" is rejected.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -146,7 +151,7 @@ Examples:
         if (opts.displayName !== undefined) flags.displayName = opts.displayName;
         if (opts.description !== undefined) flags.description = opts.description;
         if (opts.k !== undefined) flags.k = opts.k;
-        if (opts.reranker !== undefined) flags.reranker = opts.reranker === "true";
+        if (opts.reranker !== undefined) flags.reranker = opts.reranker;
 
         const body = mergeBodyWithFlags(base, flags);
 

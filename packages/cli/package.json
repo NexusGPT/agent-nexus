@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.10.10",
+  "version": "0.13.0",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [
@@ -29,6 +29,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "gen:audit-types": "tsx scripts/generate-vibe-audit-event-types.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",
     "build": "tsup",
     "build:refresh-skills": "pnpm run gen:skills && tsup",

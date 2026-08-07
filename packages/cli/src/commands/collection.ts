@@ -1,9 +1,10 @@
+import type { CreateCollectionBody, UpdateCollectionBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { isJsonMode, printList, printRecord, printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseFilterPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
@@ -37,7 +38,7 @@ Examples:
           limit: opts.limit
         });
 
-        const items = (result as any).items ?? [];
+        const items = result.items ?? [];
         printTable(items, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 25 },
@@ -65,7 +66,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const col = await client.skills.getCollection(id);
-        printRecord(col as unknown as Record<string, unknown>, [
+        printRecord(col, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "displayName", label: "Display Name" },
@@ -111,10 +112,10 @@ Notes:
           ...(opts.k !== undefined && { k: opts.k })
         });
 
-        const col = await client.skills.createCollection(body as any);
+        const col = await client.skills.createCollection(asRequestBody<CreateCollectionBody>(body));
         printSuccess("Collection created.", {
-          id: (col as any).id,
-          name: (col as any).name
+          id: col.id,
+          name: col.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -155,7 +156,7 @@ Notes:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        await client.skills.updateCollection(id, body as any);
+        await client.skills.updateCollection(id, asRequestBody<UpdateCollectionBody>(body));
         printSuccess("Collection updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -225,11 +226,11 @@ Examples:
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          const results = (result as any).results ?? result;
+          const results = result.results ?? result;
           if (Array.isArray(results)) {
             for (const r of results) {
               console.log(
-                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+                `─ ${r.score?.toFixed(3) ?? "N/A"}  ${r.text?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
               );
             }
           } else {
@@ -283,11 +284,11 @@ Examples:
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          const results = (result as any).results ?? result;
+          const results = result.results ?? result;
           if (Array.isArray(results)) {
             for (const r of results) {
               console.log(
-                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+                `─ ${r.score?.toFixed(3) ?? "N/A"}  ${r.content?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
               );
             }
           } else {
@@ -326,11 +327,11 @@ Examples:
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          const results = (result as any).results ?? result;
+          const results = result.results ?? result;
           if (Array.isArray(results)) {
             for (const r of results) {
               console.log(
-                `─ ${(r as any).score?.toFixed(3) ?? "N/A"}  ${((r as any).content ?? (r as any).text)?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
+                `─ ${r.score?.toFixed(3) ?? "N/A"}  ${r.text?.slice(0, 100) ?? JSON.stringify(r).slice(0, 100)}...`
               );
             }
           } else {
@@ -358,14 +359,12 @@ Examples:
   ).action(async (id: string, opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
-      const result = await (client.skills as any).listCollectionDocuments(
+      const { data, meta } = await client.skills.listCollectionDocuments(
         id,
         getPaginationParams(opts)
       );
-      const data = (result as any).data ?? (result as any).items ?? result;
-      const meta = (result as any).meta;
 
-      printList(Array.isArray(data) ? data : [data], meta, [
+      printList(data, meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "name", label: "NAME", width: 30 },
         { key: "type", label: "TYPE", width: 12 },
@@ -391,7 +390,7 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        await (client.skills as any).attachDocumentsToCollection(id, {
+        await client.skills.attachDocumentsToCollection(id, {
           documentIds: opts.documentIds.split(",")
         });
         printSuccess("Documents attached to collection.", { id });
@@ -415,7 +414,7 @@ Examples:
     .action(async (id: string, documentId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        await (client.skills as any).removeCollectionDocument(id, documentId);
+        await client.skills.removeCollectionDocument(id, documentId);
         printSuccess("Document removed from collection.", { id, documentId });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -437,8 +436,8 @@ Examples:
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const stats = await (client.skills as any).getCollectionStatistics(id);
-        printRecord(stats as Record<string, unknown>);
+        const stats = await client.skills.getCollectionStatistics(id);
+        printRecord(stats);
       } catch (err) {
         process.exitCode = handleError(err);
       }

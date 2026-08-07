@@ -1,9 +1,11 @@
-import type { DeleteResponse, PageResponse } from "../types/common";
+import { appendFilePart } from "../multipart";
+import type { PageResponse } from "../types/common";
 import type {
-  AvailableVariable,
+  AvailableVariables,
   BatchRequestBody,
   BatchResult,
   Branch,
+  BranchList,
   CreateBranchBody,
   CreateEdgeBody,
   CreateNodeBody,
@@ -12,6 +14,7 @@ import type {
   IconResult,
   ListWorkflowsParams,
   NodeExecutionResult,
+  NodeResponse,
   NodeTypeSchema,
   NodeTypeSummary,
   OutputFormat,
@@ -20,9 +23,12 @@ import type {
   ReloadPropsBody,
   ReloadPropsResponse,
   ReplaceTriggerBody,
+  ReplaceTriggerResult,
+  StopExecutionResult,
   TestNodeBody,
-  TestResult,
+  TestNodeResult,
   TestWorkflowBody,
+  TestWorkflowResult,
   UnpublishResult,
   UpdateBranchBody,
   UpdateNodeBody,
@@ -30,9 +36,9 @@ import type {
   ValidationReport,
   WebhookTestPayload,
   WfSummary,
+  WorkflowArchiveResult,
   WorkflowDetail,
   WorkflowEdge,
-  WorkflowNode,
   WorkflowOverview
 } from "../types/workflows";
 import { BaseResource } from "./base-resource";
@@ -63,10 +69,7 @@ export class WorkflowsResource extends BaseResource {
    * @returns Paginated list of workflow summaries.
    */
   async list(params?: ListWorkflowsParams): Promise<PageResponse<WfSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<WfSummary[]>("GET", "/workflows", {
-      query: params as Record<string, string | number | undefined>
-    });
-    return { data, meta: meta! };
+    return this.http.requestPage<WfSummary>("GET", "/workflows", { query: params });
   }
 
   /**
@@ -101,13 +104,15 @@ export class WorkflowsResource extends BaseResource {
   }
 
   /**
-   * Permanently delete a workflow and all its nodes, edges, and executions.
+   * Archive a workflow. This is a SOFT delete: the workflow's status becomes
+   * `"ARCHIVED"` and its triggers are removed. Nodes, edges and executions are
+   * kept.
    *
    * @param workflowId - Workflow UUID.
-   * @returns Confirmation with the deleted workflow's ID.
+   * @returns The archived workflow's id, status and archive timestamp.
    */
-  async delete(workflowId: string): Promise<DeleteResponse> {
-    return this.http.request<DeleteResponse>("DELETE", `/workflows/${workflowId}`);
+  async delete(workflowId: string): Promise<WorkflowArchiveResult> {
+    return this.http.request<WorkflowArchiveResult>("DELETE", `/workflows/${workflowId}`);
   }
 
   /**
@@ -145,11 +150,13 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param file - Image file as a Blob or File.
+   * @param fileName - File name to send. A bare `Blob` carries none, and the
+   *   multipart part is then named `blob`; a `File` supplies its own.
    * @returns URL of the uploaded icon.
    */
-  async uploadIcon(workflowId: string, file: Blob | File): Promise<IconResult> {
+  async uploadIcon(workflowId: string, file: Blob | File, fileName?: string): Promise<IconResult> {
     const formData = new FormData();
-    formData.append("file", file);
+    appendFilePart(formData, "file", file, fileName);
     return this.http.request<IconResult>("POST", `/workflows/${workflowId}/icon`, {
       body: formData
     });
@@ -219,10 +226,10 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param body - Node type, position, data, and optional parent.
-   * @returns The created node.
+   * @returns The created node, with its configuration status.
    */
-  async createNode(workflowId: string, body: CreateNodeBody): Promise<WorkflowNode> {
-    return this.http.request<WorkflowNode>("POST", `/workflows/${workflowId}/nodes`, { body });
+  async createNode(workflowId: string, body: CreateNodeBody): Promise<NodeResponse> {
+    return this.http.request<NodeResponse>("POST", `/workflows/${workflowId}/nodes`, { body });
   }
 
   /**
@@ -230,26 +237,28 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @returns The node detail.
+   * @returns The node, with its configuration status.
    */
-  async getNode(workflowId: string, nodeId: string): Promise<WorkflowNode> {
-    return this.http.request<WorkflowNode>("GET", `/workflows/${workflowId}/nodes/${nodeId}`);
+  async getNode(workflowId: string, nodeId: string): Promise<NodeResponse> {
+    return this.http.request<NodeResponse>("GET", `/workflows/${workflowId}/nodes/${nodeId}`);
   }
 
   /**
-   * Update a node's data. Only the `data` field is replaced.
+   * Update a node. Supply `data` to replace its configuration, `parentId` to
+   * move it into or out of a loop / doWhile container, or both. At least one is
+   * required.
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @param body - New data for the node.
-   * @returns The updated node.
+   * @param body - New data and/or new loop scope for the node.
+   * @returns The updated node, with its configuration status.
    */
   async updateNode(
     workflowId: string,
     nodeId: string,
     body: UpdateNodeBody
-  ): Promise<WorkflowNode> {
-    return this.http.request<WorkflowNode>("PATCH", `/workflows/${workflowId}/nodes/${nodeId}`, {
+  ): Promise<NodeResponse> {
+    return this.http.request<NodeResponse>("PATCH", `/workflows/${workflowId}/nodes/${nodeId}`, {
       body
     });
   }
@@ -259,10 +268,10 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @returns Confirmation with the deleted node's ID.
+   * @returns Nothing — the endpoint replies `204 No Content`.
    */
-  async deleteNode(workflowId: string, nodeId: string): Promise<DeleteResponse> {
-    return this.http.request<DeleteResponse>("DELETE", `/workflows/${workflowId}/nodes/${nodeId}`);
+  async deleteNode(workflowId: string, nodeId: string): Promise<void> {
+    await this.http.request<void>("DELETE", `/workflows/${workflowId}/nodes/${nodeId}`);
   }
 
   /**
@@ -288,12 +297,20 @@ export class WorkflowsResource extends BaseResource {
   /**
    * Replace the trigger node of a workflow with a different trigger type.
    *
+   * Trigger-specific configuration is NOT accepted here — set it afterwards with
+   * `updateNode(workflowId, result.node.id, { data })`.
+   *
    * @param workflowId - Workflow UUID.
    * @param body - New trigger type.
-   * @returns The updated workflow detail.
+   * @returns The new trigger node and the edges rewired onto it.
    */
-  async replaceTrigger(workflowId: string, body: ReplaceTriggerBody): Promise<WorkflowDetail> {
-    return this.http.request<WorkflowDetail>("PUT", `/workflows/${workflowId}/trigger`, { body });
+  async replaceTrigger(
+    workflowId: string,
+    body: ReplaceTriggerBody
+  ): Promise<ReplaceTriggerResult> {
+    return this.http.request<ReplaceTriggerResult>("PUT", `/workflows/${workflowId}/trigger`, {
+      body
+    });
   }
 
   // =========================================================================
@@ -305,10 +322,13 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @returns Array of branches.
+   * @returns The node's branches, plus the output handles they expose.
    */
-  async listBranches(workflowId: string, nodeId: string): Promise<Branch[]> {
-    return this.http.request<Branch[]>("GET", `/workflows/${workflowId}/nodes/${nodeId}/branches`);
+  async listBranches(workflowId: string, nodeId: string): Promise<BranchList> {
+    return this.http.request<BranchList>(
+      "GET",
+      `/workflows/${workflowId}/nodes/${nodeId}/branches`
+    );
   }
 
   /**
@@ -332,7 +352,7 @@ export class WorkflowsResource extends BaseResource {
    * @param nodeId - Node UUID.
    * @param branchId - Branch UUID.
    * @param body - Fields to update.
-   * @returns The updated branch.
+   * @returns The stored branch with the patched fields applied.
    */
   async updateBranch(
     workflowId: string,
@@ -353,14 +373,10 @@ export class WorkflowsResource extends BaseResource {
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
    * @param branchId - Branch UUID.
-   * @returns Confirmation with the deleted branch's ID.
+   * @returns Nothing — the endpoint replies `204 No Content`.
    */
-  async deleteBranch(
-    workflowId: string,
-    nodeId: string,
-    branchId: string
-  ): Promise<DeleteResponse> {
-    return this.http.request<DeleteResponse>(
+  async deleteBranch(workflowId: string, nodeId: string, branchId: string): Promise<void> {
+    await this.http.request<void>(
       "DELETE",
       `/workflows/${workflowId}/nodes/${nodeId}/branches/${branchId}`
     );
@@ -375,7 +391,7 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param body - Source node, target node, optional handle and type.
-   * @returns The created edge.
+   * @returns The created edge. `targetHandle` is never set by this route.
    */
   async createEdge(workflowId: string, body: CreateEdgeBody): Promise<WorkflowEdge> {
     return this.http.request<WorkflowEdge>("POST", `/workflows/${workflowId}/edges`, { body });
@@ -386,10 +402,10 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param edgeId - Edge UUID.
-   * @returns Confirmation with the deleted edge's ID.
+   * @returns Nothing — the endpoint replies `204 No Content`.
    */
-  async deleteEdge(workflowId: string, edgeId: string): Promise<DeleteResponse> {
-    return this.http.request<DeleteResponse>("DELETE", `/workflows/${workflowId}/edges/${edgeId}`);
+  async deleteEdge(workflowId: string, edgeId: string): Promise<void> {
+    await this.http.request<void>("DELETE", `/workflows/${workflowId}/edges/${edgeId}`);
   }
 
   // =========================================================================
@@ -409,11 +425,15 @@ export class WorkflowsResource extends BaseResource {
   /**
    * Auto-layout the nodes in a workflow graph.
    *
+   * The new coordinates are not returned: the reply is a fresh overview, the
+   * same payload {@link getOverview} produces. Layout lives on the canvas and
+   * the API does not surface it.
+   *
    * @param workflowId - Workflow UUID.
-   * @returns The updated workflow detail with new node positions.
+   * @returns The workflow overview, re-read after the layout was applied.
    */
-  async layout(workflowId: string): Promise<WorkflowDetail> {
-    return this.http.request<WorkflowDetail>("POST", `/workflows/${workflowId}/layout`);
+  async layout(workflowId: string): Promise<WorkflowOverview> {
+    return this.http.request<WorkflowOverview>("POST", `/workflows/${workflowId}/layout`);
   }
 
   /**
@@ -421,10 +441,10 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @returns Array of available variables grouped by source node.
+   * @returns The available variables, wrapped in a `variables` key.
    */
-  async getAvailableVariables(workflowId: string, nodeId: string): Promise<AvailableVariable[]> {
-    return this.http.request<AvailableVariable[]>(
+  async getAvailableVariables(workflowId: string, nodeId: string): Promise<AvailableVariables> {
+    return this.http.request<AvailableVariables>(
       "GET",
       `/workflows/${workflowId}/nodes/${nodeId}/available-variables`
     );
@@ -482,13 +502,19 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
+   * A run that FAILED still reports `status: "COMPLETED"` — the failure is
+   * inside `data`. `"PENDING"` means the run went asynchronous; poll
+   * {@link getNodeExecutionResult} for the outcome.
+   *
    * @param body - Optional input data for the node.
-   * @returns Execution ID for polling status.
+   * @returns The execution id, its status, and the result when one is ready.
    */
-  async testNode(workflowId: string, nodeId: string, body?: TestNodeBody): Promise<TestResult> {
-    return this.http.request<TestResult>("POST", `/workflows/${workflowId}/nodes/${nodeId}/test`, {
-      body
-    });
+  async testNode(workflowId: string, nodeId: string, body?: TestNodeBody): Promise<TestNodeResult> {
+    return this.http.request<TestNodeResult>(
+      "POST",
+      `/workflows/${workflowId}/nodes/${nodeId}/test`,
+      { body }
+    );
   }
 
   /**
@@ -498,8 +524,8 @@ export class WorkflowsResource extends BaseResource {
    * @param body - Optional trigger data to start the workflow.
    * @returns Execution ID for polling status.
    */
-  async testWorkflow(workflowId: string, body?: TestWorkflowBody): Promise<TestResult> {
-    return this.http.request<TestResult>("POST", `/workflows/${workflowId}/test`, { body });
+  async testWorkflow(workflowId: string, body?: TestWorkflowBody): Promise<TestWorkflowResult> {
+    return this.http.request<TestWorkflowResult>("POST", `/workflows/${workflowId}/test`, { body });
   }
 
   /**
@@ -540,10 +566,10 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param executionId - Execution UUID.
-   * @returns Updated execution status.
+   * @returns How many executions were cancelled, and a human-readable message.
    */
-  async stopExecution(workflowId: string, executionId: string): Promise<ExecutionStatus> {
-    return this.http.request<ExecutionStatus>(
+  async stopExecution(workflowId: string, executionId: string): Promise<StopExecutionResult> {
+    return this.http.request<StopExecutionResult>(
       "POST",
       `/workflows/${workflowId}/executions/${executionId}/stop`
     );

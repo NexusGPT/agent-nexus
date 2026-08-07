@@ -6,9 +6,31 @@ import path from "node:path";
 import { Command } from "commander";
 
 import { createClient } from "../client";
-import { resolveBaseUrl, resolveProfile } from "../config";
+import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "../config";
 import { handleError } from "../errors";
-import { color, isJsonMode, printRecord, printSuccess, printTable } from "../output";
+import {
+  color,
+  type Column,
+  isJsonMode,
+  printRecord,
+  printSuccess,
+  printTable,
+  printWarning
+} from "../output";
+import {
+  claimMountPoint,
+  describeOwner,
+  describeScope,
+  type Engine,
+  findMount,
+  findMountsBySlug,
+  LOG_DIR,
+  mountKey,
+  type MountRecord,
+  type MountScope,
+  readMounts,
+  writeMounts
+} from "../workspace-mounts";
 
 // ── Mount engines ─────────────────────────────────────────────────────────────
 //
@@ -18,8 +40,6 @@ import { color, isJsonMode, printRecord, printSuccess, printTable } from "../out
 //   - Linux  → rclone (FUSE is in-kernel; no extra driver, no root).
 //   - Windows→ rclone (WinFsp — a normal installer, no Recovery mode).
 // `--engine rclone|webdav` overrides the per-OS default.
-
-type Engine = "webdav" | "rclone";
 
 function resolveEngine(requested: string | undefined): Engine {
   if (requested === "webdav" || requested === "rclone") return requested;
@@ -31,38 +51,11 @@ function resolveEngine(requested: string | undefined): Engine {
 }
 
 // ── Mount state (so `unmount`/`status` can find the mount again) ──────────────
-
-interface MountRecord {
-  slug: string;
-  engine: Engine;
-  mountPath: string;
-  baseUrl: string;
-  /** True when the admin-shared workspace was mounted (via `--shared`), not the
-   *  same-slug org-owned one. Absent on records written before NEX-2362. */
-  shared?: boolean;
-  /** Immutable id of the mounted workspace, when resolved from the list. */
-  workspaceId?: string;
-  /** Present only for the rclone engine; native WebDAV has no tracked process. */
-  pid?: number;
-  mountedAt: string;
-}
-
-const STATE_DIR = path.join(os.homedir(), ".nexus-mcp");
-const STATE_FILE = path.join(STATE_DIR, "workspace-mounts.json");
-const LOG_DIR = path.join(STATE_DIR, "logs");
-
-function readMounts(): Record<string, MountRecord> {
-  try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, "utf-8")) as Record<string, MountRecord>;
-  } catch {
-    return {};
-  }
-}
-
-function writeMounts(mounts: Record<string, MountRecord>): void {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(mounts, null, 2) + "\n");
-}
+// The registry record/IO lives in ../workspace-mounts, org-scoped per NEX-2360:
+// keys are `<kind>:<acting-org>|<slug>` — the kind tag (`org:`/`profile:`/`url:`)
+// keeps a profile named after an org id out of that org's key space — and each
+// record pins the org/profile + ro/rw mode it was mounted with (NEX-2372).
+// Legacy bare-slug records stay readable.
 
 /** True if a PID is a live process we can signal. */
 function isAlive(pid: number): boolean {
@@ -105,10 +98,34 @@ function isMountLive(record: MountRecord): boolean {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Resolve the API key + base URL from the same chain the SDK client uses. */
-function resolveAuth(opts: { apiKey?: string; baseUrl?: string; profile?: string }): {
+/**
+ * The acting org for a resolved credential — the org the server will serve for
+ * it. Resolved EXACTLY the way `createClient` resolves the organization-id for
+ * API calls: `NEXUS_ORGANIZATION_ID` env override first, then the profile's
+ * selected org (NEX-2474). Post NEX-3175 a mismatched override 403s server-side
+ * instead of silently answering from another org, so this resolution is
+ * deterministic at mount time; the registry pins it and `auth use-org` switches
+ * later never retarget an existing mount.
+ *
+ * The org NAME is only known when the acting org is the profile's own org; an
+ * env override naming a different org yields an id but no name.
+ */
+export function actingScope(resolved: ResolvedProfile, baseUrl: string): MountScope {
+  const profileOrgId = resolved.profile.orgId;
+  const orgId = process.env.NEXUS_ORGANIZATION_ID || profileOrgId;
+  return {
+    profile: resolved.source === "override" ? undefined : resolved.name,
+    orgId,
+    orgName: orgId && orgId === profileOrgId ? resolved.profile.orgName : undefined,
+    baseUrl
+  };
+}
+
+/** Resolve the API key + base URL + acting-org scope from the SDK's auth chain. */
+export function resolveAuth(opts: { apiKey?: string; baseUrl?: string; profile?: string }): {
   apiKey: string;
   baseUrl: string;
+  scope: MountScope;
 } {
   const resolved = resolveProfile(opts);
   const apiKey = opts.apiKey ?? resolved.profile.apiKey;
@@ -121,7 +138,53 @@ function resolveAuth(opts: { apiKey?: string; baseUrl?: string; profile?: string
     resolved.profile.baseUrl ||
     resolveBaseUrl()
   ).replace(/\/$/, "");
-  return { apiKey, baseUrl };
+  const scope = actingScope(resolved, baseUrl);
+  if (!scope.orgId && !scope.profile) {
+    // Raw --api-key/NEXUS_API_KEY with no org resolution: the acting org is
+    // unknowable client-side. Record the mount in the base-URL fallback bucket
+    // and say so loudly — `status` will show "?" and `unmount` matches by slug.
+    printWarning(
+      "Cannot determine the organization this mount will serve.",
+      "The API key was passed directly (--api-key/NEXUS_API_KEY) and no NEXUS_ORGANIZATION_ID is set,",
+      "so the mount is recorded without an org and scoped by base URL only.",
+      "Prefer `nexus auth login` (or set NEXUS_ORGANIZATION_ID) so status/unmount can tell orgs apart."
+    );
+  }
+  return { apiKey, baseUrl, scope };
+}
+
+/**
+ * Resolve the acting-org scope for `unmount` without requiring auth. Unmount
+ * operates purely on the local registry, so a user with no configured profile
+ * must still be able to run it — resolution failures fall back to `undefined`,
+ * and the registry lookup then matches by slug (erroring with the candidate
+ * list when the slug is mounted for more than one org).
+ *
+ * A raw `--api-key`/`NEXUS_API_KEY` override with no NEXUS_ORGANIZATION_ID also
+ * resolves to `undefined`: it carries no org or profile identity (only a base
+ * URL), so scoping the lookup by it would hide a row written under a real
+ * org/profile key. Treating it as an unknown scope lets `findMount` fall back
+ * to a unique slug match instead.
+ */
+function resolveScopeBestEffort(opts: {
+  apiKey?: string;
+  baseUrl?: string;
+  profile?: string;
+}): MountScope | undefined {
+  try {
+    const resolved = resolveProfile(opts);
+    const baseUrl = (
+      opts.baseUrl ||
+      process.env.NEXUS_BASE_URL ||
+      resolved.profile.baseUrl ||
+      resolveBaseUrl()
+    ).replace(/\/$/, "");
+    const scope = actingScope(resolved, baseUrl);
+    if (!scope.orgId && !scope.profile) return undefined;
+    return scope;
+  } catch {
+    return undefined;
+  }
 }
 
 function rcloneInstalled(): boolean {
@@ -460,24 +523,28 @@ Examples:
         // Surface which copy is which: a slug can name both an org-owned and an
         // admin-shared workspace, and the bare slug mounts the org-owned one
         // (NEX-2362). The "Kind" column makes the collision visible at a glance.
-        printTable(
-          workspaces.map((w) => ({
-            slug: w.slug,
-            name: w.name,
-            kind: w.isShared ? "shared" : "org",
-            files: w.stats.fileCount,
-            size: formatBytes(w.stats.totalBytes),
-            ...(opts.folderStats ? { folders: w.stats.folders?.length ?? 0 } : {})
-          })) as unknown as Record<string, unknown>[],
-          [
-            { key: "slug", label: "Slug" },
-            { key: "name", label: "Name" },
-            { key: "kind", label: "Kind" },
-            { key: "files", label: "Files" },
-            { key: "size", label: "Size" },
-            ...(opts.folderStats ? [{ key: "folders", label: "Folders" }] : [])
-          ]
-        );
+        const rows = workspaces.map((w) => ({
+          slug: w.slug,
+          name: w.name,
+          kind: w.isShared ? "shared" : "org",
+          files: w.stats.fileCount,
+          size: formatBytes(w.stats.totalBytes),
+          ...(opts.folderStats ? { folders: w.stats.folders?.length ?? 0 } : {})
+        }));
+        // Hoisted so the conditional gets a contextual type. Spread inline, the
+        // best-common-type of `[]` and the one-element literal widens `key` to
+        // `string` and takes the whole column list out of the key check.
+        const folderColumn: Column<(typeof rows)[number]>[] = opts.folderStats
+          ? [{ key: "folders", label: "Folders" }]
+          : [];
+        printTable(rows, [
+          { key: "slug", label: "Slug" },
+          { key: "name", label: "Name" },
+          { key: "kind", label: "Kind" },
+          { key: "files", label: "Files" },
+          { key: "size", label: "Size" },
+          ...folderColumn
+        ]);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -553,7 +620,7 @@ Examples:
               path: hit.path,
               match: hit.matchedIn.join(", "),
               snippet: (hit.snippet ?? "").replace(/\s+/g, " ").slice(0, 80)
-            })) as unknown as Record<string, unknown>[],
+            })),
             [
               { key: "path", label: "Path" },
               { key: "match", label: "Matched" },
@@ -610,7 +677,7 @@ Examples:
           console.log(JSON.stringify(workspace, null, 2));
           return;
         }
-        printRecord(workspace as unknown as Record<string, unknown>);
+        printRecord(workspace);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -718,6 +785,12 @@ When a slug names BOTH an org-owned workspace and an admin-shared one, the bare
 slug resolves to the org-owned copy. The mount then warns and tells you the id
 it picked; pass --shared to mount the shared copy instead.
 
+Mount points are NOT org-scoped: the default ~/nexus/<slug> is the same
+directory for every org. Two orgs CAN have their own copy of a slug mounted at
+the same time — the registry keeps them apart — but the second one must pick a
+different mount point with --at <path>; mounting onto a directory another org
+already occupies is refused.
+
 Engines (auto picks per-OS):
   • webdav  — macOS native mount_webdav. No extra install, no macFUSE, no
               Recovery mode. The default on macOS.
@@ -742,14 +815,43 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
         try {
           assertMountableSlug(slug);
           const engine = resolveEngine(opts.engine);
-          const { apiKey, baseUrl } = resolveAuth(program.optsWithGlobals());
+          const { apiKey, baseUrl, scope } = resolveAuth(program.optsWithGlobals());
           const mountPath = path.resolve(opts.at || defaultMountPath(slug));
 
+          // Guard scoped to this org only: a second org mounting the same slug
+          // at a different path must succeed (NEX-2360). findMount matches the
+          // active scope's own entries (incl. a pre-drift or legacy bare-slug
+          // mount of this slug) but never another org's, so a still-live mount
+          // blocks a duplicate while cross-org mounts stay independent. The
+          // error names the owning org/profile so a real conflict is actionable.
           const mounts = readMounts();
-          const existing = mounts[slug];
-          if (existing && isMountLive(existing)) {
+          const existing = findMount(mounts, slug, scope);
+          if (existing && isMountLive(existing.record)) {
             throw new Error(
-              `Workspace "${slug}" is already mounted at ${existing.mountPath}. Unmount it first.`
+              `Workspace "${slug}" is already mounted at ${existing.record.mountPath} for ` +
+                `${describeOwner(existing.record)}. Unmount it first.`
+            );
+          }
+
+          // The guard above is org-scoped; the mount POINT is not. The default
+          // `~/nexus/<slug>` carries no org segment, so a second org mounting
+          // the same slug aims at the same directory — and its scoped lookup
+          // finds nothing, so nothing above catches the clash. Two rows naming
+          // one mount point corrupt each other: every OS action keys off
+          // `mountPath`, so `unmount` under org A would detach org B's live
+          // drive there. Check the path across ALL scopes; the stale rows this
+          // reports are dropped below, as we take the path over.
+          const claim = claimMountPoint(mounts, mountPath, {
+            exceptKey: existing?.key,
+            isLive: isMountLive
+          });
+          if (claim.blockedBy) {
+            const other = claim.blockedBy.record;
+            throw new Error(
+              `Mount point ${mountPath} is already in use by ${describeOwner(other)}'s mount of ` +
+                `"${other.slug}". Mount points are not org-scoped — the default ~/nexus/<slug> is ` +
+                `the same directory for every org. Mount "${slug}" elsewhere with --at <path>, or ` +
+                `unmount that workspace first.`
             );
           }
 
@@ -783,6 +885,24 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
           }
 
           const useShared = !!opts.shared || (!!target?.shared && !target.orgOwned);
+
+          // Drop a stale prior row (possibly under a legacy bare-slug or
+          // pre-drift key) so we don't leave a duplicate entry for this same
+          // workspace + org — legacy records migrate to a scoped key here.
+          if (existing) delete mounts[existing.key];
+          // Same for a dead row of ANOTHER scope that names this mount point:
+          // it describes nothing live, and left in place it would come to
+          // describe OUR mount — a later unmount of that row would detach a
+          // drive it never mounted. Deleted only in memory here; the registry
+          // file is untouched unless the mount below actually succeeds.
+          for (const dead of claim.stale) {
+            printWarning(
+              `Reclaiming ${mountPath} from a stale mount record ` +
+                `(${describeOwner(dead.record)}, workspace "${dead.record.slug}").`,
+              "That mount is no longer live, so its registry entry is being replaced."
+            );
+            delete mounts[dead.key];
+          }
           ensureEmptyMountDir(mountPath);
 
           const davPath = useShared ? `_shared/${slug}` : slug;
@@ -792,9 +912,17 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
               ? await mountWebdav(slug, davPath, baseUrl, apiKey, mountPath, !!opts.readOnly)
               : await mountRclone(slug, url, baseUrl, apiKey, mountPath, !!opts.readOnly);
 
-          mounts[slug] = {
+          // Org-scope the registry (NEX-2360): key by `<kind>:<acting-org>|<slug>`
+          // and stamp the org/profile pinned at mount time, plus the ro/rw mode
+          // (NEX-2372) and the org-owned-vs-admin-shared disambiguation
+          // (NEX-2362), so `unmount`/`status` can tell which drive this is.
+          mounts[mountKey(scope, slug)] = {
             ...record,
             shared: useShared,
+            readOnly: !!opts.readOnly,
+            ...(scope.orgId ? { orgId: scope.orgId } : {}),
+            ...(scope.orgName ? { orgName: scope.orgName } : {}),
+            ...(scope.profile ? { profile: scope.profile } : {}),
             ...(target?.workspaceId ? { workspaceId: target.workspaceId } : {})
           };
           writeMounts(mounts);
@@ -823,6 +951,9 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
                   ambiguous,
                   pid: record.pid ?? null,
                   readOnly: !!opts.readOnly,
+                  orgId: scope.orgId ?? null,
+                  orgName: scope.orgName ?? null,
+                  profile: scope.profile ?? null,
                   claudeMd: claudeMdTarget
                 },
                 null,
@@ -834,7 +965,9 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
           printSuccess(`Mounted "${slug}" at ${mountPath}`, {
             engine,
             kind,
-            mode: opts.readOnly ? "read-only" : "read-write"
+            mode: opts.readOnly ? "read-only" : "read-write",
+            ...(scope.orgName || scope.orgId ? { org: scope.orgName ?? scope.orgId } : {}),
+            ...(scope.profile ? { profile: scope.profile } : {})
           });
           if (ambiguous) {
             const idNote = target?.workspaceId ? ` (id ${target.workspaceId})` : "";
@@ -870,10 +1003,31 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
     .action((slug: string) => {
       try {
         const mounts = readMounts();
-        const record = mounts[slug];
-        if (!record) {
+        // Scope to the acting org so the right per-org mount is targeted when
+        // the same slug is mounted for multiple orgs (NEX-2360). Best-effort:
+        // works even with no configured profile, falling back to a slug match.
+        const scope = resolveScopeBestEffort(program.optsWithGlobals());
+        const found = findMount(mounts, slug, scope);
+        if (!found) {
+          // Never say "No mount recorded" when the slug IS mounted — just for a
+          // different (or ambiguous) org. List the candidates so the user can
+          // switch to the owning profile/org instead of concluding it's gone.
+          const candidates = findMountsBySlug(mounts, slug);
+          if (candidates.length > 0) {
+            const list = candidates
+              .map((c) => `  - ${describeOwner(c.record)} at ${c.record.mountPath}`)
+              .join("\n");
+            throw new Error(
+              scope
+                ? `No mount of "${slug}" is recorded for ${describeScope(scope)}, but it is mounted for:\n` +
+                  `${list}\nSwitch to the owning profile/org (nexus auth switch / nexus auth use-org) and retry.`
+                : `"${slug}" is mounted for more than one org and the active org could not be resolved:\n` +
+                  `${list}\nRe-run with --profile <name> (or set NEXUS_ORGANIZATION_ID) to pick one.`
+            );
+          }
           throw new Error(`No mount recorded for "${slug}". See \`nexus workspace status\`.`);
         }
+        const { key, record } = found;
 
         // OS-level unmount detaches both native WebDAV and rclone-FUSE cleanly.
         unmountPath(record.mountPath);
@@ -885,7 +1039,7 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
             /* already gone */
           }
         }
-        delete mounts[slug];
+        delete mounts[key];
         writeMounts(mounts);
 
         if (isJsonMode()) {
@@ -904,24 +1058,45 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
     .action(() => {
       try {
         const mounts = readMounts();
-        const rows = Object.values(mounts).map((m) => ({
+        const records = Object.values(mounts).map((m) => ({
           slug: m.slug,
           engine: m.engine,
           kind: m.shared ? "shared" : "org",
+          // Mode is observable BEFORE writing now (NEX-2372). Legacy records
+          // predate the field, so surface "unknown" rather than guessing rw.
+          mode: m.readOnly === undefined ? null : m.readOnly ? "ro" : "rw",
+          // Acting org + profile pinned at mount time (NEX-2360/NEX-2372).
+          // Null on legacy records and unknown-org (--api-key) mounts.
+          orgId: m.orgId ?? null,
+          orgName: m.orgName ?? null,
+          profile: m.profile ?? null,
           mountPath: m.mountPath,
           live: isMountLive(m) ? "yes" : "no",
           mountedAt: m.mountedAt
         }));
         if (isJsonMode()) {
-          console.log(JSON.stringify(rows, null, 2));
+          console.log(JSON.stringify(records, null, 2));
           return;
         }
-        if (rows.length === 0) {
+        if (records.length === 0) {
           console.log(color.dim("No workspaces mounted."));
           return;
         }
-        printTable(rows as unknown as Record<string, unknown>[], [
+        // `records` keeps the nullable raw fields for `--json`; the table needs
+        // rendered placeholders. No cast: `printTable` checks column keys
+        // against the row type now, and the cast would take this call site back
+        // out of that check.
+        const rows = records.map((r) => ({
+          ...r,
+          org: r.orgName ?? r.orgId ?? "?",
+          profile: r.profile ?? "-",
+          mode: r.mode ?? "?"
+        }));
+        printTable(rows, [
           { key: "slug", label: "Slug" },
+          { key: "org", label: "Org" },
+          { key: "profile", label: "Profile" },
+          { key: "mode", label: "Mode" },
           { key: "engine", label: "Engine" },
           { key: "kind", label: "Kind" },
           { key: "mountPath", label: "Mount point" },

@@ -17,6 +17,7 @@ import type {
 import type { PageResponse } from "../types/common";
 import type {
   AvailablePhoneNumber,
+  BuyPhoneNumberBody,
   ListPhoneNumbersParams,
   PhoneNumber,
   SearchAvailablePhoneNumbersParams
@@ -67,13 +68,9 @@ export class ChannelsResource extends BaseResource {
     });
   }
 
-  async buyPhoneNumber(body: {
-    phoneNumber: string;
-    country: string;
-    price: string;
-    connectionId?: string;
-  }): Promise<any> {
-    return this.http.request<any>("POST", "/channels/phone-numbers/buy", { body });
+  /** Mirrors `phoneNumbers.buy`. Returns the purchased number in its stored form. */
+  async buyPhoneNumber(body: BuyPhoneNumberBody): Promise<PhoneNumber> {
+    return this.http.request<PhoneNumber>("POST", "/channels/phone-numbers/buy", { body });
   }
 
   /**
@@ -81,16 +78,14 @@ export class ChannelsResource extends BaseResource {
    * `phoneNumbers.list` and is paginated the same way.
    */
   async listPhoneNumbers(params?: ListPhoneNumbersParams): Promise<PageResponse<PhoneNumber>> {
-    const { data, meta } = await this.http.requestWithMeta<PhoneNumber[]>(
-      "GET",
-      "/channels/phone-numbers",
-      { query: params as Record<string, string | number | undefined> }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<PhoneNumber>("GET", "/channels/phone-numbers", {
+      query: params as Record<string, string | number | undefined>
+    });
   }
 
-  async getPhoneNumber(phoneNumberId: string): Promise<any> {
-    return this.http.request<any>("GET", `/channels/phone-numbers/${phoneNumberId}`);
+  /** Mirrors `phoneNumbers.get`. */
+  async getPhoneNumber(phoneNumberId: string): Promise<PhoneNumber> {
+    return this.http.request<PhoneNumber>("GET", `/channels/phone-numbers/${phoneNumberId}`);
   }
 
   // ===========================================================================

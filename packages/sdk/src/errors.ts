@@ -64,3 +64,25 @@ export class NexusConnectionError extends NexusError {
     this.cause = cause;
   }
 }
+
+// ============================================================================
+// Timeout error — the client gave up waiting, not a network failure
+// ============================================================================
+
+/**
+ * Thrown when the client-side timeout elapses before the API responds.
+ *
+ * Extends `NexusConnectionError` so existing catch-sites keep working, but
+ * lets callers distinguish "we stopped waiting" (the server may still be
+ * processing the request) from "the API was unreachable".
+ */
+export class NexusTimeoutError extends NexusConnectionError {
+  /** The client-side timeout that elapsed, in milliseconds. */
+  public readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs}ms`);
+    this.name = "NexusTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}

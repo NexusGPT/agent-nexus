@@ -95,7 +95,7 @@ Examples:
           section: opts.section
         });
 
-        const results = (result as any).results ?? [];
+        const results = result.results ?? [];
 
         if (isJsonMode()) {
           console.log(JSON.stringify({ query, results }, null, 2));

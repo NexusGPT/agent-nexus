@@ -25,8 +25,16 @@ import { readFileSync } from "node:fs";
 import { NexusApiError } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
+import { timeoutSecondsToMs } from "../client";
 import { handleError } from "../errors";
-import { color, isJsonMode, printPaginationMeta, printRecord, printTable } from "../output";
+import {
+  color,
+  isJsonMode,
+  printPaginationMeta,
+  printRecord,
+  printTable,
+  type RecordField
+} from "../output";
 import { type TenantHttpOptions, tenantRequest } from "../util/tenant-http";
 import {
   VIBE_AUDIT_EVENT_TYPES,
@@ -38,6 +46,64 @@ import {
   type VibeTenantClusterStatus
 } from "../vibe-regions";
 import {
+  type AuditPayload,
+  type AuditPayloadUnmodelled,
+  type CreateVibeAppResponse,
+  type DeletedIdResponse,
+  type DeleteEnvVarResponse,
+  type ExternalToolDetail,
+  type GetApprovalResponse,
+  type GetDeploymentResponse,
+  type GetDeployStateResponse,
+  type GetEdgeTokenResponse,
+  type GetGitCredentialsResponse,
+  type GetVibeAppLogsResponse,
+  type GetVibeAppResponse,
+  isAuditEventType,
+  isVibeEnvVarScope,
+  type ListAuditEventsResponse,
+  type ListDeploymentsResponse,
+  type ListEnvVarsResponse,
+  type ListPendingApprovalsResponse,
+  type ListVibeAppsResponse,
+  type ListVibeGitProjectsResponse,
+  type RecordApprovalDecisionResponse,
+  type RollbackAppResponse,
+  type RotateEdgeTokenResponse,
+  type SetVisibilityResponse,
+  type SingleVibeAppResponse,
+  type SingleVibeGitProjectResponse,
+  type StandaloneVibeGitProjectResponse,
+  type TriggerDeploymentResponse,
+  type UpsertEnvVarResponse,
+  VIBE_DEFAULT_CONTAINER_PORT,
+  VIBE_ENV_VAR_SCOPES,
+  type VibeAppCardBindingDto,
+  type VibeAppDeployability,
+  type VibeAppDto,
+  type VibeAppEnvelopeExtras,
+  type VibeAppEnvVarDto,
+  type VibeAppGitProjectSummaryDto,
+  type VibeApprovalDecisionDto,
+  type VibeApprovalDecisionKind,
+  type VibeApprovalRequestDto,
+  type VibeEdgeTokenDto,
+  type VibeEnvVarScope,
+  type VibeGitCredentialsDto,
+  type VibeGitProjectAliasDto
+} from "../vibe-wire-types";
+import {
+  type AppLogsFlags,
+  emitLogLines,
+  orderForDisplay,
+  resolveAppLogsRequest,
+  runAppLogsFollow,
+  toLogQuery,
+  VIBE_LOG_CLI_DEFAULT_SINCE,
+  VIBE_LOG_CLI_LIMIT_HELP
+} from "./vibe-app-logs";
+import { qualifyRefName, renderDeployState } from "./vibe-deploy-state";
+import {
   assertGitAvailable,
   assertGitRepository,
   buildCloneArgs,
@@ -47,537 +113,6 @@ import {
   runGitWithCredential
 } from "./vibe-git-local";
 import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watch";
-
-// ============================================================
-// Wire types — mirror packages/types/src/api/domains/vibe/schemas/
-// audit-events.schemas.ts. The CLI is published as a standalone npm
-// package; `@nexus/types` isn't a runtime dep. Keep these in lockstep
-// when the schema evolves.
-// ============================================================
-
-/**
- * Mirrors `VIBE_APP_DEFAULT_CONTAINER_PORT` in
- * `packages/types/src/schemas/VibeApp/container-port.ts`, re-declared for the
- * same reason as the wire types above — this package cannot depend on
- * `@nexus/types` at runtime.
- *
- * Used only to NAME the fallback in a message ("not detected — using 8080"),
- * never to decide anything: the port that is actually published is resolved
- * server-side. So a drift here misprints a hint; it cannot mis-deploy.
- */
-const VIBE_DEFAULT_CONTAINER_PORT = 8080;
-
-function isAuditEventType(v: string): v is VibeAuditEventType {
-  return (VIBE_AUDIT_EVENT_TYPES as readonly string[]).includes(v);
-}
-
-interface AuditPayloadDeploymentTriggered {
-  eventType: "DEPLOYMENT_TRIGGERED";
-  vibeDeploymentId: string;
-  triggerSha: string;
-  approvalGated: boolean;
-}
-interface AuditPayloadApprovalDecision {
-  eventType: "DEPLOYMENT_APPROVED" | "DEPLOYMENT_REJECTED";
-  vibeApprovalRequestId: string;
-  vibeDeploymentId: string;
-  deciderUserId: string;
-  decisive: boolean;
-  note: string | null;
-}
-interface AuditPayloadApprovalExpired {
-  eventType: "APPROVAL_EXPIRED";
-  vibeApprovalRequestId: string;
-  vibeDeploymentId: string;
-}
-interface AuditPayloadCostSafetyAutoSuspended {
-  eventType: "COST_SAFETY_AUTO_SUSPENDED";
-  usageType: "VIBE_COMPUTE_MIN" | "VIBE_BUILD_MIN" | "VIBE_EGRESS_MB";
-  breachedSum: number;
-  effectiveCap: number;
-  billingPeriod: string;
-}
-interface AuditPayloadDeploymentRolledBack {
-  eventType: "DEPLOYMENT_ROLLED_BACK_COST_SAFETY";
-  vibeDeploymentId: string;
-  priorStatus: "BUILDING" | "AWAITING_APPROVAL" | "DEPLOYING" | "HEALTHY";
-  triggerSha: string;
-  suspendedReason: string | null;
-}
-
-/**
- * The terminal "it is actually live" — written when the app's public URL was
- * observed answering FROM this deployment.
- *
- * `DEPLOYMENT_HEALTHY` does not mean that and cannot: it is the allocation's
- * verdict and lands before the edge swaps content, by up to whole minutes. This
- * is the event to poll for after a `nexus vibe deploy`; polling HEALTHY reads
- * the previous build and looks like the wrong code shipped.
- */
-interface AuditPayloadDeploymentServed {
-  eventType: "DEPLOYMENT_SERVED";
-  vibeDeploymentId: string;
-  triggerSha: string;
-  imageRef: string;
-  color: "BLUE" | "GREEN";
-  /// Milliseconds from the healthy flip to this observation. An UPPER bound —
-  /// the probe samples on a tick, so it notices the swap some time after it
-  /// happened.
-  healthyToServedMs: number;
-}
-
-/** The event types this file declares a payload interface for. */
-type ModelledAuditPayload =
-  | AuditPayloadDeploymentTriggered
-  | AuditPayloadApprovalDecision
-  | AuditPayloadApprovalExpired
-  | AuditPayloadCostSafetyAutoSuspended
-  | AuditPayloadDeploymentRolledBack
-  | AuditPayloadDeploymentServed;
-
-/**
- * Every OTHER event type the feed emits — 28 of the 34, at the time of
- * writing — whose payload this file does not mirror field by field.
- *
- * They are not hypothetical and never were: the feed has always returned them
- * and `vibe audit list` has always printed them. Leaving them out of the union
- * did not keep them out of the output, it only left the printer believing the
- * `switch` below was exhaustive — so an unmodelled row fell off the end of
- * every `case` and printed the literal string `undefined` in its details
- * column.
- *
- * Modelling them as a rest arm rather than 28 more interfaces is deliberate.
- * The interfaces above exist because their fields are rendered SPECIFICALLY;
- * these are rendered generically by `formatUnmodelledDetails`, so an interface
- * per type would be 28 declarations no reader consults and no code narrows on.
- * Promote one the moment its details column deserves its own `case`.
- */
-interface AuditPayloadUnmodelled {
-  eventType: Exclude<VibeAuditEventType, ModelledAuditPayload["eventType"]>;
-  [field: string]: unknown;
-}
-
-type AuditPayload = ModelledAuditPayload | AuditPayloadUnmodelled;
-
-interface VibeAuditEvent {
-  id: string;
-  organizationId: string;
-  actorUserId: string | null;
-  vibeAppId: string | null;
-  payload: AuditPayload;
-  createdAt: string;
-}
-
-interface ListAuditEventsResponse {
-  events: VibeAuditEvent[];
-  nextCursor: string | null;
-}
-
-/**
- * The registered-tool detail returned by the register-as-tool bridge.
- * Mirrors `ExternalToolDetailSchema` in
- * packages/types/src/api/public/v1/schemas/skills.schemas.ts.
- */
-interface ExternalToolDetail {
-  id: string;
-  name: string;
-  description: string | null;
-  imageUrl: string | null;
-  documentation: string | null;
-  type: "CUSTOM_MANIFEST";
-  endpointUrl: string | null;
-  status: string;
-  actionsCount: number;
-  authType: string;
-  createdAt: string;
-}
-
-/**
- * A Vibe app, mirroring `VibeAppSchema` in
- * packages/types/src/api/domains/vibe/schemas/core.ts. Keep in lockstep
- * (the CLI ships standalone — `@nexus/types` is not a runtime dep).
- */
-interface VibeAppDto {
-  id: string;
-  organizationId: string;
-  name: string;
-  description: string | null;
-  requireApprovals: boolean;
-  requireVerification: boolean;
-  deployBranch: string;
-  resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
-  healthCheckConfig: Record<string, unknown>;
-  publicUrl: string | null;
-  visibility: "PRIVATE" | "PUBLIC";
-  /**
-   * What the tenant's edge last said about this app's public host. `null` means
-   * NEVER OBSERVED — the probe only asks about a healthy, settled deployment —
-   * and must never be printed as if it meant healthy.
-   */
-  edgeReachability: "ROUTED" | "UNROUTED" | "UNAVAILABLE" | "NO_SUCH_APP" | "UNKNOWN" | null;
-  edgeReachabilityAt: string | null;
-  edgeReachabilityDetail: string | null;
-  createdByUserId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Why an app can or cannot deploy right now — the ONE thing standing in the
- * way, named. Mirrors `VibeAppDeployability` in
- * packages/types/src/shared/domain/vibe/app-deployability.ts.
- *
- * DERIVED server-side from the git project that resolves for the app, never
- * stored, so it cannot go stale. It is the one-field answer to "why does my
- * URL do nothing": before it, an app with no source at all rendered exactly
- * like a correctly-wired app nobody had pushed to yet.
- */
-type VibeAppDeployability = "DEPLOYABLE" | "NO_SOURCE_ATTACHED" | "SOURCE_NOT_READY";
-
-/**
- * A reference to one git project, as the app envelopes carry it. Mirrors
- * `VibeAppGitProjectSummarySchema`, which is the single backend shape behind
- * BOTH uses: the project attached to an app (`GetApp`), and the project that
- * already holds a name a new app wanted (`CreateApp`).
- */
-interface VibeAppGitProjectSummaryDto {
-  id: string;
-  name: string;
-  status: string;
-}
-
-/**
- * `deployability` and `gitProject` sit BESIDE the app on every envelope that
- * carries them, never on the app itself — deliberately, per
- * `GetVibeAppResponseSchema`'s own comment: they are a join, and putting them
- * on the app would oblige every producer of a `VibeApp` (including create,
- * which has no project yet) to resolve one.
- *
- * So they are mixed in HERE rather than added to {@link VibeAppDto}, and the
- * printer takes them as a separate argument.
- */
-interface VibeAppEnvelopeExtras {
-  deployability: VibeAppDeployability;
-  gitProject: VibeAppGitProjectSummaryDto | null;
-}
-
-/**
- * The list read carries the extras per item, because the grid must be able to
- * mark an app that will never build without an N+1 of git-project fetches.
- */
-type VibeAppListItemDto = VibeAppDto & VibeAppEnvelopeExtras;
-
-interface ListVibeAppsResponse {
-  apps: VibeAppListItemDto[];
-}
-
-/**
- * Just the app — `UpdateVibeAppResponseSchema` exactly, and the base that
- * CREATE and GET each extend in their own direction.
- *
- * Neither of those extensions carries `deployability`: create has no project
- * yet, and update does not resolve one. Typing them as the richer get-response
- * below would be a lie the CLI could then print as `undefined`.
- */
-interface SingleVibeAppResponse {
-  app: VibeAppDto;
-}
-
-/** `GET /api/vibe/apps/:id` — the app PLUS the joins only this read resolves. */
-type GetVibeAppResponse = SingleVibeAppResponse & VibeAppEnvelopeExtras;
-
-/**
- * `app create`'s response. Mirrors `CreateVibeAppResponseSchema` — the same
- * app, plus a warning the plain single-app reads have no reason to carry.
- */
-interface CreateVibeAppResponse extends SingleVibeAppResponse {
-  /**
-   * A live git project in the org that already goes by this app's name. The app
-   * was still created — this is a heads-up that `provision-repo` will 409 on
-   * that name, and that `attach-repo` is what the caller almost certainly wants
-   * instead.
-   *
-   * Optional as well as nullable: a published CLI outlives the backend release
-   * it was built against, so an older server omits the key entirely. Absent and
-   * `null` both mean "no collision", and the print site treats them alike.
-   */
-  gitProjectNameCollision?: VibeAppGitProjectSummaryDto | null;
-}
-
-/**
- * An app's per-app edge-auth token — the shared secret the edge matches before
- * admitting a request to a PRIVATE app. Mirrors `VibeEdgeTokenSchema` in
- * packages/types/src/api/domains/vibe/schemas/edge-token.schemas.ts.
- *
- * `token` is a live credential: presenting it at the edge grants access to the
- * deployed app. It is printed only by `app edge-token` and `app
- * rotate-edge-token`, where revealing it is the whole point of the command.
- */
-interface VibeEdgeTokenDto {
-  token: string;
-  /** The header the edge matches the token against (`X-Vibe-App-Token`). */
-  headerName: string;
-  /** The app's canonical public URL. Null only for pre-canonical-URL rows. */
-  publicUrl: string | null;
-}
-
-interface SetVisibilityResponse {
-  app: VibeAppDto;
-  /**
-   * The freshly-minted edge token, present only when going PRIVATE.
-   * Deliberately NOT printed: this command's job is the posture change, and the
-   * token has its own reveal command that says what it is.
-   *
-   * This was typed `string | null` until 2026-07-27, which the server contract
-   * never matched — `SetVibeAppVisibilityResponseSchema` has always nested the
-   * secret in the same three-field object as reveal and rotate. Nothing caught
-   * it because the field is never read, so the lie stayed inert: a future reader
-   * printing `data.edgeToken` would have rendered `[object Object]`.
-   */
-  edgeToken: VibeEdgeTokenDto | null;
-  /** True when the app is registered as a tool and its edge token was rotated. */
-  toolResyncRequired: boolean;
-}
-
-interface GetEdgeTokenResponse {
-  edgeToken: VibeEdgeTokenDto;
-}
-
-interface RotateEdgeTokenResponse {
-  edgeToken: VibeEdgeTokenDto;
-  /**
-   * True when the app is registered as an agent tool. Rotating invalidates the
-   * token baked into that tool's auth, so it must be re-registered or it starts
-   * 404-ing at the edge.
-   */
-  toolResyncRequired: boolean;
-}
-
-/** Both delete routes answer with the id they removed. */
-interface DeletedIdResponse {
-  deletedId: string;
-}
-
-/** Subset of VibeGitProjectSchema the CLI renders. */
-interface VibeGitProjectDto {
-  id: string;
-  organizationId: string;
-  name: string;
-  description: string | null;
-  defaultBranch: string;
-  s3Prefix: string;
-  hookSecretRef: string;
-  /**
-   * What the build executor clones — NEVER a push URL, so don't label it
-   * "Git URL": a user's push remote comes from `nexus vibe git-credentials`,
-   * which composes the public `cloneUrlBase`
-   * (`https://git.<tenant>.<domain>/<org>/`).
-   *
-   * Its reachability varies by provenance, so don't assert one: when the agent
-   * materializes the repo it composes this from Forgejo's in-VPC baseUrl
-   * (unreachable from a user's machine — the web console refuses to render it
-   * for exactly that reason), but `--git-url` on provision sets it to whatever
-   * the user supplied, which per schema.prisma's `VibeGitProject.gitRemoteUrl`
-   * comment may be a local path, `file://`, or a public https URL.
-   */
-  gitRemoteUrl: string | null;
-  status: string;
-  createdByUserId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface SingleVibeGitProjectResponse {
-  /** Canonical key; absent only on a pre-decoupling backend. */
-  gitProject?: VibeGitProjectDto;
-  /** Deprecated alias — always present, read as the fallback. */
-  repository: VibeGitProjectDto;
-}
-
-/**
- * The standalone git-project routes are greenfield — they postdate the
- * decoupling, so no pre-decoupling backend serves them and the deprecated
- * `repository` alias key never appears. `gitProject` is always present.
- */
-interface StandaloneVibeGitProjectResponse {
-  gitProject: VibeGitProjectDto;
-}
-
-interface ListVibeGitProjectsResponse {
-  gitProjects: VibeGitProjectDto[];
-}
-
-/** Subset of VibeDeploymentSchema the CLI renders. */
-/**
- * `POST /api/vibe/apps/:id/rollback` — the predecessor re-activated, and the
- * deployment it displaced. Both rows come back in full so the caller can name
- * the two versions without a second read.
- */
-interface RollbackAppResponse {
-  restoredDeployment: VibeDeploymentDto;
-  supersededDeployment: VibeDeploymentDto;
-}
-
-interface VibeDeploymentDto {
-  id: string;
-  vibeAppId: string;
-  color: string;
-  /// User-facing monotonic version (`v{n}`). `color` is the internal
-  /// blue/green slot and is no longer rendered.
-  versionNumber: number;
-  status: string;
-  triggerSha: string;
-  imageRef: string;
-  /// The port the BUILD observed the image listening on. Null means NOT
-  /// OBSERVED — the deploy then falls back to the platform default, so a null
-  /// here and a `8080` here are different facts and must not render alike.
-  detectedPort: number | null;
-  forceRebuild: boolean;
-  errorReason: string | null;
-  createdAt: string;
-}
-
-/** Subset of VibeBuildJobSchema the CLI renders. */
-interface VibeBuildJobDto {
-  id: string;
-  vibeDeploymentId: string;
-  status: string;
-  /// Null until the executor reports which strategy it actually used.
-  builder: string | null;
-  logsRef: string;
-  durationMs: number | null;
-  errorReason: string | null;
-  createdAt: string;
-}
-
-// Approvals — mirror packages/types/src/api/domains/vibe/schemas/
-// approvals.schemas.ts. Full shape (matches VibeApprovalRequestSchema):
-// the deploy trigger returns this same schema, so the deploy printer
-// reads a subset of these fields.
-//
-// Pure type unions — the CLI never validates these against a string at
-// runtime (status only ever arrives from the server; the decision kind
-// comes from the --approve/--reject flags), so no runtime array is needed.
-type VibeApprovalRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
-type VibeApprovalDecisionKind = "APPROVE" | "REJECT";
-
-interface VibeApprovalRequestDto {
-  id: string;
-  vibeDeploymentId: string;
-  organizationId: string;
-  status: VibeApprovalRequestStatus;
-  requiredApprovals: number;
-  expiresAt: string;
-  decidedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface VibeApprovalDecisionDto {
-  id: string;
-  vibeApprovalRequestId: string;
-  organizationId: string;
-  decision: VibeApprovalDecisionKind;
-  decidedByUserId: string | null;
-  note: string | null;
-  decidedAt: string;
-}
-
-interface GetApprovalResponse {
-  request: VibeApprovalRequestDto;
-  decisions: VibeApprovalDecisionDto[];
-}
-
-interface RecordApprovalDecisionResponse {
-  request: VibeApprovalRequestDto;
-  decision: VibeApprovalDecisionDto;
-}
-
-interface ListPendingApprovalsResponse {
-  requests: VibeApprovalRequestDto[];
-}
-
-/**
- * Trigger response — discriminated on `status`, mirroring
- * `TriggerVibeDeploymentResponseSchema`. BOTH arms come back on a 2xx: an
- * org over its usage SOFT cap is ASKED whether to spend, never refused, so
- * `confirmation_required` is a normal success body and not an HTTP error.
- */
-type TriggerDeploymentResponse =
-  | {
-      /// `created` wrote a new deployment. `reused` found this app's newest
-      /// deployment already in flight for the same commit and returned it
-      /// untouched — nothing was written, not even a version number. Same
-      /// fields either way, so a caller that only wants its deployment reads
-      /// `.deployment` off both.
-      status: "created" | "reused";
-      deployment: VibeDeploymentDto;
-      buildJob: VibeBuildJobDto;
-      approvalRequest: VibeApprovalRequestDto | null;
-    }
-  | {
-      status: "confirmation_required";
-      reason: { costSafetyStatus: string; message: string };
-    };
-
-interface ListDeploymentsResponse {
-  deployments: VibeDeploymentDto[];
-}
-
-interface GetDeploymentResponse {
-  deployment: VibeDeploymentDto;
-  buildJob: VibeBuildJobDto | null;
-}
-
-// Env vars — mirror packages/types/src/api/domains/vibe/schemas/
-// env-vars.schemas.ts. Scope + name shape are validated locally before
-// the HTTP call so a typo surfaces without a round-trip; the backend's
-// Zod boundary re-validates either way.
-const VIBE_ENV_VAR_SCOPES = ["ALL", "PROD", "STAGING"] as const;
-type VibeEnvVarScope = (typeof VIBE_ENV_VAR_SCOPES)[number];
-
-function isVibeEnvVarScope(v: string): v is VibeEnvVarScope {
-  return (VIBE_ENV_VAR_SCOPES as readonly string[]).includes(v);
-}
-
-interface VibeAppEnvVarDto {
-  id: string;
-  vibeAppId: string;
-  organizationId: string;
-  name: string;
-  value: string;
-  scope: VibeEnvVarScope;
-  createdByUserId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface ListEnvVarsResponse {
-  envVars: VibeAppEnvVarDto[];
-}
-
-interface UpsertEnvVarResponse {
-  envVar: VibeAppEnvVarDto;
-}
-
-interface DeleteEnvVarResponse {
-  deletedId: string;
-}
-
-// Git credentials — mirror packages/types/src/api/domains/vibe/schemas/
-// git-credentials.schemas.ts. The CLI ships standalone (`@nexus/types` is
-// not a runtime dep); keep this in lockstep with the schema.
-interface VibeGitCredentialsDto {
-  gitHostName: string;
-  forgejoOrg: string;
-  username: string;
-  pushToken: string;
-  cloneUrlBase: string;
-}
-
-interface GetGitCredentialsResponse {
-  credentials: VibeGitCredentialsDto;
-}
 
 // ============================================================
 // Root vibe command + audit subcommand registration
@@ -596,9 +131,11 @@ Subcommands:
   git-project      Manage git projects — the standalone code store apps deploy from.
   git-credentials  Fetch your tenant git push token + clone address.
   deploy           Trigger a deployment for an app from a commit sha.
+  deploy-state     Did my push land, and is what I pushed what is live?
   rollback         Roll an app back to its previous healthy version.
   deployments      List / inspect an app's deployments and their build jobs.
-  env              Manage an app's plaintext env vars — list, set, remove.
+  env              An app's environment — list, set and remove plaintext vars,
+                   and read the access cards imported into it.
   approvals        Review gated deployments — pending queue, get, approve/reject.
   audit            Inspect the per-org Vibe audit feed (deployments, approvals,
                    cost-safety state changes, rollbacks).
@@ -613,6 +150,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
   registerGitProjectCommands(vibe, program);
   registerGitCredentialsCommand(vibe, program);
   registerDeployCommand(vibe, program);
+  registerDeployStateCommand(vibe, program);
   registerRollbackCommand(vibe, program);
   registerDeploymentsCommands(vibe, program);
   registerEnvCommands(vibe, program);
@@ -852,21 +390,44 @@ function registerDeploymentsCommands(vibe: Command, program: Command): void {
 // ============================================================
 
 function registerEnvCommands(vibe: Command, program: Command): void {
-  const env = vibe.command("env").description("Manage an app's plaintext env vars");
+  const env = vibe
+    .command("env")
+    .description("Manage an app's plaintext env vars, and read its imported access cards");
 
   env
     .command("list <appId>")
-    .description("List an app's env vars (all scopes), ordered by scope then name")
+    .description("List an app's environment (all scopes), ordered by scope then name")
     .addHelpText(
       "after",
       `
-Values are plaintext — secrets do NOT belong here (a separate secret-ref
+One table, one row per name, because the app sees one environment. The
+Source column says what backs each row:
+
+  variable  A plaintext env var. Set and removed with the two verbs below.
+  card      An access card imported into this app's environment. READ-ONLY
+            here — see below.
+
+Values are plaintext — secrets do NOT belong there (a separate secret-ref
 surface lands with the Vault wiring). Long values are truncated in the
 table; use --json for the full value.
+
+A card row's value is a handle (nxc_…), not a secret: it is an address the
+app resolves through the broker, which re-authorizes the app on every call.
+The Status column is the one to read — only "active" projects, and every
+other state makes the next deployment refuse that entry by name.
+
+Cards are imported from the console, never from here, and that is the route's
+shape rather than a missing feature: importing a card delegates a person's
+credential authority, so the import route accepts no API key at all — and an
+API key is the only credential this CLI holds.
+
+Older servers do not report cards. They answer with variables only and this
+table has no card rows, which is not the same as an app having no cards.
 
 Examples:
   $ nexus vibe env list 11111111-2222-4333-8444-555555555555
   $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.envVars[].name'
+  $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.cardBindings[] | select(.status != "ACTIVE")'
 `
     )
     .action(async (appId: string) => {
@@ -924,6 +485,9 @@ Examples:
       `
 Removal is by env-var id, not name — list first to get the id. Scoped to
 your org + the named app; a wrong id returns 404.
+
+Variables only. A card row's id is a binding id and this route does not
+know it, so it answers 404 — revoke a card from the console instead.
 
 Examples:
   $ nexus vibe env rm 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
@@ -1135,7 +699,7 @@ function printGitCredentials(creds: VibeGitCredentialsDto): void {
   const host = creds.cloneUrlBase.replace(/^https:\/\//, "");
   const authedBase = `https://${creds.username}:${creds.pushToken}@${host}`;
 
-  printRecord(creds as unknown as Record<string, unknown>, [
+  printRecord(creds, [
     { key: "gitHostName", label: "Git host" },
     { key: "forgejoOrg", label: "Org" },
     { key: "username", label: "Username" },
@@ -1345,6 +909,110 @@ async function runDeploymentWatch(
 }
 
 // ============================================================
+// vibe deploy-state
+// ============================================================
+
+/**
+ * The push-to-deploy answer, in one call — see `vibe-deploy-state.ts` for why
+ * the rendering is a separate, pure module.
+ *
+ * A thin wrapper on purpose: the endpoint already carries a discriminated
+ * `outcome` and the served-artifact identity, so this command adds a way to
+ * REACH them and nothing else. Shipping the endpoint without one left every
+ * client back on parsing `git push` stdout, which is the defect the endpoint
+ * was built to retire.
+ */
+function registerDeployStateCommand(vibe: Command, program: Command): void {
+  vibe
+    .command("deploy-state <appId>")
+    .description("Did my push land, and is what I pushed what is live?")
+    .option(
+      "--sha <sha>",
+      "Ask about one exact commit (7–40 hex chars). Preferred right after a push — it stays correct once the ref advances."
+    )
+    .option(
+      "--ref <ref>",
+      "Ask about a ref's current head. A bare branch name is expanded to refs/heads/<name>; pass refs/tags/<name> for a tag."
+    )
+    .addHelpText(
+      "after",
+      `
+One read of the control plane replaces parsing 'git push' output — which
+cannot be done reliably: rejection lines print FIRST (so piping through
+'tail' destroys them), '-q' hides the success report but not the failure
+one, a backgrounded push carries no outcome at all, and an error quoting a
+remote URL looks exactly like a success report.
+
+Branch on 'outcome', never on the exit code. This command exits 0 whenever
+the QUESTION was answered; NOT_RECEIVED is a successful read of a bad
+situation, not a failed command. (The verb that branches on exit code is
+'vibe deploy --watch'.)
+
+  DEPLOYED               a deployment exists for this commit
+  RECEIVED_NOT_DEPLOYED  the push landed and nothing deployed it
+  NOT_RECEIVED           no ref head carries this commit
+  REF_UNKNOWN            that ref has never been pushed to
+  NO_REPOSITORY          the app has no git project attached
+
+Live vs Served — the distinction the output exists to keep apart:
+
+  Live    the newest HEALTHY deployment. That is the ALLOCATION's verdict
+          and it lands BEFORE the edge swaps, so it is not "what the URL
+          returns".
+  Served  the deployment the edge was last OBSERVED answering with, always
+          printed with the age of that observation. Nothing re-checks it,
+          so an old observation says nothing about the present.
+
+'Not proven served' NEVER means 'not serving'. The proof sweep only
+considers a recently-healthy deployment, so a slow swap — or an app the
+probe cannot reach — stays unproven permanently while serving fine.
+
+--sha and --ref are two different questions and cannot be combined. Pass
+neither to ask about the app's own deploy branch, which is what someone who
+just ran 'git push' wants and cannot always name.
+
+Examples:
+  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555
+  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
+  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --ref main
+  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --json
+`
+    )
+    .action(async (appId: string, cmdOpts: { sha?: string; ref?: string }) => {
+      try {
+        // Refused here rather than at the server so the message names the two
+        // flags the caller typed. The backend refuses it too — this is the
+        // round trip, not the guarantee.
+        if (cmdOpts.sha !== undefined && cmdOpts.ref !== undefined) {
+          throw new Error(
+            "pass --sha or --ref, never both — they are two different questions and there is no single answer to both"
+          );
+        }
+
+        const opts = resolveTenantOpts(program);
+        const data = await tenantRequest<GetDeployStateResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/deploy-state`,
+          query: {
+            sha: cmdOpts.sha,
+            ref: cmdOpts.ref === undefined ? undefined : qualifyRefName(cmdOpts.ref)
+          }
+        });
+
+        if (isJsonMode()) {
+          // The wire envelope, untouched — the discriminator and the served
+          // observation are what a jq consumer is here for.
+          console.log(JSON.stringify(data, null, 2));
+          return;
+        }
+        console.log(renderDeployState(data, Date.now()).join("\n"));
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+}
+
+// ============================================================
 // vibe rollback
 // ============================================================
 
@@ -1518,6 +1186,69 @@ function registerAppCommands(vibe: Command, program: Command): void {
             ? undefined
             : { deployability: data.deployability, gitProject: data.gitProject ?? null }
         );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  app
+    .command("logs <appId>")
+    .description("Read a deployed app's runtime logs, and optionally follow them")
+    .option(
+      "--since <when>",
+      `How far back to read: a duration (45s, 30m, 1h, 2d) or an ISO-8601 instant. Default ${VIBE_LOG_CLI_DEFAULT_SINCE}.`
+    )
+    .option("--until <when>", "Stop at this instant. Same grammar as --since. Default: now.")
+    .option("--color <slot>", "Restrict to one deployment slot: blue or green. Default: both.")
+    .option(
+      "--grep <text>",
+      "Keep only lines containing this LITERAL substring. Never a regular expression."
+    )
+    .option("--limit <n>", VIBE_LOG_CLI_LIMIT_HELP)
+    .option("-f, --follow", "Keep the connection open and print lines as they arrive.")
+    .addHelpText(
+      "after",
+      `
+Reads what the DEPLOYED app printed — application output, not build output. For
+a build log, use \`nexus vibe deployments get <appId> <deploymentId>\`.
+
+Lines print oldest-first, so time runs down the screen and a --follow continues
+the same chronology.
+
+--grep is a LITERAL substring and is never compiled as a pattern. \`--grep 'a.b'\`
+matches the three characters a, dot, b — it does not match "axb".
+
+--json emits NDJSON — ONE OBJECT PER LINE, never a JSON array — in both modes.
+An array's closing bracket only exists once the stream ends, so
+\`--follow --json | jq\` would hang forever on one. The shape does not change
+under you depending on which flags you passed.
+
+--follow and --until are mutually exclusive: a follow runs until you stop it.
+Ctrl-C ends one cleanly and exits 0.
+
+Examples:
+  $ nexus vibe app logs 11111111-2222-4333-8444-555555555555
+  $ nexus vibe app logs <appId> --since 15m --color green
+  $ nexus vibe app logs <appId> --grep 'POST /webhook' --limit 500
+  $ nexus --json vibe app logs <appId> --follow | jq -r '.message'
+`
+    )
+    .action(async (appId: string, cmdOpts: AppLogsFlags) => {
+      try {
+        const opts = resolveTenantOpts(program);
+        const request = resolveAppLogsRequest(cmdOpts, Date.now());
+
+        if (request.follow) {
+          process.exitCode = await runAppLogsFollow(opts, appId, request);
+          return;
+        }
+
+        const data = await tenantRequest<GetVibeAppLogsResponse>(opts, {
+          method: "GET",
+          path: `/api/vibe/apps/${encodeURIComponent(appId)}/logs`,
+          query: toLogQuery(request)
+        });
+        emitLogLines(orderForDisplay(data.lines));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -2594,7 +2325,8 @@ function resolveTenantOpts(program: Command): TenantHttpOptions {
   return {
     apiKey: globals.apiKey as string | undefined,
     baseUrl: globals.baseUrl as string | undefined,
-    profile: globals.profile as string | undefined
+    profile: globals.profile as string | undefined,
+    timeout: timeoutSecondsToMs(globals.timeout as number | undefined)
   };
 }
 
@@ -2624,7 +2356,7 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
     details: formatPayloadDetails(e.payload)
   }));
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "id", label: "Id", width: 10 },
     { key: "createdAt", label: "Created" },
     { key: "eventType", label: "Event" },
@@ -2648,7 +2380,7 @@ function printRegisteredTool(tool: ExternalToolDetail): void {
   }
 
   console.log(color.green("✓") + " Registered Vibe app as agent tool");
-  printRecord(tool as unknown as Record<string, unknown>, [
+  printRecord(tool, [
     { key: "id", label: "Tool ID" },
     { key: "name", label: "Name" },
     { key: "type", label: "Type" },
@@ -2947,7 +2679,7 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
   // has not been cloned. It shows up on `vibe deployment get` once the build
   // reports. This line used to print the requested builder, which the executor
   // never read.
-  printRecord(d as unknown as Record<string, unknown>, [
+  printRecord(d, [
     { key: "id", label: "Deployment" },
     { key: "versionNumber", label: "Version", format: (v) => `v${String(v)}` },
     { key: "status", label: "Status" },
@@ -3018,7 +2750,7 @@ function printDeploymentList(data: ListDeploymentsResponse): void {
     createdAt: formatTimestamp(d.createdAt)
   }));
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "id", label: "Id" },
     { key: "version", label: "Version" },
     { key: "status", label: "Status" },
@@ -3034,7 +2766,7 @@ function printDeploymentDetail(data: GetDeploymentResponse): void {
   }
 
   const d = data.deployment;
-  printRecord(d as unknown as Record<string, unknown>, [
+  printRecord(d, [
     { key: "id", label: "Deployment" },
     { key: "versionNumber", label: "Version", format: (v) => `v${String(v)}` },
     { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
@@ -3067,7 +2799,7 @@ function printDeploymentDetail(data: GetDeploymentResponse): void {
 
   const b = data.buildJob;
   console.log(color.bold("\nBuild job"));
-  printRecord(b as unknown as Record<string, unknown>, [
+  printRecord(b, [
     { key: "id", label: "Id" },
     { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
     { key: "builder", label: "Builder", format: (v) => (v === null ? "—" : String(v)) },
@@ -3103,7 +2835,7 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
     createdAt: formatTimestamp(a.createdAt)
   }));
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "deployBranch", label: "Deploy" },
@@ -3187,14 +2919,16 @@ function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
   }
 
   const q = app.resourceQuotas;
-  printRecord({ ...app, ...extras } as unknown as Record<string, unknown>, [
-    { key: "id", label: "Id" },
-    { key: "name", label: "Name" },
-    { key: "deployBranch", label: "Deploy branch" },
-    // Only when the envelope actually carried them. CREATE and UPDATE answer
-    // with a bare `{ app }`, and printing "Source: —" there would assert the app
-    // has no git project when the read simply never asked.
-    ...(extras === undefined
+  const row = { ...app, ...extras };
+  // Only when the envelope actually carried them. CREATE and UPDATE answer
+  // with a bare `{ app }`, and printing "Source: —" there would assert the app
+  // has no git project when the read simply never asked.
+  //
+  // Hoisted so the conditional gets a contextual type. Spread inline, the
+  // best-common-type of `[]` and the literal widens `key` to `string`, which
+  // silently takes EVERY field below out of the key check too.
+  const envelopeFields: RecordField<typeof row>[] =
+    extras === undefined
       ? []
       : [
           {
@@ -3210,7 +2944,12 @@ function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
             label: "Deployability",
             format: () => formatDeployability(extras.deployability, extras.gitProject)
           }
-        ]),
+        ];
+  printRecord(row, [
+    { key: "id", label: "Id" },
+    { key: "name", label: "Name" },
+    { key: "deployBranch", label: "Deploy branch" },
+    ...envelopeFields,
     {
       key: "requireApprovals",
       label: "Approvals",
@@ -3260,33 +2999,145 @@ function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
   ]);
 }
 
+/**
+ * One row of the merged environment table, whatever backs it.
+ *
+ * The table is merged rather than stacked because the app does not see two
+ * lists: it sees ONE environment, and a name is held by exactly one entry. Two
+ * sections would show a collision as two unrelated rows.
+ */
+interface EnvTableRow {
+  id: string;
+  name: string;
+  value: string;
+  source: string;
+  card: string;
+  scope: VibeEnvVarScope;
+  status: string;
+  updatedAt: string;
+}
+
+/**
+ * The status cell for a card-backed row, with the owner's remaining daily
+ * quota folded in when there is a cap.
+ *
+ * An if-chain with a fallback rather than an exhaustive switch, for the same
+ * version-skew reason spelled out on {@link formatDeployability}: this CLI
+ * ships standalone to npm and is routinely pointed at a backend NEWER than
+ * itself, which may name a state this build has never heard of. A switch the
+ * compiler believes is exhaustive would return `undefined` and print it — and
+ * an unknown state must never read as a working one.
+ */
+function formatCardStatus(binding: VibeAppCardBindingDto): string {
+  const quota =
+    binding.quotaPerDay === null || binding.quotaRemaining === null
+      ? ""
+      : ` (${binding.quotaRemaining}/${binding.quotaPerDay})`;
+
+  // The quota rides on `active` alone. On a paused or revoked card the
+  // remaining allowance is not a budget anyone can spend, and printing it
+  // beside "revoked" reads as though the card were still usable.
+  if (binding.status === "ACTIVE") return color.green("active") + quota;
+  if (binding.status === "PENDING_APPROVAL") return color.yellow("pending approval");
+  if (binding.status === "PAUSED") return color.yellow("paused");
+  if (binding.status === "REVOKED") return color.red("revoked");
+  if (binding.status === "EXPIRED") return color.red("expired");
+  return color.yellow("state this CLI does not understand");
+}
+
+/**
+ * The source cell for a card-backed row. The projection is named only when it
+ * is NOT `HANDLE`, because `HANDLE` is what the value column already shows: an
+ * address the app resolves through the broker. Any other projection puts
+ * something else in the variable, and the reader has to be told which.
+ */
+function formatCardSource(binding: VibeAppCardBindingDto): string {
+  return binding.projection === "HANDLE"
+    ? "card"
+    : `card (${binding.projection.toLowerCase().replace(/_/g, " ")})`;
+}
+
+function toEnvVarRow(envVar: VibeAppEnvVarDto): EnvTableRow {
+  return {
+    // Full id, not shortenId: `env rm` takes the id and `env list` is the
+    // only way to discover it, so the displayed id must be copy-pasteable.
+    id: envVar.id,
+    name: envVar.name,
+    // Collapse newlines + truncate so a multiline or huge value never
+    // breaks the table. Full value is available via --json.
+    value: truncate(envVar.value.replace(/\s+/g, " "), 48),
+    source: "variable",
+    card: "—",
+    scope: envVar.scope,
+    status: "—",
+    updatedAt: formatTimestamp(envVar.updatedAt)
+  };
+}
+
+function toCardBindingRow(binding: VibeAppCardBindingDto): EnvTableRow {
+  return {
+    id: binding.id,
+    name: binding.name,
+    // The handle in full, never truncated: it is the literal value the app
+    // reads, and it is not a secret — see VibeAppCardBindingDto.handle.
+    value: binding.handle,
+    source: formatCardSource(binding),
+    // Whose authority, then which attenuation of it. The credential first
+    // because that is what the card's owner recognises as theirs.
+    card: truncate(`${binding.credentialName} — ${binding.accessCardName}`, 36),
+    scope: binding.scope,
+    status: formatCardStatus(binding),
+    updatedAt: formatTimestamp(binding.updatedAt)
+  };
+}
+
+/**
+ * Declaration order of {@link VIBE_ENV_VAR_SCOPES} — ALL, then PROD, then
+ * STAGING, which is the order the deployer resolves in: ALL first, then the
+ * environment-specific scope overwriting by name.
+ *
+ * A scope this build has never heard of yields -1 and sorts to the TOP, which
+ * is the right direction for the same version-skew reason as the formatters
+ * above: an unrecognised row must be conspicuous, never buried.
+ */
+function scopeRank(scope: VibeEnvVarScope): number {
+  return VIBE_ENV_VAR_SCOPES.indexOf(scope);
+}
+
 function printEnvVarList(data: ListEnvVarsResponse): void {
   if (isJsonMode()) {
+    // The wire envelope through unchanged: `.envVars[]` stays exactly where
+    // every existing jq consumer already reads it, and `.cardBindings[]`
+    // arrives as a purely additive sibling.
     console.log(JSON.stringify(data, null, 2));
     return;
   }
-  if (data.envVars.length === 0) {
-    console.log(color.dim("No env vars set."));
+
+  // `?? []` collapses "this server predates cards" into "this app has none"
+  // for RENDERING only. The distinction is preserved on the wire and in
+  // --json; here both correctly produce a table with no card rows.
+  const bindings = data.cardBindings ?? [];
+
+  if (data.envVars.length === 0 && bindings.length === 0) {
+    console.log(color.dim("Nothing set in this app's environment."));
     return;
   }
 
-  const rows = data.envVars.map((e) => ({
-    // Full id, not shortenId: `env rm` takes the id and `env list` is the
-    // only way to discover it, so the displayed id must be copy-pasteable.
-    id: e.id,
-    name: e.name,
-    // Collapse newlines + truncate so a multiline or huge value never
-    // breaks the table. Full value is available via --json.
-    value: truncate(e.value.replace(/\s+/g, " "), 48),
-    scope: e.scope,
-    updatedAt: formatTimestamp(e.updatedAt)
-  }));
+  // Sorted here rather than trusted from the wire: the two kinds arrive as two
+  // arrays, each ordered within itself, so a merged order only exists if this
+  // side makes one. Scope then name is the order the deployer resolves in.
+  const rows = [...data.envVars.map(toEnvVarRow), ...bindings.map(toCardBindingRow)].sort(
+    (a, b) => scopeRank(a.scope) - scopeRank(b.scope) || a.name.localeCompare(b.name)
+  );
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "value", label: "Value" },
+    { key: "source", label: "Source" },
+    { key: "card", label: "Card" },
     { key: "scope", label: "Scope" },
+    { key: "status", label: "Status" },
     { key: "updatedAt", label: "Updated" }
   ]);
 }
@@ -3297,7 +3148,7 @@ function printEnvVar(envVar: VibeAppEnvVarDto): void {
     return;
   }
 
-  printRecord(envVar as unknown as Record<string, unknown>, [
+  printRecord(envVar, [
     { key: "id", label: "Id" },
     { key: "name", label: "Name" },
     { key: "value", label: "Value" },
@@ -3340,7 +3191,7 @@ function printEdgeToken(edgeToken: VibeEdgeTokenDto, toolResyncRequired?: boolea
     return;
   }
 
-  printRecord(edgeToken as unknown as Record<string, unknown>, [
+  printRecord(edgeToken, [
     { key: "token", label: "Token" },
     { key: "headerName", label: "Header" },
     {
@@ -3400,7 +3251,7 @@ function printApprovalRequestList(data: ListPendingApprovalsResponse): void {
     createdAt: formatTimestamp(r.createdAt)
   }));
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "deploymentId", label: "Deployment" },
     { key: "status", label: "Status" },
     { key: "requiredApprovals", label: "Required" },
@@ -3410,7 +3261,7 @@ function printApprovalRequestList(data: ListPendingApprovalsResponse): void {
 }
 
 function printApprovalRequest(request: VibeApprovalRequestDto): void {
-  printRecord(request as unknown as Record<string, unknown>, [
+  printRecord(request, [
     { key: "id", label: "Request id" },
     { key: "vibeDeploymentId", label: "Deployment" },
     { key: "status", label: "Status", format: (v) => colorApprovalStatus(String(v)) },
@@ -3437,7 +3288,7 @@ function printDecisionTable(decisions: VibeApprovalDecisionDto[]): void {
     note: d.note === null ? color.dim("—") : truncate(d.note.replace(/\s+/g, " "), 48),
     decidedAt: formatTimestamp(d.decidedAt)
   }));
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "decision", label: "Decision" },
     { key: "decidedBy", label: "Decided by" },
     { key: "note", label: "Note" },
@@ -3486,14 +3337,20 @@ function printDecisionResult(data: RecordApprovalDecisionResponse): void {
  */
 export function formatSeededRepoFirstPushHint(project: {
   id: string;
-  defaultBranch: string;
+  defaultBranch?: string;
 }): string {
   return [
     color.yellow("This project's repo is created with an initial commit already on it."),
     `A first push from a local repo you started yourself is rejected with "fetch first".`,
     "Start from the repo, or replay local work you already have onto it:",
     `  nexus vibe git-project clone ${project.id}`,
-    `  git fetch origin && git rebase origin/${project.defaultBranch}`
+    // `defaultBranch` is optional on the deprecated `repository` alias, which is
+    // the only value a pre-decoupling backend sends. Interpolating it blind
+    // printed `git rebase origin/undefined` — a command that cannot work,
+    // rendered as one that can.
+    project.defaultBranch === undefined
+      ? `  git fetch origin && git rebase origin/<the project's default branch>`
+      : `  git fetch origin && git rebase origin/${project.defaultBranch}`
   ].join("\n");
 }
 
@@ -3503,8 +3360,18 @@ export function formatSeededRepoFirstPushHint(project: {
  * false: those speak about a project that already holds the operator's code, so
  * the seeded-repo warning would be noise at best and wrong at worst.
  */
+/**
+ * Takes the ALIAS shape, not the full project, so both callers type-check: the
+ * app-scoped reads fall back to `data.repository`, whose `name`, `description` and
+ * `defaultBranch` are optional on the wire. A full `VibeGitProjectDto` is assignable
+ * to it, so the standalone routes are unaffected.
+ *
+ * An absent field renders as "not sent by this backend" rather than as a blank line —
+ * `printRecord` stringifies `undefined` to `""`, which reads as an empty value the
+ * server chose rather than a key it never sent.
+ */
 function printVibeGitProject(
-  project: VibeGitProjectDto,
+  project: VibeGitProjectAliasDto,
   opts: { freshlyProvisioned?: boolean } = {}
 ): void {
   if (isJsonMode()) {
@@ -3512,10 +3379,13 @@ function printVibeGitProject(
     return;
   }
 
-  printRecord(project as unknown as Record<string, unknown>, [
+  const orAbsent = (v: unknown): string =>
+    v === undefined ? color.dim("— not sent by this backend") : String(v);
+
+  printRecord(project, [
     { key: "id", label: "Id" },
-    { key: "name", label: "Name" },
-    { key: "defaultBranch", label: "Default branch" },
+    { key: "name", label: "Name", format: orAbsent },
+    { key: "defaultBranch", label: "Default branch", format: orAbsent },
     { key: "status", label: "Status" },
     {
       key: "gitRemoteUrl",
@@ -3557,7 +3427,7 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
     createdAt: formatTimestamp(p.createdAt)
   }));
 
-  printTable(rows as unknown as Record<string, unknown>[], [
+  printTable(rows, [
     { key: "id", label: "Id" },
     { key: "name", label: "Name", width: 24 },
     { key: "defaultBranch", label: "Default branch", width: 16 },
@@ -3646,6 +3516,10 @@ const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   DEPLOYMENT_SUPERSEDED: "neutral",
   DEPLOYMENT_DISPLACED: "neutral",
   DEPLOYMENT_ROLLED_BACK_USER: "warning",
+  // Failure, where the USER rollback above is only a warning. That one is a
+  // person deciding to go back; this one is a version that was serving real
+  // traffic and started crashing. Same word in the name, opposite urgency.
+  DEPLOYMENT_ROLLED_BACK_CRASH_LOOP: "failure",
   SECRET_VALUE_STAGED: "neutral",
   SECRET_VALUE_WRITTEN: "neutral",
   CAPACITY_REQUESTED: "neutral",
@@ -3658,7 +3532,20 @@ const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   DEPLOYMENT_SERVED: "success",
   DEPLOYMENT_VERIFICATION_REFUSED: "failure",
   DEPLOYMENT_VERIFICATION_OVERRIDDEN: "warning",
-  DEPLOYMENT_VERIFICATION_WARNED: "warning"
+  DEPLOYMENT_VERIFICATION_WARNED: "warning",
+  // The access-card lifecycle. Delegating a credential is WARNING, not success:
+  // it is a correct, routine action and it is also the row an owner scanning
+  // "what can act as me?" has to find, which green would hide. Revoking is the
+  // good outcome on this surface, so it takes the green — it answers "did
+  // anyone actually take this back?". A pause is neutral because it is
+  // reversible and routinely automatic; red would put a nightly quota trip in
+  // the same colour as a revocation.
+  CARD_GRANT_ISSUED: "warning",
+  CARD_GRANT_PAUSED: "neutral",
+  CARD_GRANT_ACTIVATED: "neutral",
+  CARD_GRANT_REVOKED: "success",
+  CARD_BINDING_RENAMED: "neutral",
+  CARD_BINDING_REMOVED: "neutral"
 };
 
 function colorizeEventType(t: VibeAuditEventType): string {

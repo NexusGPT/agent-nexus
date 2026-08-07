@@ -1,10 +1,10 @@
-import type { NexusClient } from "@agent-nexus/sdk";
+import type { NexusClient, PromptAssistantChatBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
@@ -103,7 +103,9 @@ Examples:
           }
         }
 
-        const result = await client.promptAssistant.chat(body as any);
+        const result = await client.promptAssistant.chat(
+          asRequestBody<PromptAssistantChatBody>(body)
+        );
 
         // The backend processes chat messages asynchronously — it returns
         // immediately with an empty response. Poll until the assistant reply appears.
@@ -111,9 +113,9 @@ Examples:
         const expectedCount = initialMessageCount + 1;
         if (!result.response && result.threadId) {
           const final = await pollForResponse(client, result.threadId, expectedCount);
-          printRecord(final as unknown as Record<string, unknown>);
+          printRecord(final);
         } else {
-          printRecord(result as unknown as Record<string, unknown>);
+          printRecord(result);
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -141,17 +143,13 @@ Notes:
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.promptAssistant.listThreads(getPaginationParams(opts));
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "threadId", label: "THREAD ID", width: 36 },
-          { key: "mode", label: "MODE", width: 8 },
-          { key: "status", label: "STATUS", width: 12 },
-          { key: "summary", label: "SUMMARY", width: 50 },
-          { key: "createdAt", label: "CREATED", width: 24 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "threadId", label: "THREAD ID", width: 36 },
+        { key: "mode", label: "MODE", width: 8 },
+        { key: "status", label: "STATUS", width: 12 },
+        { key: "summary", label: "SUMMARY", width: 50 },
+        { key: "createdAt", label: "CREATED", width: 24 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -172,12 +170,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.promptAssistant.getThread(threadId);
-        printRecord(t as unknown as Record<string, unknown>, [
-          { key: "id", label: "ID" },
-          { key: "mode", label: "Mode" },
+        printRecord(t, [
+          { key: "threadId", label: "ID" },
+          { key: "status", label: "Status" },
           { key: "messages", label: "Messages" },
-          { key: "promptResult", label: "Prompt Result" },
-          { key: "createdAt", label: "Created" }
+          { key: "promptResult", label: "Prompt Result" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);

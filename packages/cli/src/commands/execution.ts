@@ -1,8 +1,22 @@
+import type {
+  ExecutionDiagnoseNode,
+  ExecutionPollResponse,
+  ExecutionSummary,
+  ListExecutionsParams,
+  PageResponse
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import {
+  color,
+  isJsonMode,
+  printList,
+  printRecord,
+  printSuccess,
+  type RecordField
+} from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
 
@@ -27,28 +41,19 @@ Examples:
   ).action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
-      let result: any;
+      const params: ListExecutionsParams = { ...getPaginationParams(opts), status: opts.status };
+      // Typed, not `any`. An `any` row makes `Column.key` fall back to a bare
+      // `string`, which is what let the STARTED column below name `createdAt`
+      // — a field `ExecutionSummary` does not have — and render blank forever.
+      const result: PageResponse<ExecutionSummary> = opts.workflowId
+        ? await client.workflowExecutions.listByWorkflow(opts.workflowId, params)
+        : await client.workflowExecutions.list(params);
 
-      if (opts.workflowId) {
-        result = await client.workflowExecutions.listByWorkflow(opts.workflowId, {
-          ...getPaginationParams(opts),
-          status: opts.status
-        } as any);
-      } else {
-        result = await client.workflowExecutions.list({
-          ...getPaginationParams(opts),
-          status: opts.status
-        } as any);
-      }
-
-      const data = result.data ?? result;
-      const meta = result.meta;
-
-      printList(Array.isArray(data) ? data : [data], meta, [
+      printList(result.data, result.meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "workflowId", label: "WORKFLOW", width: 36 },
         { key: "status", label: "STATUS", width: 12 },
-        { key: "createdAt", label: "STARTED", width: 20 }
+        { key: "startedAt", label: "STARTED", width: 20 }
       ]);
     } catch (err) {
       process.exitCode = handleError(err);
@@ -71,11 +76,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const exec = await client.workflowExecutions.get(id);
-        printRecord(exec as unknown as Record<string, unknown>, [
+        printRecord(exec, [
           { key: "id", label: "ID" },
           { key: "workflowId", label: "Workflow" },
           { key: "status", label: "Status" },
-          { key: "createdAt", label: "Started" },
+          { key: "startedAt", label: "Started" },
           { key: "completedAt", label: "Completed" },
           { key: "duration", label: "Duration" }
         ]);
@@ -110,7 +115,7 @@ Examples:
           return;
         }
 
-        const diag = result as Record<string, any>;
+        const diag = result;
         const statusIcon = getStatusIcon(diag.status);
         const durationStr = diag.duration != null ? formatDuration(diag.duration) : "";
 
@@ -126,7 +131,7 @@ Examples:
         }
 
         // Node status counts
-        const counts = diag.nodeStatusCounts as Record<string, number> | undefined;
+        const counts = diag.nodeStatusCounts;
         if (counts && Object.keys(counts).length > 0) {
           const parts = Object.entries(counts)
             .filter(([, v]) => v > 0)
@@ -139,7 +144,7 @@ Examples:
         console.log();
 
         // Per-node breakdown
-        const nodes = (diag.nodes ?? []) as any[];
+        const nodes = diag.nodes ?? [];
         for (const node of nodes) {
           printDiagnoseNode(node, 0, !!opts.verbose);
         }
@@ -168,7 +173,19 @@ Examples:
     )
     .action(async (id: string | undefined, opts) => {
       try {
-        if (!id && !opts.token) {
+        // Resolve the poll target inside the guard itself. `id` is only
+        // narrowed to `string` on this branch, and that narrowing does NOT
+        // survive into the `doPoll` closure below — TypeScript cannot prove
+        // `id` is unassigned between the closure being created and called.
+        // Capturing the decision here is what the old `poll(id!)` assertion
+        // was standing in for.
+        const token: string | undefined = opts.token;
+        let pollTarget: { token: string } | { id: string };
+        if (token) {
+          pollTarget = { token };
+        } else if (id) {
+          pollTarget = { id };
+        } else {
           console.error("Error: provide an execution ID or --token");
           process.exitCode = 1;
           return;
@@ -178,14 +195,12 @@ Examples:
         const interval = Math.max(500, parseInt(opts.interval, 10) || 2000);
         const terminalStatuses = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
-        const doPoll = async () => {
-          if (opts.token) {
-            return client.workflowExecutions.pollByToken(opts.token);
-          }
-          return client.workflowExecutions.poll(id!);
-        };
+        const doPoll = async () =>
+          "token" in pollTarget
+            ? client.workflowExecutions.pollByToken(pollTarget.token)
+            : client.workflowExecutions.poll(pollTarget.id);
 
-        const fields = [
+        const fields: RecordField<ExecutionPollResponse>[] = [
           { key: "executionId", label: "Execution ID" },
           { key: "status", label: "Status" },
           { key: "createdAt", label: "Created" },
@@ -195,7 +210,7 @@ Examples:
 
         if (!opts.watch) {
           const result = await doPoll();
-          printRecord(result as Record<string, unknown>, fields);
+          printRecord(result, fields);
           return;
         }
 
@@ -215,7 +230,7 @@ Examples:
           await new Promise((resolve) => setTimeout(resolve, interval));
         }
 
-        printRecord(result as Record<string, unknown>, fields);
+        printRecord(result, fields);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -243,13 +258,13 @@ Examples:
         // Best-effort: derive the workflow id for the [wf …] prefix.
         let wfTag = shortTag(id);
         try {
-          const exec = (await client.workflowExecutions.get(id)) as Record<string, unknown>;
-          if (exec?.workflowId) wfTag = shortTag(exec.workflowId as string);
+          const exec = await client.workflowExecutions.get(id);
+          if (exec?.workflowId) wfTag = shortTag(exec.workflowId);
         } catch {
           // fall back to the execution short id
         }
 
-        const finalStatus = await runFollow(client as any, id, {
+        const finalStatus = await runFollow(client, id, {
           interval,
           wfTag,
           json: isJsonMode()
@@ -259,9 +274,7 @@ Examples:
           const paint =
             finalStatus === "COMPLETED"
               ? color.green
-              : finalStatus === "FAILED" ||
-                  finalStatus === "ERROR" ||
-                  finalStatus === "CANCELLED"
+              : finalStatus === "FAILED" || finalStatus === "ERROR" || finalStatus === "CANCELLED"
                 ? color.red
                 : color.yellow;
           console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
@@ -286,8 +299,33 @@ Examples:
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const output = await (client.workflowExecutions as any).getOutput(id);
-        printRecord(output as Record<string, unknown>);
+        const output = await client.workflowExecutions.getOutput(id);
+        printRecord(output);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── cancel ─────────────────────────────────────────────────────────────
+  execution
+    .command("cancel")
+    .description("Cancel a running execution and its in-flight loop iterations")
+    .argument("<id>", "Execution ID")
+    .addHelpText(
+      "after",
+      `
+Cancels a PENDING, RUNNING or FAILED execution. Loop fan-outs run as child
+executions, so every iteration the run spawned is cancelled with it.
+
+Examples:
+  $ nexus execution cancel exec-123
+  $ nexus execution cancel exec-123 --json`
+    )
+    .action(async (id: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.workflowExecutions.cancel(id);
+        printSuccess("Execution cancelled.", { executionId: id, ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -309,7 +347,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflowExecutions.retryNode(id, nodeId);
-        printSuccess("Node retry initiated.", { executionId: id, nodeId, ...(result as any) });
+        // `result` carries `executionId` and `nodeId` as required fields and is
+        // spread last, so it always won — naming them again ahead of it was
+        // dead. Dropping them is byte-identical at runtime; the `as any` is
+        // what stopped the compiler saying so.
+        printSuccess("Node retry initiated.", { ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -330,8 +372,8 @@ Examples:
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const data = await (client.workflowExecutions as any).export(id);
-        printRecord(data as Record<string, unknown>);
+        const data = await client.workflowExecutions.export(id);
+        printRecord(data);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -353,8 +395,8 @@ Examples:
     .action(async (id: string, nodeId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const result = await (client.workflowExecutions as any).getNodeResult(id, nodeId);
-        printRecord(result as Record<string, unknown>);
+        const result = await client.workflowExecutions.getNodeResult(id, nodeId);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -390,7 +432,7 @@ function formatDuration(ms: number): string {
   return `${mins}m${secs}s`;
 }
 
-function printDiagnoseNode(node: Record<string, any>, depth: number, verbose: boolean): void {
+function printDiagnoseNode(node: ExecutionDiagnoseNode, depth: number, verbose: boolean): void {
   const indent = "  ".repeat(depth + 1);
   const icon = getStatusIcon(node.status);
   const label = node.label ?? node.nodeId ?? "unknown";
@@ -416,7 +458,7 @@ function printDiagnoseNode(node: Record<string, any>, depth: number, verbose: bo
   }
 
   // Loop iterations
-  const iterations = node.loopIterations as any[] | null;
+  const iterations = node.loopIterations;
   if (iterations && iterations.length > 0) {
     const completedCount = iterations.filter((i) => i.status === "COMPLETED").length;
     const failedCount = iterations.filter(

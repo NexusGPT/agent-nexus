@@ -21,14 +21,17 @@ Examples:
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const result = await client.models.list();
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const { models } = await client.models.list();
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
-          { key: "name", label: "NAME", width: 30 },
+        // Keys must match `ModelSummary`: it declares `displayName` and
+        // `contextSize`, never `name` or `contextWindow`. `Column.key` is a
+        // bare `string`, so a wrong key is not a type error — it renders an
+        // empty cell forever. These two were blank in every table run.
+        printList(models, undefined, [
+          { key: "displayName", label: "NAME", width: 30 },
           { key: "provider", label: "PROVIDER", width: 20 },
           { key: "id", label: "ID", width: 36 },
-          { key: "contextWindow", label: "CONTEXT", width: 12 }
+          { key: "contextSize", label: "CONTEXT", width: 12 }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);

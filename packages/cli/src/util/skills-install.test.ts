@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   agentInstallables,
   detectProjectRoot,
+  hookInstallables,
   resolveClaudeTarget,
   safeResolveWithinBase,
-  writeHookFiles,
+  sharedInstallable,
   writeRootClaudeMd,
   writeRootSettingsJson,
   writeSkillFiles
@@ -272,22 +274,134 @@ describe("writeRootSettingsJson", () => {
   });
 });
 
-describe("writeHookFiles", () => {
-  it("writes the tree (including subdirs) and marks .py files executable", () => {
+describe("writeSkillFiles — the executable bit", () => {
+  const modeOf = (...segs: string[]): number => fs.statSync(path.join(...segs)).mode & 0o7777;
+
+  it("marks a shebang script executable and leaves everything else alone", () => {
     const hooksDir = path.join(tmpHome, ".claude", "hooks");
-    const res = writeHookFiles(hooksDir, [
-      { path: "nexus-fs-firewall.py", content: Buffer.from("#!/usr/bin/env python3\n") },
+    const res = writeSkillFiles(hooksDir, [
+      { path: "nexus-fs-firewall.py", content: Buffer.from("#!/usr/bin/env python3\nx = 1\n") },
+      { path: "guard.sh", content: Buffer.from("#!/bin/sh\necho hi\n") },
+      { path: "runner", content: Buffer.from("#!/usr/bin/env node\n") },
+      // No shebang: a module an entry point imports. An extension rule would
+      // wrongly mark these two executable — 7 bundled `.ts` and 1 `.js` are
+      // exactly this shape.
       { path: "lib/hook_core.py", content: Buffer.from("x = 1\n") },
+      { path: "script-TEMPLATE.js", content: Buffer.from("export const x = 1;\n") },
       { path: "README.md", content: Buffer.from("# hooks\n") }
     ]);
 
-    expect(res.created.sort()).toEqual(["README.md", "lib/hook_core.py", "nexus-fs-firewall.py"]);
-    expect(fs.existsSync(path.join(hooksDir, "lib", "hook_core.py"))).toBe(true);
+    expect(res.created.sort()).toEqual([
+      "README.md",
+      "guard.sh",
+      "lib/hook_core.py",
+      "nexus-fs-firewall.py",
+      "runner",
+      "script-TEMPLATE.js"
+    ]);
 
-    const pyMode = fs.statSync(path.join(hooksDir, "nexus-fs-firewall.py")).mode;
-    expect(pyMode & 0o111).not.toBe(0); // executable bit set
-    const mdMode = fs.statSync(path.join(hooksDir, "README.md")).mode;
-    expect(mdMode & 0o111).toBe(0); // non-.py left alone
+    expect(modeOf(hooksDir, "nexus-fs-firewall.py") & 0o111).not.toBe(0);
+    expect(modeOf(hooksDir, "guard.sh") & 0o111).not.toBe(0);
+    // Extensionless, and the shebang is the whole reason it is executable.
+    expect(modeOf(hooksDir, "runner") & 0o111).not.toBe(0);
+
+    expect(modeOf(hooksDir, "lib", "hook_core.py") & 0o111).toBe(0);
+    expect(modeOf(hooksDir, "script-TEMPLATE.js") & 0o111).toBe(0);
+    expect(modeOf(hooksDir, "README.md") & 0o111).toBe(0);
+  });
+
+  it("repairs a script an earlier install left non-executable, via the skip path", () => {
+    const base = path.join(tmpHome, "skills");
+    const content = Buffer.from("#!/bin/sh\necho hi\n");
+
+    // Reproduce what the pre-fix installer left on disk: right bytes, no +x.
+    writeSkillFiles(base, [{ path: "scripts/run.sh", content }]);
+    fs.chmodSync(path.join(base, "scripts", "run.sh"), 0o644);
+    expect(modeOf(base, "scripts", "run.sh") & 0o111).toBe(0);
+
+    const res = writeSkillFiles(base, [{ path: "scripts/run.sh", content }]);
+
+    // The content is byte-identical, so this is the `skipped` branch — the only
+    // branch an existing user's re-install ever reaches.
+    expect(res.skipped).toEqual(["scripts/run.sh"]);
+    expect(res.created).toEqual([]);
+    expect(res.updated).toEqual([]);
+    expect(modeOf(base, "scripts", "run.sh") & 0o111).not.toBe(0);
+  });
+
+  it("grants execute only where read is already granted, never widening access", () => {
+    const base = path.join(tmpHome, "skills");
+    const content = Buffer.from("#!/bin/sh\necho hi\n");
+
+    writeSkillFiles(base, [{ path: "private.sh", content }]);
+    fs.chmodSync(path.join(base, "private.sh"), 0o600);
+
+    writeSkillFiles(base, [{ path: "private.sh", content }]);
+
+    // 0o755 would hand group and other read+execute on a file the user had
+    // deliberately kept to themselves.
+    expect(modeOf(base, "private.sh")).toBe(0o700);
+  });
+
+  it("produces a file the OS will actually execute", () => {
+    const base = path.join(tmpHome, "skills");
+    writeSkillFiles(base, [
+      { path: "scripts/hello.sh", content: Buffer.from("#!/bin/sh\necho ran-from-install\n") }
+    ]);
+
+    const full = path.join(base, "scripts", "hello.sh");
+    // The harm is the ACT — a `permission denied` at exec time. Assert the act,
+    // not the absence of an error from the writer.
+    expect(() => fs.accessSync(full, fs.constants.X_OK)).not.toThrow();
+    expect(execFileSync(full, { encoding: "utf-8" }).trim()).toBe("ran-from-install");
+  });
+});
+
+describe("the real bundle installs its documented scripts executable", () => {
+  // The skill docs tell an agent to type `skills/shared/scripts/precheck.py <file>`
+  // and `skills/shared/scripts/deploy_watch.sh <url> <marker>` — bare paths, i.e.
+  // direct exec. Without the executable bit both dead-end on permission denied.
+  const documented = ["scripts/precheck.py", "scripts/deploy_watch.sh"];
+
+  it("ships those two files with a shebang", () => {
+    const shared = sharedInstallable();
+    for (const rel of documented) {
+      const entry = shared.files.find((f) => f.path === rel);
+      expect(entry, `${rel} missing from SHARED_FILES`).toBeDefined();
+      expect(entry?.content.subarray(0, 2).toString()).toBe("#!");
+    }
+  });
+
+  it("installs them executable, alongside non-executable docs", () => {
+    const skillsDir = path.join(tmpHome, ".claude", "skills");
+    const shared = sharedInstallable();
+    writeSkillFiles(path.join(skillsDir, shared.slug), shared.files);
+
+    for (const rel of documented) {
+      const full = path.join(skillsDir, "shared", rel);
+      expect(fs.statSync(full).mode & 0o111, `${rel} is not executable`).not.toBe(0);
+      expect(() => fs.accessSync(full, fs.constants.X_OK)).not.toThrow();
+    }
+
+    // Control: the same install must NOT make prose executable, or "everything
+    // is executable" would satisfy every assertion above.
+    const docs = shared.files.filter((f) => f.path.endsWith(".md"));
+    expect(docs.length).toBeGreaterThan(0);
+    for (const doc of docs) {
+      expect(fs.statSync(path.join(skillsDir, "shared", doc.path)).mode & 0o111).toBe(0);
+    }
+  });
+
+  it("installs every hook entry point executable", () => {
+    const hooksDir = path.join(tmpHome, ".claude", "hooks");
+    const hooks = hookInstallables();
+    writeSkillFiles(hooksDir, hooks.files);
+
+    const scripts = hooks.files.filter((f) => f.content.subarray(0, 2).toString() === "#!");
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const f of scripts) {
+      expect(fs.statSync(path.join(hooksDir, f.path)).mode & 0o111, f.path).not.toBe(0);
+    }
   });
 });
 

@@ -48,30 +48,26 @@ Examples:
         order: opts.order
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "status", label: "STATUS", width: 12, format: formatStatus },
-          { key: "agentName", label: "AGENT", width: 20 },
-          { key: "workflowName", label: "WORKFLOW", width: 20 },
-          {
-            key: "totalCostUsd",
-            label: "COST ($)",
-            width: 10,
-            format: (v) => (v != null ? `$${Number(v).toFixed(4)}` : "-")
-          },
-          {
-            key: "totalDurationMs",
-            label: "DURATION",
-            width: 10,
-            format: (v) => (v != null ? `${Number(v)}ms` : "-")
-          },
-          { key: "generationCount", label: "GENS", width: 5 },
-          { key: "startedAt", label: "STARTED", width: 20 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "status", label: "STATUS", width: 12, format: formatStatus },
+        { key: "agentName", label: "AGENT", width: 20 },
+        { key: "workflowName", label: "WORKFLOW", width: 20 },
+        {
+          key: "totalCostUsd",
+          label: "COST ($)",
+          width: 10,
+          format: (v) => (v != null ? `$${Number(v).toFixed(4)}` : "-")
+        },
+        {
+          key: "totalDurationMs",
+          label: "DURATION",
+          width: 10,
+          format: (v) => (v != null ? `${Number(v)}ms` : "-")
+        },
+        { key: "generationCount", label: "GENS", width: 5 },
+        { key: "startedAt", label: "STARTED", width: 20 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -93,7 +89,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const trace = await client.tracing.getTrace(id);
-        printRecord(trace as unknown as Record<string, unknown>, [
+        printRecord(trace, [
           { key: "id", label: "ID" },
           { key: "status", label: "Status" },
           { key: "agentName", label: "Agent" },
@@ -114,10 +110,10 @@ Examples:
         // so printRecord above emitted them inside the single JSON document.
         // Only render the human-readable generations table for non-JSON output —
         // emitting a second JSON value here would break parsers (NEX-2176).
-        const gens = (trace as any).generations;
+        const gens = trace.generations;
         if (!isJsonMode() && gens && gens.length > 0) {
           console.log(`\n${color.bold("Generations")} (${gens.length}):\n`);
-          printList(gens as Record<string, unknown>[], undefined, [
+          printList(gens, undefined, [
             { key: "id", label: "ID", width: 36 },
             { key: "modelName", label: "MODEL", width: 25 },
             { key: "status", label: "STATUS", width: 12, format: formatStatus },
@@ -201,28 +197,24 @@ Examples:
         maxCostUsd: opts.maxCost ? parseFloat(opts.maxCost) : undefined
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "traceId", label: "TRACE", width: 36 },
-          { key: "modelName", label: "MODEL", width: 25 },
-          { key: "status", label: "STATUS", width: 12, format: formatStatus },
-          {
-            key: "costUsd",
-            label: "COST ($)",
-            width: 10,
-            format: (v) => (v != null ? `$${Number(v).toFixed(6)}` : "-")
-          },
-          {
-            key: "durationMs",
-            label: "DURATION",
-            width: 10,
-            format: (v) => (v != null ? `${v}ms` : "-")
-          }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "traceId", label: "TRACE", width: 36 },
+        { key: "modelName", label: "MODEL", width: 25 },
+        { key: "status", label: "STATUS", width: 12, format: formatStatus },
+        {
+          key: "costUsd",
+          label: "COST ($)",
+          width: 10,
+          format: (v) => (v != null ? `$${Number(v).toFixed(6)}` : "-")
+        },
+        {
+          key: "durationMs",
+          label: "DURATION",
+          width: 10,
+          format: (v) => (v != null ? `${v}ms` : "-")
+        }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -244,7 +236,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const gen = await client.tracing.getGeneration(id);
-        printRecord(gen as unknown as Record<string, unknown>, [
+        printRecord(gen, [
           { key: "id", label: "ID" },
           { key: "traceId", label: "Trace ID" },
           { key: "provider", label: "Provider" },
@@ -322,7 +314,7 @@ Examples:
           startDate: opts.startDate,
           endDate: opts.endDate
         });
-        printRecord(summary as unknown as Record<string, unknown>, [
+        printRecord(summary, [
           { key: "totalTraces", label: "Total Traces" },
           { key: "completedTraces", label: "Completed" },
           { key: "failedTraces", label: "Failed" },
@@ -369,8 +361,8 @@ Examples:
           startDate: opts.startDate,
           endDate: opts.endDate
         });
-        const entries = (result as any).entries ?? [];
-        printList(entries as Record<string, unknown>[], undefined, [
+        const entries = result.entries ?? [];
+        printList(entries, undefined, [
           { key: "groupKey", label: "KEY", width: 36 },
           { key: "groupLabel", label: "LABEL", width: 25 },
           {
@@ -411,8 +403,8 @@ Examples:
           startDate: opts.startDate,
           endDate: opts.endDate
         });
-        const points = (result as any).points ?? [];
-        printList(points as Record<string, unknown>[], undefined, [
+        const points = result.points ?? [];
+        printList(points, undefined, [
           { key: "date", label: "DATE", width: 22 },
           { key: "traceCount", label: "TRACES", width: 8 },
           { key: "generationCount", label: "GENS", width: 8 },
@@ -451,7 +443,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.tracing.exportTrace(id, { format: opts.format });
-        console.log((result as any).content);
+        console.log(result.content);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -487,7 +479,7 @@ Examples:
           endDate: opts.endDate,
           limit: parseInt(opts.limit, 10)
         });
-        console.log((result as any).content);
+        console.log(result.content);
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -1,15 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { BatchRequestBody, CreateWorkflowBody, UpdateWorkflowBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { color, formatFolder, isJsonMode, printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
 import { parseSampleConfig } from "../util/sample-config";
+import { buildTestNodeBody, buildTestWorkflowBody, parseInputFlag } from "../util/test-body";
 import { registerWorkflowBuilderCommands } from "./workflow-builder";
 
 /** Commander collector for repeatable options. */
@@ -45,19 +47,15 @@ Examples:
         status: opts.status,
         search: opts.search,
         folder: opts.folder
-      } as any);
+      });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "status", label: "STATUS", width: 12 },
-          { key: "folder", label: "FOLDER", width: 20, format: formatFolder },
-          { key: "createdAt", label: "CREATED", width: 20 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "name", label: "NAME", width: 30 },
+        { key: "status", label: "STATUS", width: 12 },
+        { key: "folder", label: "FOLDER", width: 20, format: formatFolder },
+        { key: "createdAt", label: "CREATED", width: 20 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -79,7 +77,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const wf = await client.workflows.get(id);
-        printRecord(wf as unknown as Record<string, unknown>, [
+        printRecord(wf, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
@@ -116,10 +114,10 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        const wf = await client.workflows.create(body as any);
+        const wf = await client.workflows.create(asRequestBody<CreateWorkflowBody>(body));
         printSuccess("Workflow created.", {
-          id: (wf as any).id,
-          name: (wf as any).name
+          id: wf.id,
+          name: wf.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -151,7 +149,7 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        await client.workflows.update(id, body as any);
+        await client.workflows.update(id, asRequestBody<UpdateWorkflowBody>(body));
         printSuccess("Workflow updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -179,9 +177,7 @@ Examples:
 
         if (opts.dryRun) {
           const wf = await client.workflows.get(id);
-          console.log(
-            color.yellow("DRY RUN:") + ` Would delete workflow "${(wf as any).name}" (${id})`
-          );
+          console.log(color.yellow("DRY RUN:") + ` Would delete workflow "${wf.name}" (${id})`);
           return;
         }
 
@@ -222,8 +218,8 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const wf = await client.workflows.duplicate(id);
         printSuccess("Workflow duplicated.", {
-          id: (wf as any).id,
-          name: (wf as any).name
+          id: wf.id,
+          name: wf.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -249,7 +245,7 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.publish(id);
-        printSuccess("Workflow published.", { id, ...(result as any) });
+        printSuccess("Workflow published.", { ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -270,7 +266,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.unpublish(id);
-        printSuccess("Workflow unpublished.", { id, ...(result as any) });
+        printSuccess("Workflow unpublished.", { ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -292,7 +288,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const report = await client.workflows.validate(id);
-        printRecord(report as unknown as Record<string, unknown>);
+        printRecord(report);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -303,8 +299,11 @@ Examples:
     .command("test")
     .description("Run a test execution of a workflow")
     .argument("<id>", "Workflow ID")
-    .option("--input <json>", "Input JSON for the test")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .option("--input <json>", "Trigger payload JSON for the test (fed to the trigger node)")
+    .option(
+      "--body <json>",
+      "Request body as JSON, .json file, or '-' for stdin. A flat object is used as the trigger payload; { triggerData, sampleConfig } is used as-is"
+    )
     .option("--follow", "Stream per-node progress as the execution runs")
     .option("--stream", "Alias for --follow")
     .option("--interval <ms>", "Follow polling interval in milliseconds (default: 1500)", "1500")
@@ -334,23 +333,18 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
-        const input = opts.input ? JSON.parse(opts.input) : (base ?? {});
+        const input = parseInputFlag(opts.input);
 
         const flagSampleConfig = parseSampleConfig({
           sample: opts.sample,
           sampleNode: opts.sampleNode,
           limitArray: opts.limitArray
         });
-        // Merge flag-derived caps onto any sampleConfig already in the body so
-        // per-node caps supplied via --body are preserved; flags win on conflict.
-        let body = input;
-        if (flagSampleConfig) {
-          const bodySampleConfig =
-            input && typeof input === "object" && typeof input.sampleConfig === "object"
-              ? (input.sampleConfig as Record<string, unknown>)
-              : undefined;
-          body = { ...input, sampleConfig: { ...bodySampleConfig, ...flagSampleConfig } };
-        }
+        // The /test endpoint expects { triggerData, sampleConfig } and strips
+        // any other top-level keys. Normalize --input / --body into that shape
+        // so a flat payload feeds the trigger instead of being silently dropped
+        // (NEX-2483). Flag-derived caps merge onto body caps; flags win.
+        const body = buildTestWorkflowBody(base, input, flagSampleConfig);
 
         const result = (await client.workflows.testWorkflow(id, body)) as unknown as Record<
           string,
@@ -369,7 +363,7 @@ Examples:
             console.log();
           }
           const interval = Math.max(500, parseInt(opts.interval, 10) || 1500);
-          const finalStatus = await runFollow(client as any, executionId, {
+          const finalStatus = await runFollow(client, executionId, {
             interval,
             wfTag: shortTag(id),
             json: isJsonMode()
@@ -378,9 +372,7 @@ Examples:
             const paint =
               finalStatus === "COMPLETED"
                 ? color.green
-                : finalStatus === "FAILED" ||
-                    finalStatus === "ERROR" ||
-                    finalStatus === "CANCELLED"
+                : finalStatus === "FAILED" || finalStatus === "ERROR" || finalStatus === "CANCELLED"
                   ? color.red
                   : color.yellow;
             console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
@@ -427,9 +419,12 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
-        const input = opts.input ? JSON.parse(opts.input) : (base ?? undefined);
-        const result = await client.workflows.testNode(workflowId, nodeId, input);
-        printRecord(result as unknown as Record<string, unknown>);
+        const input = parseInputFlag(opts.input);
+        // The node-test endpoint expects { input } and strips other top-level
+        // keys; normalize a flat --input / --body so it isn't dropped (NEX-2483).
+        const body = buildTestNodeBody(base, input);
+        const result = await client.workflows.testNode(workflowId, nodeId, body);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -454,11 +449,14 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const body = await resolveBody(opts.body);
-        const result = await client.workflows.batch(id, body ?? {});
+        const result = await client.workflows.batch(
+          id,
+          asRequestBody<BatchRequestBody>(body ?? {})
+        );
         if (isJsonMode()) {
-          printRecord(result as unknown as Record<string, unknown>);
+          printRecord(result);
         } else {
-          const { created } = result as any;
+          const { created } = result;
           printSuccess("Batch applied.", {
             nodes: Object.keys(created.nodes ?? {}).length,
             edges: (created.edges ?? []).length,
@@ -500,7 +498,7 @@ Examples:
         const result = await client.workflows.uploadIcon(id, blob);
         printSuccess("Workflow icon uploaded.", {
           id,
-          iconUrl: (result as any).iconUrl ?? (result as any).url
+          iconUrl: result.iconUrl
         });
       } catch (err) {
         process.exitCode = handleError(err);

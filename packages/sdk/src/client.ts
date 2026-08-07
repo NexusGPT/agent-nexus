@@ -4,6 +4,7 @@ import { AgentCollectionsResource } from "./resources/agent-collections";
 import { AgentsResource } from "./resources/agents";
 import { AnalyticsResource } from "./resources/analytics";
 import { ApiKeyConnectionsResource } from "./resources/api-key-connections";
+import { AssetsResource } from "./resources/assets";
 import { ChannelsResource } from "./resources/channels";
 import { CloudImportsResource } from "./resources/cloud-imports";
 import { ConversationsResource } from "./resources/conversations";
@@ -21,6 +22,7 @@ import { FoldersResource } from "./resources/folders";
 import { HtmlMessageTemplatesResource } from "./resources/html-message-templates";
 import { MeResource } from "./resources/me";
 import { ModelsResource } from "./resources/models";
+import { PermissionsResource } from "./resources/permissions";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
 import { PromptAssistantResource } from "./resources/prompt-assistant";
 import { SkillFoldersResource } from "./resources/skill-folders";
@@ -29,6 +31,7 @@ import { TicketsResource } from "./resources/tickets";
 import { ToolConnectionResource } from "./resources/tool-connection";
 import { ToolDiscoveryResource } from "./resources/tool-discovery";
 import { TracingResource } from "./resources/tracing";
+import { UserGroupsResource } from "./resources/user-groups";
 import { WorkflowExecutionsResource } from "./resources/workflow-executions";
 import { WorkflowsResource } from "./resources/workflows";
 import { WorkspacesResource } from "./resources/workspaces";
@@ -130,6 +133,9 @@ export class NexusClient {
   /** Search Nexus product documentation. */
   public readonly docs: DocsResource;
 
+  /** Host public files/media and get stable, permanent public URLs. */
+  public readonly assets: AssetsResource;
+
   /** Create documents via file upload, text, website, or Google Sheet import. */
   public readonly documents: DocumentsResource;
 
@@ -220,6 +226,12 @@ export class NexusClient {
   /** Manage CRM customers. */
   public readonly customers: CustomersResource;
 
+  /** Share resources: read a resource's access list, grant and revoke, and read org visibility settings. */
+  public readonly permissions: PermissionsResource;
+
+  /** Manage user groups — the `group` principal a permission grant names. */
+  public readonly userGroups: UserGroupsResource;
+
   constructor(opts: NexusClientOptions = {}) {
     const apiKey = opts.apiKey ?? getEnv("NEXUS_API_KEY");
     if (!apiKey) {
@@ -248,6 +260,7 @@ export class NexusClient {
 
     this.agents = new AgentsResource(http);
     this.docs = new DocsResource(http);
+    this.assets = new AssetsResource(http);
     this.documents = new DocumentsResource(http);
     this.folders = new FoldersResource(http);
     this.me = new MeResource(http);
@@ -278,5 +291,7 @@ export class NexusClient {
     this.credentials = new CredentialsResource(http);
     this.apiKeyConnections = new ApiKeyConnectionsResource(http);
     this.customers = new CustomersResource(http);
+    this.permissions = new PermissionsResource(http);
+    this.userGroups = new UserGroupsResource(http);
   }
 }

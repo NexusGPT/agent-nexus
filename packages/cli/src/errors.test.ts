@@ -1,4 +1,4 @@
-import { NexusApiError } from "@agent-nexus/sdk";
+import { NexusApiError, NexusConnectionError, NexusTimeoutError } from "@agent-nexus/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handleError } from "./errors";
@@ -55,5 +55,27 @@ describe("handleError next steps", () => {
 
     expect(output).toContain("name is already taken");
     expect(output).not.toContain("nexus vibe cluster provision");
+  });
+});
+
+describe("NEX-2760: client-side timeout vs unreachable API", () => {
+  // A timeout means WE stopped waiting — the server may still complete the
+  // request. Reporting it as "Could not reach the Nexus API" sends the user
+  // debugging their network instead of raising --timeout.
+  it("reports a timeout as the CLI giving up, never as an unreachable API", () => {
+    const { exitCode, output } = capture(new NexusTimeoutError(600_000));
+
+    expect(exitCode).toBe(1);
+    expect(output).not.toContain("Could not reach the Nexus API");
+    expect(output).toContain("600s");
+    expect(output).toContain("stopped waiting");
+    expect(output).toContain("--timeout");
+  });
+
+  it("still reports a genuine connection failure as an unreachable API", () => {
+    const { output } = capture(new NexusConnectionError("ECONNREFUSED"));
+
+    expect(output).toContain("Could not reach the Nexus API");
+    expect(output).not.toContain("--timeout");
   });
 });

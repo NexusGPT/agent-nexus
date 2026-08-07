@@ -1,9 +1,10 @@
+import type { AttachAgentCollectionsBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerAgentCollectionCommands(program: Command): void {
   const agentCollection = program
@@ -40,7 +41,10 @@ export function registerAgentCollectionCommands(program: Command): void {
         const base = await resolveBody(opts.body);
         const collectionIds = opts.collectionIds.split(",").map((id: string) => id.trim());
         const body = mergeBodyWithFlags(base, { collectionIds });
-        await client.agentCollections.attach(agentId, body as any);
+        await client.agentCollections.attach(
+          agentId,
+          asRequestBody<AttachAgentCollectionsBody>(body)
+        );
         printSuccess("Collections attached.", { agentId, collectionIds });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -59,7 +63,10 @@ export function registerAgentCollectionCommands(program: Command): void {
         const base = await resolveBody(opts.body);
         const collectionIds = opts.collectionIds.split(",").map((id: string) => id.trim());
         const body = mergeBodyWithFlags(base, { collectionIds });
-        await client.agentCollections.detach(agentId, body as any);
+        await client.agentCollections.detach(
+          agentId,
+          asRequestBody<AttachAgentCollectionsBody>(body)
+        );
         printSuccess("Collections detached.", { agentId, collectionIds });
       } catch (err) {
         process.exitCode = handleError(err);

@@ -45,6 +45,7 @@
     "dev": "tsup --watch",
     "start:stdio": "node dist/cli.js",
     "typecheck": "tsc --noEmit --skipLibCheck",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "prepublishOnly": "pnpm run build"
   },

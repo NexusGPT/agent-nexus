@@ -1,14 +1,18 @@
-import type { PageResponse } from "../types/common";
+import { appendFilePart } from "../multipart";
 import type {
   AttachCollectionDocumentsBody,
   AttachCollectionDocumentsResponse
 } from "../types/documents";
 import type {
   CollectionDetail,
+  CollectionQueryResponse,
+  CollectionSearchResponse,
+  CollectionStatistics,
   CreateCollectionBody,
   CreateDocumentTemplateBody,
   CreateExternalToolBody,
   CreateTaskBody,
+  DeleteCollectionResponse,
   DeleteExternalToolResponse,
   DeleteTaskResponse,
   DocumentTemplateDetail,
@@ -19,15 +23,21 @@ import type {
   GenerateDocumentTemplateBody,
   GenerateDocumentTemplateResponse,
   InitiateClientCredentialsResponse,
+  ListCollectionDocumentsResponse,
   ListCollectionsResponse,
   ListDocumentTemplatesResponse,
   ListExternalToolsResponse,
   ListSkillsCommonParams,
   ListTasksResponse,
   ListWorkflowsResponse,
+  QueryCollectionBody,
+  RemoveCollectionDocumentResponse,
+  SearchCollectionBody,
+  SearchMultipleCollectionsBody,
   TaskDetail,
   TestExternalToolBody,
   TestExternalToolResponse,
+  UpdateCollectionBody,
   UpdateExternalToolBody,
   UpdateTaskBody,
   UpdateTaskResult,
@@ -266,7 +276,7 @@ export class SkillsResource extends BaseResource {
     fileName?: string
   ): Promise<DocumentTemplateDetail> {
     const formData = new FormData();
-    formData.append("file", file, fileName);
+    appendFilePart(formData, "file", file, fileName);
     return this.http.request<DocumentTemplateDetail>(
       "POST",
       `/skills/document-templates/${templateId}/upload-file`,
@@ -445,7 +455,7 @@ export class SkillsResource extends BaseResource {
     fileName?: string
   ): Promise<ExternalToolDetail> {
     const formData = new FormData();
-    formData.append("file", file, fileName);
+    appendFilePart(formData, "file", file, fileName);
     return this.http.request<ExternalToolDetail>(
       "POST",
       `/skills/external-tools/${externalToolId}/upload-icon`,
@@ -673,36 +683,80 @@ export class SkillsResource extends BaseResource {
 
   // ===== COLLECTION MANAGEMENT (Enhanced) =====
 
+  /**
+   * List the documents in a collection.
+   *
+   * The response is NOT a `PageResponse`: this route nests its page envelope
+   * inside `data`, so the items are at `result.data` and the pagination at
+   * `result.meta`. Reading it through `requestPage` — which expects the meta on
+   * the envelope — produced a `meta.total` of `undefined`, so this method uses a
+   * plain request and reports the shape the server actually sends.
+   *
+   * @param collectionId - Collection UUID.
+   * @param params - Optional pagination.
+   * @returns The page of documents and its nested pagination metadata.
+   */
   async listCollectionDocuments(
     collectionId: string,
     params?: { page?: number; limit?: number }
-  ): Promise<PageResponse<any>> {
-    const { data, meta } = await this.http.requestWithMeta<any[]>(
+  ): Promise<ListCollectionDocumentsResponse> {
+    return this.http.request<ListCollectionDocumentsResponse>(
       "GET",
       `/skills/collections/${collectionId}/documents`,
-      {
-        query: params as Record<string, string | number | undefined>
-      }
+      { query: params as Record<string, string | number | undefined> }
     );
-    return { data, meta: meta! };
   }
 
-  async removeCollectionDocument(collectionId: string, documentId: string): Promise<any> {
-    return this.http.request<any>(
+  /**
+   * Remove a document from a collection. The document itself is not deleted.
+   *
+   * @param collectionId - Collection UUID.
+   * @param documentId - Document UUID.
+   * @returns Confirmation. Idempotent — removing an unlinked document still
+   *   reports `removed: true`.
+   */
+  async removeCollectionDocument(
+    collectionId: string,
+    documentId: string
+  ): Promise<RemoveCollectionDocumentResponse> {
+    return this.http.request<RemoveCollectionDocumentResponse>(
       "DELETE",
       `/skills/collections/${collectionId}/documents/${documentId}`
     );
   }
 
-  async getCollectionStatistics(collectionId: string): Promise<any> {
-    return this.http.request<any>("GET", `/skills/collections/${collectionId}/statistics`);
+  /**
+   * Document counts, size and embedding progress for a collection.
+   *
+   * @param collectionId - Collection UUID.
+   * @returns The collection's statistics.
+   */
+  async getCollectionStatistics(collectionId: string): Promise<CollectionStatistics> {
+    return this.http.request<CollectionStatistics>(
+      "GET",
+      `/skills/collections/${collectionId}/statistics`
+    );
   }
 
+  /**
+   * Search a collection by document NAME.
+   *
+   * Every hit scores 1 — this endpoint matches names and does not rank. Use
+   * {@link SkillsResource.queryCollection} to search document CONTENT.
+   *
+   * @param collectionId - Collection UUID.
+   * @param body - The text to match, and how many hits to return.
+   * @returns The matched documents.
+   */
   async searchCollection(
     collectionId: string,
-    body: { query: string; limit?: number; includeMetadata?: boolean }
-  ): Promise<any> {
-    return this.http.request<any>("POST", `/skills/collections/${collectionId}/search`, { body });
+    body: SearchCollectionBody
+  ): Promise<CollectionSearchResponse> {
+    return this.http.request<CollectionSearchResponse>(
+      "POST",
+      `/skills/collections/${collectionId}/search`,
+      { body }
+    );
   }
 
   /**
@@ -711,40 +765,59 @@ export class SkillsResource extends BaseResource {
    */
   async queryCollection(
     collectionId: string,
-    body: {
-      query: string;
-      limit?: number;
-      includeMetadata?: boolean;
-      metadataFilter?: Record<string, string | string[]>;
-    }
-  ): Promise<any> {
-    return this.http.request<any>("POST", `/skills/collections/${collectionId}/query`, { body });
+    body: QueryCollectionBody
+  ): Promise<CollectionQueryResponse> {
+    return this.http.request<CollectionQueryResponse>(
+      "POST",
+      `/skills/collections/${collectionId}/query`,
+      { body }
+    );
   }
 
-  async searchMultipleCollections(body: {
-    query: string;
-    collectionIds: string[];
-    limit?: number;
-  }): Promise<any> {
-    return this.http.request<any>("POST", "/skills/collections/search", { body });
+  /**
+   * Search several collections at once, by document NAME.
+   *
+   * `metadata` is always `null` on these hits — this route has no
+   * `includeMetadata` option to turn it on.
+   *
+   * @param body - The text to match and the collections to search.
+   * @returns The matched documents.
+   */
+  async searchMultipleCollections(
+    body: SearchMultipleCollectionsBody
+  ): Promise<CollectionSearchResponse> {
+    return this.http.request<CollectionSearchResponse>("POST", "/skills/collections/search", {
+      body
+    });
   }
 
+  /**
+   * Update a collection's display settings and retrieval configuration.
+   *
+   * @param collectionId - Collection UUID.
+   * @param body - Fields to update.
+   * @returns The updated collection. `documentCount` reads 0 on this response
+   *   regardless of the real count — the update query does not recount.
+   */
   async updateCollection(
     collectionId: string,
-    body: {
-      displayName?: string;
-      description?: string;
-      k?: number;
-      /** Reranking model name — the same shape `createCollection` accepts. */
-      reranker?: string;
-      preciseResponses?: boolean;
-      includeMetadata?: boolean;
-    }
-  ): Promise<any> {
-    return this.http.request<any>("PATCH", `/skills/collections/${collectionId}`, { body });
+    body: UpdateCollectionBody
+  ): Promise<CollectionDetail> {
+    return this.http.request<CollectionDetail>("PATCH", `/skills/collections/${collectionId}`, {
+      body
+    });
   }
 
-  async deleteCollection(collectionId: string): Promise<any> {
-    return this.http.request<any>("DELETE", `/skills/collections/${collectionId}`);
+  /**
+   * Delete a collection. Its documents are unlinked, not deleted.
+   *
+   * @param collectionId - Collection UUID.
+   * @returns Confirmation carrying the deleted collection's id.
+   */
+  async deleteCollection(collectionId: string): Promise<DeleteCollectionResponse> {
+    return this.http.request<DeleteCollectionResponse>(
+      "DELETE",
+      `/skills/collections/${collectionId}`
+    );
   }
 }

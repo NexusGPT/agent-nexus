@@ -10,6 +10,12 @@ export type ConversationTicketStatus =
   | "RESOLVED";
 export type ConversationResponseHandling = "AUTO" | "ON_APPROVAL" | "MANUAL";
 export type MessageRole = "USER" | "AGENT" | "SYSTEM";
+/**
+ * Fine-grained author classification (NEX-2693). `role` collapses everything
+ * from your side into AGENT; `senderType` splits the AI agent (AI_AGENT) from
+ * a human advisor replying in the inbox (HUMAN_AGENT).
+ */
+export type MessageSenderType = "CUSTOMER" | "AI_AGENT" | "HUMAN_AGENT" | "SYSTEM";
 
 // ============================================================================
 // Response types
@@ -22,13 +28,40 @@ export interface MessageFile {
   contentType: string | null;
 }
 
+export interface MessageAuthor {
+  /** User id of the human advisor (HUMAN_AGENT rows), null otherwise. */
+  userId: string | null;
+  /** Agent id of the AI agent (AI_AGENT rows), null otherwise. */
+  agentId: string | null;
+  /** Resolved display name of the author, or null. */
+  name: string | null;
+}
+
+/**
+ * Channel-side sender of a CUSTOMER message on a multi-party group thread
+ * (e.g. WhatsApp groups). Null on 1:1 threads — read the conversation-level
+ * `contact` there.
+ */
+export interface MessageSender {
+  identifier: string | null;
+  displayName: string | null;
+}
+
 export interface ConversationMessage {
   id: string;
   role: MessageRole;
+  senderType: MessageSenderType;
+  author: MessageAuthor;
+  sender?: MessageSender | null;
   content: string | null;
   status: string | null;
   createdAt: string;
   files: MessageFile[];
+  /**
+   * Inbound media URLs (e.g. WhatsApp photos persisted to durable storage).
+   * Documents arrive under `files` instead. Absent on servers predating the field.
+   */
+  images?: string[];
 }
 
 export interface ConversationComment {
@@ -102,10 +135,28 @@ export interface Satisfaction {
 
 export type SatisfactionMode = "latest" | "all" | "summary";
 
+/**
+ * Channel-authenticated contact of a conversation, resolved from the
+ * deployment session's customer identity. `identifier` is the value the
+ * channel verified (WhatsApp/SMS → inbound E.164 `From`, email → sender
+ * address, embed → external user id) — safe for sender-based authorization
+ * because it never comes from message text.
+ */
+export interface ConversationContact {
+  identifier: string;
+  service: string | null;
+  displayName: string | null;
+  primaryPhone: string | null;
+  primaryEmail: string | null;
+  externalUserId: string | null;
+}
+
 export interface ConversationDetail extends ConversationSummary {
   deploymentName: string | null;
   channelType: string | null;
   memberCount: number;
+  /** Null when the conversation has no channel session or no linked identity. */
+  contact?: ConversationContact | null;
   /** Custom metadata stored on the conversation (`Chat.metadata`). Null if none set. */
   metadata: Record<string, unknown> | null;
   satisfaction?: Satisfaction;

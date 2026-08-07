@@ -1,12 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type {
+  AssignTemplateToFolderBody,
+  CreateDocumentTemplateBody,
+  CreateDocumentTemplateFolderBody,
+  GenerateDocumentTemplateBody,
+  UpdateDocumentTemplateFolderBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerTemplateCommands(program: Command): void {
   const template = program.command("template").description("Manage document templates");
@@ -32,11 +39,8 @@ Examples:
           search: opts.search,
           limit: opts.limit
         });
-        const items = Array.isArray(result)
-          ? result
-          : ((result as any).items ?? (result as any).data ?? result);
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(result.items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
           { key: "description", label: "DESCRIPTION", width: 40 },
@@ -63,11 +67,10 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.skills.getDocumentTemplate(id);
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
-          { key: "fileName", label: "File Name" },
           { key: "createdAt", label: "Created" },
           { key: "updatedAt", label: "Updated" }
         ]);
@@ -100,10 +103,12 @@ Examples:
           description: opts.description
         });
 
-        const t = await client.skills.createDocumentTemplate(body as any);
+        const t = await client.skills.createDocumentTemplate(
+          asRequestBody<CreateDocumentTemplateBody>(body)
+        );
         printSuccess("Template created.", {
-          id: (t as any).id,
-          name: (t as any).name
+          id: t.id,
+          name: t.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -138,7 +143,7 @@ Examples:
         const blob = new Blob([buffer]);
         const fileName = path.basename(absPath);
 
-        const result = await client.skills.uploadDocumentTemplateFile(id, blob, fileName);
+        await client.skills.uploadDocumentTemplateFile(id, blob, fileName);
         printSuccess("File uploaded to template.", {
           templateId: id,
           fileName
@@ -165,10 +170,22 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
+        // `GenerateDocumentTemplateBody.variables` is required, so there is no
+        // usable default: omitting `--body` could only ever produce a server
+        // 400. Refuse locally rather than substitute `{}`, which would send a
+        // request that cannot succeed.
         const body = await resolveBody(opts.body);
+        if (body === undefined) {
+          console.error("Error: --body is required.");
+          process.exitCode = 1;
+          return;
+        }
 
-        const result = await client.skills.generateDocumentTemplate(id, body as any);
-        printSuccess("Document template generated.", result as unknown as Record<string, unknown>);
+        const result = await client.skills.generateDocumentTemplate(
+          id,
+          asRequestBody<GenerateDocumentTemplateBody>(body)
+        );
+        printSuccess("Document template generated.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -184,7 +201,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.documentTemplateFolders.list();
-        const folders = (result as any).folders ?? result;
+        const folders = result.folders ?? result;
         printList(Array.isArray(folders) ? folders : [folders], undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
@@ -209,8 +226,10 @@ Examples:
           name: opts.name,
           ...(opts.parentId !== undefined && { parentId: opts.parentId })
         });
-        const folder = await client.documentTemplateFolders.create(body as any);
-        printSuccess("Template folder created.", { id: (folder as any).id });
+        const folder = await client.documentTemplateFolders.create(
+          asRequestBody<CreateDocumentTemplateFolderBody>(body)
+        );
+        printSuccess("Template folder created.", { id: folder.id });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -233,7 +252,10 @@ Examples:
           flags.parentId = opts.parentId === "null" ? null : opts.parentId;
         }
         const body = mergeBodyWithFlags(base, flags);
-        await client.documentTemplateFolders.update(id, body as any);
+        await client.documentTemplateFolders.update(
+          id,
+          asRequestBody<UpdateDocumentTemplateFolderBody>(body)
+        );
         printSuccess("Template folder updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -279,7 +301,9 @@ Examples:
           templateId: opts.templateId,
           folderId: opts.folderId === "null" ? null : opts.folderId
         });
-        await client.documentTemplateFolders.assign(body as any);
+        await client.documentTemplateFolders.assign(
+          asRequestBody<AssignTemplateToFolderBody>(body)
+        );
         printSuccess("Template assigned to folder.", {
           templateId: opts.templateId,
           folderId: opts.folderId

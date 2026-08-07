@@ -17,7 +17,6 @@ import {
   resolveClaudeTarget,
   settingsJsonContent,
   sharedInstallable,
-  writeHookFiles,
   writeRootClaudeMd,
   writeRootSettingsJson,
   writeSkillFiles
@@ -357,7 +356,7 @@ export async function runSkillsInstallToTarget(
     // should exist by the time it lands.
     let settingsStatus: ClaudeMdStatus | null = null;
     if (installSettings) {
-      const hooksResult = writeHookFiles(target.hooksDir, hooks.files);
+      const hooksResult = writeSkillFiles(target.hooksDir, hooks.files);
       totalCreated += hooksResult.created.length;
       totalUpdated += hooksResult.updated.length;
       totalSkipped += hooksResult.skipped.length;

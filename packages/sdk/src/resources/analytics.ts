@@ -1,3 +1,10 @@
+import type {
+  AnalyticsOverview,
+  AnalyticsOverviewParams,
+  FeedbackEntry,
+  ListFeedbackParams
+} from "../types/analytics";
+import type { PageResponse } from "../types/common";
 import { BaseResource } from "./base-resource";
 
 /** Result of an ad-hoc analytics query. `error` is set for query-level failures. */
@@ -38,8 +45,9 @@ export interface AnalyticsStructuredQueryResult extends AnalyticsQueryResult {
 }
 
 export class AnalyticsResource extends BaseResource {
-  async getOverview(params?: { timePeriod?: string; deploymentId?: string }): Promise<any> {
-    return this.http.request<any>("GET", "/analytics/overview", {
+  /** Headline conversation, message, user and cost metrics for a time window. */
+  async getOverview(params?: AnalyticsOverviewParams): Promise<AnalyticsOverview> {
+    return this.http.request<AnalyticsOverview>("GET", "/analytics/overview", {
       query: params as Record<string, string | undefined>
     });
   }
@@ -50,17 +58,17 @@ export class AnalyticsResource extends BaseResource {
     });
   }
 
-  async listFeedback(params?: {
-    timePeriod?: string;
-    deploymentId?: string;
-    score?: number;
-    page?: number;
-    limit?: number;
-  }): Promise<any> {
-    const { data, meta } = await this.http.requestWithMeta<any[]>("GET", "/analytics/feedback", {
+  /**
+   * List end-user feedback on agent messages.
+   *
+   * Reads through `requestPage` so `meta.hasMore` is always populated — the
+   * hand-rolled `requestWithMeta` call this replaced passed the server's meta
+   * straight through, unnormalized.
+   */
+  async listFeedback(params?: ListFeedbackParams): Promise<PageResponse<FeedbackEntry>> {
+    return this.http.requestPage<FeedbackEntry>("GET", "/analytics/feedback", {
       query: params as Record<string, string | number | undefined>
     });
-    return { data, meta };
   }
 
   /** Run a single read-only SQL query over the curated, org-scoped analytics views. */

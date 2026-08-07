@@ -34,16 +34,25 @@ function warnIfHighVariableDensity(types: Record<string, unknown>): boolean {
 
   for (const [typeKey, typeValue] of Object.entries(types)) {
     if (!typeValue || typeof typeValue !== "object") continue;
-    const tv = typeValue as Record<string, unknown>;
+    const tv = typeValue;
 
-    if (typeof tv.body === "string") checkField(tv.body, `${typeKey} body`);
-    if (typeof tv.title === "string") checkField(tv.title, `${typeKey} title`);
-    if (typeof tv.subtitle === "string") checkField(tv.subtitle, `${typeKey} subtitle`);
+    // `in` narrowing rather than a cast: the value is operator-supplied JSON,
+    // so every field is genuinely a claim that has to be checked at runtime.
+    if ("body" in tv && typeof tv.body === "string") checkField(tv.body, `${typeKey} body`);
+    if ("title" in tv && typeof tv.title === "string") checkField(tv.title, `${typeKey} title`);
+    if ("subtitle" in tv && typeof tv.subtitle === "string") {
+      checkField(tv.subtitle, `${typeKey} subtitle`);
+    }
 
-    if (Array.isArray(tv.cards)) {
-      tv.cards.forEach((card: any, i: number) => {
-        if (typeof card?.body === "string") checkField(card.body, `${typeKey} card[${i}] body`);
-        if (typeof card?.title === "string") checkField(card.title, `${typeKey} card[${i}] title`);
+    if ("cards" in tv && Array.isArray(tv.cards)) {
+      tv.cards.forEach((card: unknown, i: number) => {
+        if (typeof card !== "object" || card === null) return;
+        if ("body" in card && typeof card.body === "string") {
+          checkField(card.body, `${typeKey} card[${i}] body`);
+        }
+        if ("title" in card && typeof card.title === "string") {
+          checkField(card.title, `${typeKey} card[${i}] title`);
+        }
       });
     }
   }
@@ -99,8 +108,8 @@ Examples:
         } else {
           result = await client.channels.getSetupStatus(opts.type);
         }
-        const data = (result as any)?.data ?? result;
-        printTable(data.steps as Record<string, unknown>[], [
+        const data = result;
+        printTable(data.steps, [
           { key: "step", label: "#", width: 3 },
           { key: "label", label: "STEP", width: 25 },
           { key: "status", label: "STATUS", width: 16 },
@@ -152,7 +161,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.listConnections();
-        const data = (result as any)?.data ?? result;
+        const data = result;
         printTable(Array.isArray(data) ? data : [data], [
           { key: "id", label: "ID", width: 38 },
           { key: "name", label: "NAME", width: 20 },
@@ -172,8 +181,8 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.createConnection({ region: opts.region });
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "accountSid", label: "Account SID" },
@@ -196,7 +205,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.listWhatsAppSenders();
-        const data = (result as any)?.data ?? result;
+        const data = result;
         printTable(Array.isArray(data) ? data : [data], [
           { key: "id", label: "ID", width: 38 },
           { key: "name", label: "NAME", width: 20 },
@@ -231,8 +240,8 @@ Examples:
           senderName: opts.senderName,
           wabaId: opts.wabaId
         });
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "id", label: "ID" },
           { key: "senderId", label: "Sender ID" },
           { key: "name", label: "Name" },
@@ -253,8 +262,8 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.getWhatsAppSender(id);
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "id", label: "ID" },
           { key: "senderId", label: "Sender ID" },
           { key: "name", label: "Name" },
@@ -289,7 +298,7 @@ Examples:
         const result = await client.channels.listWhatsAppTemplates({
           connectionId: opts.connectionId
         });
-        const data = (result as any)?.data ?? result;
+        const data = result;
         printTable(Array.isArray(data) ? data : [data], [
           { key: "id", label: "ID", width: 38 },
           { key: "friendly_name", label: "FRIENDLY NAME", width: 25 },
@@ -308,8 +317,8 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.getWhatsAppTemplate(templateId);
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "id", label: "ID" },
           { key: "friendly_name", label: "Friendly Name" },
           { key: "language", label: "Language" },
@@ -404,8 +413,8 @@ Examples:
           types,
           variables
         });
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "id", label: "ID" },
           { key: "friendly_name", label: "Friendly Name" },
           { key: "language", label: "Language" },
@@ -423,8 +432,8 @@ Examples:
             name: opts.friendlyName,
             category: opts.category
           });
-          const approvalData = (approval as any)?.data ?? approval;
-          printRecord(approvalData as Record<string, unknown>, [
+          const approvalData = approval;
+          printRecord(approvalData, [
             { key: "sid", label: "Approval SID" },
             { key: "status", label: "Status" }
           ]);
@@ -444,7 +453,7 @@ Examples:
               const approvals = await client.channels.listTemplateApprovals({
                 connectionId: opts.connectionId
               });
-              const approvalsArr = (approvals as any)?.data ?? approvals;
+              const approvalsArr = approvals;
               const items = Array.isArray(approvalsArr) ? approvalsArr : [approvalsArr];
               const match = items.find((a: any) => a.sid === data.id);
 
@@ -527,7 +536,7 @@ Examples:
         const result = await client.channels.listTemplateApprovals({
           connectionId: opts.connectionId
         });
-        const data = (result as any)?.data ?? result;
+        const data = result;
         const items = Array.isArray(data) ? data : [data];
 
         // Flatten approvalRequests for table display
@@ -578,8 +587,8 @@ Examples:
           name: opts.name,
           category: opts.category
         });
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "sid", label: "Approval SID" },
           { key: "status", label: "Status" }
         ]);
@@ -599,7 +608,7 @@ Examples:
             const approvals = await client.channels.listTemplateApprovals({
               connectionId: opts.connectionId
             });
-            const approvalsData = (approvals as any)?.data ?? approvals;
+            const approvalsData = approvals;
             const items = Array.isArray(approvalsData) ? approvalsData : [approvalsData];
             const match = items.find((a: any) => a.sid === opts.templateId);
 
@@ -667,9 +676,9 @@ Examples:
           to: opts.to,
           variables
         });
-        const data = (result as any)?.data ?? result;
+        const data = result;
 
-        printRecord(data as Record<string, unknown>, [
+        printRecord(data, [
           { key: "messageSid", label: "Message SID" },
           { key: "status", label: "Status" },
           { key: "to", label: "To" },
@@ -695,7 +704,7 @@ Examples:
                 data.messageSid,
                 { connectionId: opts.connectionId }
               );
-              const statusData = (statusResult as any)?.data ?? statusResult;
+              const statusData = statusResult;
               lastStatus = statusData.status;
 
               // Terminal statuses

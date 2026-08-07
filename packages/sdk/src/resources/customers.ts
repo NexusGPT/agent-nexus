@@ -2,6 +2,7 @@ import type {
   AddCustomerNoteBody,
   CreateCustomerBody,
   CustomerDetail,
+  CustomerNote,
   CustomerSummary,
   ListCustomersParams,
   ListCustomersResponse,
@@ -11,10 +12,9 @@ import { BaseResource } from "./base-resource";
 
 export class CustomersResource extends BaseResource {
   async list(params?: ListCustomersParams): Promise<ListCustomersResponse> {
-    const { data, meta } = await this.http.requestWithMeta<CustomerSummary[]>("GET", "/customers", {
+    return this.http.requestPage<CustomerSummary>("GET", "/customers", {
       query: params as Record<string, string | number | undefined>
     });
-    return { data, meta: meta! };
   }
 
   async get(customerId: string): Promise<CustomerDetail> {
@@ -40,7 +40,7 @@ export class CustomersResource extends BaseResource {
     return this.http.request<{ deleted: boolean }>("DELETE", `/customers/${customerId}`);
   }
 
-  async addNote(customerId: string, body: AddCustomerNoteBody): Promise<unknown> {
-    return this.http.request("POST", `/customers/${customerId}/notes`, { body });
+  async addNote(customerId: string, body: AddCustomerNoteBody): Promise<CustomerNote> {
+    return this.http.request<CustomerNote>("POST", `/customers/${customerId}/notes`, { body });
   }
 }

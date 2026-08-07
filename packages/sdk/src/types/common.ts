@@ -10,7 +10,21 @@ export interface PaginationParams {
   limit?: number;
 }
 
-/** Pagination metadata returned alongside list results. */
+/**
+ * Pagination metadata returned alongside list results.
+ *
+ * `limit` and `totalPages` are optional because not every list endpoint emits
+ * them — but where the server does send them they were previously unnameable,
+ * so a caller could read `meta.total` and not `meta.totalPages` for no reason
+ * anyone chose.
+ *
+ * `hasMore` is REQUIRED and is guaranteed by {@link HttpClient.requestPage},
+ * which derives it when the server omits it. Six v1 list endpoints — agents,
+ * conversations, phone numbers, tickets, versions and workflows — send
+ * `{ total, page, limit, totalPages }` with no `hasMore` at all, so before that
+ * derivation `client.agents.list()` returned a `meta.hasMore` typed `boolean`
+ * and `undefined` at runtime.
+ */
 export interface PaginationMeta {
   /** Total number of items across all pages. */
   total: number;
@@ -18,6 +32,32 @@ export interface PaginationMeta {
   page: number;
   /** Whether more pages exist after the current one. */
   hasMore: boolean;
+  /** Items requested per page, when the endpoint reports it. */
+  limit?: number;
+  /** Total number of pages, when the endpoint reports it. */
+  totalPages?: number;
+}
+
+/**
+ * Pagination metadata exactly as the server sent it, before normalization.
+ *
+ * This is what comes off the wire: `hasMore` is OPTIONAL here because six v1
+ * list endpoints do not send it. {@link PaginationMeta} — the normalized shape —
+ * is what {@link PageResponse} carries, and `HttpClient.requestPage` is what
+ * turns one into the other. Declaring them as one type is what let a field the
+ * server never sends be typed as always present.
+ */
+export interface WirePaginationMeta {
+  /** Total number of items across all pages. */
+  total: number;
+  /** Current page number (1-based). */
+  page: number;
+  /** Whether more pages exist. Absent on several v1 list endpoints. */
+  hasMore?: boolean;
+  /** Items requested per page, when the endpoint reports it. */
+  limit?: number;
+  /** Total number of pages, when the endpoint reports it. */
+  totalPages?: number;
 }
 
 /** Paginated response wrapper returned by list methods. */

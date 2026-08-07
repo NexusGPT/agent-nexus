@@ -41,7 +41,7 @@ Examples:
           areaCode: opts.areaCode,
           limit: opts.limit === undefined ? undefined : Number(opts.limit)
         });
-        printTable(result as unknown as Record<string, unknown>[], [
+        printTable(result, [
           { key: "phoneNumber", label: "PHONE NUMBER", width: 20 },
           { key: "friendlyName", label: "FRIENDLY NAME", width: 25 },
           { key: "price", label: "PRICE", width: 10 },
@@ -76,7 +76,7 @@ Examples:
           price: opts.price,
           connectionId: opts.connectionId
         });
-        printRecord(result as Record<string, unknown>, [
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "number", label: "Number" },
           { key: "friendlyName", label: "Friendly Name" },
@@ -115,18 +115,14 @@ Notes:
         search: opts.search
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "number", label: "NUMBER", width: 18 },
-          { key: "friendlyName", label: "NAME", width: 20 },
-          { key: "countryCode", label: "COUNTRY", width: 10 },
-          { key: "price", label: "PRICE", width: 10 },
-          { key: "region", label: "REGION", width: 8 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "number", label: "NUMBER", width: 18 },
+        { key: "friendlyName", label: "NAME", width: 20 },
+        { key: "countryCode", label: "COUNTRY", width: 10 },
+        { key: "price", label: "PRICE", width: 10 },
+        { key: "region", label: "REGION", width: 8 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -148,7 +144,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.phoneNumbers.get(id);
-        printRecord(result as Record<string, unknown>, [
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "number", label: "Number" },
           { key: "friendlyName", label: "Friendly Name" },

@@ -38,18 +38,22 @@ function escapeForTemplate(content: string): string {
   return content.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 }
 
-/** Recursively collect all .md and .ts files from a directory. */
-function collectFiles(dir: string, basePath: string = ""): FileEntry[] {
-  return collectFilesMatching(dir, /\.(md|ts)$/, basePath);
-}
-
 /**
- * Recursively collect files whose name matches `match` from a directory.
- * `collectFiles` (skills/shared) wants .md/.ts only; the hooks/ tree ships
- * Python hooks plus their lib/ + docs, so it needs a broader matcher.
- * Editor/OS cruft (dotfiles, __pycache__, compiled .pyc) is always skipped.
+ * Recursively collect every file in a directory.
+ *
+ * This used to filter on `/\.(md|ts)$/`, which silently dropped every other
+ * asset in the skills tree: JSON schemas, example specs, evaluation-suite
+ * templates, and the .mjs/.sh/.py scripts the skill docs tell an agent to run.
+ * Those files exist in skills-nexus and simply never reached a user, so an
+ * instruction like "read `reference/pa-output-schema.json`" dead-ended on an
+ * absent file at the far end of `nexus claude-code install`.
+ *
+ * The repo is the source of truth for what ships. An extension allowlist here
+ * is a second, weaker source that drifts the moment someone adds a file type,
+ * which is exactly how that bug arose — so there is no allowlist. Only editor
+ * and OS cruft is skipped (dotfiles, __pycache__, compiled .pyc).
  */
-function collectFilesMatching(dir: string, match: RegExp, basePath: string = ""): FileEntry[] {
+function collectFiles(dir: string, basePath: string = ""): FileEntry[] {
   const entries: FileEntry[] = [];
   if (!fs.existsSync(dir)) return entries;
 
@@ -59,16 +63,41 @@ function collectFilesMatching(dir: string, match: RegExp, basePath: string = "")
     const fullPath = path.join(dir, item.name);
 
     if (item.isDirectory()) {
-      entries.push(...collectFilesMatching(fullPath, match, relPath));
-    } else if (match.test(item.name) && !item.name.endsWith(".pyc")) {
+      entries.push(...collectFiles(fullPath, relPath));
+    } else if (!item.name.endsWith(".pyc")) {
       entries.push({
         path: relPath,
-        content: fs.readFileSync(fullPath, "utf-8").trim()
+        content: readUtf8OrThrow(fullPath, relPath)
       });
     }
   }
 
   return entries;
+}
+
+/**
+ * Read a file as UTF-8, refusing anything that does not round-trip.
+ *
+ * The bundle stores contents as TypeScript string constants and the installer
+ * writes them back with `Buffer.from(content, "utf-8")`, so a non-UTF-8 file
+ * (an image, a font, a compiled binary) would be re-encoded with replacement
+ * characters and written to disk corrupted — silently, since nothing compares
+ * the bytes afterwards. Now that collection is unfiltered, the first binary
+ * asset committed to skills-nexus would hit exactly that. Fail the build
+ * instead: a broken build is fixable, a corrupted install is not diagnosable.
+ */
+function readUtf8OrThrow(fullPath: string, relPath: string): string {
+  const raw = fs.readFileSync(fullPath);
+  const decoded = raw.toString("utf-8");
+  if (!Buffer.from(decoded, "utf-8").equals(raw)) {
+    throw new Error(
+      `${relPath} is not valid UTF-8. The skills bundle stores file contents as ` +
+        `TypeScript strings, so binary assets cannot round-trip and would install ` +
+        `corrupted. Either remove it from skills-nexus or teach the bundle to carry ` +
+        `base64 payloads.`
+    );
+  }
+  return decoded.trim();
 }
 
 /** Extract first meaningful paragraph from SKILL.md as description. */
@@ -247,12 +276,11 @@ async function main(): Promise<void> {
 
   // settings.json + hooks/ — the scoped permission posture (NEX-2461). The
   // top-level settings.json installs to .claude/settings.json; the hooks/ tree
-  // (Python firewall + lib/ + docs) installs to .claude/hooks/. Collect every
-  // file under hooks/ (not just .md/.ts) since the hooks are .py with a lib/.
+  // (Python firewall + lib/ + docs) installs to .claude/hooks/.
   const settingsJson = fs.existsSync(settingsJsonPath)
     ? fs.readFileSync(settingsJsonPath, "utf-8").trim()
     : "";
-  const hookFiles = collectFilesMatching(hooksRoot, /.*/);
+  const hookFiles = collectFiles(hooksRoot);
   const hookFilesStr = hookFiles
     .map(
       (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
@@ -264,7 +292,7 @@ async function main(): Promise<void> {
 
   // agents/ — the Nexus-owned subagent definitions (flat .md files). They land
   // under .claude/agents and, like the skill files, are refreshed in place on
-  // every install. Collect the .md/.ts entries the same way skills/shared do.
+  // every install. Collected the same way skills/ and shared/ are.
   const agentFiles = collectFiles(agentsRoot);
   const agentFilesStr = agentFiles
     .map(

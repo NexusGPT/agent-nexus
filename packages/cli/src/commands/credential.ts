@@ -1,9 +1,10 @@
+import type { UpdateCredentialBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
 export function registerCredentialCommands(program: Command): void {
@@ -50,17 +51,13 @@ Examples:
         sortOrder: opts.sortOrder
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "service", label: "SERVICE", width: 20 },
-          { key: "name", label: "NAME", width: 25 },
-          { key: "source", label: "SOURCE", width: 20 },
-          { key: "status", label: "STATUS", width: 15 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "service", label: "SERVICE", width: 20 },
+        { key: "name", label: "NAME", width: 25 },
+        { key: "source", label: "SOURCE", width: 20 },
+        { key: "status", label: "STATUS", width: 15 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -82,7 +79,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const cred = await client.credentials.get(id);
-        printRecord(cred as unknown as Record<string, unknown>, [
+        printRecord(cred, [
           { key: "id", label: "ID" },
           { key: "service", label: "Service" },
           { key: "name", label: "Name" },
@@ -126,8 +123,8 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        const cred = await client.credentials.update(id, body as any);
-        printRecord(cred as unknown as Record<string, unknown>, [
+        const cred = await client.credentials.update(id, asRequestBody<UpdateCredentialBody>(body));
+        printRecord(cred, [
           { key: "id", label: "ID" },
           { key: "service", label: "Service" },
           { key: "name", label: "Name" },

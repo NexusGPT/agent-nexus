@@ -1,9 +1,10 @@
+import type { CreateCustomModelBody, UpdateCustomModelBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerCustomModelCommands(program: Command): void {
   const customModel = program
@@ -25,9 +26,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.customModels.list();
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const items = result;
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "displayName", label: "NAME", width: 25 },
           { key: "modelName", label: "MODEL", width: 25 },
@@ -60,7 +61,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const model = await client.customModels.get(id);
-        printRecord(model as unknown as Record<string, unknown>, [
+        printRecord(model, [
           { key: "id", label: "ID" },
           { key: "displayName", label: "Display Name" },
           { key: "modelName", label: "Model Name" },
@@ -105,10 +106,10 @@ Examples:
           ...(opts.protocol !== undefined && { protocol: opts.protocol })
         });
 
-        const model = await client.customModels.create(body as any);
+        const model = await client.customModels.create(asRequestBody<CreateCustomModelBody>(body));
         printSuccess("Custom model created.", {
-          id: (model as any).id,
-          displayName: (model as any).displayName
+          id: model.id,
+          displayName: model.displayName
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -148,7 +149,7 @@ Examples:
         if (opts.enabled !== undefined) flags.enabled = opts.enabled === "true";
         const body = mergeBodyWithFlags(base, flags);
 
-        await client.customModels.update(id, body as any);
+        await client.customModels.update(id, asRequestBody<UpdateCustomModelBody>(body));
         printSuccess("Custom model updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);

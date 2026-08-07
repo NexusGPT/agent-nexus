@@ -14,7 +14,8 @@ const fakeClient = {
 };
 
 vi.mock("../client", () => ({
-  createClient: () => fakeClient
+  createClient: () => fakeClient,
+  timeoutSecondsToMs: (s?: number) => (s !== undefined ? s * 1000 : undefined)
 }));
 
 // The vibe commands don't go through the SDK client — they call the tenant API

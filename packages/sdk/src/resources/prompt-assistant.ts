@@ -67,12 +67,9 @@ export class PromptAssistantResource extends BaseResource {
   async listThreads(
     params?: ListPromptAssistantThreadsParams
   ): Promise<PageResponse<PromptAssistantThreadSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<PromptAssistantThreadSummary[]>(
-      "GET",
-      "/prompt-assistant/threads",
-      { query: params as Record<string, string | number | undefined> }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<PromptAssistantThreadSummary>("GET", "/prompt-assistant/threads", {
+      query: params as Record<string, string | number | undefined>
+    });
   }
 
   async getThread(threadId: string): Promise<PromptAssistantThreadResponse> {

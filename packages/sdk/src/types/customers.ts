@@ -73,3 +73,22 @@ export interface AddCustomerNoteBody {
 }
 
 export type ListCustomersResponse = PageResponse<CustomerSummary>;
+
+/**
+ * Response from `client.customers.addNote()`.
+ *
+ * `userName` is always `null` on this route — the public API knows the API key's
+ * user id but not its display name.
+ */
+export interface CustomerNote {
+  /** Note UUID. */
+  id: string;
+  /** Note body. */
+  content: string;
+  /** Id of the API-key user who wrote it, or the literal `"api"` when unidentified. */
+  userId: string;
+  /** Always `null` on this route. */
+  userName: string | null;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}

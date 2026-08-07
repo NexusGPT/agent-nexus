@@ -1,9 +1,10 @@
+import type { AssignAgentToFolderBody, CreateFolderBody, UpdateFolderBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerFolderCommands(program: Command): void {
   const folder = program.command("folder").description("Manage agent folders");
@@ -23,7 +24,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.folders.list();
-        const folders = (result as any).folders ?? result;
+        const folders = result.folders ?? result;
 
         printTable(Array.isArray(folders) ? folders : [folders], [
           { key: "id", label: "ID", width: 36 },
@@ -59,10 +60,10 @@ Examples:
           ...(opts.parentId !== undefined && { parentId: opts.parentId })
         });
 
-        const folder = await client.folders.create(body as any);
+        const folder = await client.folders.create(asRequestBody<CreateFolderBody>(body));
         printSuccess("Folder created.", {
-          id: (folder as any).id,
-          name: (folder as any).name
+          id: folder.id,
+          name: folder.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -96,7 +97,7 @@ Examples:
         }
         const body = mergeBodyWithFlags(base, flags);
 
-        await client.folders.update(id, body as any);
+        await client.folders.update(id, asRequestBody<UpdateFolderBody>(body));
         printSuccess("Folder updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -170,7 +171,7 @@ Examples:
         const assignBody = mergeBodyWithFlags(base, flags);
         const folderId = assignBody.folderId;
 
-        await client.folders.assignAgent(assignBody as any);
+        await client.folders.assignAgent(asRequestBody<AssignAgentToFolderBody>(assignBody));
 
         if (folderId) {
           printSuccess("Agent assigned to folder.", {

@@ -1,13 +1,21 @@
-import type { CloudImportProviderSlug, CloudItemPage, ImportResult } from "@agent-nexus/sdk";
+import type {
+  CloudImportProviderSlug,
+  CloudItem,
+  CloudItemPage,
+  ImportedDocument,
+  ImportResult
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printWarning } from "../output";
+import { type Column, isJsonMode, printList, printWarning } from "../output";
 
 const PROVIDER_SLUGS: CloudImportProviderSlug[] = ["google-drive", "sharepoint", "notion"];
 
-const ITEM_COLUMNS = [
+// Annotated, not inferred: a bare literal widens `key` to `string` and the
+// column keys stop being checked against the row.
+const ITEM_COLUMNS: Column<CloudItem>[] = [
   { key: "id", label: "ID" },
   { key: "name", label: "NAME" },
   { key: "isFolder", label: "FOLDER" },
@@ -15,7 +23,7 @@ const ITEM_COLUMNS = [
   { key: "modifiedTime", label: "MODIFIED" }
 ];
 
-const IMPORTED_COLUMNS = [
+const IMPORTED_COLUMNS: Column<ImportedDocument>[] = [
   { key: "id", label: "ID" },
   { key: "name", label: "NAME" },
   { key: "status", label: "STATUS" }
@@ -49,11 +57,7 @@ function parseItemIds(value: string): string[] {
 }
 
 function printImportResult(result: ImportResult): void {
-  printList(
-    result.documents as unknown as Record<string, unknown>[],
-    { importedCount: result.importedCount },
-    IMPORTED_COLUMNS
-  );
+  printList(result.documents, { importedCount: result.importedCount }, IMPORTED_COLUMNS);
 
   // printPaginationMeta only understands total/page/hasMore, so the count above
   // is dropped in table mode — and the count is the answer to "did it work".
@@ -65,7 +69,7 @@ function printImportResult(result: ImportResult): void {
 
 function printItems(page: CloudItemPage): void {
   printList(
-    page.items as unknown as Record<string, unknown>[],
+    page.items,
     page.nextPageToken === undefined ? undefined : { nextPageToken: page.nextPageToken },
     ITEM_COLUMNS
   );
@@ -94,7 +98,7 @@ export function registerCloudImportCommands(program: Command): void {
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.cloudImports.listProviders();
-        printList(result.providers as unknown as Record<string, unknown>[], undefined, [
+        printList(result.providers, undefined, [
           { key: "slug", label: "PROVIDER" },
           { key: "supportsFolders", label: "FOLDERS" },
           { key: "supportsSearch", label: "SEARCH" },

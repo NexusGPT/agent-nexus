@@ -1,12 +1,20 @@
+import { appendFilePart } from "../multipart";
 import type { PageResponse } from "../types/common";
 import type {
   AddWebsiteDocumentBody,
+  CreateDocumentFolderBody,
   CreateGoogleSheetDocumentBody,
   CreateTextDocumentBody,
+  DeleteDocumentResponse,
   DocumentDetail,
   DocumentInfo,
   DocumentMetadataInput,
-  GoogleSheetResult
+  DocumentSummary,
+  DocumentUrlResponse,
+  GoogleSheetResult,
+  ListDocumentsParams,
+  ReprocessDocumentResponse,
+  UpdateDocumentBody
 } from "../types/documents";
 import { BaseResource } from "./base-resource";
 
@@ -64,7 +72,7 @@ export class DocumentsResource extends BaseResource {
     metadata?: DocumentMetadataInput
   ): Promise<DocumentInfo> {
     const formData = new FormData();
-    formData.append("file", file, fileName);
+    appendFilePart(formData, "file", file, fileName);
     if (description) {
       formData.append("description", description);
     }
@@ -129,46 +137,45 @@ export class DocumentsResource extends BaseResource {
     return this.http.request<GoogleSheetResult>("POST", "/documents/google-sheet", { body });
   }
 
-  async list(params?: {
-    page?: number;
-    limit?: number;
-    type?: string;
-    status?: string;
-    parentId?: string;
-    collectionId?: string;
-    search?: string;
-    isFolder?: boolean;
-  }): Promise<PageResponse<any>> {
-    const { data, meta } = await this.http.requestWithMeta<any[]>("GET", "/documents", {
+  /**
+   * List documents and folders with optional filtering and pagination.
+   *
+   * @param params - Optional filters and pagination.
+   * @returns Paginated list of document summaries.
+   */
+  async list(params?: ListDocumentsParams): Promise<PageResponse<DocumentSummary>> {
+    return this.http.requestPage<DocumentSummary>("GET", "/documents", {
       query: params as Record<string, string | number | boolean | undefined>
     });
-    return { data, meta: meta! };
   }
 
-  async update(
-    documentId: string,
-    body: {
-      name?: string;
-      description?: string;
-      tags?: string[];
-      metadata?: DocumentMetadataInput;
-    }
-  ): Promise<any> {
-    return this.http.request<any>("PATCH", `/documents/${documentId}`, { body });
+  /**
+   * Update a document's name, description, tags or search metadata.
+   *
+   * @param documentId - Document UUID.
+   * @param body - Fields to update.
+   * @returns The updated document, in the same shape `get()` returns.
+   */
+  async update(documentId: string, body: UpdateDocumentBody): Promise<DocumentDetail> {
+    return this.http.request<DocumentDetail>("PATCH", `/documents/${documentId}`, { body });
   }
 
-  async delete(documentId: string): Promise<any> {
-    return this.http.request<any>("DELETE", `/documents/${documentId}`);
+  /**
+   * Delete a document.
+   *
+   * @param documentId - Document UUID.
+   * @returns Confirmation carrying the deleted document's id.
+   */
+  async delete(documentId: string): Promise<DeleteDocumentResponse> {
+    return this.http.request<DeleteDocumentResponse>("DELETE", `/documents/${documentId}`);
   }
 
   /**
    * Get a signed download URL for a document file.
    * The URL includes a Content-Disposition header that triggers a browser download.
    */
-  async getDownloadUrl(
-    documentId: string
-  ): Promise<{ url: string; fileName: string; mimeType: string | null; expiresIn: number }> {
-    return this.http.request("GET", `/documents/${documentId}/download`);
+  async getDownloadUrl(documentId: string): Promise<DocumentUrlResponse> {
+    return this.http.request<DocumentUrlResponse>("GET", `/documents/${documentId}/download`);
   }
 
   /**
@@ -176,31 +183,47 @@ export class DocumentsResource extends BaseResource {
    * Unlike download, this URL does not set Content-Disposition, allowing
    * browsers to render the file inline (e.g. in an iframe).
    */
-  async getPreviewUrl(
-    documentId: string
-  ): Promise<{ url: string; fileName: string; mimeType: string | null; expiresIn: number }> {
-    return this.http.request("GET", `/documents/${documentId}/preview`);
+  async getPreviewUrl(documentId: string): Promise<DocumentUrlResponse> {
+    return this.http.request<DocumentUrlResponse>("GET", `/documents/${documentId}/preview`);
   }
 
+  /**
+   * List the documents inside a folder.
+   *
+   * @param documentId - Folder UUID.
+   * @param params - Optional pagination.
+   * @returns Paginated list of document summaries.
+   */
   async listChildren(
     documentId: string,
     params?: { page?: number; limit?: number }
-  ): Promise<PageResponse<any>> {
-    const { data, meta } = await this.http.requestWithMeta<any[]>(
-      "GET",
-      `/documents/${documentId}/children`,
-      {
-        query: params as Record<string, string | number | undefined>
-      }
+  ): Promise<PageResponse<DocumentSummary>> {
+    return this.http.requestPage<DocumentSummary>("GET", `/documents/${documentId}/children`, {
+      query: params as Record<string, string | number | undefined>
+    });
+  }
+
+  /**
+   * Re-run ingestion and embedding for a document.
+   *
+   * @param documentId - Document UUID.
+   * @returns Acknowledgement. `message` says whether the document was queued now
+   *   or was already being processed.
+   */
+  async reprocess(documentId: string): Promise<ReprocessDocumentResponse> {
+    return this.http.request<ReprocessDocumentResponse>(
+      "POST",
+      `/documents/${documentId}/reprocess`
     );
-    return { data, meta: meta! };
   }
 
-  async reprocess(documentId: string): Promise<any> {
-    return this.http.request<any>("POST", `/documents/${documentId}/reprocess`);
-  }
-
-  async createFolder(body: { name: string; parentId?: string }): Promise<any> {
-    return this.http.request<any>("POST", "/documents/folder", { body });
+  /**
+   * Create a folder to organize documents.
+   *
+   * @param body - Folder properties. `name` is required.
+   * @returns The created folder.
+   */
+  async createFolder(body: CreateDocumentFolderBody): Promise<DocumentInfo> {
+    return this.http.request<DocumentInfo>("POST", "/documents/folder", { body });
   }
 }

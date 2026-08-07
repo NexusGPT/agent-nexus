@@ -28,12 +28,9 @@ export class VersionsResource extends BaseResource {
    * @returns Paginated list of version summaries.
    */
   async list(agentId: string, params?: ListVersionsParams): Promise<PageResponse<VersionSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<VersionSummary[]>(
-      "GET",
-      `/agents/${agentId}/versions`,
-      { query: params as Record<string, string | number | undefined> }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<VersionSummary>("GET", `/agents/${agentId}/versions`, {
+      query: params as Record<string, string | number | undefined>
+    });
   }
 
   /**

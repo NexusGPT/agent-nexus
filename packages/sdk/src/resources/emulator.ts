@@ -7,6 +7,7 @@ import type {
   EmulatorSessionDetail,
   ListEmulatorScenariosParams,
   ReplayEmulatorScenarioBody,
+  ReplayScenarioResponse,
   SaveEmulatorScenarioBody,
   SendEmulatorMessageBody
 } from "../types/emulator";
@@ -84,8 +85,15 @@ export class EmulatorResource extends BaseResource {
   }
 
   /** Replay a scenario against a deployment. Runs asynchronously. */
-  async replayScenario(scenarioId: string, body: ReplayEmulatorScenarioBody): Promise<unknown> {
-    return this.http.request<unknown>("POST", `/emulator/scenarios/${scenarioId}/replay`, { body });
+  async replayScenario(
+    scenarioId: string,
+    body: ReplayEmulatorScenarioBody
+  ): Promise<ReplayScenarioResponse> {
+    return this.http.request<ReplayScenarioResponse>(
+      "POST",
+      `/emulator/scenarios/${scenarioId}/replay`,
+      { body }
+    );
   }
 
   /** Delete a scenario. */

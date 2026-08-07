@@ -255,25 +255,27 @@ nexus emulator send <deployment-id> <session-id> \
 
 These flags are available on every command:
 
-| Flag               | Description                                       |
-| ------------------ | ------------------------------------------------- |
-| `--json`           | Output results as JSON (for scripting and piping) |
-| `--api-key <key>`  | Override the API key for this invocation          |
-| `--base-url <url>` | Override the API base URL                         |
-| `--profile <name>` | Use a specific named profile                      |
-| `--no-auto-update` | Disable automatic CLI updates for this invocation |
-| `-v, --version`    | Print the CLI version and exit                    |
-| `--help`           | Show help for any command or subcommand           |
+| Flag                  | Description                                                                  |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `--json`              | Output results as JSON (for scripting and piping)                            |
+| `--api-key <key>`     | Override the API key for this invocation                                     |
+| `--base-url <url>`    | Override the API base URL                                                    |
+| `--profile <name>`    | Use a specific named profile                                                 |
+| `--timeout <seconds>` | HTTP request timeout in seconds (default 30; `task execute` defaults to 600) |
+| `--no-auto-update`    | Disable automatic CLI updates for this invocation                            |
+| `-v, --version`       | Print the CLI version and exit                                               |
+| `--help`              | Show help for any command or subcommand                                      |
 
 ### Environment Variables
 
-| Variable         | Description                                                     |
-| ---------------- | --------------------------------------------------------------- |
-| `NEXUS_API_KEY`  | API key (used when `--api-key` flag and config file are absent) |
-| `NEXUS_BASE_URL` | API base URL override                                           |
-| `NEXUS_ENV`      | Environment name: `production` (default) or `dev`               |
-| `NEXUS_PROFILE`  | Profile name override (same as `--profile` flag)                |
-| `NO_COLOR`       | Disable all color output ([no-color.org](https://no-color.org)) |
+| Variable               | Description                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `NEXUS_API_KEY`        | API key (used when `--api-key` flag and config file are absent)                            |
+| `NEXUS_BASE_URL`       | API base URL override                                                                      |
+| `NEXUS_ENV`            | Environment name: `production` (default) or `dev`                                          |
+| `NEXUS_PROFILE`        | Profile name override (same as `--profile` flag)                                           |
+| `NEXUS_NO_AUTO_UPDATE` | Disable automatic self-updates (same as `--no-auto-update`; also implied when `CI` is set) |
+| `NO_COLOR`             | Disable all color output ([no-color.org](https://no-color.org))                            |
 
 ---
 
@@ -634,13 +636,14 @@ The CLI catches all errors and prints actionable messages with hints.
 
 ### Error Types
 
-| Error                      | Cause                                | Hint                                                   |
-| -------------------------- | ------------------------------------ | ------------------------------------------------------ |
-| **Authentication failed**  | Invalid, missing, or expired API key | Run `nexus auth login` or set `NEXUS_API_KEY`          |
-| **Not found (404)**        | Resource ID doesn't exist            | Run `nexus <resource> list` to find valid IDs          |
-| **Validation error (422)** | Invalid request body or parameters   | Add `--json` to see the `details` field                |
-| **Connection error**       | Network issue or wrong base URL      | Check `--base-url` and network connectivity            |
-| **API error (5xx)**        | Server-side error                    | Retry after a moment; report via `nexus ticket create` |
+| Error                      | Cause                                 | Hint                                                                           |
+| -------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
+| **Authentication failed**  | Invalid, missing, or expired API key  | Run `nexus auth login` or set `NEXUS_API_KEY`                                  |
+| **Not found (404)**        | Resource ID doesn't exist             | Run `nexus <resource> list` to find valid IDs                                  |
+| **Validation error (422)** | Invalid request body or parameters    | Add `--json` to see the `details` field                                        |
+| **Connection error**       | Network issue or wrong base URL       | Check `--base-url` and network connectivity                                    |
+| **Client-side timeout**    | Response took longer than `--timeout` | Raise the limit: `--timeout <seconds>` (server may still complete the request) |
+| **API error (5xx)**        | Server-side error                     | Retry after a moment; report via `nexus ticket create`                         |
 
 ### Exit Codes
 
@@ -693,6 +696,18 @@ Error: No API key found. Set NEXUS_API_KEY or run:
 ```bash
 nexus auth whoami  # shows the current base URL
 ```
+
+### "The request was still running after Ns, so the CLI stopped waiting"
+
+The CLI's client-side timeout elapsed before the API responded — the server may still be processing (and completing) the request. This is not a network failure.
+
+**Fix:** Raise the limit with the global `--timeout` flag, e.g. for a long structured-JSON generation:
+
+```bash
+nexus task execute task-123 --input "..." --timeout 900
+```
+
+`task execute` already defaults to 600 s (all other commands default to 30 s).
 
 ### "Validation failed (HTTP 401)"
 

@@ -1,327 +1,59 @@
-export type {
-  AccessCard,
-  AccessCardCreator,
-  ActionDefinition,
-  ActionPolicy,
-  AvailableActionsResponse,
-  CardVariable,
-  CreateAccessCardBody,
-  DeleteAccessCardResponse,
-  ParameterDefinition,
-  ParameterPolicy,
-  UpdateAccessCardBody
-} from "./access-cards";
-export type {
-  AgentToolConfig,
-  AttachCollectionBody,
-  CreateAgentToolBody,
-  UpdateAgentToolBody
-} from "./agent-tools";
-export type {
-  AgentDetail,
-  AgentSummary,
-  CreateAgentBody,
-  ListAgentsParams,
-  UpdateAgentBody,
-  UploadProfilePictureResponse
-} from "./agents";
-export type {
-  ApiKeyConnection,
-  ApiKeyService,
-  CreateApiKeyConnectionBody
-} from "./api-key-connections";
-export type {
-  AutoProvisionBody,
-  ChannelSetupResponse,
-  ChannelSetupStep,
-  Connection,
-  CreateConnectionBody,
-  CreateWhatsAppSenderBody,
-  WhatsAppSender
-} from "./channels";
-export type {
-  BrowseCloudItemsParams,
-  CloudImportProvider,
-  CloudImportProviderList,
-  CloudImportProviderSlug,
-  CloudItem,
-  CloudItemPage,
-  ImportCloudItemsParams,
-  ImportedDocument,
-  ImportResult,
-  SearchCloudItemsParams
-} from "./cloud-imports";
-export type {
-  AgentModel,
-  AgentStatus,
-  AgentToolConfigType,
-  DeleteResponse,
-  ModelConfig,
-  ModelProvider,
-  PageResponse,
-  PaginationMeta,
-  PaginationParams,
-  VersionType
-} from "./common";
-export type {
-  AddConversationCommentBody,
-  ConversationComment,
-  ConversationDetail,
-  ConversationMessage,
-  ConversationResponseHandling,
-  ConversationStatus,
-  ConversationSummary,
-  ConversationTicketStatus,
-  GetConversationParams,
-  GetMessagesParams,
-  ListConversationsParams,
-  MessageFile,
-  MessageRole,
-  Satisfaction,
-  SatisfactionFramework,
-  SatisfactionMode,
-  SatisfactionScore,
-  SatisfactionSource,
-  SearchConversationsParams,
-  SendAgentMessageBody,
-  SendWhatsappTemplateBody,
-  SetAssignedUsersBody,
-  UpdateConversationMetadataBody,
-  UpdateConversationStatusesBody,
-  UpdateConversationTopicBody
-} from "./conversations";
-export type {
-  Credential,
-  CredentialCreator,
-  CredentialLinkedDeployment,
-  CredentialSortField,
-  CredentialSource,
-  CredentialStatus,
-  DeleteCredentialResponse,
-  ListCredentialsParams,
-  UpdateCredentialBody
-} from "./credentials";
-export type {
-  CreateCustomModelBody,
-  CustomModelProtocol,
-  CustomModelSummary,
-  UpdateCustomModelBody
-} from "./custom-models";
-export type {
-  AddWebsiteDocumentBody,
-  AttachCollectionDocumentsBody,
-  AttachCollectionDocumentsResponse,
-  CreateGoogleSheetDocumentBody,
-  CreateTextDocumentBody,
-  DocumentDetail,
-  DocumentInfo,
-  DocumentMetadataInput,
-  GoogleSheetResult
-} from "./documents";
-export type {
-  CreateEmulatorSessionBody,
-  EmulatorDebugInfo,
-  EmulatorMessage,
-  EmulatorMessageFile,
-  EmulatorParticipant,
-  EmulatorScenario,
-  EmulatorScenarioDetail,
-  EmulatorScenarioMessage,
-  EmulatorSendMessageResult,
-  EmulatorSession,
-  EmulatorSessionDetail,
-  ListEmulatorScenariosParams,
-  ReplayEmulatorScenarioBody,
-  SaveEmulatorScenarioBody,
-  SendEmulatorMessageBody
-} from "./emulator";
-export type {
-  AgentFolder,
-  AssignAgentToFolderBody,
-  AssignAgentToFolderResponse,
-  CreateFolderBody,
-  FolderAssignment,
-  ListFoldersResponse,
-  UpdateFolderBody
-} from "./folders";
-export type {
-  CreateHtmlMessageTemplateBody,
-  DeleteHtmlMessageTemplateResponse,
-  FillHtmlMessageTemplateBody,
-  FillHtmlMessageTemplateResponse,
-  HtmlMessageTemplate,
-  HtmlMessageTemplateInputSchema,
-  HtmlMessageTemplateSummary,
-  ListHtmlMessageTemplatesParams,
-  ListHtmlMessageTemplatesResponse,
-  RenderHtmlMessageTemplateBody,
-  RenderHtmlMessageTemplateResponse,
-  UpdateHtmlMessageTemplateBody
-} from "./html-message-templates";
-export type { MeResponse } from "./me";
-export type { ModelSummary } from "./models";
-export type {
-  AvailablePhoneNumber,
-  ListPhoneNumbersParams,
-  PhoneNumber,
-  SearchAvailablePhoneNumbersParams
-} from "./phone-numbers";
-export type {
-  CollectionDetail,
-  CollectionSummary,
-  CreateCollectionBody,
-  CreateDocumentTemplateBody,
-  CreateExternalToolBody,
-  CreateTaskBody,
-  DeleteExternalToolResponse,
-  DeleteTaskResponse,
-  DocumentTemplateDetail,
-  DocumentTemplateSummary,
-  ExternalToolAuth,
-  ExternalToolDetail,
-  ListCollectionsResponse,
-  ListDocumentTemplatesResponse,
-  ListExternalToolsResponse,
-  ListSkillsCommonParams,
-  ListTasksResponse,
-  ListWorkflowsResponse,
-  TaskDetail,
-  TaskSummary,
-  TestExternalToolBody,
-  TestExternalToolResponse,
-  UpdateExternalToolBody,
-  UpdateTaskResult,
-  WorkflowSummary
-} from "./skills";
-export type {
-  CreateTicketBody,
-  CreateTicketCommentBody,
-  ListTicketsParams,
-  TicketAttachment,
-  TicketComment,
-  TicketContext,
-  TicketDetail,
-  TicketPriority,
-  TicketSummary,
-  TicketType,
-  UpdateTicketBody
-} from "./tickets";
-export type {
-  ConnectToolBody,
-  ConnectToolHttpBody,
-  ConnectToolHttpResponse,
-  ConnectToolOAuthBody,
-  ConnectToolOAuthResponse,
-  HandshakeStatusResponse
-} from "./tool-connection";
-export type {
-  GetToolDetailParams,
-  ListSkillsParams,
-  ListSkillsResponse,
-  ListToolCredentialsResponse,
-  MarketplaceToolDetail,
-  MarketplaceToolItem,
-  RemoteOption,
-  ResolveRemoteOptionsBody,
-  ResolveRemoteOptionsResponse,
-  SearchMarketplaceToolsParams,
-  SearchMarketplaceToolsResponse,
-  SkillItem,
-  TestAgentToolBody,
-  TestAgentToolResponse,
-  ToolAction,
-  ToolActionParameter,
-  ToolCredential
-} from "./tool-discovery";
-export type {
-  AnalyticsSummaryParams,
-  BulkExportParams,
-  CostBreakdown,
-  CostBreakdownEntry,
-  CostBreakdownGroupBy,
-  CostBreakdownParams,
-  ExportTraceParams,
-  GenerationDetail,
-  GenerationSummary,
-  ListGenerationsParams,
-  ListTracesParams,
-  Timeline,
-  TimelineGranularity,
-  TimelineParams,
-  TimelinePoint,
-  TraceDetail,
-  TraceExport,
-  TraceSummary,
-  TracingSummary
-} from "./tracing";
-export type {
-  CreateCheckpointBody,
-  ListVersionsParams,
-  RestoreVersionResponse,
-  UpdateVersionBody,
-  VersionCreator,
-  VersionDetail,
-  VersionSummary
-} from "./versions";
-export type {
-  AvailableVariable,
-  BatchBranch,
-  BatchEdge,
-  BatchNode,
-  BatchRequestBody,
-  BatchResult,
-  Branch,
-  CreateBranchBody,
-  CreateEdgeBody,
-  CreateNodeBody,
-  CreateWorkflowBody,
-  ExecutionStatus,
-  FolderRef,
-  IconResult,
-  ListWorkflowsParams,
-  NodeExecutionResult,
-  NodeTypeSchema,
-  NodeTypeSummary,
-  OutputFormat,
-  PlatformListenerEvent,
-  PlatformListenerFilterFieldDef,
-  PublishResult,
-  ReloadPropsBody,
-  ReloadPropsResponse,
-  ReplaceTriggerBody,
-  TestNodeBody,
-  TestResult,
-  TestWorkflowBody,
-  UnpublishResult,
-  UpdateBranchBody,
-  UpdateNodeBody,
-  UpdateWorkflowBody,
-  ValidationReport,
-  WfSummary,
-  WorkflowDetail,
-  WorkflowEdge,
-  WorkflowNode,
-  WorkflowOverview,
-  WorkflowStatus
-} from "./workflows";
-export type {
-  CreateWorkspaceBody,
-  DeleteWorkspaceResponse,
-  ListWorkspaceFilesParams,
-  ListWorkspacesParams,
-  ListWorkspacesResponse,
-  RenameWorkspaceBody,
-  RestoreWorkspaceBody,
-  RestoreWorkspaceResponse,
-  Workspace,
-  WorkspaceFileEntry,
-  WorkspaceFileUrl,
-  WorkspaceFolderEntry,
-  WorkspaceFolderStats,
-  WorkspaceListing,
-  WorkspaceSearchHit,
-  WorkspaceSearchParams,
-  WorkspaceSearchResponse,
-  WorkspaceStats,
-  WorkspaceSummary
-} from "./workspaces";
+/**
+ * The SDK's public type surface.
+ *
+ * `export type *` per module, deliberately, rather than a curated name list.
+ * The list this replaced named 279 of the 329 types declared under `types/`,
+ * and the outer `src/index.ts` barrel then named 208 of those — so 121 public
+ * types were unreachable from the package entry point. Nobody chose to hide
+ * them: `createExternalTool` takes a `CreateExternalToolBody` and a consumer
+ * could not name it, which leaves `as any` as the only way to call the method.
+ *
+ * A hand-maintained mirror of a directory drifts the moment someone adds a file
+ * and forgets a line, and nothing fails when they do. Every type declared under
+ * `types/` is part of this package's contract by construction — that is what
+ * the directory is — so enumerating a subset was never a design.
+ *
+ * TypeScript has no glob import, so the module list below is still written out
+ * by hand and can still go stale — the first draft of this rewrite already had,
+ * omitting `customers` and `skill-folders`. `types-barrel-is-complete.test.ts`
+ * reads this directory and fails when a file is not named here, which is the
+ * only reason the list can be trusted.
+ */
+
+export type * from "./access-cards";
+export type * from "./agent-collections";
+export type * from "./agent-tools";
+export type * from "./agents";
+export type * from "./analytics";
+export type * from "./api-key-connections";
+export type * from "./assets";
+export type * from "./channels";
+export type * from "./cloud-imports";
+export type * from "./common";
+export type * from "./conversations";
+export type * from "./credentials";
+export type * from "./custom-models";
+export type * from "./customers";
+export type * from "./deployment-folders";
+export type * from "./deployments";
+export type * from "./document-template-folders";
+export type * from "./documents";
+export type * from "./emulator";
+export type * from "./evaluations";
+export type * from "./folders";
+export type * from "./html-message-templates";
+export type * from "./me";
+export type * from "./models";
+export type * from "./permissions";
+export type * from "./phone-numbers";
+export type * from "./skill-folders";
+export type * from "./skills";
+export type * from "./tickets";
+export type * from "./tool-connection";
+export type * from "./tool-discovery";
+export type * from "./tracing";
+export type * from "./user-groups";
+export type * from "./versions";
+export type * from "./workflow-executions";
+export type * from "./workflows";
+export type * from "./workspaces";

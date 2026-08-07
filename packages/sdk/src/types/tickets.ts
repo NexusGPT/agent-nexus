@@ -32,6 +32,11 @@ export interface TicketSummary {
   priority: TicketPriority;
   status: string;
   url: string;
+  /**
+   * Linear labels on the ticket, excluding the reserved type label — that one is
+   * surfaced as `type`. Safe to feed straight back into a create/update `labels`.
+   */
+  labels: string[];
   createdAt: string;
   updatedAt: string | null;
 }
@@ -58,6 +63,12 @@ export interface CreateTicketBody {
   type?: TicketType;
   priority?: TicketPriority;
   context?: TicketContext;
+  /**
+   * Extra Linear labels to attach, e.g. `["CUE"]` to mark an agent-filed ticket.
+   * Created on demand when the team does not have them yet. The reserved type
+   * labels ("bug", "feature-request", "improvement") are rejected — use `type`.
+   */
+  labels?: string[];
 }
 
 export interface UpdateTicketBody {
@@ -70,6 +81,11 @@ export interface UpdateTicketBody {
    * "In Progress". Accepts the same state names as `tickets.list({ status })`.
    */
   status?: string;
+  /**
+   * Replaces the ticket's non-type labels wholesale. Omit to leave them alone;
+   * pass `[]` to clear them. The type label is preserved regardless.
+   */
+  labels?: string[];
 }
 
 export interface CreateTicketCommentBody {

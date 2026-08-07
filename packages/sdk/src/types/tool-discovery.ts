@@ -73,6 +73,13 @@ export interface ToolActionParameter {
    * whose options depend on the user's connected account.
    */
   remoteOptions: boolean;
+  /**
+   * Dereferenced OpenAPI (JSON Schema) definition for CUSTOM_MANIFEST
+   * array/object parameters — carries the nested `items`/`properties` shape
+   * the flat `type` string cannot express. Absent for scalar parameters and
+   * Pipedream tools.
+   */
+  schema?: unknown;
 }
 
 /**

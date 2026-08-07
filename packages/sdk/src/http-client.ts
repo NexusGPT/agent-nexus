@@ -1,5 +1,10 @@
-import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "./errors";
-import type { PaginationMeta } from "./types/common";
+import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  NexusTimeoutError
+} from "./errors";
+import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/common";
 
 // ============================================================================
 // Types
@@ -35,7 +40,7 @@ export interface RequestOptions {
 interface ApiSuccessEnvelope<T> {
   success: true;
   data: T;
-  meta?: PaginationMeta;
+  meta?: WirePaginationMeta;
 }
 
 interface ApiErrorEnvelope {
@@ -56,7 +61,7 @@ interface ApiErrorEnvelope {
  *
  * All requests are sent to `{baseUrl}/api/public/v1{path}` with the API key
  * in the `api-key` header. Responses are expected to follow the envelope format:
- * `{ success: true, data: T, meta?: PaginationMeta }`.
+ * `{ success: true, data: T, meta?: WirePaginationMeta }`.
  */
 export class HttpClient {
   private readonly baseUrl: string;
@@ -115,7 +120,7 @@ export class HttpClient {
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new NexusConnectionError(`Request timed out after ${this.timeout}ms`);
+        throw new NexusTimeoutError(this.timeout);
       }
       throw new NexusConnectionError(
         err instanceof Error ? err.message : "Network request failed",
@@ -139,7 +144,7 @@ export class HttpClient {
    * @param method - HTTP method.
    * @param path - API path relative to `/api/public/v1`.
    * @param opts - Optional body, query params, and headers.
-   * @returns The response `data` and optional pagination `meta`.
+   * @returns The response `data` and the raw pagination `meta`, unnormalized.
    * @throws {NexusAuthenticationError} On 401 responses.
    * @throws {NexusApiError} On other error responses.
    * @throws {NexusConnectionError} On network failures or timeouts.
@@ -148,7 +153,7 @@ export class HttpClient {
     method: string,
     path: string,
     opts: RequestOptions = {}
-  ): Promise<{ data: T; meta?: PaginationMeta }> {
+  ): Promise<{ data: T; meta?: WirePaginationMeta }> {
     const url = new URL(`${this.baseUrl}/api/public/v1${path}`);
 
     if (opts.query) {
@@ -185,7 +190,7 @@ export class HttpClient {
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new NexusConnectionError(`Request timed out after ${this.timeout}ms`);
+        throw new NexusTimeoutError(this.timeout);
       }
       throw new NexusConnectionError(
         err instanceof Error ? err.message : "Network request failed",
@@ -234,6 +239,80 @@ export class HttpClient {
     const success = json as ApiSuccessEnvelope<T>;
     return { data: success.data, meta: success.meta };
   }
+
+  /**
+   * Make a request to a paginated list endpoint and return a complete
+   * {@link PageResponse}.
+   *
+   * `requestWithMeta` types `meta` as OPTIONAL, because most endpoints do not
+   * return it, while `PageResponse.meta` is REQUIRED. Every list method used to
+   * bridge that gap with a `meta: meta!` non-null assertion — 20 of them, one
+   * per resource — which told the compiler the field was present without
+   * checking, and left `meta` genuinely `undefined` at runtime whenever the
+   * server omitted it. The type said one thing and the value was another.
+   *
+   * This method closes the gap in ONE place instead. When the server omits
+   * `meta`, it derives one that honestly describes the payload it did send: a
+   * single complete page. That is a real value of the right shape rather than a
+   * lie, so callers reading `meta.total` or `meta.hasMore` cannot crash.
+   *
+   * A PARTIAL `meta` gets the same treatment, because `meta ?? default` only
+   * fires when `meta` is missing wholesale. Every v1 list endpoint currently
+   * sends `hasMore`, so this derivation is a no-op today and is a fallback, not
+   * a fix: `withDerivedHasMore` returns a served `hasMore` untouched. It exists
+   * so that an endpoint which later omits the field degrades to a computed
+   * boolean rather than leaving `undefined` behind a type that says `boolean`.
+   *
+   * What genuinely varies is the REST of the meta. `/agents` sends
+   * `{ total, page, hasMore }`; `/assets` sends `limit` and `totalPages` as
+   * well. {@link WirePaginationMeta} models that, so reading `meta.limit` is a
+   * checked optional rather than an assumption.
+   *
+   * @param method - HTTP method.
+   * @param path - API path relative to `/api/public/v1`.
+   * @param opts - Optional body, query params, and headers.
+   * @returns The page items and its pagination metadata.
+   * @throws {NexusAuthenticationError} On 401 responses.
+   * @throws {NexusApiError} On other error responses.
+   * @throws {NexusConnectionError} On network failures or timeouts.
+   */
+  async requestPage<T>(
+    method: string,
+    path: string,
+    opts: RequestOptions = {}
+  ): Promise<PageResponse<T>> {
+    const { data, meta } = await this.requestWithMeta<T[]>(method, path, opts);
+
+    if (!meta) {
+      return { data, meta: { total: data.length, page: 1, hasMore: false } };
+    }
+
+    return { data, meta: withDerivedHasMore(meta) };
+  }
+}
+
+/**
+ * Fill in a `hasMore` the server did not send.
+ *
+ * `page < totalPages` is the same expression the endpoints that DO send
+ * `hasMore` compute it with, so a derived value and a served one agree. When
+ * `totalPages` is missing too, `page * limit < total` says the same thing from
+ * the other three fields. With none of them available the honest answer is
+ * `false`: nothing in the payload suggests another page exists.
+ */
+export function withDerivedHasMore(meta: WirePaginationMeta): PaginationMeta {
+  const { total, page, hasMore, limit, totalPages } = meta;
+
+  if (hasMore !== undefined) {
+    return { ...meta, hasMore };
+  }
+  if (totalPages !== undefined) {
+    return { ...meta, hasMore: page < totalPages };
+  }
+  if (limit !== undefined) {
+    return { ...meta, hasMore: page * limit < total };
+  }
+  return { ...meta, hasMore: false };
 }
 
 function appendQuery(

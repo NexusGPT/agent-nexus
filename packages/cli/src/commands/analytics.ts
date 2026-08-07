@@ -50,7 +50,7 @@ Examples:
           timePeriod: opts.timePeriod,
           deploymentId: opts.deploymentId
         });
-        printRecord(result as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -64,12 +64,14 @@ Examples:
       .option("--time-period <period>", TIME_PERIOD_HELP, parseTimePeriod)
       .option("--deployment-id <id>", "Filter by deployment")
       .option("--score <number>", "Filter by score", parseInt)
+      .option("--search <keyword>", "Filter by keyword in the feedback comment")
       .addHelpText(
         "after",
         `
 Examples:
   $ nexus analytics feedback
   $ nexus analytics feedback --time-period 7d --score 5
+  $ nexus analytics feedback --search "too long"
   $ nexus analytics feedback --limit 20 --json`
       )
   ).action(async (opts) => {
@@ -79,11 +81,12 @@ Examples:
         ...getPaginationParams(opts),
         timePeriod: opts.timePeriod,
         deploymentId: opts.deploymentId,
-        score: opts.score
+        score: opts.score,
+        search: opts.search
       });
 
-      const data = (result as any).data ?? [];
-      const meta = (result as any).meta;
+      const data = result.data ?? [];
+      const meta = result.meta;
 
       printList(data, meta, [
         { key: "id", label: "ID", width: 36 },

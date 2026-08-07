@@ -1,9 +1,15 @@
+import type {
+  CreateEmulatorSessionBody,
+  ReplayEmulatorScenarioBody,
+  SaveEmulatorScenarioBody,
+  SendEmulatorMessageBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerEmulatorCommands(program: Command): void {
   const emulator = program.command("emulator").description("Test deployments via the emulator");
@@ -30,12 +36,18 @@ Examples:
     .action(async (deploymentId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const s = await client.emulator.createSession(deploymentId, body as any);
-        printRecord(s as unknown as Record<string, unknown>, [
+        // `session create dep-123` with no `--body` is a documented invocation
+        // and every field of `CreateEmulatorSessionBody` is optional, so `{}` is
+        // a usable value of the right type. The wire delta is an empty JSON
+        // object in place of no body; the endpoint parses both to the same `{}`.
+        const body = (await resolveBody(opts.body)) ?? {};
+        const s = await client.emulator.createSession(
+          deploymentId,
+          asRequestBody<CreateEmulatorSessionBody>(body)
+        );
+        printRecord(s, [
           { key: "id", label: "ID" },
           { key: "deploymentId", label: "Deployment ID" },
-          { key: "status", label: "Status" },
           { key: "createdAt", label: "Created" }
         ]);
       } catch (err) {
@@ -59,9 +71,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.emulator.listSessions(deploymentId);
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const items = result;
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "createdAt", label: "CREATED", width: 26 }
         ]);
@@ -87,10 +99,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const s = await client.emulator.getSession(deploymentId, sessionId);
-        printRecord(s as unknown as Record<string, unknown>, [
+        printRecord(s, [
           { key: "id", label: "ID" },
           { key: "deploymentId", label: "Deployment ID" },
-          { key: "status", label: "Status" },
           { key: "messages", label: "Messages" },
           { key: "createdAt", label: "Created" }
         ]);
@@ -166,8 +177,12 @@ Notes:
           content: opts.text
         });
 
-        const result = await client.emulator.sendMessage(deploymentId, sessionId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.emulator.sendMessage(
+          deploymentId,
+          sessionId,
+          asRequestBody<SendEmulatorMessageBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -205,13 +220,14 @@ Examples:
           description: opts.description
         });
 
-        const result = await client.emulator.saveScenario(body as any);
-        printRecord(result as unknown as Record<string, unknown>, [
+        const result = await client.emulator.saveScenario(
+          asRequestBody<SaveEmulatorScenarioBody>(body)
+        );
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "deploymentId", label: "Deployment ID" },
-          { key: "sessionId", label: "Session ID" },
           { key: "createdAt", label: "Created" }
         ]);
       } catch (err) {
@@ -238,9 +254,9 @@ Examples:
         const result = await client.emulator.listScenarios({
           deploymentId: opts.deploymentId
         });
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const items = result;
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
           { key: "deploymentId", label: "DEPLOYMENT", width: 36 },
@@ -267,12 +283,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const s = await client.emulator.getScenario(scenarioId);
-        printRecord(s as unknown as Record<string, unknown>, [
+        printRecord(s, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "deploymentId", label: "Deployment ID" },
-          { key: "sessionId", label: "Session ID" },
           { key: "messages", label: "Messages" },
           { key: "createdAt", label: "Created" }
         ]);
@@ -304,8 +319,11 @@ Examples:
           deploymentId: opts.deploymentId
         });
 
-        const result = await client.emulator.replayScenario(scenarioId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.emulator.replayScenario(
+          scenarioId,
+          asRequestBody<ReplayEmulatorScenarioBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

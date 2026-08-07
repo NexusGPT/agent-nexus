@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { CreateAgentBody, UpdateAgentBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { color, printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
@@ -40,17 +41,13 @@ Notes:
         search: opts.search
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "firstName", label: "FIRST NAME", width: 15 },
-          { key: "lastName", label: "LAST NAME", width: 15 },
-          { key: "role", label: "ROLE", width: 25 },
-          { key: "status", label: "STATUS", width: 10 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "firstName", label: "FIRST NAME", width: 15 },
+        { key: "lastName", label: "LAST NAME", width: 15 },
+        { key: "role", label: "ROLE", width: 25 },
+        { key: "status", label: "STATUS", width: 10 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -72,14 +69,13 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const agent = await client.agents.get(id);
-        printRecord(agent as unknown as Record<string, unknown>, [
+        printRecord(agent, [
           { key: "id", label: "ID" },
           { key: "firstName", label: "First Name" },
           { key: "lastName", label: "Last Name" },
           { key: "role", label: "Role" },
           { key: "status", label: "Status" },
           { key: "model", label: "Model" },
-          { key: "tone", label: "Tone" },
           { key: "createdAt", label: "Created" }
         ]);
       } catch (err) {
@@ -139,10 +135,10 @@ Notes:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        const agent = await client.agents.create(body as any);
+        const agent = await client.agents.create(asRequestBody<CreateAgentBody>(body));
         printSuccess("Agent created.", {
-          id: (agent as any).id,
-          name: `${(agent as any).firstName} ${(agent as any).lastName}`
+          id: agent.id,
+          name: `${agent.firstName} ${agent.lastName}`
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -201,8 +197,8 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        const agent = await client.agents.update(id, body as any);
-        printSuccess("Agent updated.", { id: (agent as any).id });
+        const agent = await client.agents.update(id, asRequestBody<UpdateAgentBody>(body));
+        printSuccess("Agent updated.", { id: agent.id });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -235,7 +231,7 @@ Notes:
           const agent = await client.agents.get(id);
           console.log(
             color.yellow("DRY RUN:") +
-              ` Would delete agent "${(agent as any).firstName} ${(agent as any).lastName}" (${id})`
+              ` Would delete agent "${agent.firstName} ${agent.lastName}" (${id})`
           );
           return;
         }
@@ -278,8 +274,8 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const agent = await client.agents.duplicate(id);
         printSuccess("Agent duplicated.", {
-          id: (agent as any).id,
-          name: `${(agent as any).firstName} ${(agent as any).lastName}`
+          id: agent.id,
+          name: `${agent.firstName} ${agent.lastName}`
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -304,7 +300,7 @@ Examples:
         const buffer = fs.readFileSync(absPath);
         const blob = new Blob([buffer]);
         const result = await client.agents.uploadProfilePicture(id, blob);
-        printSuccess("Profile picture uploaded.", result as unknown as Record<string, unknown>);
+        printSuccess("Profile picture uploaded.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -322,8 +318,11 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, opts.prompt ? { customPrompt: opts.prompt } : {});
-        const result = await client.agents.generateProfilePicture(id, body as any);
-        printSuccess("Profile picture generated.", result as unknown as Record<string, unknown>);
+        const result = await client.agents.generateProfilePicture(
+          id,
+          asRequestBody<{ customPrompt?: string }>(body)
+        );
+        printSuccess("Profile picture generated.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

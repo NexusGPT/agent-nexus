@@ -2,13 +2,16 @@
 # Flow B — "Workflow attach" (composition).
 #
 # Drives the cross-domain reference chain: create an agent, create a
-# workflow, configure its trigger, validate, publish, then bind the
-# workflow to the agent as a WORKFLOW-type tool. Verify the tool surfaces
-# back via agent-tool list. Cleans up tool, workflow, agent.
+# workflow, configure its trigger, declare the trigger's input parameters,
+# validate, publish, then bind the workflow to the agent as a
+# WORKFLOW-type tool. Verify the tool surfaces back via agent-tool list.
+# Cleans up tool, workflow, agent.
 #
-# Tests: workflow CRUD, trigger replacement, validate/publish state
-# machine, agent-tool ↔ workflow binding. A drift in any of these would
-# break the customer's tool-using-agent flow.
+# Tests: workflow CRUD, trigger replacement, node data updates, the
+# derive → publish → attach chain that decides which parameters a skill
+# may declare, validate/publish state machine, agent-tool ↔ workflow
+# binding. A drift in any of these would break the customer's
+# tool-using-agent flow.
 #
 # Local run:   NEXUS_PROFILE=e2e ./02-workflow-attach.sh
 # CI run:      NEXUS_PROFILE=ci  ./02-workflow-attach.sh
@@ -28,6 +31,7 @@ AGENT_JSON="${WORKDIR}/agent-create.json"
 WORKFLOW_JSON="${WORKDIR}/workflow-create.json"
 TRIGGER_JSON="${WORKDIR}/trigger.json"
 WORKFLOW_GET_JSON="${WORKDIR}/workflow-get.json"
+TRIGGER_PARAMS_JSON="${WORKDIR}/trigger-params.json"
 OUTPUT_NODE_JSON="${WORKDIR}/output-node-create.json"
 EDGE_JSON="${WORKDIR}/edge-create.json"
 VALIDATE_JSON="${WORKDIR}/validate.json"
@@ -39,6 +43,7 @@ register_dump "agent create"        "${AGENT_JSON}"
 register_dump "workflow create"     "${WORKFLOW_JSON}"
 register_dump "workflow trigger"    "${TRIGGER_JSON}"
 register_dump "workflow get"        "${WORKFLOW_GET_JSON}"
+register_dump "trigger parameters"  "${TRIGGER_PARAMS_JSON}"
 register_dump "workflow node create" "${OUTPUT_NODE_JSON}"
 register_dump "workflow edge create" "${EDGE_JSON}"
 register_dump "workflow validate"   "${VALIDATE_JSON}"
@@ -156,6 +161,34 @@ nx workflow edge create "${WORKFLOW_ID}" \
   --json > "${EDGE_JSON}"
 
 # ---------------------------------------------------------------------------
+# Step 3c — declare the agent input parameter on the trigger, BEFORE publish
+# ---------------------------------------------------------------------------
+# `workflow trigger --type agentInputTrigger` seeds the node from the node-type
+# registry's defaultData, which is `parameters: {}` — an agent trigger that
+# accepts nothing. Publishing snapshots that graph, and the workflow's
+# agentInputSchema is derived from the published trigger's `data.parameters`.
+#
+# Step 6 attaches a skill declaring the parameter `input`. Since NEX-3007 the
+# attach endpoint refuses a WORKFLOW skill that declares a parameter the
+# PUBLISHED graph does not accept, so the empty seed makes that attach a 400:
+# "This skill declares a parameter the published workflow does not accept".
+# Writing the parameter here is what makes the declaration in step 6 true.
+#
+# PATCH merges into the node's existing `data`, so this adds `parameters`
+# without disturbing `label` or `instructions`. It must land before step 5 —
+# publishing is what promotes the draft trigger into the live contract.
+stamp "declaring agent input parameter on trigger"
+nx workflow node update "${WORKFLOW_ID}" "${TRIGGER_NODE_ID}" \
+  --body '{"data":{"parameters":{"input":{"type":"string"}}}}' \
+  --json > "${TRIGGER_PARAMS_JSON}"
+
+DECLARED_PARAM=$(jq -r '.data.parameters.input.type // empty' "${TRIGGER_PARAMS_JSON}")
+if [[ "${DECLARED_PARAM}" != "string" ]]; then
+  echo "FAIL: trigger node did not persist parameters.input (got '${DECLARED_PARAM}')" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Step 4 — validate
 # ---------------------------------------------------------------------------
 stamp "validating workflow"
@@ -187,6 +220,12 @@ stamp "attaching workflow as agent tool"
 # correctly nested. --label and --type are Commander requiredOption()s
 # and must be passed even when --body is used — mergeBodyWithFlags lets
 # flag values win, which is fine since we set them to the same values.
+#
+# Every key of agentInputSchema must also exist in the PUBLISHED graph's
+# agent trigger parameters — the guard added by NEX-3007 refuses a skill
+# declaring a parameter the live graph cannot read. `input` is there
+# because step 3c wrote it before step 5 published. Adding a parameter
+# here means adding it there too, in that order.
 nx agent-tool create "${AGENT_ID}" \
   --label "${TOOL_LABEL}" \
   --type  WORKFLOW \

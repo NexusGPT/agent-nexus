@@ -1,6 +1,7 @@
 import { HttpClient } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
+import { timeoutSecondsToMs } from "../client";
 import { resolveApiKey, resolveBaseUrl } from "../config";
 import { handleError } from "../errors";
 import { isJsonMode, printSuccess } from "../output";
@@ -27,7 +28,8 @@ export function registerAgentEvalCommands(program: Command): void {
     const globals = program.optsWithGlobals();
     return new HttpClient({
       baseUrl: resolveBaseUrl(globals.baseUrl, globals.profile),
-      apiKey: resolveApiKey(globals.apiKey, globals.profile)
+      apiKey: resolveApiKey(globals.apiKey, globals.profile),
+      timeout: timeoutSecondsToMs(globals.timeout)
     });
   };
 

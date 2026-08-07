@@ -2,7 +2,8 @@ import {
   NexusApiError,
   NexusAuthenticationError,
   NexusConnectionError,
-  NexusError
+  NexusError,
+  NexusTimeoutError
 } from "@agent-nexus/sdk";
 
 import { color, isJsonMode } from "./output";
@@ -73,6 +74,18 @@ export function handleError(err: unknown): number {
     } else {
       printCliError(`API error (${err.status}): ${err.message}`);
     }
+    return 1;
+  }
+
+  // Before NexusConnectionError — a timeout IS a connection error in the SDK's
+  // hierarchy, but "we stopped waiting" must not read as "the API was down":
+  // the server may still be processing (and completing) the request.
+  if (err instanceof NexusTimeoutError) {
+    const seconds = Math.round(err.timeoutMs / 1000);
+    printCliError(
+      `The request was still running after ${seconds}s, so the CLI stopped waiting (client-side timeout — the server may still complete it).`,
+      "For long-running operations, raise the limit with the global --timeout <seconds> flag."
+    );
     return 1;
   }
 

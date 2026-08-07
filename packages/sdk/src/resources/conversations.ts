@@ -25,14 +25,9 @@ export class ConversationsResource extends BaseResource {
   }
 
   async list(params?: ListConversationsParams): Promise<PageResponse<ConversationSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<ConversationSummary[]>(
-      "GET",
-      "/conversations",
-      {
-        query: params as Record<string, string | number | boolean | string[] | number[] | undefined>
-      }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<ConversationSummary>("GET", "/conversations", {
+      query: params as Record<string, string | number | boolean | string[] | number[] | undefined>
+    });
   }
 
   async get(conversationId: string, params?: GetConversationParams): Promise<ConversationDetail> {

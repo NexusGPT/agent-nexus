@@ -1,9 +1,14 @@
+import type {
+  AttachCollectionBody,
+  CreateAgentToolBody,
+  UpdateAgentToolBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerAgentToolCommands(program: Command): void {
   const agentTool = program.command("agent-tool").description("Manage agent tool configurations");
@@ -25,7 +30,7 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const tools = await client.agents.tools.list(agentId);
 
-        printTable(tools as unknown as Record<string, unknown>[], [
+        printTable(tools, [
           { key: "id", label: "ID", width: 36 },
           { key: "label", label: "LABEL", width: 25 },
           { key: "type", label: "TYPE", width: 15 },
@@ -53,7 +58,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const tool = await client.agents.tools.get(agentId, toolId);
-        printRecord(tool as unknown as Record<string, unknown>);
+        printRecord(tool);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -99,10 +104,13 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        const tool = await client.agents.tools.create(agentId, body as any);
+        const tool = await client.agents.tools.create(
+          agentId,
+          asRequestBody<CreateAgentToolBody>(body)
+        );
         printSuccess("Tool added to agent.", {
-          id: (tool as any).id,
-          label: (tool as any).label
+          id: tool.id,
+          label: tool.label
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -141,7 +149,7 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        await client.agents.tools.update(agentId, toolId, body as any);
+        await client.agents.tools.update(agentId, toolId, asRequestBody<UpdateAgentToolBody>(body));
         printSuccess("Tool updated.", { id: toolId });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -211,10 +219,13 @@ Examples:
           ...(opts.instructions !== undefined && { instructions: opts.instructions })
         });
 
-        const tool = await (client.agents.tools as any).attachCollection(agentId, body);
+        const tool = await client.agents.tools.attachCollection(
+          agentId,
+          asRequestBody<AttachCollectionBody>(body)
+        );
         printSuccess("Collection attached to agent.", {
-          id: (tool as any).id,
-          label: (tool as any).label
+          id: tool.id,
+          label: tool.label
         });
       } catch (err) {
         process.exitCode = handleError(err);

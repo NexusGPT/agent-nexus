@@ -32,7 +32,12 @@ export async function resolveInputValue(value: string): Promise<string> {
     if (fs.existsSync(value) && fs.statSync(value).isFile()) {
       return fs.readFileSync(value, "utf-8").trim();
     }
-  } catch {}
+  } catch {
+    // The argument only LOOKS like a path — an unreadable file, a permission
+    // error or a directory race means it is not one, so fall through and treat
+    // the argument as a literal value. Reporting here would turn a valid
+    // literal into an error.
+  }
 
   return value;
 }

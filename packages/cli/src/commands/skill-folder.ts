@@ -1,9 +1,14 @@
+import type {
+  AssignSkillToFolderBody,
+  CreateSkillFolderBody,
+  UpdateSkillFolderBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerSkillFolderCommands(program: Command): void {
   const skillFolder = program.command("skill-folder").description("Manage skill folders");
@@ -15,7 +20,7 @@ export function registerSkillFolderCommands(program: Command): void {
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.skillFolders.list();
-        const folders = (result as any).folders ?? [];
+        const folders = result.folders ?? [];
         printTable(folders, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
@@ -40,10 +45,10 @@ export function registerSkillFolderCommands(program: Command): void {
           name: opts.name,
           ...(opts.parentId !== undefined && { parentId: opts.parentId })
         });
-        const folder = await client.skillFolders.create(body as any);
+        const folder = await client.skillFolders.create(asRequestBody<CreateSkillFolderBody>(body));
         printSuccess("Skill folder created.", {
-          id: (folder as any).id,
-          name: (folder as any).name
+          id: folder.id,
+          name: folder.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -67,7 +72,7 @@ export function registerSkillFolderCommands(program: Command): void {
           flags.parentId = opts.parentId === "null" ? null : opts.parentId;
         }
         const body = mergeBodyWithFlags(base, flags);
-        await client.skillFolders.update(id, body as any);
+        await client.skillFolders.update(id, asRequestBody<UpdateSkillFolderBody>(body));
         printSuccess("Skill folder updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -113,7 +118,7 @@ export function registerSkillFolderCommands(program: Command): void {
           skillId: opts.skillId,
           folderId: opts.folderId === "null" ? null : opts.folderId
         });
-        await client.skillFolders.assign(body as any);
+        await client.skillFolders.assign(asRequestBody<AssignSkillToFolderBody>(body));
         printSuccess("Skill assigned.", { skillId: opts.skillId, folderId: opts.folderId });
       } catch (err) {
         process.exitCode = handleError(err);

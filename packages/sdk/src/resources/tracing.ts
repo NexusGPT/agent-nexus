@@ -22,12 +22,9 @@ export class TracingResource extends BaseResource {
   // ── Traces ──────────────────────────────────────────────────────────────
 
   async listTraces(params?: ListTracesParams): Promise<PageResponse<TraceSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<TraceSummary[]>(
-      "GET",
-      "/tracing/traces",
-      { query: params as Record<string, string | number | undefined> }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<TraceSummary>("GET", "/tracing/traces", {
+      query: params as Record<string, string | number | undefined>
+    });
   }
 
   async getTrace(traceId: string): Promise<TraceDetail> {
@@ -41,12 +38,9 @@ export class TracingResource extends BaseResource {
   // ── Generations ─────────────────────────────────────────────────────────
 
   async listGenerations(params?: ListGenerationsParams): Promise<PageResponse<GenerationSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<GenerationSummary[]>(
-      "GET",
-      "/tracing/generations",
-      { query: params as Record<string, string | number | undefined> }
-    );
-    return { data, meta: meta! };
+    return this.http.requestPage<GenerationSummary>("GET", "/tracing/generations", {
+      query: params as Record<string, string | number | undefined>
+    });
   }
 
   async getGeneration(generationId: string): Promise<GenerationDetail> {

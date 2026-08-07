@@ -1,12 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type {
+  AddWebsiteDocumentBody,
+  CreateDocumentFolderBody,
+  CreateGoogleSheetDocumentBody,
+  CreateTextDocumentBody,
+  UpdateDocumentBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseMetadataPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -45,7 +52,7 @@ Examples:
         status: opts.status
       });
 
-      printList(data as Record<string, unknown>[], meta as unknown as Record<string, unknown>, [
+      printList(data, meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "name", label: "NAME", width: 30 },
         { key: "type", label: "TYPE", width: 12 },
@@ -72,7 +79,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const doc = await client.documents.get(id);
-        printRecord(doc as unknown as Record<string, unknown>, [
+        printRecord(doc, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "type", label: "Type" },
@@ -130,8 +137,8 @@ Notes:
 
         const doc = await client.documents.uploadFile(blob, fileName, opts.description, metadata);
         printSuccess("Document uploaded.", {
-          id: (doc as any).id,
-          name: (doc as any).name ?? fileName
+          id: doc.id,
+          name: doc.name ?? fileName
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -169,10 +176,10 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        const doc = await client.documents.createText(body as any);
+        const doc = await client.documents.createText(asRequestBody<CreateTextDocumentBody>(body));
         printSuccess("Text document created.", {
-          id: (doc as any).id,
-          name: (doc as any).name
+          id: doc.id,
+          name: doc.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -212,10 +219,10 @@ Examples:
           ...(metadataFlags.length > 0 && { metadata: parseMetadataPairs(metadataFlags) })
         });
 
-        const doc = await client.documents.addWebsite(body as any);
+        const doc = await client.documents.addWebsite(asRequestBody<AddWebsiteDocumentBody>(body));
         printSuccess("Website document created.", {
-          id: (doc as any).id,
-          name: (doc as any).name
+          id: doc.id,
+          name: doc.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -238,7 +245,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.documents.getPreviewUrl(id);
-        printRecord(result as unknown as Record<string, unknown>, [
+        printRecord(result, [
           { key: "url", label: "URL" },
           { key: "fileName", label: "File Name" },
           { key: "mimeType", label: "MIME Type" },
@@ -320,8 +327,8 @@ Notes:
         if (metadataFlags.length > 0) flags.metadata = parseMetadataPairs(metadataFlags);
         const body = mergeBodyWithFlags(base, flags);
 
-        const doc = await client.documents.update(id, body as any);
-        printSuccess("Document updated.", { id: (doc as any).id ?? id });
+        const doc = await client.documents.update(id, asRequestBody<UpdateDocumentBody>(body));
+        printSuccess("Document updated.", { id: doc.id ?? id });
         // A metadata edit only writes the DB column; ZeroEntropy stays stale
         // until the document is reprocessed. Nudge the user so the change is
         // not silently invisible to search/retrieval.
@@ -352,7 +359,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.documents.getDownloadUrl(id);
-        printRecord(result as unknown as Record<string, unknown>, [
+        printRecord(result, [
           { key: "url", label: "URL" },
           { key: "fileName", label: "File Name" },
           { key: "mimeType", label: "MIME Type" },
@@ -380,7 +387,7 @@ Examples:
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.documents.listChildren(id, getPaginationParams(opts));
-      printList(data as Record<string, unknown>[], meta as unknown as Record<string, unknown>, [
+      printList(data, meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "name", label: "NAME", width: 30 },
         { key: "type", label: "TYPE", width: 12 },
@@ -407,12 +414,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.documents.reprocess(id);
-        printSuccess("Document reprocessing started.", {
-          id,
-          ...(typeof result === "object" && result !== null
-            ? (result as Record<string, unknown>)
-            : {})
-        });
+        printSuccess("Document reprocessing started.", { id, ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -440,10 +442,12 @@ Examples:
         if (opts.parentId !== undefined) flags.parentId = opts.parentId;
         const body = mergeBodyWithFlags(base, flags);
 
-        const folder = await client.documents.createFolder(body as any);
+        const folder = await client.documents.createFolder(
+          asRequestBody<CreateDocumentFolderBody>(body)
+        );
         printSuccess("Folder created.", {
-          id: (folder as any).id,
-          name: (folder as any).name ?? opts.name
+          id: folder.id,
+          name: folder.name ?? opts.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -476,10 +480,12 @@ Examples:
         if (opts.description !== undefined) flags.description = opts.description;
         const body = mergeBodyWithFlags(base, flags);
 
-        const result = await client.documents.createGoogleSheet(body as any);
+        const result = await client.documents.createGoogleSheet(
+          asRequestBody<CreateGoogleSheetDocumentBody>(body)
+        );
         printSuccess("Google Sheet imported.", {
-          folderId: (result as any).folder?.id,
-          sheets: (result as any).sheets?.length
+          folderId: result.folder?.id,
+          sheets: result.sheets?.length
         });
       } catch (err) {
         process.exitCode = handleError(err);

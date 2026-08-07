@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http-client";
+import { appendFilePart } from "../multipart";
 import type {
   AgentDetail,
   AgentSummary,
@@ -39,10 +40,9 @@ export class AgentsResource extends BaseResource {
    * @returns Paginated list of agent summaries.
    */
   async list(params?: ListAgentsParams): Promise<PageResponse<AgentSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<AgentSummary[]>("GET", "/agents", {
+    return this.http.requestPage<AgentSummary>("GET", "/agents", {
       query: params as Record<string, string | number | undefined>
     });
-    return { data, meta: meta! };
   }
 
   /**
@@ -101,14 +101,17 @@ export class AgentsResource extends BaseResource {
    *
    * @param agentId - Agent UUID.
    * @param file - Image file as a Blob or File.
+   * @param fileName - File name to send. A bare `Blob` carries none, and the
+   *   multipart part is then named `blob`; a `File` supplies its own.
    * @returns URL to the uploaded profile picture.
    */
   async uploadProfilePicture(
     agentId: string,
-    file: Blob | File
+    file: Blob | File,
+    fileName?: string
   ): Promise<UploadProfilePictureResponse> {
     const formData = new FormData();
-    formData.append("file", file);
+    appendFilePart(formData, "file", file, fileName);
     return this.http.request<UploadProfilePictureResponse>(
       "POST",
       `/agents/${agentId}/profile-picture`,

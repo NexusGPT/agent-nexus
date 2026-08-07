@@ -1,14 +1,31 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { CreateTicketBody, UpdateTicketBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+
+/**
+ * Parse a `--labels` value into the array the API expects. An empty value
+ * yields `[]`, which on update clears the ticket's non-type labels.
+ */
+function parseLabels(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((label) => label.trim())
+    .filter(Boolean);
+}
+
+/** Renders a ticket's `labels` array for the human-readable record output. */
+function formatLabels(value: unknown): string {
+  return Array.isArray(value) ? value.join(", ") : "";
+}
 
 export function registerTicketCommands(program: Command): void {
   const ticket = program
@@ -43,17 +60,13 @@ Examples:
         search: opts.search
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "identifier", label: "IDENTIFIER", width: 12 },
-          { key: "title", label: "TITLE", width: 40 },
-          { key: "type", label: "TYPE", width: 18 },
-          { key: "priority", label: "PRIORITY", width: 10 },
-          { key: "status", label: "STATUS", width: 15 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "identifier", label: "IDENTIFIER", width: 12 },
+        { key: "title", label: "TITLE", width: 40 },
+        { key: "type", label: "TYPE", width: 18 },
+        { key: "priority", label: "PRIORITY", width: 10 },
+        { key: "status", label: "STATUS", width: 15 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -75,13 +88,14 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.tickets.get(id);
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "identifier", label: "Identifier" },
           { key: "title", label: "Title" },
           { key: "type", label: "Type" },
           { key: "priority", label: "Priority" },
           { key: "status", label: "Status" },
+          { key: "labels", label: "Labels", format: formatLabels },
           { key: "url", label: "URL" },
           { key: "description", label: "Description" },
           { key: "createdAt", label: "Created" },
@@ -100,12 +114,14 @@ Examples:
     .option("--type <type>", "Ticket type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
     .option("--priority <priority>", "Priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
     .option("--description <text>", "Ticket description")
+    .option("--labels <list>", "Comma-separated Linear labels to attach (e.g. CUE)")
     .option("--data <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus ticket create --title "Login fails with SSO"
+  $ nexus ticket create --title "Filed by an agent" --labels CUE
   $ nexus ticket create --title "Add dark mode" --type FEATURE_REQUEST --priority MEDIUM
   $ nexus ticket create --title "Bug report" --type BUG --description "Steps to reproduce..."
   $ nexus ticket create --data '{"title":"Bug","type":"BUG"}'
@@ -123,17 +139,19 @@ Notes:
           ...(opts.title !== undefined && { title: opts.title }),
           ...(opts.type !== undefined && { type: opts.type }),
           ...(opts.priority !== undefined && { priority: opts.priority }),
-          ...(opts.description !== undefined && { description: opts.description })
+          ...(opts.description !== undefined && { description: opts.description }),
+          ...(opts.labels !== undefined && { labels: parseLabels(opts.labels) })
         });
 
-        const t = await client.tickets.create(body as any);
-        printRecord(t as unknown as Record<string, unknown>, [
+        const t = await client.tickets.create(asRequestBody<CreateTicketBody>(body));
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "identifier", label: "Identifier" },
           { key: "title", label: "Title" },
           { key: "type", label: "Type" },
           { key: "priority", label: "Priority" },
           { key: "status", label: "Status" },
+          { key: "labels", label: "Labels", format: formatLabels },
           { key: "url", label: "URL" }
         ]);
       } catch (err) {
@@ -154,12 +172,18 @@ Notes:
       "--status <status>",
       "Transition status (Triage, Backlog, Todo, In Progress, In Review, Done, Canceled)"
     )
+    .option(
+      "--labels <list>",
+      "Comma-separated Linear labels; replaces the ticket's labels (empty value clears them)"
+    )
     .option("--data <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus ticket update TKT-42 --priority URGENT
+  $ nexus ticket update TKT-42 --labels "CUE,needs-triage"
+  $ nexus ticket update TKT-42 --labels ""
   $ nexus ticket update TKT-42 --title "Updated title" --type BUG
   $ nexus ticket update TKT-42 --status "In Progress"
   $ nexus ticket update TKT-42 --status Canceled
@@ -175,17 +199,19 @@ Examples:
           ...(opts.type !== undefined && { type: opts.type }),
           ...(opts.priority !== undefined && { priority: opts.priority }),
           ...(opts.description !== undefined && { description: opts.description }),
-          ...(opts.status !== undefined && { status: opts.status })
+          ...(opts.status !== undefined && { status: opts.status }),
+          ...(opts.labels !== undefined && { labels: parseLabels(opts.labels) })
         });
 
-        const t = await client.tickets.update(id, body as any);
-        printRecord(t as unknown as Record<string, unknown>, [
+        const t = await client.tickets.update(id, asRequestBody<UpdateTicketBody>(body));
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "identifier", label: "Identifier" },
           { key: "title", label: "Title" },
           { key: "type", label: "Type" },
           { key: "priority", label: "Priority" },
           { key: "status", label: "Status" },
+          { key: "labels", label: "Labels", format: formatLabels },
           { key: "url", label: "URL" }
         ]);
       } catch (err) {
@@ -218,7 +244,7 @@ Examples:
         }
 
         const t = await client.tickets.update(id, { status: opts.as });
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "identifier", label: "Identifier" },
           { key: "title", label: "Title" },
@@ -272,9 +298,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.tickets.listComments(id);
-        const comments = (result as any).comments ?? result;
+        const comments = result.comments ?? result;
 
-        printList(comments as unknown as Record<string, unknown>[], undefined, [
+        printList(comments, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "authorName", label: "AUTHOR", width: 20 },
           { key: "body", label: "BODY", width: 50 },
@@ -315,7 +341,7 @@ Examples:
         const file = new NodeFile([buffer], fileName);
 
         const result = await client.tickets.uploadAttachment(id, file);
-        printSuccess("Attachment uploaded.", result as unknown as Record<string, unknown>);
+        printSuccess("Attachment uploaded.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -337,11 +363,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.tickets.listAttachments(id);
-        const attachments = (result as any).attachments ?? result;
-        printList(attachments as unknown as Record<string, unknown>[], undefined, [
+        const attachments = result.attachments ?? result;
+        printList(attachments, undefined, [
           { key: "id", label: "ID", width: 36 },
-          { key: "fileName", label: "FILE", width: 30 },
-          { key: "mimeType", label: "TYPE", width: 15 },
+          { key: "filename", label: "FILE", width: 30 },
+          { key: "contentType", label: "TYPE", width: 15 },
           { key: "createdAt", label: "CREATED", width: 20 }
         ]);
       } catch (err) {

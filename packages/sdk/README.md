@@ -215,7 +215,12 @@ await client.agents.versions.publish("agent-id", "version-id");
 ## Error Handling
 
 ```typescript
-import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "@agent-nexus/sdk";
+import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  NexusTimeoutError
+} from "@agent-nexus/sdk";
 
 try {
   await client.agents.get("non-existent-id");
@@ -224,6 +229,10 @@ try {
     console.error("Invalid API key");
   } else if (err instanceof NexusApiError) {
     console.error(`API error [${err.code}]: ${err.message} (status ${err.status})`);
+  } else if (err instanceof NexusTimeoutError) {
+    // Client-side timeout — the server may still be processing the request.
+    // Raise the `timeout` client option for long-running operations.
+    console.error(`Timed out after ${err.timeoutMs}ms`);
   } else if (err instanceof NexusConnectionError) {
     console.error("Network error:", err.message);
   }

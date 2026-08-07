@@ -1,9 +1,10 @@
+import type { CreateAccessCardBody, UpdateAccessCardBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerAccessCardCommands(program: Command): void {
   const accessCard = program
@@ -26,9 +27,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.credentials.cards.listByCredential(opts.credentialId);
-        const cards = (result as any).accessCards ?? result;
+        const cards = result.accessCards ?? result;
 
-        printList(cards as unknown as Record<string, unknown>[], undefined, [
+        printList(cards, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 25 },
           { key: "isMaster", label: "MASTER", width: 8 },
@@ -56,7 +57,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const card = await client.credentials.cards.get(id);
-        printRecord(card as unknown as Record<string, unknown>, [
+        printRecord(card, [
           { key: "id", label: "ID" },
           { key: "credentialId", label: "Credential ID" },
           { key: "name", label: "Name" },
@@ -106,8 +107,11 @@ Examples:
           body.policies = {};
         }
 
-        const card = await client.credentials.cards.create(opts.credentialId, body as any);
-        printRecord(card as unknown as Record<string, unknown>, [
+        const card = await client.credentials.cards.create(
+          opts.credentialId,
+          asRequestBody<CreateAccessCardBody>(body)
+        );
+        printRecord(card, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "isMaster", label: "Master" },
@@ -146,8 +150,11 @@ Examples:
           ...(opts.color !== undefined && { color: opts.color })
         });
 
-        const card = await client.credentials.cards.update(id, body as any);
-        printRecord(card as unknown as Record<string, unknown>, [
+        const card = await client.credentials.cards.update(
+          id,
+          asRequestBody<UpdateAccessCardBody>(body)
+        );
+        printRecord(card, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "color", label: "Color" }
@@ -197,9 +204,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.credentials.cards.availableActions(opts.credentialId);
-        const actions = (result as any).actions ?? result;
+        const actions = result.actions ?? result;
 
-        printList(actions as unknown as Record<string, unknown>[], undefined, [
+        printList(actions, undefined, [
           { key: "actionId", label: "ACTION ID", width: 30 },
           { key: "name", label: "NAME", width: 30 },
           { key: "description", label: "DESCRIPTION", width: 40 }

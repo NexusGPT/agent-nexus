@@ -58,3 +58,55 @@ export type SearchAvailablePhoneNumbersParams = {
   mms?: boolean;
   voice?: boolean;
 };
+
+// ============================================================================
+// Buy
+// ============================================================================
+
+/** Request body for `client.phoneNumbers.buy()` and `client.channels.buyPhoneNumber()`. */
+export interface BuyPhoneNumberBody {
+  /** Number to purchase, in E.164 form. */
+  phoneNumber: string;
+  /** ISO country code the number belongs to. */
+  country: string;
+  /** Price quoted by `searchAvailable()`, echoed back to confirm it. */
+  price: string;
+  /** Twilio subaccount connection to buy on. Omit to buy on the shared pool. */
+  connectionId?: string;
+}
+
+// ============================================================================
+// Release
+// ============================================================================
+
+/** Lifecycle status of a phone number. */
+export type PhoneNumberStatus = "ACTIVE" | "PENDING_RELEASE" | "RELEASING" | "RELEASED" | "DELETED";
+
+/**
+ * Response from `client.phoneNumbers.release()`.
+ *
+ * Releasing detaches the number from every deployment and deregisters its
+ * WhatsApp senders before marking the row released — the row is kept rather
+ * than deleted, because it records which Twilio account the number came from.
+ */
+export interface ReleasePhoneNumberResponse {
+  /** Phone number UUID. */
+  id: string;
+  /** The number itself, in E.164 form. */
+  number: string;
+  /** Status after the release. */
+  status: PhoneNumberStatus;
+  /** ISO 8601 release timestamp, or `null` when the release has not settled. */
+  releasedAt: string | null;
+  /** Id of the user who released it, or `null`. */
+  releasedBy: string | null;
+  /** Deployments detached from the number. */
+  detachedDeployments: number;
+  /** WhatsApp senders deregistered. */
+  removedWhatsappSenders: number;
+  /**
+   * `false` when Twilio refused the release. The number is gone in Nexus and an
+   * admin issue was filed, but Twilio may still be billing for it.
+   */
+  twilioReleased: boolean;
+}

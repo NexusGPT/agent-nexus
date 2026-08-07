@@ -1,0 +1,209 @@
+/**
+ * The alias in `vitest.config.ts` maps only the specifiers `vitest.aliases.ts`
+ * NAMES. Any workspace specifier this package imports that is absent from that
+ * list resolves through the dependency's own `exports` map instead — which, for
+ * `@agent-nexus/sdk`, means `dist/` under every one of its three conditions.
+ *
+ * Nothing else notices that. `tsc` resolves it happily, ESLint has no opinion,
+ * and the suite goes green against whatever `dist/` happens to hold. So this
+ * spec is the only thing standing between one new import line and a silent
+ * return to reading a stale build.
+ *
+ * Each control is its OWN `it`, deliberately. Folded into one block, a broken
+ * scan would satisfy the invariant vacuously (an empty set is a subset of
+ * anything) and the control meant to catch that would never be evaluated.
+ */
+import fs from "node:fs";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { WORKSPACE_SOURCE_ALIASES } from "./vitest.aliases";
+
+const SRC = path.resolve(__dirname);
+const PKG = path.resolve(__dirname, "..");
+
+/**
+ * Files holding EMBEDDED CONTENT are excluded by the `.generated.` marker, never
+ * by naming one file. `src/skills-content.generated.ts` is 7.5 MB of skill
+ * markdown stored as string literals, and 12 of those literals are code examples
+ * importing `@agent-nexus/apps-ui` — a package that does not exist in this
+ * repository. They are documentation, not imports, and scanning them makes this
+ * spec demand an alias for a package nothing can resolve.
+ *
+ * The package carries THREE such files. Excluding only the big one still reads
+ * high, which is why the marker rather than a filename is the rule.
+ */
+const isScannable = (file: string): boolean =>
+  file.endsWith(".ts") && !file.includes(".generated.");
+
+const walk = (dir: string): string[] =>
+  fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walk(full);
+    return isScannable(full) ? [full] : [];
+  });
+
+const SPECIFIER = /(?:from|import)\s*\(?\s*["']((?:@nexus\/|@agent-nexus\/)[^"']*)["']/g;
+
+/**
+ * Comments are removed before scanning, because PROSE ABOUT A SPECIFIER IS NOT
+ * AN IMPORT OF IT. A docblock that quotes an import line — here, or in any file
+ * this scan walks — would otherwise be reported as an unmapped import and fail
+ * this spec on its own documentation. A check that counts the text explaining it
+ * reports a floor it can never reach.
+ *
+ * The scanner tracks string and template literals rather than stripping `//`
+ * blindly — a naive strip eats the tail of any string containing a URL.
+ *
+ * ⚠️ This is the OPPOSITE of the right call for `src/wire-types-bundle.test.ts`,
+ * which scans the same directory for `@nexus/types` and deliberately does NOT
+ * strip comments. The two guards fail in opposite directions: a false positive
+ * here demands an alias for a package that does not exist and breaks the build,
+ * while a false positive there costs a reword and a false NEGATIVE ships
+ * `@nexus/types` inside the published CLI. Do not "harmonise" them.
+ */
+const stripComments = (source: string): string => {
+  let out = "";
+  let i = 0;
+  let quote: string | null = null;
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (quote !== null) {
+      if (ch === "\\") {
+        out += `${ch}${next ?? ""}`;
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i += 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+};
+
+const scan = (): { files: string[]; specifiers: Map<string, string[]> } => {
+  const files = walk(SRC);
+  const specifiers = new Map<string, string[]>();
+  for (const file of files) {
+    const source = stripComments(fs.readFileSync(file, "utf-8"));
+    for (const [, specifier] of source.matchAll(SPECIFIER)) {
+      const seen = specifiers.get(specifier) ?? [];
+      seen.push(path.relative(PKG, file));
+      specifiers.set(specifier, seen);
+    }
+  }
+  return { files, specifiers };
+};
+
+describe("workspace imports stay aliased to source", () => {
+  it("maps every workspace specifier this package imports", () => {
+    const { specifiers } = scan();
+    const unmapped = [...specifiers.entries()]
+      .filter(([specifier]) => !(specifier in WORKSPACE_SOURCE_ALIASES))
+      .map(([specifier, files]) => `${specifier} (imported by ${files.join(", ")})`);
+
+    expect(
+      unmapped,
+      "These specifiers resolve through the dependency's `exports` map, which points at " +
+        "`dist/`, so this suite would test against whatever was last built rather than " +
+        "against source. REMEDY: add each one to WORKSPACE_SOURCE_ALIASES in " +
+        "packages/cli/src/vitest.aliases.ts, mapped to the entry's SOURCE file. Do not delete " +
+        "this assertion — an unmapped specifier is the defect it exists to catch."
+    ).toEqual([]);
+  });
+
+  it("CONTROL: the scan actually finds the specifier we know is there", () => {
+    const { specifiers } = scan();
+    expect(
+      specifiers.get("@agent-nexus/sdk")?.length ?? 0,
+      "The scan found no `@agent-nexus/sdk` import. This package has many, so the regex " +
+        "or the walk is broken — and a broken scan satisfies the assertion above vacuously."
+    ).toBeGreaterThan(10);
+  });
+
+  it("CONTROL: the scan reads the package's real source tree", () => {
+    const { files } = scan();
+    expect(
+      files.length,
+      "Far fewer files than this package holds. The walk is not reaching the tree, so an " +
+        "empty result above would mean nothing."
+    ).toBeGreaterThan(100);
+  });
+
+  it("CONTROL: the .generated. exclusion is load-bearing, not decorative", () => {
+    const generated = fs
+      .readdirSync(SRC)
+      .filter((name) => name.includes(".generated."))
+      .map((name) => path.join(SRC, name));
+
+    expect(
+      generated.length,
+      "No `.generated.` files found. If they were renamed, re-check whether the exclusion " +
+        "in `isScannable` still matches them before trusting a green run here."
+    ).toBeGreaterThan(0);
+    expect(
+      generated.every((file) => !isScannable(file)),
+      "A `.generated.` file is being scanned. Those hold embedded documentation whose code " +
+        "examples import packages this repository does not contain."
+    ).toBe(true);
+  });
+
+  it("CONTROL: comment stripping is load-bearing, and keeps strings intact", () => {
+    // BOTH specifiers are ASSEMBLED, never written as one literal. This file
+    // sits inside the tree the scan above walks, and a fixture is a string
+    // literal — which `stripComments` correctly preserves, because a `//` inside
+    // a string is not a comment. Spelled out in full, the unmapped one would be
+    // reported as a genuine unmapped import and would fail the very invariant it
+    // exists to support; the mapped one would quietly list this file among the
+    // SDK's importers, which it is not. The first breaks the suite, the second
+    // only makes it lie — and a fixture that lies is the harder one to notice.
+    const unmapped = `@nexus/types${"/"}server`;
+    const mapped = `@agent-nexus${"/"}sdk`;
+    const doc = `const a = 1; // see: import x from "${unmapped}"\nimport y from "${mapped}";`;
+    expect(
+      [...stripComments(doc).matchAll(SPECIFIER)].map(([, s]) => s),
+      "The stripper is not removing a specifier quoted inside a comment, or it is " +
+        "removing a real import along with it. Either way the scan above is measuring " +
+        "the wrong text."
+    ).toEqual(["@agent-nexus/sdk"]);
+
+    expect(
+      stripComments('const url = "https://example.com/a"; // gone'),
+      "The stripper ate the inside of a string literal. `//` in a URL is not a comment."
+    ).toBe('const url = "https://example.com/a"; ');
+  });
+
+  it("CONTROL: every alias points at a source file that exists", () => {
+    const missing = Object.entries(WORKSPACE_SOURCE_ALIASES)
+      .filter(([, source]) => !fs.existsSync(path.resolve(PKG, source)))
+      .map(([specifier, source]) => `${specifier} -> ${source}`);
+
+    expect(
+      missing,
+      "An alias names a path that is not on disk. Vite would fail to resolve the specifier " +
+        "at run time, or silently fall through, depending on the caller."
+    ).toEqual([]);
+  });
+});

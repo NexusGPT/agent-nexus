@@ -1,10 +1,19 @@
-import type { ReplaceTriggerBody } from "@agent-nexus/sdk";
+import type {
+  CreateBranchBody,
+  CreateEdgeBody,
+  CreateNodeBody,
+  ReloadPropsBody,
+  ReplaceTriggerBody,
+  TestNodeBody,
+  UpdateBranchBody,
+  UpdateNodeBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 
 // `satisfies readonly ReplaceTriggerBody["type"][]` forces this runtime tuple
 // to track the SDK union 1:1 — adding a new trigger type to the SDK without
@@ -44,11 +53,11 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const extra = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(extra, { type: opts.type });
-        const result = await client.workflows.createNode(wfId, body as any);
-        printRecord(result as unknown as Record<string, unknown>, [
+        const result = await client.workflows.createNode(wfId, asRequestBody<CreateNodeBody>(body));
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "type", label: "Type" },
-          { key: "position", label: "Position" }
+          { key: "configStatus", label: "Config" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -72,7 +81,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getNode(wfId, nodeId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -96,9 +105,13 @@ Examples:
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.workflows.updateNode(wfId, nodeId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const body = await resolveRequiredBody(opts.body);
+        const result = await client.workflows.updateNode(
+          wfId,
+          nodeId,
+          asRequestBody<UpdateNodeBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -149,20 +162,38 @@ Examples:
     .description("Run a test execution of a single node")
     .argument("<wf-id>", "Workflow ID")
     .argument("<node-id>", "Node ID")
-    .option("--body <json-or-file-or-->", "Optional mock data JSON")
+    .option(
+      "--body <json-or-file-or-->",
+      'Optional mock data: {"input":{"<upstreamNodeId|variableName>":<value>}} — replaces the node\'s resolved input'
+    )
     .addHelpText(
       "after",
       `
+Mock data is nested under "input" and keyed by upstream node ID OR the input
+variable name (e.g. a customScript input's variableName). Each value becomes
+the mocked output of that upstream node. Unknown keys are rejected with 400.
+
 Examples:
   $ nexus workflow node test wf-123 node-456
-  $ nexus workflow node test wf-123 node-456 --body '{"input":"test"}'`
+  $ nexus workflow node test wf-123 node-456 --body '{"input":{"human-node-id":{"rasp_note":"X"}}}'
+  $ nexus workflow node test wf-123 node-456 --body '{"input":{"human":{"decision":"CANCEL"}}}'
+  $ nexus workflow node test wf-123 node-456 --body '{"input":{"name":"Acme","website":"acme.com"}}'`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.workflows.testNode(wfId, nodeId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        // `--body` is genuinely optional here (`node test` with no mock data is
+        // a documented invocation), and every field of `TestNodeBody` is
+        // optional, so `{}` is a usable value of the right type rather than an
+        // invented one. The wire delta is an empty JSON object in place of no
+        // body at all; the endpoint parses both to the same `{}`.
+        const body = (await resolveBody(opts.body)) ?? {};
+        const result = await client.workflows.testNode(
+          wfId,
+          nodeId,
+          asRequestBody<TestNodeBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -185,7 +216,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getAvailableVariables(wfId, nodeId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -208,7 +239,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getOutputFormat(wfId, nodeId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -235,7 +266,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getWebhookTestPayload(wfId, nodeId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -258,9 +289,13 @@ Examples:
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.workflows.reloadProps(wfId, nodeId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const body = await resolveRequiredBody(opts.body);
+        const result = await client.workflows.reloadProps(
+          wfId,
+          nodeId,
+          asRequestBody<ReloadPropsBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -299,8 +334,8 @@ Examples:
           target: opts.target,
           ...(opts.sourceHandle ? { sourceHandle: opts.sourceHandle } : {})
         });
-        const result = await client.workflows.createEdge(wfId, body as any);
-        printRecord(result as unknown as Record<string, unknown>, [
+        const result = await client.workflows.createEdge(wfId, asRequestBody<CreateEdgeBody>(body));
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "source", label: "Source" },
           { key: "target", label: "Target" },
@@ -374,12 +409,12 @@ Examples:
     .action(async (wfId: string, nodeId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const result = await client.workflows.listBranches(wfId, nodeId);
-        const branches = Array.isArray(result) ? result : ((result as any).data ?? result);
-        printList(branches as unknown as Record<string, unknown>[], undefined, [
+        const { branches } = await client.workflows.listBranches(wfId, nodeId);
+        printList(branches, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
-          { key: "conditions", label: "CONDITIONS", width: 40 }
+          { key: "description", label: "DESCRIPTION", width: 40 },
+          { key: "nextStep", label: "NEXT STEP", width: 36 }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -406,11 +441,15 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const extra = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(extra, { name: opts.name });
-        const result = await client.workflows.createBranch(wfId, nodeId, body as any);
-        printRecord(result as unknown as Record<string, unknown>, [
+        const result = await client.workflows.createBranch(
+          wfId,
+          nodeId,
+          asRequestBody<CreateBranchBody>(body)
+        );
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
-          { key: "conditions", label: "Conditions" }
+          { key: "description", label: "Description" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -435,12 +474,17 @@ Examples:
     .action(async (wfId: string, nodeId: string, branchId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.workflows.updateBranch(wfId, nodeId, branchId, body as any);
-        printRecord(result as unknown as Record<string, unknown>, [
+        const body = await resolveRequiredBody(opts.body);
+        const result = await client.workflows.updateBranch(
+          wfId,
+          nodeId,
+          branchId,
+          asRequestBody<UpdateBranchBody>(body)
+        );
+        printRecord(result, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
-          { key: "conditions", label: "Conditions" }
+          { key: "description", label: "Description" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -506,8 +550,8 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.listNodeTypes();
-        const types = Array.isArray(result) ? result : ((result as any).data ?? result);
-        printList(types as unknown as Record<string, unknown>[], undefined, [
+        const types = result;
+        printList(types, undefined, [
           { key: "type", label: "TYPE", width: 30 },
           { key: "category", label: "CATEGORY", width: 20 },
           { key: "label", label: "LABEL", width: 30 }
@@ -533,7 +577,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getNodeTypeSchema(type);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -559,7 +603,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.listPlatformListenerEvents();
-        printList(result.events as unknown as Record<string, unknown>[], undefined, [
+        printList(result.events, undefined, [
           { key: "eventType", label: "EVENT", width: 36 },
           { key: "category", label: "CATEGORY", width: 18 },
           { key: "label", label: "LABEL", width: 36 }
@@ -585,7 +629,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getOverview(wfId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -647,7 +691,7 @@ Examples:
           type: triggerType
         }) as unknown as ReplaceTriggerBody;
         const result = await client.workflows.replaceTrigger(wfId, body);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

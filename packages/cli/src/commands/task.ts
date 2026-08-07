@@ -1,10 +1,19 @@
+import type { CreateTaskBody, ExecuteTaskBody, UpdateTaskBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { resolveInputValue } from "../util/stdin";
+
+/**
+ * Default timeout for `task execute`, in seconds. Structured-JSON generations
+ * on slow frontier models routinely exceed the SDK's 30 s default, and the
+ * server keeps processing after the client gives up — so this command waits
+ * far longer by default. An explicit global `--timeout` still wins.
+ */
+const EXECUTE_DEFAULT_TIMEOUT_SECONDS = 600;
 
 export function registerTaskCommands(program: Command): void {
   const task = program.command("task").description("Manage AI tasks");
@@ -34,7 +43,7 @@ Examples:
           folder: opts.folder
         });
 
-        const items = (result as any).items ?? [];
+        const items = result.items ?? [];
         printTable(items, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
@@ -65,7 +74,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.skills.getTask(id);
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "category", label: "Category" },
@@ -121,10 +130,10 @@ Examples:
 
         const body = mergeBodyWithFlags(base, flags);
 
-        const t = await client.skills.createTask(body as any);
+        const t = await client.skills.createTask(asRequestBody<CreateTaskBody>(body));
         printSuccess("Task created.", {
-          id: (t as any).id,
-          name: (t as any).name
+          id: t.id,
+          name: t.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -172,7 +181,7 @@ Examples:
         }
 
         const body = mergeBodyWithFlags(base, flags);
-        const t = await client.skills.updateTask(id, body as any);
+        const t = await client.skills.updateTask(id, asRequestBody<UpdateTaskBody>(body));
         printSuccess("Task updated.", {
           id: t.id,
           name: t.name,
@@ -242,22 +251,30 @@ Examples:
 
 Notes:
   --input accepts literal text, a file path (auto-detected), or '-' for stdin.
-  In non-JSON mode, only the output text is printed (not the full response object).`
+  In non-JSON mode, only the output text is printed (not the full response object).
+  Long generations are given ${EXECUTE_DEFAULT_TIMEOUT_SECONDS}s by default; override with the global --timeout <seconds>.`
     )
     .action(async (id: string, opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient({
+          ...globals,
+          timeout: globals.timeout ?? EXECUTE_DEFAULT_TIMEOUT_SECONDS
+        });
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.input) flags.input = await resolveInputValue(opts.input);
 
         const execBody = mergeBodyWithFlags(base, flags);
-        const result = await client.skills.executeTask(id, execBody as any);
+        const result = await client.skills.executeTask(
+          id,
+          asRequestBody<ExecuteTaskBody>(execBody)
+        );
 
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          console.log((result as any).output ?? JSON.stringify(result, null, 2));
+          console.log(result.output ?? JSON.stringify(result, null, 2));
         }
       } catch (err) {
         process.exitCode = handleError(err);

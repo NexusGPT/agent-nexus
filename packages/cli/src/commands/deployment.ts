@@ -1,9 +1,20 @@
+import type {
+  CreateDeploymentBody,
+  CreateDeploymentFolderBody,
+  DeploymentCarouselTemplateGroup,
+  DeploymentSingleItemCardTemplateGroup,
+  DeploymentTemplateVariable,
+  UpdateDeploymentBody,
+  UpdateDeploymentFolderBody,
+  UpdateDeploymentTemplateBody,
+  UpdateEmbedConfigBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { color, printList, printRecord, printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
 export function registerDeploymentCommands(program: Command): void {
@@ -35,7 +46,7 @@ Examples:
         isActive: opts.active ? true : undefined
       });
 
-      printList(data as Record<string, unknown>[], meta as unknown as Record<string, unknown>, [
+      printList(data, meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "name", label: "NAME", width: 25 },
         { key: "type", label: "TYPE", width: 15 },
@@ -63,7 +74,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const dep = await client.deployments.get(id);
-        printRecord(dep as Record<string, unknown>, [
+        printRecord(dep, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "type", label: "Type" },
@@ -115,11 +126,11 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        const dep = await client.deployments.create(body as any);
+        const dep = await client.deployments.create(asRequestBody<CreateDeploymentBody>(body));
         printSuccess("Deployment created.", {
-          id: (dep as any).id,
-          name: (dep as any).name,
-          type: (dep as any).type
+          id: dep.id,
+          name: dep.name,
+          type: dep.type
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -166,7 +177,7 @@ Notes:
         }
         const body = mergeBodyWithFlags(base, flags);
 
-        await client.deployments.update(id, body as any);
+        await client.deployments.update(id, asRequestBody<UpdateDeploymentBody>(body));
         printSuccess("Deployment updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -194,9 +205,7 @@ Examples:
 
         if (opts.dryRun) {
           const dep = await client.deployments.get(id);
-          console.log(
-            color.yellow("DRY RUN:") + ` Would delete deployment "${(dep as any).name}" (${id})`
-          );
+          console.log(color.yellow("DRY RUN:") + ` Would delete deployment "${dep.name}" (${id})`);
           return;
         }
 
@@ -239,7 +248,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const stats = await client.deployments.getStatistics(id);
-        printRecord(stats as Record<string, unknown>);
+        printRecord(stats);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -259,11 +268,12 @@ Examples:
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const dep = await client.deployments.duplicate(id);
-        printSuccess("Deployment duplicated.", {
-          id: (dep as any).id,
-          name: (dep as any).name
-        });
+        // `duplicate()` is typed `Promise<never>`, and that is correct rather
+        // than a defect: the v1 contract declares no such route, so the call
+        // cannot return a deployment to read fields off. The `as any` here used
+        // to make two unreachable reads look like live code.
+        await client.deployments.duplicate(id);
+        printSuccess("Deployment duplicated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -284,8 +294,8 @@ Examples:
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const config = await (client.deployments as any).getEmbedConfig(id);
-        printRecord(config as Record<string, unknown>);
+        const config = await client.deployments.getEmbedConfig(id);
+        printRecord(config);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -307,8 +317,11 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
+        // Every field of `UpdateEmbedConfigBody` is optional — this is a PATCH —
+        // so `{}` is a usable value of the right type rather than an invented
+        // one. The wire delta is an empty JSON object in place of no body.
         const body = (await resolveBody(opts.body)) ?? {};
-        await (client.deployments as any).updateEmbedConfig(id, body);
+        await client.deployments.updateEmbedConfig(id, asRequestBody<UpdateEmbedConfigBody>(body));
         printSuccess("Embed config updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -332,8 +345,8 @@ Examples:
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const result = await (client as any).deploymentFolders.list();
-        const folders = (result as any).folders ?? (result as any).data ?? result;
+        const result = await client.deploymentFolders.list();
+        const folders = result.folders ?? result;
         printTable(Array.isArray(folders) ? folders : [folders], [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 }
@@ -363,10 +376,12 @@ Examples:
         const body = mergeBodyWithFlags(base, {
           ...(opts.name !== undefined && { name: opts.name })
         });
-        const folder = await (client as any).deploymentFolders.create(body);
+        const folder = await client.deploymentFolders.create(
+          asRequestBody<CreateDeploymentFolderBody>(body)
+        );
         printSuccess("Deployment folder created.", {
-          id: (folder as any).id,
-          name: (folder as any).name
+          id: folder.id,
+          name: folder.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -394,7 +409,7 @@ Examples:
         const body = mergeBodyWithFlags(base, {
           ...(opts.name !== undefined && { name: opts.name })
         });
-        await (client as any).deploymentFolders.update(id, body);
+        await client.deploymentFolders.update(id, asRequestBody<UpdateDeploymentFolderBody>(body));
         printSuccess("Deployment folder updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -429,7 +444,7 @@ Examples:
           }
         }
 
-        await (client as any).deploymentFolders.delete(id);
+        await client.deploymentFolders.delete(id);
         printSuccess("Deployment folder deleted.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -451,7 +466,7 @@ Examples:
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        await (client as any).deploymentFolders.assign({
+        await client.deploymentFolders.assign({
           deploymentId: opts.deploymentId,
           folderId: opts.folderId
         });
@@ -484,7 +499,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.deployments.listDeploymentTemplates(deploymentId);
-        const data = (result as any)?.data ?? result;
+        const data = result;
         const items = Array.isArray(data) ? data : [data];
         const rows = items.map((t: any) => ({
           templateId: t.templateId,
@@ -541,10 +556,16 @@ Examples:
     )
     .action(async (deploymentId: string, opts) => {
       try {
-        let variables: Record<string, unknown> | undefined;
+        // Each of these three flags is operator-supplied JSON crossing into a
+        // typed SDK argument — the same boundary `asRequestBody` names, applied
+        // to a nested field rather than to a whole body. Naming the SDK type on
+        // the local is what makes the call site below check the field names.
+        let variables: Record<string, DeploymentTemplateVariable> | undefined;
         if (opts.variables) {
           try {
-            variables = JSON.parse(opts.variables);
+            variables = asRequestBody<Record<string, DeploymentTemplateVariable>>(
+              JSON.parse(opts.variables)
+            );
           } catch {
             console.error("Error: --variables must be valid JSON.");
             process.exitCode = 1;
@@ -552,10 +573,12 @@ Examples:
           }
         }
 
-        let carouselTemplateGroup: unknown | undefined;
+        let carouselTemplateGroup: DeploymentCarouselTemplateGroup | undefined;
         if (opts.carouselTemplateGroup) {
           try {
-            carouselTemplateGroup = JSON.parse(opts.carouselTemplateGroup);
+            carouselTemplateGroup = asRequestBody<DeploymentCarouselTemplateGroup>(
+              JSON.parse(opts.carouselTemplateGroup)
+            );
           } catch {
             console.error("Error: --carousel-template-group must be valid JSON.");
             process.exitCode = 1;
@@ -563,10 +586,12 @@ Examples:
           }
         }
 
-        let singleItemCardTemplateGroup: unknown | undefined;
+        let singleItemCardTemplateGroup: DeploymentSingleItemCardTemplateGroup | undefined;
         if (opts.singleItemCardTemplateGroup) {
           try {
-            singleItemCardTemplateGroup = JSON.parse(opts.singleItemCardTemplateGroup);
+            singleItemCardTemplateGroup = asRequestBody<DeploymentSingleItemCardTemplateGroup>(
+              JSON.parse(opts.singleItemCardTemplateGroup)
+            );
           } catch {
             console.error("Error: --single-item-card-template-group must be valid JSON.");
             process.exitCode = 1;
@@ -579,16 +604,16 @@ Examples:
           templateId: opts.templateId,
           name: opts.name,
           description: opts.description,
-          variables: variables as any,
+          variables,
           type: opts.type,
           enableMultiLanguage: opts.enableMultiLanguage,
           enableDynamicSize: opts.enableDynamicSize,
-          carouselTemplateGroup: carouselTemplateGroup as any,
+          carouselTemplateGroup,
           singleItemCardTemplateId: opts.singleItemCardTemplateId,
-          singleItemCardTemplateGroup: singleItemCardTemplateGroup as any
+          singleItemCardTemplateGroup
         });
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "templateId", label: "Template ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
@@ -674,10 +699,10 @@ Examples:
         const result = await client.deployments.updateDeploymentTemplate(
           deploymentId,
           templateId,
-          body as any
+          asRequestBody<UpdateDeploymentTemplateBody>(body)
         );
-        const data = (result as any)?.data ?? result;
-        printRecord(data as Record<string, unknown>, [
+        const data = result;
+        printRecord(data, [
           { key: "templateId", label: "Template ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" }
@@ -752,7 +777,7 @@ Examples:
         } else {
           // Show current settings by listing templates
           const result = await client.deployments.listDeploymentTemplates(deploymentId);
-          const data = (result as any)?.data ?? result;
+          const data = result;
           console.log(`Templates attached: ${Array.isArray(data) ? data.length : 0}`);
           console.log(
             `Tip: Use --allow-dynamic-templates true/false to toggle agent template creation.`

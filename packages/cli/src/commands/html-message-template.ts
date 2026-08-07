@@ -1,9 +1,13 @@
+import type {
+  CreateHtmlMessageTemplateBody,
+  UpdateHtmlMessageTemplateBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerHtmlMessageTemplateCommands(program: Command): void {
   const tpl = program
@@ -33,7 +37,7 @@ Examples:
           limit: opts.limit,
           deploymentId: opts.deploymentId
         });
-        printList(result.items as unknown as Record<string, unknown>[], undefined, [
+        printList(result.items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
           { key: "deploymentId", label: "DEPLOYMENT", width: 36 },
@@ -54,7 +58,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.htmlMessageTemplates.get(id);
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
@@ -94,10 +98,12 @@ Examples:
           htmlContent: opts.html,
           deploymentId: opts.deploymentId
         });
-        const t = await client.htmlMessageTemplates.create(body as any);
+        const t = await client.htmlMessageTemplates.create(
+          asRequestBody<CreateHtmlMessageTemplateBody>(body)
+        );
         printSuccess("HTML message template created.", {
-          id: (t as any).id,
-          name: (t as any).name
+          id: t.id,
+          name: t.name
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -122,7 +128,10 @@ Examples:
         if (opts.description !== undefined) flags.description = opts.description;
         if (opts.html !== undefined) flags.htmlContent = opts.html;
         const body = mergeBodyWithFlags(base, flags);
-        await client.htmlMessageTemplates.update(id, body as any);
+        await client.htmlMessageTemplates.update(
+          id,
+          asRequestBody<UpdateHtmlMessageTemplateBody>(body)
+        );
         printSuccess("HTML message template updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -172,7 +181,7 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const data = opts.data ? await resolveBody(opts.data) : {};
         const result = await client.htmlMessageTemplates.render(id, { data });
-        printRecord(result as unknown as Record<string, unknown>, [{ key: "html", label: "HTML" }]);
+        printRecord(result, [{ key: "html", label: "HTML" }]);
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -1,6 +1,30 @@
 import { NexusClient } from "@agent-nexus/sdk";
+import { InvalidArgumentError } from "commander";
 
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "./config";
+
+/**
+ * Parse the global `--timeout <seconds>` flag. Accepts any positive number of
+ * seconds (fractions allowed); rejects everything else at parse time so a typo
+ * fails fast instead of silently falling back to the default timeout.
+ */
+export function parseTimeoutSeconds(raw: string): number {
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new InvalidArgumentError("--timeout must be a positive number of seconds.");
+  }
+  return seconds;
+}
+
+/**
+ * Convert the global `--timeout` flag (seconds) to the milliseconds the HTTP
+ * clients expect. Every command path that builds its own client (SDK client,
+ * raw `nexus api` HttpClient, vibe tenant transport) converts through here so
+ * the flag means the same thing everywhere.
+ */
+export function timeoutSecondsToMs(seconds: number | undefined): number | undefined {
+  return seconds !== undefined ? seconds * 1000 : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Last-resolved profile — read by the context banner
@@ -21,6 +45,7 @@ export function createClient(opts?: {
   apiKey?: string;
   baseUrl?: string;
   profile?: string;
+  /** Timeout in SECONDS (the unit of the global `--timeout` flag), not ms. */
   timeout?: number;
 }): NexusClient {
   const resolved = resolveProfile(opts);
@@ -43,6 +68,6 @@ export function createClient(opts?: {
     baseUrl:
       opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
     ...(organizationId ? { organizationId } : {}),
-    timeout: opts?.timeout
+    timeout: timeoutSecondsToMs(opts?.timeout)
   });
 }

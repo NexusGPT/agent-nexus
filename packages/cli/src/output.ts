@@ -38,11 +38,63 @@ export const color = {
 // Table output
 // ---------------------------------------------------------------------------
 
-interface Column {
-  key: string;
+/**
+ * One column of a {@link printTable}.
+ *
+ * `key` is checked against the row type. A bare `string` here is a silent
+ * blank-cell generator: a key no row carries renders an empty column forever,
+ * with no error, no warning, and no cast to grep. `nexus model list` shipped
+ * two blank columns of four this way, because the table asked for `name` and
+ * `contextWindow` while the row declares `displayName` and `contextSize`.
+ *
+ * `ColumnKey<T>` falls back to `string` only when `T` carries no string keys
+ * at all — `object`, `any`, an empty-tuple row. In those cases there is nothing
+ * to check against, and rejecting every key would report the CALL as broken
+ * when the column list is fine. Everywhere the row type is known, a wrong key
+ * is a compile error.
+ */
+export type ColumnKey<T> = [Extract<keyof T, string>] extends [never]
+  ? string
+  : Extract<keyof T, string>;
+
+/** One rendered field of a {@link printRecord}. */
+export interface RecordField<T> {
+  key: ColumnKey<T>;
   label: string;
-  width?: number;
   format?: (val: unknown) => string;
+}
+
+/** One rendered column of a {@link printTable} / {@link printList}. */
+export interface Column<T> extends RecordField<T> {
+  width?: number;
+}
+
+/**
+ * Read one column's value off a row.
+ *
+ * The single cast in this file, and the reason the printers can take `object`.
+ * A column key is chosen at runtime, so the read is by definition dynamic; the
+ * alternative is not a safer read but the same cast repeated at every call
+ * site, which is what this replaces.
+ */
+/**
+ * The pagination fields the printers actually read.
+ *
+ * Every list command hands this `client.*.list()`'s `meta`, whose SDK type is
+ * `PaginationMeta` — a plain interface with no index signature. The parameter
+ * used to be `Record<string, unknown>`, which an interface is not assignable
+ * to, so ~18 call sites cast their way in and this function cast its way back
+ * out. Naming the three fields removes both halves: `PaginationMeta` satisfies
+ * it structurally, and nothing has to be asserted anywhere.
+ */
+export interface PaginationLike {
+  total?: number;
+  page?: number;
+  hasMore?: boolean;
+}
+
+function field(row: object, key: string): unknown {
+  return (row as Record<string, unknown>)[key];
 }
 
 /**
@@ -57,7 +109,19 @@ export function formatFolder(val: unknown): string {
   return "—";
 }
 
-export function printTable(rows: Record<string, unknown>[], columns: Column[]): void {
+/**
+ * Print rows as an aligned table, or as raw JSON under `--json`.
+ *
+ * `rows` is `readonly object[]` rather than `Record<string, unknown>[]`. An
+ * interface has no index signature, so a properly typed SDK response is NOT
+ * assignable to `Record<string, unknown>` — every call site had to cast, and
+ * those casts were invisible while the SDK returned `any`. Accepting `object`
+ * lets a typed response through unmodified.
+ */
+export function printTable<T extends object>(
+  rows: readonly T[],
+  columns: readonly Column<T>[]
+): void {
   if (_jsonMode) {
     console.log(JSON.stringify(rows, null, 2));
     return;
@@ -72,7 +136,7 @@ export function printTable(rows: Record<string, unknown>[], columns: Column[]): 
   const widths = columns.map((col) => {
     const headerLen = col.label.length;
     const maxDataLen = rows.reduce((max, row) => {
-      const val = col.format ? col.format(row[col.key]) : String(row[col.key] ?? "");
+      const val = col.format ? col.format(field(row, col.key)) : String(field(row, col.key) ?? "");
       return Math.max(max, val.length);
     }, 0);
     return col.width ?? Math.min(Math.max(headerLen, maxDataLen), 50);
@@ -87,7 +151,9 @@ export function printTable(rows: Record<string, unknown>[], columns: Column[]): 
   for (const row of rows) {
     const line = columns
       .map((col, i) => {
-        const val = col.format ? col.format(row[col.key]) : String(row[col.key] ?? "");
+        const val = col.format
+          ? col.format(field(row, col.key))
+          : String(field(row, col.key) ?? "");
         return val.padEnd(widths[i]).slice(0, widths[i]);
       })
       .join("  ");
@@ -99,17 +165,17 @@ export function printTable(rows: Record<string, unknown>[], columns: Column[]): 
 // Record output (key-value pairs)
 // ---------------------------------------------------------------------------
 
-export function printRecord(
-  data: Record<string, unknown>,
-  fields?: { key: string; label: string; format?: (val: unknown) => string }[]
-): void {
+export function printRecord<T extends object>(data: T, fields?: readonly RecordField<T>[]): void {
   if (_jsonMode) {
     console.log(JSON.stringify(data, null, 2));
     return;
   }
 
   const entries = fields
-    ? fields.map((f) => [f.label, f.format ? f.format(data[f.key]) : String(data[f.key] ?? "")])
+    ? fields.map((f) => [
+        f.label,
+        f.format ? f.format(field(data, f.key)) : String(field(data, f.key) ?? "")
+      ])
     : Object.entries(data).map(([k, v]) => [k, String(v ?? "")]);
 
   const maxLabel = entries.reduce((max, [label]) => Math.max(max, label.length), 0);
@@ -123,7 +189,7 @@ export function printRecord(
 // Success output
 // ---------------------------------------------------------------------------
 
-export function printSuccess(message: string, data?: Record<string, unknown>): void {
+export function printSuccess(message: string, data?: object): void {
   if (_jsonMode) {
     console.log(JSON.stringify({ success: true, ...data }, null, 2));
     return;
@@ -158,11 +224,18 @@ export function printWarning(message: string, ...hints: string[]): void {
 // Pagination meta
 // ---------------------------------------------------------------------------
 
-export function printPaginationMeta(meta: {
-  total?: number;
-  page?: number;
-  hasMore?: boolean;
-}): void {
+function readPagination(meta: object): PaginationLike {
+  const total = field(meta, "total");
+  const page = field(meta, "page");
+  const hasMore = field(meta, "hasMore");
+  return {
+    total: typeof total === "number" ? total : undefined,
+    page: typeof page === "number" ? page : undefined,
+    hasMore: typeof hasMore === "boolean" ? hasMore : undefined
+  };
+}
+
+export function printPaginationMeta(meta: PaginationLike): void {
   if (_jsonMode) return; // already included in JSON output
 
   const parts: string[] = [];
@@ -209,10 +282,10 @@ export function printContextBanner(resolved: ResolvedProfile): void {
 // List with pagination (JSON wraps data + meta)
 // ---------------------------------------------------------------------------
 
-export function printList(
-  data: Record<string, unknown>[],
-  meta: Record<string, unknown> | undefined,
-  columns: Column[]
+export function printList<T extends object>(
+  data: readonly T[],
+  meta: object | undefined,
+  columns: readonly Column<T>[]
 ): void {
   if (_jsonMode) {
     console.log(JSON.stringify({ data, meta }, null, 2));
@@ -221,6 +294,6 @@ export function printList(
 
   printTable(data, columns);
   if (meta) {
-    printPaginationMeta(meta as { total?: number; page?: number; hasMore?: boolean });
+    printPaginationMeta(readPagination(meta));
   }
 }

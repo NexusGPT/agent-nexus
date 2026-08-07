@@ -1,9 +1,10 @@
+import type { AddCustomerNoteBody, CreateCustomerBody, UpdateCustomerBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
@@ -29,16 +30,12 @@ Examples:
         ...getPaginationParams(opts),
         search: opts.search
       });
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "displayName", label: "NAME", width: 25 },
-          { key: "primaryEmail", label: "EMAIL", width: 30 },
-          { key: "primaryPhone", label: "PHONE", width: 15 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "displayName", label: "NAME", width: 25 },
+        { key: "primaryEmail", label: "EMAIL", width: 30 },
+        { key: "primaryPhone", label: "PHONE", width: 15 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -52,7 +49,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const c = await client.customers.get(id);
-        printRecord(c as unknown as Record<string, unknown>, [
+        printRecord(c, [
           { key: "id", label: "ID" },
           { key: "displayName", label: "Name" },
           { key: "primaryEmail", label: "Email" },
@@ -78,7 +75,7 @@ Examples:
           console.log("No customer found.");
           return;
         }
-        printRecord(c as unknown as Record<string, unknown>);
+        printRecord(c);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -101,10 +98,10 @@ Examples:
         if (opts.email) flags.primaryEmail = opts.email;
         if (opts.phone) flags.primaryPhone = opts.phone;
         const body = mergeBodyWithFlags(base, flags);
-        const c = await client.customers.create(body as any);
+        const c = await client.customers.create(asRequestBody<CreateCustomerBody>(body));
         printSuccess("Customer created.", {
-          id: (c as any).id,
-          displayName: (c as any).displayName
+          id: c.id,
+          displayName: c.displayName
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -128,8 +125,8 @@ Examples:
         if (opts.email) flags.primaryEmail = opts.email;
         if (opts.phone) flags.primaryPhone = opts.phone;
         const body = mergeBodyWithFlags(base, flags);
-        const c = await client.customers.update(id, body as any);
-        printSuccess("Customer updated.", { id: (c as any).id });
+        const c = await client.customers.update(id, asRequestBody<UpdateCustomerBody>(body));
+        printSuccess("Customer updated.", { id: c.id });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -147,7 +144,7 @@ Examples:
         const base = await resolveBody(opts.body);
         const content = opts.content ? await resolveInputValue(opts.content) : undefined;
         const body = mergeBodyWithFlags(base, content ? { content } : {});
-        await client.customers.addNote(id, body as any);
+        await client.customers.addNote(id, asRequestBody<AddCustomerNoteBody>(body));
         printSuccess("Note added.", { customerId: id });
       } catch (err) {
         process.exitCode = handleError(err);

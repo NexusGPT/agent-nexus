@@ -17,15 +17,23 @@
  *
  * EU only, for RGPD data residency. London (`eu-west-2`) is intentionally
  * absent — post-Brexit the UK is outside the EU, so it does not satisfy
- * EU-residency even though AWS labels it `eu-*`.
+ * EU-residency even though AWS labels it `eu-*`. Milan (`eu-south-1`) and Spain
+ * (`eu-south-2`) satisfy residency and are absent for the other reason: they
+ * are AWS opt-in regions, not enabled on the account, so a tenant provisioned
+ * into either hard-fails at provision time.
+ *
+ * A COPY, BUT NOT A FREE ONE. `packages/types/src/shared/domain/vibe/allowed-regions.test.ts`
+ * reads this declaration from source and asserts it equals the canonical list,
+ * so the two cannot drift. Edit it there first; this file follows. That gate
+ * lives in `@nexus/types` rather than here because `packages/cli` is not one of
+ * the packages CI runs vitest for — a spec added here would execute in zero
+ * jobs while the PR read green.
  */
 export const VIBE_ALLOWED_REGIONS = [
   "eu-west-1", // Ireland
   "eu-west-3", // Paris
   "eu-central-1", // Frankfurt
-  "eu-north-1", // Stockholm
-  "eu-south-1", // Milan
-  "eu-south-2" // Spain
+  "eu-north-1" // Stockholm
 ] as const;
 
 export type VibeAllowedRegion = (typeof VIBE_ALLOWED_REGIONS)[number];

@@ -1,9 +1,10 @@
+import type { AddEvalDatasetRowBody, CreateEvalSessionBody, JudgeEvalBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
 export function registerEvaluationCommands(program: Command): void {
@@ -44,8 +45,11 @@ Examples:
           description: opts.description
         });
 
-        const s = await client.evaluations.createSession(taskId, body as any);
-        printRecord(s as unknown as Record<string, unknown>, [
+        const s = await client.evaluations.createSession(
+          taskId,
+          asRequestBody<CreateEvalSessionBody>(body)
+        );
+        printRecord(s, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
@@ -78,16 +82,12 @@ Examples:
         ...getPaginationParams(opts)
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "status", label: "STATUS", width: 15 },
-          { key: "createdAt", label: "CREATED", width: 26 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "name", label: "NAME", width: 30 },
+        { key: "status", label: "STATUS", width: 15 },
+        { key: "createdAt", label: "CREATED", width: 26 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -110,12 +110,12 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const s = await client.evaluations.getSession(taskId, sessionId);
-        printRecord(s as unknown as Record<string, unknown>, [
+        printRecord(s, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "status", label: "Status" },
-          { key: "rowCount", label: "Rows" },
+          { key: "datasetRowCount", label: "Rows" },
           { key: "createdAt", label: "Created" }
         ]);
       } catch (err) {
@@ -186,15 +186,11 @@ Examples:
         ...getPaginationParams(opts)
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "input", label: "INPUT", width: 40 },
-          { key: "expectedOutput", label: "EXPECTED OUTPUT", width: 40 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "input", label: "INPUT", width: 40 },
+        { key: "expectedOutput", label: "EXPECTED OUTPUT", width: 40 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -217,10 +213,23 @@ Examples:
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
+        // `AddEvalDatasetRowBody.input` is required, so there is no usable
+        // default: omitting `--body` could only ever produce a server 400.
+        // Refuse locally rather than substitute `{}`, which would send a
+        // request that cannot succeed.
         const body = await resolveBody(opts.body);
+        if (body === undefined) {
+          console.error("Error: --body is required.");
+          process.exitCode = 1;
+          return;
+        }
 
-        const row = await client.evaluations.addDatasetRow(taskId, sessionId, body as any);
-        printRecord(row as unknown as Record<string, unknown>, [
+        const row = await client.evaluations.addDatasetRow(
+          taskId,
+          sessionId,
+          asRequestBody<AddEvalDatasetRowBody>(body)
+        );
+        printRecord(row, [
           { key: "id", label: "ID" },
           { key: "input", label: "Input" },
           { key: "expectedOutput", label: "Expected Output" }
@@ -249,7 +258,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.evaluations.execute(taskId, sessionId);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -275,9 +284,17 @@ Examples:
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.evaluations.judge(taskId, sessionId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        // `judge task-123 sess-456` with no `--body` is a documented invocation
+        // (the server picks its default judge), and both fields of
+        // `JudgeEvalBody` are optional, so `{}` is a usable value of the right
+        // type rather than an invented one.
+        const body = (await resolveBody(opts.body)) ?? {};
+        const result = await client.evaluations.judge(
+          taskId,
+          sessionId,
+          asRequestBody<JudgeEvalBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -307,17 +324,13 @@ Examples:
         ...getPaginationParams(opts)
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "input", label: "INPUT", width: 30 },
-          { key: "output", label: "OUTPUT", width: 30 },
-          { key: "score", label: "SCORE", width: 8 },
-          { key: "passed", label: "PASSED", width: 8 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "rowId", label: "ROW ID", width: 36 },
+        { key: "input", label: "INPUT", width: 30 },
+        { key: "actualOutput", label: "OUTPUT", width: 30 },
+        { key: "score", label: "SCORE", width: 8 },
+        { key: "status", label: "STATUS", width: 12 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -340,11 +353,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.evaluations.listFormats();
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const items = result;
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
+        printList(items, undefined, [
+          { key: "extension", label: "EXTENSION", width: 12 },
+          { key: "mimeType", label: "MIME TYPE", width: 30 },
           { key: "description", label: "DESCRIPTION", width: 50 }
         ]);
       } catch (err) {
@@ -369,11 +382,11 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.evaluations.listJudges();
-        const items = Array.isArray(result) ? result : ((result as any).data ?? result);
+        const items = result;
 
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(items, undefined, [
           { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
+          { key: "displayName", label: "NAME", width: 30 },
           { key: "provider", label: "PROVIDER", width: 20 }
         ]);
       } catch (err) {

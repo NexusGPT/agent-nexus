@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http-client";
+import { type HttpClient, withDerivedHasMore } from "../http-client";
 import type { PageResponse } from "../types/common";
 import type {
   Credential,
@@ -24,7 +24,7 @@ export class CredentialsResource extends BaseResource {
     });
     return {
       data,
-      meta: meta ?? { total: data.length, page: 1, hasMore: false }
+      meta: meta ? withDerivedHasMore(meta) : { total: data.length, page: 1, hasMore: false }
     };
   }
 

@@ -1,10 +1,15 @@
-import type { SatisfactionMode } from "@agent-nexus/sdk";
+import type {
+  ConversationMessage,
+  SatisfactionMode,
+  SendWhatsappTemplateBody,
+  UpdateConversationStatusesBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { type Column, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
@@ -121,17 +126,13 @@ Examples:
         commentNotContains: opts.commentNotContains
       });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "topic", label: "TOPIC", width: 30 },
-          { key: "status", label: "STATUS", width: 10 },
-          { key: "ticketStatus", label: "TICKET", width: 22 },
-          { key: "responseHandling", label: "HANDLING", width: 14 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "topic", label: "TOPIC", width: 30 },
+        { key: "status", label: "STATUS", width: 10 },
+        { key: "ticketStatus", label: "TICKET", width: 22 },
+        { key: "responseHandling", label: "HANDLING", width: 14 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -174,7 +175,7 @@ Examples:
           id,
           satisfaction ? { satisfaction } : undefined
         );
-        printRecord(conv as unknown as Record<string, unknown>, [
+        printRecord(conv, [
           { key: "id", label: "ID" },
           { key: "topic", label: "Topic" },
           { key: "status", label: "Status" },
@@ -219,13 +220,14 @@ Examples:
         // Pagination state belongs in a JSON field, not a prose trailer.
         // In JSON mode embed `hasMore` in meta so the output stays a single
         // parseable document; in human mode keep the readable trailer (NEX-2176).
-        const columns = [
+        const columns: Column<ConversationMessage>[] = [
           { key: "id", label: "ID", width: 36 },
           { key: "role", label: "ROLE", width: 8 },
+          { key: "senderType", label: "SENDER", width: 12 },
           { key: "content", label: "CONTENT", width: 60 },
           { key: "createdAt", label: "CREATED", width: 24 }
         ];
-        const messages = result.messages as unknown as Record<string, unknown>[];
+        const messages = result.messages;
         if (isJsonMode()) {
           printList(messages, { hasMore: result.hasMore }, columns);
         } else {
@@ -260,7 +262,7 @@ Examples:
           deploymentId: opts.deploymentId
         });
 
-        printList(conversations as unknown as Record<string, unknown>[], undefined, [
+        printList(conversations, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "topic", label: "TOPIC", width: 30 },
           { key: "status", label: "STATUS", width: 10 },
@@ -301,8 +303,11 @@ Examples:
           ...(opts.responseHandling !== undefined && { responseHandling: opts.responseHandling })
         });
 
-        const conv = await client.conversations.updateStatuses(id, body as any);
-        printRecord(conv as unknown as Record<string, unknown>, [
+        const conv = await client.conversations.updateStatuses(
+          id,
+          asRequestBody<UpdateConversationStatusesBody>(body)
+        );
+        printRecord(conv, [
           { key: "id", label: "ID" },
           { key: "status", label: "Status" },
           { key: "ticketStatus", label: "Ticket Status" },
@@ -333,7 +338,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const conv = await client.conversations.updateTopic(id, { topic: opts.topic });
-        printRecord(conv as unknown as Record<string, unknown>, [
+        printRecord(conv, [
           { key: "id", label: "ID" },
           { key: "nanoId", label: "NanoId" },
           { key: "topic", label: "Topic" },
@@ -360,7 +365,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.conversations.getMetadata(id);
-        printRecord(result.metadata as unknown as Record<string, unknown>);
+        printRecord(result.metadata);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -392,7 +397,7 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const base = (await resolveBody(opts.body)) as Record<string, unknown>;
+        const base = await resolveBody(opts.body);
         const metadata: Record<string, unknown> = { ...base };
 
         for (const pair of (opts.set as string[] | undefined) ?? []) {
@@ -421,7 +426,7 @@ Examples:
         }
 
         const conv = await client.conversations.updateMetadata(id, { metadata });
-        printRecord((conv as any).metadata as Record<string, unknown>);
+        printRecord(conv.metadata ?? {});
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -448,7 +453,7 @@ Examples:
         });
         printSuccess("Users assigned.", {
           conversationId: id,
-          assignedUserIds: (conv as any).assignedUserIds
+          assignedUserIds: conv.assignedUserIds
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -495,9 +500,9 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.conversations.getComments(id);
-        const comments = (result as any).comments ?? result;
+        const comments = result.comments ?? result;
 
-        printList(comments as unknown as Record<string, unknown>[], undefined, [
+        printList(comments, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "content", label: "CONTENT", width: 50 },
           { key: "authorName", label: "AUTHOR", width: 20 },
@@ -547,9 +552,12 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        const result = await client.conversations.sendWhatsappTemplate(id, body as any);
-        printSuccess("WhatsApp template sent.", result as unknown as Record<string, unknown>);
+        const body = await resolveRequiredBody(opts.body);
+        const result = await client.conversations.sendWhatsappTemplate(
+          id,
+          asRequestBody<SendWhatsappTemplateBody>(body)
+        );
+        printSuccess("WhatsApp template sent.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -564,7 +572,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.conversations.getAssignedUsers(id);
-        printRecord(result as unknown as Record<string, unknown>);
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

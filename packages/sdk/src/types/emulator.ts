@@ -124,3 +124,17 @@ export interface ReplayEmulatorScenarioBody {
 export interface ListEmulatorScenariosParams {
   deploymentId?: string;
 }
+
+/**
+ * Response from `client.emulator.replayScenario()`.
+ *
+ * The replay runs in a NEW session — `sessionId` is that new session, not the
+ * one the scenario was recorded on. Messages are replayed in the background, so
+ * this returns as soon as the session exists rather than when the replay ends.
+ */
+export interface ReplayScenarioResponse {
+  /** UUID of the new session the replay runs in. */
+  sessionId: string;
+  /** UUID of the chat backing the session, or `null` before one exists. */
+  chatId: string | null;
+}

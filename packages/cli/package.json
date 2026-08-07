@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.13.0",
+  "version": "0.18.1",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [
@@ -37,6 +37,7 @@
     "test:auth": "tsx scripts/test-auth-login.ts",
     "test": "vitest run && tsx --test test/unit/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 9",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

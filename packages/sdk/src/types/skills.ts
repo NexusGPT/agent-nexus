@@ -482,3 +482,195 @@ export interface CreateCollectionBody {
   /** Whether to include metadata (default false). */
   includeMetadata?: boolean;
 }
+
+// ============================================================================
+// Collection documents
+// ============================================================================
+
+/** One row of `client.skills.listCollectionDocuments()`. */
+export interface CollectionDocument {
+  /** Document UUID. */
+  id: string;
+  /** Document name. */
+  name: string;
+  /** Document type discriminator. */
+  type: string;
+  /** Processing status. */
+  status: string;
+  /** Where the document came from, or `null` for a direct upload. */
+  sourceType: string | null;
+  /** ISO 8601 creation timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Response from `client.skills.listCollectionDocuments()`.
+ *
+ * This is NOT a `PageResponse`. Every other paginated v1 route hands
+ * `createApiSuccess` the page and its meta as two arguments, so `meta` lands on
+ * the envelope; this one hands over the whole `{ data, meta }` object, so the
+ * page envelope arrives nested INSIDE `data` and the response carries no
+ * top-level `meta` at all. Reading it with `requestPage` produced a
+ * `PageResponse` whose `data` was an object and whose `meta.total` was
+ * `undefined`. The type says what the wire says; flattening it is a public API
+ * change, not an SDK one.
+ */
+export interface ListCollectionDocumentsResponse {
+  /** The documents on this page. */
+  data: CollectionDocument[];
+  /** Pagination metadata, nested here rather than on the envelope. */
+  meta: {
+    /** Total documents in the collection. */
+    total: number;
+    /** Current page number (1-based). */
+    page: number;
+    /** Items per page. */
+    limit: number;
+    /** Total number of pages. */
+    totalPages: number;
+    /** Whether more pages exist after the current one. */
+    hasMore: boolean;
+  };
+}
+
+/**
+ * Response from `client.skills.removeCollectionDocument()`.
+ *
+ * Idempotent: removing a document that is not in the collection still reports
+ * `removed: true`.
+ */
+export interface RemoveCollectionDocumentResponse {
+  /** Collection UUID. */
+  collectionId: string;
+  /** Document UUID. */
+  documentId: string;
+  /** Always `true`. */
+  removed: true;
+}
+
+/** Response from `client.skills.getCollectionStatistics()`. */
+export interface CollectionStatistics {
+  /** Documents in the collection. */
+  documentCount: number;
+  /** Combined size of those documents, in bytes. */
+  totalSizeBytes: number;
+  /** Documents that finished embedding. */
+  embeddedCount: number;
+  /** Documents still waiting to embed. */
+  pendingCount: number;
+  /** ISO 8601 timestamp of the most recent change, or `null` when empty. */
+  lastUpdatedAt: string | null;
+}
+
+/** Response from `client.skills.deleteCollection()`. */
+export interface DeleteCollectionResponse {
+  /** UUID of the deleted collection. */
+  id: string;
+  /** Always `true` on success. */
+  deleted: true;
+}
+
+// ============================================================================
+// Collection search and query
+// ============================================================================
+
+/**
+ * One hit from `client.skills.searchCollection()` or `searchMultipleCollections()`.
+ *
+ * This searches document NAMES, not contents — `text` is the matched name and
+ * `score` is the constant 1, not a relevance ranking. Use `queryCollection()`
+ * for content retrieval with real scores.
+ */
+export interface CollectionSearchResult {
+  /** The matched document name. */
+  text: string;
+  /** Always 1. This endpoint does not rank. */
+  score: number;
+  /** UUID of the matched document. */
+  documentId: string;
+  /** Name of the matched document. */
+  documentName: string;
+  /**
+   * Search metadata stored on the document, or `null`.
+   *
+   * Always `null` from `searchMultipleCollections()`, which has no
+   * `includeMetadata` option to turn it on.
+   */
+  metadata: unknown;
+}
+
+/** Response from `client.skills.searchCollection()` and `searchMultipleCollections()`. */
+export interface CollectionSearchResponse {
+  /** The matched documents. */
+  results: CollectionSearchResult[];
+}
+
+/** One hit from `client.skills.queryCollection()`. */
+export interface CollectionQueryResult {
+  /** The matched content snippet. */
+  content: string;
+  /** Relevance score. */
+  score: number;
+  /** UUID of the source document, when the index carries one. */
+  documentId?: string;
+  /** Search metadata, or `null` unless `includeMetadata` was set. */
+  metadata: unknown;
+}
+
+/** Response from `client.skills.queryCollection()`. */
+export interface CollectionQueryResponse {
+  /** The matched snippets, most relevant first. */
+  results: CollectionQueryResult[];
+}
+
+// ============================================================================
+// Collection request bodies
+// ============================================================================
+
+/** Request body for `client.skills.searchCollection()`. */
+export interface SearchCollectionBody {
+  /** Text to match against document names. */
+  query: string;
+  /** Maximum hits to return. */
+  limit?: number;
+  /** Include each document's stored search metadata. */
+  includeMetadata?: boolean;
+}
+
+/** Request body for `client.skills.queryCollection()`. */
+export interface QueryCollectionBody {
+  /** Text to match against document contents. */
+  query: string;
+  /** Maximum hits to return. */
+  limit?: number;
+  /** Include each hit's stored search metadata. */
+  includeMetadata?: boolean;
+  /** Restrict hits to documents whose metadata matches these values. */
+  metadataFilter?: Record<string, string | string[]>;
+}
+
+/** Request body for `client.skills.searchMultipleCollections()`. */
+export interface SearchMultipleCollectionsBody {
+  /** Text to match against document names. */
+  query: string;
+  /** Collections to search. */
+  collectionIds: string[];
+  /** Maximum hits to return. */
+  limit?: number;
+}
+
+/** Request body for `client.skills.updateCollection()`. All fields are optional. */
+export interface UpdateCollectionBody {
+  /** Name shown in the UI. */
+  displayName?: string;
+  /** Free-text description. */
+  description?: string;
+  /** Number of chunks to retrieve per query. */
+  k?: number;
+  /** Reranking model name — the same shape `createCollection` accepts. */
+  reranker?: string;
+  /** Return fewer, higher-confidence chunks. */
+  preciseResponses?: boolean;
+  /** Attach document metadata to retrieved chunks. */
+  includeMetadata?: boolean;
+}

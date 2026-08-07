@@ -7,6 +7,11 @@ import { getGlobalInstallCommand, getGlobalUpdateHint } from "./package-manager"
 const PACKAGE_NAME = "@agent-nexus/cli";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const FETCH_TIMEOUT_MS = 3_000; // don't slow down the CLI
+// A failed install attempt is close to permanent (EACCES on a root-owned
+// prefix, broken npm) — don't re-run the blocking install on every invocation.
+const FAILURE_BACKOFF_MS = 24 * 60 * 60 * 1000; // 1 day
+// Hard ceiling on how long a self-install may hold up process exit.
+const INSTALL_TIMEOUT_MS = 60_000;
 // Resolved lazily (not at import time) so the home dir is read when the cache
 // is actually used.
 function getCacheFile(): string {
@@ -16,6 +21,9 @@ function getCacheFile(): string {
 interface VersionCache {
   lastChecked: number;
   latestVersion: string;
+  /** Version a self-install attempt failed for; retries suppressed for FAILURE_BACKOFF_MS. */
+  failedVersion?: string;
+  failedAt?: number;
 }
 
 function loadCache(): VersionCache | null {
@@ -33,6 +41,74 @@ function saveCache(cache: VersionCache): void {
     fs.writeFileSync(file, JSON.stringify(cache), { mode: 0o600 });
   } catch {
     // Non-critical — silently ignore write failures
+  }
+}
+
+function recordFailedAttempt(version: string): void {
+  const cache = loadCache() ?? { lastChecked: 0, latestVersion: version };
+  saveCache({ ...cache, failedVersion: version, failedAt: Date.now() });
+}
+
+function clearFailedAttempt(): void {
+  const cache = loadCache();
+  if (!cache) return;
+  saveCache({ lastChecked: cache.lastChecked, latestVersion: cache.latestVersion });
+}
+
+function isEnvFlagSet(value: string | undefined): boolean {
+  return !!value && value !== "0" && value.toLowerCase() !== "false";
+}
+
+/**
+ * Self-update is disabled via `NEXUS_NO_AUTO_UPDATE`, or implicitly in CI —
+ * an environment where a global self-install is never wanted.
+ */
+export function isAutoUpdateDisabled(): boolean {
+  return isEnvFlagSet(process.env.NEXUS_NO_AUTO_UPDATE) || isEnvFlagSet(process.env.CI);
+}
+
+/**
+ * Walk up from the running module to the directory installed under
+ * node_modules (handling scoped packages). Null when not running from a
+ * node_modules layout (e.g. local dev via tsx).
+ */
+function findPackageRoot(from: string): string | null {
+  let dir = from;
+  for (;;) {
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    const parentBase = path.basename(parent);
+    const grandBase = path.basename(path.dirname(parent));
+    if (
+      parentBase === "node_modules" ||
+      (parentBase.startsWith("@") && grandBase === "node_modules")
+    ) {
+      return dir;
+    }
+    dir = parent;
+  }
+}
+
+/**
+ * Pre-check that a global self-install could succeed at all: the package dir
+ * and its parent must be writable by this user (they are root-owned after
+ * `sudo npm i -g`, the macOS default). When the layout can't be determined,
+ * stays permissive — the failure backoff catches anything this misses.
+ */
+export function isInstallPrefixWritable(): boolean {
+  let pkgRoot: string | null;
+  try {
+    pkgRoot = findPackageRoot(path.dirname(fs.realpathSync(process.argv[1] ?? "")));
+  } catch {
+    return true;
+  }
+  if (!pkgRoot) return true;
+  try {
+    fs.accessSync(pkgRoot, fs.constants.W_OK);
+    fs.accessSync(path.dirname(pkgRoot), fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -91,7 +167,8 @@ export async function checkForUpdate(currentVersion: string): Promise<string | n
     const latest = await fetchLatestVersion();
     if (!latest) return null;
 
-    saveCache({ lastChecked: Date.now(), latestVersion: latest });
+    // Preserve failure-backoff fields across lookup refreshes.
+    saveCache({ ...cache, lastChecked: Date.now(), latestVersion: latest });
 
     if (compareSemver(currentVersion, latest) < 0) {
       return formatUpdateMessage(currentVersion, latest);
@@ -122,7 +199,11 @@ export function formatAutoUpdateFailedMessage(latest: string): string {
 /**
  * Automatically update the CLI to the latest version.
  *
- * - Fires at most once per day (uses the same cache as checkForUpdate).
+ * - Version lookup fires at most once per day (uses the same cache as checkForUpdate).
+ * - Never attempts an install that cannot succeed: skips when the install
+ *   prefix isn't writable, and backs off for FAILURE_BACKOFF_MS after any
+ *   failed attempt instead of re-running the blocking install per invocation.
+ * - The install itself is bounded by INSTALL_TIMEOUT_MS.
  * - Never throws — all failures are silently swallowed and fall back to a manual-update message.
  * - Returns a status message describing what happened.
  */
@@ -136,13 +217,35 @@ export async function autoUpdate(currentVersion: string): Promise<string | null>
     } else {
       latest = await fetchLatestVersion();
       if (latest) {
-        saveCache({ lastChecked: Date.now(), latestVersion: latest });
+        // Preserve failure-backoff fields across lookup refreshes.
+        saveCache({ ...cache, lastChecked: Date.now(), latestVersion: latest });
       }
     }
 
     if (!latest || compareSemver(currentVersion, latest) >= 0) {
       return null; // up-to-date or unable to check
     }
+
+    // A recent attempt at this same version already failed — the condition is
+    // effectively permanent (EACCES prefix), so don't retry within the TTL.
+    if (
+      cache?.failedVersion === latest &&
+      typeof cache.failedAt === "number" &&
+      Date.now() - cache.failedAt < FAILURE_BACKOFF_MS
+    ) {
+      return formatAutoUpdateFailedMessage(latest);
+    }
+
+    // If the install prefix isn't writable by this user the install can never
+    // succeed — skip the attempt (one syscall) and hint at a manual update.
+    if (!isInstallPrefixWritable()) {
+      recordFailedAttempt(latest);
+      return formatAutoUpdateFailedMessage(latest);
+    }
+
+    // Mark the attempt as failed up-front so an interrupted install (Ctrl-C
+    // mid-npm) still backs off; cleared on success.
+    recordFailedAttempt(latest);
 
     // Attempt the upgrade.
     // Capture (don't inherit) the installer's output: a failed background
@@ -151,13 +254,16 @@ export async function autoUpdate(currentVersion: string): Promise<string | null>
     const { execSync } = await import("node:child_process");
     process.stderr.write(`\n  Auto-updating: ${currentVersion} → ${latest}…\n`);
     execSync(getGlobalInstallCommand(PACKAGE_NAME), {
-      stdio: ["ignore", "ignore", "pipe"]
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: INSTALL_TIMEOUT_MS
     });
+    clearFailedAttempt();
     return `\n  Successfully auto-updated to ${latest}.\n`;
   } catch {
     // Auto-update failed. The command already ran on the installed version,
     // so this is non-fatal — show a brief one-line notice, never the
     // alarming "MUST update / results may be incorrect" warning.
+    if (latest) recordFailedAttempt(latest);
     return formatAutoUpdateFailedMessage(latest ?? loadCache()?.latestVersion ?? "latest");
   }
 }

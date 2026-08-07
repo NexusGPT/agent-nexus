@@ -1,9 +1,10 @@
+import type { CreateCheckpointBody, UpdateVersionBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 
 export function registerVersionCommands(program: Command): void {
@@ -30,19 +31,15 @@ Examples:
       const { data, meta } = await client.agents.versions.list(agentId, {
         ...getPaginationParams(opts),
         type: opts.type
-      } as any);
+      });
 
-      printList(
-        data as unknown as Record<string, unknown>[],
-        meta as unknown as Record<string, unknown>,
-        [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 25 },
-          { key: "type", label: "TYPE", width: 12 },
-          { key: "isProduction", label: "PROD", width: 6, format: (v) => (v ? "yes" : "no") },
-          { key: "createdAt", label: "CREATED", width: 20 }
-        ]
-      );
+      printList(data, meta, [
+        { key: "id", label: "ID", width: 36 },
+        { key: "name", label: "NAME", width: 25 },
+        { key: "type", label: "TYPE", width: 12 },
+        { key: "isProduction", label: "PROD", width: 6, format: (v) => (v ? "yes" : "no") },
+        { key: "createdAt", label: "CREATED", width: 20 }
+      ]);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -65,7 +62,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const ver = await client.agents.versions.get(agentId, versionId);
-        printRecord(ver as unknown as Record<string, unknown>, [
+        printRecord(ver, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "type", label: "Type" },
@@ -103,10 +100,13 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        const ver = await client.agents.versions.createCheckpoint(agentId, body as any);
+        const ver = await client.agents.versions.createCheckpoint(
+          agentId,
+          asRequestBody<CreateCheckpointBody>(body)
+        );
         printSuccess("Checkpoint created.", {
-          id: (ver as any).id,
-          name: (ver as any).name ?? "(unnamed)"
+          id: ver.id,
+          name: ver.name ?? "(unnamed)"
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -138,7 +138,11 @@ Examples:
           ...(opts.description !== undefined && { description: opts.description })
         });
 
-        await client.agents.versions.update(agentId, versionId, body as any);
+        await client.agents.versions.update(
+          agentId,
+          versionId,
+          asRequestBody<UpdateVersionBody>(body)
+        );
         printSuccess("Version updated.", { id: versionId });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -217,7 +221,7 @@ Notes:
         }
 
         const result = await client.agents.versions.restore(agentId, versionId);
-        printSuccess("Version restored.", { agentId, versionId, ...(result as any) });
+        printSuccess("Version restored.", { agentId, versionId, ...result });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -240,7 +244,7 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const result = await client.agents.versions.publish(agentId, versionId);
         printSuccess("Version published to production.", {
-          id: (result as any).id,
+          id: result.id,
           isProduction: "true"
         });
       } catch (err) {

@@ -22,6 +22,11 @@ export default defineConfig({
       if (!content.startsWith("#!")) {
         fs.writeFileSync(file, shebang + content);
       }
-    } catch {}
+    } catch {
+      // onSuccess also fires in `tsup --watch`, where a rebuild can race this
+      // read against tsup rewriting dist/index.js. The next rebuild fires this
+      // hook again, so failing the build over a transient missing file would
+      // break watch mode for a condition that resolves itself.
+    }
   }
 });

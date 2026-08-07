@@ -1,9 +1,16 @@
+import type {
+  ConnectToolBody,
+  CreatePipedreamCredentialBody,
+  ExecuteToolDirectBody,
+  ResolveRemoteOptionsBody,
+  TestAgentToolBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerToolCommands(program: Command): void {
   const tool = program.command("tool").description("Discover and manage marketplace tools");
@@ -32,9 +39,9 @@ Examples:
           category: opts.category,
           type: opts.type,
           limit: opts.limit
-        } as any);
+        });
 
-        const tools = (result as any).tools ?? [];
+        const tools = result.tools ?? [];
         printTable(tools, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 25 },
@@ -62,7 +69,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const detail = await client.tools.get(id);
-        printRecord(detail as unknown as Record<string, unknown>);
+        printRecord(detail);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -84,7 +91,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.tools.credentials(id);
-        const creds = (result as any).credentials ?? [];
+        const creds = result.credentials ?? [];
 
         printTable(creds, [
           { key: "id", label: "ID", width: 36 },
@@ -119,6 +126,22 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
 
+        // The two `as any` casts below are NOT residue and are deliberately
+        // left standing — each hides a real mismatch against the server's own
+        // contract (`ConnectToolBodySchema`, a discriminated union in
+        // packages/types/src/api/public/v1/schemas/tool-connection.schemas.ts),
+        // and removing the cast without fixing the request would only move the
+        // failure from the server to the compiler:
+        //
+        //  - the OAuth arm requires `service: z.string()`, and this command
+        //    sends `{ authType: "oauth" }` with no `service` at all, so that
+        //    branch cannot pass validation;
+        //  - `authorizationType` is on no arm of the union, and the schema is a
+        //    plain `z.object`, so `--auth-header` is stripped server-side and
+        //    has never had any effect.
+        //
+        // Sourcing a `service` value is a change to what this command SENDS, so
+        // it belongs to whoever owns tool-connect, not to a typing pass.
         if (base) {
           // Full body provided — merge with flags and send
           const flags: Record<string, unknown> = {};
@@ -126,8 +149,11 @@ Examples:
           if (opts.apiKeyValue !== undefined) flags.apiKey = opts.apiKeyValue;
           if (opts.authHeader !== undefined) flags.authorizationType = opts.authHeader;
           const body = mergeBodyWithFlags(base, flags);
-          const result = await client.toolConnection.connect(id, body as any);
-          printSuccess("Tool connected.", result as any);
+          const result = await client.toolConnection.connect(
+            id,
+            asRequestBody<ConnectToolBody>(body)
+          );
+          printSuccess("Tool connected.", result);
         } else if (opts.authType === "http") {
           if (!opts.apiKeyValue) {
             console.error(
@@ -141,12 +167,12 @@ Examples:
             apiKey: opts.apiKeyValue,
             authorizationType: opts.authHeader
           } as any);
-          printSuccess("Tool connected via HTTP.", result as any);
+          printSuccess("Tool connected via HTTP.", result);
         } else {
           const result = await client.toolConnection.connect(id, {
             authType: "oauth"
           } as any);
-          printSuccess("OAuth flow initiated.", result as any);
+          printSuccess("OAuth flow initiated.", result);
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -174,8 +200,11 @@ Examples:
           process.exitCode = 1;
           return;
         }
-        const result = await client.tools.resolveOptions(id, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.tools.resolveOptions(
+          id,
+          asRequestBody<ResolveRemoteOptionsBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -203,8 +232,8 @@ Examples:
           type: opts.type,
           search: opts.search,
           limit: opts.limit
-        } as any);
-        const skills = (result as any).skills ?? [];
+        });
+        const skills = result.skills ?? [];
         printTable(skills, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
@@ -238,8 +267,12 @@ Examples:
         const flags: Record<string, unknown> = {};
         if (opts.input) flags.input = JSON.parse(opts.input);
         const body = mergeBodyWithFlags(base, flags);
-        const result = await client.tools.test(agentId, toolConfigId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.tools.test(
+          agentId,
+          toolConfigId,
+          asRequestBody<TestAgentToolBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -272,8 +305,8 @@ Notes:
         if (opts.input) flags.input = JSON.parse(opts.input);
         if (opts.credentialId) flags.credentialId = opts.credentialId;
         const body = mergeBodyWithFlags(base, flags);
-        const result = await client.tools.execute(id, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.tools.execute(id, asRequestBody<ExecuteToolDirectBody>(body));
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -295,7 +328,7 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.toolConnection.pollStatus(handshakeId);
-        printRecord(result as unknown as Record<string, unknown>, [
+        printRecord(result, [
           { key: "status", label: "Status" },
           { key: "connectionId", label: "Connection ID" },
           { key: "errorMessage", label: "Error" },
@@ -328,8 +361,11 @@ Examples:
         const flags: Record<string, unknown> = { accountId: opts.accountId };
         if (opts.name !== undefined) flags.name = opts.name;
         const body = mergeBodyWithFlags(base, flags);
-        const result = await client.toolConnection.createPipedreamCredential(id, body as any);
-        printSuccess("Credential created.", { id: (result as any).id, name: (result as any).name });
+        const result = await client.toolConnection.createPipedreamCredential(
+          id,
+          asRequestBody<CreatePipedreamCredentialBody>(body)
+        );
+        printSuccess("Credential created.", { id: result.id, name: result.name });
       } catch (err) {
         process.exitCode = handleError(err);
       }

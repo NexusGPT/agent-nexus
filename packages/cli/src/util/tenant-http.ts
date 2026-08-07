@@ -28,7 +28,12 @@
  * a future `/api/public/v1/vibe/...` would otherwise be silent.
  */
 
-import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "@agent-nexus/sdk";
+import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  NexusTimeoutError
+} from "@agent-nexus/sdk";
 
 import { resolveBaseUrl, resolveProfile } from "../config";
 
@@ -56,11 +61,6 @@ interface TenantRequestOptions {
 interface ApiSuccessEnvelope<T> {
   success: true;
   data: T;
-}
-
-interface ApiErrorEnvelope {
-  success: false;
-  error: { code: string; message: string; details?: unknown };
 }
 
 /**
@@ -197,7 +197,7 @@ export async function tenantRequest<T>(
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new NexusConnectionError(`Request timed out after ${timeoutMs}ms`);
+      throw new NexusTimeoutError(timeoutMs);
     }
     throw new NexusConnectionError(
       err instanceof Error ? err.message : "Network request failed",
@@ -235,6 +235,164 @@ export async function tenantRequest<T>(
     );
   }
   return envelope.data;
+}
+
+export interface TenantStreamOptions {
+  /** Absolute path on the backend, e.g. `/api/vibe/apps/<id>/logs/stream`. */
+  path: string;
+  /** Query string parameters. `undefined` values are dropped. */
+  query?: Record<string, string | number | boolean | undefined>;
+  /**
+   * Aborts the connection AND the response body. This is how Ctrl-C reaches the
+   * socket: without it a caller can stop reading and still leave the request
+   * open until the server's own cap fires.
+   */
+  signal: AbortSignal;
+  /**
+   * How long to wait for response HEADERS. It never bounds the stream itself —
+   * a follow is expected to stay open for minutes and a quiet app must not look
+   * like a broken one, which is exactly what `tenantRequest`'s whole-request
+   * timeout would do here.
+   */
+  connectTimeoutMs?: number;
+}
+
+/**
+ * Open a streaming response against a tenant endpoint and yield its text as it
+ * arrives.
+ *
+ * `tenantRequest` cannot serve this: it `await`s the whole body and then demands
+ * a `{ success, data }` envelope. The SSE routes are deliberately outside the
+ * generated surface and carry no envelope at all — see
+ * `vibe-app-log-stream.controller.ts`, which explains why a stream cannot wear
+ * one. So this shares the transport's auth, base-URL and error-shape machinery
+ * and differs in exactly the two ways it must: it never buffers, and it never
+ * interprets the body.
+ *
+ * FAILURE BEFORE THE FIRST BYTE is a normal HTTP error and is thrown as one, via
+ * the same `toTenantApiError` every other tenant command's message comes from.
+ * That is the half that matters for a 404: a foreign `appId` and an id that
+ * never existed arrive here as the identical response, and nothing in this
+ * function can or should tell them apart.
+ */
+export async function tenantStream(
+  opts: TenantHttpOptions,
+  req: TenantStreamOptions
+): Promise<AsyncIterable<string>> {
+  const apiKey = resolveTenantApiKey(opts);
+  const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
+  const url = new URL(`${baseUrl}${req.path}`);
+  if (req.query) {
+    for (const [key, value] of Object.entries(req.query)) {
+      if (value === undefined) continue;
+      url.searchParams.append(key, String(value));
+    }
+  }
+
+  // One controller drives the fetch, fed by two sources: the caller's signal
+  // (Ctrl-C) and the connect timer. `AbortSignal.any` would say this in one
+  // line and is Node 20.3+; this package declares `node >= 18`.
+  const controller = new AbortController();
+  const forwardAbort = (): void => {
+    controller.abort();
+  };
+  if (req.signal.aborted) controller.abort();
+  else req.signal.addEventListener("abort", forwardAbort, { once: true });
+
+  const connectTimeoutMs = req.connectTimeoutMs ?? 30_000;
+  let connectTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+    controller.abort();
+  }, connectTimeoutMs);
+  const clearConnectTimer = (): void => {
+    if (connectTimer !== undefined) {
+      clearTimeout(connectTimer);
+      connectTimer = undefined;
+    }
+  };
+  const release = (): void => {
+    clearConnectTimer();
+    req.signal.removeEventListener("abort", forwardAbort);
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "api-key": apiKey, Accept: "text/event-stream" },
+      signal: controller.signal
+    });
+  } catch (err) {
+    release();
+    // The caller aborting is not a failure — it is what Ctrl-C does, and it must
+    // reach the follow driver as an abort rather than as a connection error.
+    if (req.signal.aborted) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new NexusTimeoutError(connectTimeoutMs);
+    }
+    throw new NexusConnectionError(
+      err instanceof Error ? err.message : "Network request failed",
+      err instanceof Error ? err : undefined
+    );
+  }
+
+  // Headers are in. From here the stream governs its own lifetime.
+  clearConnectTimer();
+
+  if (!response.ok) {
+    const rawBody = await response.text();
+    release();
+    if (response.status === 401) throw new NexusAuthenticationError();
+    let parsed: unknown;
+    if (rawBody.length > 0) {
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch {
+        parsed = undefined;
+      }
+    }
+    throw toTenantApiError(parsed, { method: "GET", path: req.path }, response.status);
+  }
+
+  if (response.body === null) {
+    release();
+    throw new NexusApiError(
+      "INVALID_RESPONSE",
+      `GET ${req.path} returned no response body to stream`,
+      response.status
+    );
+  }
+
+  return readTextChunks(response.body, release);
+}
+
+/**
+ * The response body as decoded text, chunk by chunk.
+ *
+ * `getReader()` rather than `for await (… of body)` so the cancel in `finally`
+ * is explicit: a caller that stops iterating — a `break`, a throw, an abort —
+ * must not leave the socket held. `reader.cancel()` returns a promise, and its
+ * rejection is caught rather than floated: the socket is frequently already gone
+ * by the time this runs, and an unhandled rejection terminates Node.
+ */
+async function* readTextChunks(
+  body: ReadableStream<Uint8Array>,
+  onDone: () => void
+): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value !== undefined) yield decoder.decode(value, { stream: true });
+    }
+    // Flush whatever a multi-byte character left straddling the last chunk.
+    const tail = decoder.decode();
+    if (tail.length > 0) yield tail;
+  } finally {
+    reader.cancel().catch(() => undefined);
+    onDone();
+  }
 }
 
 function resolveTenantApiKey(opts: TenantHttpOptions): string {

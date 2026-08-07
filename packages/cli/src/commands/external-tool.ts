@@ -1,13 +1,30 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { NexusApiError } from "@agent-nexus/sdk";
+import {
+  type CreateExternalToolBody,
+  type ExecuteToolDirectBody,
+  type ExternalToolAuth,
+  NexusApiError,
+  type TestExternalToolBody,
+  type UpdateExternalToolBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
+import type {
+  ToolHasAttachmentsDetails,
+  ToolSpecBreakingChangeDetails
+} from "../external-tool-wire-types";
 import { printList, printRecord, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody, resolveInputJson } from "../util/body";
+import {
+  asRequestBody,
+  mergeBodyWithFlags,
+  resolveBody,
+  resolveInputJson,
+  resolveRequiredBody
+} from "../util/body";
 
 export function registerExternalToolCommands(program: Command): void {
   const externalTool = program
@@ -35,11 +52,7 @@ Examples:
           search: opts.search,
           limit: opts.limit
         });
-        const items = Array.isArray(result)
-          ? result
-          : ((result as any).items ?? (result as any).data ?? result);
-
-        printList(items as unknown as Record<string, unknown>[], undefined, [
+        printList(result.items, undefined, [
           { key: "id", label: "ID", width: 36 },
           { key: "name", label: "NAME", width: 30 },
           { key: "description", label: "DESCRIPTION", width: 40 },
@@ -66,13 +79,12 @@ Examples:
       try {
         const client = createClient(program.optsWithGlobals());
         const t = await client.skills.getExternalTool(id);
-        printRecord(t as unknown as Record<string, unknown>, [
+        printRecord(t, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
-          { key: "baseUrl", label: "Base URL" },
-          { key: "createdAt", label: "Created" },
-          { key: "updatedAt", label: "Updated" }
+          { key: "endpointUrl", label: "Endpoint URL" },
+          { key: "createdAt", label: "Created" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -102,11 +114,10 @@ Examples:
         if (opts.imageUrl) flags.imageUrl = opts.imageUrl;
         const body = mergeBodyWithFlags(base, flags);
 
-        const t = await client.skills.createExternalTool(body as any);
-        printSuccess("External tool created.", {
-          id: (t as any).id,
-          name: (t as any).name
-        });
+        const t = await client.skills.createExternalTool(
+          asRequestBody<CreateExternalToolBody>(body)
+        );
+        printSuccess("External tool created.", { id: t.id, name: t.name });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -143,7 +154,7 @@ Examples:
         const result = await client.skills.uploadExternalToolIcon(id, blob, fileName);
         printSuccess("Icon uploaded.", {
           id,
-          imageUrl: (result as any).imageUrl
+          imageUrl: result.imageUrl
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -172,7 +183,7 @@ The tool's auth must be configured with type "oauth" and grant_type "client_cred
         const client = createClient(program.optsWithGlobals());
         const result = await client.skills.initiateClientCredentials(id, opts.name);
         printSuccess("OAuth client_credentials token obtained.", {
-          credentialId: (result as any).credentialId
+          credentialId: result.credentialId
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -184,7 +195,11 @@ The tool's auth must be configured with type "oauth" and grant_type "client_cred
     .command("update-auth")
     .description("Update auth configuration on an existing external tool")
     .argument("<id>", "External tool ID")
-    .option("--body <json>", "Auth body as JSON, .json file, or '-' for stdin")
+    // Required, not optional: there is no meaningful "update the auth to
+    // nothing". Omitting it used to send `auth: undefined`, which serialised
+    // away to an empty patch — a request that looked like a no-op and was not
+    // one anybody asked for. Commander refuses before the HTTP call instead.
+    .requiredOption("--body <json>", "Auth body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
@@ -195,8 +210,8 @@ Examples:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const auth = await resolveBody(opts.body);
-        await client.skills.updateExternalToolAuth(id, auth as any);
+        const auth = await resolveRequiredBody(opts.body);
+        await client.skills.updateExternalToolAuth(id, asRequestBody<ExternalToolAuth>(auth));
         printSuccess("Auth configuration updated.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -239,14 +254,14 @@ expired, the platform will attempt to refresh it automatically before calling th
           operationId: opts.operationId,
           input
         });
-        if ((result as any).status === "success") {
+        if (result.status === "success") {
           printSuccess("Auth credentials are valid. Operation executed successfully.", {
-            status: (result as any).status,
-            executionTimeMs: (result as any).executionTimeMs
+            status: result.status,
+            executionTimeMs: result.executionTimeMs
           });
-          printRecord(result as unknown as Record<string, unknown>);
+          printRecord(result);
         } else {
-          console.error("Auth test failed:", (result as any).error ?? "Unknown error");
+          console.error("Auth test failed:", result.error ?? "Unknown error");
           process.exitCode = 1;
         }
       } catch (err) {
@@ -289,8 +304,11 @@ Examples:
           return;
         }
 
-        const result = await client.tools.execute(toolId, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.tools.execute(
+          toolId,
+          asRequestBody<ExecuteToolDirectBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -321,8 +339,11 @@ Examples:
         if (opts.input) flags.input = await resolveInputJson(opts.input);
         const body = mergeBodyWithFlags(base, flags);
 
-        const result = await client.skills.testExternalTool(id, body as any);
-        printRecord(result as unknown as Record<string, unknown>);
+        const result = await client.skills.testExternalTool(
+          id,
+          asRequestBody<TestExternalToolBody>(body)
+        );
+        printRecord(result);
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -366,7 +387,13 @@ To refresh just the OpenAPI spec from a file, prefer:
         if (opts.endpointUrl) flags.endpointUrl = opts.endpointUrl;
         const body = mergeBodyWithFlags(base, flags);
 
-        const t = await client.skills.updateExternalTool(id, body as any, { force: !!opts.force });
+        const t = await client.skills.updateExternalTool(
+          id,
+          asRequestBody<UpdateExternalToolBody>(body),
+          {
+            force: !!opts.force
+          }
+        );
         printSuccess("External tool updated.", { id: t.id, name: t.name });
       } catch (err) {
         const breaking = extractSpecBreakingChangeDetails(err);
@@ -476,18 +503,13 @@ Examples:
     });
 }
 
-type AttachmentsDetails = {
-  total: number;
-  sample: Array<{ id: string; label: string; agentId: string; agentName: string }>;
-};
-
-function extractToolHasAttachmentsDetails(err: unknown): AttachmentsDetails | null {
+function extractToolHasAttachmentsDetails(err: unknown): ToolHasAttachmentsDetails | null {
   if (!(err instanceof NexusApiError)) return null;
   if (err.status !== 409 || err.code !== "TOOL_HAS_ATTACHMENTS") return null;
-  return (err.details as AttachmentsDetails) ?? null;
+  return (err.details as ToolHasAttachmentsDetails) ?? null;
 }
 
-function printToolHasAttachmentsError({ total, sample }: AttachmentsDetails): void {
+function printToolHasAttachmentsError({ total, sample }: ToolHasAttachmentsDetails): void {
   console.error(`Cannot delete: ${total} agent tool config(s) reference this external tool:`);
   for (const a of sample) {
     console.error(`  • ${a.label}  (agent: ${a.agentName})`);
@@ -516,7 +538,7 @@ async function resolveSpecString(opts: { file?: string; body?: string }): Promis
   }
   if (opts.body) {
     const parsed = await resolveBody(opts.body);
-    const spec = (parsed as Record<string, unknown>)?.openApiSpec;
+    const spec = parsed?.openApiSpec;
     if (typeof spec !== "string" || spec.length === 0) {
       throw new Error('--body must be a JSON object with a non-empty "openApiSpec" string');
     }
@@ -525,23 +547,17 @@ async function resolveSpecString(opts: { file?: string; body?: string }): Promis
   return null;
 }
 
-type SpecBreakingChangeDetails = {
-  removedActions: string[];
-  total: number;
-  bindings: Array<{ kind: "workflow" | "agent"; id: string; label: string; action: string }>;
-};
-
-function extractSpecBreakingChangeDetails(err: unknown): SpecBreakingChangeDetails | null {
+function extractSpecBreakingChangeDetails(err: unknown): ToolSpecBreakingChangeDetails | null {
   if (!(err instanceof NexusApiError)) return null;
   if (err.status !== 409 || err.code !== "TOOL_SPEC_BREAKING_CHANGE") return null;
-  return (err.details as SpecBreakingChangeDetails) ?? null;
+  return (err.details as ToolSpecBreakingChangeDetails) ?? null;
 }
 
 function printSpecBreakingChangeError({
   removedActions,
   total,
   bindings
-}: SpecBreakingChangeDetails): void {
+}: ToolSpecBreakingChangeDetails): void {
   console.error(
     `Refusing to refresh: the new spec removes ${removedActions.length} action(s) still bound downstream:`
   );

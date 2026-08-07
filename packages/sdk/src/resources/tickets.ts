@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http-client";
+import { appendFilePart } from "../multipart";
 import type { PageResponse } from "../types/common";
 import type {
   CreateTicketBody,
@@ -20,10 +21,9 @@ export class TicketsResource extends BaseResource {
   }
 
   async list(params?: ListTicketsParams): Promise<PageResponse<TicketSummary>> {
-    const { data, meta } = await this.http.requestWithMeta<TicketSummary[]>("GET", "/tickets", {
+    return this.http.requestPage<TicketSummary>("GET", "/tickets", {
       query: params as Record<string, string | number | undefined>
     });
-    return { data, meta: meta! };
   }
 
   /**
@@ -69,9 +69,22 @@ export class TicketsResource extends BaseResource {
     return this.http.request<{ comments: TicketComment[] }>("GET", `/tickets/${ticketId}/comments`);
   }
 
-  async uploadAttachment(ticketId: string, file: Blob | File): Promise<TicketAttachment> {
+  /**
+   * Attach a file to a ticket.
+   *
+   * @param ticketId - Ticket id or identifier.
+   * @param file - The file, as a `Blob` or `File`.
+   * @param fileName - File name to send. This one is STORED and shown in
+   *   `listAttachments()`, so a bare `Blob` sent without it is filed as `blob`.
+   *   A `File` supplies its own name.
+   */
+  async uploadAttachment(
+    ticketId: string,
+    file: Blob | File,
+    fileName?: string
+  ): Promise<TicketAttachment> {
     const formData = new FormData();
-    formData.append("file", file);
+    appendFilePart(formData, "file", file, fileName);
     return this.http.request<TicketAttachment>("POST", `/tickets/${ticketId}/attachments`, {
       body: formData
     });

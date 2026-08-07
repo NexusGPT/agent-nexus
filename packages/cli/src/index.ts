@@ -3,6 +3,7 @@
 import { Command } from "commander";
 
 import { getBanner } from "./banner";
+import { parseTimeoutSeconds } from "./client";
 import { registerAccessCardCommands } from "./commands/access-card";
 import { registerAdminCommands } from "./commands/admin";
 import { registerAgentCommands } from "./commands/agent";
@@ -11,6 +12,7 @@ import { registerAgentEvalCommands } from "./commands/agent-eval";
 import { registerAgentToolCommands } from "./commands/agent-tool";
 import { registerAnalyticsCommands } from "./commands/analytics";
 import { registerApiCommand } from "./commands/api";
+import { registerAssetCommands } from "./commands/asset";
 // Commands
 import { registerAuthCommands } from "./commands/auth";
 import { registerChannelCommands } from "./commands/channel";
@@ -31,6 +33,7 @@ import { registerExternalToolCommands } from "./commands/external-tool";
 import { registerFolderCommands } from "./commands/folder";
 import { registerHtmlMessageTemplateCommands } from "./commands/html-message-template";
 import { registerModelCommands } from "./commands/model";
+import { registerPermissionsCommands } from "./commands/permissions";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
 import { registerPromptAssistantCommands } from "./commands/prompt-assistant";
 import { registerSkillFolderCommands } from "./commands/skill-folder";
@@ -41,6 +44,7 @@ import { registerTicketCommands } from "./commands/ticket";
 import { registerToolCommands } from "./commands/tool";
 import { registerTracingCommands } from "./commands/tracing";
 import { registerUpgradeCommand, UPGRADE_ALIASES } from "./commands/upgrade";
+import { registerUserGroupCommands } from "./commands/user-group";
 import { registerVersionCommands } from "./commands/version";
 import { registerVibeCommands } from "./commands/vibe";
 import { registerWorkflowCommands } from "./commands/workflow";
@@ -48,7 +52,7 @@ import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
 import { handleError } from "./errors";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
-import { autoUpdate, checkForUpdate } from "./util/version-check";
+import { autoUpdate, checkForUpdate, isAutoUpdateDisabled } from "./util/version-check";
 
 const { version: VERSION } = require("../package.json") as { version: string };
 
@@ -61,6 +65,11 @@ const program = new Command()
   .option("--base-url <url>", "Override API base URL")
   .option("--dashboard-url <url>", "Override dashboard URL (for browser links)")
   .option("--profile <name>", "Use a specific named profile")
+  .option(
+    "--timeout <seconds>",
+    "HTTP request timeout in seconds (default 30; task execute defaults to 600)",
+    parseTimeoutSeconds
+  )
   .option("--no-auto-update", "Disable automatic updates when a new version is detected")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.optsWithGlobals();
@@ -120,6 +129,7 @@ registerWorkflowCommands(program);
 registerWorkspaceCommands(program);
 registerExecutionCommands(program);
 registerDocumentCommands(program);
+registerAssetCommands(program);
 registerCollectionCommands(program);
 registerConversationCommands(program);
 registerTaskCommands(program);
@@ -142,6 +152,8 @@ registerTracingCommands(program);
 registerCredentialCommands(program);
 registerCustomerCommands(program);
 registerAccessCardCommands(program);
+registerPermissionsCommands(program);
+registerUserGroupCommands(program);
 registerClaudeCodeCommands(program);
 registerSkillsCommands(program);
 registerCloudImportCommands(program);
@@ -165,7 +177,7 @@ program
 
     const opts = program.opts();
 
-    if (opts.autoUpdate) {
+    if (opts.autoUpdate && !isAutoUpdateDisabled()) {
       // Default: auto-update when a new version is detected
       const msg = await autoUpdate(VERSION);
       if (msg) {
@@ -173,7 +185,7 @@ program
         process.stderr.write(color.green(msg));
       }
     } else {
-      // --no-auto-update: just show a message like before
+      // --no-auto-update / NEXUS_NO_AUTO_UPDATE / CI: just show a message like before
       const updateMsg = await checkForUpdate(VERSION);
       if (updateMsg) {
         const { color } = await import("./output");

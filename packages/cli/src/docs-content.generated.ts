@@ -273,6 +273,7 @@ These flags are available on every command:
 | \`--api-key <key>\`  | Override the API key for this invocation          |
 | \`--base-url <url>\` | Override the API base URL                         |
 | \`--profile <name>\` | Use a specific named profile                      |
+| \`--timeout <seconds>\` | HTTP request timeout in seconds (default 30; \`task execute\` defaults to 600) |
 | \`--no-auto-update\` | Disable automatic CLI updates for this invocation |
 | \`-v, --version\`    | Print the CLI version and exit                    |
 | \`--help\`           | Show help for any command or subcommand           |
@@ -633,6 +634,7 @@ The CLI catches all errors and prints actionable messages with hints.
 | **Not found (404)**        | Resource ID doesn't exist            | Run \`nexus <resource> list\` to find valid IDs          |
 | **Validation error (422)** | Invalid request body or parameters   | Add \`--json\` to see the \`details\` field                |
 | **Connection error**       | Network issue or wrong base URL      | Check \`--base-url\` and network connectivity            |
+| **Client-side timeout**    | Response took longer than \`--timeout\` | Raise the limit: \`--timeout <seconds>\` (server may still complete the request) |
 | **API error (5xx)**        | Server-side error                    | Retry after a moment; report via \`nexus ticket create\` |
 
 ### Exit Codes
@@ -686,6 +688,18 @@ Error: No API key found. Set NEXUS_API_KEY or run:
 \`\`\`bash
 nexus auth whoami  # shows the current base URL
 \`\`\`
+
+### "The request was still running after Ns, so the CLI stopped waiting"
+
+The CLI's client-side timeout elapsed before the API responded — the server may still be processing (and completing) the request. This is not a network failure.
+
+**Fix:** Raise the limit with the global \`--timeout\` flag, e.g. for a long structured-JSON generation:
+
+\`\`\`bash
+nexus task execute task-123 --input "..." --timeout 900
+\`\`\`
+
+\`task execute\` already defaults to 600 s (all other commands default to 30 s).
 
 ### "Validation failed (HTTP 401)"
 
@@ -799,6 +813,7 @@ These options are available on every command:
 | \`--api-key <key>\`  | Override API key for this invocation              |
 | \`--base-url <url>\` | Override the API base URL                         |
 | \`--profile <name>\` | Use a specific named profile                      |
+| \`--timeout <seconds>\` | HTTP request timeout in seconds (default 30; \`task execute\` defaults to 600) |
 | \`--no-auto-update\` | Disable automatic CLI updates for this invocation |
 | \`-v, --version\`    | Print CLI version                                 |
 | \`--help\`           | Show help for any command                         |

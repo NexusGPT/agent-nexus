@@ -1,8 +1,10 @@
 import type { PageResponse } from "../types/common";
 import type {
   AvailablePhoneNumber,
+  BuyPhoneNumberBody,
   ListPhoneNumbersParams,
   PhoneNumber,
+  ReleasePhoneNumberResponse,
   SearchAvailablePhoneNumbersParams
 } from "../types/phone-numbers";
 import { BaseResource } from "./base-resource";
@@ -22,13 +24,15 @@ export class PhoneNumbersResource extends BaseResource {
     });
   }
 
-  async buy(body: {
-    phoneNumber: string;
-    country: string;
-    price: string;
-    connectionId?: string;
-  }): Promise<any> {
-    return this.http.request<any>("POST", "/phone-numbers/buy", { body });
+  /**
+   * Buy a number found by `searchAvailable`.
+   *
+   * @param body - The number, its country and the quoted price. Pass
+   *   `connectionId` to buy on a Twilio subaccount rather than the shared pool.
+   * @returns The purchased number in its stored form.
+   */
+  async buy(body: BuyPhoneNumberBody): Promise<PhoneNumber> {
+    return this.http.request<PhoneNumber>("POST", "/phone-numbers/buy", { body });
   }
 
   /**
@@ -38,17 +42,33 @@ export class PhoneNumbersResource extends BaseResource {
    * rather than assuming a single call returns every number.
    */
   async list(params?: ListPhoneNumbersParams): Promise<PageResponse<PhoneNumber>> {
-    const { data, meta } = await this.http.requestWithMeta<PhoneNumber[]>("GET", "/phone-numbers", {
+    return this.http.requestPage<PhoneNumber>("GET", "/phone-numbers", {
       query: params as Record<string, string | number | undefined>
     });
-    return { data, meta: meta! };
   }
 
-  async get(phoneNumberId: string): Promise<any> {
-    return this.http.request<any>("GET", `/phone-numbers/${phoneNumberId}`);
+  /**
+   * Get one of the organization's numbers.
+   *
+   * @param phoneNumberId - Phone number UUID.
+   * @returns The number.
+   */
+  async get(phoneNumberId: string): Promise<PhoneNumber> {
+    return this.http.request<PhoneNumber>("GET", `/phone-numbers/${phoneNumberId}`);
   }
 
-  async release(phoneNumberId: string): Promise<any> {
-    return this.http.request<any>("DELETE", `/phone-numbers/${phoneNumberId}`);
+  /**
+   * Release a number back to Twilio.
+   *
+   * @param phoneNumberId - Phone number UUID.
+   * @returns What the release did — deployments detached, WhatsApp senders
+   *   deregistered, and whether Twilio accepted it. Check `twilioReleased`:
+   *   `false` means the number is gone in Nexus but may still be billed.
+   */
+  async release(phoneNumberId: string): Promise<ReleasePhoneNumberResponse> {
+    return this.http.request<ReleasePhoneNumberResponse>(
+      "DELETE",
+      `/phone-numbers/${phoneNumberId}`
+    );
   }
 }

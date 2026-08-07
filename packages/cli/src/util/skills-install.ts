@@ -69,9 +69,10 @@ export interface ClaudeTarget {
 /**
  * Convert the build-time bundle into the byte-shaped form `writeSkillFiles`
  * expects. The bundle stores file contents as UTF-8 strings (they're inlined
- * into TypeScript constants); `writeSkillFiles` writes raw buffers so it can
- * handle binary skill assets if any ever appear. UTF-8 round-trip is lossless
- * for the .md / .ts files we ship today.
+ * into TypeScript constants) and `writeSkillFiles` writes raw buffers, so the
+ * round-trip is lossless exactly while every bundled file is valid UTF-8.
+ * `bundle-skills.ts` enforces that at build time rather than leaving it to
+ * chance: a non-UTF-8 asset fails the bundle instead of installing corrupted.
  */
 export function bundleToInstallables(slugs: readonly string[]): InstallableSkill[] {
   return slugs.map((slug) => {
@@ -357,6 +358,56 @@ export function safeResolveWithinBase(basePath: string, relativePath: string): s
   return resolved;
 }
 
+// ── Executable bit ────────────────────────────────────────────────────────────
+
+/**
+ * A file whose first two bytes are `#!` is a script somebody is meant to run.
+ *
+ * That is the property that matters, and it is the only one of the three
+ * candidates that is right in both directions here. Measured against the pinned
+ * skills-nexus tree, over the 486 bundled files:
+ *
+ * - **By extension** — there is no allowlist that works. Of 59 bundled `.ts`
+ *   files, 52 carry `#!/usr/bin/env npx tsx` and are documented as direct
+ *   invocations, while 7 are library modules an example imports; `.js` is one
+ *   file and it is a template with no shebang. An extension list would either
+ *   miss 52 runners or mark 8 non-scripts executable. It is also the same
+ *   weaker-second-source that `bundle-skills.ts` just deleted from the
+ *   collection side — reintroducing one here restores that defect at the other
+ *   end of the same pipe.
+ * - **By the source file's mode** — the upstream repo marks only 19 of its 512
+ *   blobs `100755`, so **63 of the 82 bundled shebang scripts are `100644`
+ *   upstream**, including every `examples/*.ts` runner and 7 of the 14 hooks.
+ *   Carrying the mode would ship those non-executable, and would REGRESS the
+ *   hooks that install executable today.
+ *
+ * No bundled file is executable upstream without also carrying a shebang, so
+ * the shebang rule loses nothing the mode would have caught.
+ */
+const SHEBANG = Buffer.from("#!");
+
+function hasShebang(content: Buffer): boolean {
+  return content.subarray(0, SHEBANG.length).equals(SHEBANG);
+}
+
+/**
+ * Grant execute exactly where read is already granted — `chmod +x` semantics,
+ * not a blanket `0o755`. A file the user keeps at `0600` becomes `0700` rather
+ * than being widened to world-readable.
+ *
+ * Best-effort: a chmod failure on an exotic filesystem must not abort an
+ * otherwise-successful install.
+ */
+function grantExecute(fullPath: string): void {
+  try {
+    const mode = fs.statSync(fullPath).mode & 0o7777;
+    const next = mode | ((mode & 0o444) >> 2);
+    if (next !== mode) fs.chmodSync(fullPath, next);
+  } catch {
+    /* best-effort: leave the file non-executable rather than fail install */
+  }
+}
+
 // ── Writers ───────────────────────────────────────────────────────────────────
 
 export function writeSkillFiles(
@@ -396,14 +447,20 @@ export function writeSkillFiles(
       const existing = fs.readFileSync(fullPath);
       if (existing.equals(file.content)) {
         result.skipped.push(file.path);
-        continue;
+      } else {
+        fs.writeFileSync(fullPath, file.content);
+        result.updated.push(file.path);
       }
-      fs.writeFileSync(fullPath, file.content);
-      result.updated.push(file.path);
     } else {
       fs.writeFileSync(fullPath, file.content);
       result.created.push(file.path);
     }
+
+    // Deliberately outside the create/update/skip branches. Anyone who ran an
+    // install before this shipped has these scripts on disk with byte-identical
+    // content at mode 0644, so `skipped` is the exact path their repair travels
+    // — a chmod reachable only from `created`/`updated` would never fix them.
+    if (hasShebang(file.content)) grantExecute(fullPath);
   }
 
   return result;
@@ -470,31 +527,6 @@ export function writeRootSettingsJson(
   opts: { force?: boolean }
 ): ClaudeMdStatus {
   return writePreservableFile(target, content, opts);
-}
-
-/**
- * Write the `hooks/` tree into `.claude/hooks`, then mark the executable hook
- * scripts (`.py`) as executable so Claude Code can run them directly. Reuses
- * `writeSkillFiles` for the create/update/skip + Zip-Slip-safe write, then
- * chmods the Python entries (best-effort; a chmod failure on an exotic FS must
- * not abort an otherwise-successful install).
- */
-export function writeHookFiles(
-  hooksDir: string,
-  files: { path: string; content: Buffer }[]
-): WriteResult {
-  const result = writeSkillFiles(hooksDir, files);
-  for (const file of files) {
-    if (!file.path.endsWith(".py")) continue;
-    const fullPath = safeResolveWithinBase(hooksDir, file.path);
-    if (!fullPath) continue;
-    try {
-      fs.chmodSync(fullPath, 0o755);
-    } catch {
-      /* best-effort: leave the file non-executable rather than fail install */
-    }
-  }
-  return result;
 }
 
 // ── Prompts ───────────────────────────────────────────────────────────────────

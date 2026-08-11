@@ -8,7 +8,8 @@ import {
   flattenDiagnose,
   formatFollowLine,
   isTerminalStatus,
-  shortTag} from "../../src/util/follow-diagnose";
+  shortTag
+} from "../../src/util/follow-diagnose";
 
 test("flattenDiagnose flattens top-level nodes in order", () => {
   const diag: DiagnoseResult = {

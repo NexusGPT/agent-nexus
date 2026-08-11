@@ -6,7 +6,8 @@ import {
   type FollowEntry,
   formatFollowLine,
   isTerminalStatus,
-  shortTag} from "./follow-diagnose";
+  shortTag
+} from "./follow-diagnose";
 
 interface FollowClient {
   workflowExecutions: {
@@ -44,7 +45,10 @@ function colorizeStatus(line: string, status: string): string {
   // label is skipped.
   const escaped = status.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const statusRe = new RegExp(`^(.*\\s)(${escaped})( in | — |$)`);
-  return line.replace(statusRe, (_m, head: string, s: string, tail: string) => `${head}${paint(s)}${tail}`);
+  return line.replace(
+    statusRe,
+    (_m, head: string, s: string, tail: string) => `${head}${paint(s)}${tail}`
+  );
 }
 
 function emit(entry: FollowEntry, opts: RunFollowOptions): void {

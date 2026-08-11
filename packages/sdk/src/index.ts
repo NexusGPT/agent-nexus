@@ -15,6 +15,7 @@ export {
 export {
   AccessCardsResource,
   AgentCollectionsResource,
+  AgentSkillsResource,
   AgentsResource,
   AgentToolsResource,
   AnalyticsResource,

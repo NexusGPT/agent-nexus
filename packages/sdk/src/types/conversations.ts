@@ -16,6 +16,29 @@ export type MessageRole = "USER" | "AGENT" | "SYSTEM";
  * a human advisor replying in the inbox (HUMAN_AGENT).
  */
 export type MessageSenderType = "CUSTOMER" | "AI_AGENT" | "HUMAN_AGENT" | "SYSTEM";
+/**
+ * What KIND of record a message row is (NEX-2894). `role`/`senderType` answer
+ * *who*; this answers *what*. A conversation stores the agent runtime's own
+ * working memory alongside real replies — tool results, tool-call turns and
+ * system rows all persist as `role: "AGENT"`.
+ *
+ *   USER_MESSAGE — inbound from the customer
+ *   REPLY        — prose (or files) sent from your side: AI or human advisor
+ *   TOOL_CALL    — an agent turn that only invoked tools; no body was sent
+ *   TOOL_RESULT  — raw tool output, notice or error, written for the model
+ *   SYSTEM       — system rows
+ *   INTERNAL     — runtime bookkeeping (synthetic steering messages, envelopes)
+ *
+ * Treat the union as open — filter on `customerVisible` rather than
+ * enumerating types if you want the conversation as the human experienced it.
+ */
+export type MessageType =
+  | "USER_MESSAGE"
+  | "REPLY"
+  | "TOOL_CALL"
+  | "TOOL_RESULT"
+  | "SYSTEM"
+  | "INTERNAL";
 
 // ============================================================================
 // Response types
@@ -47,12 +70,38 @@ export interface MessageSender {
   displayName: string | null;
 }
 
+/**
+ * Tool provenance, set only on `TOOL_CALL` and `TOOL_RESULT` rows. `callId` is
+ * the correlation key: it appears in `calls` on the turn that issued the
+ * invocation and again as `callId` on the row carrying its result.
+ */
+export interface MessageTool {
+  /** TOOL_RESULT — the tool call this row answers. */
+  callId: string | null;
+  /** TOOL_RESULT — name of the tool that produced this row. */
+  name: string | null;
+  /** Tool family: EXTERNAL_TOOL, WORKFLOW, PLUGIN, TASK, … */
+  toolType: string | null;
+  /** TOOL_CALL — the invocations this agent turn issued. */
+  calls: Array<{ id: string | null; name: string | null }> | null;
+}
+
 export interface ConversationMessage {
   id: string;
   role: MessageRole;
   senderType: MessageSenderType;
+  /** What kind of record this is — see `MessageType`. */
+  type: MessageType;
+  /**
+   * True only for records the customer actually saw: an inbound message, or a
+   * reply that carried a body. Everything the agent runtime wrote for its own
+   * consumption is false.
+   */
+  customerVisible: boolean;
   author: MessageAuthor;
   sender?: MessageSender | null;
+  /** Tool provenance on TOOL_CALL / TOOL_RESULT rows; null on every other type. */
+  tool: MessageTool | null;
   content: string | null;
   status: string | null;
   createdAt: string;
@@ -233,9 +282,37 @@ export interface SearchConversationsParams {
   deploymentId?: string;
 }
 
+export interface GetMessagesResult {
+  messages: ConversationMessage[];
+  hasMore: boolean;
+  /**
+   * OPAQUE cursor for the next (older) page — pass back as `before` verbatim;
+   * null when `hasMore` is false. Not a date: it encodes the composite
+   * `(createdAt, id)` position the server resumes on, so a page boundary that
+   * falls inside a burst of same-millisecond rows loses nothing. Do not parse
+   * it, and do not build one yourself.
+   *
+   * Always page with this rather than the oldest message you received: under
+   * `visibleOnly` the page is filtered after it is read, so it can come back
+   * short or empty while older messages remain.
+   */
+  nextBefore: string | null;
+}
+
 export interface GetMessagesParams {
   limit?: number;
+  /**
+   * Page cursor — the previous page's `nextBefore`, unchanged. A bare ISO-8601
+   * timestamp is still accepted for compatibility, but it cannot address a
+   * boundary inside a millisecond and will skip rows sharing that timestamp.
+   */
   before?: string;
+  /**
+   * Return only records the customer actually saw (`customerVisible: true`).
+   * Filtering runs before pagination, so `limit` counts real messages instead
+   * of being consumed by tool plumbing. Defaults to false (full record).
+   */
+  visibleOnly?: boolean;
 }
 
 export interface GetConversationParams {

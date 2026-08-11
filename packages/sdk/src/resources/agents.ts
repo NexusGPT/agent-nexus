@@ -9,6 +9,7 @@ import type {
   UploadProfilePictureResponse
 } from "../types/agents";
 import type { DeleteResponse, PageResponse } from "../types/common";
+import { AgentSkillsResource } from "./agent-skills";
 import { AgentToolsResource } from "./agent-tools";
 import { BaseResource } from "./base-resource";
 import { VersionsResource } from "./versions";
@@ -17,8 +18,9 @@ import { VersionsResource } from "./versions";
  * Agent management resource. Accessed via `client.agents`.
  *
  * Provides CRUD operations for agents plus sub-resources for
- * tool configurations (`client.agents.tools`) and prompt versions
- * (`client.agents.versions`).
+ * tool configurations (`client.agents.tools`), prompt versions
+ * (`client.agents.versions`), and the Claude Code skills attached to a
+ * code-interpreter agent (`client.agents.skills`).
  */
 export class AgentsResource extends BaseResource {
   /** Sub-resource for managing agent tool configurations. */
@@ -27,10 +29,14 @@ export class AgentsResource extends BaseResource {
   /** Sub-resource for managing agent prompt versions. */
   public readonly versions: VersionsResource;
 
+  /** Sub-resource for the Claude Code skills attached to a code-interpreter agent. */
+  public readonly skills: AgentSkillsResource;
+
   constructor(http: HttpClient) {
     super(http);
     this.tools = new AgentToolsResource(http);
     this.versions = new VersionsResource(http);
+    this.skills = new AgentSkillsResource(http);
   }
 
   /**

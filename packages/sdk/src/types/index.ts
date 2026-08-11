@@ -22,6 +22,7 @@
 
 export type * from "./access-cards";
 export type * from "./agent-collections";
+export type * from "./agent-skills";
 export type * from "./agent-tools";
 export type * from "./agents";
 export type * from "./analytics";

@@ -4,10 +4,10 @@ import type {
   AddConversationCommentBody,
   ConversationComment,
   ConversationDetail,
-  ConversationMessage,
   ConversationSummary,
   GetConversationParams,
   GetMessagesParams,
+  GetMessagesResult,
   ListConversationsParams,
   SearchConversationsParams,
   SendAgentMessageBody,
@@ -42,14 +42,21 @@ export class ConversationsResource extends BaseResource {
     });
   }
 
+  /**
+   * Page with `nextBefore`, not with the oldest message you received: under
+   * `visibleOnly` the page is filtered after it is read, so it can come back
+   * short or empty while older messages remain — and an agent loop writes
+   * several rows per millisecond, which only the server's composite cursor can
+   * step through without dropping any. Pass it back verbatim; it is opaque.
+   */
   async getMessages(
     conversationId: string,
     params?: GetMessagesParams
-  ): Promise<{ messages: ConversationMessage[]; hasMore: boolean }> {
-    return this.http.request<{ messages: ConversationMessage[]; hasMore: boolean }>(
+  ): Promise<GetMessagesResult> {
+    return this.http.request<GetMessagesResult>(
       "GET",
       `/conversations/${conversationId}/messages`,
-      { query: params as Record<string, string | number | undefined> }
+      { query: params as Record<string, string | number | boolean | undefined> }
     );
   }
 

@@ -1,5 +1,6 @@
 export { AccessCardsResource } from "./access-cards";
 export { AgentCollectionsResource } from "./agent-collections";
+export { AgentSkillsResource } from "./agent-skills";
 export { AgentToolsResource } from "./agent-tools";
 export { AgentsResource } from "./agents";
 export { AnalyticsResource } from "./analytics";

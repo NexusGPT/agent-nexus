@@ -93,6 +93,16 @@ interface UploadCall {
 }
 
 const SDK_UPLOAD_METHODS: Readonly<Record<string, UploadCall>> = {
+  AgentSkillCreate: {
+    ids: ["agent-1"],
+    call: (client, [agentId], file, fileName) =>
+      client.agents.skills.create(agentId, { name: "house-style" }, file, fileName)
+  },
+  AgentSkillUpload: {
+    ids: ["agent-1", "skill-1"],
+    call: (client, [agentId, skillId], file, fileName) =>
+      client.agents.skills.uploadZip(agentId, skillId, file, fileName)
+  },
   AgentUploadProfilePicture: {
     ids: ["agent-1"],
     call: (client, [agentId], file, fileName) =>

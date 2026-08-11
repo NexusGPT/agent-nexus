@@ -21,8 +21,14 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import type { RecordField } from "../output";
-import { isJsonMode, printList, printRecord, printSuccess, printWarning } from "../output";
+import {
+  isJsonMode,
+  printList,
+  printRecord,
+  printSuccess,
+  printWarning,
+  type RecordField
+} from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { parseIdList } from "../util/ids";
 
@@ -1023,6 +1029,63 @@ Notes:
       }
     });
 
+  // ── add-member ────────────────────────────────────────────────────────────
+  role
+    .command("add-member")
+    .description("Seat a user in a Role as ADMIN or MEMBER, or change their tier")
+    .argument("<role>", "Role name or UUID")
+    .argument("<user-id>", "Clerk user id of somebody in your organization")
+    .option("--tier <tier>", "ADMIN or MEMBER", "MEMBER")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role add-member "Support agent" user_abc
+  $ nexus role add-member "Support agent" user_abc --tier ADMIN
+
+Notes:
+  AN UPSERT. Running it again with the other --tier MOVES that person between
+  ADMIN and MEMBER rather than failing. The TIER line printed below is the tier
+  that now stands, which is the only way to tell a promotion from an addition.
+
+  A MEMBERSHIP ROW IS NOT A LABEL. It is how the server resolves a person's
+  reach into the Role's systems, collections and workspaces, so this grants
+  every capability the tier's permission sets carry.
+
+  THE USER MUST ALREADY BE IN YOUR ORGANIZATION. A user id from another tenant
+  is refused as "not found" — the same answer an id that exists nowhere gets,
+  because telling the two apart would confirm somebody else's user exists.
+
+  THE OWNER CANNOT BE A MEMBER. Ownership is a field on the Role, not a
+  membership row, so seating the current owner is refused; use
+  "nexus role update --owner" to hand the Role over instead.`
+    )
+    .action(async (ref: string, userId: string, opts: { tier: string }) => {
+      try {
+        const tier = opts.tier.toUpperCase();
+        if (tier !== "ADMIN" && tier !== "MEMBER") {
+          // Refused here rather than at the server: commander cannot express a
+          // choice on a value option, and a 400 naming a Zod path is a worse
+          // answer than naming the two words that work.
+          throw new Error(`--tier must be ADMIN or MEMBER, not "${opts.tier}"`);
+        }
+
+        const client = createClient(program.optsWithGlobals());
+        const member = await client.roles.upsertMember(await resolveRoleId(client, ref), {
+          userId,
+          tier
+        });
+
+        printSuccess("Member seated.", {
+          userId: member.userId,
+          tier: member.tier,
+          roleId: member.roleId
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── remove-member ─────────────────────────────────────────────────────────
   role
     .command("remove-member")
@@ -1036,11 +1099,6 @@ Examples:
   $ nexus role remove-member "Support agent" user_abc
 
 Notes:
-  THERE IS NO ADD ON THIS API, and that is a refusal rather than a missing
-  slice: the internal add takes a caller-supplied user id and nothing checks
-  that person belongs to the organization, so over an API key it would seat a
-  stranger inside a tenant's Role.
-
   IT DOES NOT TOUCH OWNERSHIP. An owner holds no membership row, so asking this
   to remove the OWNER is a no-op reporting removed=false. Use
   "nexus role update --owner" to hand the Role over.

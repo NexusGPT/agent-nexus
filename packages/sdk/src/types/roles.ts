@@ -1138,6 +1138,24 @@ export interface DetachRoleSystemResult {
 }
 
 /**
+ * Request body for `client.roles.upsertMember()`.
+ *
+ * AN UPSERT, so sending a `tier` a person already holds is a no-op and sending the
+ * other one MOVES them. The response is the row that now stands.
+ *
+ * ⚠️ `userId` MUST NAME SOMEBODY IN YOUR OWN ORGANIZATION. It is a Clerk `user_…`
+ * id, never a UUID, and the server checks membership rather than mere existence — a
+ * user id from another tenant answers 404 with the same body an id that exists
+ * nowhere gets.
+ */
+export interface UpsertRoleMemberBody {
+  /** Clerk user id (`user_…`) of somebody in your organization. */
+  userId: string;
+  /** `ADMIN` or `MEMBER`. The owner is never a membership row. */
+  tier: RoleMemberTier;
+}
+
+/**
  * The shape every idempotent removal on this surface answers with.
  *
  * `removed: false` is a success: the row was already gone. A second call is a 200,

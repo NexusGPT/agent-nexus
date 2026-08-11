@@ -29,6 +29,7 @@ import type {
   RoleJobTypeLibrary,
   RoleJobTypeWriteResponse,
   RoleManagementSettingsResponse,
+  RoleMember,
   RoleMembershipResponse,
   RolePermissionSetResponse,
   RolePermissionSetsResponse,
@@ -49,7 +50,8 @@ import type {
   RoleWorkspaceGrantResponse,
   RoleWorkspaceGrantsResponse,
   UpdateRoleBody,
-  UpdateRolePermissionSetBody
+  UpdateRolePermissionSetBody,
+  UpsertRoleMemberBody
 } from "../types/roles";
 import { BaseResource } from "./base-resource";
 
@@ -358,12 +360,35 @@ export class RolesResource extends BaseResource {
   }
 
   /**
-   * Remove a user's `ADMIN` or `MEMBER` standing in this Role.
+   * Seat a user in this Role as `ADMIN` or `MEMBER`, or change the tier they hold.
    *
-   * ⚠️ THE ADD IS NOT ON THIS SURFACE, and its absence is a refusal rather than a
-   * later slice: the internal add takes a caller-supplied user id and nothing in
-   * its chain checks that person belongs to the organization, so over a key it
-   * would seat a stranger inside a tenant's Role.
+   * AN UPSERT on `(roleId, userId)`: a second call with a different `tier` MOVES
+   * that person between the two rather than failing. Read `tier` off the result
+   * instead of assuming this was an insert.
+   *
+   * 🚨 A MEMBERSHIP ROW IS NOT A LABEL. It is how the server resolves a person's
+   * reach into the Role's systems, collections and workspaces, so this grants every
+   * capability the tier's permission sets carry.
+   *
+   * ⚠️ THE USER MUST ALREADY BE IN YOUR ORGANIZATION. A user id from another
+   * tenant answers 404 with the same body an id that exists nowhere gets — the
+   * server will not tell you which, because that would confirm somebody else's user
+   * exists.
+   *
+   * ⚠️ 409 IF THAT USER ALREADY OWNS THIS ROLE. Ownership is a field on the Role,
+   * not a membership row, and the two standings are mutually exclusive — use
+   * {@link RolesResource.update} to hand a Role over.
+   *
+   * @param roleId - Role UUID.
+   * @param body - The user and the tier they should hold.
+   * @returns The membership row that now stands.
+   */
+  async upsertMember(roleId: string, body: UpsertRoleMemberBody): Promise<RoleMember> {
+    return this.http.request<RoleMember>("POST", `/roles/${roleId}/members`, { body });
+  }
+
+  /**
+   * Remove a user's `ADMIN` or `MEMBER` standing in this Role.
    *
    * ⚠️ IT DOES NOT TOUCH OWNERSHIP. An owner holds no membership row, so asking
    * this to remove the OWNER is a no-op answering `removed: false`. Hand the Role

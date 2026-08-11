@@ -130,6 +130,7 @@ import type {
   RoleJobTypeLibrary,
   RoleJobTypeWriteResponse,
   RoleManagementSettingsResponse,
+  RoleMember,
   RoleMembershipResponse,
   RolePermissionSetResponse,
   RolePermissionSetsResponse,
@@ -144,7 +145,8 @@ import type {
   RoleVariablesResponse,
   RoleWorkingYear,
   RoleWorkingYearBody,
-  RoleWorkspaceGrantsResponse
+  RoleWorkspaceGrantsResponse,
+  UpsertRoleMemberBody
 } from "./roles";
 import type {
   AssignSkillToFolderBody,
@@ -383,7 +385,15 @@ export type V1ContractAssertions = [
   Expect<
     Equals<RoleSystemPolicy | null, Received<typeof ZPublicApiV1.RolesGetSystemPolicy.Response>>
   >,
-  Expect<Equals<RoleSystemPolicy, Received<typeof ZPublicApiV1.RolesUpsertSystemPolicy.Response>>>
+  Expect<Equals<RoleSystemPolicy, Received<typeof ZPublicApiV1.RolesUpsertSystemPolicy.Response>>>,
+
+  // The member ADD, both halves through the DESCRIPTOR for the reason stated above.
+  // Its response is an ALIAS of the internal row today; asserting the alias export
+  // would compare this package's type to the inner half of whatever the descriptor
+  // eventually wraps, which is how three reads passed while the SDK typed them
+  // always-present.
+  Expect<Equals<UpsertRoleMemberBody, Sent<typeof ZPublicApiV1.RolesUpsertMember.Body>>>,
+  Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>
 ];
 
 /**
@@ -474,7 +484,10 @@ const GATED_PAIRS = [
   "RoleWorkingYear ↔ ZPublicApiV1.RolesUpsertWorkingYear.Response",
   "RoleSystemPolicyBody ↔ RoleSystemPolicyV1BodySchema",
   "RoleSystemPolicy | null ↔ ZPublicApiV1.RolesGetSystemPolicy.Response",
-  "RoleSystemPolicy ↔ ZPublicApiV1.RolesUpsertSystemPolicy.Response"
+  "RoleSystemPolicy ↔ ZPublicApiV1.RolesUpsertSystemPolicy.Response",
+
+  "UpsertRoleMemberBody ↔ ZPublicApiV1.RolesUpsertMember.Body",
+  "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response"
 ] as const;
 
 /**
@@ -537,10 +550,10 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 78 pairs are covered. Most of the contract is not, and this file does not
+ * 80 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
  */
-const GATED_PAIR_FLOOR = 78;
+const GATED_PAIR_FLOOR = 80;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

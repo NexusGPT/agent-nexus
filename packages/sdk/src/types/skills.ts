@@ -240,7 +240,7 @@ export interface CreateTaskBody {
   /** Model name (must be a valid AI_MODELS key). */
   modelName: string;
   /** Model provider. */
-  modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI";
+  modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
   /** Prompt template. */
   prompt?: string;
   /** Temperature (0-2, default 0.7). */
@@ -271,7 +271,7 @@ export interface UpdateTaskBody {
   name?: string;
   description?: string;
   modelName?: string;
-  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI";
+  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
   prompt?: string;
   temperature?: number;
   inputFormat?: "text" | "json";

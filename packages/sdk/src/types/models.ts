@@ -13,7 +13,8 @@ export type ThinkingDialect =
   | "anthropic-adaptive"
   | "openai-reasoning"
   | "gemini-budget"
-  | "gemini-level";
+  | "gemini-level"
+  | "kimi-effort";
 
 /** Model summary returned by `client.models.list()`. */
 export interface ModelSummary {
@@ -46,7 +47,8 @@ export interface ModelSummary {
   supportsThinking: boolean;
   /**
    * @deprecated Use `thinkingDialect` instead. Derived as
-   * `thinkingDialect === "openai-reasoning"`. Will be removed in the next major SDK release.
+   * `thinkingDialect === "openai-reasoning" || thinkingDialect === "kimi-effort"`. Will be
+   * removed in the next major SDK release.
    */
   supportsReasoning: boolean;
   /** Whether the model is deprecated. */

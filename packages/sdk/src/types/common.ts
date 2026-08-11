@@ -88,7 +88,7 @@ export interface DeleteResponse {
 export type AgentStatus = "ACTIVE" | "DRAFT";
 
 /** Model provider. */
-export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI";
+export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
 
 /**
  * Model configuration — the modern way to set an agent's model.
@@ -99,7 +99,7 @@ export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI";
 export interface ModelConfig {
   /** Model ID from the catalog (e.g. "claude-sonnet-4-6", "gpt-4.1"). */
   modelName: string;
-  /** Provider: "OPEN_AI", "ANTHROPIC", or "GOOGLE_AI". */
+  /** Provider: "OPEN_AI", "ANTHROPIC", "GOOGLE_AI", or "KIMI". */
   modelProvider: ModelProvider;
   /** Anthropic thinking level: "fast", "detailed", or "extended". */
   thinkingLevel?: "fast" | "detailed" | "extended";
@@ -107,6 +107,8 @@ export interface ModelConfig {
   reasoningEffort?: "low" | "medium" | "high" | "xhigh";
   /** Google AI thinking level: "dynamic", "minimal", "low", "medium", "high". */
   geminiThinkingLevel?: "dynamic" | "minimal" | "low" | "medium" | "high";
+  /** Kimi reasoning effort: "low", "high", or "max". Fixed for the conversation. */
+  kimiReasoningEffort?: "low" | "high" | "max";
   /** Sampling temperature (0-1). */
   temperature?: number;
 }

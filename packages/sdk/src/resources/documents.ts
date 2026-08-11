@@ -140,8 +140,18 @@ export class DocumentsResource extends BaseResource {
   /**
    * List documents and folders with optional filtering and pagination.
    *
+   * `type` and `status` are enum-valued: an out-of-enum value is rejected by the
+   * API with the field and the complete allowed set, and is a compile error here
+   * (NEX-3087). `READY` is a document's terminal success status — poll for it,
+   * not for a `COMPLETED` that does not exist.
+   *
    * @param params - Optional filters and pagination.
    * @returns Paginated list of document summaries.
+   *
+   * @example
+   * ```ts
+   * const { data } = await client.documents.list({ status: "READY", limit: 10 });
+   * ```
    */
   async list(params?: ListDocumentsParams): Promise<PageResponse<DocumentSummary>> {
     return this.http.requestPage<DocumentSummary>("GET", "/documents", {

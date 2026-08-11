@@ -1,5 +1,7 @@
 import type {
   ConnectToolBody,
+  ConnectToolHttpBody,
+  ConnectToolOAuthBody,
   CreatePipedreamCredentialBody,
   ExecuteToolDirectBody,
   ResolveRemoteOptionsBody,
@@ -10,7 +12,27 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
+
+/**
+ * The `authType` discriminants `POST /tools/:toolId/connect` accepts.
+ *
+ * `satisfies` gates the list against the SDK's own union, so a value that stops
+ * being a discriminant stops compiling here. If the server ever GROWS an arm,
+ * this list is merely incomplete and `--auth-type <new-arm>` is refused locally
+ * with the list above — a stated refusal, not a request built from the wrong
+ * shape, which is the failure this whole command had.
+ */
+const CONNECT_AUTH_TYPES = [
+  "oauth",
+  "http"
+] as const satisfies readonly ConnectToolBody["authType"][];
+
+type ConnectAuthType = (typeof CONNECT_AUTH_TYPES)[number];
+
+function isConnectAuthType(value: string): value is ConnectAuthType {
+  return (CONNECT_AUTH_TYPES as readonly string[]).includes(value);
+}
 
 export function registerToolCommands(program: Command): void {
   const tool = program.command("tool").description("Discover and manage marketplace tools");
@@ -109,71 +131,89 @@ Examples:
     .command("connect")
     .description("Connect a tool via OAuth or HTTP credentials")
     .argument("<id>", "Tool ID")
-    .option("--auth-type <type>", "Auth type: oauth or http", "oauth")
+    .option("--auth-type <type>", `Auth type: ${CONNECT_AUTH_TYPES.join(" or ")} (default: oauth)`)
+    .option(
+      "--service <service>",
+      "OAuth service or Pipedream app slug to authorize (e.g. GOOGLE_SHEETS, google_sheets). Required for OAuth"
+    )
     .option("--api-key-value <key>", "API key for HTTP auth")
-    .option("--auth-header <header>", "Authorization header type for HTTP auth", "bearer")
+    .option("--name <name>", "Label for the credential HTTP auth creates")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus tool connect tool-123
-  $ nexus tool connect tool-123 --auth-type http --api-key-value sk-abc123
-  $ nexus tool connect tool-123 --body '{"authType":"http","apiKey":"sk-abc"}'`
+  $ nexus tool connect tool-123 --service GOOGLE_SHEETS
+  $ nexus tool connect tool-123 --auth-type http --api-key-value sk-abc123 --name "Production key"
+  $ nexus tool connect tool-123 --body '{"authType":"http","apiKey":"sk-abc"}'
+
+Notes:
+  --service names the account to authorize, and the tool ID does not imply it:
+  neither "nexus tool search" nor "nexus tool get" returns it. Use the built-in
+  OAuth service name (GOOGLE_SHEETS, GMAIL, NOTION, ...) or the Pipedream app
+  slug (google_sheets).`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
 
-        // The two `as any` casts below are NOT residue and are deliberately
-        // left standing — each hides a real mismatch against the server's own
-        // contract (`ConnectToolBodySchema`, a discriminated union in
-        // packages/types/src/api/public/v1/schemas/tool-connection.schemas.ts),
-        // and removing the cast without fixing the request would only move the
-        // failure from the server to the compiler:
+        // Each branch builds a member of the server's own discriminated union
+        // (`ConnectToolBodySchema`, packages/types/src/api/public/v1/schemas/
+        // tool-connection.schemas.ts) as a TYPED literal, so the compiler holds
+        // the request to the contract: the OAuth arm cannot be built without a
+        // `service`, and a field the union does not declare cannot be added.
         //
-        //  - the OAuth arm requires `service: z.string()`, and this command
-        //    sends `{ authType: "oauth" }` with no `service` at all, so that
-        //    branch cannot pass validation;
-        //  - `authorizationType` is on no arm of the union, and the schema is a
-        //    plain `z.object`, so `--auth-header` is stripped server-side and
-        //    has never had any effect.
+        // The previous shape — an untyped bag asserted with `as any` at the
+        // call — could express neither constraint, and shipped three defects
+        // behind that one silence: an OAuth request that could never validate,
+        // an `--auth-header` the server stripped while the CLI reported
+        // success, and flag defaults that overwrote `--body`.
         //
-        // Sourcing a `service` value is a change to what this command SENDS, so
-        // it belongs to whoever owns tool-connect, not to a typing pass.
-        if (base) {
-          // Full body provided — merge with flags and send
-          const flags: Record<string, unknown> = {};
-          if (opts.authType !== undefined) flags.authType = opts.authType;
-          if (opts.apiKeyValue !== undefined) flags.apiKey = opts.apiKeyValue;
-          if (opts.authHeader !== undefined) flags.authorizationType = opts.authHeader;
-          const body = mergeBodyWithFlags(base, flags);
-          const result = await client.toolConnection.connect(
-            id,
-            asRequestBody<ConnectToolBody>(body)
+        // NO flag here carries a commander default; `--auth-type`'s applies
+        // below, once both sources have been read. A default is not
+        // distinguishable from an explicit value, so declaring one on a flag
+        // that `--body` can also supply makes the flag always win.
+        const rawAuthType = readStringField(opts.authType, base, "authType") ?? "oauth";
+        if (!isConnectAuthType(rawAuthType)) {
+          console.error(
+            `Error: --auth-type must be one of: ${CONNECT_AUTH_TYPES.join(", ")} (got "${rawAuthType}").`
           );
-          printSuccess("Tool connected.", result);
-        } else if (opts.authType === "http") {
-          if (!opts.apiKeyValue) {
+          process.exitCode = 1;
+          return;
+        }
+
+        if (rawAuthType === "http") {
+          const apiKey = readStringField(opts.apiKeyValue, base, "apiKey");
+          if (apiKey === undefined) {
             console.error(
               "Error: --api-key-value is required for HTTP auth.\n  nexus tool connect <id> --auth-type http --api-key-value <key>"
             );
             process.exitCode = 1;
             return;
           }
-          const result = await client.toolConnection.connect(id, {
+          const name = readStringField(opts.name, base, "name");
+          const httpBody: ConnectToolHttpBody = {
             authType: "http",
-            apiKey: opts.apiKeyValue,
-            authorizationType: opts.authHeader
-          } as any);
+            apiKey,
+            ...(name !== undefined && { name })
+          };
+          const result = await client.toolConnection.connect(id, httpBody);
           printSuccess("Tool connected via HTTP.", result);
-        } else {
-          const result = await client.toolConnection.connect(id, {
-            authType: "oauth"
-          } as any);
-          printSuccess("OAuth flow initiated.", result);
+          return;
         }
+
+        const service = readStringField(opts.service, base, "service");
+        if (service === undefined) {
+          console.error(
+            "Error: --service is required for OAuth.\n  nexus tool connect <id> --service <service>\n  e.g. --service GOOGLE_SHEETS (built-in OAuth) or --service google_sheets (Pipedream app slug)"
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const oauthBody: ConnectToolOAuthBody = { authType: "oauth", service };
+        const result = await client.toolConnection.connect(id, oauthBody);
+        printSuccess("OAuth flow initiated.", result);
       } catch (err) {
         process.exitCode = handleError(err);
       }

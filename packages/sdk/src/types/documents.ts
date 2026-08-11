@@ -2,13 +2,52 @@
 // DOCUMENT
 // ============================================================================
 
+/**
+ * Processing status of a document.
+ *
+ * `READY` is terminal success — there is no `COMPLETED` and no `PROCESSED`. Both
+ * shipped in our own docs and example scripts, and because neither can ever be
+ * true, every "poll until done" loop built on one ran to timeout and only exited
+ * normally when the import FAILED. Typed as a union so a wrong literal is a
+ * compile error rather than a run that never finishes (NEX-3087).
+ *
+ * Source of truth is the `DocumentStatus` Postgres enum, which the API validates
+ * against; this package ships standalone and cannot import the generated values,
+ * so the list is restated here and must be updated alongside a schema change.
+ */
+export type DocumentStatus = "PENDING" | "PROCESSING" | "READY" | "ERROR" | "SYNCING";
+
+/**
+ * What a document IS — distinct from its source, which is where it came from
+ * (`"type": "PDF"` with `"sourceType": "FILE"`, not the reverse). Restated from
+ * the `DocumentType` Postgres enum, same caveat as `DocumentStatus` above.
+ */
+export type DocumentType =
+  | "PDF"
+  | "CSV"
+  | "TEXT"
+  | "IMAGE"
+  | "AUDIO"
+  | "WEBSITE_FOLDER"
+  | "WEBSITE_PAGE"
+  | "NOTION_PAGE"
+  | "NOTION_DATABASE"
+  | "GOOGLE_DOC"
+  | "GOOGLE_SHEET"
+  | "GOOGLE_DRIVE"
+  | "SHAREPOINT"
+  | "AIRTABLE_BASE"
+  | "AIRTABLE_TABLE"
+  | "FOLDER"
+  | "UNKNOWN";
+
 /** A document returned from creation endpoints. */
 export interface DocumentInfo {
   /** Unique document ID. */
   id: string;
   /** Document name. */
   name: string;
-  /** Document type (e.g. "FILE", "TEXT", "WEBSITE", "GOOGLE_SHEET"). */
+  /** Document type (e.g. "PDF", "TEXT", "WEBSITE_PAGE", "GOOGLE_SHEET"). */
   type: string;
   /** Processing status (e.g. "PROCESSING", "READY", "ERROR"). */
   status: string;
@@ -24,9 +63,9 @@ export interface DocumentDetail {
   name: string;
   /** Optional description. */
   description: string | null;
-  /** Document type (e.g. "FILE", "TEXT", "WEBSITE", "GOOGLE_SHEET"). */
+  /** Document type (e.g. "PDF", "TEXT", "WEBSITE_PAGE", "GOOGLE_SHEET"). */
   type: string;
-  /** Source type (e.g. "UPLOAD", "CRAWL", "SITEMAP"). */
+  /** Where the document came from (e.g. "FILE", "WEBSITE", "GOOGLE_SHEET"). */
   sourceType: string | null;
   /** MIME type of the document. */
   mimeType: string | null;
@@ -184,10 +223,10 @@ export interface ListDocumentsParams {
   page?: number;
   /** Items per page. */
   limit?: number;
-  /** Restrict to one document type. */
-  type?: string;
-  /** Restrict to one processing status. */
-  status?: string;
+  /** Restrict to one document type. Out-of-enum values are rejected by the API. */
+  type?: DocumentType;
+  /** Restrict to one processing status. Out-of-enum values are rejected by the API. */
+  status?: DocumentStatus;
   /** Restrict to one folder. */
   parentId?: string;
   /** Restrict to documents in one collection. */

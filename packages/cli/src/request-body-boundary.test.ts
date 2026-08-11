@@ -65,22 +65,6 @@ const UNGATED_WITH_REASON: readonly { file: string; code: string; reason: string
       "change, not a typing one. The CLI cannot import Zod (see `asRequestBody`'s docblock)."
   },
   {
-    file: "commands/tool.ts",
-    code: '{ authType: "http", apiKey: opts.apiKeyValue, authorizationType: opts.authHeader } as any',
-    reason:
-      "`authorizationType` is on no arm of the server's `ConnectToolBodySchema` union, so " +
-      "`--auth-header` is stripped server-side and has never had any effect. Dropping the " +
-      "field is a change to what this command SENDS. Owner: whoever owns tool-connect."
-  },
-  {
-    file: "commands/tool.ts",
-    code: '{ authType: "oauth" } as any',
-    reason:
-      "The OAuth arm requires `service: z.string()` and this command sends none, so the " +
-      "request cannot pass server validation. Sourcing a `service` value is a product " +
-      "decision. Owner: whoever owns tool-connect."
-  },
-  {
     file: "commands/workflow-builder.ts",
     code: "mergeBodyWithFlags(extra, { type: triggerType }) as unknown as ReplaceTriggerBody",
     reason:

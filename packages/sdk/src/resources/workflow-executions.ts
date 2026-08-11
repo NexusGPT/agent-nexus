@@ -22,22 +22,29 @@ import { BaseResource } from "./base-resource";
  */
 export class WorkflowExecutionsResource extends BaseResource {
   /**
-   * List executions across every workflow.
+   * List real end-to-end runs across every workflow.
    *
-   * @param params - Optional filters and pagination.
+   * A loop / do-while node records each pass of its body as its own execution
+   * and the builder records single-node test runs the same way; both are
+   * excluded unless opted in via `includeChildExecutions` / `includeTestRuns`,
+   * so `meta.total` counts runs rather than iterations (NEX-3178). Each row
+   * carries `executionType` and, for a loop pass, the `parentNodeId` of the
+   * node that spawned it.
+   *
+   * @param params - Optional filters, scope flags and pagination.
    * @returns Paginated list of execution summaries.
    */
   async list(params?: ListExecutionsParams): Promise<PageResponse<ExecutionSummary>> {
     return this.http.requestPage<ExecutionSummary>("GET", "/workflows/executions", {
-      query: params as Record<string, string | number | undefined>
+      query: params as Record<string, string | number | boolean | undefined>
     });
   }
 
   /**
-   * List one workflow's executions.
+   * List one workflow's executions. Same scoping as {@link list}.
    *
    * @param workflowId - Workflow UUID.
-   * @param params - Optional filters and pagination.
+   * @param params - Optional filters, scope flags and pagination.
    * @returns Paginated list of execution summaries.
    */
   async listByWorkflow(
@@ -45,7 +52,7 @@ export class WorkflowExecutionsResource extends BaseResource {
     params?: ListExecutionsForWorkflowParams
   ): Promise<PageResponse<ExecutionSummary>> {
     return this.http.requestPage<ExecutionSummary>("GET", `/workflows/${workflowId}/executions`, {
-      query: params as Record<string, string | number | undefined>
+      query: params as Record<string, string | number | boolean | undefined>
     });
   }
 

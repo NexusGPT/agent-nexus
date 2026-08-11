@@ -1,12 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { CreateTicketBody, UpdateTicketBody } from "@agent-nexus/sdk";
+import type {
+  CreateTicketBody,
+  ListTicketsParams,
+  NexusClient,
+  UpdateTicketBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { color, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -27,6 +32,84 @@ function formatLabels(value: unknown): string {
   return Array.isArray(value) ? value.join(", ") : "";
 }
 
+/**
+ * Renders the owning organization of a cross-org ticket. The API sends
+ * `organizationName: null` for an org that has never been named, so the column
+ * falls back to a dash rather than printing the word "null". The
+ * `organizationId` is always present in `--json` output when the name is not
+ * enough to tell two orgs apart.
+ */
+function formatOrganizationName(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? value : "—";
+}
+
+/** The columns shared by both the org-scoped and the cross-org ticket table. */
+const TICKET_COLUMNS = [
+  { key: "identifier", label: "IDENTIFIER", width: 12 },
+  { key: "title", label: "TITLE", width: 40 },
+  { key: "type", label: "TYPE", width: 18 },
+  { key: "priority", label: "PRIORITY", width: 10 },
+  { key: "status", label: "STATUS", width: 15 }
+] as const;
+
+/**
+ * List tickets from EVERY organization the caller belongs to, instead of only
+ * the profile's active org.
+ *
+ * The same NEX-* Linear team backs every org, so a ticket filed under one org
+ * profile was invisible from another — which made "search before you file"
+ * unreliable and duplicated tickets. Cross-org aggregation needs a personal
+ * (cross-org) token: an org-scoped key reaches exactly one org by construction,
+ * and the API answers it with a 403 rather than a silently single-org list.
+ */
+async function listAcrossOrganizations(
+  client: NexusClient,
+  params: ListTicketsParams
+): Promise<void> {
+  const result = await client.tickets.listAcrossOrganizations(params);
+
+  printList(
+    result.tickets,
+    {
+      total: result.total,
+      page: result.page,
+      hasMore: result.hasMore,
+      organizationCount: result.organizationCount,
+      skippedOrganizationIds: result.skippedOrganizationIds
+    },
+    [
+      { key: "identifier", label: "IDENTIFIER", width: 12 },
+      { key: "organizationName", label: "ORG", width: 20, format: formatOrganizationName },
+      { key: "title", label: "TITLE", width: 32 },
+      { key: "type", label: "TYPE", width: 18 },
+      { key: "priority", label: "PRIORITY", width: 10 },
+      { key: "status", label: "STATUS", width: 15 }
+    ]
+  );
+
+  warnAboutSkippedOrganizations(result.skippedOrganizationIds);
+}
+
+/**
+ * Report the organizations whose fetch failed, on STDERR.
+ *
+ * Aggregation is best-effort: the API skips an org it could not read rather
+ * than failing the whole request. Left unsaid, that turns a partial answer into
+ * a confident "no such ticket exists" — the exact false negative this command
+ * exists to remove. STDERR keeps `--json` output on STDOUT parseable, and the
+ * ids also travel inside that JSON's `meta` for a scripted caller.
+ */
+function warnAboutSkippedOrganizations(skippedOrganizationIds: readonly string[]): void {
+  if (skippedOrganizationIds.length === 0) return;
+
+  console.error(
+    color.yellow("Warning:") +
+      ` ${skippedOrganizationIds.length} organization(s) could not be read and were skipped, ` +
+      "so this list is incomplete: " +
+      skippedOrganizationIds.join(", ")
+  );
+}
+
 export function registerTicketCommands(program: Command): void {
   const ticket = program
     .command("ticket")
@@ -39,34 +122,57 @@ export function registerTicketCommands(program: Command): void {
       .description("List tickets")
       .option("--type <type>", "Filter by type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
       .option("--priority <priority>", "Filter by priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
-      .option("--status <status>", "Filter by status")
+      .option(
+        "--status <status>",
+        "Filter by status (Triage, Backlog, Todo, In Progress, In Review, Done, Canceled) — comma-separate for several"
+      )
       .option("--search <query>", "Search by title or description")
+      .option(
+        "--all-orgs",
+        "List across EVERY organization you belong to, not just the active one. " +
+          "Requires a personal (cross-org) token; adds an ORG column."
+      )
       .addHelpText(
         "after",
         `
 Examples:
   $ nexus ticket list
   $ nexus ticket list --type BUG --priority HIGH
-  $ nexus ticket list --search "login" --json`
+  $ nexus ticket list --status "Todo,In Progress"
+  $ nexus ticket list --search "login" --json
+  $ nexus ticket list --all-orgs --search "webhook"
+
+Statuses are the workflow states configured on the Linear team, matched
+case-insensitively. A name the team does not define is rejected with the
+complete allowed set — it never comes back as an empty page.
+
+Without --all-orgs, results come from the profile's active organization only.
+Every organization is backed by the same ticket workspace, so a ticket filed
+under another organization is invisible to a single-org search — use --all-orgs
+before filing to avoid duplicates.
+
+--all-orgs needs a personal (cross-org) token; an organization-scoped key is
+refused with a 403. Get one from Settings -> API Keys -> Personal Tokens, then
+run "nexus auth login".`
       )
   ).action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
-      const { data, meta } = await client.tickets.list({
+      const params = {
         ...getPaginationParams(opts),
         type: opts.type,
         priority: opts.priority,
         status: opts.status,
         search: opts.search
-      });
+      };
 
-      printList(data, meta, [
-        { key: "identifier", label: "IDENTIFIER", width: 12 },
-        { key: "title", label: "TITLE", width: 40 },
-        { key: "type", label: "TYPE", width: 18 },
-        { key: "priority", label: "PRIORITY", width: 10 },
-        { key: "status", label: "STATUS", width: 15 }
-      ]);
+      if (opts.allOrgs) {
+        await listAcrossOrganizations(client, params);
+        return;
+      }
+
+      const { data, meta } = await client.tickets.list(params);
+      printList(data, meta, TICKET_COLUMNS);
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -82,7 +188,13 @@ Examples:
       `
 Examples:
   $ nexus ticket get TKT-42
-  $ nexus ticket get TKT-42 --json`
+  $ nexus ticket get TKT-42 --json
+
+Notes:
+  This reads the profile's ACTIVE organization only, so a ticket filed under
+  another organization answers 404. Find it with "nexus ticket list --all-orgs"
+  — every row carries its url and, in --json, its organizationId. Then either
+  open the url, or switch with "nexus auth use-org <orgId>" and read it here.`
     )
     .action(async (id: string) => {
       try {

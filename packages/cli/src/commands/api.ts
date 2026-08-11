@@ -35,6 +35,7 @@ Examples:
   $ nexus api GET /agents --query page=1 --query limit=5
   $ nexus api PATCH /agents/abc-123 --body payload.json
   $ nexus api POST /prompt-assistant/chat --body '{"message":"..."}' --timeout 120
+  $ nexus api POST /mcp --body '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
   $ echo '{"text":"hello"}' | nexus api POST /emulator/dep-1/sessions/s-1/messages --body -
 
 File uploads:
@@ -53,7 +54,10 @@ File uploads:
   nexus document upload, nexus asset upload.
 
 Notes:
-  For long-running calls, raise the global --timeout <seconds> flag (default 30 s).`
+  For long-running calls, raise the global --timeout <seconds> flag (default 30 s).
+  Every 2xx is a success. Routes answering with the standard envelope are
+  unwrapped to their "data"; a route speaking its own protocol (POST /mcp is
+  JSON-RPC 2.0) is returned verbatim under "data" — pipe through 'jq .data'.`
     )
     .action(async (method: string, path: string, opts) => {
       try {

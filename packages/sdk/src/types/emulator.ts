@@ -24,6 +24,15 @@ export interface EmulatorMessage {
   type: string | null;
   createdAt: string;
   participantId?: string;
+  /**
+   * True when the message carries tool calls, meaning the turn continues past
+   * it. A tool-augmented turn persists one `AI` message per model call and
+   * every one but the last requests a tool, so a turn has produced its answer
+   * only once an `AI` message with `hasToolCalls: false` appears — polling for
+   * any `AI` message after a `status: "processing"` send reports completion
+   * mid-turn. Optional because servers predating this field omit it.
+   */
+  hasToolCalls?: boolean;
   files?: EmulatorMessageFile[];
 }
 
@@ -59,6 +68,16 @@ export interface EmulatorSendMessageResult {
   chatId: string;
   messageId: string;
   sessionId: string;
+  /**
+   * "completed" — the agent turn finished before the server responded (debug
+   * present when available). "processing" — the turn exceeded the server's
+   * sync wait window and continues in the background; fetch the session
+   * (getSession) to read the answer once it lands. "failed" — the turn
+   * settled but the agent errored (the error is recorded on the chat).
+   * Optional because servers predating this field omit it (their responses
+   * are always settled turns).
+   */
+  status?: "completed" | "processing" | "failed";
   debug?: EmulatorDebugInfo;
 }
 

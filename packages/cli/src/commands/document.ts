@@ -13,7 +13,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
 import { parseMetadataPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -22,6 +22,18 @@ import { resolveInputValue } from "../util/stdin";
 function collectMetadata(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
+
+/**
+ * The crawl modes `POST /documents/website` accepts.
+ *
+ * `satisfies` gates the list against the SDK's own field, so a value that stops
+ * being legal stops compiling here rather than reaching the server. The CLI
+ * advertised "single" for months; the contract has never accepted it.
+ */
+const CRAWL_MODES = [
+  "sitemap",
+  "crawl"
+] as const satisfies readonly AddWebsiteDocumentBody["mode"][];
 
 export function registerDocumentCommands(program: Command): void {
   const document = program.command("document").description("Manage knowledge documents");
@@ -32,15 +44,25 @@ export function registerDocumentCommands(program: Command): void {
       .command("list")
       .description("List documents")
       .option("--search <query>", "Search by name")
-      .option("--type <type>", "Filter by type")
-      .option("--status <status>", "Filter by status")
+      .option(
+        "--type <type>",
+        "Filter by type (PDF, CSV, TEXT, IMAGE, AUDIO, WEBSITE_FOLDER, WEBSITE_PAGE, NOTION_PAGE, NOTION_DATABASE, GOOGLE_DOC, GOOGLE_SHEET, GOOGLE_DRIVE, SHAREPOINT, AIRTABLE_BASE, AIRTABLE_TABLE, FOLDER, UNKNOWN)"
+      )
+      .option(
+        "--status <status>",
+        "Filter by status (PENDING, PROCESSING, READY, ERROR, SYNCING) — READY is terminal success"
+      )
       .addHelpText(
         "after",
         `
 Examples:
   $ nexus document list
   $ nexus document list --search "report" --limit 10
-  $ nexus document list --status PROCESSED --json`
+  $ nexus document list --status READY --json
+
+Poll an import to completion by watching for READY (terminal success) or ERROR.
+There is no COMPLETED or PROCESSED status — both are rejected, and a loop that
+waits for one can only ever exit by timing out.`
       )
   ).action(async (opts) => {
     try {
@@ -191,7 +213,12 @@ Examples:
     .command("add-website")
     .description("Crawl a website and create document(s)")
     .requiredOption("--url <url>", "Website URL")
-    .option("--mode <mode>", "Crawl mode: sitemap, single, etc.", "single")
+    // No commander default. `AddWebsiteDocumentBodySchema` declares
+    // `mode: z.enum(["sitemap", "crawl"])` — required, and "single" is not one of
+    // its values. The old default of "single" therefore made the bare command a
+    // guaranteed 400, and it also overwrote the `mode` of every `--body`,
+    // including this command's own example below.
+    .option(`--mode <mode>`, `Crawl mode: ${CRAWL_MODES.join(" or ")}. Required`)
     .option(
       "--metadata <key=value...>",
       "Filterable metadata (repeatable); inherited by every crawled page.",
@@ -204,7 +231,7 @@ Examples:
       `
 Examples:
   $ nexus document add-website --url https://docs.example.com --mode sitemap
-  $ nexus document add-website --url https://example.com/page --mode single
+  $ nexus document add-website --url https://example.com/page --mode crawl
   $ nexus document add-website --url https://docs.example.com --mode sitemap --metadata language=fr
   $ nexus document add-website --body '{"url":"https://example.com","mode":"sitemap"}'`
     )
@@ -213,9 +240,17 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
         const metadataFlags = opts.metadata as string[];
+        const mode = readStringField(opts.mode, base, "mode");
+        if (mode === undefined) {
+          console.error(
+            `Error: --mode is required.\n  nexus document add-website --url <url> --mode <${CRAWL_MODES.join("|")}>`
+          );
+          process.exitCode = 1;
+          return;
+        }
         const body = mergeBodyWithFlags(base, {
           ...(opts.url !== undefined && { url: opts.url }),
-          ...(opts.mode !== undefined && { mode: opts.mode }),
+          mode,
           ...(metadataFlags.length > 0 && { metadata: parseMetadataPairs(metadataFlags) })
         });
 

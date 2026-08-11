@@ -43,9 +43,80 @@ interface ApiSuccessEnvelope<T> {
   meta?: WirePaginationMeta;
 }
 
-interface ApiErrorEnvelope {
-  success: false;
-  error: { code: string; message: string; details?: unknown };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** `{ success: true, data, meta? }` — the envelope every typed v1 route returns. */
+function isSuccessEnvelope<T>(body: unknown): body is ApiSuccessEnvelope<T> {
+  return isRecord(body) && body.success === true && "data" in body;
+}
+
+/**
+ * The error to throw for a response, built from whatever body it carried.
+ *
+ * Three shapes reach this, in descending order of how much they tell us:
+ * the v1 error envelope (`{ success: false, error: { code, message } }`), a
+ * NestJS default error body (`{ statusCode, message, error }`), and anything
+ * else — for which the status is all we can honestly report.
+ */
+function toApiError(status: number, body: unknown): NexusApiError {
+  const envelope = isRecord(body) ? body : undefined;
+  const err = isRecord(envelope?.error) ? envelope.error : undefined;
+
+  if (err) {
+    const code = typeof err.code === "string" ? err.code : `HTTP_${status}`;
+    const message =
+      typeof err.message === "string" ? err.message : `Request failed with status ${status}`;
+    return status === 401
+      ? new NexusAuthenticationError(message)
+      : new NexusApiError(code, message, status, err.details);
+  }
+
+  const message =
+    typeof envelope?.message === "string"
+      ? envelope.message
+      : `Request failed with status ${status}`;
+  const code = typeof envelope?.error === "string" ? envelope.error : `HTTP_${status}`;
+
+  return status === 401
+    ? new NexusAuthenticationError(message)
+    : new NexusApiError(code, message, status);
+}
+
+/**
+ * Serialize a request body and set the header it needs. `FormData` is passed
+ * through untouched so the runtime can set its own multipart boundary.
+ *
+ * Returns `undefined` for a value `JSON.stringify` cannot represent (a function,
+ * a symbol), which is what the caller then sends: no body.
+ */
+function serializeBody(
+  body: unknown,
+  headers: Record<string, string>
+): string | FormData | undefined {
+  if (body instanceof FormData) return body;
+  headers["Content-Type"] = "application/json";
+  return JSON.stringify(body);
+}
+
+/**
+ * Read the response body as text.
+ *
+ * The timeout has already been cleared by the time this runs, so a stream that
+ * fails mid-read (a reset connection) rejects here. That is a transport failure,
+ * not a malformed payload, and it says so — otherwise the raw `TypeError` would
+ * escape past every SDK error type the caller catches.
+ */
+async function readBody(res: Response): Promise<string> {
+  try {
+    return await res.text();
+  } catch (err) {
+    throw new NexusConnectionError(
+      err instanceof Error ? err.message : "Failed to read the response body",
+      err instanceof Error ? err : undefined
+    );
+  }
 }
 
 // ============================================================================
@@ -60,8 +131,13 @@ interface ApiErrorEnvelope {
  * endpoints not yet covered by the SDK).
  *
  * All requests are sent to `{baseUrl}/api/public/v1{path}` with the API key
- * in the `api-key` header. Responses are expected to follow the envelope format:
- * `{ success: true, data: T, meta?: WirePaginationMeta }`.
+ * in the `api-key` header.
+ *
+ * Success and failure are decided by the HTTP STATUS. A 2xx whose body is the
+ * standard envelope (`{ success: true, data: T, meta?: WirePaginationMeta }`) is
+ * unwrapped to its `data`; a 2xx whose body is anything else — a route speaking
+ * its own protocol, such as the JSON-RPC of `POST /mcp` — is returned verbatim.
+ * Only a non-2xx (or an explicit `success: false`) throws.
  */
 export class HttpClient {
   private readonly baseUrl: string;
@@ -114,9 +190,21 @@ export class HttpClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
 
+    // `RequestOptions` advertises a body, so send it. It used to be dropped
+    // silently here, which turned any non-GET raw call into a request the
+    // server saw as empty.
+    const requestBody = opts.body === undefined ? undefined : serializeBody(opts.body, headers);
+
+    const fetchInit: RequestInit = {
+      method,
+      headers,
+      signal: controller.signal,
+      ...(requestBody === undefined ? {} : { body: requestBody })
+    };
+
     let res: Response;
     try {
-      res = await this.fetchFn(url.toString(), { method, headers, signal: controller.signal });
+      res = await this.fetchFn(url.toString(), fetchInit);
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -130,12 +218,21 @@ export class HttpClient {
       clearTimeout(timer);
     }
 
+    const text = await readBody(res);
+
     if (!res.ok) {
-      if (res.status === 401) throw new NexusAuthenticationError();
-      throw new NexusApiError("HTTP_ERROR", `Request failed with status ${res.status}`, res.status);
+      // Best-effort: an error body is usually the v1 envelope even on a route
+      // whose success payload is not JSON, and its message beats the status.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      throw toApiError(res.status, parsed);
     }
 
-    return res.text();
+    return text;
   }
 
   /**
@@ -170,13 +267,8 @@ export class HttpClient {
     const fetchInit: RequestInit = { method, headers };
 
     if (opts.body !== undefined) {
-      if (opts.body instanceof FormData) {
-        fetchInit.body = opts.body;
-        // Let the browser/runtime set Content-Type with boundary for FormData
-      } else {
-        headers["Content-Type"] = "application/json";
-        fetchInit.body = JSON.stringify(opts.body);
-      }
+      const serialized = serializeBody(opts.body, headers);
+      if (serialized !== undefined) fetchInit.body = serialized;
     }
 
     // Timeout via AbortController
@@ -205,10 +297,19 @@ export class HttpClient {
       return { data: {} as T, meta: undefined };
     }
 
-    // Parse JSON
-    let json: ApiSuccessEnvelope<T> | ApiErrorEnvelope;
+    const rawBody = await readBody(res);
+
+    // An empty body is not a parse failure. A 2xx that sends nothing succeeded
+    // with nothing to report — POST /mcp answers a JSON-RPC *notification*
+    // exactly that way: 201 with no body, by protocol.
+    if (rawBody.trim() === "") {
+      if (res.ok) return { data: {} as T, meta: undefined };
+      throw toApiError(res.status, undefined);
+    }
+
+    let json: unknown;
     try {
-      json = (await res.json()) as ApiSuccessEnvelope<T> | ApiErrorEnvelope;
+      json = JSON.parse(rawBody);
     } catch {
       throw new NexusApiError(
         "PARSE_ERROR",
@@ -217,27 +318,29 @@ export class HttpClient {
       );
     }
 
-    // Handle error envelope
-    if (!json.success) {
-      const err = (json as ApiErrorEnvelope).error;
-      if (!err || typeof err !== "object") {
-        // Non-envelope error response (e.g. NestJS default 404/500)
-        const raw = json as unknown as Record<string, unknown>;
-        const msg = (raw.message as string) ?? `Request failed with status ${res.status}`;
-        const code = (raw.error as string) ?? `HTTP_${res.status}`;
-        if (res.status === 401) {
-          throw new NexusAuthenticationError(msg);
-        }
-        throw new NexusApiError(code, msg, res.status);
+    // The HTTP STATUS decides success or failure — not the body's shape.
+    //
+    // This client used to key that decision off `json.success`, which made every
+    // 2xx response that is not a v1 envelope look like an error: the body was
+    // discarded and the caller got `Request failed with status 201`. That closed
+    // off POST /mcp entirely (JSON-RPC 2.0 has its own response shape, and NestJS
+    // answers a POST with 201), so `nexus api` could not reach the one endpoint
+    // that has no typed command at all. See NEX-3021.
+    if (res.ok) {
+      if (isSuccessEnvelope<T>(json)) {
+        return { data: json.data, meta: json.meta };
       }
-      if (res.status === 401) {
-        throw new NexusAuthenticationError(err.message);
+      // An explicit `success: false` is the server declaring failure; honor it
+      // even on a 2xx rather than handing a caller an error body as data.
+      if (isRecord(json) && json.success === false) {
+        throw toApiError(res.status, json);
       }
-      throw new NexusApiError(err.code, err.message, res.status, err.details);
+      // Any other 2xx body belongs to a route that speaks its own protocol.
+      // Hand it back verbatim — that is what a passthrough owes its caller.
+      return { data: json as T, meta: undefined };
     }
 
-    const success = json as ApiSuccessEnvelope<T>;
-    return { data: success.data, meta: success.meta };
+    throw toApiError(res.status, json);
   }
 
   /**

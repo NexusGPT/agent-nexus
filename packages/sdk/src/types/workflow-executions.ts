@@ -5,6 +5,19 @@
 /** Lifecycle status of a workflow execution. */
 export type WorkflowExecutionStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
+/**
+ * What an execution row actually IS (NEX-3178).
+ *
+ * - `run` — a real end-to-end run of the workflow.
+ * - `loop_iteration` — ONE pass of a loop / do-while body. `parentNodeId` names
+ *   the container node in the workflow graph that spawned it.
+ * - `node_test` — a builder-initiated single-node test run.
+ *
+ * Only `run` rows are listed by default; the other two need the matching
+ * `include…` flag.
+ */
+export type WorkflowExecutionType = "run" | "loop_iteration" | "node_test";
+
 // ============================================================================
 // List params
 // ============================================================================
@@ -27,6 +40,17 @@ export interface ListExecutionsParams {
   sortBy?: "createdAt" | "status";
   /** Sort direction. Defaults to `"desc"` server-side. */
   order?: "asc" | "desc";
+  /**
+   * Also return loop / do-while body passes (`executionType: "loop_iteration"`).
+   * Defaults to `false` server-side, so `meta.total` counts runs rather than
+   * iterations (NEX-3178).
+   */
+  includeChildExecutions?: boolean;
+  /**
+   * Also return builder single-node test runs (`executionType: "node_test"`).
+   * Defaults to `false` server-side.
+   */
+  includeTestRuns?: boolean;
 }
 
 /** Query parameters accepted by `client.workflowExecutions.listByWorkflow()`. */
@@ -37,6 +61,10 @@ export interface ListExecutionsForWorkflowParams {
   limit?: number;
   /** Restrict to one lifecycle status. */
   status?: WorkflowExecutionStatus;
+  /** See {@link ListExecutionsParams.includeChildExecutions}. */
+  includeChildExecutions?: boolean;
+  /** See {@link ListExecutionsParams.includeTestRuns}. */
+  includeTestRuns?: boolean;
 }
 
 // ============================================================================
@@ -71,6 +99,13 @@ export interface ExecutionSummary {
   completedAt: string | null;
   /** Wall-clock duration in milliseconds, or `null` while unfinished. */
   duration: number | null;
+  /** What this row is — see {@link WorkflowExecutionType}. */
+  executionType: WorkflowExecutionType;
+  /**
+   * For a `loop_iteration`, the id of the loop / do-while node in the workflow
+   * graph whose body this row ran. `null` for `run` and `node_test`.
+   */
+  parentNodeId?: string | null;
   /** Node tallies by status. */
   nodeStatusCounts: ExecutionNodeStatusCounts;
 }
@@ -232,6 +267,16 @@ export interface ExecutionDiagnose {
   startedAt: string | null;
   /** ISO 8601 completion timestamp, or `null` while unfinished. */
   completedAt: string | null;
+  /**
+   * What this row is — see {@link WorkflowExecutionType}. A loop pass otherwise
+   * reads like a truncated run: few nodes, no trigger, `loopIterations: null`.
+   */
+  executionType: WorkflowExecutionType;
+  /**
+   * For a `loop_iteration`, the loop / do-while node whose body this row ran.
+   * `null` otherwise.
+   */
+  parentNodeId?: string | null;
   /** First error found walking `nodes` depth-first, or `null`. */
   error: string | null;
   /**

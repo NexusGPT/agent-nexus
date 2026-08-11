@@ -18,6 +18,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripTsComments } from "./util/strip-ts-comments";
 import { WORKSPACE_SOURCE_ALIASES } from "./vitest.aliases";
 
 const SRC = path.resolve(__dirname);
@@ -50,11 +51,7 @@ const SPECIFIER = /(?:from|import)\s*\(?\s*["']((?:@nexus\/|@agent-nexus\/)[^"']
  * Comments are removed before scanning, because PROSE ABOUT A SPECIFIER IS NOT
  * AN IMPORT OF IT. A docblock that quotes an import line — here, or in any file
  * this scan walks — would otherwise be reported as an unmapped import and fail
- * this spec on its own documentation. A check that counts the text explaining it
- * reports a floor it can never reach.
- *
- * The scanner tracks string and template literals rather than stripping `//`
- * blindly — a naive strip eats the tail of any string containing a URL.
+ * this spec on its own documentation.
  *
  * ⚠️ This is the OPPOSITE of the right call for `src/wire-types-bundle.test.ts`,
  * which scans the same directory for `@nexus/types` and deliberately does NOT
@@ -63,51 +60,11 @@ const SPECIFIER = /(?:from|import)\s*\(?\s*["']((?:@nexus\/|@agent-nexus\/)[^"']
  * while a false positive there costs a reword and a false NEGATIVE ships
  * `@nexus/types` inside the published CLI. Do not "harmonise" them.
  */
-const stripComments = (source: string): string => {
-  let out = "";
-  let i = 0;
-  let quote: string | null = null;
-  while (i < source.length) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (quote !== null) {
-      if (ch === "\\") {
-        out += `${ch}${next ?? ""}`;
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-};
-
 const scan = (): { files: string[]; specifiers: Map<string, string[]> } => {
   const files = walk(SRC);
   const specifiers = new Map<string, string[]>();
   for (const file of files) {
-    const source = stripComments(fs.readFileSync(file, "utf-8"));
+    const source = stripTsComments(fs.readFileSync(file, "utf-8"));
     for (const [, specifier] of source.matchAll(SPECIFIER)) {
       const seen = specifiers.get(specifier) ?? [];
       seen.push(path.relative(PKG, file));
@@ -173,7 +130,7 @@ describe("workspace imports stay aliased to source", () => {
   it("CONTROL: comment stripping is load-bearing, and keeps strings intact", () => {
     // BOTH specifiers are ASSEMBLED, never written as one literal. This file
     // sits inside the tree the scan above walks, and a fixture is a string
-    // literal — which `stripComments` correctly preserves, because a `//` inside
+    // literal — which `stripTsComments` correctly preserves, because a `//` inside
     // a string is not a comment. Spelled out in full, the unmapped one would be
     // reported as a genuine unmapped import and would fail the very invariant it
     // exists to support; the mapped one would quietly list this file among the
@@ -183,14 +140,14 @@ describe("workspace imports stay aliased to source", () => {
     const mapped = `@agent-nexus${"/"}sdk`;
     const doc = `const a = 1; // see: import x from "${unmapped}"\nimport y from "${mapped}";`;
     expect(
-      [...stripComments(doc).matchAll(SPECIFIER)].map(([, s]) => s),
+      [...stripTsComments(doc).matchAll(SPECIFIER)].map(([, s]) => s),
       "The stripper is not removing a specifier quoted inside a comment, or it is " +
         "removing a real import along with it. Either way the scan above is measuring " +
         "the wrong text."
     ).toEqual(["@agent-nexus/sdk"]);
 
     expect(
-      stripComments('const url = "https://example.com/a"; // gone'),
+      stripTsComments('const url = "https://example.com/a"; // gone'),
       "The stripper ate the inside of a string literal. `//` in a URL is not a comment."
     ).toBe('const url = "https://example.com/a"; ');
   });

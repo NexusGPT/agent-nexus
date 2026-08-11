@@ -30,18 +30,37 @@ export function registerExecutionCommands(program: Command): void {
       .description("List workflow executions")
       .option("--workflow-id <id>", "Filter by workflow ID")
       .option("--status <status>", "Filter by status")
+      .option(
+        "--include-child-executions",
+        "Also list loop / do-while body passes (one execution per iteration)"
+      )
+      .option("--include-test-runs", "Also list builder single-node test runs")
       .addHelpText(
         "after",
         `
+Lists real end-to-end runs only. A loop / do-while node records each pass of its
+body as its own execution, and the builder records single-node test runs the same
+way; both are hidden unless you ask for them, so a row count means what it looks
+like it means. The TYPE column names each row (run / loop_iteration / node_test).
+
 Examples:
   $ nexus execution list
   $ nexus execution list --workflow-id wf-123 --limit 5
-  $ nexus execution list --status COMPLETED --json`
+  $ nexus execution list --status COMPLETED --json
+  $ nexus execution list --workflow-id wf-123 --include-child-executions`
       )
   ).action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
-      const params: ListExecutionsParams = { ...getPaginationParams(opts), status: opts.status };
+      // Unset commander flags are `undefined`, which `appendQuery` drops — so an
+      // ordinary `nexus execution list` sends neither scope parameter and gets
+      // the server default (real runs only).
+      const params: ListExecutionsParams = {
+        ...getPaginationParams(opts),
+        status: opts.status,
+        includeChildExecutions: opts.includeChildExecutions,
+        includeTestRuns: opts.includeTestRuns
+      };
       // Typed, not `any`. An `any` row makes `Column.key` fall back to a bare
       // `string`, which is what let the STARTED column below name `createdAt`
       // — a field `ExecutionSummary` does not have — and render blank forever.
@@ -52,6 +71,7 @@ Examples:
       printList(result.data, result.meta, [
         { key: "id", label: "ID", width: 36 },
         { key: "workflowId", label: "WORKFLOW", width: 36 },
+        { key: "executionType", label: "TYPE", width: 15 },
         { key: "status", label: "STATUS", width: 12 },
         { key: "startedAt", label: "STARTED", width: 20 }
       ]);
@@ -79,6 +99,8 @@ Examples:
         printRecord(exec, [
           { key: "id", label: "ID" },
           { key: "workflowId", label: "Workflow" },
+          { key: "executionType", label: "Type" },
+          { key: "parentNodeId", label: "Loop node" },
           { key: "status", label: "Status" },
           { key: "startedAt", label: "Started" },
           { key: "completedAt", label: "Completed" },
@@ -125,6 +147,20 @@ Examples:
         );
         if (diag.workflowName) {
           console.log(`${color.dim("Workflow:")} ${diag.workflowName}`);
+        }
+        // A loop pass looks like a truncated run — a handful of nodes, no
+        // trigger, `loopIterations: null` — so say what it is rather than
+        // leaving the reader to infer it (NEX-3178).
+        if (diag.executionType && diag.executionType !== "run") {
+          const provenance: Record<string, string> = {
+            loop_iteration: `loop iteration — one pass of the body of node ${diag.parentNodeId ?? "(unknown)"}`,
+            node_test: "single-node test run from the builder"
+          };
+          // An execution type this CLI build predates prints itself rather than
+          // borrowing the wrong description from a sibling branch.
+          console.log(
+            `${color.dim("Type:")} ${provenance[diag.executionType] ?? diag.executionType}`
+          );
         }
         if (diag.error) {
           console.log(`${color.red("Error:")} ${diag.error}`);

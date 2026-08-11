@@ -3520,6 +3520,11 @@ const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   // person deciding to go back; this one is a version that was serving real
   // traffic and started crashing. Same word in the name, opposite urgency.
   DEPLOYMENT_ROLLED_BACK_CRASH_LOOP: "failure",
+  // Failure for the same reason as the crash loop above: a version that was
+  // serving real traffic was pulled back out of it. The cause differs — the app
+  // answered, it just answered wrongly — but what an operator has to do about it
+  // does not.
+  DEPLOYMENT_ROLLED_BACK_FAILED_SMOKE: "failure",
   SECRET_VALUE_STAGED: "neutral",
   SECRET_VALUE_WRITTEN: "neutral",
   CAPACITY_REQUESTED: "neutral",

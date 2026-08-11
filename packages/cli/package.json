@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/cli",
-  "version": "0.18.1",
+  "version": "0.21.5",
   "description": "Official CLI for the Nexus AI agent platform.",
   "license": "MIT",
   "keywords": [
@@ -31,6 +31,7 @@
   "scripts": {
     "gen:audit-types": "tsx scripts/generate-vibe-audit-event-types.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",
+    "check:skills-lock": "tsx scripts/check-skills-lock.ts",
     "build": "tsup",
     "build:refresh-skills": "pnpm run gen:skills && tsup",
     "dev": "tsup --watch",

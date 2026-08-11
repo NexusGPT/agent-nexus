@@ -84,7 +84,10 @@ Examples:
     .requiredOption("--model-name <name>", "API model ID (e.g. llama-3-70b)")
     .requiredOption("--base-url <url>", "OpenAI-compatible API base URL (HTTPS)")
     .requiredOption("--api-key <key>", "API key for the custom endpoint")
-    .option("--protocol <protocol>", "Inference protocol (default: openai)", "openai")
+    // No commander default: `CreateCustomModelBodySchema` already applies
+    // `.default("openai")`, and a default here is not distinguishable from an
+    // explicit flag, so it merged over `--body`'s own `protocol` every time.
+    .option("--protocol <protocol>", "Inference protocol (default: openai)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",

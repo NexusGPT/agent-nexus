@@ -45,7 +45,12 @@ export class EmulatorResource extends BaseResource {
     );
   }
 
-  /** Send a message in an emulator session. Returns debug info about agent execution. */
+  /**
+   * Send a message in an emulator session. Returns debug info about agent
+   * execution when the turn completes within the server's sync wait window;
+   * slow turns return `status: "processing"` and finish in the background —
+   * poll getSession() for the answer.
+   */
   async sendMessage(
     deploymentId: string,
     sessionId: string,

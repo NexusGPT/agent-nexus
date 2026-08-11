@@ -85,8 +85,58 @@ export async function resolveInputJson(
 }
 
 /**
+ * Narrow one untyped value — a commander option, or a field read off a
+ * `--body` — to the string it is supposed to be, or `undefined`.
+ *
+ * Commander types an action handler's `opts` as `any`, and `--body` arrives as
+ * `Record<string, unknown>`, so BOTH sources reach a command with the check
+ * switched off. Passing either straight into a typed request body compiles and
+ * validates nothing; that is how `{ authType: "oauth" }` reached the server for
+ * months against a contract that requires a `service` too.
+ *
+ * An empty string collapses to `undefined` on purpose. `--service ""` supplies
+ * no service, and the caller's `?? ` chain must fall through to the next source
+ * and then to a stated error, rather than putting `""` on the wire for the
+ * server to reject with a field name the operator never typed. That is a
+ * deliberate `||`-shaped decision, written once here instead of being re-derived
+ * per call site — see the `prefer-nullish-coalescing` trap: `??` and `||` differ
+ * on exactly this value.
+ */
+export function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Read a field the operator may have supplied twice — as a flag, or inside
+ * `--body` — with the flag winning.
+ *
+ * This is {@link mergeBodyWithFlags}'s precedence, minus its defect. That helper
+ * merges every flag whose value is not `undefined`, and a commander DEFAULT is
+ * never `undefined`: `--auth-type <type>` declared with a default of `"oauth"`
+ * overwrote the `authType` of every `--body`, including the one `nexus tool
+ * connect --help` printed as its own example. The flag looked explicit and was
+ * not, and nothing in commander distinguishes the two.
+ *
+ * So a flag that can also be supplied through `--body` must carry NO commander
+ * default, and be read through here. Its default then belongs after both sources
+ * are known — the only place a value can mean "neither source said". The rule is
+ * enforced by `commands/flag-defaults-never-overwrite-body.test.ts`.
+ */
+export function readStringField(
+  flagValue: unknown,
+  body: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  return readString(flagValue) ?? readString(body?.[key]);
+}
+
+/**
  * Merge a `--body` JSON object with explicit CLI flags.
  * Flags take precedence — any non-`undefined` flag value overwrites the body field.
+ *
+ * ⚠️ A commander DEFAULT is not `undefined`, so it merges too and silently wins
+ * over `--body`. Declare no default on a flag merged here; use
+ * {@link readStringField} and apply the default afterwards.
  */
 export function mergeBodyWithFlags(
   body: Record<string, unknown> | undefined,

@@ -88,12 +88,15 @@ export type RoleAccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
  *
  * A read capability ending `.view` is held by an ordinary member; the `.manage`
  * / `.attach` / `.detach` / `.review` half is not.
+ *
+ * There is no ownership-transfer member. Handing `Role.ownerUserId` over is
+ * authorised by identity — the current owner, or an organisation admin — so no
+ * permission set can carry it and no capability names it.
  */
 export type RoleCapability =
   | "role.view"
   | "role.update"
   | "role.delete"
-  | "role.transfer_ownership"
   | "team.view"
   | "team.manage"
   | "group.view"

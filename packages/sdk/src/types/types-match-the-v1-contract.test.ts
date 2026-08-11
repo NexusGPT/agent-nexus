@@ -33,6 +33,34 @@ import {
   PublicUserGroupSchema,
   RevokePermissionV1BodySchema,
   RevokePermissionV1ResponseSchema,
+  RoleAccessRequestsV1ResponseSchema,
+  RoleAccessRequestV1ResponseSchema,
+  RoleAutomationSettingsV1BodySchema,
+  RoleCollectionGrantsV1ResponseSchema,
+  RoleCoverageV1ResponseSchema,
+  RoleCreationRequestsV1ResponseSchema,
+  RoleCreationRequestV1ResponseSchema,
+  RoleDeletionRequestsV1ResponseSchema,
+  RoleDeletionRequestV1ResponseSchema,
+  RoleJobTypesV1ResponseSchema,
+  RoleJobTypeV1BodySchema,
+  RoleJobTypeV1DeleteResponseSchema,
+  RoleJobTypeV1WriteResponseSchema,
+  RoleManagementRequestReviewV1BodySchema,
+  RoleManagementSettingsV1ResponseSchema,
+  RoleMembershipV1ResponseSchema,
+  RolePermissionSetsV1ResponseSchema,
+  RolePermissionSetV1ResponseSchema,
+  RoleResourcesV1ResponseSchema,
+  RoleScopeLinesV1BodySchema,
+  RoleScopeLinesV1ResponseSchema,
+  RolesListV1ResponseSchema,
+  RoleSystemPolicyV1BodySchema,
+  RoleV1ResponseSchema,
+  RoleVariablesV1BodySchema,
+  RoleVariablesV1ResponseSchema,
+  RoleWorkingYearV1BodySchema,
+  RoleWorkspaceGrantsV1ResponseSchema,
   SkillFolderSchema,
   UpdateDeploymentFolderBodySchema,
   UpdateDocumentTemplateFolderBodySchema,
@@ -85,6 +113,39 @@ import type {
   UpdateResourceTypeVisibilityBody
 } from "./permissions";
 import type { AvailablePhoneNumber, BuyPhoneNumberBody, PhoneNumber } from "./phone-numbers";
+import type {
+  ReviewRoleManagementRequestBody,
+  RoleAccessRequestResponse,
+  RoleAccessRequestsResponse,
+  RoleAutomationSettings,
+  RoleAutomationSettingsBody,
+  RoleCollectionGrantsResponse,
+  RoleCoverage,
+  RoleCreationRequestResponse,
+  RoleCreationRequestsResponse,
+  RoleDeletionRequestResponse,
+  RoleDeletionRequestsResponse,
+  RoleJobTypeBody,
+  RoleJobTypeDeleteResponse,
+  RoleJobTypeLibrary,
+  RoleJobTypeWriteResponse,
+  RoleManagementSettingsResponse,
+  RoleMembershipResponse,
+  RolePermissionSetResponse,
+  RolePermissionSetsResponse,
+  RoleResponse,
+  RoleScopeLinesBody,
+  RoleScopeLinesResponse,
+  RolesListResponse,
+  RoleSystemPolicy,
+  RoleSystemPolicyBody,
+  RoleSystemsResponse,
+  RoleVariablesBody,
+  RoleVariablesResponse,
+  RoleWorkingYear,
+  RoleWorkingYearBody,
+  RoleWorkspaceGrantsResponse
+} from "./roles";
 import type {
   AssignSkillToFolderBody,
   AssignSkillToFolderResponse,
@@ -230,7 +291,99 @@ export type V1ContractAssertions = [
   Expect<Equals<DeleteUserGroupResponse, Received<typeof DeleteUserGroupV1ResponseSchema>>>,
 
   // ── evaluations ── the dataset upload's response (NEX-2961)
-  Expect<Equals<UploadDatasetResult, Received<typeof UploadDatasetResponseSchema>>>
+  Expect<Equals<UploadDatasetResult, Received<typeof UploadDatasetResponseSchema>>>,
+
+  // ── roles ── /public/v1/roles/*, /public/v1/role-job-types
+  //
+  // Ten routes, ten pairs, and the deep ones are here deliberately. `RoleCoverage`
+  // is a tree of eight discriminated unions plus a formula AST, and it is the ONE
+  // response on this surface that carries salary — a wrong arm there is a money
+  // figure rendered from the wrong field, so it is the last shape that should be
+  // "checked by reading". Same argument for the job-type library, whose rate
+  // inputs are a discriminated union a `null` fallback would price at zero.
+  Expect<Equals<RolesListResponse, Received<typeof RolesListV1ResponseSchema>>>,
+  Expect<Equals<RoleResponse, Received<typeof RoleV1ResponseSchema>>>,
+  Expect<Equals<RoleSystemsResponse, Received<typeof RoleResourcesV1ResponseSchema>>>,
+  Expect<Equals<RoleMembershipResponse, Received<typeof RoleMembershipV1ResponseSchema>>>,
+  Expect<Equals<RolePermissionSetsResponse, Received<typeof RolePermissionSetsV1ResponseSchema>>>,
+  Expect<
+    Equals<RoleCollectionGrantsResponse, Received<typeof RoleCollectionGrantsV1ResponseSchema>>
+  >,
+  Expect<Equals<RoleWorkspaceGrantsResponse, Received<typeof RoleWorkspaceGrantsV1ResponseSchema>>>,
+  Expect<Equals<RoleAccessRequestsResponse, Received<typeof RoleAccessRequestsV1ResponseSchema>>>,
+  Expect<Equals<RoleCoverage, Received<typeof RoleCoverageV1ResponseSchema>>>,
+  Expect<Equals<RoleJobTypeLibrary, Received<typeof RoleJobTypesV1ResponseSchema>>>,
+
+  // ── roles, the write half ──
+  //
+  // Gated the run the schemas LANDED. Before that commit these imports resolved to
+  // nothing, so adding them would have been a TS2305 on CI rather than a check —
+  // which is why the previous pass deliberately left them out and said so.
+  Expect<Equals<RolePermissionSetResponse, Received<typeof RolePermissionSetV1ResponseSchema>>>,
+  Expect<Equals<RoleAccessRequestResponse, Received<typeof RoleAccessRequestV1ResponseSchema>>>,
+  Expect<
+    Equals<ReviewRoleManagementRequestBody, Sent<typeof RoleManagementRequestReviewV1BodySchema>>
+  >,
+  Expect<
+    Equals<RoleCreationRequestsResponse, Received<typeof RoleCreationRequestsV1ResponseSchema>>
+  >,
+  Expect<Equals<RoleCreationRequestResponse, Received<typeof RoleCreationRequestV1ResponseSchema>>>,
+  Expect<
+    Equals<RoleDeletionRequestsResponse, Received<typeof RoleDeletionRequestsV1ResponseSchema>>
+  >,
+  Expect<Equals<RoleDeletionRequestResponse, Received<typeof RoleDeletionRequestV1ResponseSchema>>>,
+  Expect<
+    Equals<RoleManagementSettingsResponse, Received<typeof RoleManagementSettingsV1ResponseSchema>>
+  >,
+  Expect<Equals<RoleJobTypeBody, Sent<typeof RoleJobTypeV1BodySchema>>>,
+  Expect<Equals<RoleJobTypeWriteResponse, Received<typeof RoleJobTypeV1WriteResponseSchema>>>,
+  Expect<Equals<RoleJobTypeDeleteResponse, Received<typeof RoleJobTypeV1DeleteResponseSchema>>>,
+  Expect<Equals<RoleAutomationSettingsBody, Sent<typeof RoleAutomationSettingsV1BodySchema>>>,
+  Expect<Equals<RoleScopeLinesBody, Sent<typeof RoleScopeLinesV1BodySchema>>>,
+  Expect<Equals<RoleScopeLinesResponse, Received<typeof RoleScopeLinesV1ResponseSchema>>>,
+  Expect<Equals<RoleVariablesBody, Sent<typeof RoleVariablesV1BodySchema>>>,
+  Expect<Equals<RoleVariablesResponse, Received<typeof RoleVariablesV1ResponseSchema>>>,
+  Expect<Equals<RoleWorkingYearBody, Sent<typeof RoleWorkingYearV1BodySchema>>>,
+  Expect<Equals<RoleSystemPolicyBody, Sent<typeof RoleSystemPolicyV1BodySchema>>>,
+
+  // ── the three nullable READS, asserted through the DESCRIPTOR ──────────────
+  //
+  // 🚨 THESE SIX GO THROUGH `ZPublicApiV1.<Descriptor>.Response`, NOT THROUGH THE
+  // NAMED SCHEMA EXPORT, AND THAT DIFFERENCE IS THE WHOLE POINT.
+  //
+  // A descriptor may WRAP its schema. Here each GET declares
+  // `…V1ResponseSchema.nullable()` while its PUT declares the bare object — a read
+  // answers `null` when nothing has been authored, an upsert always writes a row.
+  // The schema export is only the inner half, so an assertion against it compares
+  // the SDK's type to something no route serves.
+  //
+  // That is exactly what happened: these three passed against the named export
+  // while the SDK typed all three reads as always-present, and the CLI threw
+  // `Cannot read properties of null` on the ordinary unset path. The contract was
+  // right the whole time and the assertion was pointed one level too shallow.
+  //
+  // Asserting through the descriptor also means a future `.nullable()`,
+  // `.optional()` or `.transform()` added at the descriptor cannot slip past.
+  Expect<
+    Equals<
+      RoleAutomationSettings | null,
+      Received<typeof ZPublicApiV1.RoleAutomationSettingsGet.Response>
+    >
+  >,
+  Expect<
+    Equals<
+      RoleAutomationSettings,
+      Received<typeof ZPublicApiV1.RoleAutomationSettingsUpsert.Response>
+    >
+  >,
+  Expect<
+    Equals<RoleWorkingYear | null, Received<typeof ZPublicApiV1.RolesGetWorkingYear.Response>>
+  >,
+  Expect<Equals<RoleWorkingYear, Received<typeof ZPublicApiV1.RolesUpsertWorkingYear.Response>>>,
+  Expect<
+    Equals<RoleSystemPolicy | null, Received<typeof ZPublicApiV1.RolesGetSystemPolicy.Response>>
+  >,
+  Expect<Equals<RoleSystemPolicy, Received<typeof ZPublicApiV1.RolesUpsertSystemPolicy.Response>>>
 ];
 
 /**
@@ -285,7 +438,43 @@ const GATED_PAIRS = [
   "UserGroupMemberBody ↔ UserGroupMemberV1BodySchema",
   "DeleteUserGroupResponse ↔ DeleteUserGroupV1ResponseSchema",
 
-  "UploadDatasetResult ↔ UploadDatasetResponseSchema"
+  "UploadDatasetResult ↔ UploadDatasetResponseSchema",
+
+  "RolesListResponse ↔ RolesListV1ResponseSchema",
+  "RoleResponse ↔ RoleV1ResponseSchema",
+  "RoleSystemsResponse ↔ RoleResourcesV1ResponseSchema",
+  "RoleMembershipResponse ↔ RoleMembershipV1ResponseSchema",
+  "RolePermissionSetsResponse ↔ RolePermissionSetsV1ResponseSchema",
+  "RoleCollectionGrantsResponse ↔ RoleCollectionGrantsV1ResponseSchema",
+  "RoleWorkspaceGrantsResponse ↔ RoleWorkspaceGrantsV1ResponseSchema",
+  "RoleAccessRequestsResponse ↔ RoleAccessRequestsV1ResponseSchema",
+  "RoleCoverage ↔ RoleCoverageV1ResponseSchema",
+  "RoleJobTypeLibrary ↔ RoleJobTypesV1ResponseSchema",
+
+  "RolePermissionSetResponse ↔ RolePermissionSetV1ResponseSchema",
+  "RoleAccessRequestResponse ↔ RoleAccessRequestV1ResponseSchema",
+  "ReviewRoleManagementRequestBody ↔ RoleManagementRequestReviewV1BodySchema",
+  "RoleCreationRequestsResponse ↔ RoleCreationRequestsV1ResponseSchema",
+  "RoleCreationRequestResponse ↔ RoleCreationRequestV1ResponseSchema",
+  "RoleDeletionRequestsResponse ↔ RoleDeletionRequestsV1ResponseSchema",
+  "RoleDeletionRequestResponse ↔ RoleDeletionRequestV1ResponseSchema",
+  "RoleManagementSettingsResponse ↔ RoleManagementSettingsV1ResponseSchema",
+  "RoleJobTypeBody ↔ RoleJobTypeV1BodySchema",
+  "RoleJobTypeWriteResponse ↔ RoleJobTypeV1WriteResponseSchema",
+  "RoleJobTypeDeleteResponse ↔ RoleJobTypeV1DeleteResponseSchema",
+  "RoleAutomationSettingsBody ↔ RoleAutomationSettingsV1BodySchema",
+  "RoleAutomationSettings | null ↔ ZPublicApiV1.RoleAutomationSettingsGet.Response",
+  "RoleAutomationSettings ↔ ZPublicApiV1.RoleAutomationSettingsUpsert.Response",
+  "RoleScopeLinesBody ↔ RoleScopeLinesV1BodySchema",
+  "RoleScopeLinesResponse ↔ RoleScopeLinesV1ResponseSchema",
+  "RoleVariablesBody ↔ RoleVariablesV1BodySchema",
+  "RoleVariablesResponse ↔ RoleVariablesV1ResponseSchema",
+  "RoleWorkingYearBody ↔ RoleWorkingYearV1BodySchema",
+  "RoleWorkingYear | null ↔ ZPublicApiV1.RolesGetWorkingYear.Response",
+  "RoleWorkingYear ↔ ZPublicApiV1.RolesUpsertWorkingYear.Response",
+  "RoleSystemPolicyBody ↔ RoleSystemPolicyV1BodySchema",
+  "RoleSystemPolicy | null ↔ ZPublicApiV1.RolesGetSystemPolicy.Response",
+  "RoleSystemPolicy ↔ ZPublicApiV1.RolesUpsertSystemPolicy.Response"
 ] as const;
 
 /**
@@ -316,16 +505,42 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
       "compare against. Its contract comment also describes a bare `{ id }`, which the handler " +
       "has not returned for some time — V1ReleasePhoneNumberUseCase returns eight fields. Until " +
       "packages/types grows the schema, this type is checked by reading and nothing else."
+  ],
+  [
+    "CreateRolePermissionSetBody",
+    "RolePermissionSetCreateV1BodySchema's `surfaces` is z.array(RoleGroupSurfaceValueSchema), and " +
+      "that schema is annotated `z.ZodType<RoleGroupSurfaceValue>` — one type argument. In zod 4 " +
+      "the SECOND generic parameter of ZodType is the INPUT, so annotating only the first leaves " +
+      "the input `unknown` and the array's input `unknown[]`. The SDK's literal union is " +
+      "deliberately NARROWER than that, which is correct for a typed client, so equality is the " +
+      "wrong instrument rather than the type being wrong. The OUTPUT side is gated through " +
+      "RolePermissionSetResponse, which is what the server actually validates."
+  ],
+  [
+    "UpdateRolePermissionSetBody",
+    "Same `surfaces` shape and the same reason as CreateRolePermissionSetBody: the annotated " +
+      "z.ZodType leaves its input `unknown`, so a wire-input comparison would require this " +
+      "package to publish `unknown[]` where it correctly publishes the surface union. Its " +
+      "capabilities, name and resourceRelation fields DO compare equal; only surfaces does not, " +
+      "and no partial form of this assertion exists."
+  ],
+  [
+    "ListRoleAccessRequestsParams",
+    "RoleAccessRequestListParamsV1Schema wraps its status in `optionalQueryParam`, whose INPUT " +
+      "is `unknown` by construction — a query string arrives as text and the wrapper " +
+      "preprocesses an empty string away. The SDK's optional literal union is deliberately " +
+      "NARROWER than the schema accepts, which is correct for a typed client, so equality is " +
+      "the wrong instrument here rather than the type being wrong."
   ]
 ] as const;
 
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 44 pairs are covered. Most of the contract is not, and this file does not
+ * 78 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
  */
-const GATED_PAIR_FLOOR = 44;
+const GATED_PAIR_FLOOR = 78;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**
@@ -381,6 +596,6 @@ describe("the SDK's types match the Public API v1 contract", () => {
         `${name} is listed as BOTH gated and ungated`
       ).toBe(false);
     }
-    expect(UNGATED_WITH_REASON.length).toBe(3);
+    expect(UNGATED_WITH_REASON.length).toBe(6);
   });
 });

@@ -27,6 +27,7 @@ export { ModelsResource } from "./models";
 export { PermissionsResource } from "./permissions";
 export { PhoneNumbersResource } from "./phone-numbers";
 export { PromptAssistantResource } from "./prompt-assistant";
+export { RolesResource } from "./roles";
 export { SkillFoldersResource } from "./skill-folders";
 export { SkillsResource } from "./skills";
 export { TicketsResource } from "./tickets";

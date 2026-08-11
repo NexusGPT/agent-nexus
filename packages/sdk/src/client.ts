@@ -25,6 +25,7 @@ import { ModelsResource } from "./resources/models";
 import { PermissionsResource } from "./resources/permissions";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
 import { PromptAssistantResource } from "./resources/prompt-assistant";
+import { RolesResource } from "./resources/roles";
 import { SkillFoldersResource } from "./resources/skill-folders";
 import { SkillsResource } from "./resources/skills";
 import { TicketsResource } from "./resources/tickets";
@@ -232,6 +233,16 @@ export class NexusClient {
   /** Manage user groups — the `group` principal a permission grant names. */
   public readonly userGroups: UserGroupsResource;
 
+  /**
+   * Roles — which Role holds a system, who is in it, what it reaches, and how
+   * much of its work is automated.
+   *
+   * ⚠️ `attachSystem` MOVES a system off whatever Role held it, and `delete`
+   * orphans every system a Role held. Read `RolesResource`'s header before any
+   * write here.
+   */
+  public readonly roles: RolesResource;
+
   constructor(opts: NexusClientOptions = {}) {
     const apiKey = opts.apiKey ?? getEnv("NEXUS_API_KEY");
     if (!apiKey) {
@@ -293,5 +304,6 @@ export class NexusClient {
     this.customers = new CustomersResource(http);
     this.permissions = new PermissionsResource(http);
     this.userGroups = new UserGroupsResource(http);
+    this.roles = new RolesResource(http);
   }
 }

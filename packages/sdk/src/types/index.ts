@@ -47,6 +47,7 @@ export type * from "./me";
 export type * from "./models";
 export type * from "./permissions";
 export type * from "./phone-numbers";
+export type * from "./roles";
 export type * from "./skill-folders";
 export type * from "./skills";
 export type * from "./tickets";

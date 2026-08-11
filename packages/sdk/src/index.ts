@@ -35,6 +35,7 @@ export {
   ModelsResource,
   PermissionsResource,
   PromptAssistantResource,
+  RolesResource,
   SkillsResource,
   TicketsResource,
   ToolConnectionResource,

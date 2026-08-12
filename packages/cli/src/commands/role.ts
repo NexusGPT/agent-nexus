@@ -2355,6 +2355,150 @@ Notes:
       }
     });
 
+  // ── the Role's WORK: its duties, and the tasks it proposes ────────────────
+  role
+    .command("responsibilities")
+    .description("List a Role's duties — what it is answerable for")
+    .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role responsibilities "Support agent"
+
+Notes:
+  POSITION IS AN INSERTION ORDER, NOT A RANK. Removing a duty leaves a hole
+  (0, 1, 3) and nothing backfills it, so read the list rather than the number.`
+    )
+    .action(async (ref: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.roles.listResponsibilities(await resolveRoleId(client, ref));
+
+        printList(result.responsibilities, undefined, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "position", label: "POS", width: 5 },
+          { key: "text", label: "DUTY", width: 70 }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("add-responsibility")
+    .description("Add ONE duty to a Role")
+    .argument("<role>", "Role name or UUID")
+    .argument("<text>", "The duty, in your own words")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role add-responsibility "Support" "Answer billing disputes under 200 euros"
+
+Notes:
+  ONE PER CALL, AND THERE IS NO WHOLE-LIST REPLACE. That is deliberate: a
+  replace re-mints every row id on every save, and a duty has to stay
+  referenceable because a task's coverage checklist points at it. Seeding
+  several duties means several calls.
+
+  The server assigns the id and appends at the END of the list. Blank text is
+  refused; 500 characters is the ceiling — anything longer is a job
+  description, which belongs on "nexus role update --job-description".`
+    )
+    .action(async (ref: string, text: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const duty = await client.roles.addResponsibility(roleId, { text });
+
+        printSuccess("Duty added.", { id: duty.id, position: duty.position, text: duty.text });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("remove-responsibility")
+    .description("Remove ONE duty from a Role")
+    .argument("<role>", "Role name or UUID")
+    .argument("<responsibility-id>", 'Duty UUID — read it from "nexus role responsibilities"')
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role responsibilities "Support" --json      # read the ids first
+  $ nexus role remove-responsibility "Support" 3f2b...
+
+Notes:
+  IT ALSO UNTICKS THE DUTY FROM EVERY TASK THAT COVERED IT. The link rows go
+  with the duty, and this output reports the duty alone.
+
+  A duty that is not this Role's answers 404, so a success means exactly one
+  row went. It leaves a hole in POSITION and nothing backfills it.`
+    )
+    .action(async (ref: string, responsibilityId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const removed = await client.roles.removeResponsibility(roleId, responsibilityId);
+
+        printSuccess("Duty removed.", { id: removed.id });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("tasks")
+    .description("List a Role's proposed tasks and their assignments")
+    .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role tasks "Support agent"
+
+Notes:
+  A TASK ID IS DURABLE — a task saved with its id is updated in place and keeps
+  it. AN ASSIGNMENT ID IS NOT: assignment rows are deleted and re-inserted under
+  their task on every save, so read one rather than storing it.
+
+  READ-ONLY TODAY. There is no "set-tasks" and no graduation verb, and the two
+  absences differ: the write is deferred to its own slice, the graduation is
+  refused outright. The public contract carries both reasons.
+
+  ASSIGNMENTS carry ids and no names. Resolve a person with "nexus role
+  members" and a system with "nexus role systems".`
+    )
+    .action(async (ref: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.roles.listTasks(await resolveRoleId(client, ref));
+
+        // THE ROWS GO IN WHOLE, and the count is a COLUMN `format`. Rewriting
+        // `assignments` to its length before this call would reach `--json` too —
+        // printList dumps its rows as-is there — so a scripted caller would get a
+        // number where the help text above tells it to resolve the ids. The table
+        // still needs a count, because a column cannot render the union arms.
+        printList(result.tasks, undefined, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "position", label: "POS", width: 5 },
+          { key: "name", label: "TASK", width: 44 },
+          { key: "occurrencesPerYear", label: "OCC/YR", width: 8 },
+          { key: "peoplePerYear", label: "PPL/YR", width: 8 },
+          {
+            key: "assignments",
+            label: "ASSIGNED",
+            width: 9,
+            format: (val) => (Array.isArray(val) ? String(val.length) : "0")
+          }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   role
     .command("system-policy")
     .description("Read a Role's system policy")

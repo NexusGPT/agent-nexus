@@ -1724,3 +1724,112 @@ export interface RoleSystemPolicy {
   /** ISO 8601. */
   updatedAt: string;
 }
+
+// ============================================================================
+// The Role's WORK — what it is answerable for, and what it proposes to do
+//
+// Two documents that sit side by side on one screen and are independent in the
+// database. Their authoring grains are OPPOSITE and neither is an oversight: a
+// duty is added and removed ONE AT A TIME because the SERVER mints its id, so a
+// whole-list replace would have to re-mint — and a task's coverage checklist
+// references a duty by id. A task list can be replaced whole because the body
+// NAMES each surviving row, which is what keeps its id.
+// ============================================================================
+
+/** One duty the Role is answerable for, in its author's own words. */
+export interface RoleResponsibility {
+  /** Row UUID. Stable across edits of this duty and of every other one. */
+  id: string;
+  /** The duty itself. Never blank — the column refuses it. */
+  text: string;
+  /**
+   * Its place in the list, `0`-based.
+   *
+   * ⚠️ AN INSERTION ORDER, NOT A DENSE RANK. Removing a duty leaves a hole —
+   * 0, 1, 3 — and nothing backfills it. Render the list, not the integer.
+   */
+  position: number;
+  /** ISO 8601. */
+  updatedAt: string;
+}
+
+/** Every duty the Role is answerable for, in read order. */
+export interface RoleResponsibilitiesResponse {
+  /** The duties, ordered by `(position, createdAt, id)`. */
+  responsibilities: RoleResponsibility[];
+}
+
+/** Add ONE duty. The server assigns its id and appends it at the end. */
+export interface RoleResponsibilityBody {
+  /**
+   * The duty. Trimmed before it is measured, so a row of spaces is a 400 rather
+   * than a duty that renders as an empty line nobody can select. 500 characters
+   * is the ceiling; anything longer is a job description, which belongs on
+   * `updateRole()`.
+   */
+  text: string;
+}
+
+/**
+ * What removing a duty answers with.
+ *
+ * 🚨 NO `removed` BOOLEAN, unlike the grant and system detaches. Those are
+ * idempotent and need a field to say which happened; this route answers 404 for
+ * a duty that is not this Role's, so a success always means exactly one row went.
+ */
+export interface RoleResponsibilityRemoved {
+  /** The duty that was removed. */
+  id: string;
+}
+
+/**
+ * Who or what a proposed task is assigned to.
+ *
+ * ⚠️ IDS AND NO DISPLAY NAME, deliberately. The resource arm spans six tables
+ * behind a loose `resourceType` with no foreign key to join through, so a name
+ * would cost six queries per read. Resolve a `userId` with `listMembers()` and a
+ * `resourceId` with `listSystems()`.
+ */
+export type RoleTaskAssignment =
+  | { kind: "person"; userId: string }
+  | { kind: "resource"; resourceType: string; resourceId: string };
+
+/**
+ * ⚠️ AN ASSIGNMENT HAS NO DURABLE ID, unlike the task above it. Assignment rows
+ * are deleted and re-inserted under their task on every save of the list,
+ * because nothing references one by id. Read one; never store one.
+ */
+
+/** One task the Role proposes to run. */
+export interface RoleTask {
+  /**
+   * Row UUID, and a DURABLE handle.
+   *
+   * A task submitted back to the dashboard's save with its `id` is updated in
+   * place and keeps it; that is what lets a task's coverage checklist reference
+   * it at all. Safe to store and to correlate across sessions.
+   */
+  id: string;
+  /** What the task is. */
+  name: string;
+  /** One line, or `null` when nobody has written one. */
+  description: string | null;
+  /** Occurrences a year, or `null` when nobody has stated it. `null` is not `0`. */
+  occurrencesPerYear: number | null;
+  /** People a year, or `null` when nobody has stated it. `null` is not `0`. */
+  peoplePerYear: number | null;
+  /** Revenue a year in the organization's currency, or `null` when unstated. */
+  revenuePerYear: number | null;
+  /** Its place in the list, `0`-based. The read is ordered by it. */
+  position: number;
+  /** Who and what runs it. */
+  assignments: RoleTaskAssignment[];
+  /** ISO 8601. */
+  updatedAt: string;
+}
+
+/** The Role's whole task list, in read order. */
+export interface RoleTasksResponse {
+  /** The tasks, ordered by `position`. */
+  tasks: RoleTask[];
+}

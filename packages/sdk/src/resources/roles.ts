@@ -38,12 +38,17 @@ import type {
   RoleRemovalResult,
   RoleResourceType,
   RoleResponse,
+  RoleResponsibilitiesResponse,
+  RoleResponsibility,
+  RoleResponsibilityBody,
+  RoleResponsibilityRemoved,
   RoleScopeLinesBody,
   RoleScopeLinesResponse,
   RolesListResponse,
   RoleSystemPolicy,
   RoleSystemPolicyBody,
   RoleSystemsResponse,
+  RoleTasksResponse,
   RoleUpdatedResponse,
   RoleVariablesBody,
   RoleVariablesResponse,
@@ -1003,5 +1008,94 @@ export class RolesResource extends BaseResource {
    */
   async upsertSystemPolicy(roleId: string, body: RoleSystemPolicyBody): Promise<RoleSystemPolicy> {
     return this.http.request<RoleSystemPolicy>("PUT", `/roles/${roleId}/system-policy`, { body });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // The Role's WORK — its duties, and the tasks it proposes to run
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The duties this Role is answerable for, in its author's own words.
+   *
+   * ⚠️ `position` IS AN INSERTION ORDER, NOT A DENSE RANK. Removing a duty leaves
+   * a hole — 0, 1, 3 — and nothing backfills it. Render the list, not the integer.
+   *
+   * @param roleId - Role UUID.
+   * @returns The duties, in read order.
+   */
+  async listResponsibilities(roleId: string): Promise<RoleResponsibilitiesResponse> {
+    return this.http.request<RoleResponsibilitiesResponse>(
+      "GET",
+      `/roles/${roleId}/responsibilities`
+    );
+  }
+
+  /**
+   * Add ONE duty. The server assigns its id and appends it at the END of the list.
+   *
+   * 🚨 ONE PER REQUEST, AND THERE IS NO WHOLE-LIST REPLACE — the opposite grain
+   * from `replaceScopeLines` and `replaceVariables`, deliberately. A replace
+   * re-mints every row id on every save, and a duty has to stay referenceable
+   * because a task's coverage checklist points at it. Seeding several duties
+   * means several calls.
+   *
+   * @param roleId - Role UUID.
+   * @param body - The duty, in the author's own words.
+   * @returns The stored duty, with its id and position.
+   */
+  async addResponsibility(
+    roleId: string,
+    body: RoleResponsibilityBody
+  ): Promise<RoleResponsibility> {
+    return this.http.request<RoleResponsibility>("POST", `/roles/${roleId}/responsibilities`, {
+      body
+    });
+  }
+
+  /**
+   * Remove ONE duty, named explicitly.
+   *
+   * ⚠️ IT ALSO UNTICKS THE DUTY FROM EVERY TASK THAT COVERED IT — the link rows
+   * cascade with the duty — and this response reports the duty alone.
+   *
+   * NOT idempotent: a duty that is not this Role's is a 404, so a success always
+   * means exactly one row went. Both ids are checked, and the Role is
+   * load-bearing rather than decoration.
+   *
+   * @param roleId - Role UUID.
+   * @param responsibilityId - Duty UUID.
+   * @returns The id of the duty that was removed.
+   */
+  async removeResponsibility(
+    roleId: string,
+    responsibilityId: string
+  ): Promise<RoleResponsibilityRemoved> {
+    return this.http.request<RoleResponsibilityRemoved>(
+      "DELETE",
+      `/roles/${roleId}/responsibilities/${responsibilityId}`
+    );
+  }
+
+  /**
+   * The tasks this Role proposes to run, with their assignments.
+   *
+   * ✅ A TASK ID IS DURABLE — a task submitted back with its id is updated in
+   * place and keeps it. ⚠️ AN ASSIGNMENT ID IS NOT: assignment rows are deleted
+   * and re-inserted under their task on every save, because nothing references
+   * one by id.
+   *
+   * 🚨 READ-ONLY OVER v1 TODAY. There is no task write and no graduation call,
+   * and the two absences are different: the write is DEFERRED to its own slice
+   * with a ticket, the graduation is REFUSED because it performs an impact write
+   * v1 does not offer. The contract's omissions section carries both.
+   *
+   * ⚠️ `assignments[]` carries ids and no display names. Resolve a `userId` with
+   * `listMembers()` and a `resourceId` with `listSystems()`.
+   *
+   * @param roleId - Role UUID.
+   * @returns The tasks, in read order, each with its assignments.
+   */
+  async listTasks(roleId: string): Promise<RoleTasksResponse> {
+    return this.http.request<RoleTasksResponse>("GET", `/roles/${roleId}/tasks`);
   }
 }

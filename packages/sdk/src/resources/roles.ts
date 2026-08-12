@@ -48,6 +48,9 @@ import type {
   RoleSystemPolicy,
   RoleSystemPolicyBody,
   RoleSystemsResponse,
+  RoleTaskDutiesBody,
+  RoleTaskDutiesResponse,
+  RoleTasksBody,
   RoleTasksResponse,
   RoleUpdatedResponse,
   RoleVariablesBody,
@@ -1102,5 +1105,74 @@ export class RolesResource extends BaseResource {
    */
   async listTasks(roleId: string): Promise<RoleTasksResponse> {
     return this.http.request<RoleTasksResponse>("GET", `/roles/${roleId}/tasks`);
+  }
+
+  /**
+   * Replace the Role's whole task list.
+   *
+   * 🚨 THIS REPLACES THE WHOLE LIST — anything absent from `tasks` is DELETED,
+   * and the response is a 200 either way. Read, modify, send the whole list back.
+   *
+   * ✅ NAME A ROW TO KEEP IT. A task sent with its `id` is updated in place and
+   * keeps it; one with no `id` is created. That is what keeps the task's duty
+   * ticks alive — a re-minted id takes every link row with it — so send the ids
+   * you read rather than dropping them.
+   *
+   * ⚠️ An ASSIGNMENT is not named and needs no id: its arm is its identity.
+   *
+   * Every id is checked against this Role and this organization before any row
+   * is written. A foreign task, user or tool is a 400 naming a COUNT, never the
+   * ids.
+   *
+   * @param roleId - Role UUID.
+   * @param body - Every task the Role should have afterwards, in order.
+   * @returns The tasks as stored, renumbered from the array.
+   */
+  async replaceTasks(roleId: string, body: RoleTasksBody): Promise<RoleTasksResponse> {
+    return this.http.request<RoleTasksResponse>("PUT", `/roles/${roleId}/tasks`, { body });
+  }
+
+  /**
+   * The duty ids a task ticks.
+   *
+   * 🚨 IDS ONLY, NEVER THE DUTY TEXT — that has one home and a different scope.
+   * Read the labels with `listResponsibilities()` and zip on the id; both reads
+   * are required to render a checklist.
+   *
+   * @param roleId - Role UUID.
+   * @param taskId - Task UUID, from `listTasks()`.
+   * @returns The duty ids, in the duties' own read order.
+   */
+  async listTaskDuties(roleId: string, taskId: string): Promise<RoleTaskDutiesResponse> {
+    return this.http.request<RoleTaskDutiesResponse>(
+      "GET",
+      `/roles/${roleId}/tasks/${taskId}/duties`
+    );
+  }
+
+  /**
+   * Replace the whole set of duties a task ticks.
+   *
+   * 🚨 REPLACES THE WHOLE SET. An empty array unticks every duty and answers
+   * 200 — the correct body for clearing the last tick, not an accident.
+   *
+   * Every id is checked against THIS Role before any row is written; a duty of
+   * another Role is a 400 naming a COUNT. The same duty twice is refused.
+   *
+   * @param roleId - Role UUID.
+   * @param taskId - Task UUID, from `listTasks()`.
+   * @param body - Every duty this task should tick afterwards.
+   * @returns The stored set, in the duties' own read order.
+   */
+  async replaceTaskDuties(
+    roleId: string,
+    taskId: string,
+    body: RoleTaskDutiesBody
+  ): Promise<RoleTaskDutiesResponse> {
+    return this.http.request<RoleTaskDutiesResponse>(
+      "PUT",
+      `/roles/${roleId}/tasks/${taskId}/duties`,
+      { body }
+    );
   }
 }

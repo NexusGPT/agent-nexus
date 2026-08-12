@@ -1861,3 +1861,59 @@ export interface RoleTasksResponse {
   /** The tasks, ordered by `position`. */
   tasks: RoleTask[];
 }
+
+/** One assignment as a caller SENDS it. Same two arms, no id — see the type above. */
+export type RoleTaskAssignmentInput =
+  | { kind: "person"; userId: string }
+  | { kind: "resource"; resourceType: string; resourceId: string };
+
+/** One task as a caller SENDS it in the whole-list replace. */
+export interface RoleTaskInput {
+  /**
+   * WHICH STORED ROW THIS IS, when it is one that already exists.
+   *
+   * 🚨 NAME A ROW TO KEEP IT. A task sent with its `id` is updated in place and
+   * keeps it; one with no `id` is created; one the body omits is DELETED. Naming
+   * it is what keeps the task's duty ticks alive — a re-minted id takes every
+   * link row with it.
+   *
+   * ABSENT MEANS NEW, which is what every task in a first save is.
+   */
+  id?: string;
+  /** What the work is called. Required and trimmed. */
+  name: string;
+  /** The one line under the name. `null` is "nobody wrote one", not `""`. */
+  description: string | null;
+  /** Occurrences a year. `null` is "not stated" and is NOT `0`. */
+  occurrencesPerYear: number | null;
+  /** People a year. `null` is "not stated" and is NOT `0`. */
+  peoplePerYear: number | null;
+  /** Revenue a year. `null` is "not stated" and is NOT `0`. */
+  revenuePerYear: number | null;
+  /** Who and what does it. An empty array is the ordinary state for a proposal. */
+  assignments: RoleTaskAssignmentInput[];
+}
+
+/** The whole task list a replace sends. The array INDEX is the position. */
+export interface RoleTasksBody {
+  /** Every task the Role should have afterwards. Anything absent is deleted. */
+  tasks: RoleTaskInput[];
+}
+
+/**
+ * The duty ids a task ticks.
+ *
+ * 🚨 IDS ONLY, NEVER THE DUTY TEXT. Read the labels from
+ * `listResponsibilities()` and zip on the id — both reads are required to render
+ * a checklist. Ordered by the duty's own `position`.
+ */
+export interface RoleTaskDutiesResponse {
+  /** The duty ids this task ticks, in the duties' own read order. */
+  responsibilityIds: string[];
+}
+
+/** The whole set of duties a task ticks. */
+export interface RoleTaskDutiesBody {
+  /** Every duty this task should tick afterwards. The same id twice is refused. */
+  responsibilityIds: string[];
+}

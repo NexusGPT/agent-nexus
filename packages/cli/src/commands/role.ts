@@ -12,6 +12,8 @@ import type {
   RoleResourceType,
   RoleScopeLinesBody,
   RoleSystemPolicyBody,
+  RoleTaskDutiesBody,
+  RoleTasksBody,
   RoleVariablesBody,
   RoleWorkingYearBody,
   UpdateRoleBody,
@@ -2516,6 +2518,123 @@ Notes:
             format: (val) => (Array.isArray(val) ? String(val.length) : "0")
           }
         ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("set-tasks")
+    .description("REPLACE a Role's task list")
+    .argument("<role>", "Role name or UUID")
+    .requiredOption("--body <json>", "{ tasks: [...] } as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role tasks "Support" --json > tasks.json   # read first
+  $ nexus role set-tasks "Support" --body ./tasks.json
+
+Notes:
+  THIS REPLACES THE WHOLE LIST. Anything absent from "tasks" is DELETED and the
+  answer is still a success. Read, modify, send the whole list back. The array
+  index is the position, so a reorder is the same request with the elements
+  moved.
+
+  SEND EACH TASK'S id BACK. A task carrying its id is updated in place and keeps
+  it; one without an id is created. Keeping the id is what keeps that task's
+  ticked duties attached — a re-minted id takes every tick with it. This is the
+  single most expensive thing to get wrong here, and dropping the ids still
+  answers success.
+
+  An ASSIGNMENT carries no id and needs none: its arm is its identity.
+
+  Every id is checked against this Role and this organization first. A foreign
+  task, person or system is refused with a COUNT, never the ids.`
+    )
+    .action(async (ref: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const body = await resolveRequiredBody(String(opts.body));
+        const result = await client.roles.replaceTasks(roleId, asRequestBody<RoleTasksBody>(body));
+
+        printSuccess("Task list replaced.", { tasks: result.tasks.length });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("task-duties")
+    .description("List the duties one task ticks")
+    .argument("<role>", "Role name or UUID")
+    .argument("<task-id>", 'Task UUID — read it from "nexus role tasks"')
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role tasks "Support" --json            # read the task ids
+  $ nexus role task-duties "Support" 3f2b...
+
+Notes:
+  IDS ONLY, NEVER THE DUTY TEXT. The text has one home and a different scope:
+  read it with "nexus role responsibilities" and match on the id. Both reads are
+  required to show a checklist a human can read.
+
+  Ordered by the duty's own position, never by the link and never by the order
+  anyone ticked them.`
+    )
+    .action(async (ref: string, taskId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const result = await client.roles.listTaskDuties(roleId, taskId);
+
+        printList(
+          result.responsibilityIds.map((id) => ({ responsibilityId: id })),
+          undefined,
+          [{ key: "responsibilityId", label: "DUTY ID", width: 36 }]
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("set-task-duties")
+    .description("REPLACE the set of duties one task ticks")
+    .argument("<role>", "Role name or UUID")
+    .argument("<task-id>", 'Task UUID — read it from "nexus role tasks"')
+    .requiredOption("--body <json>", "{ responsibilityIds: [...] } as JSON, .json file, or '-'")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role set-task-duties "Support" 3f2b... --body '{"responsibilityIds":["a1b2..."]}'
+  $ nexus role set-task-duties "Support" 3f2b... --body '{"responsibilityIds":[]}'
+
+Notes:
+  THIS REPLACES THE WHOLE SET. An empty array unticks every duty and answers
+  success, which is the correct request for clearing the last tick rather than
+  an accident.
+
+  Every id is checked against THIS Role first. A duty belonging to another Role
+  is refused with a COUNT, never the ids. The same duty twice is refused
+  outright — the database could not store it.`
+    )
+    .action(async (ref: string, taskId: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const body = await resolveRequiredBody(String(opts.body));
+        const result = await client.roles.replaceTaskDuties(
+          roleId,
+          taskId,
+          asRequestBody<RoleTaskDutiesBody>(body)
+        );
+
+        printSuccess("Duty ticks replaced.", { duties: result.responsibilityIds.length });
       } catch (err) {
         process.exitCode = handleError(err);
       }

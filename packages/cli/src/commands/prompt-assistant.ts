@@ -8,8 +8,18 @@ import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
-/** Prompt assistant involves LLM calls that can take minutes. Use a 2-hour timeout. */
-const PROMPT_ASSISTANT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+/**
+ * How long `prompt-assistant chat` waits on the API before giving up. The
+ * assistant runs LLM calls that take minutes, so this sits far above the SDK's
+ * 30 s default.
+ *
+ * SECONDS — the unit `createClient` takes, and the unit of the global
+ * `--timeout <seconds>` flag it overrides. A MILLISECOND value here is
+ * multiplied by 1000 a second time, overflows Node's 32-bit timer, is clamped
+ * to 1 ms, and aborts every chat before the request leaves the machine
+ * (NEX-3707). `timeoutSecondsToMs` now refuses such a value outright.
+ */
+const PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS = 2 * 60 * 60;
 
 /** Poll interval when waiting for the backend to finish processing (2 s). */
 const POLL_INTERVAL_MS = 2_000;
@@ -95,9 +105,14 @@ Notes:
   NEVER RESEND ON AN APPARENT HANG — a resend is a second user turn on the same
   thread and the assistant answers it as one.
 
-  IF IT DOES TIME OUT (5 minutes), THE WORK IS STILL RUNNING SERVER-SIDE. Do NOT
-  open a second thread: recover the id with "prompt-assistant list-threads" and
-  keep polling with "prompt-assistant get-thread <id>".
+  TWO DIFFERENT WAITS CAN END THIS COMMAND, and only one of them is the flag's.
+  The POLL gives up after ${POLL_TIMEOUT_MS / 60_000} minutes and is not
+  configurable. The HTTP request is given ${PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS}s,
+  which the global --timeout <seconds> overrides.
+
+  EITHER WAY THE WORK IS STILL RUNNING SERVER-SIDE. Do NOT open a second thread:
+  recover the id with "prompt-assistant list-threads" and keep polling with
+  "prompt-assistant get-thread <id>".
 
   STATUS is in_progress, generating, completed or failed (list-threads may also
   report cancelled). generating means the reply is in but the PROMPT is still
@@ -105,9 +120,10 @@ Notes:
     )
     .action(async (opts) => {
       try {
+        const globals = program.optsWithGlobals();
         const client = createClient({
-          ...program.optsWithGlobals(),
-          timeout: PROMPT_ASSISTANT_TIMEOUT_MS
+          ...globals,
+          timeout: globals.timeout ?? PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS
         });
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};

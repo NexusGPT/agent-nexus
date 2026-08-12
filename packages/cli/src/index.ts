@@ -72,7 +72,18 @@ const program = new Command()
     "HTTP request timeout in seconds (default 30; task execute defaults to 600)",
     parseTimeoutSeconds
   )
-  .option("--no-auto-update", "Disable automatic updates when a new version is detected")
+  // Declaring BOTH forms is what makes the default OFF: commander gives a lone
+  // `--no-x` an implicit default of true, and stops doing so once the positive
+  // flag exists. So `opts.autoUpdate` is `undefined` unless one is passed, and
+  // the `else` branch below — print a notice, install nothing — is the default.
+  // Why the default moved (NEX-3708): the updater replaces the directory the
+  // running binary lives in, from inside that binary, and cannot relink the
+  // global shim itself. A half-applied update leaves the shim pointing at a
+  // pnpm hash directory that no longer exists, and then NOTHING in this package
+  // runs — including any repair we could write, because Node fails to resolve
+  // dist/index.js before our first line executes.
+  .option("--auto-update", "Self-update to the latest version on exit (off by default)")
+  .option("--no-auto-update", "Do not self-update on exit (the default)")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.optsWithGlobals();
     if (opts.json) setJsonMode(true);
@@ -155,7 +166,16 @@ Global flags work anywhere in the line, before or after the subcommand:
   --api-key <key>        override the key for this invocation
   --base-url <url>       point at another environment
   --timeout <seconds>    client-side only, default 30
-  --no-auto-update       do not self-update on exit
+  --auto-update          self-update on exit; OFF by default
+
+UPDATES
+  This CLI does NOT install over itself unless you pass --auto-update. Without
+  it you get one line naming the newer version and the command that installs
+  it. That is deliberate: a self-install replaces the directory this binary is
+  running from and cannot relink the global shim itself, so an interrupted one
+  leaves a shim pointing at nothing. Once that happens NO nexus command runs —
+  not even --no-auto-update — because the failure is in Node's module
+  resolution, before any of this code. Reinstalling is the only repair.
 
 READING THE OUTPUT
   --json prints ONE JSON document on STDOUT and nothing else. Warnings, the

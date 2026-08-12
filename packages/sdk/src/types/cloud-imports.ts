@@ -56,9 +56,27 @@ export interface BrowseCloudItemsParams {
 
 export interface SearchCloudItemsParams {
   connectionId: string;
+  /**
+   * Name fragment, matched case-insensitively, against the item's NAME only.
+   * Not a glob and not a regex.
+   *
+   * A file whose CONTENT mentions the term but whose name does not is never
+   * returned, on any provider. On SharePoint that costs extra round trips —
+   * its own search matches file bodies too, so content-only hits are discarded
+   * — and a page can come back short with a `nextPageToken` to continue from.
+   *
+   * Trimmed before it is used, so `" T1 "` and `"T1"` are the same search on
+   * every provider. A blank query is a 400 rather than a match against
+   * everything — an empty fragment is a substring of every name.
+   */
   query: string;
   /** Narrows the search to one container, where the provider supports it. */
   folderId?: string;
+  /**
+   * SharePoint addresses items within a site and REQUIRES it for search;
+   * ignored by the other providers. Omitting it on SharePoint is a 400.
+   */
+  siteId?: string;
   pageToken?: string;
 }
 

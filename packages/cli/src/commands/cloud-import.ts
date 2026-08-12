@@ -204,6 +204,7 @@ Notes:
     .requiredOption("--connection-id <id>", "OAuth connection ID")
     .requiredOption("--query <query>", "Name fragment to match")
     .option("--folder-id <id>", "Restrict the search to one folder")
+    .option("--site-id <id>", "SharePoint site ID (required for sharepoint)")
     .option("--page-token <token>", "Page token from a previous call")
     .addHelpText(
       "after",
@@ -211,13 +212,27 @@ Notes:
 Examples:
   $ nexus cloud-import search google-drive --connection-id conn-1 --query "invoice"
   $ nexus cloud-import search notion --connection-id conn-3 --query "roadmap"
+  $ nexus cloud-import search sharepoint --connection-id conn-2 --site-id site-1 --query "T1-2026"
 
 Notes:
   MATCHES FILE NAMES ONLY, not file contents. A document whose text mentions the
-  word but whose name does not will not appear.
+  word but whose name does not will not appear — on any provider.
 
-  --site-id IS NOT ACCEPTED HERE. To reach a SharePoint site, use
-  "cloud-import browse sharepoint --site-id ...".
+  --query IS TRIMMED, so " T1 " and "T1" are the same search everywhere. A blank
+  --query is refused with a 400 rather than matching every file, because an empty
+  fragment is a substring of every name.
+
+  ON SHAREPOINT that costs extra round trips: SharePoint's own search matches
+  file bodies as well as names, so Nexus discards the content-only hits before
+  answering you. A page can therefore come back SHORT while still printing a
+  --page-token; that means "more to look at", not "that is all of them".
+
+  --site-id IS REQUIRED FOR SHAREPOINT and ignored by the other providers.
+  SharePoint addresses items within a site, so a search without one is a 400
+  naming the field rather than an empty result.
+
+  SHAREPOINT SEARCHES THE WHOLE DRIVE, recursively, unless --folder-id narrows
+  it — it is not limited to one folder's immediate children.
 
   Paginated like browse: continue with the --page-token the output prints.`
     )
@@ -228,6 +243,7 @@ Notes:
           connectionId: opts.connectionId,
           query: opts.query,
           folderId: opts.folderId,
+          siteId: opts.siteId,
           pageToken: opts.pageToken
         });
         printItems(page);

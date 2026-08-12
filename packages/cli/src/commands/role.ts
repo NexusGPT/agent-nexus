@@ -1432,6 +1432,97 @@ Notes:
       }
     });
 
+  // ── permission-set membership ─────────────────────────────────────────────
+  role
+    .command("add-permission-set-member")
+    .description("Put a user into one of a Role's permission sets")
+    .argument("<role>", "Role name or UUID")
+    .argument("<permission-set-id>", "Permission-set UUID")
+    .argument("<user-id>", "Clerk user id")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role add-permission-set-member "Support agent" 2222... user_abc
+
+Notes:
+  THE USER MUST ALREADY BE IN THE ROLE — its owner, or seated by
+  "nexus role add-member". A permission set is a SUBSET of the Role's team, so a
+  user outside it is refused as "not found", the same answer a permission-set id
+  that exists nowhere gets. Add the standing first, then the set.
+
+  IT IS THE SET, NOT THE TIER, THAT CARRIES THE CAPABILITIES. "add-member"
+  decides ADMIN or MEMBER; this decides which capabilities that person actually
+  holds on the Role.
+
+  Idempotent: added=false means that person was already in the set. Read the
+  added line, not the exit status — both answer the same way.
+
+  A SET THAT SHIPS WITH NEXUS ACCEPTS MEMBERS. Unlike
+  "nexus role update-permission-set", which refuses a system set, seating
+  somebody in Maintainers or Members is exactly what those templates are for.`
+    )
+    .action(async (ref: string, permissionSetId: string, userId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.roles.addPermissionSetMember(
+          await resolveRoleId(client, ref),
+          permissionSetId,
+          { userId }
+        );
+
+        printSuccess(result.added ? "Member seated in the set." : "Already in the set.", {
+          added: result.added
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  role
+    .command("remove-permission-set-member")
+    .description("Take a user out of one of a Role's permission sets")
+    .argument("<role>", "Role name or UUID")
+    .argument("<permission-set-id>", "Permission-set UUID")
+    .argument("<user-id>", "Clerk user id")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role remove-permission-set-member "Support agent" 2222... user_abc
+
+Notes:
+  THIS IS THE NARROW REVOCATION. "nexus role delete-permission-set" is NOT a
+  substitute — destroying the set takes its capabilities from everybody else in
+  it too.
+
+  IT DOES NOT TOUCH THE ROLE. The user keeps their ADMIN or MEMBER standing and
+  every other set they are in. "nexus role remove-member" is what ends the
+  standing, and it purges permission-set rows on its way out.
+
+  Idempotent, and THE THREE ABSENCES ANSWER ALIKE: no such permission set, a set
+  belonging to another Role, and a user who was never in it all report
+  removed=false. So removed=false is not proof the id was right — read the set
+  back with "nexus role permission-sets" if you need to know which it was.`
+    )
+    .action(async (ref: string, permissionSetId: string, userId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.roles.removePermissionSetMember(
+          await resolveRoleId(client, ref),
+          permissionSetId,
+          userId
+        );
+
+        printSuccess(
+          result.removed ? "Member removed from the set." : "That user was not in the set.",
+          { removed: result.removed }
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── access requests ───────────────────────────────────────────────────────
   role
     .command("request-access")

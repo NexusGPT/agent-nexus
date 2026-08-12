@@ -1,4 +1,5 @@
 import type {
+  AddRolePermissionSetMemberBody,
   AttachRoleSystemBody,
   AttachRoleSystemResult,
   CreateRoleAccessRequestBody,
@@ -31,6 +32,7 @@ import type {
   RoleManagementSettingsResponse,
   RoleMember,
   RoleMembershipResponse,
+  RolePermissionSetMemberAddedResult,
   RolePermissionSetResponse,
   RolePermissionSetsResponse,
   RoleRemovalResult,
@@ -550,6 +552,79 @@ export class RolesResource extends BaseResource {
     return this.http.request<RoleRemovalResult>(
       "DELETE",
       `/roles/${roleId}/permission-sets/${permissionSetId}`
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Permission-set membership — who actually holds the set's capabilities
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Put one user into one of the Role's permission sets.
+   *
+   * 🚨 THE USER MUST ALREADY HOLD THE ROLE — as its owner, or through
+   * {@link RolesResource.upsertMember}. A permission set is a SUBSET of the
+   * Role's team, so seating somebody outside it would create a person holding
+   * the set's capabilities on a Role they do not belong to: a grant that appears
+   * on no members list, and so cannot be found on the screen an admin would go
+   * to in order to revoke it. A subject outside the Role answers 404, with the
+   * same body a set that does not exist gets.
+   *
+   * IDEMPOTENT, AND `added: false` IS A SUCCESS — read the boolean, never the
+   * status code, which is 201 either way.
+   *
+   * Unlike {@link RolesResource.updatePermissionSet} this is NOT refused on a set
+   * that ships with Nexus. A seeded set's DEFINITION is owned by code; its
+   * MEMBERSHIP is the editable half, and refusing it would make both templates
+   * unusable.
+   *
+   * @param roleId - Role UUID.
+   * @param permissionSetId - Permission-set UUID.
+   * @param body - The user to seat.
+   * @returns Whether a row was actually written.
+   */
+  async addPermissionSetMember(
+    roleId: string,
+    permissionSetId: string,
+    body: AddRolePermissionSetMemberBody
+  ): Promise<RolePermissionSetMemberAddedResult> {
+    return this.http.request<RolePermissionSetMemberAddedResult>(
+      "POST",
+      `/roles/${roleId}/permission-sets/${permissionSetId}/members`,
+      { body }
+    );
+  }
+
+  /**
+   * Take one user out of one of the Role's permission sets.
+   *
+   * ⚠️ THIS IS THE NARROW REVOCATION, AND
+   * {@link RolesResource.deletePermissionSet} IS NOT ITS SUBSTITUTE — destroying
+   * the set cascades every member's row, so using a delete to remove one person
+   * takes the capabilities from everybody else in it too.
+   *
+   * ⚠️ IT DOES NOT TOUCH THE ROLE. The user keeps their standing and every other
+   * set they are in; {@link RolesResource.removeMember} is what ends the
+   * standing, and it purges permission-set rows on its way out.
+   *
+   * IDEMPOTENT, and the three absences answer alike: no such set, a set on
+   * another Role or another tenant, and a user who was never in it all report
+   * `removed: false`. Separating them would confirm to a caller holding a guessed
+   * id which of them it is.
+   *
+   * @param roleId - Role UUID.
+   * @param permissionSetId - Permission-set UUID.
+   * @param userId - Clerk user id.
+   * @returns Whether a row actually went.
+   */
+  async removePermissionSetMember(
+    roleId: string,
+    permissionSetId: string,
+    userId: string
+  ): Promise<RoleRemovalResult> {
+    return this.http.request<RoleRemovalResult>(
+      "DELETE",
+      `/roles/${roleId}/permission-sets/${permissionSetId}/members/${userId}`
     );
   }
 

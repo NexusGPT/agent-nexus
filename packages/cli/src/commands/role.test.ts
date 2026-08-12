@@ -1111,6 +1111,86 @@ describe("permission-set writes", () => {
   });
 });
 
+/**
+ * Permission-set MEMBERSHIP, which is a different write from the set itself.
+ *
+ * The SDK reachability gate proves a call site for each route exists; it reads
+ * text and cannot prove the CLI sends the right one. These pin the verb, the
+ * nested path and the body — the three a typo moves without failing anything
+ * else — and the idempotent answers, which are the part a caller gets wrong.
+ */
+describe("permission-set membership", () => {
+  const USER_ID = "user_abc";
+
+  it("posts the user on the set's nested members path", async () => {
+    request.mockResolvedValue({ added: true });
+
+    await run(["role", "add-permission-set-member", ROLE_ID, GRANT_ID, USER_ID]);
+
+    expect(request).toHaveBeenCalledWith(
+      "POST",
+      `/roles/${ROLE_ID}/permission-sets/${GRANT_ID}/members`,
+      { body: { userId: USER_ID } }
+    );
+  });
+
+  it("deletes the user on the set's nested members path", async () => {
+    request.mockResolvedValue({ removed: true });
+
+    await run(["role", "remove-permission-set-member", ROLE_ID, GRANT_ID, USER_ID]);
+
+    expect(request).toHaveBeenCalledWith(
+      "DELETE",
+      `/roles/${ROLE_ID}/permission-sets/${GRANT_ID}/members/${USER_ID}`
+    );
+  });
+
+  /**
+   * `added: false` is a SUCCESS — the caller asked for a state that already
+   * holds. Reported as a failure it would make a re-run of a script look broken,
+   * and the boolean is the only place "did anything move" lives, since the
+   * status is 201 either way.
+   */
+  it("reports an already-seated user as a success carrying added false", async () => {
+    request.mockResolvedValue({ added: false });
+
+    const out = await runJson(["role", "add-permission-set-member", ROLE_ID, GRANT_ID, USER_ID]);
+
+    expect(out).toMatchObject({ added: false });
+    expect(process.exitCode).toBe(0);
+  });
+
+  it("reports a user who was never in the set as a success carrying removed false", async () => {
+    request.mockResolvedValue({ removed: false });
+
+    const out = await runJson(["role", "remove-permission-set-member", ROLE_ID, GRANT_ID, USER_ID]);
+
+    expect(out).toMatchObject({ removed: false });
+    expect(process.exitCode).toBe(0);
+  });
+
+  /**
+   * The precondition is the whole trap: a user outside the Role answers 404 with
+   * the same body a bad set id gets, so a caller who does not know to seat the
+   * standing first cannot tell the two apart. `help-completeness` asserts a
+   * `Notes:` block EXISTS; only this asserts it still says the load-bearing part.
+   */
+  it("the add's help states that the user must already hold the Role", () => {
+    const help = renderHelp(["role", "add-permission-set-member"]);
+
+    expect(help).toContain("MUST ALREADY BE IN THE ROLE");
+    expect(help).toContain("add-member");
+  });
+
+  /** Reaching for `delete-permission-set` to drop one person is the costly error. */
+  it("the remove's help sends a caller away from deleting the whole set", () => {
+    const help = renderHelp(["role", "remove-permission-set-member"]);
+
+    expect(help).toContain("delete-permission-set");
+    expect(help).toContain("NOT a");
+  });
+});
+
 describe("access request create and review", () => {
   it("posts the system pair and sends note null when the flag is absent", async () => {
     request.mockResolvedValue({ request: { id: GRANT_ID, status: "PENDING" } });

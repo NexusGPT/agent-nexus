@@ -1262,6 +1262,28 @@ export interface RolePermissionSetResponse {
   resourceReach: RolePermissionSetResourceReach;
 }
 
+/** Request body for `client.roles.addPermissionSetMember()`. */
+export interface AddRolePermissionSetMemberBody {
+  /** The Clerk user id to seat. Must already hold the Role, as owner or member. */
+  userId: string;
+}
+
+/**
+ * Response from `client.roles.addPermissionSetMember()`.
+ *
+ * `added: false` IS A SUCCESS — a second add of somebody already in the set
+ * answers 201 with `false` rather than 409, because the caller asked for a state
+ * that already holds.
+ *
+ * ⚠️ THE STATUS CODE IS NOT THE DISCRIMINANT. Every POST on this surface answers
+ * 201, `upsertMember()` included when it merely moves a tier and creates nothing.
+ * This boolean is where "did anything move" lives.
+ */
+export interface RolePermissionSetMemberAddedResult {
+  /** Whether a row was actually written. */
+  added: boolean;
+}
+
 // ============================================================================
 // Access requests — asking, and deciding
 // ============================================================================

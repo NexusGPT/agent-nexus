@@ -379,9 +379,15 @@ export class RolesResource extends BaseResource {
    * that person between the two rather than failing. Read `tier` off the result
    * instead of assuming this was an insert.
    *
-   * 🚨 A MEMBERSHIP ROW IS NOT A LABEL. It is how the server resolves a person's
-   * reach into the Role's systems, collections and workspaces, so this grants every
-   * capability the tier's permission sets carry.
+   * 🚨 A MEMBERSHIP ROW IS NOT A LABEL, AND IT IS NOT A CAPABILITY GRANT. It is how
+   * the server resolves a person's reach into the Role's systems, collections and
+   * workspaces. It writes no permission-set membership, so on its own it carries no
+   * Role capability at all — {@link RolesResource.addPermissionSetMember} is what
+   * grants those.
+   *
+   * ⚠️ THE TIER IS RECORDED AND NOTHING READS IT. `ADMIN` and `MEMBER` resolve to the
+   * same reach and the same capabilities, so `tier` states an intent rather than
+   * conferring anything.
    *
    * ⚠️ THE USER MUST ALREADY BE IN YOUR ORGANIZATION. A user id from another
    * tenant answers 404 with the same body an id that exists nowhere gets — the

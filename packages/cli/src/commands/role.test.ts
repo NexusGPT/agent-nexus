@@ -1723,6 +1723,22 @@ describe("the help text carries the trap, not a summary of it", () => {
     expect(help).toContain('no "constant"');
     expect(help).toContain("variableRef");
   });
+
+  it("add-member says it grants no capability, and sends the caller to the command that does", () => {
+    const help = renderHelp(["role", "add-member"]);
+
+    // `UpsertRoleMemberUseCase` writes the `RoleMember` row alone and creates no
+    // `RoleGroupMember`, and capabilities are resolved from those rows alone — so
+    // an operator who reads "this grants the tier's capabilities" and stops has
+    // granted nothing while believing otherwise.
+    expect(help).toContain("IT IS NOT A CAPABILITY GRANT");
+    expect(help).toContain("nexus role add-permission-set-member");
+
+    // `templateKeyForMemberTier` maps both tiers to the same template today, so
+    // --tier ADMIN confers nothing a MEMBER does not already hold. This pair is
+    // what makes the day that changes redden a test rather than pass review.
+    expect(help).toContain("THE TIER IS RECORDED AND NOTHING READS IT");
+  });
 });
 
 describe("the READINESS column is never truncated", () => {

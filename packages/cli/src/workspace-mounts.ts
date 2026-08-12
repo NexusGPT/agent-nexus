@@ -23,9 +23,29 @@ import path from "node:path";
 // another org's live row to `unmount` (detaching its drive and deleting its row),
 // the mount guard would refuse on its behalf, and a fresh mount would overwrite
 // it. Tagging by kind makes the two spaces disjoint at the string level: an
-// `org:` key can never equal a `profile:` or `url:` key. All three id sources are
-// `|`-free by construction (org ids and profile names are alphanumeric/`-`/`_`;
-// `|` is not a legal URL character), so `<kind>:<id>|<slug>` parses one way only.
+// `org:` key can never equal a `profile:` or `url:` key.
+//
+// That disjointness is BETWEEN tags, and only between tags. WITHIN the `url:`
+// tag there is exactly one bucket per (base URL, slug) — every org that mounts
+// anonymously (raw `--api-key`/`NEXUS_API_KEY` with no `NEXUS_ORGANIZATION_ID`)
+// on a given host shares it, because nothing client-side can tell those callers
+// apart. Two orgs mounting the same slug that way collide: the second is refused
+// by the live-mount guard rather than silently overwriting the first, and the
+// refusal says so. It is a block, not data loss — but it is a real cross-org
+// interaction, so do not read the tag argument as covering it.
+//
+// The bucket is confined to the callers that can produce one. `mountScopeId`
+// reaches `url:` only when there is no orgId and no profile, so an IDENTIFIED
+// caller never writes such a row — and `scopeCandidateKeys` therefore never
+// offers one back to it. Doing so was a cross-org hole in both directions: it
+// refused an identified org a mount of its own slug, and it let
+// `unmount <slug>` detach an anonymous caller's live drive and delete its row.
+//
+// `|` separates the scope id from the slug, so an id may never contain one. Org
+// ids and profile names cannot (both are alphanumeric plus `-`/`_`), but the
+// `url:` id is `--base-url`/`NEXUS_BASE_URL`/profile config with only a trailing
+// slash stripped — user input, not a validated shape. `scopeIdOfKind` therefore
+// ENFORCES the invariant by percent-encoding `|` rather than asserting it holds.
 //
 // The acting org is resolved exactly the way `createClient` resolves it for API
 // calls — `NEXUS_ORGANIZATION_ID` override first, then the profile's selected
@@ -116,17 +136,40 @@ export function mountScopeIdentity(scope: MountScope): MountScopeIdentity {
   return { kind: "url", id: scope.baseUrl };
 }
 
+/**
+ * Keep `KEY_SEP` out of a scope id, so `<kind>:<id>|<slug>` always splits at the
+ * separator this module put there.
+ *
+ * Org ids and profile names cannot contain `|` — both are alphanumeric plus
+ * `-`/`_`. The `url:` id can: `scope.baseUrl` is `--base-url` /`NEXUS_BASE_URL`/
+ * profile config with only a trailing slash stripped, and "`|` is not legal in a
+ * URL per RFC 3986" is a statement about well-formed URLs, not a guarantee about
+ * a string a user typed. Percent-encoding it makes the key-space invariant
+ * something this module enforces instead of something a comment claims.
+ *
+ * `%7C` is chosen over dropping or rejecting the character so the mapping stays
+ * total and reversible-looking: a hand-inspected registry still shows which host
+ * the row belongs to.
+ */
+function encodeScopeId(id: string): string {
+  return id.includes(KEY_SEP) ? id.split(KEY_SEP).join("%7C") : id;
+}
+
 /** `<kind>:<id>` — the scope half of a registry key. */
 export function scopeIdOfKind(kind: MountScopeKind, id: string): string {
-  return `${kind}${KIND_SEP}${id}`;
+  return `${kind}${KIND_SEP}${encodeScopeId(id)}`;
 }
 
 /**
  * Stable per-org identifier used to namespace a mount, TAGGED by kind
  * (`org:`/`profile:`/`url:`). The tag is what keeps a profile named after an
  * org id from addressing that org's mounts: the three tags differ in their
- * first character, so ids from different namespaces can never produce the same
+ * first character, so ids from DIFFERENT namespaces can never produce the same
  * string however they collide.
+ *
+ * Within a namespace they still can, and one namespace is deliberately coarse:
+ * `url:` buckets every anonymous caller on a host together (see the module
+ * header). The tag argument is about cross-namespace collisions only.
  */
 export function mountScopeId(scope: MountScope): string {
   const { kind, id } = mountScopeIdentity(scope);
@@ -152,14 +195,29 @@ export function scopeCandidateKeys(scope: MountScope, slug: string): string[] {
   const keys: string[] = [];
   if (scope.orgId) keys.push(`${scopeIdOfKind("org", scope.orgId)}${KEY_SEP}${slug}`);
   if (scope.profile) keys.push(`${scopeIdOfKind("profile", scope.profile)}${KEY_SEP}${slug}`);
-  // Always include the base-URL key as the lowest-priority candidate. A mount
-  // created under `--api-key`/`NEXUS_API_KEY` with no resolvable org is keyed by
-  // `url:<baseUrl>|<slug>` (mountScopeIdentity's last fallback); without this
-  // candidate a later profile- or orgId-scoped findMount/unmount would never
-  // locate it and would leave the live mount + stale registry row behind. It is
-  // ranked last, and findMount verifies the record's owner doesn't conflict with
-  // the active scope, so it never reaches across to a *different* identified org.
-  keys.push(`${scopeIdOfKind("url", scope.baseUrl)}${KEY_SEP}${slug}`);
+  // The base-URL key belongs to ANONYMOUS callers only, so only an anonymous
+  // scope may claim it.
+  //
+  // `mountScopeId` prefers orgId, then profile, and reaches `url:<baseUrl>` only
+  // when neither exists — so an identified caller can never have WRITTEN a
+  // `url:` row. Offering it to one anyway is a cross-org hole, not a fallback:
+  // that key is a single bucket per (base URL, slug) shared by every anonymous
+  // caller on the host, and an anonymous record names no owner for
+  // `ownerConflictsWithScope` to reject. An identified org therefore matched a
+  // row it cannot own — which blocked its own `mount` of the slug at a
+  // different path (the very independence NEX-2360 exists to give it) and, far
+  // worse, let `unmount <slug>` OS-detach a DIFFERENT org's live drive and
+  // delete the row, silently.
+  //
+  // The cost of the narrowing is bounded and visible: a caller who mounted
+  // anonymously and has since logged in no longer reaches that row by slug.
+  // `unmount` answers with the candidate list from `findMountsBySlug` — "it is
+  // mounted for: …" — instead of guessing, and the row stays reachable from the
+  // anonymous scope that created it. Failing to find your own mount is
+  // recoverable; detaching someone else's is not.
+  if (!scope.orgId && !scope.profile) {
+    keys.push(`${scopeIdOfKind("url", scope.baseUrl)}${KEY_SEP}${slug}`);
+  }
   return keys;
 }
 
@@ -213,13 +271,15 @@ export function writeMounts(mounts: Record<string, MountRecord>): void {
  * Locate a recorded mount for `slug`, scoped to `scope` when known.
  *
  * Resolution order:
- *   1. Any of the active scope's candidate keys (orgId, profile, or base-URL
- *      key — see `scopeCandidateKeys`), so a mount survives orgId-vs-profile
- *      key drift across logins.
+ *   1. Any of the active scope's candidate keys (orgId and profile; the base-URL
+ *      key only for a scope that has neither — see `scopeCandidateKeys`), so a
+ *      mount survives orgId-vs-profile key drift across logins.
  *   2. Legacy bare-slug key — a pre-NEX-2360 entry with no org recorded.
- *   3. A unique record whose `slug` matches — ONLY when the scope is unknown
- *      (e.g. `unmount` run without resolvable auth). Skipped when ambiguous so
- *      we never guess between two orgs' mounts of the same slug — the caller
+ *   3. A unique record whose `slug` matches AND names no owner — ONLY when the
+ *      scope is unknown (e.g. `unmount` run without resolvable auth). Skipped
+ *      when ambiguous so we never guess between two orgs' mounts of the same
+ *      slug, and skipped when the one match names an org/profile, because an
+ *      unknown scope cannot show that row is its own. Either way the caller
  *      should list the candidates (`findMountsBySlug`) instead.
  *
  * EVERY match — scoped or legacy — is then checked against the record's own
@@ -246,8 +306,10 @@ export function findMount(
       // The key is tagged by kind, so it can only have been written by a scope
       // with this same (kind, id) — but a record still carries the org that was
       // pinned at mount time, which a re-login or a hand-edited registry can put
-      // at odds with the key. Verify the recorded owner on every candidate (the
-      // base-URL one most of all: that bucket is shared by every org on a host).
+      // at odds with the key. Verify the recorded owner on every candidate: the
+      // key answers who WROTE the row, the record who it was pinned to, and a
+      // registry that has drifted between the two must route nobody's action
+      // onto anybody else's row.
       if (ownerConflictsWithScope(record, scope)) continue;
       return { key, record };
     }
@@ -265,8 +327,24 @@ export function findMount(
   // detach a different org's mount of the same slug.
   if (scope) return undefined;
   const matches = Object.entries(mounts).filter(([, r]) => r.slug === slug);
-  if (matches.length === 1) return { key: matches[0][0], record: matches[0][1] };
-  return undefined;
+  if (matches.length !== 1) return undefined;
+  const [key, record] = matches[0];
+  // Uniqueness is not ownership. `unmount` OS-detaches and deletes whatever this
+  // returns, and an unknown scope is reached by ordinary accidents — a typo'd
+  // `--profile` (resolveProfile throws, the caller swallows it), a raw
+  // `--api-key`/`NEXUS_API_KEY` with no `NEXUS_ORGANIZATION_ID`, a machine with
+  // no profile configured. Handing back a row that NAMES an org/profile in that
+  // state is the same cross-org destructive action the scoped path exists to
+  // prevent, just reached from the other side: the caller cannot show the row is
+  // theirs, and the row says whose it is. Refuse, and let the caller list the
+  // candidates so the user names an org instead of the CLI guessing one.
+  //
+  // A record naming NO owner is still returned: that is the anonymous
+  // base-URL-bucket mount (or a legacy pre-NEX-2360 row), where there is no
+  // identity to contradict and refusing would strand a live mount with no way to
+  // detach it.
+  if (record.orgId || record.profile) return undefined;
+  return { key, record };
 }
 
 /**
@@ -376,4 +454,59 @@ export function describeScope(scope: MountScope): string {
   if (scope.orgId) return `org ${scope.orgId}`;
   if (scope.profile) return `profile "${scope.profile}"`;
   return `base URL ${scope.baseUrl}`;
+}
+
+/**
+ * What `unmount <slug>` says when the slug IS mounted but not for this scope.
+ *
+ * A pure function on purpose: this text is the entire remedy the user gets, it
+ * has been wrong twice, and inside a commander action nothing can assert it.
+ * The three branches are three different situations, and advice that fits one
+ * of them is actively misleading in the others.
+ *
+ * The middle branch is the one that keeps getting missed. Every candidate can
+ * be UNOWNED — the anonymous base-URL bucket, which an identified scope
+ * deliberately no longer resolves — and then "switch to the owning profile/org"
+ * names a profile and an org that do not exist. That is the exact state of a
+ * caller who mounted with a raw `--api-key` and has since logged in, and the
+ * advice would leave them circling a live mount forever.
+ */
+export function unmountMissMessage(
+  slug: string,
+  candidates: readonly { readonly record: MountRecord }[],
+  scope?: MountScope
+): string {
+  const list = candidates
+    .map((c) => `  - ${describeOwner(c.record)} at ${c.record.mountPath}`)
+    .join("\n");
+
+  // Unknown scope covers a typo'd `--profile` (the lookup throws and
+  // resolveScopeBestEffort swallows it), a raw `--api-key` with no
+  // NEXUS_ORGANIZATION_ID, and a machine with no profile at all. `unmount`
+  // detaches a real drive, so name the owners and make the user pick rather than
+  // acting on a guess — including when there is only ONE candidate, which is
+  // exactly the case where guessing looks safest and is still someone else's
+  // mount.
+  if (!scope) {
+    return (
+      `"${slug}" is mounted, but the active org could not be resolved, so the CLI cannot ` +
+      `tell whose mount to detach:\n${list}\nRe-run with --profile <name> (or set ` +
+      `NEXUS_ORGANIZATION_ID) to pick one.`
+    );
+  }
+
+  if (candidates.every((c) => !c.record.orgId && !c.record.profile)) {
+    return (
+      `No mount of "${slug}" is recorded for ${describeScope(scope)}. It is mounted ` +
+      `without an organization:\n${list}\nThat row was written by a caller with no ` +
+      `resolvable org, so there is no profile or org to switch to. Re-run with ` +
+      `--api-key and no NEXUS_ORGANIZATION_ID to act as that caller, or unmount the ` +
+      `path directly with your platform tool (umount / fusermount -u).`
+    );
+  }
+
+  return (
+    `No mount of "${slug}" is recorded for ${describeScope(scope)}, but it is mounted for:\n` +
+    `${list}\nSwitch to the owning profile/org (nexus auth switch / nexus auth use-org) and retry.`
+  );
 }

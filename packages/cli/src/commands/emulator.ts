@@ -14,10 +14,42 @@ import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 export function registerEmulatorCommands(program: Command): void {
   const emulator = program.command("emulator").description("Test deployments via the emulator");
 
+  emulator.addHelpText(
+    "after",
+    `
+Talk to a real deployment's real agent without going through its channel. The
+agent, its tools, its knowledge and its billing are the live ones — only the
+transport is emulated, so a tool that sends email really sends email.
+
+  session create <dep>  →  send <dep> <session> --text "..."  →  session get
+
+READ THE "status" FIELD "send" RETURNS. "completed" and "failed" are finished
+turns; "processing" means the agent is STILL RUNNING and the reply is not in
+the response — poll "emulator session get" for it.
+
+Scenarios record a session's messages so they can be replayed against another
+deployment. Replay is asynchronous and answers with a NEW session id.
+
+Reads need emulator:read, creating sessions and scenarios emulator:write,
+sending and replaying emulator:execute, the two deletes emulator:delete.`
+  );
+
   // ═══════════════════════════════════════════════════════════════════════
   // session sub-group
   // ═══════════════════════════════════════════════════════════════════════
   const session = emulator.command("session").description("Manage emulator sessions");
+
+  session.addHelpText(
+    "after",
+    `
+A session is one conversation with a deployment's agent. Create it, send into
+it, then read it back — "session get" is where a turn that was still running
+when "emulator send" answered eventually lands.
+
+These are real DeploymentSession rows: they carry real conversations and are
+counted by "nexus deployment stats" alongside genuine customer traffic.
+Deleting one archives its conversation rather than erasing it.`
+  );
 
   // ── session create ─────────────────────────────────────────────────────
   session
@@ -30,8 +62,24 @@ export function registerEmulatorCommands(program: Command): void {
       `
 Examples:
   $ nexus emulator session create dep-123
-  $ nexus emulator session create dep-123 --body '{"participant":"user-1"}'
-  $ nexus emulator session create dep-123 --json`
+  $ nexus emulator session create dep-123 --body '{"participants":[{"identifier":"+15551234567","displayName":"Ada"}]}'
+  $ nexus emulator session create dep-123 --json
+
+Notes:
+  THE ONLY BODY FIELD IS participants, AN ARRAY. Anything else — including the
+  singular "participant" this example used to show — is dropped without an
+  error, and you get a one-participant session named "Test User" as if you had
+  passed nothing. Each entry is {identifier, displayName}, both optional and
+  both capped at 256 characters, up to 20 entries.
+
+  THE ids ARE ASSIGNED BY THE SERVER, NOT BY YOU: participant_1, participant_2
+  in the order you listed them. That is what "emulator send --body
+  '{"participantId":"participant_2"}'" takes — an identifier or a display name
+  there is a 400 listing the real ids.
+  identifier is the channel address the agent sees (a phone number, an email);
+  omitted, one is synthesized from the deployment type.
+  The deployment must exist in this organization or it is a 404. It does NOT
+  have to be active to create a session — only to send.`
     )
     .action(async (deploymentId: string, opts) => {
       try {
@@ -65,7 +113,13 @@ Examples:
       `
 Examples:
   $ nexus emulator session list dep-123
-  $ nexus emulator session list dep-123 --json`
+  $ nexus emulator session list dep-123 --json
+
+Notes:
+  Emulator sessions for this deployment only, and unpaginated.
+  These are real DeploymentSession rows, so they are counted by
+  "nexus deployment stats" alongside genuine customer traffic. Delete the ones
+  you are finished with if that number has to mean something.`
     )
     .action(async (deploymentId: string) => {
       try {
@@ -93,7 +147,14 @@ Examples:
       `
 Examples:
   $ nexus emulator session get dep-123 sess-456
-  $ nexus emulator session get dep-123 sess-456 --json`
+  $ nexus emulator session get dep-123 sess-456 --json
+
+Notes:
+  THIS IS WHERE A "processing" TURN LANDS. When "emulator send" gives up
+  waiting the agent keeps running and writes its reply here — re-read this
+  until the reply appears rather than re-sending, which starts a second turn.
+  It is also the only way to read a replayed scenario's result.
+  Carries the full message list, so --json is the useful form.`
     )
     .action(async (deploymentId: string, sessionId: string) => {
       try {
@@ -122,7 +183,17 @@ Examples:
       `
 Examples:
   $ nexus emulator session delete dep-123 sess-456
-  $ nexus emulator session delete dep-123 sess-456 --yes`
+  $ nexus emulator session delete dep-123 sess-456 --yes
+
+Notes:
+  RETURNS 204 WITH NO BODY, unlike the agent-family deletes which answer
+  {id, deleted: true} at 200. There is nothing to parse and --json prints
+  nothing useful — a zero exit code is the whole confirmation.
+  THE CONVERSATION IS ARCHIVED, NOT DELETED. Only the session row goes; the
+  chat it produced is set to ARCHIVED and survives, so this is not a way to
+  erase what was said. A scenario saved from this session is untouched and
+  stays replayable — it holds its own copy of the messages.
+  The prompt only appears on a TTY — piped or in CI it deletes without one.`
     )
     .action(async (deploymentId: string, sessionId: string, opts) => {
       try {
@@ -161,13 +232,35 @@ Examples:
       `
 Examples:
   $ nexus emulator send dep-123 sess-456 --text "Hello, agent!"
-  $ nexus emulator send dep-123 sess-456 --body '{"content":"Hi","participantId":"user-1"}'
+  $ nexus emulator send dep-123 sess-456 --body '{"content":"Hi","participantId":"participant_2"}'
   $ nexus emulator send dep-123 sess-456 --text "Test" --json
 
 Notes:
-  Create a session first: nexus emulator session create <deployment-id>
-  Use --body with "debug":true to get debug info in the response.
-  Save sessions as scenarios for regression testing: nexus emulator scenario save`
+  READ "status". IT IS THE ONLY COMPLETION SIGNAL and it has three values:
+  "completed" — the turn finished, and "debug" carries the tools and prompts
+  it used; "failed" — the agent errored, and the 2xx says nothing about it;
+  "processing" — THE AGENT IS STILL RUNNING AND ITS REPLY IS NOT HERE.
+
+  "processing" is not an error and not a timeout you should retry. The call
+  waits up to 25 seconds and then answers so the connection is not held open;
+  the turn continues server-side and its reply is written to the session.
+  Poll "nexus emulator session get <deployment-id> <session-id>" for it.
+  RE-SENDING ON "processing" DOES NOT CANCEL ANYTHING — it starts a second
+  turn, and the agent answers both.
+
+  There is no "debug" input field. Debug information is collected
+  automatically and returned whenever the turn settles inside the wait, so it
+  is present on "completed" and absent on "processing".
+
+  The deployment must be ACTIVE and have an agent, or this is a 400 — that is
+  the difference from "session create", which only needs the deployment to
+  exist. participantId is the server-assigned "participant_N" from
+  "session create"; anything else is a 400 listing the valid ids. Omit it and
+  the first participant speaks.
+  content is required, 1 to 100,000 characters. --text is the same field.
+  This runs the real agent: real tools, real side effects, real cost.
+  Save the session as a scenario afterwards for regression testing:
+  nexus emulator scenario save`
     )
     .action(async (deploymentId: string, sessionId: string, opts) => {
       try {
@@ -193,21 +286,55 @@ Notes:
   // ═══════════════════════════════════════════════════════════════════════
   const scenario = emulator.command("scenario").description("Manage emulator scenarios");
 
+  scenario.addHelpText(
+    "after",
+    `
+A scenario is a session's USER messages, with the pauses between them, saved
+so they can be sent again. IT IS A SCRIPT, NOT A TRANSCRIPT: the agent's
+replies are not stored, so replay re-runs the agent live and compares nothing.
+Two replays of one scenario can differ, and neither is checked against the
+recording. Any assertion is yours to make on the resulting session.
+
+A scenario belongs to the deployment it was recorded from and can only be
+replayed against that one — any other is a 403.
+
+Replay is asynchronous: it answers with a NEW session id before anything has
+been sent, and "emulator session get" is where the results appear.`
+  );
+
   // ── scenario save ──────────────────────────────────────────────────────
   scenario
     .command("save")
-    .description("Save an emulator session as a scenario")
-    .option("--session-id <id>", "Session ID")
-    .option("--deployment-id <id>", "Deployment ID")
-    .option("--name <name>", "Scenario name")
-    .option("--description <text>", "Scenario description")
+    .description("Save an emulator session's user messages as a replayable scenario")
+    // --session-id, --deployment-id and --name are all REQUIRED by the route,
+    // but each can arrive through --body instead, so none is a
+    // Commander-required option — same reasoning as `deployment create`. The
+    // API returns a clean validation error naming whichever is missing.
+    .option("--session-id <id>", "Session ID (UUID) — required, here or in --body")
+    .option("--deployment-id <id>", "Deployment ID (UUID) — required, here or in --body")
+    .option("--name <name>", "Scenario name, 1-200 chars — required, here or in --body")
+    .option("--description <text>", "Scenario description, up to 1000 chars")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus emulator scenario save --session-id sess-123 --deployment-id dep-456 --name "Happy path"
-  $ nexus emulator scenario save --body '{"sessionId":"sess-123","deploymentId":"dep-456","name":"Edge case"}'`
+  $ nexus emulator scenario save --body '{"sessionId":"sess-123","deploymentId":"dep-456","name":"Edge case"}'
+
+Notes:
+  A SCENARIO IS THE USER'S SIDE ONLY — IT IS A SCRIPT, NOT A TRANSCRIPT. What
+  is saved is the messages the participants sent, with the pauses between
+  them; the agent's replies are not stored and are not part of what replay
+  compares against. Replaying re-runs the agent from scratch.
+
+  --session-id, --deployment-id and --name are all required, by flag or inside
+  --body. name is 1-200 characters, --description is capped at 1000, and both
+  ids must be UUIDs.
+  The session must belong to the deployment or it is a 403, and a session
+  nobody has sent a message in is a 400 — send something first.
+  Pauses between messages are recorded and capped at 30 seconds each, so a
+  scenario saved over a long lunch replays quickly.`
     )
     .action(async (opts) => {
       try {
@@ -246,7 +373,14 @@ Examples:
 Examples:
   $ nexus emulator scenario list
   $ nexus emulator scenario list --deployment-id dep-123
-  $ nexus emulator scenario list --json`
+  $ nexus emulator scenario list --json
+
+Notes:
+  Every scenario in the organization unless --deployment-id narrows it, and
+  unpaginated. DEPLOYMENT is the one it was recorded from, and it is the ONLY
+  deployment it can be replayed against — replay checks the two match and 403s
+  otherwise. Copy that value into "scenario replay --deployment-id".
+  --deployment-id must be a UUID or it is a 400.`
     )
     .action(async (opts) => {
       try {
@@ -277,7 +411,13 @@ Examples:
       `
 Examples:
   $ nexus emulator scenario get scn-123
-  $ nexus emulator scenario get scn-123 --json`
+  $ nexus emulator scenario get scn-123 --json
+
+Notes:
+  Messages here are the USER side only, in order, each with the pause that
+  preceded it and the participant that sent it. No agent replies are stored —
+  see "scenario save".
+  Deployment ID is the only deployment "scenario replay" will accept.`
     )
     .action(async (scenarioId: string) => {
       try {
@@ -299,9 +439,12 @@ Examples:
   // ── scenario replay ────────────────────────────────────────────────────
   scenario
     .command("replay")
-    .description("Replay a scenario against a deployment")
+    .description("Replay a scenario — ASYNCHRONOUS, the results are not in the response")
     .argument("<scenario-id>", "Scenario ID")
-    .option("--deployment-id <id>", "Deployment ID to replay against")
+    .option(
+      "--deployment-id <id>",
+      "Deployment ID — required, and must be the one the scenario was recorded from"
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -309,7 +452,26 @@ Examples:
 Examples:
   $ nexus emulator scenario replay scn-123 --deployment-id dep-456
   $ nexus emulator scenario replay scn-123 --body '{"deploymentId":"dep-456"}'
-  $ nexus emulator scenario replay scn-123 --deployment-id dep-456 --json`
+  $ nexus emulator scenario replay scn-123 --deployment-id dep-456 --json
+
+Notes:
+  REPLAY IS ASYNCHRONOUS AND THE RESPONSE CARRIES NO RESULTS. It answers as
+  soon as it has created a session, before a single message has been sent —
+  what the agent did is not in it and cannot be. Take the sessionId it returns
+  and read "nexus emulator session get <deployment-id> <sessionId>" until the
+  replies appear.
+
+  IT CREATES A NEW SESSION EVERY TIME. Nothing is overwritten and nothing is
+  compared: replay re-runs the agent live, so two replays of one scenario can
+  differ, and neither is checked against what happened when it was recorded.
+  Any assertion is yours to make on the session afterwards.
+
+  --deployment-id MUST BE THE DEPLOYMENT THE SCENARIO WAS RECORDED FROM.
+  Any other is a 403 — a scenario is not portable across deployments.
+  Failures after the response are invisible here: the messages are sent in the
+  background and a failed replay is logged server-side, leaving a session with
+  fewer messages than the scenario has. Compare the counts.
+  The real agent runs, with real tools and real cost, once per replay.`
     )
     .action(async (scenarioId: string, opts) => {
       try {
@@ -340,7 +502,15 @@ Examples:
       `
 Examples:
   $ nexus emulator scenario delete scn-123
-  $ nexus emulator scenario delete scn-123 --yes`
+  $ nexus emulator scenario delete scn-123 --yes
+
+Notes:
+  RETURNS 204 WITH NO BODY, unlike the agent-family deletes which answer
+  {id, deleted: true} at 200. A zero exit code is the whole confirmation.
+  Permanent: the recorded messages go with it and the session it was taken
+  from cannot re-derive them once that session is gone.
+  Sessions produced by past replays are NOT deleted and keep their history.
+  The prompt only appears on a TTY — piped or in CI it deletes without one.`
     )
     .action(async (scenarioId: string, opts) => {
       try {

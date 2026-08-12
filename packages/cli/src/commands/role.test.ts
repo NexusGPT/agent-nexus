@@ -45,6 +45,28 @@ async function run(argv: string[]): Promise<void> {
 }
 
 /**
+ * The same, in JSON mode, PARSED — the document a scripted caller receives.
+ *
+ * `run` proves the request; this proves the answer. The two are separate output
+ * paths and NEX-3627/NEX-3628 both lived entirely in the second one: the wire
+ * calls were right, the human rendering was right, and the JSON document dropped
+ * the governance discriminant and substituted English for `null`.
+ */
+async function runJson(argv: string[]): Promise<Record<string, unknown>> {
+  const chunks: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => {
+    chunks.push(args.map(String).join(" "));
+  };
+  try {
+    await run(argv);
+  } finally {
+    console.log = log;
+  }
+  return JSON.parse(chunks.join("\n")) as Record<string, unknown>;
+}
+
+/**
  * The same, in table mode, capturing stdout.
  *
  * Every JSON-mode assertion is its own output path — a value dropped only from
@@ -71,6 +93,32 @@ async function runTable(argv: string[]): Promise<string> {
   }
 
   return chunks.join("\n");
+}
+
+/**
+ * The `--help` a user actually reads for a path of subcommand names.
+ *
+ * Help text is code, and the Notes blocks in this file are load-bearing product
+ * decisions — the standard is that an agent handed nothing but this text uses the
+ * command correctly first time. `addHelpText("after")` is emitted by
+ * `outputHelp`, NOT by `helpInformation()`, so a test built on the latter passes
+ * against a command whose Notes were deleted.
+ */
+function renderHelp(path: readonly string[]): string {
+  const program = new Command();
+  program.name("nexus").exitOverride();
+  registerRoleCommands(program);
+
+  let command: Command | undefined = program;
+  for (const name of path) {
+    command = command?.commands.find((c) => c.name() === name);
+  }
+  if (command === undefined) throw new Error(`No such command: nexus ${path.join(" ")}`);
+
+  const chunks: string[] = [];
+  command.configureOutput({ writeOut: (str) => chunks.push(str) });
+  command.outputHelp();
+  return chunks.join("");
 }
 
 /** Run `fn` with stderr captured — that is where every warning goes. */
@@ -363,6 +411,366 @@ describe("role create and delete report the governance discriminant, not the HTT
     await run(["role", "delete", ROLE_ID]);
 
     expect(request).toHaveBeenCalledWith("DELETE", `/roles/${ROLE_ID}`);
+  });
+});
+
+/**
+ * NEX-3630. `nexus role list --json` and `GET /public/v1/roles` both key their
+ * payload `data` and put a DIFFERENT type behind it: the CLI joins readiness onto
+ * each row and answers an array, the API answers an object of two parallel arrays
+ * to be correlated on `roleId`. A parser written against one raised a type error
+ * on the other.
+ *
+ * Both shapes are shipped and both are defensible, so the resolution is that the
+ * divergence is DOCUMENTED — in this command's `--help` and in the endpoint's own
+ * description — rather than either wire contract being broken. This pins the CLI
+ * half so the documented sentence cannot go stale silently.
+ */
+describe("role list --json is a JOIN, and its help says so", () => {
+  const LISTED = {
+    roles: [
+      {
+        id: ROLE_ID,
+        organizationId: "org_1",
+        name: "Support",
+        jobDescription: null,
+        ownerUserId: "user_a",
+        createdAt: "2026-08-11T00:00:00.000Z",
+        updatedAt: "2026-08-11T00:00:00.000Z"
+      },
+      {
+        id: OTHER_ROLE_ID,
+        organizationId: "org_1",
+        name: "Refunds",
+        jobDescription: null,
+        ownerUserId: null,
+        createdAt: "2026-08-11T00:00:00.000Z",
+        updatedAt: "2026-08-11T00:00:00.000Z"
+      }
+    ],
+    // The API's second array, deliberately covering only the first Role.
+    readiness: [{ roleId: ROLE_ID, permissionSets: "READY", owner: "READY" }]
+  };
+
+  it("answers data as an ARRAY of rows, each carrying its own readiness", async () => {
+    request.mockResolvedValue(LISTED);
+
+    const out = await runJson(["role", "list"]);
+    const rows = out.data as { id: string; readiness: unknown }[];
+
+    expect(Array.isArray(out.data)).toBe(true);
+    expect(rows.map((r) => r.id)).toEqual([ROLE_ID, OTHER_ROLE_ID]);
+    expect(rows[0]?.readiness).toMatchObject({ permissionSets: "READY", owner: "READY" });
+    // A Role the server computed no readiness for is null, never a missing key —
+    // the join must not make a row look like it has an answer.
+    expect(rows[1]?.readiness).toBeNull();
+    // And NOT the API's shape, which is the whole point of documenting it.
+    expect(out.data).not.toHaveProperty("roles");
+  });
+
+  it("names the API's divergent shape in --help, in the words a caller can act on", () => {
+    // `helpInformation()` renders the usage block only — an `addHelpText("after")`
+    // block reaches the reader through `outputHelp`, so asserting the first would
+    // pass on a command carrying no Notes at all.
+    const help = renderHelp(["role", "list"]);
+
+    expect(help).toContain("GET /public/v1/roles");
+    expect(help).toContain("parallel arrays");
+    expect(help).toContain("nexus api GET /roles");
+  });
+});
+
+/**
+ * NEX-3629. `--body` exists so a caller can pass text that breaks shell quoting,
+ * and `name` is the field most likely to carry an apostrophe or an accent. A
+ * `requiredOption` is enforced by commander BEFORE the action runs, so it cannot
+ * see the body at all: a complete body was refused with
+ * "required option '--name <name>' not specified".
+ */
+describe("role create takes name and owner from --body", () => {
+  const created = () => ({
+    status: "created",
+    role: rolesList([{ id: ROLE_ID, name: "Réclamations" }]).roles[0]
+  });
+
+  it("accepts a complete --body with no flags at all", async () => {
+    request.mockResolvedValue(created());
+
+    await run([
+      "role",
+      "create",
+      "--body",
+      JSON.stringify({
+        name: "Réclamations d'été",
+        ownerUserId: "user_abc",
+        jobDescription: "Gère les remboursements"
+      })
+    ]);
+
+    expect(request).toHaveBeenCalledWith("POST", "/roles", {
+      body: {
+        name: "Réclamations d'été",
+        ownerUserId: "user_abc",
+        jobDescription: "Gère les remboursements"
+      }
+    });
+  });
+
+  it("lets a flag win over the same field in the body", async () => {
+    request.mockResolvedValue(created());
+
+    await run([
+      "role",
+      "create",
+      "--body",
+      JSON.stringify({ name: "From body", ownerUserId: "user_body" }),
+      "--name",
+      "From flag"
+    ]);
+
+    // `mergeBodyWithFlags`'s precedence: an explicitly typed flag beats the file.
+    // `ownerUserId` was not re-stated, so the body's value survives — which is
+    // only true because neither option carries a commander default.
+    expect(request).toHaveBeenCalledWith("POST", "/roles", {
+      body: { name: "From flag", ownerUserId: "user_body" }
+    });
+  });
+
+  it("still refuses when NEITHER source supplies them, naming both flags", async () => {
+    const err = await captureError(["role", "create"]);
+
+    // The requirement is unchanged — only the moment it is checked. And the
+    // refusal names `--owner`, which is what a user types; the body key is
+    // `ownerUserId`, which commander would have rejected.
+    expect(err).toContain("--name");
+    expect(err).toContain("--owner");
+    expect(err).not.toContain("--owner-user-id");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body that carries only one of the two, naming just the missing one", async () => {
+    const err = await captureError([
+      "role",
+      "create",
+      "--body",
+      JSON.stringify({ name: "Refunds" })
+    ]);
+
+    expect(err).toContain("--owner");
+    expect(err).not.toContain("--name");
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * NEX-3627. The union's own doc says *"READ `status`. NEVER THE HTTP CODE"*, and
+ * under `--json` there was no `status` to read: create answered
+ * `{success, id, name}` and delete `{success, note}`. Every case below asserts
+ * the field a script branches on, on the document a script parses.
+ */
+describe("the governance discriminant survives --json", () => {
+  it("carries status created beside the new Role's id", async () => {
+    request.mockResolvedValue({
+      status: "created",
+      role: rolesList([{ id: ROLE_ID, name: "Refunds" }]).roles[0]
+    });
+
+    const out = await runJson(["role", "create", "--name", "Refunds", "--owner", "user_abc"]);
+
+    expect(out).toMatchObject({ success: true, status: "created", id: ROLE_ID, name: "Refunds" });
+  });
+
+  it("carries status pending and the requestId when the create was only FILED", async () => {
+    request.mockResolvedValue({
+      status: "pending",
+      request: { id: GRANT_ID, name: "Refunds", status: "PENDING" }
+    });
+
+    const out = await runJson(["role", "create", "--name", "Refunds", "--owner", "user_abc"]);
+
+    // The whole defect in one assertion: this document and the one above were
+    // byte-identical apart from `id`/`name`, so a script could not tell a Role
+    // that exists from a request waiting on an admin.
+    expect(out).toMatchObject({ success: true, status: "pending", requestId: GRANT_ID });
+    expect(out).not.toHaveProperty("id");
+  });
+
+  it("carries status deleted", async () => {
+    request.mockResolvedValue({ status: "deleted" });
+
+    const out = await runJson(["role", "delete", ROLE_ID]);
+
+    expect(out).toMatchObject({ success: true, status: "deleted" });
+  });
+
+  it("carries status pending for a delete that did NOT happen", async () => {
+    request.mockResolvedValue({ status: "pending", request: { id: GRANT_ID, status: "PENDING" } });
+
+    const out = await runJson(["role", "delete", ROLE_ID]);
+
+    // A pending delete leaves the Role serving traffic while `success` is true.
+    expect(out).toMatchObject({ success: true, status: "pending", requestId: GRANT_ID });
+  });
+
+  it("prints the discriminant in the human rendering too", async () => {
+    request.mockResolvedValue({
+      status: "created",
+      role: rolesList([{ id: ROLE_ID, name: "Refunds" }]).roles[0]
+    });
+
+    const out = await runTable(["role", "create", "--name", "Refunds", "--owner", "user_abc"]);
+
+    expect(out).toContain("status: created");
+  });
+});
+
+/**
+ * NEX-3628. Four Roles writes answered `null` with a human sentence under
+ * `--json`, so detecting absence was a string match against display copy — the
+ * working detection literally read
+ * `if moved_from and "belonged to no Role" not in str(moved_from)`. The same
+ * fields are proper nulls on the matching GET, because reads go through
+ * `printRecord`, whose `format` never touches the JSON document.
+ *
+ * Each case asserts BOTH halves: `null` on the wire, and the sentence still in
+ * the terminal, which reads well and was never the problem.
+ */
+describe("--json emits null where the human rendering reads a sentence", () => {
+  it("attach: movedFrom is null, not '(it belonged to no Role)'", async () => {
+    request.mockResolvedValue({ attached: true, movedFromRoleId: null });
+
+    const out = await runJson(["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID]);
+
+    expect(out.movedFrom).toBeNull();
+    expect(typeof out.movedFrom).not.toBe("string");
+  });
+
+  it("attach: a REAL move still carries the uuid — nulling is not blanket", async () => {
+    request.mockResolvedValue({ attached: true, movedFromRoleId: OTHER_ROLE_ID });
+
+    const out = await runJson(["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID]);
+
+    // The seizure signal. A fix that mapped every value to null would pass the
+    // assertion above and destroy the field this one guards.
+    expect(out.movedFrom).toBe(OTHER_ROLE_ID);
+  });
+
+  it("detach: removedFromRole is null when there was nothing to leave", async () => {
+    request.mockResolvedValue({ removed: false, removedFromRoleId: null });
+
+    const out = await runJson(["role", "detach", "agent", AGENT_ID]);
+
+    expect(out).toMatchObject({ removed: false, removedFromRole: null });
+  });
+
+  it("update --owner none: owner is null, matching what role get reads back", async () => {
+    request.mockResolvedValue({
+      role: { ...rolesList([{ id: ROLE_ID, name: "Refunds" }]).roles[0], ownerUserId: null }
+    });
+
+    const out = await runJson(["role", "update", ROLE_ID, "--owner", "none"]);
+
+    expect(out.owner).toBeNull();
+  });
+
+  it("set-working-year --sickness none: sicknessDays is null, and 0 stays 0", async () => {
+    request.mockResolvedValue({
+      roleId: ROLE_ID,
+      calendarWeeks: 52,
+      paidLeaveWeeks: 5,
+      publicHolidayDays: 0,
+      sicknessDays: null
+    });
+
+    const out = await runJson([
+      "role",
+      "set-working-year",
+      ROLE_ID,
+      "--calendar-weeks",
+      "52",
+      "--paid-leave",
+      "5",
+      "--public-holidays",
+      "0",
+      "--sickness",
+      "none"
+    ]);
+
+    // THE distinction this whole family exists for: null is "use the
+    // organization's value", 0 is a measured zero, and they produce different
+    // coverage denominators. "(org default)" collapses the pair into prose.
+    expect(out.sicknessDays).toBeNull();
+    expect(out.publicHolidayDays).toBe(0);
+  });
+
+  it("set-automation-settings --currency none: currency is null", async () => {
+    request.mockResolvedValue({
+      organizationId: "org_1",
+      hoursPerDay: 8,
+      daysPerWeek: 5,
+      workingWeeksPerYear: 46,
+      currency: null
+    });
+
+    const out = await runJson([
+      "role",
+      "set-automation-settings",
+      "--hours-per-day",
+      "8",
+      "--days-per-week",
+      "5",
+      "--working-weeks",
+      "46",
+      "--currency",
+      "none"
+    ]);
+
+    expect(out.currency).toBeNull();
+  });
+
+  it("review-creation-request: createdRoleId is null on a REJECTED verdict", async () => {
+    request.mockResolvedValue({
+      request: { id: GRANT_ID, status: "REJECTED", createdRoleId: null }
+    });
+
+    const out = await runJson([
+      "role",
+      "review-creation-request",
+      GRANT_ID,
+      "--status",
+      "REJECTED"
+    ]);
+
+    expect(out.createdRoleId).toBeNull();
+  });
+
+  it("keeps every sentence in the human rendering, which is where they read well", async () => {
+    request.mockResolvedValue({ attached: true, movedFromRoleId: null });
+    expect(
+      await runTable(["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID])
+    ).toContain("(it belonged to no Role)");
+
+    request.mockResolvedValue({
+      role: { ...rolesList([{ id: ROLE_ID, name: "Refunds" }]).roles[0], ownerUserId: null }
+    });
+    expect(await runTable(["role", "update", ROLE_ID, "--owner", "none"])).toContain("(none)");
+
+    request.mockResolvedValue({ roleId: ROLE_ID, sicknessDays: null });
+    expect(
+      await runTable([
+        "role",
+        "set-working-year",
+        ROLE_ID,
+        "--calendar-weeks",
+        "52",
+        "--paid-leave",
+        "5",
+        "--public-holidays",
+        "10",
+        "--sickness",
+        "none"
+      ])
+    ).toContain("(org default)");
   });
 });
 
@@ -1185,6 +1593,55 @@ describe("a partial PUT names the flags a user can actually type", () => {
     expect(declared.size).toBeGreaterThan(10);
     expect(referenced.length).toBeGreaterThan(10);
     expect(referenced.filter((f) => !declared.has(f))).toEqual([]);
+  });
+});
+
+/**
+ * `--help` IS THE CONTRACT, AND IT IS CODE (NEX-3626).
+ *
+ * The standard this namespace is measured against: paste a command's `--help`
+ * into an agent prompt with no other source available, and the agent must use the
+ * command correctly first time INCLUDING the cases where it would otherwise
+ * silently do the wrong thing. Every sentence below is one of those cases, and
+ * each was a defect before it was a sentence — so a deletion has to redden a test
+ * rather than pass review as tidying.
+ */
+describe("the help text carries the trap, not a summary of it", () => {
+  it("create names the field to branch on, and that the exit code is not it", () => {
+    const help = renderHelp(["role", "create"]);
+
+    expect(help).toContain('BRANCH ON "status"');
+    expect(help).toContain('"status": "created"');
+    expect(help).toContain('"status": "pending"');
+    expect(help).toContain("requestId");
+  });
+
+  it("delete says pending means the Role is still there, in the machine's words too", () => {
+    const help = renderHelp(["role", "delete"]);
+
+    expect(help).toContain('BRANCH ON "status"');
+    expect(help).toContain('"status": "deleted"');
+    expect(help).toContain('"status": "pending"');
+  });
+
+  it("create says a complete --body is enough, and names the body's own keys", () => {
+    const help = renderHelp(["role", "create"]);
+
+    // `ownerUserId` is the body key and `--owner` is the flag. A caller told only
+    // "name and owner may come from the body" sends `owner` and gets a 400.
+    expect(help).toContain("A COMPLETE --body IS ENOUGH");
+    expect(help).toContain("ownerUserId");
+  });
+
+  it("create-job-type enumerates both source kinds and denies the ones that read plausible", () => {
+    const help = renderHelp(["role", "create-job-type"]);
+
+    expect(help).toContain('"kind": "variable"');
+    expect(help).toContain('"kind": "fixed"');
+    // The three words a caller guesses. Naming them is what stops the guessing
+    // loop the ticket describes.
+    expect(help).toContain('no "constant"');
+    expect(help).toContain("variableRef");
   });
 });
 

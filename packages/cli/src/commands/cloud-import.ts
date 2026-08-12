@@ -87,6 +87,32 @@ export function registerCloudImportCommands(program: Command): void {
     .command("cloud-import")
     .description("Browse and import documents from cloud providers");
 
+  cloudImport.addHelpText(
+    "after",
+    `
+Every command here needs a --connection-id, and THERE IS NO COMMAND THAT MAKES
+ONE. Connecting a Google, SharePoint or Notion account is an OAuth flow that
+happens in the app; the id it produces is what you paste here.
+
+The shape of a working import is always the same:
+  1. "cloud-import browse <provider> --connection-id ... --folder-id root"
+     (or "search") to get item ids — you cannot guess them.
+  2. "cloud-import import <provider> --connection-id ... --item-ids id1,id2"
+  3. "nexus document get <id>" on each returned document, until READY.
+
+TWO THINGS THE IMPORT WILL NOT TELL YOU:
+  • IT IMPORTS ROWS, NOT CONTENT. A 2xx means the documents were created; their
+    text is fetched and indexed afterwards. Attaching them to a collection
+    before they read READY attaches documents that retrieve nothing.
+  • AN ITEM THAT FAILS IS SKIPPED IN SILENCE. Unreadable items are dropped and
+    the rest proceed, so importedCount can be lower than the number of ids you
+    passed with no error anywhere. Compare the two. Only a run where EVERY item
+    failed is reported, as a 400.
+
+The per-provider sub-commands (google-drive, sharepoint, notion) call the same
+endpoints as the provider-agnostic ones and behave identically.`
+  );
+
   // ==========================================================================
   // Provider-agnostic browsing
   // ==========================================================================
@@ -94,6 +120,21 @@ export function registerCloudImportCommands(program: Command): void {
   cloudImport
     .command("providers")
     .description("List cloud providers and what each one supports")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus cloud-import providers
+
+Notes:
+  THIS DOES NOT LIST YOUR CONNECTIONS. It lists what each provider is capable
+  of, whether or not an account is connected — so it never tells you which
+  --connection-id to use. Those come from the app.
+
+  FOLDERS false means "browse" has nothing to walk and you want "search"
+  instead. SYNC describes the provider, not documents already imported: nothing
+  imported through this API re-syncs on its own.`
+    )
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -116,6 +157,32 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--folder-id <id>", "Folder, database, or container ID")
     .option("--site-id <id>", "SharePoint site ID")
     .option("--page-token <token>", "Page token from a previous call")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus cloud-import browse google-drive --connection-id conn-1 --folder-id root
+  $ nexus cloud-import browse sharepoint --connection-id conn-2 --site-id site-1 --folder-id root
+  $ nexus cloud-import browse notion --connection-id conn-3 --folder-id db-123
+
+Notes:
+  THIS IS WHERE ITEM IDS COME FROM. They are the provider's ids, not Nexus ones,
+  and "cloud-import import" takes only ids produced here or by search.
+
+  --folder-id IS REQUIRED — "root" is the top of the drive. It is not optional
+  and there is no default.
+
+  ONE LEVEL AT A TIME. A row with FOLDER true is a container; browse it by
+  passing its id as the next --folder-id.
+
+  A PAGE IS NOT THE WHOLE FOLDER. When the output ends with a --page-token line,
+  more items exist; pass that token back to continue. In --json the same thing
+  appears as nextPageToken, and a listing that ignores it looks complete when it
+  is not.
+
+  Notion has no folders in the Drive sense — use
+  "nexus cloud-import search notion" instead.`
+    )
     .action(async (provider: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -138,6 +205,22 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--query <query>", "Name fragment to match")
     .option("--folder-id <id>", "Restrict the search to one folder")
     .option("--page-token <token>", "Page token from a previous call")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus cloud-import search google-drive --connection-id conn-1 --query "invoice"
+  $ nexus cloud-import search notion --connection-id conn-3 --query "roadmap"
+
+Notes:
+  MATCHES FILE NAMES ONLY, not file contents. A document whose text mentions the
+  word but whose name does not will not appear.
+
+  --site-id IS NOT ACCEPTED HERE. To reach a SharePoint site, use
+  "cloud-import browse sharepoint --site-id ...".
+
+  Paginated like browse: continue with the --page-token the output prints.`
+    )
     .action(async (provider: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -164,6 +247,41 @@ export function registerCloudImportCommands(program: Command): void {
     )
     .option("--parent-id <id>", "Destination folder in Nexus")
     .option("--site-id <id>", "SharePoint site ID (required for SharePoint)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus cloud-import import google-drive --connection-id conn-1 --item-ids file-a,file-b
+  $ nexus cloud-import import sharepoint --connection-id conn-2 --site-id site-1 --item-ids file-c
+  $ nexus cloud-import import notion --connection-id conn-3 --item-ids page-a --parent-id folder-9
+
+Notes:
+  IMPORT IS ASYNCHRONOUS. The response lists the documents that were CREATED,
+  with their status — not their content. Poll "nexus document get <id>" until
+  READY or ERROR before attaching anything to a collection.
+
+  AN UNREADABLE ITEM IS SKIPPED WITHOUT AN ERROR. importedCount is the number
+  that worked; compare it against the number of --item-ids you passed, because
+  nothing else will tell you one went missing. A run where every item failed is
+  the only case that reports a failure, as a 400.
+
+  --site-id IS REQUIRED FOR SHAREPOINT and refused as SITE_ID_REQUIRED without
+  it. It is ignored by Google Drive and Notion.
+
+  --parent-id NAMES THE DESTINATION FOLDER IN NEXUS. Omit it and everything
+  lands at the root of the knowledge base, mixed in with everything else. Make
+  the folder first with "nexus document create-folder".
+
+  IMPORTING A CLOUD FOLDER CREATES A NEXUS FOLDER, and a folder cannot be
+  attached to a collection — attach its children, from
+  "nexus document children <id>".
+
+  THIS IS A COPY, NOT A LINK. Later edits in Drive, SharePoint or Notion are not
+  picked up on their own; re-import or reprocess to refresh.
+
+  --item-ids come from browse or search on the SAME connection. Ids from another
+  connection or another provider are not resolvable.`
+    )
     .action(async (provider: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -198,6 +316,23 @@ export function registerCloudImportCommands(program: Command): void {
     .option("--folder-id <id>", "Folder ID to list", "root")
     .option("--page-token <token>", "Page token from a previous call")
     .option("--access-token <token>", "Removed — pass --connection-id instead")
+    .addHelpText(
+      "after",
+      `
+Prefer "nexus cloud-import browse google-drive", which this now calls.
+
+Examples:
+  $ nexus cloud-import google-drive list-files --connection-id conn-1
+  $ nexus cloud-import google-drive list-files --connection-id conn-1 --folder-id folder-x
+
+Notes:
+  --access-token IS NO LONGER ACCEPTED. The endpoint it addressed always
+  answered with no files and put a credential in the URL. Connect Drive in the
+  app and pass --connection-id.
+
+  --folder-id defaults to "root". Paginated: continue with the --page-token the
+  output prints.`
+    )
     .action(async (opts) => {
       try {
         if (opts.accessToken) {
@@ -240,6 +375,23 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--connection-id <id>", "OAuth connection ID")
     .requiredOption("--item-ids <ids>", "Comma-separated file or folder IDs", parseItemIds)
     .option("--parent-id <id>", "Destination folder in Nexus")
+    .addHelpText(
+      "after",
+      `
+Identical to "nexus cloud-import import google-drive" — see that command's
+Notes for the full behaviour.
+
+Examples:
+  $ nexus cloud-import google-drive import --connection-id conn-1 --item-ids file-a,file-b
+
+Notes:
+  IMPORT IS ASYNCHRONOUS, and an unreadable item is SKIPPED WITHOUT AN ERROR.
+  Compare importedCount against the number of --item-ids you passed, then poll
+  "nexus document get <id>" until READY.
+
+  A Drive FOLDER id is accepted and becomes a Nexus folder; attach its children
+  to a collection, not the folder itself.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -263,6 +415,19 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--site-id <id>", "SharePoint site ID")
     .option("--folder-id <id>", "Folder ID", "root")
     .option("--page-token <token>", "Page token from a previous call")
+    .addHelpText(
+      "after",
+      `
+Prefer "nexus cloud-import browse sharepoint", which this now calls.
+
+Examples:
+  $ nexus cloud-import sharepoint list-files --connection-id conn-2 --site-id site-1
+
+Notes:
+  --site-id is REQUIRED — a SharePoint item is only addressable within its site.
+  --folder-id defaults to "root". Paginated: continue with the --page-token the
+  output prints.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -285,6 +450,19 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--site-id <id>", "SharePoint site ID")
     .requiredOption("--item-ids <ids>", "Comma-separated file or folder IDs", parseItemIds)
     .option("--parent-id <id>", "Destination folder in Nexus")
+    .addHelpText(
+      "after",
+      `
+Identical to "nexus cloud-import import sharepoint" — see that command's Notes
+for the asynchronous behaviour and the silently skipped items.
+
+Examples:
+  $ nexus cloud-import sharepoint import --connection-id conn-2 --site-id site-1 --item-ids file-c
+
+Notes:
+  --site-id is REQUIRED for SharePoint on every command, because a SharePoint
+  item is only addressable within its site.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -308,6 +486,19 @@ export function registerCloudImportCommands(program: Command): void {
     .requiredOption("--connection-id <id>", "Notion connection ID")
     .requiredOption("--query <query>", "Name fragment to match")
     .option("--page-token <token>", "Page token from a previous call")
+    .addHelpText(
+      "after",
+      `
+Prefer "nexus cloud-import search notion", which this now calls.
+
+Examples:
+  $ nexus cloud-import notion search --connection-id conn-3 --query "roadmap"
+
+Notes:
+  SEARCH IS HOW YOU FIND NOTION ITEMS — there is no folder tree to browse.
+  Matches page and database TITLES, not their contents, and only reaches what
+  the connection was granted in Notion.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -330,6 +521,23 @@ export function registerCloudImportCommands(program: Command): void {
     // resolves each one's kind — the caller never has to label them.
     .requiredOption("--item-ids <ids>", "Comma-separated page or database IDs", parseItemIds)
     .option("--parent-id <id>", "Destination folder in Nexus")
+    .addHelpText(
+      "after",
+      `
+Identical to "nexus cloud-import import notion" — see that command's Notes for
+the asynchronous behaviour and the silently skipped items.
+
+Examples:
+  $ nexus cloud-import notion import --connection-id conn-3 --item-ids page-a,db-b
+
+Notes:
+  PAGE IDS AND DATABASE IDS BOTH GO IN --item-ids. They are indistinguishable by
+  shape and the server resolves each one's kind, so you never have to label them.
+
+  A Notion page reaches Nexus only if the CONNECTION has been granted access to
+  it in Notion. A page outside that grant is not findable by search and cannot
+  be imported.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());

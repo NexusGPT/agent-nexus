@@ -20,7 +20,6 @@ import {
 import {
   claimMountPoint,
   describeOwner,
-  describeScope,
   type Engine,
   findMount,
   findMountsBySlug,
@@ -29,6 +28,7 @@ import {
   type MountRecord,
   type MountScope,
   readMounts,
+  unmountMissMessage,
   writeMounts
 } from "../workspace-mounts";
 
@@ -157,14 +157,20 @@ export function resolveAuth(opts: { apiKey?: string; baseUrl?: string; profile?:
  * Resolve the acting-org scope for `unmount` without requiring auth. Unmount
  * operates purely on the local registry, so a user with no configured profile
  * must still be able to run it — resolution failures fall back to `undefined`,
- * and the registry lookup then matches by slug (erroring with the candidate
- * list when the slug is mounted for more than one org).
+ * and the registry lookup then matches by slug.
  *
  * A raw `--api-key`/`NEXUS_API_KEY` override with no NEXUS_ORGANIZATION_ID also
  * resolves to `undefined`: it carries no org or profile identity (only a base
  * URL), so scoping the lookup by it would hide a row written under a real
  * org/profile key. Treating it as an unknown scope lets `findMount` fall back
- * to a unique slug match instead.
+ * to a slug match instead.
+ *
+ * That fallback is deliberately NARROW, because `undefined` here is also what a
+ * typo'd `--profile` produces (the profile lookup throws and the `catch` below
+ * swallows it, error and all). `findMount` will hand back a unique slug match
+ * only when the record names NO org or profile; anything owned makes the caller
+ * list the candidates and ask the user to name one. Otherwise a mistyped flag
+ * would silently OS-detach and delete another org's mount.
  */
 function resolveScopeBestEffort(opts: {
   apiKey?: string;
@@ -497,6 +503,34 @@ export function registerWorkspaceCommands(program: Command): void {
     .command("workspace")
     .description("Mount Nexus workspaces as a live shared drive for local Claude Code");
 
+  ws.addHelpText(
+    "after",
+    `
+THE DRIVE IS LIVE AND SHARED. Teammates and agents read and write the same
+files within seconds, and writes are last-write-wins per file. There is no
+checkout, no lock you can rely on and no merge — re-read before you overwrite.
+
+IT IS NOT A POSIX FILESYSTEM. It is WebDAV behind a userspace mount, so
+in-place edits are not supported: mv, sed -i and >> answer "Function not
+implemented". Read the file, transform it in memory, and write the whole file
+back. Ordinary create / read / overwrite / delete all work.
+
+SCOPES ARE NOT HIERARCHICAL. workspaces:read is enough to MOUNT and to read.
+Writing needs workspaces:write, and DELETING NEEDS workspaces:delete, which
+write does NOT imply — a read-write mount whose key lacks it fails every rm
+with a 403 while cp keeps working.
+
+MOUNTING NEEDS rclone ON LINUX AND WINDOWS (the default engine there):
+  Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash
+           sudo apt-get install fuse3
+  Windows  winget install Rclone.Rclone   (plus WinFsp: https://winfsp.dev)
+  macOS    nothing to install — the default engine is the native WebDAV mount.
+
+A SLUG IS NOT UNIQUE. The same slug can name both an org-owned workspace and
+an admin-shared one; the bare slug resolves to the org-owned copy and --shared
+picks the other.`
+  );
+
   // ── list ─────────────────────────────────────────────────────────────────
   ws.command("list")
     .description("List the workspaces in your organization")
@@ -510,7 +544,18 @@ export function registerWorkspaceCommands(program: Command): void {
 Examples:
   $ nexus workspace list
   $ nexus workspace list --json
-  $ nexus workspace list --folder-stats --json`
+  $ nexus workspace list --folder-stats --json
+
+Notes:
+  READ THE KIND COLUMN BEFORE YOU MOUNT. "org" is your organization's own
+  workspace, "shared" is an admin-shared one. Two rows can carry the SAME slug,
+  one of each — the bare slug then mounts the org copy and --shared the other.
+  --folder-stats ADDS A COUNT, NOT THE FOLDERS. It costs a depth-1 walk
+  server-side, the table shows only how many top-level folders there are, and
+  the per-folder breakdown is --json only.
+  Files and Size are server-side totals for the whole workspace; they say
+  nothing about whether it is mounted.
+  Needs workspaces:read. Unpaginated.`
     )
     .action(async (opts: { folderStats?: boolean }) => {
       try {
@@ -576,7 +621,29 @@ Examples:
   $ nexus workspace search support-docs --query "refund policy"
   $ nexus workspace search support-docs --frontmatter status=published
   $ nexus workspace search support-docs --query onboarding --frontmatter owner=growth --json
-  $ nexus workspace search support-docs --query api --path guides --limit 20`
+  $ nexus workspace search support-docs --query api --path guides --limit 20
+
+Notes:
+  TEXT DOCUMENTS ONLY, BY EXTENSION. Markdown, txt, json/jsonl, yaml and their
+  siblings are read; a PDF, an image, a binary or a file with NO EXTENSION is
+  never opened, so its content cannot match and its absence is not reported.
+  This is a document search, not a file search.
+  IT STOPS AFTER 1000 FILES AND SAYS SO QUIETLY. Past that the answer is
+  incomplete and truncated is true — the table prints "(truncated — narrow your
+  search)" on STDERR and --json carries the flag. AN EMPTY RESULT WITH
+  truncated: true IS NOT "NO MATCHES". Narrow with --path and try again.
+  LARGE FILES ARE READ AS A PREFIX ONLY (first 256 KB), so a match deep inside
+  a big document is missed silently.
+  Every --frontmatter key=value must hold, ANDed with --query. Repeat the flag
+  for several. Values are compared as the flattened string form of the
+  frontmatter, so a list matches its ", "-joined rendering.
+  At least one of --query / --frontmatter is required; the CLI refuses locally
+  rather than scanning everything.
+  MATCHED tells you WHERE it hit — content, frontmatter or path. A path-only
+  hit has no snippet, which is why SNIPPET can be blank on a real match.
+  scanned (STDERR, or --json) is how many files were actually opened, not how
+  many exist.
+  No mount needed, and no local files are read — this runs server-side.`
     )
     .action(
       async (
@@ -642,13 +709,28 @@ Examples:
 
   // ── create ───────────────────────────────────────────────────────────────
   ws.command("create")
-    .description("Create a new workspace")
+    .description("Create a new workspace — the slug is derived from the name and is permanent")
     .argument("<name>", "Workspace name (the slug is derived from it)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus workspace create "Support Docs"`
+  $ nexus workspace create "Support Docs"
+  $ nexus workspace create "Support Docs" --json
+
+Notes:
+  THE SLUG IS DERIVED AND THEN IMMUTABLE. "Support Docs" becomes support-docs,
+  and "workspace rename" changes the NAME ONLY — the slug you get here is the
+  one every mount, search and grant will use for the life of the workspace.
+  Read it from the output; do not assume the slugification rule.
+  A NAME WITH NO ALPHANUMERICS IS REFUSED — it would slugify to nothing.
+  SLUGS ARE UNIQUE PER ORGANIZATION, so a second "Support Docs" is a conflict,
+  not a second workspace. Note that an ADMIN-SHARED workspace may already carry
+  the slug you want; that does not block creation, and you then have two rows
+  with one slug — see "nexus workspace list" -> KIND.
+  Creates a DRIVE workspace. CODE workspaces are read-only projections of a
+  git project and are not creatable here.
+  Needs workspaces:write.`
     )
     .action(async (name: string) => {
       try {
@@ -666,9 +748,24 @@ Examples:
 
   // ── rename ───────────────────────────────────────────────────────────────
   ws.command("rename")
-    .description("Rename a workspace (the slug stays the same)")
+    .description("Rename a workspace — the DISPLAY NAME only, the slug never changes")
     .argument("<slug>", "Workspace slug")
     .argument("<name>", "New name")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workspace rename support-docs "Customer Support Docs"
+
+Notes:
+  THE SLUG IS IMMUTABLE AND THIS DOES NOT TOUCH IT. Only the display name
+  changes, so mounts, grants, search and ~/nexus/<slug> all keep working — and
+  the slug can end up saying nothing about the name. There is no way to change
+  a slug: create a new workspace and move the files.
+  Existing mounts are unaffected and need no remount.
+  A slug that is not yours, or is narrowed away from you, answers 404.
+  Needs workspaces:write.`
+    )
     .action(async (slug: string, name: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -685,9 +782,33 @@ Examples:
 
   // ── delete ───────────────────────────────────────────────────────────────
   ws.command("delete")
-    .description("Delete a workspace and purge all of its files")
+    .description("Delete a workspace and PURGE every file in it — not a soft delete")
     .argument("<slug>", "Workspace slug")
     .option("--yes", "Skip confirmation")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workspace delete scratch
+  $ nexus workspace delete scratch --yes
+
+Notes:
+  IT PURGES THE FILES, NOT JUST THE ROW. Every object is deleted from storage
+  first and the workspace record second, so this is NOT the 72h soft delete
+  that "workspace restore" recovers from — "workspace restore" cannot bring a
+  deleted WORKSPACE back, only files deleted from a live one.
+  ANYTHING MOUNTED KEEPS ITS MOUNT POINT AND STOPS WORKING. The local directory
+  and the registry entry survive as a dead mount; run
+  "nexus workspace unmount <slug>" yourself afterwards.
+  ROLE GRANTS AND AGENT LINKS TO IT GO SILENTLY. Nothing warns which agents or
+  Roles reached this workspace — check "nexus role workspace-grants" first.
+  A PARTIAL FAILURE LEAVES THE WORKSPACE PRESENT. If the storage purge fails
+  the record is kept on purpose so a retry can finish; re-run the same command.
+  --yes is REQUIRED when stdin is not a TTY: without it a script exits 1
+  rather than deleting. This is the opposite of "folder delete" and
+  "version delete", which delete unprompted in a script.
+  Needs workspaces:delete, which workspaces:write does not imply.`
+    )
     .action(async (slug: string, opts: { yes?: boolean }) => {
       try {
         if (!opts.yes) {
@@ -728,7 +849,24 @@ restored. Live files are never overwritten.
 
 Examples:
   $ nexus workspace restore support-docs reports/q3.pdf
-  $ nexus workspace restore support-docs reports      # restore a whole folder`
+  $ nexus workspace restore support-docs reports      # restore a whole folder
+
+Notes:
+  IT RESTORES FILES INTO A LIVE WORKSPACE. It cannot bring back a workspace
+  deleted with "workspace delete" — that purges storage, so there is nothing
+  left to restore from.
+  "Nothing to restore" IS A SUCCESS, NOT AN ERROR, and it means one of three
+  different things: the path is past the recovery window, it was never
+  deleted, or it is already present. The command cannot tell them apart, and
+  it exits 0. Check "nexus workspace search" or the mount before assuming the
+  file is unrecoverable.
+  LIVE FILES ARE NEVER OVERWRITTEN. A path that still exists is skipped, so
+  this is safe to re-run and cannot be used to roll a file back to an older
+  version — delete it first, then restore.
+  THE PATH IS THE ONE THAT WAS DELETED, workspace-relative and with no leading
+  slash. Given a folder, everything currently deleted at or under it comes
+  back.
+  Read the restored count and the paths it prints; --json carries both.`
     )
     .action(async (slug: string, filePath: string) => {
       try {
@@ -793,13 +931,46 @@ already occupies is refused.
 
 Engines (auto picks per-OS):
   • webdav  — macOS native mount_webdav. No extra install, no macFUSE, no
-              Recovery mode. The default on macOS.
+              Recovery mode. The default on macOS, and macOS-ONLY: asking for
+              it on Linux or Windows is refused outright.
   • rclone  — FUSE mount (better caching). Default on Linux (FUSE built-in) and
               Windows (WinFsp). On macOS it needs macFUSE (a kernel extension
               requiring a Recovery-mode approval), so it's opt-in there.
 
-The drive is LIVE and SHARED: teammates and agents see your changes within
-seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
+Prerequisites for the rclone engine (Linux and Windows defaults):
+  Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash
+           sudo apt-get install fuse3
+  Windows  winget install Rclone.Rclone   (plus WinFsp: https://winfsp.dev)
+  macOS    brew install rclone            (only if you pass --engine rclone;
+                                           it also pulls in macFUSE)
+
+Notes:
+  THE MOUNT POINT MUST BE EMPTY, and it is created for you if it does not
+  exist. A non-empty directory is refused with "Mount point <path> is not
+  empty" before anything is mounted — pick another with --at.
+  THE MOUNTED DRIVE IS NOT POSIX. In-place edits are unsupported: mv, sed -i
+  and >> answer "Function not implemented". Read the file, transform it in
+  memory, and write the whole file back.
+  workspaces:read IS ENOUGH TO MOUNT AND READ. Writing needs workspaces:write
+  and DELETING NEEDS workspaces:delete, which write does not imply — a
+  read-write mount on a key without it fails every rm with a 403 while every
+  cp succeeds. --read-only is a local guard, not the scope.
+  A SUCCESSFUL MOUNT IS NOT A WORKING MOUNT. mount_webdav and rclone both
+  report success on a mount whose gateway then refuses every read. Verify by
+  reading one file you know is there.
+  MOUNT POINTS ARE NOT ORG-SCOPED (the default ~/nexus/<slug> is the same
+  directory for every org), but the registry is: two orgs can hold the same
+  slug at once, and the second must pass --at <path>.
+  --shared PICKS THE ADMIN-SHARED COPY. Without it a slug that names both
+  resolves to the org-owned one, and the command warns and prints the id it
+  chose — read that line.
+  --claude-md WRITES TO ./CLAUDE.md IN THE CURRENT DIRECTORY, creating it if
+  needed and replacing only its managed nexus-workspace block.
+  THE MOUNT OUTLIVES THIS COMMAND. rclone is detached, so the CLI exits while
+  the mount stays up; it survives until "nexus workspace unmount", a reboot, or
+  the process being killed. Its log is under the CLI's log directory.
+  The drive is LIVE and SHARED: teammates and agents see your changes within
+  seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
     )
     .action(
       async (
@@ -827,9 +998,39 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
           const mounts = readMounts();
           const existing = findMount(mounts, slug, scope);
           if (existing && isMountLive(existing.record)) {
+            // A row naming no org may belong to a different organization, so
+            // "unmount it first" would be an instruction to detach someone
+            // else's live drive. Which unowned row this is depends on who is
+            // asking, and so does the way out — advice that does not hold for
+            // the caller reading it is worse than none.
+            //
+            //   - anonymous caller: the base-URL bucket, one entry per (base
+            //     URL, slug), shared by every caller that arrives with a raw
+            //     --api-key and no NEXUS_ORGANIZATION_ID. Identifying yourself
+            //     genuinely is the escape — it moves you to an `org:`/`profile:`
+            //     key of your own, and `scopeCandidateKeys` then stops offering
+            //     you this bucket at all.
+            //   - identified caller: the bucket is already unreachable, so the
+            //     only unowned row left to match is a legacy bare-slug entry
+            //     written before org scoping existed. Logging in cannot help —
+            //     it is what put the caller here — so say what the row is and
+            //     leave the judgement with the one person who can make it.
+            const anonymous = !existing.record.orgId && !existing.record.profile;
+            const callerIdentified = Boolean(scope.orgId || scope.profile);
             throw new Error(
               `Workspace "${slug}" is already mounted at ${existing.record.mountPath} for ` +
-                `${describeOwner(existing.record)}. Unmount it first.`
+                `${describeOwner(existing.record)}. ` +
+                (!anonymous
+                  ? `Unmount it first.`
+                  : callerIdentified
+                    ? `That record predates org-scoped mounts and names no organization, so the ` +
+                      `CLI cannot tell whether it is yours. Unmount it only if you know it is — ` +
+                      `otherwise mount at a different path with --at.`
+                    : `That record names no organization: mounts made with a raw ` +
+                      `--api-key/NEXUS_API_KEY and no NEXUS_ORGANIZATION_ID all share one registry ` +
+                      `entry per base URL + slug, so it may belong to a different org than yours. ` +
+                      `Run \`nexus auth login\` or set NEXUS_ORGANIZATION_ID so the two can be told ` +
+                      `apart — do not unmount it unless you know it is yours.`)
             );
           }
 
@@ -1000,30 +1201,45 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
     .alias("umount")
     .description("Unmount a previously mounted workspace")
     .argument("<slug>", "Workspace slug")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workspace unmount support-docs
+  $ nexus workspace umount support-docs      # same command
+
+Notes:
+  IT NEEDS NO AUTH AND MAKES NO API CALL. This is a local operation on the
+  mount registry, so it works with no profile configured and after a key has
+  been revoked.
+  IT RESOLVES BY ACTING ORG FIRST. The same slug can be mounted for several
+  organizations; when the active org owns none of them the error LISTS the
+  candidates and tells you to switch profile or pass --profile, instead of
+  saying the mount does not exist.
+  UNSAVED WORK IN FLIGHT IS NOT FLUSHED FOR YOU. Writes propagate within
+  seconds — let a large copy finish before unmounting.
+  A mount point with no record answers "No mount recorded for <slug>". If the
+  OS still has it mounted, unmount it with the platform tool (umount /
+  fusermount -u) — this command only knows what it recorded.
+  Verify with "nexus workspace status": the row is gone.`
+    )
     .action((slug: string) => {
       try {
         const mounts = readMounts();
         // Scope to the acting org so the right per-org mount is targeted when
         // the same slug is mounted for multiple orgs (NEX-2360). Best-effort:
-        // works even with no configured profile, falling back to a slug match.
+        // works with no configured profile, falling back to an UNOWNED slug
+        // match only — an owned row is never detached on an unresolved scope.
         const scope = resolveScopeBestEffort(program.optsWithGlobals());
         const found = findMount(mounts, slug, scope);
         if (!found) {
           // Never say "No mount recorded" when the slug IS mounted — just for a
-          // different (or ambiguous) org. List the candidates so the user can
-          // switch to the owning profile/org instead of concluding it's gone.
+          // different (or ambiguous) org. `unmountMissMessage` owns which remedy
+          // fits, because which one is TRUE depends on whether the candidates
+          // have an owner to switch to at all.
           const candidates = findMountsBySlug(mounts, slug);
           if (candidates.length > 0) {
-            const list = candidates
-              .map((c) => `  - ${describeOwner(c.record)} at ${c.record.mountPath}`)
-              .join("\n");
-            throw new Error(
-              scope
-                ? `No mount of "${slug}" is recorded for ${describeScope(scope)}, but it is mounted for:\n` +
-                  `${list}\nSwitch to the owning profile/org (nexus auth switch / nexus auth use-org) and retry.`
-                : `"${slug}" is mounted for more than one org and the active org could not be resolved:\n` +
-                  `${list}\nRe-run with --profile <name> (or set NEXUS_ORGANIZATION_ID) to pick one.`
-            );
+            throw new Error(unmountMissMessage(slug, candidates, scope));
           }
           throw new Error(`No mount recorded for "${slug}". See \`nexus workspace status\`.`);
         }
@@ -1054,7 +1270,32 @@ seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
 
   // ── status ─────────────────────────────────────────────────────────────────
   ws.command("status")
-    .description("Show currently mounted workspaces")
+    .description("Show locally recorded mounts — a local read, never a server check")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus workspace status
+  $ nexus workspace status --json
+
+Notes:
+  LIVE REFLECTS THE MOUNT ONLY, NEVER THE SERVER. It is a PID check for rclone
+  and a mount-table check for the native engine, so a row can read Live yes and
+  still fail every read when the WebDAV gateway refuses, the key was revoked or
+  the workspace was deleted. CONFIRM BY READING ONE KNOWN FILE.
+  IT SHOWS EVERY ORG'S MOUNTS, not just the active one, and needs no auth — it
+  reads the local registry.
+  "?" IS "NOT RECORDED", NOT "NONE". Org prints "?" when the mount was made
+  with a raw --api-key and no NEXUS_ORGANIZATION_ID, and Mode prints "?" on a
+  mount recorded before the mode was tracked — that mount may be read-write.
+  Profile prints "-" in the same situation, not "?".
+  Under --json the same fields are null rather than "?" / "-", so a script can
+  tell "unknown" from a literal value.
+  Mode is what the mount was CREATED with. It does not re-derive the scopes the
+  key actually holds, so Mode rw on a key without workspaces:write is possible.
+  "No workspaces mounted." means the registry is empty. It does not mean the OS
+  has nothing mounted.`
+    )
     .action(() => {
       try {
         const mounts = readMounts();

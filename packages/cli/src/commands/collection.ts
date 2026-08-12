@@ -16,6 +16,25 @@ function collectFilter(value: string, previous: string[]): string[] {
 export function registerCollectionCommands(program: Command): void {
   const collection = program.command("collection").description("Manage knowledge collections");
 
+  collection.addHelpText(
+    "after",
+    `
+A collection is a named set of DOCUMENT LINKS. It stores no content of its own,
+so every write here changes which documents are reachable, never the documents.
+
+Three facts decide whether a call does what you think:
+  • "search" matches document NAMES. "query" matches document CONTENT and is the
+    retrieval your agents run. Reaching for "search" to test whether a collection
+    can answer a question returns nothing and looks like an empty collection.
+    "search-multiple" is the multi-collection form of SEARCH — names, not content.
+  • "attach-documents" SILENTLY DROPS FOLDER DOCUMENTS. A website folder, an
+    imported Google Sheet folder or a plain folder is filtered out server-side
+    and the call still reports success. Attach the child documents instead.
+  • Attaching and removing are not visible to retrieval at the same moment. The
+    document list this collection retrieves from is cached, so "query" can lag a
+    write by minutes while "collection documents" is accurate immediately.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   collection
     .command("list")
@@ -28,7 +47,15 @@ export function registerCollectionCommands(program: Command): void {
 Examples:
   $ nexus collection list
   $ nexus collection list --search "product" --limit 10
-  $ nexus collection list --json`
+  $ nexus collection list --json
+
+Notes:
+  DOCS IS A STORED COUNTER, NOT A LIVE COUNT. It is rewritten when documents are
+  attached and is NOT rewritten by "collection remove-document", so it reads high
+  after a removal. "nexus collection stats <id>" counts the links themselves.
+
+  --search matches name, display name and description, case-insensitively.
+  --limit defaults to 50.`
     )
     .action(async (opts) => {
       try {
@@ -60,7 +87,16 @@ Examples:
       `
 Examples:
   $ nexus collection get col-123
-  $ nexus collection get col-123 --json`
+  $ nexus collection get col-123 --json
+
+Notes:
+  Reranker "none" means NO RERANKER IS SET, and retrieval then returns the raw
+  similarity order. It is a model name when set, never a yes/no.
+
+  k is how many chunks a query pulls. Documents is the same stored counter the
+  list shows — "collection stats <id>" for the live number.
+
+  This does not list the documents. Use "nexus collection documents <id>".`
     )
     .action(async (id: string) => {
       try {
@@ -97,9 +133,19 @@ Examples:
   $ nexus collection create --name "product-docs"
   $ nexus collection create --name "faq" --display-name "FAQ" --k 15
   $ nexus collection create --body '{"name":"faq","displayName":"FAQ"}'
+  $ nexus collection create --body '{"name":"faq","preciseResponses":true,"includeMetadata":true}'
 
 Notes:
-  --name is a unique slug identifier. Use --display-name for the human-readable label.`
+  --name is a unique slug identifier. Use --display-name for the human-readable label.
+  The uniqueness constraint on it is DATABASE-WIDE, not per organization, so a
+  generic slug like "docs" can be refused because somebody else already took it.
+  Prefer an organization-specific slug.
+
+  --k defaults to 10 — the number of chunks retrieval pulls per query.
+
+  preciseResponses and includeMetadata are --body ONLY, with no flags, and both
+  default to false. Setting them at create is the only way to avoid a follow-up
+  "collection update".`
     )
     .action(async (opts) => {
       try {
@@ -142,7 +188,16 @@ Examples:
 
 Notes:
   --reranker takes a reranking MODEL NAME, passed through to the retrieval
-  provider. It is not an on/off switch, and "--reranker true" is rejected.`
+  provider. It is not an on/off switch, and "--reranker true" is rejected.
+
+  Only the fields you send are written; everything you omit keeps its stored
+  value. There is no way to clear --description or --reranker back to unset here.
+
+  preciseResponses and includeMetadata are --body only, as on create.
+
+  A "name" in --body IS ACCEPTED AND SILENTLY IGNORED. The slug is fixed at
+  creation and this route does not carry it — the call returns success and the
+  name is unchanged. Recreate the collection if you need a different slug.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -174,7 +229,16 @@ Notes:
       `
 Examples:
   $ nexus collection delete col-123
-  $ nexus collection delete col-123 --yes`
+  $ nexus collection delete col-123 --yes
+
+Notes:
+  THE DOCUMENTS SURVIVE. This deletes the collection and its document links.
+  Every document stays in the knowledge base, keeps its place in any other
+  collection, and is still listed by "nexus document list". Nothing here removes
+  a document — use "nexus document delete" for that.
+
+  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
+  in CI there is no prompt and no --yes is needed: the delete just happens.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -213,7 +277,18 @@ CONTENT (the semantic retrieval your agents use), use "nexus collection query".
 
 Examples:
   $ nexus collection search col-123 --query "invoice"
-  $ nexus collection search col-123 --query "pricing" --limit 5 --json`
+  $ nexus collection search col-123 --query "pricing" --limit 5 --json
+
+Notes:
+  EVERY HIT SCORES 1.000. This endpoint does not rank — the score column is a
+  constant, not a relevance figure, and a run of 1.000s is not a run of perfect
+  matches. Use "collection query" whenever ranking means anything to you.
+
+  --query is a case-insensitive SUBSTRING of the document name. It is not a
+  glob, not a regex and not tokenised, so "reset PIN" matches only a name that
+  literally contains "reset PIN". --limit defaults to 10.
+
+  Only documents linked DIRECTLY to the collection are searched.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -268,7 +343,22 @@ Examples:
   $ nexus collection query col-123 --query "how do I reset my PIN?"
   $ nexus collection query col-123 --query "carte SIM" --limit 5 --json
   $ nexus collection query col-123 --query "réinitialiser le PIN" --filter language=fr
-  $ nexus collection query col-123 --query "roaming" --filter region=eu --filter region=us`
+  $ nexus collection query col-123 --query "roaming" --filter region=eu --filter region=us
+
+Notes:
+  EMPTY RESULTS STRAIGHT AFTER ATTACHING USUALLY MEAN INDEXING, NOT AN EMPTY
+  COLLECTION. A document is linked the moment it is attached and answers nothing
+  until it finishes embedding. Re-run once "collection documents <id>" shows it
+  READY, and give the collection's cached membership a few minutes to catch up.
+
+  Retrieval is RECURSIVE: a document's children are searched too, so results can
+  cite documents "collection documents <id>" never lists.
+
+  --limit overrides the collection's k FOR THIS CALL ONLY; it does not change
+  what your agents retrieve. Change that with "collection update --k".
+
+  --filter only reaches metadata that has been INDEXED. A metadata edit made
+  with "document update" needs "document reprocess <id>" before it filters.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -303,16 +393,31 @@ Examples:
   // ── search-multiple ───────────────────────────────────────────────────
   collection
     .command("search-multiple")
-    .description("Search across multiple collections")
-    .requiredOption("--query <query>", "Search query")
+    .description("Search several collections by document name (slug match — not content)")
+    .requiredOption("--query <query>", "Substring to match against document names")
     .requiredOption("--collection-ids <ids>", "Comma-separated collection IDs")
     .option("--limit <number>", "Max results", parseInt)
     .addHelpText(
       "after",
       `
+Matches document NAMES, exactly like "nexus collection search" — this is the
+multi-collection form of SEARCH, not of "query". There is no multi-collection
+content retrieval: to search CONTENT across several collections, run
+"nexus collection query" once per collection.
+
 Examples:
   $ nexus collection search-multiple --query "pricing" --collection-ids col-1,col-2
-  $ nexus collection search-multiple --query "reset password" --collection-ids col-1 --limit 5 --json`
+  $ nexus collection search-multiple --query "reset password" --collection-ids col-1 --limit 5 --json
+
+Notes:
+  EVERY HIT SCORES 1.000 here too — this endpoint does not rank.
+
+  METADATA IS ALWAYS null. There is no --include-metadata on this command, so
+  the field is present and empty rather than absent. Use "collection search" on
+  one collection if you need it.
+
+  The results do not say which collection each hit came from. Search the
+  collections one at a time when that matters.`
     )
     .action(async (opts) => {
       try {
@@ -354,7 +459,20 @@ Examples:
         `
 Examples:
   $ nexus collection documents col-123
-  $ nexus collection documents col-123 --limit 20 --json`
+  $ nexus collection documents col-123 --limit 20 --json
+
+Notes:
+  DIRECT LINKS ONLY. Children of a linked document are not listed here even
+  though retrieval reaches them — list those with "nexus document children <id>".
+
+  This reads the database, so it is the authoritative answer right after an
+  attach or a remove, in a way "collection query" is not.
+
+  STATUS is the answer to "why does query return nothing": a document only
+  contributes to retrieval once it reads READY.
+
+  Soft-deleted documents are excluded, so a document deleted elsewhere leaves
+  this list silently rather than appearing as a broken row.`
       )
   ).action(async (id: string, opts) => {
     try {
@@ -385,7 +503,28 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus collection attach-documents col-123 --document-ids doc-1,doc-2,doc-3`
+  $ nexus collection attach-documents col-123 --document-ids doc-1,doc-2,doc-3
+
+Notes:
+  SILENTLY DROPS FOLDER DOCUMENTS. Any id naming a folder — FOLDER, a website
+  folder from "document add-website", the folder an imported Google Sheet or a
+  Google Drive import produces — is filtered out server-side, and the call still
+  reports success with the count you sent. Attach the CHILDREN instead:
+  "nexus document children <folder-id>". Passing only folder ids attaches
+  nothing at all and still succeeds.
+
+  ALL OR NOTHING ON EXISTENCE. If any id is unknown, deleted, or owned by
+  another organization the whole call is a 404 and nothing is attached.
+
+  ATTACH DOCUMENTS THAT ARE READY. A PENDING or PROCESSING document links
+  without error and contributes nothing to retrieval until it finishes; an ERROR
+  document never will. Check first with "nexus document get <id>".
+
+  Re-attaching an already-attached document is a no-op, not an error, so this
+  command is safe to re-run.
+
+  Verify with "nexus collection documents <id>" — that read is immediate, while
+  "collection query" can lag by minutes behind the attach.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -409,7 +548,25 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus collection remove-document col-123 doc-456`
+  $ nexus collection remove-document col-123 doc-456
+
+Notes:
+  REMOVES THE LINK, NOT THE DOCUMENT. The document stays in the knowledge base,
+  stays in every other collection holding it, and is still listed by
+  "nexus document list". Use "nexus document delete" to remove the document.
+
+  SUCCESS IS NOT EVIDENCE ANYTHING WAS REMOVED. This is idempotent: a document
+  that was never in the collection reports removed just the same. Only
+  "nexus collection documents <id>" answers whether the link is gone.
+
+  RETRIEVAL KEEPS ANSWERING FROM THE REMOVED DOCUMENT FOR A WHILE. The
+  collection's membership is cached; this route clears the link in the database
+  but not that cache, so "collection query" and any agent reading this
+  collection can keep returning the document until the entry expires — up to 15
+  minutes. There is no flag to force it. Removing a document from an agent's
+  reach IMMEDIATELY means deleting the document, not unlinking it.
+
+  Removing every document leaves an empty collection, not a deleted one.`
     )
     .action(async (id: string, documentId: string) => {
       try {
@@ -431,7 +588,18 @@ Examples:
       `
 Examples:
   $ nexus collection stats col-123
-  $ nexus collection stats col-123 --json`
+  $ nexus collection stats col-123 --json
+
+Notes:
+  Counted live from the current links, so this is accurate the instant an attach
+  or remove returns — unlike the DOCS column of "collection list".
+
+  embeddedCount is the documents that are actually retrievable. documentCount
+  minus embeddedCount minus pendingCount is the number that ERRORED, and those
+  never contribute to a query no matter how long you wait.
+
+  DIRECT LINKS ONLY, so these counts do not include the children retrieval
+  reaches. lastUpdatedAt is null for an empty collection.`
     )
     .action(async (id: string) => {
       try {

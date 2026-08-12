@@ -15,13 +15,22 @@ export function registerAccessCardCommands(program: Command): void {
   accessCard
     .command("list")
     .description("List access cards for a credential")
-    .requiredOption("--credential-id <id>", "Credential ID")
+    .requiredOption("--credential-id <id>", "Credential ID (required)")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus access-card list --credential-id abc-123
-  $ nexus access-card list --credential-id abc-123 --json`
+  $ nexus access-card list --credential-id abc-123 --json
+
+Notes:
+  --credential-id IS REQUIRED. Cards are scoped to one credential; there is no
+  org-wide listing on this command.
+  THE MASTER ROW IS IN THIS LIST (MASTER true, policies {}). It is the
+  credential's own all-access card, it cannot be deleted, and its policies
+  cannot be edited — do not mistake it for a card you created.
+  Run this BEFORE "credential delete": deleting the credential deletes every
+  row printed here.`
     )
     .action(async (opts) => {
       try {
@@ -51,7 +60,13 @@ Examples:
       `
 Examples:
   $ nexus access-card get xyz-456
-  $ nexus access-card get xyz-456 --json`
+  $ nexus access-card get xyz-456 --json
+
+Notes:
+  Policies is the WHOLE policy — an action absent from it is denied, so read
+  the key set, not just the entries. Use --json; the table truncates.
+  A card with Master true and policies {} allows everything. A card with Master
+  FALSE and policies {} allows NOTHING. Read both fields together.`
     )
     .action(async (id: string) => {
       try {
@@ -78,8 +93,8 @@ Examples:
   accessCard
     .command("create")
     .description("Create a new access card")
-    .requiredOption("--credential-id <id>", "Credential ID")
-    .requiredOption("--name <name>", "Card name")
+    .requiredOption("--credential-id <id>", "Credential ID (required)")
+    .requiredOption("--name <name>", "Card name (required)")
     .option("--description <text>", "Card description")
     .option("--color <color>", "Card color (slate, blue, green, etc.)")
     .option("--data <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -90,7 +105,29 @@ Examples:
   $ nexus access-card create --credential-id abc-123 --name "Send Only" \\
       --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":true}}}}}'
   $ nexus access-card create --credential-id abc-123 --name "Full Access" \\
-      --data policies.json`
+      --data policies.json
+
+Notes:
+  policies IS A MAP OF ACTION ID TO { "parameters": { "<path>": { "enabled":
+  ... } } }. Action ids are taken VERBATIM from "access-card available-actions
+  --credential-id <id>" — nothing else is a valid key.
+
+  AN UNLISTED ACTION IS DENIED. An action listed with no "parameters" entry is
+  allowed with NO PARAMETERS AT ALL — every argument the caller sends is
+  stripped before dispatch. An unlisted parameter inside a listed action is
+  stripped the same way, silently.
+
+  OMITTING policies CREATES A CARD THAT GRANTS NOTHING. This command defaults
+  it to {}, and {} only means "everything" on the master card, which this
+  command CANNOT create — every card created here is non-master. A {} card
+  validates, is returned as created, and refuses every action.
+
+  "enabled": true lets the caller set the parameter. "enabled": false with a
+  "value" PINS it — the caller cannot override it and never sees the refusal.
+  "enabled": false with no value strips the parameter.
+
+  Prove it before trusting it: run the action through the card and confirm the
+  parameters that survived.`
     )
     .action(async (opts) => {
       try {
@@ -137,7 +174,19 @@ Examples:
       `
 Examples:
   $ nexus access-card update xyz-456 --name "Restricted Send"
-  $ nexus access-card update xyz-456 --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":false,"value":"support@company.com"}}}}}'`
+  $ nexus access-card update xyz-456 --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":false,"value":"support@company.com"}}}}}'
+
+Notes:
+  policies IS REPLACED WHOLESALE, NEVER MERGED. Send the complete map every
+  time — sending one action drops every other action the card allowed, and the
+  response looks like a successful update.
+  Read the current map with "access-card get <id> --json" and edit that.
+
+  THE MASTER CARD REFUSES policies AND variables: 400. Rename or recolour it
+  freely; to restrict anything, create a derived card instead.
+
+  Same semantics as create — unlisted action denied, unlisted parameter
+  stripped, "enabled": false + "value" pins a value the caller cannot override.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -176,7 +225,12 @@ Examples:
   $ nexus access-card delete xyz-456
 
 Notes:
-  Master access cards cannot be deleted.`
+  Master access cards cannot be deleted — that request is a 400.
+  NO CONFIRMATION AND NO CHECK ON USE. A card an agent or workflow still names
+  deletes without warning, and every call through it then fails 403
+  ACCESS_CARD_NOT_FOUND at run time. Repoint the consumers first.
+  "nexus credential delete" removes every card on the credential, master
+  included, without going through this command.`
     )
     .action(async (id: string) => {
       try {
@@ -192,13 +246,21 @@ Notes:
   accessCard
     .command("available-actions")
     .description("List available actions for a credential")
-    .requiredOption("--credential-id <id>", "Credential ID")
+    .requiredOption("--credential-id <id>", "Credential ID (required)")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus access-card available-actions --credential-id abc-123
-  $ nexus access-card available-actions --credential-id abc-123 --json`
+  $ nexus access-card available-actions --credential-id abc-123 --json
+
+Notes:
+  --credential-id IS REQUIRED, and this is the ONLY authoritative source of the
+  action ids "access-card create/update" accept as policy keys.
+  ACTION ID IS THE KEY, copied verbatim. A key that names no real action still
+  saves — it simply matches nothing, so the card denies what you meant to allow
+  and nothing reports the typo.
+  Use --json to read each action's parameter names before writing a policy.`
     )
     .action(async (opts) => {
       try {

@@ -78,6 +78,28 @@ export function registerChannelCommands(program: Command): void {
     .command("channel")
     .description("Set up deployment channels: connections, phone numbers, WhatsApp senders");
 
+  channel.addHelpText(
+    "after",
+    `
+Everything here is what must exist BEFORE "nexus deployment create" can work.
+Run "nexus channel setup --type <TYPE>" first — it names the next missing
+piece and stops there.
+
+WhatsApp, in the order the pieces have to arrive:
+  1. channel connection create        one messaging connection per org
+  2. channel connect-waba             browser only, links your Meta account
+  3. nexus phone-number buy           A PURCHASE — it bills, see its help
+  4. channel whatsapp-sender create   registers the number, Meta must approve
+  5. nexus deployment create --type WHATSAPP
+
+Two things here reach the outside world and cannot be undone from the CLI:
+"whatsapp-template test-send" sends a real billed message to a real phone, and
+"whatsapp-template create --submit" files the template with Meta.
+
+Needs channels:read / channels:write; the phone-number steps run on
+phone_numbers:read / :write / :delete instead.`
+  );
+
   // ── setup ──────────────────────────────────────────────────────────
   channel
     .command("setup")
@@ -94,7 +116,33 @@ export function registerChannelCommands(program: Command): void {
 Examples:
   $ nexus channel setup --type WHATSAPP
   $ nexus channel setup --type WHATSAPP --auto
-  $ nexus channel setup --type TWILIO_SMS --json`
+  $ nexus channel setup --type TWILIO_SMS --json
+
+Notes:
+  THE "DEPLOYMENT" STEP ALWAYS READS action_needed. It is the thing you run
+  this before doing, and it is never checked — do not wait for it to turn
+  green. When every step ABOVE it is completed the response reports
+  ready: true, and that is the signal to create the deployment.
+
+  THIS STOPS AT THE FIRST GAP. The first step that reads action_needed blocks
+  the rest, and every step after it reads "pending" whatever its real state
+  is. So one run answers "what is the next thing to do", not "what is
+  missing" — fix that step and run it again.
+
+  Only WHATSAPP, TWILIO_SMS and TWILIO_VOICE have real prerequisite checks.
+  Every other --type returns the single always-action_needed deployment step,
+  so ready: true there means nothing was checked.
+
+  --auto ONLY CREATES THE MESSAGING CONNECTION, and only for those three
+  phone-backed types. Nothing buys a number, opens the Meta flow or registers
+  a sender for you. If the creation fails the error is swallowed and you get
+  the same checklist back with no explanation — compare the "connection" step
+  before and after.
+
+  --region is read only while creating that connection. An organization gets
+  one connection, so once it exists this flag does nothing and the region
+  cannot be changed here.
+  Each step carries an action.endpoint and action.hint; read them with --json.`
     )
     .action(async (opts) => {
       try {
@@ -135,7 +183,16 @@ Opens the Nexus dashboard where you can click "Connect with Meta"
 to link your WhatsApp Business Account.
 
 Examples:
-  $ nexus channel connect-waba`
+  $ nexus channel connect-waba
+
+Notes:
+  OPENS A BROWSER AND RETURNS IMMEDIATELY. It waits for nothing and verifies
+  nothing; a zero exit code means a URL was opened, not that Meta is linked.
+  Confirm with "nexus channel setup --type WHATSAPP" — the WhatsApp Business
+  Account step reads completed once the connection carries a wabaId.
+  There is no headless path. On a server with no browser the command still
+  exits 0, so print the URL and finish the flow somewhere with a screen.
+  Create the messaging connection first — this links Meta to that connection.`
     )
     .action(async () => {
       try {
@@ -154,9 +211,34 @@ Examples:
   // ── connection ─────────────────────────────────────────────────────
   const connection = channel.command("connection").description("Manage messaging connections");
 
+  connection.addHelpText(
+    "after",
+    `
+The messaging connection is the account WhatsApp, SMS and Voice all hang off,
+and an organization gets exactly ONE. Its region is fixed when it is created
+and every number bought afterwards lives there, so create it deliberately.
+
+There is no delete and no update here — a second create is a 409.`
+  );
+
   connection
     .command("list")
     .description("List messaging connections")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel connection list
+  $ nexus channel connection list --json
+
+Notes:
+  An organization has at most one, so this is a zero- or one-row table. Its ID
+  is the --connection-id every WhatsApp command below wants.
+  Credentials are redacted server-side and never appear here.
+  STATUS describes the Twilio account, not WhatsApp. Whether Meta is linked
+  shows up as a wabaId on the connection — read it with --json, or use
+  "nexus channel setup --type WHATSAPP".`
+    )
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -177,6 +259,25 @@ Examples:
     .command("create")
     .description("Create a messaging connection (max 1 per organization)")
     .option("--region <region>", "Region: us1 or ie1", "us1")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel connection create
+  $ nexus channel connection create --region ie1
+
+Notes:
+  THE REGION IS PERMANENT AND THERE IS ONLY ONE CONNECTION PER ORGANIZATION.
+  Nothing here changes it afterwards and a second create is a 409
+  LIMIT_REACHED, so choosing us1 by accident means every WhatsApp, SMS and
+  Voice number this organization ever buys lives in us1. Pick ie1 deliberately
+  if the data has to stay in Europe.
+  Not idempotent in the useful direction: run "connection list" first rather
+  than relying on the 409.
+  Only us1 and ie1 are accepted; anything else is a 400.
+  This is the FIRST step for WhatsApp, SMS and Voice — the number purchase and
+  the WhatsApp sender both hang off this connection.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -198,9 +299,43 @@ Examples:
   // ── whatsapp-sender ────────────────────────────────────────────────
   const waSender = channel.command("whatsapp-sender").description("Manage WhatsApp senders");
 
+  waSender.addHelpText(
+    "after",
+    `
+A sender is a phone number registered with WhatsApp Business through Meta. It
+needs a messaging connection with a linked WABA and an ACTIVE phone number
+bought on that connection, in that order.
+
+CREATING ONE DOES NOT MAKE IT USABLE. It starts OFFLINE and only Meta can make
+it ONLINE, which takes minutes and can be refused. "whatsapp-sender list" is
+the poll, and its offline_reasons — visible only with --json — is the one
+place a refusal is stated.
+
+There is no delete here: a sender is removed by releasing its phone number,
+which deregisters and deletes it.`
+  );
+
   waSender
     .command("list")
-    .description("List WhatsApp senders")
+    .description("List WhatsApp senders — the live Meta registration state")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel whatsapp-sender list
+  $ nexus channel whatsapp-sender list --json
+
+Notes:
+  THIS IS THE POLL. STATUS is fetched live from Twilio on every call, and a
+  sender is unusable until it reads ONLINE. Registration takes minutes.
+  OFFLINE MEANS BOTH "STILL WAITING" AND "REJECTED" — the display folds every
+  non-ONLINE state into one word. Which one it is only appears in
+  offline_reasons, which this table does not show: read it with --json. An
+  empty offline_reasons on an OFFLINE sender means still in progress; entries
+  there are Meta's refusal, and waiting longer will not fix it.
+  A rejected sender is repaired by fixing the cause on Meta's side and
+  recreating the sender, not by retrying this command.`
+    )
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -229,7 +364,24 @@ Examples:
       `
 Examples:
   $ nexus channel whatsapp-sender create --connection-id abc --phone-number-id def --sender-name "My Business"
-  $ nexus channel whatsapp-sender create --connection-id abc --phone-number-id def --sender-name "EU Support" --json`
+  $ nexus channel whatsapp-sender create --connection-id abc --phone-number-id def --sender-name "EU Support" --json
+
+Notes:
+  THE SENDER STARTS OFFLINE AND ONLY META CAN MAKE IT ONLINE. A 201 here means
+  the registration was filed, not that the number can send. Poll
+  "nexus channel whatsapp-sender list" until STATUS reads ONLINE; a refusal
+  comes back as OFFLINE with offline_reasons rather than as an error.
+  Registration takes minutes and can fail hours later.
+
+  --phone-number-id is the Nexus phone number UUID from
+  "nexus phone-number list", not the number itself. It must be ACTIVE and
+  bought on this same connection.
+  --sender-name is the display name Meta shows recipients and what Meta
+  reviews — a name that misrepresents the business is a rejection reason.
+  --waba-id is read off the connection when omitted; pass it only if you hold
+  several WhatsApp Business Accounts.
+  Then create the deployment with
+  --body '{"whatsappSenderId":"<sender id>"}'.`
     )
     .action(async (opts) => {
       try {
@@ -258,6 +410,19 @@ Examples:
     .command("get")
     .description("Get WhatsApp sender details")
     .argument("<id>", "Sender ID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel whatsapp-sender get XEabc123
+  $ nexus channel whatsapp-sender get XEabc123 --json
+
+Notes:
+  Same live Twilio read as "whatsapp-sender list", for one sender. STATUS is
+  ONLINE or OFFLINE only — use --json for offline_reasons, which is the sole
+  place a Meta rejection is stated.
+  The <id> is the sender id from the list, not the phone number id.`
+    )
     .action(async (id) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -281,6 +446,24 @@ Examples:
     .command("whatsapp-template")
     .description("Manage WhatsApp message templates (Twilio Content API)");
 
+  waTemplate.addHelpText(
+    "after",
+    `
+A template goes through four states and each one is a different command:
+  create           written to Twilio, unsubmitted — cannot be sent
+  submit-approval  filed with Meta, pending — still cannot be sent
+  approvals        read the verdict: approved, pending or rejected
+  test-send        SENDS A REAL BILLED MESSAGE to a real phone
+
+Templates live on the CONNECTION, not on a deployment. Attach an approved one
+to a deployment with "nexus deployment template attach" before an agent can
+use it.
+
+Meta's review is not instant and not guaranteed. Nothing here polls to
+completion — "create --submit" and "submit-approval --wait" give up after 30s
+and 2m and tell you to check "approvals".`
+  );
+
   waTemplate
     .command("list")
     .description("List WhatsApp message templates")
@@ -290,7 +473,14 @@ Examples:
       `
 Examples:
   $ nexus channel whatsapp-template list
-  $ nexus channel whatsapp-template list --connection-id abc --json`
+  $ nexus channel whatsapp-template list --connection-id abc --json
+
+Notes:
+  SAYS NOTHING ABOUT META APPROVAL. Every template in the Twilio account is
+  listed, approved or not, and a row here is not permission to send. Read
+  "nexus channel whatsapp-template approvals" for the verdict.
+  This is the Twilio-side inventory; "nexus deployment template list <depId>"
+  is what a given deployment has attached. The two differ routinely.`
     )
     .action(async (opts) => {
       try {
@@ -313,6 +503,20 @@ Examples:
     .command("get")
     .description("Get WhatsApp template details")
     .argument("<templateId>", "Template ID (Twilio SID)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel whatsapp-template get HX123
+  $ nexus channel whatsapp-template get HX123 --json
+
+Notes:
+  <templateId> is the Twilio content SID (HX...), not the friendly name.
+  Returns the content only — approval status is not part of it. Read
+  "nexus channel whatsapp-template approvals" for that.
+  "types" is the Twilio Types object as stored; use it as the starting point
+  for a --body-file when creating a variant.`
+    )
     .action(async (templateId) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -352,7 +556,28 @@ Examples:
 Examples:
   $ nexus channel whatsapp-template create --connection-id abc --friendly-name welcome --language en --body "Hello {{1}}, welcome!"
   $ nexus channel whatsapp-template create --connection-id abc --friendly-name promo --language en --body-file template.json
-  $ nexus channel whatsapp-template create --connection-id abc --friendly-name order --language en --body "Order {{1}} confirmed" --submit --category UTILITY`
+  $ nexus channel whatsapp-template create --connection-id abc --friendly-name order --language en --body "Order {{1}} confirmed" --submit --category UTILITY
+
+Notes:
+  CREATING IS NOT SUBMITTING AND SUBMITTING IS NOT APPROVAL. Without --submit
+  the template exists in Twilio and can never be sent. With --submit it is
+  filed with Meta and this command polls for 30 SECONDS ONLY — a still-pending
+  verdict is reported as pending and the command exits 0. Read the real answer
+  from "nexus channel whatsapp-template approvals".
+
+  --category IS PERMANENT AND IT IS A BILLING DECISION. UTILITY, MARKETING and
+  AUTHENTICATION are priced differently by Meta and reviewed differently;
+  a MARKETING message filed as UTILITY is a rejection. It cannot be changed
+  after submission — create a new template instead.
+
+  Variables are positional: {{1}}, {{2}} in the body text. Meta rejects
+  templates where variables dominate the static text and this command warns
+  before sending — the warning does NOT stop the create.
+  --body and --body-file are mutually exclusive and one is required.
+  --body-file takes the full Twilio Types object, which is what you need for
+  cards, carousels or media; --body only builds a twilio/text template.
+  --language is the Twilio language code (en, en_US) and is part of the
+  template's identity — a second language is a second template.`
     )
     .action(async (opts) => {
       try {
@@ -491,9 +716,28 @@ Examples:
 
   waTemplate
     .command("delete")
-    .description("Delete a WhatsApp template")
+    .description("Delete a WhatsApp template — permanent, and Meta approval dies with it")
     .argument("<templateId>", "Template ID (Twilio SID)")
     .option("--yes", "Skip confirmation prompt")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus channel whatsapp-template delete HX123
+  $ nexus channel whatsapp-template delete HX123 --yes
+
+Notes:
+  THE META APPROVAL GOES WITH IT AND CANNOT BE RECOVERED. Recreating the same
+  text produces a new SID that starts unsubmitted and has to be reviewed
+  again, which takes as long as the first time did.
+
+  DEPLOYMENTS STILL HOLDING THIS TEMPLATE ARE NOT UPDATED. Their attachment
+  keeps the dead SID, nothing errors here, and the agent's send fails later.
+  Run "nexus deployment template list <depId>" across your WhatsApp
+  deployments first and detach it from each.
+
+  The prompt only appears on a TTY — piped or in CI it deletes without one.`
+    )
     .action(async (templateId, opts) => {
       try {
         if (!opts.yes && process.stdin.isTTY) {
@@ -528,7 +772,18 @@ Examples:
       `
 Examples:
   $ nexus channel whatsapp-template approvals
-  $ nexus channel whatsapp-template approvals --json`
+  $ nexus channel whatsapp-template approvals --json
+
+Notes:
+  THIS IS THE AUTHORITATIVE ANSWER to "can this template be sent". approved is
+  the only status that can; pending and unsubmitted cannot, and rejected never
+  will until the template is rewritten and resubmitted.
+  A template that was never submitted may carry an EMPTY status rather than
+  "unsubmitted" — a blank STATUS column is not approval.
+  REJECTION REASON is Meta's own text and is the only thing that says what to
+  change. Read it before resubmitting anything.
+  Omitting --connection-id lists across every connection; an organization has
+  one, so it rarely matters.`
     )
     .action(async (opts) => {
       try {
@@ -576,7 +831,21 @@ Examples:
       `
 Examples:
   $ nexus channel whatsapp-template submit-approval --connection-id abc --template-id HX123 --name welcome --category UTILITY
-  $ nexus channel whatsapp-template submit-approval --connection-id abc --template-id HX123 --name promo --category MARKETING --wait`
+  $ nexus channel whatsapp-template submit-approval --connection-id abc --template-id HX123 --name promo --category MARKETING --wait
+
+Notes:
+  A 200 MEANS FILED, NOT APPROVED. The template still cannot be sent. Only
+  "nexus channel whatsapp-template approvals" reporting approved says it can.
+
+  --category IS PERMANENT AND PRICED. UTILITY, MARKETING and AUTHENTICATION
+  bill differently and are reviewed against different rules; picking the wrong
+  one is a rejection, and it cannot be corrected on this template afterwards.
+
+  --wait POLLS FOR 2 MINUTES AND THEN GIVES UP, exiting 0 with the status
+  still pending. That is a timeout, not a verdict — Meta commonly takes
+  longer. Do not treat a successful exit as approval.
+  --name is the name filed with Meta for this approval; --template-id is the
+  Twilio content SID (HX...) of the template it reviews.`
     )
     .action(async (opts) => {
       try {
@@ -641,9 +910,7 @@ Examples:
 
   waTemplate
     .command("test-send")
-    .description(
-      "Test-send a WhatsApp template to a phone number via the real Twilio/Meta pipeline"
-    )
+    .description("Send this template to a real phone for real money — there is no dry run")
     .requiredOption("--connection-id <id>", "Messaging connection ID")
     .requiredOption("--template-id <id>", "Template ID (Twilio content SID)")
     .requiredOption("--to <phone>", "Recipient phone number in E.164 format (e.g., +1234567890)")
@@ -654,7 +921,26 @@ Examples:
       `
 Examples:
   $ nexus channel whatsapp-template test-send --connection-id abc --template-id HX123 --to +1234567890
-  $ nexus channel whatsapp-template test-send --connection-id abc --template-id HX123 --to +1234567890 --variables '{"1": "Sneakers"}' --wait`
+  $ nexus channel whatsapp-template test-send --connection-id abc --template-id HX123 --to +1234567890 --variables '{"1": "Sneakers"}' --wait
+
+Notes:
+  THIS SENDS A REAL WHATSAPP MESSAGE TO A REAL PHONE THROUGH TWILIO AND META,
+  AND IT BILLS. There is no dry-run mode, no sandbox and no confirmation
+  prompt — it fires on submit. "test" describes your intent, not the pipeline.
+  The recipient sees an ordinary message from your business and cannot tell it
+  was a test. Send to a number you own.
+
+  Each send is a separate charge, so a --wait loop that you re-run costs money
+  each time. Nothing here is refundable and nothing can be recalled.
+  --to must be E.164 (+ then digits, no spaces or dashes) or it is a 400.
+  --variables is a flat map of position to value: '{"1":"Sneakers"}'. A
+  missing position sends the template with the placeholder unfilled.
+
+  --wait polls delivery for up to 2 minutes and exits non-zero on failed or
+  undelivered. Without it the command returns as soon as Twilio accepts the
+  message — "queued" is not "delivered", and a delivery failure is invisible.
+  Check later with the messageSid it prints.
+  An unapproved template is refused by Meta at send time, not here.`
     )
     .action(async (opts) => {
       try {

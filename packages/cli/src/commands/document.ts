@@ -38,6 +38,26 @@ const CRAWL_MODES = [
 export function registerDocumentCommands(program: Command): void {
   const document = program.command("document").description("Manage knowledge documents");
 
+  document.addHelpText(
+    "after",
+    `
+A document holds the content; a collection only holds links to documents. So
+everything here is about getting content INDEXED, and the status column is the
+answer to almost every "why does retrieval find nothing".
+
+  • READY IS THE ONLY STATUS THAT RETRIEVES. PENDING and PROCESSING are
+    in-flight, ERROR is final. There is no COMPLETED and no PROCESSED — a poll
+    loop waiting for either can only exit by timing out.
+  • THREE COMMANDS PRODUCE A FOLDER, NOT A DOCUMENT. add-website,
+    create-google-sheet and create-folder each return a FOLDER whose pages, tabs
+    or files are its CHILDREN. The folder itself carries no text, and
+    "collection attach-documents" silently drops folder ids — attach the
+    children, listed by "nexus document children <folder-id>".
+  • A 2xx MEANS THE WORK WAS ACCEPTED, NOT FINISHED. Poll the returned id with
+    "nexus document get <id>" until processingProgress is 100 and errorChildren
+    is 0 before treating the content as usable.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   addPaginationOptions(
     document
@@ -62,7 +82,18 @@ Examples:
 
 Poll an import to completion by watching for READY (terminal success) or ERROR.
 There is no COMPLETED or PROCESSED status — both are rejected, and a loop that
-waits for one can only ever exit by timing out.`
+waits for one can only ever exit by timing out.
+
+Notes:
+  THIS IS A FLAT LIST OF THE WHOLE KNOWLEDGE BASE, folders and their children
+  alike, not a tree. --type FOLDER or WEBSITE_FOLDER isolates the containers;
+  "nexus document children <id>" walks into one.
+
+  IT DOES NOT SAY WHICH COLLECTION A DOCUMENT IS IN. That direction only goes
+  the other way, through "nexus collection documents <collection-id>".
+
+  Deleted documents never appear here, so a document that vanishes from this
+  list was deleted, not merely unlinked from a collection.`
       )
   ).action(async (opts) => {
     try {
@@ -95,7 +126,22 @@ waits for one can only ever exit by timing out.`
       `
 Examples:
   $ nexus document get doc-123
-  $ nexus document get doc-123 --json`
+  $ nexus document get doc-123 --json
+
+Notes:
+  THIS IS THE POLL TARGET for every asynchronous import. Status READY is
+  terminal success; ERROR is terminal failure. Progress is a percentage.
+
+  FOR A FOLDER, READ THE CHILD COUNTERS, NOT THE STATUS. A website folder flips
+  to READY when the crawl finishes, while its pages are still PENDING and not
+  yet indexed. --json exposes totalChildren, errorChildren and
+  processingProgress; the folder is genuinely done when processingProgress is
+  100 and errorChildren is 0.
+
+  A FOLDER THAT REPORTS READY WITH ZERO CHILDREN FETCHED NOTHING. That is the
+  shape a mis-specified crawl takes — see "document add-website".
+
+  This does not return the document's text. Use "nexus document download <id>".`
     )
     .action(async (id: string) => {
       try {
@@ -137,7 +183,17 @@ Examples:
 
 Notes:
   For .md/.txt files, YAML frontmatter (--- block at the top) is read as metadata
-  server-side. Explicit --metadata flags override matching frontmatter keys.`
+  server-side. Explicit --metadata flags override matching frontmatter keys.
+
+  UPLOADING IS NOT INDEXING. The document comes back PENDING and is embedded
+  afterwards; poll "nexus document get <id>" for READY before attaching it or
+  expecting a query to find it.
+
+  THE UPLOAD LANDS IN THE KNOWLEDGE BASE, NOT IN A COLLECTION. Attach it with
+  "nexus collection attach-documents <collection-id> --document-ids <id>".
+
+  Metadata set here is what "collection query --filter" matches on. Adding it
+  later needs a "document reprocess" to take effect, so set it now.`
     )
     .action(async (filePath: string, opts) => {
       try {
@@ -183,7 +239,19 @@ Examples:
   $ nexus document create-text --name "FAQ" --content "Q: How do I...\\nA: You can..."
   $ cat content.md | nexus document create-text --name "Guide" --content -
   $ nexus document create-text --name "FAQ" --content - --metadata language=fr
-  $ nexus document create-text --body '{"name":"FAQ","content":"..."}'`
+  $ nexus document create-text --body '{"name":"FAQ","content":"..."}'
+
+Notes:
+  THIS IS THE RELIABLE WAY TO GET AWKWARD CONTENT IN. A page that a crawl cannot
+  read, a PDF that extracts badly, a spreadsheet you would rather summarise —
+  paste the text here instead of fighting the importer.
+
+  Indexed asynchronously like every other document: poll "nexus document get
+  <id>" for READY.
+
+  --content takes literal text, a file path, or '-' for stdin. Escape sequences
+  in a shell string are passed through literally — pipe a file when the content
+  has real newlines in it.`
     )
     .action(async (opts) => {
       try {
@@ -218,7 +286,10 @@ Examples:
     // its values. The old default of "single" therefore made the bare command a
     // guaranteed 400, and it also overwrote the `mode` of every `--body`,
     // including this command's own example below.
-    .option(`--mode <mode>`, `Crawl mode: ${CRAWL_MODES.join(" or ")}. Required`)
+    .option(
+      `--mode <mode>`,
+      `Crawl mode: ${CRAWL_MODES.join(" or ")}. Required. See Notes — they are not interchangeable`
+    )
     .option(
       "--metadata <key=value...>",
       "Filterable metadata (repeatable); inherited by every crawled page.",
@@ -229,11 +300,48 @@ Examples:
     .addHelpText(
       "after",
       `
+THE TWO MODES ARE NOT TWO SPEEDS OF THE SAME THING.
+
+  crawl    Follows links outward from --url. config.max_depth defaults to 3 and
+           config.max_pages to 500. This is the mode that discovers pages.
+  sitemap  Fetches EXACTLY the URLs you list in config.urls, and nothing else.
+           It does not read /sitemap.xml and it does not follow links.
+
+config lives in --body; there are no flags for it.
+
 Examples:
-  $ nexus document add-website --url https://docs.example.com --mode sitemap
-  $ nexus document add-website --url https://example.com/page --mode crawl
-  $ nexus document add-website --url https://docs.example.com --mode sitemap --metadata language=fr
-  $ nexus document add-website --body '{"url":"https://example.com","mode":"sitemap"}'`
+  $ nexus document add-website --url https://example.com --mode crawl
+  $ nexus document add-website --body '{"url":"https://docs.example.com","mode":"crawl","config":{"max_depth":2,"max_pages":50}}'
+  $ nexus document add-website --body '{"url":"https://docs.example.com","mode":"sitemap","config":{"urls":["https://docs.example.com/a","https://docs.example.com/b"]}}'
+  $ nexus document add-website --url https://example.com --mode crawl --metadata language=fr
+
+Notes:
+  --mode sitemap WITHOUT config.urls FETCHES NOTHING AND STILL SUCCEEDS. The
+  URL list is the whole input to that mode, so an empty one crawls zero pages;
+  the folder is created, flips to READY, and holds no content. Verify with
+  "nexus document children <folder-id>" — zero children is the symptom.
+
+  THE RESPONSE ID IS A FOLDER, AND 201 MEANS THE CRAWL STARTED. Crawling runs in
+  the background after the response is sent. Poll "nexus document get <id>"
+  until processingProgress is 100 and errorChildren is 0.
+
+  THE FOLDER REACHES READY BEFORE ITS PAGES ARE SEARCHABLE. Pages are created
+  PENDING and indexed afterwards, so a READY folder is not proof that a query
+  can find anything. Watch the children, not the folder's status.
+
+  ONLY THE MAIN CONTENT OF EACH PAGE IS KEPT — navigation, headers and footers
+  are stripped. A page whose substance lives in a sidebar or a nav menu stores
+  little or nothing.
+
+  EVERY RUN CREATES A NEW FOLDER. There is no re-crawl of an existing one, so
+  running this twice on the same site leaves two copies in the knowledge base
+  and both answer queries. Delete the old folder rather than crawling over it.
+
+  --metadata is inherited by every crawled page, which is what makes
+  "collection query --filter" usable across a whole site.
+
+  The pages land in the KNOWLEDGE BASE, not in a collection. Attach the CHILDREN
+  to one afterwards — attaching the folder id is silently dropped.`
     )
     .action(async (opts) => {
       try {
@@ -274,7 +382,15 @@ Examples:
       `
 Examples:
   $ nexus document preview doc-123
-  $ nexus document preview doc-123 --json`
+  $ nexus document preview doc-123 --json
+
+Notes:
+  THE URL IS SIGNED AND EXPIRES — expiresIn says when, currently 3600 seconds.
+  Never store it; re-run this command for a fresh one.
+
+  Same object as "document download", without the Content-Disposition header,
+  so a browser displays it inline. Documents with no stored file — text
+  documents, crawled pages, folders — answer 404 on both.`
     )
     .action(async (id: string) => {
       try {
@@ -302,7 +418,19 @@ Examples:
       `
 Examples:
   $ nexus document delete doc-123
-  $ nexus document delete doc-123 --yes`
+  $ nexus document delete doc-123 --yes
+
+Notes:
+  THIS REMOVES THE DOCUMENT FROM EVERY COLLECTION HOLDING IT, not just the one
+  you had in mind, and takes it out of the search index. Check first with
+  "nexus document get <id> --json". To take a document out of ONE collection,
+  use "nexus collection remove-document" instead.
+
+  DELETING A FOLDER TAKES ITS CHILDREN WITH IT. Every page, tab or file beneath
+  it goes too. List them first with "nexus document children <id>".
+
+  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
+  in CI there is no prompt and no --yes is needed: the delete just happens.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -349,7 +477,18 @@ Examples:
   $ nexus document update doc-123 --body '{"description":"Q4 report"}'
 
 Notes:
-  Metadata changes are re-indexed on the next 'nexus document reprocess <id>'.`
+  METADATA CHANGES DO NOT REACH SEARCH UNTIL YOU REPROCESS. This writes the
+  database column only; "collection query --filter" keeps matching the OLD
+  values until "nexus document reprocess <id>" runs. The command prints a
+  reminder when you pass --metadata.
+
+  --metadata REPLACES THE WHOLE METADATA BAG, IT DOES NOT MERGE. Every key you
+  do not repeat in this call is dropped, and nothing in the response says so.
+  Read the current set with "nexus document get <id> --json" and send it back in
+  full alongside the key you are changing.
+
+  This changes the document's labels, never its CONTENT. Replacing the text
+  means uploading a new document, or reprocessing the source.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -388,7 +527,19 @@ Notes:
       `
 Examples:
   $ nexus document download doc-123
-  $ nexus document download doc-123 --json`
+  $ nexus document download doc-123 --json
+
+Notes:
+  THE URL IS SIGNED AND EXPIRES — expiresIn says when, currently 3600 seconds.
+  Fetch it in the same run; a stored URL stops working and re-running this
+  command is how you get a fresh one.
+
+  ONLY DOCUMENTS WITH A STORED FILE HAVE ONE. A text document, a crawled page or
+  a folder has no file behind it and answers 404 here. Read those through the
+  dashboard or re-create them from the source.
+
+  This is the same URL as "document preview", plus a Content-Disposition header
+  so a browser saves it instead of displaying it.`
     )
     .action(async (id: string) => {
       try {
@@ -416,7 +567,17 @@ Examples:
         `
 Examples:
   $ nexus document children doc-123
-  $ nexus document children doc-123 --limit 20 --json`
+  $ nexus document children doc-123 --limit 20 --json
+
+Notes:
+  THIS IS THE LIST YOU ATTACH TO A COLLECTION. The folder id itself is silently
+  dropped by "collection attach-documents"; these ids are what carry content.
+
+  ONE LEVEL ONLY. A nested folder appears as a row here, not as its contents —
+  recurse if the tree is deeper than one level.
+
+  A crawl or import in flight returns a growing list. Zero children on a folder
+  that reports READY means the import fetched nothing.`
       )
   ).action(async (id: string, opts) => {
     try {
@@ -443,7 +604,21 @@ Examples:
       `
 Examples:
   $ nexus document reprocess doc-123
-  $ nexus document reprocess doc-123 --json`
+  $ nexus document reprocess doc-123 --json
+
+Notes:
+  RUN THIS AFTER EVERY METADATA EDIT. "document update --metadata" writes the
+  database column only; the search index keeps the old values until a reprocess,
+  so "collection query --filter" keeps filtering on what was there before.
+
+  ASYNCHRONOUS. Success means re-indexing started. Poll "nexus document get <id>"
+  for READY.
+
+  REPROCESSING A FOLDER DOES NOTHING. Only leaf documents are re-read — name the
+  page, tab or file, not the folder above it.
+
+  This re-reads the source, so it is also how a Google Sheet tab picks up edits
+  made in the spreadsheet.`
     )
     .action(async (id: string) => {
       try {
@@ -467,7 +642,22 @@ Examples:
       `
 Examples:
   $ nexus document create-folder --name "Reports"
-  $ nexus document create-folder --name "Q4" --parent-id folder-123`
+  $ nexus document create-folder --name "Q4" --parent-id folder-123
+
+Notes:
+  A FOLDER IS A DOCUMENT WITH NO CONTENT. It organizes the knowledge base and
+  nothing else. It carries no text, so it retrieves nothing, and
+  "collection attach-documents" silently drops folder ids — attach the
+  documents inside it instead.
+
+  add-website, create-google-sheet and create-folder all produce a FOLDER whose
+  pages, tabs or files are its children. Only create-folder makes an empty one
+  for you to fill.
+
+  --parent-id must name a folder in YOUR organization; anything else is a 404,
+  not a fallback to the root. Omit it to create at the root.
+
+  Nesting is allowed: a folder can hold folders.`
     )
     .action(async (opts) => {
       try {
@@ -502,7 +692,31 @@ Examples:
       `
 Examples:
   $ nexus document create-google-sheet --name "Catalog" --url "https://docs.google.com/spreadsheets/d/..."
-  $ nexus document create-google-sheet --body '{"name":"Catalog","url":"https://..."}'`
+  $ nexus document create-google-sheet --body '{"name":"Catalog","url":"https://...","metadata":{"hasHeaderRow":false}}'
+
+Notes:
+  THE SPREADSHEET MUST BE READABLE BY ANYONE WITH THE LINK. Nexus reads Google
+  Sheets with a platform API key, NOT with your connected Google account, so a
+  private or organization-restricted sheet fails however the account is
+  connected. Share it "anyone with the link can view" first. (To import a
+  private file instead, connect Drive and use "nexus cloud-import".)
+
+  THE RESULT IS A FOLDER PLUS ONE DOCUMENT PER TAB. The folder holds no content
+  and cannot be attached to a collection; attach the tabs, listed by
+  "nexus document children <folder-id>".
+
+  THE FOLDER IS MARKED READY IMMEDIATELY. The tabs are indexed in the
+  background afterwards, so a READY folder says nothing about whether the rows
+  are searchable. Poll the tab documents.
+
+  A SNAPSHOT, NOT A LIVE LINK. Automatic re-sync is off for documents created
+  through this API and cannot be turned on from here, so later edits to the
+  spreadsheet are never picked up on their own. Refresh a tab with
+  "nexus document reprocess <tab-id>" — reprocessing the FOLDER is a no-op,
+  only individual tabs re-read the sheet.
+
+  hasHeaderRow defaults to true — row 1 is read as column names, not as data.
+  It is --body only, under "metadata".`
     )
     .action(async (opts) => {
       try {

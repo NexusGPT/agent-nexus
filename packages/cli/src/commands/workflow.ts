@@ -22,12 +22,30 @@ function collect(value: string, previous: string[]): string[] {
 export function registerWorkflowCommands(program: Command): void {
   const workflow = program.command("workflow").description("Manage workflows");
 
+  workflow.addHelpText(
+    "after",
+    `
+Lifecycle: DRAFT --(validate + publish)--> PUBLISHED --(unpublish)--> DRAFT, and
+"workflow delete" moves it to ARCHIVED. A workflow must be PUBLISHED before an
+agent can use it as a tool.
+
+Two facts that decide whether a build works:
+  • DELETING A LOOP DELETES ITS BODY. "workflow node delete" on a loop or doWhile
+    removes every node inside it, and every edge touching any of them, in one
+    204. Nothing enumerates what went.
+  • A GREEN configStatus PROVES SHAPE ONLY. "workflow overview" reports complete
+    once a node's own required fields are filled — not that its inputs are wired,
+    that {{upstream.field}} resolves, or that any value is right. Use
+    "workflow validate" for the graph and variable checks, and remember an
+    outputNode has no required fields, so it always reports complete.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   addPaginationOptions(
     workflow
       .command("list")
       .description("List workflows")
-      .option("--status <status>", "Filter by status (DRAFT, PUBLISHED)")
+      .option("--status <status>", "Filter by status (DRAFT, PUBLISHED, ARCHIVED)")
       .option("--search <query>", "Search by name")
       .option("--folder <name|id>", "Filter by folder name or id")
       .addHelpText(
@@ -37,7 +55,17 @@ Examples:
   $ nexus workflow list
   $ nexus workflow list --status PUBLISHED --limit 10
   $ nexus workflow list --search "onboarding" --json
-  $ nexus workflow list --folder "Notion"`
+  $ nexus workflow list --folder "Notion"
+
+Notes:
+  --page defaults to 1 and --limit to 20. A --limit above 100 is REFUSED with a
+  400 rather than clamped.
+  --status takes DRAFT, PUBLISHED or ARCHIVED. THE UNFILTERED LIST HIDES ARCHIVED
+  — that is where "workflow delete" puts things, so a deleted workflow is still
+  readable, but only with --status ARCHIVED.
+  --folder accepts a folder id or its name, matched case-insensitively. A folder
+  that matches nothing returns an empty list rather than ignoring the filter.
+  Newest-updated first.`
       )
   ).action(async (opts) => {
     try {
@@ -71,7 +99,16 @@ Examples:
       `
 Examples:
   $ nexus workflow get wf-123
-  $ nexus workflow get wf-123 --json`
+  $ nexus workflow get wf-123 --json
+
+Notes:
+  --json carries the whole graph: nodes, edges, publishedNodes, publishedEdges,
+  agentInputSchema and the editor's data blob. The table shows six fields.
+  publishedNodes / publishedEdges are the LAST-PUBLISHED SNAPSHOT and are null —
+  not [] — until the first publish. Comparing them with nodes / edges is how you
+  learn whether the live version still matches the draft you are editing.
+  agentInputSchema is DERIVED from the agentInputTrigger node's parameters. It is
+  read-only here and not writable through "workflow update".`
     )
     .action(async (id: string) => {
       try {
@@ -103,7 +140,16 @@ Examples:
 Examples:
   $ nexus workflow create --name "Customer Onboarding"
   $ nexus workflow create --name "Data Pipeline" --description "ETL workflow"
-  $ nexus workflow create --body '{"name":"Pipeline","description":"ETL"}'`
+  $ nexus workflow create --body '{"name":"Pipeline","description":"ETL"}'
+
+Notes:
+  --name is REQUIRED, is trimmed, and must be UNIQUE among the organization's
+  non-archived workflows: a repeat is a 400, "A workflow with this name already
+  exists". --description is capped at 1000 characters.
+  THE NEW WORKFLOW IS NOT EMPTY AND HAS NO TRIGGER. It carries one non-deletable
+  selectTrigger placeholder, which validate counts as no trigger at all. Turn it
+  into a real one with "nexus workflow trigger <id> --type <triggerType>".
+  Status is DRAFT. Answers 201 with the full graph.`
     )
     .action(async (opts) => {
       try {
@@ -138,7 +184,15 @@ Examples:
 Examples:
   $ nexus workflow update wf-123 --name "Renamed Workflow"
   $ nexus workflow update wf-123 --description "Updated description"
-  $ nexus workflow update wf-123 --body '{"name":"Renamed"}'`
+  $ nexus workflow update wf-123 --body '{"name":"Renamed"}'
+
+Notes:
+  ONLY name AND description ARE WRITABLE HERE, and the body is STRICT: nodes,
+  edges, agentInputSchema, status or a typo is a 400 naming the key, never a
+  silent strip. Change the graph with "workflow node/edge/branch" or
+  "workflow batch"; agentInputSchema comes from the agentInputTrigger's
+  parameters.
+  A new --name is held to the same uniqueness rule as create.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -169,7 +223,17 @@ Examples:
 Examples:
   $ nexus workflow delete wf-123
   $ nexus workflow delete wf-123 --yes
-  $ nexus workflow delete wf-123 --dry-run`
+  $ nexus workflow delete wf-123 --dry-run
+
+Notes:
+  IT ARCHIVES, IT DOES NOT DESTROY. The workflow's status becomes ARCHIVED and
+  EVERY TRIGGER IT DEPLOYED IS REMOVED — a live webhook or schedule stops firing
+  the moment this returns. The graph itself survives and is still readable with
+  "workflow list --status ARCHIVED" and "workflow get".
+  Answers 200 with {id, status: "ARCHIVED", archivedAt}, not 204.
+  Prompts for confirmation in TTY. Use --yes in scripts/CI. --dry-run only reads
+  the workflow back and prints its name.
+  It frees the name: uniqueness ignores archived workflows.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -211,7 +275,16 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow duplicate wf-123`
+  $ nexus workflow duplicate wf-123
+
+Notes:
+  EVERY NODE AND EDGE ID IS REGENERATED. The copy is a different graph with the
+  same shape, so any id you held from the original addresses nothing in it — read
+  the new ids from the response or "workflow get".
+  The copy starts in DRAFT with no deployed triggers, so nothing fires until you
+  publish it, and its transient test state (runOutput, loop test data) is stripped.
+  It is named "<name> (copy)", numbered upward, so the uniqueness rule that
+  create enforces never blocks a duplicate. Answers 201.`
     )
     .action(async (id: string) => {
       try {
@@ -239,7 +312,16 @@ Examples:
 
 Notes:
   Workflows must be PUBLISHED before they can be attached to agents as tools.
-  Use "nexus workflow validate <id>" first to check for configuration errors.`
+  Use "nexus workflow validate <id>" first to check for configuration errors.
+  PUBLISHING TWICE IS A 409, NOT A REFRESH. An already-PUBLISHED workflow answers
+  WORKFLOW_ALREADY_PUBLISHED, so after editing a node on a live workflow the only
+  way to move the change into the live snapshot is unpublish, publish, then check
+  that publishedNodes matches nodes in "workflow get".
+  It validates the graph and DEPLOYS THE TRIGGERS: a webhook starts accepting
+  production calls and a schedule starts firing as soon as this returns.
+  VALIDATE PASSING DOES NOT GUARANTEE PUBLISH SUCCEEDS. Publish runs checks
+  validate does not — an agentInput workflow's parameter names are validated
+  here, and a bad one is a 400 naming the parameter and its schema errors.`
     )
     .action(async (id: string) => {
       try {
@@ -260,7 +342,14 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow unpublish wf-123`
+  $ nexus workflow unpublish wf-123
+
+Notes:
+  Back to DRAFT, and THE PRODUCTION TRIGGERS ARE DEACTIVATED — a live webhook or
+  schedule stops firing, and agents holding this workflow as a tool stop being
+  able to run it. It is a disabling, not a tidy-up.
+  Unpublishing a workflow that is not published is a 409.
+  This is the first half of the only refresh path: unpublish, then publish.`
     )
     .action(async (id: string) => {
       try {
@@ -282,7 +371,20 @@ Examples:
       `
 Examples:
   $ nexus workflow validate wf-123
-  $ nexus workflow validate wf-123 --json`
+  $ nexus workflow validate wf-123 --json
+
+Notes:
+  Answers isValid, readyToTest, readyToPublish, hasCriticalErrors, errors[] with a
+  severity, warnings[], nodeStatuses keyed by node id, graphIssues[] and
+  variableIssues[]. Read readyToPublish, not isValid.
+  WARNINGS DO NOT BLOCK. isValid is just "errors is empty"; a workflow with no
+  trigger and no output node collects warnings only, and still publishes.
+  graphIssues names the two structural faults: DISCONNECTED_NODE (no incoming
+  edges) and ORPHANED_NODE (inside a loop with no connections at all, so it is
+  invisible on the canvas and will never run).
+  variableIssues names every {{node.field}} that no upstream node exposes — the
+  check "workflow overview" does not make.
+  This is a READ. It changes nothing and never publishes.`
     )
     .action(async (id: string) => {
       try {
@@ -327,7 +429,32 @@ Examples:
   $ nexus workflow test wf-123 --follow
   $ nexus workflow test wf-123 --sample 5 --sample-node loop-abc --follow
   $ nexus workflow test wf-123 --limit-array loop-abc=5 --limit-array rows=10
-  $ nexus workflow test wf-123 --json`
+  $ nexus workflow test wf-123 --json
+
+Notes:
+  A SUCCESSFUL TEST RUN IS A REAL RUN. Every node executes against live systems —
+  emails send, rows are written, plugins charge. There is no dry mode; cap the
+  expensive parts with --sample / --limit-array instead.
+  WHERE --input LANDS DEPENDS ON THE TRIGGER TYPE, and getting it wrong resolves
+  {{TRIGGER…}} to nothing rather than erroring:
+    webhookTrigger      — wrapped as {body: <your input>}: {{TRIGGER.body.name}}
+    agentInputTrigger   — used as the trigger's own output, so references are the
+                          parameter names directly: {{TRIGGER.customer_email}}
+    scheduleTrigger /
+    manualTrigger       — takes no input at all
+    newsMonitorTrigger  — your input, else the stored runOutput, else a synthesized
+                          {events: […]} sample
+  A WEBHOOK OR PLUGIN TRIGGER WITH NO INPUT IS REFUSED, not silently parked: 422
+  TRIGGER_NOT_SYNC_TESTABLE. Pass --input, or put exampleData on the trigger node,
+  or publish and fire the real event.
+  --input wins over --body and is the trigger payload verbatim. A flat --body is
+  treated as that payload; a --body carrying triggerData / sampleConfig is used as
+  given. An EMPTY object is treated as absent, so the node's stored runOutput
+  survives rather than being clobbered with {}.
+  --sample needs --sample-node (the loop node's id). Caps only apply to runs that
+  start immediately — they cannot reach a run an external event starts later.
+  Answers {executionId, status:"RUNNING"}. Follow it with --follow, or later with
+  "nexus execution diagnose <executionId>".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -411,9 +538,25 @@ Examples:
       `
 Examples:
   $ nexus workflow test-node wf-123 node-456
-  $ nexus workflow test-node wf-123 node-456 --input '{"key": "value"}'
+  $ nexus workflow test-node wf-123 node-456 --input '{"upstream-node-id":{"rows":[]}}'
   $ nexus workflow test-node wf-123 node-456 --body input.json
-  $ nexus workflow test-node wf-123 node-456 --json`
+  $ nexus workflow test-node wf-123 node-456 --json
+
+Notes:
+  THE SAME ENDPOINT AS "nexus workflow node test", which documents the mock shape
+  in full. This spelling adds --input as sugar; both send {input: …}.
+  --input IS A MAP OF UPSTREAM OUTPUTS, not this node's arguments. Each key is an
+  upstream node id (or an input variable's name) and its value becomes that node's
+  mocked output, which is how {{upstream.field}} resolves. An unknown key is a 400.
+  WITHOUT MOCKS, UPSTREAM REFERENCES RESOLVE FROM EACH UPSTREAM NODE'S LAST TEST
+  RESULT. An upstream that has never run exposes nothing, so the node under test
+  runs on empty values and a green result proves only that it did not crash.
+  A trigger node is refused here with 400 NODE_IS_TRIGGER — use "workflow test".
+  IT WRITES BACK. The node's testExecutionId, runOutput and inferred outputFormat
+  are persisted, which is what lets downstream nodes see this node's shape — and
+  which overwrites the previous test's pointer.
+  The returned executionId is a per-node test id, so "nexus execution get" on it
+  fails. The output you want is already in this response's data field.`
     )
     .action(async (workflowId: string, nodeId: string, opts) => {
       try {
@@ -440,10 +583,38 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow batch wf-123 --body '{"nodes":[{"ref":"@n1","type":"llm"}]}'
+  $ nexus workflow batch wf-123 --body '{"nodes":[{"ref":"summarize","type":"aiTask"}],"edges":[{"source":"@trigger","target":"@summarize"}]}'
+  $ nexus workflow batch wf-123 --body '{"nodes":[{"ref":"rows","type":"loop"},{"ref":"score","type":"aiTask","parentId":"@rows"}],"edges":[{"source":"@rowsStart","target":"@score"}]}'
   $ nexus workflow batch wf-123 --body batch.json
   $ cat batch.json | nexus workflow batch wf-123 --body -
-  $ nexus workflow batch wf-123 --body - --json`
+  $ nexus workflow batch wf-123 --body - --json
+
+Notes:
+  DECLARE A ref BARE, REFERENCE IT WITH @. {"ref":"summarize"} is declared, and
+  every source / target / parentId / sourceHandle that means it writes "@summarize".
+  A value with no @ is taken as an existing node or edge UUID, so a bare typo
+  becomes "not found in workflow" rather than an unresolved ref.
+  Refs must be unique within the batch, and three kinds are reserved or generated:
+  @trigger is the workflow's existing trigger node; a loop or doWhile named "rows"
+  also creates @rowsStart, its body's entry point; and each branch you declare
+  gets its own ref. Use GET /workflows/node-types ("nexus workflow node-types")
+  for the type names — "llm", "action" and "condition" are not among them.
+  label is OPTIONAL. Node types carry their own default label, and data is merged
+  over the type's defaults.
+  IT IS ATOMIC. Everything is validated in memory and written once, so a refusal
+  anywhere leaves the workflow exactly as it was — no orphan nodes to clean up.
+  Refusals are literal: "Duplicate ref 'X'", "Unknown node type: 'X'",
+  "Unresolved reference '@X' in <context>. Available refs: …" and
+  "Edge(s) not found: <id>". Edges are also held to every rule
+  "workflow edge create" applies (EDGE_SELF_LOOP, EDGE_SCOPE_VIOLATION, …).
+  Re-firing the same batch REUSES an identical existing edge instead of failing,
+  so a retry after a partial network failure is safe.
+  PLUGIN NODES COME BACK UNCONFIGURED — batch creates the shell only. Set toolId,
+  then selectedAction (which populates the parameters), verify with
+  "workflow node get", and only then toolCredentialId. Configuring parameters
+  before the action is accepted and silently produces nothing.
+  Created ids arrive at data.created.{nodes,edges,branches}, keyed by your refs.
+  The default table output prints only the three counts — use --json for the ids.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -479,7 +650,12 @@ Examples:
       `
 Examples:
   $ nexus workflow upload-icon wf-123 --file ./icon.png
-  $ nexus workflow upload-icon wf-123 --file ./logo.svg`
+  $ nexus workflow upload-icon wf-123 --file ./logo.svg
+
+Notes:
+  The file is read locally first, so a missing path fails before any request.
+  Maximum 2 MB — larger is a 413, with the upload aborted mid-flight.
+  It REPLACES the current icon and answers {id, iconUrl}.`
     )
     .action(async (id: string, opts) => {
       try {

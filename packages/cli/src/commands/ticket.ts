@@ -115,6 +115,28 @@ export function registerTicketCommands(program: Command): void {
     .command("ticket")
     .description("Manage tickets (bugs, feature requests, improvements)");
 
+  ticket.addHelpText(
+    "after",
+    `
+A TICKET IS A LINEAR ISSUE. Every organization files into the SAME Linear
+team, so identifiers are global and a ticket raised under another organization
+is invisible to a single-org read — "ticket list --all-orgs" before you file,
+or you will duplicate one.
+
+--data, NOT --body, ON create AND update. This namespace is the exception in
+the CLI. "ticket comment --body" is a third thing again: plain comment text,
+not JSON.
+
+STATUS IS A LINEAR WORKFLOW-STATE NAME, matched case-insensitively against the
+states the team actually has. An unknown name is refused with the full allowed
+set, so a bad filter never comes back as an empty page.
+
+WHAT IS REDACTED AND WHAT IS NOT: only context.requestBody and
+context.responseBody are scrubbed, and only where a KEY inside that JSON looks
+secret. A token in --title, --description or a comment reaches Linear
+verbatim. Redaction is not a safety net — do not paste secrets.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   addPaginationOptions(
     ticket
@@ -142,18 +164,34 @@ Examples:
   $ nexus ticket list --search "login" --json
   $ nexus ticket list --all-orgs --search "webhook"
 
-Statuses are the workflow states configured on the Linear team, matched
-case-insensitively. A name the team does not define is rejected with the
-complete allowed set — it never comes back as an empty page.
+Notes:
+  Statuses are the workflow states configured on the Linear team, matched
+  case-insensitively. A name the team does not define is rejected with the
+  complete allowed set — it never comes back as an empty page.
 
-Without --all-orgs, results come from the profile's active organization only.
-Every organization is backed by the same ticket workspace, so a ticket filed
-under another organization is invisible to a single-org search — use --all-orgs
-before filing to avoid duplicates.
+  Without --all-orgs, results come from the profile's active organization only.
+  Every organization is backed by the same ticket workspace, so a ticket filed
+  under another organization is invisible to a single-org search — use
+  --all-orgs before filing to avoid duplicates.
 
---all-orgs needs a personal (cross-org) token; an organization-scoped key is
-refused with a 403. Get one from Settings -> API Keys -> Personal Tokens, then
-run "nexus auth login".`
+  --all-orgs needs a personal (cross-org) token; an organization-scoped key is
+  refused with a 403. Get one from Settings -> API Keys -> Personal Tokens,
+  then run "nexus auth login".
+
+  --all-orgs IS BEST-EFFORT AND CAN ANSWER SHORT. An organization it could not
+  read is SKIPPED rather than failing the call, so "no such ticket" may just
+  mean "not in the orgs that answered". A warning naming the skipped ids goes
+  to STDERR, and they also travel in meta.skippedOrganizationIds under --json —
+  check it before concluding a ticket does not exist.
+
+  NO DESCRIPTION AND NO context HERE. The list carries the summary fields only;
+  read either with "nexus ticket get <id>".
+
+  LABELS EXCLUDE THE TYPE LABEL — that one is surfaced as TYPE. What you see is
+  safe to feed straight back into --labels on create or update.
+
+  Paginated: --limit / --page, and the total is in the meta line (in --json,
+  meta.total). --search is a substring over title and description.`
       )
   ).action(async (opts) => {
     try {
@@ -194,7 +232,20 @@ Notes:
   This reads the profile's ACTIVE organization only, so a ticket filed under
   another organization answers 404. Find it with "nexus ticket list --all-orgs"
   — every row carries its url and, in --json, its organizationId. Then either
-  open the url, or switch with "nexus auth use-org <orgId>" and read it here.`
+  open the url, or switch with "nexus auth use-org <orgId>" and read it here.
+
+  TAKES THE IDENTIFIER OR THE UUID. "NEX-42" is what you normally have; the
+  identifier is global across organizations, which is why the 404 above is
+  about permission, not about the identifier being unknown.
+
+  THE ONLY COMMAND THAT RETURNS description AND context. context comes back
+  reconstructed by parsing the Linear description, so a ticket whose
+  description was hand-edited in Linear can read back with fields missing or
+  changed. Treat context on read as best-effort, and the Linear issue as the
+  source of truth.
+
+  Attachments and comments are separate reads: "nexus ticket comments <id>",
+  "nexus ticket attachments <id>".`
     )
     .action(async (id: string) => {
       try {
@@ -237,10 +288,47 @@ Examples:
   $ nexus ticket create --title "Add dark mode" --type FEATURE_REQUEST --priority MEDIUM
   $ nexus ticket create --title "Bug report" --type BUG --description "Steps to reproduce..."
   $ nexus ticket create --data '{"title":"Bug","type":"BUG"}'
+  $ nexus ticket create --title "500 on upload" --data '{"context":{
+      "endpoint":"/documents","method":"POST","statusCode":500,
+      "requestBody":"{\\"name\\":\\"x\\"}","reproductionSteps":"1. ..."}}'
 
 Notes:
   Uses --data (not --body) for JSON input — this differs from other commands.
-  "ticket comment" uses --body for comment text (not JSON).`
+  "ticket comment" uses --body for comment text (not JSON).
+
+  context IS A JSON OBJECT INSIDE --data, and it has no flag. Its fields:
+  endpoint, method, statusCode, errorCode, requestBody, responseBody,
+  reproductionSteps, expectedBehavior, actualBehavior, environment,
+  sdkVersion, agentId. ANY OTHER KEY IN IT IS SILENTLY DROPPED — the server
+  strips what it does not know rather than refusing, so a typo looks accepted.
+
+  requestBody AND responseBody ARE STRINGS, NOT OBJECTS. Pass JSON-encoded
+  text, not a nested object, or the call is refused. Each is capped at 2000
+  characters and is truncated with "... (truncated)" beyond that. statusCode
+  is a NUMBER; agentId must be a UUID.
+
+  endpoint WITHOUT method IS SILENTLY LOST ON READ. The pair is stored as one
+  line and parsed back as one, so an endpoint filed without a method comes back
+  from "ticket get" with BOTH fields missing. Always send them together.
+
+  ONLY requestBody AND responseBody ARE REDACTED, and only where a KEY inside
+  the parsed JSON matches password, secret, token, apiKey, api-key,
+  authorization, cookie or credential — that value becomes "[REDACTED]". A
+  secret anywhere else, including --description, reaches Linear verbatim. A
+  requestBody that is not valid JSON is not scanned at all, only truncated.
+
+  DEFAULTS ARE APPLIED, NOT LEFT EMPTY: type defaults to BUG and priority to
+  MEDIUM. Say so explicitly rather than letting a feature request file as a bug.
+
+  --labels ADDS LINEAR LABELS and creates them on the team if absent (max 20).
+  "bug", "feature-request" and "improvement" are reserved for --type and are
+  refused here. Use CUE to mark an agent-filed ticket.
+
+  ONE LINEAR TEAM BACKS EVERY ORGANIZATION, so the ticket you are about to file
+  may already exist under another one of yours. Run
+  "nexus ticket list --all-orgs --search ..." first — a duplicate is the normal
+  failure here, and nothing rejects it.
+  The output carries the identifier and url; keep the identifier.`
     )
     .action(async (opts) => {
       try {
@@ -299,7 +387,26 @@ Examples:
   $ nexus ticket update TKT-42 --title "Updated title" --type BUG
   $ nexus ticket update TKT-42 --status "In Progress"
   $ nexus ticket update TKT-42 --status Canceled
-  $ nexus ticket update TKT-42 --data '{"priority":"URGENT"}'`
+  $ nexus ticket update TKT-42 --data '{"priority":"URGENT"}'
+
+Notes:
+  Uses --data (not --body) for JSON input, like "ticket create".
+
+  --labels REPLACES THE TICKET'S LABELS WHOLESALE — it does not add. Sending a
+  subset removes the rest; --labels "" clears them all. Read the current set
+  with "nexus ticket get" and send it back plus your addition. The type label
+  is preserved regardless and cannot be passed here.
+
+  --description REPLACES THE WHOLE DESCRIPTION, INCLUDING THE CONTEXT BLOCK the
+  ticket was filed with. That block is where context lives, so overwriting it
+  is how a ticket loses its reproduction steps. There is no context field on
+  update: to keep it, read the description first and re-send it with your edit.
+
+  --status IS A LINEAR WORKFLOW-STATE NAME and is validated against the team's
+  real states; an unknown one is refused with the allowed set.
+
+  AN EMPTY UPDATE IS A SUCCESS THAT CHANGES NOTHING — every field is optional.
+  A flag always overrides the same field in --data.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -344,7 +451,18 @@ Examples:
 Examples:
   $ nexus ticket close TKT-42
   $ nexus ticket close TKT-42 --as Done
-  $ nexus ticket close TKT-42 --as Canceled --comment "Duplicate of TKT-41"`
+  $ nexus ticket close TKT-42 --as Canceled --comment "Duplicate of TKT-41"
+
+Notes:
+  IT CLOSES AS Canceled BY DEFAULT, NOT Done. Canceled reads as "we are not
+  doing this"; pass --as Done for work that shipped.
+  --as IS A WORKFLOW-STATE NAME, so this is "ticket update --status" with a
+  default. Nothing checks that the state you name is terminal — --as Backlog
+  is accepted and reopens the ticket.
+  THE COMMENT IS POSTED FIRST, AS A SEPARATE CALL. If the transition then fails
+  — an unknown --as, a permission error — the comment is already on the ticket
+  and is not rolled back. Re-running would post it twice.
+  --comment - reads the comment body from stdin.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -381,7 +499,17 @@ Examples:
       `
 Examples:
   $ nexus ticket comment TKT-42 --body "This is fixed in v2.1"
-  $ echo "Detailed comment" | nexus ticket comment TKT-42 --body -`
+  $ echo "Detailed comment" | nexus ticket comment TKT-42 --body -
+
+Notes:
+  --body HERE IS COMMENT TEXT, NOT JSON. It is the one --body in this namespace
+  — create and update take --data — and passing JSON just posts that JSON as
+  the comment's text.
+  "-" reads the body from stdin, which is how you post anything multi-line.
+  NOTHING IS REDACTED IN A COMMENT. The scrubbing that applies to
+  context.requestBody on create does not apply here; a pasted token goes to
+  Linear as typed.
+  Comments cannot be edited or deleted through this API.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -404,7 +532,14 @@ Examples:
       `
 Examples:
   $ nexus ticket comments TKT-42
-  $ nexus ticket comments TKT-42 --json`
+  $ nexus ticket comments TKT-42 --json
+
+Notes:
+  THE BODY COLUMN IS TRUNCATED TO 50 CHARACTERS in the table. Use --json to
+  read a comment in full — the table is a index, not the content.
+  Unpaginated — there are no --limit / --page options here.
+  AUTHOR is null for a comment written by an integration rather than a person,
+  and renders blank rather than saying so.`
     )
     .action(async (id: string) => {
       try {
@@ -434,7 +569,18 @@ Examples:
       `
 Examples:
   $ nexus ticket attach TKT-42 --file ./screenshot.png
-  $ nexus ticket attach TKT-42 --file ~/Downloads/error-log.txt`
+  $ nexus ticket attach TKT-42 --file ~/Downloads/error-log.txt
+
+Notes:
+  THE WHOLE FILE IS READ INTO MEMORY AND UPLOADED IN ONE REQUEST. There is no
+  chunking and no resume, so a large file fails as a single timeout — raise the
+  global --timeout <seconds> rather than retrying.
+  A MISSING PATH EXITS 1 BEFORE ANY REQUEST, printing the resolved absolute
+  path. That is a local check, not a server answer.
+  THE FILE IS NOT SCANNED OR REDACTED. A log with credentials in it goes to
+  Linear as-is; the redaction on "ticket create" covers context bodies only.
+  Confirm with "nexus ticket attachments <id>" — the upload response alone is
+  not proof the attachment is listed.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -469,7 +615,13 @@ Examples:
       `
 Examples:
   $ nexus ticket attachments TKT-42
-  $ nexus ticket attachments TKT-42 --json`
+  $ nexus ticket attachments TKT-42 --json
+
+Notes:
+  THIS IS THE VERIFICATION STEP FOR "ticket attach" — a 2xx on the upload is
+  not proof the attachment landed on the ticket.
+  Unpaginated. There is no download and no delete command: open the ticket's
+  url for the file itself.`
     )
     .action(async (id: string) => {
       try {

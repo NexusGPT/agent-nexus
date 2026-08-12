@@ -11,8 +11,13 @@ import { mountKey } from "../workspace-mounts";
  *     never another org's mount of the same slug.
  *   - When the acting org has no mount but other orgs do, the error lists the
  *     candidates instead of a misleading "No mount recorded".
- *   - When the scope is unknowable and several orgs have the slug mounted, the
- *     error lists the candidates and asks the user to pick.
+ *   - When the scope is unknowable, the error lists the candidates and asks the
+ *     user to pick — whether there are several or only one. Uniqueness is not
+ *     ownership: an unknown scope is what a typo'd `--profile` produces, and
+ *     `unmount` OS-detaches a real drive and deletes the row, so the one case
+ *     where guessing looks safest is exactly where it destroys another org's
+ *     mount. Only a record naming NO org/profile (the anonymous base-URL bucket,
+ *     or a legacy pre-NEX-2360 row) is still matched by slug alone.
  */
 
 // Hermetic error taxonomy: `handleError` narrows over the SDK's error classes,
@@ -202,7 +207,7 @@ describe("nexus workspace unmount (NEX-2360 org scoping)", () => {
       error?: { message?: string };
     };
     const message = out.error?.message ?? "";
-    expect(message).toContain("more than one org");
+    expect(message).toContain("the active org could not be resolved");
     expect(message).toContain('org "Acme"');
     expect(message).toContain('org "Globex"');
     expect(process.exitCode).toBe(1);
@@ -212,7 +217,29 @@ describe("nexus workspace unmount (NEX-2360 org scoping)", () => {
     ]);
   });
 
-  it("unmounts a unique slug match when the scope is unknown", async () => {
+  it("unmounts a unique UNOWNED slug match when the scope is unknown", async () => {
+    // The anonymous base-URL bucket: mounted with a raw --api-key and no
+    // NEXUS_ORGANIZATION_ID, so the row names no org. Nothing to contradict, and
+    // refusing would strand a live mount with no way to detach it.
+    resolveProfile.mockImplementation(() => {
+      throw new Error("No profiles configured.");
+    });
+    registry = {
+      "url:https://api.nexusgpt.io|general-context": mountRow({
+        slug: "general-context",
+        mountPath: "/anon/general-context"
+      })
+    };
+    const out = (await runUnmount("general-context")) as Record<string, unknown>;
+    expect(out).toMatchObject({ unmounted: true, slug: "general-context" });
+    expect(registry).toEqual({});
+  });
+
+  it("refuses to detach an OWNED unique match when the scope is unknown", async () => {
+    // One org, one mount, one obvious candidate — and the CLI still must not act.
+    // An unknown scope is reached by ordinary accident, not only by a deliberate
+    // anonymous invocation, and `unmount` OS-detaches a real drive and deletes
+    // the row. Uniqueness is not ownership.
     resolveProfile.mockImplementation(() => {
       throw new Error("No profiles configured.");
     });
@@ -221,12 +248,42 @@ describe("nexus workspace unmount (NEX-2360 org scoping)", () => {
         slug: "general-context",
         mountPath: "/a/general-context",
         orgId: "org_aaa",
+        orgName: "Acme",
         profile: "org-a"
       })
     };
-    const out = (await runUnmount("general-context")) as Record<string, unknown>;
-    expect(out).toMatchObject({ unmounted: true, slug: "general-context" });
-    expect(registry).toEqual({});
+    const out = (await runUnmount("general-context")) as { error?: { message?: string } };
+    const message = out.error?.message ?? "";
+    expect(message).toContain("the active org could not be resolved");
+    expect(message).toContain('org "Acme"');
+    expect(message).toContain("/a/general-context");
+    expect(message).toContain("--profile");
+    expect(process.exitCode).toBe(1);
+    // The mount is untouched: still recorded, still attached.
+    expect(Object.keys(registry)).toEqual(["org:org_aaa|general-context"]);
+  });
+
+  it("does not let a typo'd --profile detach another org's mount", async () => {
+    // `resolveProfile` THROWS on an unknown profile name and
+    // `resolveScopeBestEffort` swallows that error — so `--profile acmee` for
+    // `acme` lands in exactly the unknown-scope state above. Before the owner
+    // check, the unique slug match made that typo silently unmount org A.
+    resolveProfile.mockImplementation(() => {
+      throw new Error('Profile "acmee" (from --profile flag) not found. Available: org-a');
+    });
+    registry = {
+      "org:org_aaa|general-context": mountRow({
+        slug: "general-context",
+        mountPath: "/a/general-context",
+        orgId: "org_aaa",
+        orgName: "Acme",
+        profile: "org-a"
+      })
+    };
+    const out = (await runUnmount("general-context")) as { error?: { message?: string } };
+    expect(out.error?.message ?? "").toContain('org "Acme"');
+    expect(process.exitCode).toBe(1);
+    expect(Object.keys(registry)).toEqual(["org:org_aaa|general-context"]);
   });
 
   it("removes a legacy bare-slug record (migrate-on-first-touch)", async () => {

@@ -7,18 +7,47 @@ import { printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 
 export function registerFolderCommands(program: Command): void {
-  const folder = program.command("folder").description("Manage agent folders");
+  const folder = program
+    .command("folder")
+    .description("Manage AGENT folders — grouping only, never access control");
+
+  folder.addHelpText(
+    "after",
+    `
+AGENT FOLDERS ONLY. Skills, deployments and document templates have their own
+folder surfaces ("nexus skill-folder ..."); nothing here touches them.
+
+A FOLDER IS TIDINESS, NOT ACCESS. Filing an agent grants nobody anything and
+revokes nothing. Use "nexus role" for who reaches what.
+
+An agent sits in exactly ONE folder, so "folder assign" is a MOVE.
+
+WHAT YOUR KEY CAN SEE: a key whose user role is org:member sees only the
+folders that user created. "folder list" can therefore come back empty while
+the organization has folders, and another user's folder id answers 404 on
+get/update/delete/assign. An admin key, or a legacy key carrying no user, sees
+the whole organization.`
+  );
 
   // ── list ──────────────────────────────────────────────────────────────
   folder
     .command("list")
-    .description("List all folders")
+    .description("List all folders (this prints folders only — not the agent assignments)")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus folder list
-  $ nexus folder list --json`
+  $ nexus folder list --json
+
+Notes:
+  THIS PRINTS FOLDERS ONLY. GET /folders also returns assignments[] — the
+  agent-to-folder map — and this command drops it, including under --json.
+  Read it with "nexus api GET /folders" when you need to know which agent is
+  where. There is no other command that reports an agent's folder.
+  A blank PARENT column is a root-level folder; anything else is the id of the
+  folder it nests under.
+  Unpaginated, and scoped to what your key can see (see "nexus folder --help").`
     )
     .action(async () => {
       try {
@@ -49,7 +78,19 @@ Examples:
 Examples:
   $ nexus folder create --name "Customer Support"
   $ nexus folder create --name "Sub Team" --parent-id abc-123
-  $ nexus folder create --body '{"name":"Support"}'`
+  $ nexus folder create --body '{"name":"Support"}'
+
+Notes:
+  NAMES ARE NOT UNIQUE. Creating "Support" twice gives two folders with the
+  same name and different ids, and nothing warns. There is no lookup-by-name —
+  read the id this command prints, or "nexus folder list".
+  --parent-id NESTS the folder under an existing one. It must be a UUID, and it
+  is NOT checked against your organization: an id that exists nowhere fails
+  with a 500 from a foreign-key violation, not a 404.
+  Body fields: name (required, non-empty), parentId (optional UUID). ANY OTHER
+  FIELD IN --body IS SILENTLY DROPPED — the server strips what it does not know
+  rather than refusing it, so a typo'd key looks accepted. A flag always
+  overrides the same field in --body.`
     )
     .action(async (opts) => {
       try {
@@ -84,7 +125,20 @@ Examples:
 Examples:
   $ nexus folder update abc-123 --name "Renamed Folder"
   $ nexus folder update abc-123 --parent-id null
-  $ nexus folder update abc-123 --body '{"name":"Renamed"}'`
+  $ nexus folder update abc-123 --body '{"name":"Renamed"}'
+
+Notes:
+  --parent-id null MOVES THE FOLDER TO ROOT. "null" is the literal token this
+  CLI accepts for it; omitting the flag leaves the parent alone. Absence cannot
+  say both, which is why the token exists.
+  NOTHING PREVENTS A CYCLE. Setting a folder's parent to one of its own
+  descendants is accepted at 200 and takes both branches off the root tree.
+  There is no unlink command — fix it with another --parent-id null.
+  AN EMPTY UPDATE IS A SUCCESS THAT CHANGES NOTHING. Every field is optional,
+  so calling this with no flags answers 200 with the folder untouched.
+  A folder your key cannot see answers the same 404 as an id that exists
+  nowhere — the two are deliberately indistinguishable.
+  This is a PATCH: an omitted field is left alone, never cleared.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -107,7 +161,7 @@ Examples:
   // ── delete ────────────────────────────────────────────────────────────
   folder
     .command("delete")
-    .description("Delete a folder (agents are unassigned, not deleted)")
+    .description("Delete a folder — agents are unassigned, child folders are promoted to root")
     .argument("<id>", "Folder ID")
     .option("--yes", "Skip confirmation")
     .addHelpText(
@@ -115,7 +169,20 @@ Examples:
       `
 Examples:
   $ nexus folder delete abc-123
-  $ nexus folder delete abc-123 --yes`
+  $ nexus folder delete abc-123 --yes
+
+Notes:
+  UNASSIGNS, DOES NOT DELETE. The agents in this folder survive and become
+  unfoldered — their assignment rows go with the folder. Returns
+  {id, deleted: true} at 200.
+  CHILD FOLDERS SURVIVE AND ARE PROMOTED TO ROOT. Their parentId is set to
+  null, so a nested tree is FLATTENED rather than removed, and nothing in the
+  response or the confirmation prompt mentions them. Run "nexus folder list"
+  first and read the PARENT column.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed — it deletes immediately.
+  There is no undo. Verify with "nexus folder list": the folder is gone and its
+  children now show a blank PARENT.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -147,7 +214,7 @@ Examples:
   // ── assign ────────────────────────────────────────────────────────────
   folder
     .command("assign")
-    .description("Assign an agent to a folder (or remove from folder)")
+    .description("Move an agent into a folder — THIS IS A MOVE, an agent sits in one folder")
     .requiredOption("--agent-id <id>", "Agent ID")
     .requiredOption("--folder-id <id>", "Folder ID (use 'null' to remove)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -157,7 +224,25 @@ Examples:
 Examples:
   $ nexus folder assign --agent-id agt-123 --folder-id fld-456
   $ nexus folder assign --agent-id agt-123 --folder-id null
-  $ nexus folder assign --body '{"agentId":"agt-123","folderId":"fld-456"}'`
+  $ nexus folder assign --body '{"agentId":"agt-123","folderId":"fld-456"}'
+
+Notes:
+  AN AGENT SITS IN ONE FOLDER, SO THIS IS A MOVE. Assigning again takes the
+  agent out of the folder it was in — the row is upserted per agent, so there
+  is never a second assignment, and NOTHING NAMES THE FOLDER IT LEFT. Read
+  "nexus api GET /folders" -> assignments[] first if that matters.
+  --folder-id null UNASSIGNS. "null" is the literal token; the flag is
+  required, so absence cannot say it. The response then carries
+  assigned: false.
+  IDEMPOTENT AND QUIET: unassigning an agent that was in no folder answers 200
+  with assigned: false, not a 404. So does re-assigning it to the folder it is
+  already in.
+  --agent-id IS NOT CHECKED FOR EXISTENCE. It must be a UUID, but a deleted or
+  non-existent agent is accepted and the assignment is written, reporting
+  assigned: true. Only --folder-id is verified against your organization, and
+  a folder that is not yours answers 404.
+  Verify with "nexus api GET /folders" and read assignments[] — no folder
+  command prints them.`
     )
     .action(async (opts) => {
       try {

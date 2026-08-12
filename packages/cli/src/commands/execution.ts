@@ -23,13 +23,34 @@ import { runFollow, shortTag } from "../util/run-follow";
 export function registerExecutionCommands(program: Command): void {
   const execution = program.command("execution").description("View workflow execution history");
 
+  execution.addHelpText(
+    "after",
+    `
+An execution id is a WorkflowExecution UUID. It is NOT what a node test hands
+back: "workflow node test" returns a per-node test id, so "execution get" on that
+value answers 404 — and the node's output is already in the test response.
+
+Two facts that decide whether you are reading the right thing:
+  • THE PER-NODE STATUS ENUM IS NOT THE EXECUTION ENUM. An execution is PENDING,
+    RUNNING, COMPLETED, FAILED or CANCELLED. A NODE is PENDING, READY, RUNNING,
+    COMPLETED, SKIPPED, WAITING or ERROR — a failed node reads ERROR, never
+    FAILED, so filtering per-node results for FAILED silently finds nothing.
+  • "execution list" HIDES loop passes and node tests by default. Each pass of a
+    loop body and each builder node test is its own execution row, so a count you
+    read here is real runs — until you ask for the others, at which point the
+    TYPE column is the only thing telling them apart.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   addPaginationOptions(
     execution
       .command("list")
       .description("List workflow executions")
       .option("--workflow-id <id>", "Filter by workflow ID")
-      .option("--status <status>", "Filter by status")
+      .option(
+        "--status <status>",
+        "Filter by status (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED)"
+      )
       .option(
         "--include-child-executions",
         "Also list loop / do-while body passes (one execution per iteration)"
@@ -47,7 +68,21 @@ Examples:
   $ nexus execution list
   $ nexus execution list --workflow-id wf-123 --limit 5
   $ nexus execution list --status COMPLETED --json
-  $ nexus execution list --workflow-id wf-123 --include-child-executions`
+  $ nexus execution list --workflow-id wf-123 --include-child-executions
+  $ nexus execution list --workflow-id wf-123 --include-test-runs --limit 1 --json
+
+Notes:
+  --status takes PENDING, RUNNING, COMPLETED, FAILED or CANCELLED — five values.
+  Anything else is a 400.
+  --page defaults to 1 and --limit to 20; above 100 is a 400, not a clamp.
+  Newest first.
+  THIS IS HOW YOU RECOVER A REAL EXECUTION ID after a test: the id a node test
+  returns is a per-node test id that "execution get" cannot resolve. Reading the
+  most recent row is the usual trick, and it is only safe while nothing else is
+  running — two concurrent tests on the same workflow and you read the other one's
+  result. Use --include-test-runs and check the TYPE column.
+  nodeStatusCounts in --json counts nodes by status. status COMPLETED with
+  nodeStatusCounts.completed == 0 means an execution row exists and NOTHING RAN.`
       )
   ).action(async (opts) => {
     try {
@@ -90,7 +125,16 @@ Examples:
       `
 Examples:
   $ nexus execution get exec-123
-  $ nexus execution get exec-123 --json`
+  $ nexus execution get exec-123 --json
+
+Notes:
+  A 404 here usually means the id is not an execution id at all — a node test's
+  return value is a per-node test id, not this.
+  Type names what the row is: run, loop_iteration or node_test. On a
+  loop_iteration, "Loop node" is the graph node whose body this pass ran, so a
+  handful of nodes and no trigger is the expected shape rather than a truncated run.
+  --json adds triggerType, triggerData, error, outputData, pollingToken and
+  nodeStatusCounts.`
     )
     .action(async (id: string) => {
       try {
@@ -123,7 +167,18 @@ Examples:
 Examples:
   $ nexus execution diagnose exec-123
   $ nexus execution diagnose exec-123 --verbose
-  $ nexus execution diagnose exec-123 --json`
+  $ nexus execution diagnose exec-123 --json
+
+Notes:
+  START HERE when a run went wrong: one call gives the execution's status, its
+  error, the per-node breakdown with each node's own error, and every loop
+  iteration nested under its loop node.
+  Per-node status uses the NODE enum — COMPLETED, RUNNING, PENDING, READY, SKIPPED,
+  WAITING, ERROR. A failed node reads ERROR.
+  SKIPPED is not a failure: it is a node a branch did not select. A whole branch
+  reading SKIPPED means the condition chose elsewhere.
+  --verbose adds each node's full input and output JSON, which is how you see what
+  a reference actually resolved to. Without it you get a one-line output summary.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -166,15 +221,15 @@ Examples:
           console.log(`${color.red("Error:")} ${diag.error}`);
         }
 
-        // Node status counts
-        const counts = diag.nodeStatusCounts;
-        if (counts && Object.keys(counts).length > 0) {
-          const parts = Object.entries(counts)
-            .filter(([, v]) => v > 0)
-            .map(([k, v]) => `${v} ${k.toLowerCase()}`);
-          if (parts.length > 0) {
-            console.log(color.dim(`Nodes: ${parts.join(", ")}`));
-          }
+        // Node status counts. `nodeStatusCounts` tallies the nodes printed
+        // below; `nodeExecutionStatusCounts` also counts each loop pass, so the
+        // two differ exactly when the workflow looped — print the second line
+        // only then, rather than repeating the same figures twice.
+        const own = summarizeCounts(diag.nodeStatusCounts);
+        const deep = summarizeCounts(diag.nodeExecutionStatusCounts);
+        if (own) console.log(color.dim(`Nodes: ${own}`));
+        if (deep && deep !== own) {
+          console.log(color.dim(`Node executions (incl. loop iterations): ${deep}`));
         }
 
         console.log();
@@ -197,7 +252,9 @@ Examples:
     .argument("[id]", "Execution ID")
     .option("--token <token>", "Poll by polling token instead of execution ID")
     .option("--watch", "Poll repeatedly until execution reaches a terminal status")
-    .option("--interval <ms>", "Polling interval in milliseconds (default: 2000)", "2000")
+    // Commander renders the default itself, so spelling it in the description
+    // printed "(default: 2000) (default: "2000")".
+    .option("--interval <ms>", "Polling interval in milliseconds (floor 500)", "2000")
     .addHelpText(
       "after",
       `
@@ -205,7 +262,16 @@ Examples:
   $ nexus execution poll exec-123
   $ nexus execution poll --token tok-abc
   $ nexus execution poll exec-123 --watch
-  $ nexus execution poll exec-123 --watch --interval 5000`
+  $ nexus execution poll exec-123 --watch --interval 5000
+
+Notes:
+  The lightest read there is: {executionId, status, outputData, createdAt,
+  finishedAt}. For per-node detail use "execution diagnose" or "execution follow".
+  --token takes the pollingToken from "execution get --json" and is the way to
+  watch a run without holding its id — pass one or the other, not neither.
+  --watch stops at COMPLETED, FAILED or CANCELLED and does not time out, so a run
+  wedged in RUNNING polls forever. --interval is floored at 500 ms.
+  outputData is null until the run finishes.`
     )
     .action(async (id: string | undefined, opts) => {
       try {
@@ -277,14 +343,24 @@ Examples:
     .command("follow")
     .description("Follow a running execution, printing per-node progress as it happens")
     .argument("<id>", "Execution ID")
-    .option("--interval <ms>", "Polling interval in milliseconds (default: 1500)", "1500")
+    // See `poll`: the default is rendered by commander.
+    .option("--interval <ms>", "Polling interval in milliseconds (floor 500)", "1500")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus execution follow exec-123
   $ nexus execution follow exec-123 --interval 3000
-  $ nexus execution follow exec-123 --json   # NDJSON of per-node state changes`
+  $ nexus execution follow exec-123 --json   # NDJSON of per-node state changes
+
+Notes:
+  Prints each node as its state changes and exits at a terminal status, so it is
+  the read to attach to a run you have just started. "workflow test --follow" does
+  the same thing in one command.
+  --json emits one NDJSON object per state change, not a single document — read it
+  line by line.
+  Polling, not streaming: --interval (floored at 500 ms) decides how fast changes
+  appear, and a node that starts and finishes inside one interval is reported once.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -330,7 +406,14 @@ Examples:
       `
 Examples:
   $ nexus execution output exec-123
-  $ nexus execution output exec-123 --json`
+  $ nexus execution output exec-123 --json
+
+Notes:
+  The workflow's FINAL output — what its outputNode produced — as {output,
+  outputType}, not the per-node results. Both are null on a run that has not
+  finished, and on a workflow with no outputNode, which validate reports only as a
+  warning.
+  For a node's output use "execution node-result" or "execution diagnose --verbose".`
     )
     .action(async (id: string) => {
       try {
@@ -355,7 +438,18 @@ executions, so every iteration the run spawned is cancelled with it.
 
 Examples:
   $ nexus execution cancel exec-123
-  $ nexus execution cancel exec-123 --json`
+  $ nexus execution cancel exec-123 --json
+
+Notes:
+  IT STOPS THE EXECUTOR, NOT JUST THE ROW. The in-memory run is halted and every
+  loop-iteration child is cancelled, which is what stops a runaway loop from
+  continuing to fire external calls.
+  IT DOES NOT UNDO WHAT ALREADY HAPPENED. Emails sent, rows written and payments
+  taken by nodes that already completed stay done — cancelling is stopping, not
+  rolling back.
+  No confirmation prompt and no --dry-run: it acts immediately.
+  Answers {success, message}. Cancelling a run that has already finished reports
+  the refusal in that message rather than throwing.`
     )
     .action(async (id: string) => {
       try {
@@ -377,7 +471,15 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus execution retry exec-123 node-456`
+  $ nexus execution retry exec-123 node-456
+
+Notes:
+  IT REPORTS "RETRYING" AND RETRIES NOTHING. The endpoint is a stub today: it
+  echoes {executionId, nodeId, status: "RETRYING"} without re-running the node, and
+  without checking that either id exists — so a typo also answers RETRYING.
+  Until it is implemented, re-run the single node with
+  "nexus workflow node test <wf-id> <node-id>", or the whole chain with
+  "nexus workflow test <wf-id>". Neither reuses the failed execution.`
     )
     .action(async (id: string, nodeId: string) => {
       try {
@@ -403,7 +505,12 @@ Examples:
       `
 Examples:
   $ nexus execution export exec-123
-  $ nexus execution export exec-123 --json`
+  $ nexus execution export exec-123 --json
+
+Notes:
+  The whole run in one payload — execution metadata plus every node's record —
+  meant for archiving or offline inspection rather than for reading in a terminal.
+  Use --json and redirect it; the table rendering of a large run is unusable.`
     )
     .action(async (id: string) => {
       try {
@@ -426,7 +533,19 @@ Examples:
       `
 Examples:
   $ nexus execution node-result exec-123 node-456
-  $ nexus execution node-result exec-123 node-456 --json`
+  $ nexus execution node-result exec-123 node-456 --json
+
+Notes:
+  <node-id> is the GRAPH node id (from "nexus workflow get"), not a per-execution
+  id, and it is not a UUID by rule.
+  status uses the NODE enum: COMPLETED, RUNNING, PENDING, READY, SKIPPED, WAITING
+  or ERROR. A FAILED NODE READS "ERROR" — filtering for FAILED here finds nothing.
+  A node inside a loop is found automatically: the lookup follows the run's loop
+  sub-executions up to five levels deep, and returns the pass it finds first.
+  Answers input, output, logs, duration, timings and error — the input is what the
+  node's references actually resolved to, which is where a null usually shows up.
+  A per-node TEST also stamps its id onto the node itself, overwriting the previous
+  one, so the last test wins as the node's linked result in the dashboard.`
     )
     .action(async (id: string, nodeId: string) => {
       try {
@@ -440,6 +559,23 @@ Examples:
 }
 
 // ── diagnose helpers ──────────────────────────────────────────────────
+
+/**
+ * `"38 completed, 1 failed"` from a `nodeStatusCounts`-shaped object, or `null`
+ * when nothing is worth printing.
+ *
+ * Keys are already the lowercase public buckets. This used to lowercase them
+ * itself, which quietly papered over `diagnose` returning `COMPLETED` where
+ * every other command returned `completed` (NEX-3176) — the display looked
+ * right while `--json` consumers read `undefined`.
+ */
+export function summarizeCounts(counts: unknown): string | null {
+  if (typeof counts !== "object" || counts === null || Array.isArray(counts)) return null;
+  const parts = Object.entries(counts as Record<string, unknown>)
+    .filter(([, v]) => typeof v === "number" && v > 0)
+    .map(([k, v]) => `${v as number} ${k}`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
 
 function getStatusIcon(status: string): string {
   switch (status) {

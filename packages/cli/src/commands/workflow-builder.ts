@@ -38,15 +38,32 @@ export function registerWorkflowBuilderCommands(workflow: Command, program: Comm
     .command("create")
     .description("Create a node in a workflow")
     .argument("<wf-id>", "Workflow ID")
-    .requiredOption("--type <type>", "Node type")
+    .requiredOption("--type <type>", "Node type, from 'nexus workflow node-types'")
     .option("--body <json-or-file-or-->", "Additional body JSON (merged with --type)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus workflow node create wf-123 --type action
-  $ nexus workflow node create wf-123 --type condition --body '{"position":{"x":100,"y":200}}'
-  $ nexus workflow node create wf-123 --type action --body payload.json`
+  $ nexus workflow node create wf-123 --type aiTask
+  $ nexus workflow node create wf-123 --type branching --body '{"data":{"label":"Route by tier"}}'
+  $ nexus workflow node create wf-123 --type aiTask --body '{"parentId":"<loop-node-id>"}'
+  $ nexus workflow node create wf-123 --type aiTask --body payload.json
+
+Notes:
+  --type must be a REGISTERED type — read them with "nexus workflow node-types".
+  An unknown one is 400 NODE_TYPE_INVALID naming that endpoint.
+  parentId (in --body) IS THE ONLY WAY TO PUT A NODE INSIDE A LOOP. It takes the
+  loop or doWhile node's id; anything else is refused. There is no move-into-loop
+  operation other than this and "node update --body '{"parentId":…}'".
+  position is auto-computed when omitted — the whole graph is re-laid-out on every
+  node write, so hand-set coordinates do not survive as given.
+  data is MERGED over the node type's defaults, so you only send what differs.
+  A reference to a node that does not exist is refused rather than persisted, so
+  {{ghost.field}} cannot silently resolve to null at run time.
+  Creating a loop or doWhile ALSO creates its start child, returned as children[].
+  loopStart, doWhileStart and selectTrigger cannot be created directly; install a
+  trigger with "nexus workflow trigger" instead.
+  Answers 201 with {id, type, configStatus} — configStatus is shape only.`
     )
     .action(async (wfId: string, opts) => {
       try {
@@ -75,7 +92,16 @@ Examples:
       `
 Examples:
   $ nexus workflow node get wf-123 node-456
-  $ nexus workflow node get wf-123 node-456 --json`
+  $ nexus workflow node get wf-123 node-456 --json
+
+Notes:
+  THE VERIFICATION READ for every node write, and the required step between the
+  two halves of configuring a plugin node (set the action, read it back, then set
+  the credential).
+  configStatus and missingFields say whether the node's OWN required fields are
+  filled — not that its inputs resolve. deletable appears only when the node
+  cannot be deleted, parentId only when it lives inside a loop.
+  A webhookTrigger also reports its test and production URLs here.`
     )
     .action(async (wfId: string, nodeId: string) => {
       try {
@@ -98,9 +124,26 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow node update wf-123 node-456 --body '{"data":{"message":"hello"}}'
+  $ nexus workflow node update wf-123 node-456 --body '{"data":{"label":"Summarize"}}'
+  $ nexus workflow node update wf-123 node-456 --body '{"parentId":"<loop-node-id>"}'
+  $ nexus workflow node update wf-123 node-456 --body '{"parentId":null}'
   $ nexus workflow node update wf-123 node-456 --body config.json
-  $ echo '{"data":{"key":"val"}}' | nexus workflow node update wf-123 node-456 --body -`
+  $ echo '{"data":{"key":"val"}}' | nexus workflow node update wf-123 node-456 --body -
+
+Notes:
+  ONLY data AND parentId ARE WRITABLE, and the body must carry at least one of
+  them. Anything else in the body is dropped without comment, so a top-level
+  "label" or "type" is a 200 that changed nothing.
+  parentId MOVES THE NODE'S LOOP SCOPE: an id puts it inside that loop, null takes
+  it out, and omitting it leaves the scope alone. A cycle, or a loopStart /
+  doWhileStart / trigger node, is refused.
+  data is MERGED into the stored data, so send only what changes.
+  FIVE data FIELDS ARE READ-ONLY AND SILENTLY STRIPPED FROM YOUR WRITE:
+  runOutput, testExecutionId, outputFormat, testWebhookUrl and the editor's own
+  state. runOutput is the exception that matters — it IS writable, but only on an
+  agentInputTrigger, a webhookTrigger or a humanInput node. On any other node,
+  scheduleTrigger included, it is dropped and the 200 says nothing.
+  Set trigger seed data on the trigger node here; "workflow trigger" refuses it.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -129,7 +172,20 @@ Examples:
       `
 Examples:
   $ nexus workflow node delete wf-123 node-456
-  $ nexus workflow node delete wf-123 node-456 --yes`
+  $ nexus workflow node delete wf-123 node-456 --yes
+
+Notes:
+  DELETING A LOOP OR doWhile DELETES EVERY NODE INSIDE IT. The whole body goes,
+  in one 204, and nothing in the response enumerates what went — read the body
+  with "nexus workflow get" before you run this.
+  EVERY EDGE TOUCHING A DELETED NODE GOES TOO, so the nodes either side are left
+  unconnected and validate will report them as DISCONNECTED_NODE.
+  A TRIGGER CANNOT BE DELETED: 403 NODE_TRIGGER_DELETE_FORBIDDEN. Replace it with
+  "nexus workflow trigger <wf-id> --type <triggerType>".
+  A loopStart / doWhileStart cannot be deleted either (400) — delete its parent
+  loop, which takes the start node with it.
+  Answers 204 with an empty body. Prompts for confirmation in TTY; use --yes in
+  scripts/CI.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -173,6 +229,21 @@ Mock data is nested under "input" and keyed by upstream node ID OR the input
 variable name (e.g. a customScript input's variableName). Each value becomes
 the mocked output of that upstream node. Unknown keys are rejected with 400.
 
+THIS RUNS THE NODE FOR REAL against live systems — there is no dry mode.
+
+Without mocks, each {{upstream.field}} resolves from that upstream node's LAST
+TEST RESULT, so an untested upstream contributes nothing and a green result
+proves only that the node did not crash. Mocking is how you make the input
+deterministic.
+
+It WRITES BACK this node's testExecutionId, runOutput and inferred outputFormat —
+that is what lets downstream nodes see this node's shape, and it overwrites the
+previous test's pointer. Mock data itself is never persisted.
+
+A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
+The returned executionId is a per-node test id, so "nexus execution get" on it
+fails — the output is already in this response.
+
 Examples:
   $ nexus workflow node test wf-123 node-456
   $ nexus workflow node test wf-123 node-456 --body '{"input":{"human-node-id":{"rasp_note":"X"}}}'
@@ -210,7 +281,16 @@ Examples:
       `
 Examples:
   $ nexus workflow node variables wf-123 node-456
-  $ nexus workflow node variables wf-123 node-456 --json`
+  $ nexus workflow node variables wf-123 node-456 --json
+
+Notes:
+  This is the list of {{…}} references this node may legally use: every node
+  reachable backwards through the edges, with the fields each one exposes.
+  A NODE WITH NO CHILDREN IN THIS LIST IS NOT A NODE WITH NO OUTPUT — it is one
+  whose shape is unknown, because it has neither a declared outputFormat nor a
+  stored test result. Test it first, then read this again.
+  Inside a loop, the container exposes the PER-ITERATION item, and the reference
+  path stays rooted at the loop node's id: the iterator name is a label only.`
     )
     .action(async (wfId: string, nodeId: string) => {
       try {
@@ -233,7 +313,16 @@ Examples:
       `
 Examples:
   $ nexus workflow node output-format wf-123 node-456
-  $ nexus workflow node output-format wf-123 node-456 --json`
+  $ nexus workflow node output-format wf-123 node-456 --json
+
+Notes:
+  Answers {schema, source}, and SOURCE IS THE FIELD THAT MATTERS.
+  source "manual" — the node's stored outputFormat, which a test run writes from
+  the real output. This is a schema you can trust.
+  source "nodeType" — NOTHING HAS RUN. You are reading the static per-type default
+  ({"type":"object"} for most types), which proves nothing about what this node
+  will actually emit. A downstream node tested against it runs on schema defaults.
+  An outputNode has no output schema at all, so its schema is null.`
     )
     .action(async (wfId: string, nodeId: string) => {
       try {
@@ -284,7 +373,14 @@ Examples:
       `
 Examples:
   $ nexus workflow node reload-props wf-123 node-456 --body '{"configuredProps":{"account":"acc-1"}}'
-  $ nexus workflow node reload-props wf-123 node-456 --body props.json`
+  $ nexus workflow node reload-props wf-123 node-456 --body props.json
+
+Notes:
+  For Pipedream plugin nodes only. Some props only exist once an earlier prop is
+  chosen (pick a spreadsheet, then its sheets appear) — this asks the provider for
+  the next set, given what is configured so far.
+  Send the props you have already chosen in configuredProps; dynamicPropsId chains
+  a second reload onto the first reload's answer.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -322,8 +418,23 @@ Examples:
       `
 Examples:
   $ nexus workflow edge create wf-123 --source node-1 --target node-2
-  $ nexus workflow edge create wf-123 --source node-1 --target node-2 --source-handle branch-a
-  $ nexus workflow edge create wf-123 --source node-1 --target node-2 --body '{"type":"conditional"}'`
+  $ nexus workflow edge create wf-123 --source node-1 --target node-2 --source-handle br-001
+  $ nexus workflow edge create wf-123 --source node-2 --target node-1 --body '{"type":"rewind"}'
+
+Notes:
+  type is "main" (the default) or "rewind", the edge that sends a doWhile body
+  back to its start. There is no third value: anything else is a 400.
+  --source-handle IS REQUIRED WHEN THE SOURCE IS A branching NODE and must equal
+  an existing branch id from "nexus workflow branch list" — otherwise 400
+  EDGE_INVALID_SOURCE_HANDLE. It must never be "input".
+  FAN-IN IS ALLOWED: several edges may target one node. What is refused is a
+  self-loop (EDGE_SELF_LOOP), a duplicate of an existing edge with the same handle
+  (EDGE_DUPLICATE), the reverse of an existing edge (EDGE_BIDIRECTIONAL_CYCLE, it
+  would deadlock), an unknown endpoint (EDGE_NODES_NOT_FOUND) and an edge crossing
+  a loop boundary (EDGE_SCOPE_VIOLATION) — source and target must share a parentId
+  unless one of them IS the loop container.
+  Creating an edge re-lays-out the graph, so node positions move.
+  Answers 201 with the edge, whose id is what "edge delete" takes.`
     )
     .action(async (wfId: string, opts) => {
       try {
@@ -359,7 +470,14 @@ Examples:
       `
 Examples:
   $ nexus workflow edge delete wf-123 edge-789
-  $ nexus workflow edge delete wf-123 edge-789 --yes`
+  $ nexus workflow edge delete wf-123 edge-789 --yes
+
+Notes:
+  <edge-id> is NOT a UUID by rule — edges drawn on the canvas carry ids like
+  "xy-edge__<source>-<target>". Read the exact id from "nexus workflow get".
+  Answers 204 with an empty body. The nodes survive; only the connection goes, so
+  the target may become a DISCONNECTED_NODE in validate.
+  Prompts for confirmation in TTY. Use --yes in scripts/CI.`
     )
     .action(async (wfId: string, edgeId: string, opts) => {
       try {
@@ -404,7 +522,15 @@ Examples:
       `
 Examples:
   $ nexus workflow branch list wf-123 node-456
-  $ nexus workflow branch list wf-123 node-456 --json`
+  $ nexus workflow branch list wf-123 node-456 --json
+
+Notes:
+  Branch operations only work on a "branching" node — anything else is 400
+  BRANCH_NODE_NOT_BRANCHING.
+  READ IDS FROM HERE, ALWAYS. A branch id is assigned as br-001, br-002 … from the
+  branch count at creation time, so ids are not a stable sequence once one has been
+  deleted. An edge's --source-handle must equal an id that this command reports.
+  NEXT STEP is the branch's own pointer and is null until an edge leaves the branch.`
     )
     .action(async (wfId: string, nodeId: string) => {
       try {
@@ -428,13 +554,27 @@ Examples:
     .argument("<wf-id>", "Workflow ID")
     .argument("<node-id>", "Node ID")
     .requiredOption("--name <name>", "Branch name")
-    .option("--body <json-or-file-or-->", "Additional body JSON (conditions, etc.)")
+    // NOT "(conditions, etc.)": `CreateBranchBodySchema` takes name and
+    // description only, and a `conditions` array is stripped by the parse — the
+    // shipped description advertised a field the endpoint drops.
+    .option("--body <json-or-file-or-->", "Additional body JSON (description)")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus workflow branch create wf-123 node-456 --name "Has email"
-  $ nexus workflow branch create wf-123 node-456 --name "VIP" --body '{"conditions":[{"field":"tier","op":"eq","value":"vip"}]}'`
+  $ nexus workflow branch create wf-123 node-456 --name "VIP" --body '{"description":"Tier is vip"}'
+
+Notes:
+  ONLY name AND description ARE ACCEPTED. A "conditions" array in --body is
+  SILENTLY DROPPED — the branch is created with an EMPTY condition set, which
+  matches nothing, and the 200 looks identical to a configured one.
+  Set the conditions afterwards on the NODE:
+  "nexus workflow node update <wf> <node> --body '{"data":{"logic":[…]}}'",
+  using the logic entry this command created for the branch.
+  Answers the new branch, including the br-NNN id an edge's --source-handle needs.
+  The branch reaches nothing until an edge leaves it, and an unreached branch is a
+  silent dead end at run time.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -463,13 +603,21 @@ Examples:
     .argument("<wf-id>", "Workflow ID")
     .argument("<node-id>", "Node ID")
     .argument("<branch-id>", "Branch ID")
-    .requiredOption("--body <json-or-file-or-->", "Updated branch JSON (name, conditions)")
+    // See `branch create`: conditions are not writable through this endpoint.
+    .requiredOption("--body <json-or-file-or-->", "Updated branch JSON (name, description)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus workflow branch update wf-123 node-456 br-789 --body '{"name":"Renamed","conditions":[]}'
-  $ nexus workflow branch update wf-123 node-456 br-789 --body branch.json`
+  $ nexus workflow branch update wf-123 node-456 br-001 --body '{"name":"Renamed"}'
+  $ nexus workflow branch update wf-123 node-456 br-001 --body branch.json
+
+Notes:
+  RENAMES ONLY. name and description are the whole writable surface; a "conditions"
+  array is silently dropped here exactly as on create. Conditions live in the
+  node's data.logic — change them with "nexus workflow node update".
+  <branch-id> is the br-NNN id from "nexus workflow branch list". An unknown one
+  is 404 BRANCH_NOT_FOUND; a node that is not a branching node is a 400.`
     )
     .action(async (wfId: string, nodeId: string, branchId: string, opts) => {
       try {
@@ -503,8 +651,16 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow branch delete wf-123 node-456 br-789
-  $ nexus workflow branch delete wf-123 node-456 br-789 --yes`
+  $ nexus workflow branch delete wf-123 node-456 br-001
+  $ nexus workflow branch delete wf-123 node-456 br-001 --yes
+
+Notes:
+  IT TAKES THREE THINGS, NOT ONE: the branch, its logic entry (the conditions), and
+  EVERY EDGE that used this branch as its sourceHandle. Whatever those edges led to
+  is now unreachable from this node and validate will report it as a
+  DISCONNECTED_NODE.
+  Answers 204 with an empty body. Prompts for confirmation in TTY; use --yes in
+  scripts/CI.`
     )
     .action(async (wfId: string, nodeId: string, branchId: string, opts) => {
       try {
@@ -544,7 +700,16 @@ Examples:
       `
 Examples:
   $ nexus workflow node-types
-  $ nexus workflow node-types --json`
+  $ nexus workflow node-types --json
+
+Notes:
+  THE AUTHORITATIVE LIST for "node create --type" and for a batch node's "type".
+  Names are camelCase and specific — aiTask, branching, loop, doWhile, customScript,
+  plugin, outputNode, humanInput — never the generic "action", "condition" or "llm".
+  loopStart, doWhileStart and selectTrigger appear here but cannot be created
+  directly; trigger types are installed with "nexus workflow trigger".
+  Read one type's full schema, including its required fields and connection rules,
+  with "nexus workflow node-type <type>".`
     )
     .action(async () => {
       try {
@@ -570,8 +735,15 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow node-type action
-  $ nexus workflow node-type condition --json`
+  $ nexus workflow node-type aiTask
+  $ nexus workflow node-type branching --json
+
+Notes:
+  Carries the type's fields with their defaults, its configuration steps in ORDER,
+  and its connection rules (how many inputs and outputs it takes, whether it can
+  live inside a loop, what children it creates).
+  Read the configuration steps before configuring a plugin node: the order is
+  load-bearing, and doing it out of order is accepted and produces nothing.`
     )
     .action(async (type: string) => {
       try {
@@ -623,7 +795,18 @@ Examples:
       `
 Examples:
   $ nexus workflow overview wf-123
-  $ nexus workflow overview wf-123 --json`
+  $ nexus workflow overview wf-123 --json
+
+Notes:
+  A SHAPE REPORT, NOT A READINESS REPORT. configStatus "complete" means the node's
+  own required fields are filled. It says nothing about whether its inputs are
+  wired, whether {{upstream.field}} resolves, or whether any value is correct.
+  An outputNode, a webhookTrigger, an agentInputTrigger and a loopStart have no
+  required fields at all, so they ALWAYS report complete.
+  readyToTest / readyToPublish here are derived from configStatus alone —
+  "nexus workflow validate" computes the same two flags with the graph and variable
+  checks included, so its answer is the one to trust before publishing.
+  missingFields per node is what to fix; nodeCount / edgeCount are the totals.`
     )
     .action(async (wfId: string) => {
       try {
@@ -644,7 +827,12 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow layout wf-123`
+  $ nexus workflow layout wf-123
+
+Notes:
+  Cosmetic only — it rewrites node positions and touches nothing else.
+  You rarely need it: every node, edge, branch and batch write re-lays-out the
+  graph already, which is also why hand-set positions do not persist as given.`
     )
     .action(async (wfId: string) => {
       try {
@@ -668,8 +856,21 @@ Examples:
       `
 Examples:
   $ nexus workflow trigger wf-123 --type webhookTrigger
-  $ nexus workflow trigger wf-123 --type scheduleTrigger --body '{"cron":"0 9 * * *"}'
-  $ nexus workflow trigger wf-123 --type platformListenerTrigger`
+  $ nexus workflow trigger wf-123 --type scheduleTrigger
+  $ nexus workflow trigger wf-123 --type platformListenerTrigger
+
+Notes:
+  THIS COMMAND IS TYPE-ONLY, IN TWO STEPS. It replaces the trigger node and takes
+  NOTHING else: a --body carrying data, parameters, runOutput, cron or
+  platformEventType is a 400 "Unrecognized key". Set the trigger's configuration
+  afterwards with
+  "nexus workflow node update <wf-id> <trigger-node-id> --body '{"data":{…}}'".
+  REPLACE IS HOW YOU DELETE A TRIGGER — "node delete" refuses one with a 403.
+  A response still showing type "selectTrigger" means nothing was installed.
+  A platformListenerTrigger needs its platformEventType from
+  "nexus workflow platform-listener-events", set in step two.
+  newsMonitorTrigger is deliberately absent: it needs provider configuration only
+  the dashboard performs.`
     )
     .action(async (wfId: string, opts: { type: string; body?: string }) => {
       try {

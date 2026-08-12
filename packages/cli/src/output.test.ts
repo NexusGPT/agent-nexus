@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { printTable, setJsonMode } from "./output";
+import { absent, printSuccess, printTable, setJsonMode } from "./output";
 
 const UUID = "c053ea31-be30-479d-8aca-0b1d02a49156";
 
@@ -58,5 +58,55 @@ describe("printTable", () => {
     const out = captureTable([{ key: "id", label: "Id", width: 10 }]);
 
     expect(out).toContain(UUID);
+  });
+});
+
+/**
+ * NEX-3628 at the level the defect actually lives: `printSuccess` renders ONE
+ * object down two channels, so a `?? "(none)"` written for the terminal also
+ * replaces the `null` a script parses. `absent()` is the split.
+ */
+describe("printSuccess and absent()", () => {
+  function capture(data: object): string {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    printSuccess("Done.", data);
+    spy.mockRestore();
+    return lines.join("\n");
+  }
+
+  it("emits a literal null under --json, never the display copy", () => {
+    setJsonMode(true);
+
+    const parsed = JSON.parse(capture({ owner: absent("(none)") })) as Record<string, unknown>;
+
+    expect(parsed).toEqual({ success: true, owner: null });
+    // The symbol the text rides on is invisible to JSON.stringify, so an
+    // unmapped AbsentValue would serialize as `{}` — a shape that reads as
+    // "present, and an object" to every consumer.
+    expect(JSON.stringify(parsed)).not.toContain("(none)");
+    expect(JSON.stringify(parsed)).not.toContain("{}");
+  });
+
+  it("prints the sentence in the human rendering, which is where it reads well", () => {
+    setJsonMode(false);
+
+    expect(capture({ owner: absent("(none)") })).toContain("(none)");
+  });
+
+  it("leaves every ordinary value alone on both channels", () => {
+    setJsonMode(true);
+    expect(JSON.parse(capture({ id: UUID, count: 0, flag: false, nested: { a: 1 } }))).toEqual({
+      success: true,
+      id: UUID,
+      count: 0,
+      flag: false,
+      nested: { a: 1 }
+    });
+
+    setJsonMode(false);
+    expect(capture({ id: UUID })).toContain(UUID);
   });
 });

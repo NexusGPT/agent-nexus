@@ -12,7 +12,8 @@ import {
   type MountRecord,
   type MountScope,
   mountScopeId,
-  scopeCandidateKeys
+  scopeCandidateKeys,
+  unmountMissMessage
 } from "./workspace-mounts";
 
 function rec(over: Partial<MountRecord> & { slug: string }): MountRecord {
@@ -68,6 +69,48 @@ describe("mountKey", () => {
     expect(mountKey(impostor, "general-context")).not.toBe(mountKey(orgA, "general-context"));
     expect(mountKey(impostor, "general-context")).toBe("profile:org_aaa|general-context");
   });
+
+  it("does not let a `|` in the base URL forge a second separator", () => {
+    // The key shape is `<kind>:<id>|<slug>` and org ids / profile names cannot
+    // contain `|`. `scope.baseUrl` can: it is --base-url / NEXUS_BASE_URL /
+    // profile config with only a trailing slash stripped, and nothing validates
+    // it as a URL. "`|` is illegal in a URL" is a fact about well-formed URLs,
+    // not about a string a user typed — so the separator is ENCODED, making the
+    // one-separator invariant enforced rather than asserted.
+    const odd: MountScope = { baseUrl: "https://host|general-context" };
+    const key = mountKey(odd, "other");
+    expect(key).toBe("url:https://host%7Cgeneral-context|other");
+    // Exactly one separator survives, so the key still splits where this module
+    // put the split — and a forged tail cannot impersonate another row's key.
+    expect(key.split("|")).toHaveLength(2);
+    expect(key).not.toBe(mountKey({ baseUrl: "https://host" }, "general-context"));
+  });
+
+  it("leaves ordinary ids untouched by the separator encoding", () => {
+    // The encoding is identity for every id the CLI actually produces; it exists
+    // only for the one unvalidated source. Pinning that keeps a future tweak from
+    // silently rewriting live registry keys.
+    expect(mountKey(orgA, "general-context")).toBe("org:org_aaa|general-context");
+    expect(mountKey({ baseUrl: "https://api.nexusgpt.io" }, "tools")).toBe(
+      "url:https://api.nexusgpt.io|tools"
+    );
+  });
+
+  it("gives every anonymous caller on a host ONE bucket per slug", () => {
+    // The kind tags make org/profile/url spaces disjoint, but WITHIN `url:` there
+    // is a single bucket per (base URL, slug). Two different orgs reaching the
+    // CLI with raw --api-key and no NEXUS_ORGANIZATION_ID are indistinguishable
+    // client-side and land on the same key. This is the one cross-org
+    // interaction the tag argument does NOT cover, so it is pinned explicitly
+    // rather than left to be rediscovered.
+    const anonA: MountScope = { baseUrl: "https://api.nexusgpt.io" };
+    const anonB: MountScope = { baseUrl: "https://api.nexusgpt.io" };
+    expect(mountKey(anonA, "general-context")).toBe(mountKey(anonB, "general-context"));
+    // A different host does separate them — the bucket is per base URL.
+    expect(mountKey({ baseUrl: "https://eu.nexusgpt.io" }, "general-context")).not.toBe(
+      mountKey(anonA, "general-context")
+    );
+  });
 });
 
 describe("isLegacyKey", () => {
@@ -78,21 +121,32 @@ describe("isLegacyKey", () => {
 });
 
 describe("scopeCandidateKeys", () => {
-  it("lists orgId, profile, then the baseUrl fallback when identifiers exist", () => {
-    // The baseUrl key is included last so an api-key-created mount (keyed by
-    // baseUrl) is still findable; it is ranked below the 1:1 orgId/profile keys.
+  it("lists orgId then profile, and never the shared baseUrl bucket, for an identified scope", () => {
     // Each candidate carries its own kind tag, so the profile candidate can
     // never collide with an org candidate.
+    //
+    // The `url:` bucket is absent on purpose. `mountScopeId` reaches it only
+    // when neither orgId nor profile exists, so an identified caller can never
+    // have written one — offering it back would let this scope match a row
+    // belonging to some anonymous caller on the same host.
     expect(scopeCandidateKeys(orgA, "general-context")).toEqual([
       "org:org_aaa|general-context",
-      "profile:org-a|general-context",
-      "url:https://api.nexusgpt.io|general-context"
+      "profile:org-a|general-context"
     ]);
   });
   it("uses only the baseUrl key when neither orgId nor profile is set", () => {
     expect(scopeCandidateKeys({ baseUrl: "https://api.nexusgpt.io" }, "general-context")).toEqual([
       "url:https://api.nexusgpt.io|general-context"
     ]);
+  });
+  it("offers the baseUrl bucket to a profile-only scope no more than to an org-only one", () => {
+    // Either identifier is enough to have produced a key of this scope's own.
+    expect(
+      scopeCandidateKeys({ profile: "org-a", baseUrl: "https://api.nexusgpt.io" }, "gc")
+    ).toEqual(["profile:org-a|gc"]);
+    expect(
+      scopeCandidateKeys({ orgId: "org_aaa", baseUrl: "https://api.nexusgpt.io" }, "gc")
+    ).toEqual(["org:org_aaa|gc"]);
   });
   it("never generates an org-kind key for a profile named like an org id", () => {
     const impostor: MountScope = { profile: "org_aaa", baseUrl: "https://api.nexusgpt.io" };
@@ -171,9 +225,41 @@ describe("findMount — NEX-2360 org scoping", () => {
     expect(findMount(mounts, "general-context", orgA)).toBeUndefined();
   });
 
-  it("matches a unique slug when scope is unknown", () => {
+  it("matches a unique UNOWNED slug when scope is unknown", () => {
+    // The row names no org/profile — the anonymous base-URL bucket or a legacy
+    // pre-NEX-2360 entry. There is no identity for an unknown scope to
+    // contradict, and refusing would strand a live mount with no way to detach.
     const mounts = { [mountKey(orgA, "general-context")]: rec({ slug: "general-context" }) };
     expect(findMount(mounts, "general-context", undefined)?.record.slug).toBe("general-context");
+  });
+
+  it("refuses a unique but OWNED slug match when scope is unknown", () => {
+    // Uniqueness is not ownership. `unmount` reaches an unknown scope by
+    // ordinary accident — a typo'd `--profile`, a raw --api-key with no
+    // NEXUS_ORGANIZATION_ID, no profile configured at all — and would then
+    // OS-detach and delete this row. Org A recorded it; an unidentified caller
+    // cannot show it is theirs, so the lookup must not hand it over.
+    const mounts = {
+      [mountKey(orgA, "general-context")]: rec({
+        slug: "general-context",
+        orgId: "org_aaa",
+        orgName: "Acme",
+        profile: "org-a"
+      })
+    };
+    expect(findMount(mounts, "general-context", undefined)).toBeUndefined();
+    // Still resolvable by the org that owns it — the refusal is about identity,
+    // not about making the row unreachable.
+    expect(findMount(mounts, "general-context", orgA)?.record.orgId).toBe("org_aaa");
+  });
+
+  it("refuses a unique slug match owned by a PROFILE alone when scope is unknown", () => {
+    // A mount made before login filled in orgId records only the profile name.
+    // That is still a named owner, so the same refusal applies.
+    const mounts = {
+      "profile:org-a|general-context": rec({ slug: "general-context", profile: "org-a" })
+    };
+    expect(findMount(mounts, "general-context", undefined)).toBeUndefined();
   });
 
   it("refuses to guess between two orgs' mounts when scope is unknown", () => {
@@ -188,15 +274,34 @@ describe("findMount — NEX-2360 org scoping", () => {
     expect(findMount({}, "general-context", orgA)).toBeUndefined();
   });
 
-  it("finds an api-key mount (baseUrl-keyed, no org/profile) under a profile scope", () => {
-    // Created via --api-key/NEXUS_API_KEY with no resolvable org → keyed by
-    // baseUrl, record carries no orgId/profile. A later profile-scoped unmount
-    // must still locate it so the live mount + registry row don't leak.
+  it("does NOT hand an identified scope the shared anonymous bucket", () => {
+    // The row was created via --api-key/NEXUS_API_KEY with no resolvable org, so
+    // it is keyed by baseUrl and names nobody. That bucket is shared by every
+    // anonymous caller on the host, which makes "is this mine?" unanswerable —
+    // and `unmount` acts on whatever findMount returns, OS-detaching the drive
+    // and deleting the row. Returning it to org A would therefore let org A
+    // detach an anonymous caller's live mount. `findMountsBySlug` is the
+    // disambiguation path; guessing is not.
     const mounts = {
       "url:https://api.nexusgpt.io|general-context": rec({ slug: "general-context" })
     };
-    const found = findMount(mounts, "general-context", orgA);
-    expect(found?.key).toBe("url:https://api.nexusgpt.io|general-context");
+    expect(findMount(mounts, "general-context", orgA)).toBeUndefined();
+    // Still reachable from the scope that actually wrote it.
+    expect(findMount(mounts, "general-context", { baseUrl: "https://api.nexusgpt.io" })?.key).toBe(
+      "url:https://api.nexusgpt.io|general-context"
+    );
+  });
+
+  it("leaves an identified scope free to mount the slug the anonymous bucket holds", () => {
+    // The other half of the same fix: the mount guard blocks on whatever
+    // findMount returns, so an anonymous row used to refuse org A a mount of
+    // its OWN workspace — the cross-org independence NEX-2360 exists to give.
+    // The mount POINT is still protected, by claimMountPoint, across all scopes.
+    const mounts = {
+      "url:https://api.nexusgpt.io|general-context": rec({ slug: "general-context" })
+    };
+    expect(findMount(mounts, "general-context", orgA)).toBeUndefined();
+    expect(findMountsBySlug(mounts, "general-context")).toHaveLength(1);
   });
 
   it("does not claim a baseUrl-keyed mount owned by a different org", () => {
@@ -470,5 +575,48 @@ describe("describeScope", () => {
     expect(describeScope({ orgId: "org_aaa", baseUrl: "https://x" })).toBe("org org_aaa");
     expect(describeScope({ profile: "org-a", baseUrl: "https://x" })).toBe('profile "org-a"');
     expect(describeScope({ baseUrl: "https://x" })).toBe("base URL https://x");
+  });
+});
+
+describe("unmountMissMessage — the remedy has to be one the caller can perform", () => {
+  const owned = { record: rec({ slug: "general-context", orgId: "org_bbb", mountPath: "/b" }) };
+  const anonymous = { record: rec({ slug: "general-context", mountPath: "/anon" }) };
+
+  it("tells an identified caller to switch profile/org when there IS an owner to switch to", () => {
+    const msg = unmountMissMessage("general-context", [owned], orgA);
+    expect(msg).toContain("nexus auth switch");
+    expect(msg).toContain("/b");
+  });
+
+  it("never says 'switch' when every candidate is unowned — there is nothing to switch to", () => {
+    // The caller mounted with a raw --api-key and has since logged in. Their own
+    // row sits in the anonymous base-URL bucket, which an identified scope no
+    // longer resolves, so `findMount` misses and this message is the whole
+    // remedy. "Switch to the owning profile/org" names an org and a profile that
+    // do not exist, and leaves a live mount with no way to reach it.
+    const msg = unmountMissMessage("general-context", [anonymous], orgA);
+    expect(msg).not.toContain("nexus auth switch");
+    expect(msg).not.toContain("owning profile/org");
+    expect(msg).toContain("no profile or org to switch to");
+    // Both routes that DO reach the row.
+    expect(msg).toContain("--api-key");
+    expect(msg).toContain("fusermount -u");
+    expect(msg).toContain("/anon");
+  });
+
+  it("still offers the switch when only SOME candidates are unowned", () => {
+    // One owned row is enough for the switch to be actionable, and the anonymous
+    // row is listed alongside it either way.
+    const msg = unmountMissMessage("general-context", [anonymous, owned], orgA);
+    expect(msg).toContain("nexus auth switch");
+    expect(msg).toContain("/anon");
+    expect(msg).toContain("/b");
+  });
+
+  it("asks an unresolved scope to pick, and never guesses at a single candidate", () => {
+    const msg = unmountMissMessage("general-context", [owned], undefined);
+    expect(msg).toContain("could not be resolved");
+    expect(msg).toContain("--profile <name>");
+    expect(msg).not.toContain("nexus auth switch");
   });
 });

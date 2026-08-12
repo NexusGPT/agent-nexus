@@ -111,7 +111,13 @@ export class RolesResource extends BaseResource {
    * scopes, so an integration that lists Roles is not also handed the inventory
    * each one owns.
    *
-   * @returns Every Role, each a bare row.
+   * ⚠️ `readiness` IS A PARALLEL ARRAY, NOT A FIELD ON EACH ROLE. Correlate it on
+   * `roleId`, and expect a Role to be absent from it. `nexus role list --json`
+   * answers a DIFFERENT shape under the same `data` key — it joins each Role's
+   * readiness onto its row and returns an array — so code written against the CLI
+   * document does not parse this one, and the reverse (NEX-3630).
+   *
+   * @returns Every Role, each a bare row, plus the readiness array.
    */
   async list(): Promise<RolesListResponse> {
     return this.http.request<RolesListResponse>("GET", "/roles");

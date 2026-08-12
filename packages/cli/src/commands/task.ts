@@ -18,6 +18,27 @@ const EXECUTE_DEFAULT_TIMEOUT_SECONDS = 600;
 export function registerTaskCommands(program: Command): void {
   const task = program.command("task").description("Manage AI tasks");
 
+  task.addHelpText(
+    "after",
+    `
+An AI task is a saved prompt plus the model and the input/output contract it
+runs under. Three facts about the body decide whether a write lands:
+
+  • CREATE REQUIRES A "generation" OBJECT, and an empty one is not enough. With
+    the default formats it must carry expectedInput AND expectedOutput. The
+    flags for those are --expected-input and --expected-output, so a create
+    without them is a 400 no matter what else you pass.
+  • FORMATS ARE LOWERCASE GOING IN, UPPERCASE COMING BACK. Send "json"; "task
+    get" answers "JSON", and echoing that value back into update is a 400.
+  • WRITES TAKE THE FORMATS FROM THE BODY ROOT AND THE SCHEMAS FROM
+    "generation"; READS PUT EVERYTHING AT THE ROOT. "task get" has no
+    "generation" key at all, so a get/edit/put round trip must move the fields.
+
+Every field below is settable through --body. The flags cover the common ones;
+allowDuplicate, temperature, inputFormat, outputFormat, the JSON schemas and
+multimodal have no flag and are --body only.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   task
     .command("list")
@@ -32,7 +53,14 @@ Examples:
   $ nexus task list
   $ nexus task list --search "summarize" --limit 10
   $ nexus task list --json
-  $ nexus task list --folder "Notion"`
+  $ nexus task list --folder "Notion"
+
+Notes:
+  INPUT and OUTPUT print UPPERCASE ("TEXT", "JSON", "TEMPLATE") because that is
+  how they are stored. Writes take the lowercase spellings — see "task create".
+
+  This list carries no prompt and no schemas; "nexus task get <id> --json" does.
+  --search matches the NAME only, not the prompt.`
     )
     .action(async (opts) => {
       try {
@@ -68,7 +96,21 @@ Examples:
 Examples:
   $ nexus task get task-123
   $ nexus task get task-123 --json
-  $ nexus task get task-123 --json | jq -r '.prompt'`
+  $ nexus task get task-123 --json | jq -r '.prompt'
+  $ nexus task get task-123 --json | jq '.jsonOutputSchema'
+
+Notes:
+  EVERYTHING IS AT THE TOP LEVEL. prompt, jsonInputSchema, jsonOutputSchema,
+  multimodal and documentTemplateId all sit on the response root, and there is
+  NO "generation" key on a read — reading ".generation.jsonOutputSchema" gets
+  you null, not the schema.
+
+  THIS READ IS NOT A WRITE BODY. inputFormat and outputFormat come back
+  UPPERCASE ("TEXT", "JSON", "TEMPLATE") while writes accept only lowercase, and
+  the schemas have to move back under "generation". Feeding this response
+  straight into "task update" returns a 400 on the format alone.
+
+  The human-readable view prints a subset. Use --json for the schemas.`
     )
     .action(async (id: string) => {
       try {
@@ -104,11 +146,62 @@ Examples:
     .addHelpText(
       "after",
       `
+Every example carries --expected-input and --expected-output (or a "generation"
+object). None of them is optional decoration — see the first note below.
+
 Examples:
-  $ nexus task create --name "Summarize Email" --model-name gpt-4o --model-provider OPEN_AI
-  $ nexus task create --name "Summarize" --model-name gpt-4o --model-provider OPEN_AI --prompt "Summarize the following:"
-  $ cat task-prompt.md | nexus task create --name "Classify" --model-name gpt-4o --model-provider OPEN_AI --prompt -
-  $ nexus task create --body '{"name":"Summarize","modelName":"gpt-4o","modelProvider":"OPEN_AI"}'`
+  $ cat task-prompt.md | nexus task create --name "Classify" --model-name gpt-4o \\
+      --model-provider OPEN_AI --prompt - \\
+      --expected-input "A support ticket" --expected-output "One of: bug, billing, other"
+  $ nexus task create --name "Summarize" --model-name gpt-4o --model-provider OPEN_AI \\
+      --prompt "Summarize the following:" \\
+      --expected-input "An email body" --expected-output "Three bullet points"
+  $ nexus task create --body '{"name":"Extract","modelName":"gpt-4o","modelProvider":"OPEN_AI","prompt":"Extract the city.","outputFormat":"json","generation":{"expectedInput":"An address","jsonOutputSchema":{"city":{"type":"string"}}}}'
+
+Notes:
+  "generation" IS REQUIRED AND CANNOT BE EMPTY. Omitting it is a 400, and with
+  the default formats (both "text") it must carry expectedInput and
+  expectedOutput too. The flags that populate it are --expected-input and
+  --expected-output; a create with neither sends no "generation" at all and is
+  refused. This is the most common first-time 400 on this command.
+
+  THE PROMPT GOES AT THE BODY ROOT, or under "generation.prompt" — both are
+  accepted and fold to the same field. What is NOT accepted: promptText,
+  systemPrompt, instructions and text. Those are rejected with a 400 naming the
+  right field, rather than being dropped.
+
+  A BYTE-IDENTICAL PROMPT IS REFUSED WITH 409 DUPLICATE_TASK_PROMPT, and the
+  error carries the id of the task that already has it. Edit that task, or pass
+  allowDuplicate to create a deliberate copy — there is no flag for it:
+    --body '{"...":"...","allowDuplicate":true}'
+
+  inputFormat ("text" | "json") and outputFormat ("text" | "json" | "template")
+  are LOWERCASE and live at the body ROOT. Uppercase is rejected, not ignored.
+  Each one makes a different "generation" field required:
+    inputFormat  text -> expectedInput      json -> jsonInputSchema
+    outputFormat text -> expectedOutput     json -> jsonOutputSchema
+                                        template -> documentTemplateId
+
+  A SCHEMA WITHOUT ITS FORMAT IS A 400, NOT A SILENT DROP. Sending
+  jsonOutputSchema while outputFormat is still the default "text" is refused
+  with a message naming the fix — set the format at the body root.
+
+  The JSON schemas take EITHER a full JSON Schema document
+  ({"type":"object","properties":{...}}) OR the bare field map
+  ({"city":{"type":"string"}}); the bare form is wrapped server-side. What is
+  refused, at save and again at execute, is a root that is not an object — a
+  top-level array or scalar cannot be a structured output.
+
+  On ANTHROPIC models the validation keywords — maxItems, maxLength, minimum,
+  uniqueItems, minItems above 1 — are STRIPPED into the field's description and
+  become advice the model may ignore. OpenAI enforces them mechanically. The
+  same schema is therefore stricter on OpenAI than on Anthropic.
+
+  multimodal (image, PDF, video input) belongs under "generation"; it is also
+  accepted at the body root for compatibility. There is no flag:
+    --body '{"...":"...","generation":{"multimodal":true,"...":"..."}}'
+
+  temperature defaults to 0.7 and is --body only.`
     )
     .action(async (opts) => {
       try {
@@ -160,7 +253,37 @@ Examples:
   $ nexus task update task-123 --prompt "Summarize the following email:"
   $ cat task-prompt.md | nexus task update task-123 --prompt -
   $ nexus task update task-123 --body '{"prompt":"New prompt text"}'
-  $ nexus task update task-123 --model-name gpt-4o --model-provider OPEN_AI`
+  $ nexus task update task-123 --model-name gpt-4o --model-provider OPEN_AI
+  $ nexus task update task-123 --body '{"outputFormat":"json","jsonOutputSchema":{"city":{"type":"string"}}}'
+
+Notes:
+  SEND outputFormat LOWERCASE, AT THE BODY ROOT. "task get" returns "JSON";
+  echoing that value back here is a 400. The accepted values are "text", "json"
+  and "template" for outputFormat, "text" and "json" for inputFormat.
+
+  Unlike create, "generation" is OPTIONAL here and its sub-fields are accepted
+  at the body ROOT as well — jsonOutputSchema, expectedInput, multimodal and the
+  rest are folded in for you. When you send both, the nested value wins.
+
+  A PATCH ONLY TOUCHES WHAT IT NAMES. Omitting "generation" leaves the whole
+  generation config alone; it does not reset it. An explicit null on
+  jsonInputSchema or jsonOutputSchema is the one way to clear a field.
+
+  CHANGING outputFormat DOES NOT CHANGE THE SCHEMA — send the matching schema in
+  the same call, or the task keeps the one it had. Naming a NON-json format and
+  a schema together in one body is refused with a 400, because that combination
+  could never take effect. A schema on its own is always persisted.
+
+  CHANGING --model-provider DISCARDS THE PROVIDER-SPECIFIC MODEL SETTINGS —
+  thinking level, thinking display and reasoning effort are stripped, because
+  they mean nothing to the new provider. Nothing in the response says so.
+
+  The printed versionId is null WHEN NOTHING CHANGED — a no-op update
+  deliberately creates no version. A null there means your edit was identical to
+  what was stored, not that versioning failed.
+
+  The duplicate-prompt check does NOT apply to update: two tasks can end up with
+  identical prompts by editing one into the other.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -209,7 +332,10 @@ Examples:
 
 Notes:
   Fails with 409 if the task is still attached to an agent skill or workflow.
-  Detach it from those dependents (listed in the error) before deleting.`
+  Detach it from those dependents (listed in the error) before deleting.
+
+  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
+  in CI there is no prompt and no --yes is needed: the delete just happens.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -252,7 +378,22 @@ Examples:
 Notes:
   --input accepts literal text, a file path (auto-detected), or '-' for stdin.
   In non-JSON mode, only the output text is printed (not the full response object).
-  Long generations are given ${EXECUTE_DEFAULT_TIMEOUT_SECONDS}s by default; override with the global --timeout <seconds>.`
+  Long generations are given ${EXECUTE_DEFAULT_TIMEOUT_SECONDS}s by default; override with the global --timeout <seconds>.
+
+  "Prompt is required" HERE MEANS THE TASK WAS CREATED WITHOUT A PROMPT, not
+  that --input is wrong. Check with "nexus task get <id> --json | jq -r .prompt"
+  and set it with "nexus task update <id> --prompt ...".
+
+  A TASK WHOSE inputFormat IS "JSON" NEEDS A JSON OBJECT, not a string. Pass it
+  through --body: --body '{"input":{"city":"Paris"}}'. The schema the task
+  expects is jsonOutputSchema/jsonInputSchema on "task get".
+
+  A CLIENT TIMEOUT DOES NOT STOP THE SERVER. The generation keeps running and is
+  still billed after this command gives up — raise --timeout rather than
+  re-running, since a re-run starts a second generation.
+
+  A jsonOutputSchema whose root is not an object (a top-level array or scalar)
+  fails here with a 400 EVERY time, however well the task saved.`
     )
     .action(async (id: string, opts) => {
       try {

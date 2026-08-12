@@ -75,9 +75,33 @@ export function registerPromptAssistantCommands(program: Command): void {
       `
 Examples:
   $ nexus prompt-assistant chat --message "Create a customer support agent" --mode agent
-  $ nexus prompt-assistant chat --message "Improve the prompt" --thread-id thr-123
+  $ nexus prompt-assistant chat --message "Improve the prompt" --mode agent --thread-id 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01
   $ echo "Write a summarization task" | nexus prompt-assistant chat --message - --mode ai-task
-  $ nexus prompt-assistant chat --body '{"message":"Help me","mode":"agent"}'`
+  $ nexus prompt-assistant chat --body '{"message":"Help me","mode":"agent"}'
+
+Notes:
+  --mode IS REQUIRED ON EVERY CALL, follow-ups included: omitting it is a 400.
+  It picks the assistant for THIS turn and is NOT checked against the thread, so
+  a follow-up sent under the other mode runs the other assistant over the same
+  history and nothing objects. Pass the mode the thread was opened with.
+
+  --thread-id IS A UUID, AND AN UNRECOGNISED ONE OPENS A NEW THREAD. A valid
+  uuid that names no thread is not an error — the reply comes back with none of
+  the context you meant to continue, under a threadId you did not send. Check
+  the threadId in the response.
+
+  THIS COMMAND AUTO-POLLS AND CAN TAKE MINUTES. The API returns immediately with
+  an empty response; the CLI then polls the thread for you and prints the reply.
+  NEVER RESEND ON AN APPARENT HANG — a resend is a second user turn on the same
+  thread and the assistant answers it as one.
+
+  IF IT DOES TIME OUT (5 minutes), THE WORK IS STILL RUNNING SERVER-SIDE. Do NOT
+  open a second thread: recover the id with "prompt-assistant list-threads" and
+  keep polling with "prompt-assistant get-thread <id>".
+
+  STATUS is in_progress, generating, completed or failed (list-threads may also
+  report cancelled). generating means the reply is in but the PROMPT is still
+  being written — the prompt arrives on get-thread as promptResult, not here.`
     )
     .action(async (opts) => {
       try {
@@ -163,8 +187,19 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus prompt-assistant get-thread thr-123
-  $ nexus prompt-assistant get-thread thr-123 --json`
+  $ nexus prompt-assistant get-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01
+  $ nexus prompt-assistant get-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01 --json
+
+Notes:
+  THIS IS THE POLL. Generation is asynchronous, so re-run this command until
+  status is completed or failed — do not open a second thread and do not resend
+  the message.
+  promptResult IS ABSENT UNTIL status IS completed. Its absence is "not ready",
+  never "no prompt was produced".
+  promptResult.prompt IS A MARKDOWN STRING. Use it verbatim as an agent or task
+  prompt — do NOT JSON.parse it.
+  The thread id is a UUID; lost ones are recovered with
+  "prompt-assistant list-threads".`
     )
     .action(async (threadId: string) => {
       try {
@@ -190,8 +225,15 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus prompt-assistant delete-thread thr-123
-  $ nexus prompt-assistant delete-thread thr-123 --yes`
+  $ nexus prompt-assistant delete-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01
+  $ nexus prompt-assistant delete-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01 --yes
+
+Notes:
+  THE GENERATED PROMPT GOES WITH THE THREAD. promptResult lives on the thread
+  and nowhere else, so copy it out before deleting — deleting is the only way to
+  lose a prompt you have not applied to an agent or task.
+  Confirmation is prompted only on a TTY. Piped or scripted, this deletes
+  immediately with or without --yes.`
     )
     .action(async (threadId: string, opts) => {
       try {

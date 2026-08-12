@@ -22,6 +22,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { handleError } from "../errors";
 import {
+  absent,
   isJsonMode,
   printList,
   printRecord,
@@ -361,7 +362,15 @@ Examples:
 Notes:
   Unpaginated — a Role is a unit of organizational structure, so this list is
   bounded by how the company is arranged rather than by usage.
-  READINESS says whether each Role's permission sets have been seeded yet.`
+  READINESS says whether each Role's permission sets have been seeded yet.
+
+  --json HERE IS NOT THE API'S SHAPE, AND BOTH SPELL IT "data". This command
+  JOINS readiness onto each row, so "data" is an ARRAY of Roles each carrying a
+  "readiness" object — null for a Role the server reported none for. The API,
+  GET /public/v1/roles, answers "data" as an OBJECT of two parallel arrays,
+  {"roles": [...], "readiness": [...]}, to be correlated on roleId. A parser
+  written against one raises a type error on the other: dict in one, list in
+  the other. Run "nexus api GET /roles" to get the API shape verbatim.`
     )
     .action(async () => {
       try {
@@ -796,8 +805,18 @@ Notes:
   role
     .command("create")
     .description("Create a Role, or file a request to create one")
-    .requiredOption("--name <name>", "The Role's display name")
-    .requiredOption("--owner <userId>", "Who owns it — required, the server will not choose")
+    // 🚨 NOT `requiredOption`, AND THAT IS NEX-3629. Commander enforces a
+    // required option BEFORE the action runs, so it cannot see `--body` — a
+    // complete body carrying name and ownerUserId was refused with
+    // "required option '--name <name>' not specified", which defeats the one
+    // thing `--body` is for. `name` and `jobDescription` are the two fields most
+    // likely to carry an apostrophe or an accent, which is what breaks shell
+    // quoting and sends a caller to a file in the first place.
+    //
+    // The requirement is unchanged; it is now checked AFTER both sources are
+    // merged, by `requireAll`, which names the flags a user can actually type.
+    .option("--name <name>", "The Role's display name — required, as a flag or in --body")
+    .option("--owner <userId>", "Who owns it — required, the server will not choose")
     .option("--job-description <text>", "What the Role is for")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -806,15 +825,29 @@ Notes:
 Examples:
   $ nexus role create --name "Refunds" --owner user_abc
   $ nexus role create --name "Refunds" --owner user_abc --job-description "Handles refunds"
+  $ nexus role create --body ./role.json
+  $ echo '{"name":"Réclamations","ownerUserId":"user_abc"}' | nexus role create --body -
 
 Notes:
   --owner is REQUIRED here and optional in the dashboard. A key's subject is
   whoever MINTED the key, so defaulting the owner would make ownership a fact
   about a credential rather than a decision the organization took.
 
+  A COMPLETE --body IS ENOUGH. name and ownerUserId may come from the body
+  instead of from --name / --owner; a flag wins over the body field of the same
+  name. The body keys are the API's — "ownerUserId", not "owner" — and
+  jobDescription is optional in both places. Use --body when a value carries an
+  apostrophe or an accent, which is what --body exists for.
+
   A 2xx DOES NOT MEAN A ROLE EXISTS. If governance requires approval this files
   a request instead and reports status "pending" — nothing was created and an
-  admin must approve it. This command prints which of the two happened.`
+  admin must approve it. This command prints which of the two happened.
+
+  BRANCH ON "status", NEVER ON THE EXIT CODE OR ON "success". Both outcomes are
+  a 0 exit and "success": true. --json carries "status": "created" with the new
+  Role's "id", or "status": "pending" with a "requestId" — poll that one with
+  "nexus role creation-request <requestId>", whose CREATED ROLE holds the id
+  once an admin approves it.`
     )
     .action(async (opts) => {
       try {
@@ -825,6 +858,15 @@ Notes:
           ownerUserId: opts.owner,
           jobDescription: opts.jobDescription
         });
+        requireAll(
+          body,
+          [
+            { field: "name", flag: "name" },
+            // The body key is `ownerUserId`; the option is `--owner`.
+            { field: "ownerUserId", flag: "owner" }
+          ],
+          "Pass each as a flag, or as a field of --body — the body keys are name and ownerUserId."
+        );
         const result = await client.roles.create(asRequestBody<CreateRoleBody>(body));
 
         reportGovernedWrite(result);
@@ -883,7 +925,9 @@ Notes:
         printSuccess("Role updated.", {
           id: updated.id,
           name: updated.name,
-          owner: updated.ownerUserId ?? "(none)"
+          // `--owner none` writes a null, and `role get` reads that field back as
+          // a null. The write has to answer the same way — see `absent`.
+          owner: updated.ownerUserId ?? absent("(none)")
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -909,7 +953,12 @@ Notes:
   and move what matters.
 
   A 2xx does not mean the Role is gone: if governance requires approval this
-  files a request and reports status "pending", and the Role is STILL THERE.`
+  files a request and reports status "pending", and the Role is STILL THERE.
+
+  BRANCH ON "status", NEVER ON THE EXIT CODE OR ON "success". Both outcomes are
+  a 0 exit and "success": true. --json carries "status": "deleted", or
+  "status": "pending" with a "requestId" — and pending means every system the
+  Role holds is still held, by a Role that still exists.`
     )
     .action(async (ref: string) => {
       try {
@@ -964,7 +1013,10 @@ Notes:
           role: roleId,
           type: opts.type,
           id: opts.id,
-          movedFrom: result.movedFromRoleId ?? "(it belonged to no Role)"
+          // A null here is "it belonged to no Role", and that is the SEIZURE
+          // check: a script asks whether another team just lost this system, so
+          // the answer cannot be a sentence it has to match on.
+          movedFrom: result.movedFromRoleId ?? absent("(it belonged to no Role)")
         });
 
         if (result.movedFromRoleId !== null) {
@@ -1014,7 +1066,7 @@ Notes:
 
         printSuccess(result.removed ? "System detached." : "Nothing to detach.", {
           removed: result.removed,
-          removedFromRole: result.removedFromRoleId ?? "(it belonged to no Role)"
+          removedFromRole: result.removedFromRoleId ?? absent("(it belonged to no Role)")
         });
 
         if (result.removed) {
@@ -1592,7 +1644,9 @@ Notes:
         printSuccess("Creation request reviewed.", {
           id: request.id,
           status: request.status,
-          createdRoleId: request.createdRoleId ?? "(nothing created)"
+          // Null on a REJECTED verdict, and on an APPROVED one it is the id of
+          // the Role the request produced — the only place a caller learns it.
+          createdRoleId: request.createdRoleId ?? absent("(nothing created)")
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -1634,6 +1688,21 @@ Notes:
     .command("deletion-request")
     .description("Show one filed Role-deletion request")
     .argument("<request-id>", "Request UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role deletion-request 5555...
+
+Notes:
+  PENDING MEANS THE ROLE IS STILL THERE. A filed request is not a deletion —
+  the Role, its systems and its members are untouched until somebody approves
+  it with "nexus role review-deletion-request".
+  Takes the REQUEST id, which "nexus role deletion-requests" prints first — not
+  the Role's.
+  A reviewed request is KEPT with its verdict rather than deleted, so a row
+  here can be APPROVED and long since acted on.`
+    )
     .action(async (requestId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -1715,7 +1784,17 @@ Notes:
   type at ZERO with no error on any read.
 
   A type needs AT LEAST ONE part. Read an existing one with
-  "nexus role job-types --json" to copy the shape.`
+  "nexus role job-types --json" to copy the shape.
+
+  A PART'S RATE IS A TAGGED UNION, AND THE TAG IS THE WHOLE FIELD. There are
+  exactly two kinds:
+    "source": {"kind": "variable", "variable": "<part key>"}   resolved against
+      the ROLE's own variables at evaluation time — which is why one org-wide
+      job type prices differently in each Role
+    "source": {"kind": "fixed", "value": <number>}             a literal this
+      job type owns
+  There is no "constant", no "literal" and no "variableRef" — the last is a
+  database comment describing a design that never shipped.`
     )
     .action(async (opts) => {
       try {
@@ -1782,6 +1861,21 @@ Notes:
     .command("delete-job-type")
     .description("Remove a job type from the organization's library")
     .argument("<job-type-id>", "Job-type UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role delete-job-type 6666...
+
+Notes:
+  ORG-WIDE. A job type is shared across every Role, so this removes it from
+  the library for all of them, not from the one you happen to be looking at.
+  ANY SCOPE LINE NAMING IT LOSES ITS PRICE MODEL, AND NOTHING SAYS WHICH. That
+  changes coverage and money figures on Roles this command never mentioned.
+  Run "nexus role scope-lines <role>" over the Roles that use it first.
+  No confirmation prompt, and no undo.
+  Verify with "nexus role job-types" — the id is gone from the library.`
+    )
     .action(async (jobTypeId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -1892,7 +1986,9 @@ Notes:
           hoursPerDay: settings.hoursPerDay,
           daysPerWeek: settings.daysPerWeek,
           workingWeeksPerYear: settings.workingWeeksPerYear,
-          currency: settings.currency ?? "(none stated)"
+          // A null currency is why a coverage read answers money "not modelled",
+          // so a script has to be able to see it as a null.
+          currency: settings.currency ?? absent("(none stated)")
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -2152,11 +2248,16 @@ Notes:
           asRequestBody<RoleWorkingYearBody>(body)
         );
 
+        // 🚨 EACH OF THESE FOUR IS THE `none` A CALLER JUST SENT, READ BACK. The
+        // whole point of the token is that null and 0 are different denominators,
+        // so answering the null as English destroys the distinction on the one
+        // channel that exists to preserve it — and `role working-year` returns
+        // the same fields as proper nulls.
         printSuccess("Working year updated.", {
-          calendarWeeks: year.calendarWeeks ?? "(org default)",
-          paidLeaveWeeks: year.paidLeaveWeeks ?? "(org default)",
-          publicHolidayDays: year.publicHolidayDays ?? "(org default)",
-          sicknessDays: year.sicknessDays ?? "(org default)"
+          calendarWeeks: year.calendarWeeks ?? absent("(org default)"),
+          paidLeaveWeeks: year.paidLeaveWeeks ?? absent("(org default)"),
+          publicHolidayDays: year.publicHolidayDays ?? absent("(org default)"),
+          sicknessDays: year.sicknessDays ?? absent("(org default)")
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -2167,6 +2268,21 @@ Notes:
     .command("system-policy")
     .description("Read a Role's system policy")
     .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role system-policy "Support agent"
+  $ nexus role system-policy "Support agent" --json
+
+Notes:
+  "NOT CONFIGURED" IS A SUCCESS, NOT AN EMPTY POLICY. A Role nobody has
+  authored a policy for prints that line and exits 0; under --json it is a
+  literal null. It is NOT the same as every flag being false — nothing has been
+  stated, so read the organization's defaults, do not infer them from here.
+  Write it with "nexus role set-system-policy", which REPLACES the whole
+  policy rather than patching it.`
+    )
     .action(async (ref: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -2304,20 +2420,43 @@ function readOwner(raw: string | undefined): string | null | undefined {
  * — and printing "deleted" would report one that is still serving traffic. The
  * pending arm is a WARNING rather than a success line, because the caller has to
  * do something about it.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 `status` IS ON THE PAYLOAD, NOT JUST IN THE PROSE. THAT IS NEX-3627.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The SDK type says *"READ `status`. NEVER THE HTTP CODE"* and the human output
+ * obeyed it — but `--json` carried `{success, id, name}` and `{success, note}`,
+ * neither of which holds the discriminant, so the one instruction the contract
+ * gives could not be followed on the CLI. A scripted caller reading `success`
+ * could not tell "Role created" from "request filed", and on the delete side a
+ * pending result reported success while the Role kept serving traffic.
+ *
+ * `success: true` is honest on all three arms — the call was accepted — so it is
+ * `status` that has to be the branch, and it is now the same word on both
+ * channels: `created`, `deleted`, `pending`.
  */
 function reportGovernedWrite(result: CreateRoleResult | DeleteRoleResult): void {
   if (result.status === "created") {
-    printSuccess("Role created.", { id: result.role.id, name: result.role.name });
+    printSuccess("Role created.", {
+      status: result.status,
+      id: result.role.id,
+      name: result.role.name
+    });
     return;
   }
   if (result.status === "deleted") {
     printSuccess("Role deleted.", {
+      status: result.status,
       note: "Its systems are now orphans — they still exist and still run, in no Role."
     });
     return;
   }
 
-  printSuccess("Request filed for approval.", { requestId: result.request.id });
+  printSuccess("Request filed for approval.", {
+    status: result.status,
+    requestId: result.request.id
+  });
   printWarning(
     "NOTHING HAPPENED YET. This organization requires approval for that action.",
     `A request (${result.request.id}) is waiting on an admin.`,

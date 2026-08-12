@@ -73,7 +73,18 @@ Examples:
       `
 Examples:
   $ nexus external-tool get ext-123
-  $ nexus external-tool get ext-123 --json`
+  $ nexus external-tool get ext-123 --json
+
+Notes:
+  THE STORED openApiSpec IS NOT RETURNED — not here and not by the REST route.
+  KEEP YOUR OWN COPY: "update-spec" overwrites it and there is no baseline to
+  roll back to.
+  NEITHER ARE THE OPERATION IDS. --json carries actionsCount, a number, and no
+  action list — so this command cannot tell you what to pass to
+  "external-tool test --operation-id" or "execute --action". Read them from
+  your spec.
+  actionsCount is what the spec parsed to at create/refresh time, not a
+  liveness check. "external-tool test" is the liveness check.`
     )
     .action(async (id: string) => {
       try {
@@ -104,7 +115,26 @@ Examples:
   $ nexus external-tool create --body openapi-tool.json
   $ nexus external-tool create --body '{"name":"Weather API","spec":{...}}'
   $ nexus external-tool create --body openapi-tool.json --image-url https://example.com/logo.png
-  $ cat spec.json | nexus external-tool create --body -`
+  $ cat spec.json | nexus external-tool create --body -
+
+Notes:
+  openApiSpec IS A STRING, NOT AN OBJECT. It carries the spec's JSON or YAML
+  text; passing a parsed object is a 400 whatever the spec itself contains.
+
+  PASS THE BODY AS A FILE OR ON STDIN. An inline spec of any real size
+  overflows the shell's argument limit and the process dies before the CLI is
+  reached — which looks like a broken install, not a long argument.
+
+  REQUIRED IN THE BODY: name, openApiSpec, endpointUrl (a valid URL) and auth.
+  auth.type is one of none, service_http, user_http, oauth, user_oauth, keys —
+  send { "type": "none" } rather than omitting auth.
+
+  DECLARE requestBody FOR EVERY WRITE OPERATION. Actions are parsed from the
+  spec, and an operation with no requestBody gets no body fields — the call
+  then goes out bodyless, returns 200 and persists NOTHING.
+
+  The endpointUrl on the tool is the base URL every action is dispatched
+  against; the spec's own servers block is not used in its place.`
     )
     .action(async (opts) => {
       try {
@@ -128,7 +158,7 @@ Examples:
     .command("upload-icon")
     .description("Upload an icon/logo image for an external tool")
     .argument("<id>", "External tool ID")
-    .requiredOption("--file <path>", "Path to the image file (PNG, JPG, or SVG)")
+    .requiredOption("--file <path>", "Path to the image file, PNG/JPG/SVG (required)")
     .addHelpText(
       "after",
       `
@@ -199,7 +229,7 @@ The tool's auth must be configured with type "oauth" and grant_type "client_cred
     // nothing". Omitting it used to send `auth: undefined`, which serialised
     // away to an empty patch — a request that looked like a no-op and was not
     // one anybody asked for. Commander refuses before the HTTP call instead.
-    .requiredOption("--body <json>", "Auth body as JSON, .json file, or '-' for stdin")
+    .requiredOption("--body <json>", "Auth body as JSON, .json file, or '-' for stdin (required)")
     .addHelpText(
       "after",
       `
@@ -286,7 +316,34 @@ Examples:
   $ nexus external-tool execute <toolId> --action send_email --input '{"to":"a@b.com"}' --credential cred-123
   $ nexus external-tool execute <toolId> --body '{"action":"send_email","input":{"to":"a@b.com"}}'
   $ nexus external-tool execute <toolId> --action send_email --input /tmp/input.json
-  $ cat params.json | nexus external-tool execute <toolId> --action send_email --input -`
+  $ cat params.json | nexus external-tool execute <toolId> --action send_email --input -
+
+Notes:
+  CLASSIFY THE ACTION BEFORE YOU FIRE. This one command both lists records and
+  sends mail; its reversibility is entirely --action's. There is no dry run and
+  no confirmation.
+
+  "success": true DOES NOT MEAN THE ACTION SUCCEEDED. It reports that Nexus
+  dispatched the call and got an answer back. A Pipedream action that failed
+  comes back as success with the failure as a STRING in result — read it,
+  starting "Pipedream action failed:" or "Pipedream action returned an error:".
+  A result of "The action completed but returned no data" is that same shape:
+  the upstream returned nothing, which is usually a rejected input.
+  success is false only when the tool's own endpoint answered non-2xx.
+
+  NEXUS DOES NOT VALIDATE YOUR PARAMETERS. Required fields are metadata parsed
+  from the spec, never enforced here — a missing or misspelled key is forwarded
+  as-is and fails upstream, inside an envelope that still says success. Read the
+  action's schema from your OpenAPI spec first.
+  Empty strings and nulls are STRIPPED before dispatch, so "" is not a way to
+  send a blank value.
+
+  --input takes inline JSON, a path to a .json file, or '-' for stdin. Anything
+  that is not a readable file is treated as literal JSON.
+
+  --credential accepts either id for the same connected account: the tool-scoped
+  one from "tool credentials <toolId>" or the unified one from "credential list".
+  Omit it and the FIRST active credential on the tool is chosen for you.`
     )
     .action(async (toolId: string, opts) => {
       try {
@@ -435,7 +492,23 @@ Examples:
   $ nexus external-tool update-spec ext-123 --file openapi.json --json
   $ nexus external-tool update-spec ext-123 --body '{"openApiSpec":"openapi: 3.0.0\\n..."}'
   $ nexus external-tool update-spec ext-123 --file openapi.yaml --force
-  $ cat openapi.yaml | nexus external-tool update-spec ext-123 --file -`
+  $ cat openapi.yaml | nexus external-tool update-spec ext-123 --file -
+
+Notes:
+  THIS OVERWRITES THE ONLY STORED COPY OF THE SPEC, and "external-tool get"
+  does not return it — so there is no rollback baseline unless you kept one.
+  Keep the previous file.
+
+  THE ACTION LIST IS REBUILT FROM THE NEW SPEC. An operation the new spec drops
+  stops existing; the guard only refuses when a dropped key is still BOUND by a
+  workflow node or agent tool config. An unbound action disappears silently.
+
+  DECLARE requestBody FOR EVERY WRITE OPERATION. An operation with no
+  requestBody parses to no body fields, so the call goes out bodyless, returns
+  200 and persists NOTHING — the refresh is where that regression is introduced.
+
+  --force is not "retry harder": it refreshes anyway and leaves every downstream
+  node bound to a removed action to be repointed by hand.`
     )
     .action(async (id: string, opts) => {
       try {

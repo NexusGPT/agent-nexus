@@ -108,9 +108,101 @@ const program = new Command()
 
 // Prepend banner to top-level --help only (not subcommands)
 program.addHelpText("before", getBanner(VERSION));
+/**
+ * The root epilogue — the contract that holds for EVERY command.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE STANDARD THIS HELP IS WRITTEN TO (NEX-3626)
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `--help` carries exactly the instruction a prompt would carry, in full. The
+ * test is operational: paste a command's `--help` into an agent prompt with no
+ * other source available, and the agent must use that command correctly FIRST
+ * TIME — including the cases where it would otherwise silently do the wrong
+ * thing. If Nexus documentation states something about a command that its
+ * `--help` does not, the help is incomplete by definition.
+ *
+ * What that means per command, and what {@link help-completeness.test.ts}
+ * enforces for the namespaces that have been converted:
+ *
+ *   - an `Examples:` block of REAL invocations, and a `Notes:` block;
+ *   - every precondition, and the scope the call needs;
+ *   - the exact body shape — which field sits where, and what type it is;
+ *   - what a value MEANS, and specifically what null means as distinct from
+ *     zero and from absent;
+ *   - the destructive consequence, NAMED, including effects on objects the
+ *     caller never mentioned;
+ *   - what a SILENT FAILURE looks like — the call that answers 2xx and does
+ *     not do the thing;
+ *   - how to VERIFY the call did what it claims.
+ *
+ * The form is `nexus role`'s: imperative, consequence-first sentences in a
+ * `Notes:` block. `role attach` is the model — "THIS IS A MOVE, NOT AN ADD. A
+ * system belongs to exactly ONE Role, so this revokes the previous Role's claim
+ * AND the access its members had through it." Copy that. Do not invent a second
+ * convention beside it.
+ *
+ * Facts that hold for MORE THAN ONE command belong here in the root epilogue
+ * rather than being repeated per command; facts about one command belong on
+ * that command, where the reader is when they need them.
+ */
 program.addHelpText(
   "after",
-  `\nTip: Run "nexus docs" for full documentation, gotchas, and recipes.\n     Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).\n`
+  `
+Global flags work anywhere in the line, before or after the subcommand:
+  --json                 machine-readable output
+  --profile <name>       use a named profile instead of the active one
+  --api-key <key>        override the key for this invocation
+  --base-url <url>       point at another environment
+  --timeout <seconds>    client-side only, default 30
+  --no-auto-update       do not self-update on exit
+
+READING THE OUTPUT
+  --json prints ONE JSON document on STDOUT and nothing else. Warnings, the
+  profile banner and progress go to STDERR, so a pipe stays parseable. Without
+  --json you get a table, and a table COLUMN IS TRUNCATED TO ITS WIDTH — never
+  parse one, and never conclude a value is short because it looked short.
+  "-" and a blank cell mean NULL, which is not zero and not false.
+  A list command prints only the columns it chose; --json can carry fields the
+  table does not show, and a few commands drop response fields from BOTH. When
+  a value matters and you cannot see it, "nexus api GET <path>" returns the
+  untouched response.
+
+FAILURE
+  EVERY failure exits 1. There is no distinct exit code for "not found",
+  "forbidden" or "invalid" — read the message, not the status. Under --json an
+  error is a JSON document on STDOUT: {"error":{"message","hint"}}.
+  --timeout IS CLIENT-SIDE. Hitting it means this CLI stopped waiting; THE
+  SERVER MAY STILL BE COMPLETING THE REQUEST. Never retry a write on a timeout
+  without checking whether the first one landed.
+  A 2xx IS NOT ALWAYS THE THING HAPPENING. Several commands accept and discard
+  input, or file a request instead of acting. Where that is true the command's
+  own Notes say so and name the verification step — run it.
+
+SENDING A BODY
+  --body takes inline JSON, a path ending in .json, or "-" for stdin. An
+  explicit flag ALWAYS overrides the same field inside --body.
+  A KEY THE SERVER DOES NOT KNOW IS USUALLY DROPPED, NOT REFUSED — a typo'd or
+  misplaced field is accepted and silently ignored, so read each command's body
+  shape rather than guessing it.
+  "nexus ticket create" and "nexus ticket update" take --data, not --body.
+  This is the only namespace that does.
+
+SCOPES AND WHO YOU ARE
+  Scopes are NOT hierarchical: :write does not imply :delete, and a read scope
+  on one surface says nothing about another. A missing scope is a 403, not an
+  empty result.
+  A key minted for an org MEMBER sees only what that user created on several
+  surfaces, so a list can be empty while the organization has rows, and
+  somebody else's id answers 404 rather than 403.
+  Commands act on the profile's ACTIVE organization. "nexus auth whoami" says
+  which. Changing it needs a personal (cross-org) token and
+  "nexus auth use-org <orgId>"; an org-scoped key reaches exactly one org by
+  construction, so switch profile instead.
+
+Tip: Run "nexus docs" for full documentation, gotchas, and recipes.
+     Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).
+`
 );
 
 program.configureHelp({

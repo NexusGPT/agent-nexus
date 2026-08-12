@@ -233,4 +233,75 @@ describe("nexus workspace mount — cross-org mount-point collision", () => {
       "org:org_bbb|general-context"
     ]);
   });
+
+  it("tells an anonymous caller the blocking row may be another org's, not to unmount it", async () => {
+    // The `url:` bucket is ONE entry per (base URL, slug), shared by every caller
+    // that arrives with a raw --api-key and no NEXUS_ORGANIZATION_ID — the CLI
+    // has nothing to tell them apart with. So a second org mounting the same slug
+    // anonymously is blocked by the first org's row, at a DIFFERENT path, through
+    // the slug guard rather than the mount-point guard.
+    //
+    // The block itself is the safe outcome (better than overwriting a live row).
+    // What must not happen is the generic "Unmount it first.", which would send
+    // org B to detach org A's drive. The error has to name what the row is and
+    // how to leave the shared bucket.
+    resolveProfile.mockReturnValue({
+      name: "override",
+      source: "override",
+      profile: { apiKey: "nxs_raw_key", baseUrl: "https://api.nexusgpt.io" }
+    } as ResolvedProfile);
+    registry = {
+      "url:https://api.nexusgpt.io|general-context": {
+        slug: SLUG,
+        engine: "rclone",
+        pid: process.pid, // live
+        mountPath: "/first-org/general-context",
+        baseUrl: "https://api.nexusgpt.io",
+        mountedAt: "2026-06-24T00:00:00.000Z"
+        // No orgId / orgName / profile — that is what "anonymous" means here.
+      }
+    };
+    const other = path.join(os.homedir(), "nexus", "second-org-general-context");
+
+    const { out } = (await runMount(SLUG, "--engine", "rclone", "--at", other)) as {
+      out: { error?: { message?: string } };
+    };
+
+    const message = out.error?.message ?? "";
+    expect(message).toContain("/first-org/general-context");
+    expect(message).toContain("names no organization");
+    expect(message).toContain("NEXUS_ORGANIZATION_ID");
+    // The instruction that would have been destructive across orgs.
+    expect(message).not.toContain("Unmount it first");
+    expect(process.exitCode).toBe(1);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(Object.keys(registry)).toEqual(["url:https://api.nexusgpt.io|general-context"]);
+  });
+
+  it("still says 'Unmount it first' when the blocking row is demonstrably the caller's own", async () => {
+    // The counterpart: org A's own live row. Ownership is established, so the
+    // plain instruction is correct and must not be diluted by the branch above.
+    registry = {
+      "org:org_aaa|general-context": {
+        slug: SLUG,
+        engine: "rclone",
+        pid: process.pid,
+        mountPath: DEFAULT_PATH,
+        baseUrl: "https://api.nexusgpt.io",
+        mountedAt: "2026-06-24T00:00:00.000Z",
+        orgId: "org_aaa",
+        orgName: "Acme",
+        profile: "org-a"
+      }
+    };
+
+    const { out } = (await runMount(SLUG, "--engine", "rclone")) as {
+      out: { error?: { message?: string } };
+    };
+
+    const message = out.error?.message ?? "";
+    expect(message).toContain('org "Acme"');
+    expect(message).toContain("Unmount it first");
+    expect(process.exitCode).toBe(1);
+  });
 });

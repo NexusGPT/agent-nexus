@@ -10,7 +10,7 @@ import { createClient } from "../client";
 import { handleError } from "../errors";
 import { type Column, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
-import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 
 // `satisfies readonly SatisfactionMode[]` forces this runtime tuple to track
@@ -43,54 +43,74 @@ export function registerConversationCommands(program: Command): void {
     .command("conversation")
     .description("Manage inbox conversations (list, search, reply, assign, close)");
 
+  conversation.addHelpText(
+    "after",
+    `
+EVERY <id> HERE TAKES EITHER FORM: the UUID or the short nanoId (XXXXX_XXXXX)
+a customer sees. Anything else is a 400, and an id from another organization
+is a 404 — the two are never distinguished.
+
+WHAT THE AGENT STORED IS NOT WHAT THE CUSTOMER SAW. A tool-using conversation
+records the runtime's own working memory — tool calls, tool results, internal
+turns — as AGENT rows alongside the real replies. Roughly half of them were
+never delivered. Pass --visible-only to "conversation messages" whenever the
+question is what the customer actually received.
+
+"conversation send-message" posts as your organization to the real channel.
+"conversation comment" is internal and the customer never sees it.
+
+Reads need conversations:read, writes conversations:write, and "close" needs
+conversations:delete.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
-    conversation
-      .command("list")
-      .description("List conversations")
-      .option("--status <status>", "Filter by status (OPEN, RUNNING, ARCHIVED)")
-      .option(
-        "--ticket-status <status>",
-        "Filter by ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
-      )
-      .option(
-        "--response-handling <mode>",
-        "Filter by response handling (AUTO, ON_APPROVAL, MANUAL)"
-      )
-      .option(
-        "--ticket-status-in <a,b,c>",
-        "Filter by ticket status (comma-separated: SUBMITTED,IN_PROGRESS,WAITING_ON_CUSTOMER,RESOLVED)"
-      )
-      .option(
-        "--ticket-status-not <status>",
-        "Exclude a ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
-      )
-      .option("--deployment-id <id>", "Filter by deployment ID")
-      .option("--assigned-to <filter>", "Filter by assignment (me, none)")
-      .option("--search <query>", "Search by topic or message content")
-      .option(
-        "--last-message-before <iso>",
-        "Only conversations whose last message is older than this ISO date"
-      )
-      .option(
-        "--last-message-after <iso>",
-        "Only conversations whose last message is newer than this ISO date"
-      )
-      .option(
-        "--last-message-type-in <a,b,c>",
-        "Filter by last message role (comma-separated: USER, AGENT, SYSTEM)"
-      )
-      .option(
-        "--comment-contains <substring>",
-        "Only conversations with a comment containing this substring (1–500 chars)"
-      )
-      .option(
-        "--comment-not-contains <substring>",
-        "Only conversations with no comment containing this substring (1–500 chars)"
-      )
-      .addHelpText(
-        "after",
-        `
+  conversation
+    .command("list")
+    .description("List conversations")
+    .option("--status <status>", "Filter by status (OPEN, RUNNING, ARCHIVED)")
+    .option(
+      "--ticket-status <status>",
+      "Filter by ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
+    )
+    .option("--response-handling <mode>", "Filter by response handling (AUTO, ON_APPROVAL, MANUAL)")
+    .option(
+      "--ticket-status-in <a,b,c>",
+      "Filter by ticket status (comma-separated: SUBMITTED,IN_PROGRESS,WAITING_ON_CUSTOMER,RESOLVED)"
+    )
+    .option(
+      "--ticket-status-not <status>",
+      "Exclude a ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
+    )
+    .option("--deployment-id <id>", "Filter by deployment ID")
+    .option("--assigned-to <filter>", "Filter by assignment (me, none)")
+    .option("--search <query>", "Search by topic or message content")
+    .option(
+      "--last-message-before <iso>",
+      "Only conversations whose last message is older than this ISO date"
+    )
+    .option(
+      "--last-message-after <iso>",
+      "Only conversations whose last message is newer than this ISO date"
+    )
+    .option(
+      "--last-message-type-in <a,b,c>",
+      "Filter by last message role (comma-separated: USER, AGENT, SYSTEM)"
+    )
+    .option(
+      "--comment-contains <substring>",
+      "Only conversations with a comment containing this substring (1–500 chars)"
+    )
+    .option(
+      "--comment-not-contains <substring>",
+      "Only conversations with no comment containing this substring (1–500 chars)"
+    )
+    // Declared here rather than through addPaginationOptions so the cap can be
+    // stated; see the same note on `deployment list`.
+    .option("--page <number>", "Page number (default 1)", parseInt)
+    .option("--limit <number>", "Items per page — 1-100, default 20", parseInt)
+    .addHelpText(
+      "after",
+      `
 Examples:
   $ nexus conversation list
   $ nexus conversation list --status OPEN --assigned-to me
@@ -104,45 +124,63 @@ Examples:
       --last-message-before <iso-24h-ago> \\
       --last-message-type-in USER \\
       --ticket-status-not RESOLVED \\
-      --comment-not-contains END_CONV_FIRED_AT:`
-      )
-  ).action(async (opts) => {
-    try {
-      const client = createClient(program.optsWithGlobals());
-      const { data, meta } = await client.conversations.list({
-        ...getPaginationParams(opts),
-        status: opts.status,
-        ticketStatus: opts.ticketStatus,
-        ticketStatusIn: splitCsv(opts.ticketStatusIn),
-        ticketStatusNot: opts.ticketStatusNot,
-        responseHandling: opts.responseHandling,
-        deploymentId: opts.deploymentId,
-        assignedTo: opts.assignedTo,
-        search: opts.search,
-        lastMessageBefore: opts.lastMessageBefore,
-        lastMessageAfter: opts.lastMessageAfter,
-        lastMessageTypeIn: splitCsv(opts.lastMessageTypeIn),
-        commentContains: opts.commentContains,
-        commentNotContains: opts.commentNotContains
-      });
+      --comment-not-contains END_CONV_FIRED_AT:
 
-      printList(data, meta, [
-        { key: "id", label: "ID", width: 36 },
-        { key: "topic", label: "TOPIC", width: 30 },
-        { key: "status", label: "STATUS", width: 10 },
-        { key: "ticketStatus", label: "TICKET", width: 22 },
-        { key: "responseHandling", label: "HANDLING", width: 14 }
-      ]);
-    } catch (err) {
-      process.exitCode = handleError(err);
-    }
-  });
+Notes:
+  CLOSED CONVERSATIONS ARE NEVER LISTED. "conversation close" sets a DELETED
+  status that no filter here selects, so a conversation missing from every
+  --status is closed, not lost.
+  --status takes OPEN, RUNNING or ARCHIVED only. DELETED is refused: closing
+  is "conversation close", not an update.
+
+  Contradictory filters are REFUSED, not silently empty: --ticket-status with
+  --ticket-status-in, a --ticket-status-not equal to --ticket-status or inside
+  --ticket-status-in, and a --last-message-before at or earlier than
+  --last-message-after are each a 400 naming the conflict.
+  --assigned-to me MEANS THE USER WHO MINTED THE KEY, and on a key that
+  identifies no user the filter is DROPPED rather than refused — you get every
+  conversation back and nothing says the filter did not apply. Check the count
+  against an unfiltered run before trusting it. --assigned-to none is exact.
+  --last-message-before / --last-message-after are ISO-8601 instants.
+  --limit above 100 is a 400, not a clamp. Page with meta.hasMore in --json.`
+    )
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const { data, meta } = await client.conversations.list({
+          ...getPaginationParams(opts),
+          status: opts.status,
+          ticketStatus: opts.ticketStatus,
+          ticketStatusIn: splitCsv(opts.ticketStatusIn),
+          ticketStatusNot: opts.ticketStatusNot,
+          responseHandling: opts.responseHandling,
+          deploymentId: opts.deploymentId,
+          assignedTo: opts.assignedTo,
+          search: opts.search,
+          lastMessageBefore: opts.lastMessageBefore,
+          lastMessageAfter: opts.lastMessageAfter,
+          lastMessageTypeIn: splitCsv(opts.lastMessageTypeIn),
+          commentContains: opts.commentContains,
+          commentNotContains: opts.commentNotContains
+        });
+
+        printList(data, meta, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "topic", label: "TOPIC", width: 30 },
+          { key: "status", label: "STATUS", width: 10 },
+          { key: "ticketStatus", label: "TICKET", width: 22 },
+          { key: "responseHandling", label: "HANDLING", width: 14 }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
 
   // ── get ───────────────────────────────────────────────────────────────
   conversation
     .command("get")
     .description("Get conversation details")
-    .argument("<id>", "Conversation ID")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
     .option(
       "--satisfaction <mode>",
       "Project satisfaction on the response: 'latest' (most-recent score), 'all' (full history), or 'summary' (latest + totalCount)"
@@ -154,7 +192,18 @@ Examples:
   $ nexus conversation get <conversation-id>
   $ nexus conversation get <conversation-id> --json
   $ nexus conversation get <conversation-id> --satisfaction latest --json
-  $ nexus conversation get <conversation-id> --satisfaction summary --json`
+  $ nexus conversation get <conversation-id> --satisfaction summary --json
+
+Notes:
+  Carries no messages — "conversation messages <id>" is a separate read.
+  A CLOSED CONVERSATION IS STILL READABLE HERE, unlike in "conversation list"
+  where it never appears. Its status reads DELETED.
+  --satisfaction is off by default and costs an extra read: "latest" is the
+  most recent score, "all" the full history, "summary" the latest plus a
+  totalCount. Nothing is projected without it — an absent field means you did
+  not ask, not that the customer gave no rating.
+  A nanoId works here and is what a customer quoting their conversation gives
+  you.`
     )
     .action(async (id: string, opts: { satisfaction?: string }) => {
       try {
@@ -199,7 +248,7 @@ Examples:
   conversation
     .command("messages")
     .description("Get messages in a conversation")
-    .argument("<id>", "Conversation ID")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
     .option("--limit <n>", "Max messages to fetch (default: 50, max: 100)")
     .option(
       "--before <cursor>",
@@ -212,16 +261,35 @@ Examples:
     .addHelpText(
       "after",
       `
-Every record carries a TYPE (USER_MESSAGE, REPLY, TOOL_CALL, TOOL_RESULT, SYSTEM,
-INTERNAL) and a customerVisible flag: a tool-using conversation stores the agent
-runtime's own working memory alongside real replies, and roughly half of the
-AGENT rows were never delivered to the channel. --visible-only filters before
-pagination, so --limit counts real messages.
-
 Examples:
   $ nexus conversation messages <conversation-id>
   $ nexus conversation messages <conversation-id> --visible-only
-  $ nexus conversation messages <conversation-id> --limit 10 --json`
+  $ nexus conversation messages <conversation-id> --limit 10 --json
+
+Notes:
+  ROUGHLY HALF THE AGENT ROWS WERE NEVER DELIVERED. A tool-using conversation
+  stores the agent runtime's own working memory beside its real replies, and
+  in the table they are six identical-looking AGENT rows. Read TYPE
+  (USER_MESSAGE, REPLY, TOOL_CALL, TOOL_RESULT, SYSTEM, INTERNAL) and the
+  customerVisible flag, or pass --visible-only and let the server decide.
+
+  USE --visible-only WHENEVER THE QUESTION IS WHAT THE CUSTOMER SAW. Without
+  it, quoting this output back to a customer quotes machinery at them. It
+  filters before pagination, so --limit counts real messages either way.
+
+  Newest first, and --limit is capped at 100 (default 50) — a long
+  conversation needs paging, not a bigger limit.
+  --before is the SERVER'S nextBefore, passed back verbatim. It is an opaque
+  "<iso>_<id>" pair, not a date. A bare ISO timestamp still works and still
+  means "older than this", but it cannot express a boundary inside a
+  millisecond, so a cursor you build from the oldest row's createdAt SKIPS
+  every message sharing that timestamp. Under --visible-only that matters
+  more, because the page is filtered after it is read.
+  AN EMPTY PAGE WITH hasMore: true IS NOT THE END. Rows are filtered after the
+  window is read, so a page can legitimately return nothing while messages
+  remain further back. Stop paging on hasMore: false, never on an empty page.
+  In --json, hasMore and nextBefore ride in meta; in table mode they are
+  printed as a trailer line.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -276,7 +344,21 @@ Examples:
       `
 Examples:
   $ nexus conversation search --query "refund"
-  $ nexus conversation search --query "login issue" --deployment-id <id> --json`
+  $ nexus conversation search --query "login issue" --deployment-id <id> --json
+
+Notes:
+  CAPPED AT 50 RESULTS WITH NO WAY TO PAGE PAST THEM. There is no --limit and
+  no cursor, and nothing marks the cut — 50 rows means "at least 50". Use
+  "conversation list --search" instead when the count matters: same substring
+  match, plus every filter and real pagination.
+
+  SEARCHES A PHONE NUMBER TOO, which list does not. When the query looks like
+  a phone number it also matches the customer's number and the channel thread
+  id, so "conversation search --query +15551234567" finds a caller's
+  conversations. That is the one thing this command does that list cannot.
+  Substring and case-insensitive over the topic and message bodies — no
+  stemming, no relevance ranking; results are newest-activity first.
+  --query is 1-500 characters. Closed conversations are excluded.`
     )
     .action(async (opts) => {
       try {
@@ -315,7 +397,18 @@ Examples:
 Examples:
   $ nexus conversation update-status <id> --status ARCHIVED
   $ nexus conversation update-status <id> --ticket-status RESOLVED
-  $ nexus conversation update-status <id> --response-handling MANUAL`
+  $ nexus conversation update-status <id> --response-handling MANUAL
+
+Notes:
+  --response-handling DECIDES WHETHER THE AGENT STILL ANSWERS THIS CUSTOMER.
+  AUTO replies on its own; ON_APPROVAL drafts and waits for a human; MANUAL
+  stops it replying at all. Set MANUAL while a human takes over, and set it
+  back, or the conversation stays silent with nothing reporting why.
+  --status ARCHIVED does not stop the agent — only --response-handling does.
+  --status takes OPEN, RUNNING or ARCHIVED. DELETED is refused here; closing
+  is "conversation close".
+  Each flag is independent and omitted ones are untouched. Sending none is
+  accepted and changes nothing.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -351,12 +444,18 @@ Examples:
     .addHelpText(
       "after",
       `
-Emits the 'conversation.tagged' platform event, so listener workflows
-subscribed to topic changes will fire.
-
 Examples:
   $ nexus conversation update-topic <id> --topic "Billing escalation"
-  $ nexus conversation update-topic 4M7O9_BS76Q --topic "VIP renewal"`
+  $ nexus conversation update-topic 4M7O9_BS76Q --topic "VIP renewal"
+
+Notes:
+  THIS FIRES THE 'conversation.tagged' PLATFORM EVENT. Any listener workflow
+  subscribed to topic changes runs, so renaming a hundred conversations in a
+  loop triggers a hundred workflow executions with whatever they do attached.
+  Check "nexus workflow list" for listeners before scripting this.
+  --topic is REQUIRED and 1-500 characters; there is no way to clear it.
+  It REPLACES the topic outright. The previous one is not kept anywhere.
+  <id> takes a UUID or a nanoId.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -383,7 +482,12 @@ Examples:
       `
 Examples:
   $ nexus conversation get-metadata <id>
-  $ nexus conversation get-metadata <id> --json`
+  $ nexus conversation get-metadata <id> --json
+
+Notes:
+  Read this before "update-metadata": the merge is per key, so you need to
+  know which keys already exist to avoid overwriting one.
+  An empty object means no metadata has been attached; it is not an error.`
     )
     .action(async (id: string) => {
       try {
@@ -409,14 +513,27 @@ Examples:
     .addHelpText(
       "after",
       `
-Merge semantics: a non-null value overwrites that key, a null value clears it,
-and keys you don't mention are left untouched.
-
 Examples:
   $ nexus conversation update-metadata <id> --set priority=high externalId=CRM-123
   $ nexus conversation update-metadata <id> --set 'flags={"vip":true}'
   $ nexus conversation update-metadata <id> --unset legacyField
-  $ nexus conversation update-metadata <id> --body '{"priority":"high","old":null}'`
+  $ nexus conversation update-metadata <id> --body '{"priority":"high","old":null}'
+
+Notes:
+  THE MERGE IS ONE LEVEL DEEP. A non-null value REPLACES that key outright, a
+  null clears it, and keys you do not mention are untouched — so sending
+  '{"flags":{"vip":true}}' discards every other key inside flags. Read
+  "conversation get-metadata <id>" first and send the object back whole.
+
+  --set PARSES ITS VALUE AS JSON WHEN IT CAN, so the type is decided by what
+  you typed: priority=high stores the string "high", count=5 stores the NUMBER
+  5, and ok=true stores a BOOLEAN. Quote to force a string: 'count="5"'.
+  --set key=null DELETES THE KEY. It parses to a JSON null, and null is the
+  clear signal — it does not store a null value. That is what --unset does,
+  spelled less obviously.
+  --set and --unset are repeatable and merge over --body; --unset is applied
+  last, so it wins on a key both mention.
+  At least one of --body, --set or --unset is required.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -467,7 +584,17 @@ Examples:
       `
 Examples:
   $ nexus conversation assign <id> --user-ids user-1 user-2
-  $ nexus conversation assign <id> --user-ids  # empty to unassign all`
+  $ nexus conversation assign <id> --user-ids  # empty to unassign all
+
+Notes:
+  THIS REPLACES THE ASSIGNEE LIST, IT DOES NOT ADD TO IT. Anyone already
+  assigned and not named here loses the conversation, and nothing reports who
+  was removed. Read "conversation assigned-users <id>" first and pass the full
+  list back.
+  --user-ids with no values clears every assignee — that is the unassign path.
+  Up to 50 users. Assignment is filing, not permission: it does not grant
+  anyone access they did not already have, and it does not stop the agent
+  replying — --response-handling does that.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -495,7 +622,15 @@ Examples:
       `
 Examples:
   $ nexus conversation comment <id> --body "Escalated to tier 2"
-  $ echo "Detailed note" | nexus conversation comment <id> --body -`
+  $ echo "Detailed note" | nexus conversation comment <id> --body -
+
+Notes:
+  INTERNAL ONLY — the customer never sees this, and it is not sent anywhere.
+  "conversation send-message" is the one that reaches them. Getting these two
+  the wrong way round is how a private note reaches a customer.
+  Comments are searchable from "conversation list --comment-contains", which
+  is what makes them usable as workflow markers (e.g. END_CONV_FIRED_AT:).
+  Append-only: there is no edit and no delete. Content must be non-empty.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -518,7 +653,14 @@ Examples:
       `
 Examples:
   $ nexus conversation comments <id>
-  $ nexus conversation comments <id> --json`
+  $ nexus conversation comments <id> --json
+
+Notes:
+  Internal notes only — none of this was seen by the customer. The customer
+  side is "conversation messages <id> --visible-only".
+  Unpaginated, oldest first.
+  A stored comment that does not match the current schema is SKIPPED rather
+  than reported, so this list can be shorter than what is on the record.`
     )
     .action(async (id: string) => {
       try {
@@ -540,15 +682,27 @@ Examples:
   // ── send-message ──────────────────────────────────────────────────────
   conversation
     .command("send-message")
-    .description("Send a message as the agent/support representative")
-    .argument("<id>", "Conversation ID")
+    .description("Send a real message to the customer as the agent — it leaves immediately")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
     .requiredOption("--body <text-or-->", "Message content (or '-' for stdin)")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus conversation send-message <id> --body "Your issue has been resolved."
-  $ echo "Long reply" | nexus conversation send-message <id> --body -`
+  $ echo "Long reply" | nexus conversation send-message <id> --body -
+
+Notes:
+  THE CUSTOMER RECEIVES THIS ON THEIR REAL CHANNEL — WhatsApp, email, the web
+  widget, whatever the conversation is on. There is no draft, no confirmation
+  and no recall. "conversation comment" is the internal one.
+  It is recorded as coming from the AGENT, not from you by name, so the
+  customer cannot tell a human took over. Your user id is kept internally for
+  intervention reporting.
+  Sending does NOT take the conversation off the agent. Set
+  --response-handling MANUAL first or the agent may answer over you.
+  Content must be non-empty, and it is plain text: a WhatsApp template message
+  goes through "conversation send-template" instead.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -564,14 +718,27 @@ Examples:
   // ── send-template ─────────────────────────────────────────────────────
   conversation
     .command("send-template")
-    .description("Send a WhatsApp content template message")
-    .argument("<id>", "Conversation ID")
+    .description("Send a WhatsApp template to the customer — a real, billed message")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
     .requiredOption("--body <json>", "Template JSON with { template, templateData }")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus conversation send-template <id> --body '{"template":{"id":"HX...","language":"en","types":{"twilio/text":{"body":"Hello {{1}}"}}},"templateData":{"1":"John"}}'`
+  $ nexus conversation send-template <id> --body '{"template":{"id":"HX...","language":"en","types":{"twilio/text":{"body":"Hello {{1}}"}}},"templateData":{"1":"John"}}'
+
+Notes:
+  THIS DELIVERS TO THE REAL CUSTOMER AND BILLS. WhatsApp only; no draft, no
+  recall. For a test send to a number you own, use
+  "nexus channel whatsapp-template test-send".
+  THE TEMPLATE MUST BE META-APPROVED. Check with
+  "nexus channel whatsapp-template approvals" — an unapproved id is refused at
+  send time, not by this command's validation.
+  --body is required and carries the whole thing: template.id is the Twilio
+  content SID (HX...), template.language its language code, template.types the
+  content, and templateData fills the {{N}} placeholders by position.
+  A missing position leaves the placeholder unfilled in what the customer
+  receives.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -591,7 +758,20 @@ Examples:
   conversation
     .command("assigned-users")
     .description("Get assigned users for a conversation")
-    .argument("<id>", "Conversation ID")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus conversation assigned-users <id>
+  $ nexus conversation assigned-users <id> --json
+
+Notes:
+  Read this before "conversation assign", which REPLACES the whole list rather
+  than adding to it.
+  An empty list means unassigned — it is not an error, and it is what
+  "conversation list --assigned-to none" selects on.`
+    )
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -606,7 +786,19 @@ Examples:
   conversation
     .command("mark-as-read")
     .description("Mark a conversation as read")
-    .argument("<id>", "Conversation ID")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus conversation mark-as-read <id>
+
+Notes:
+  Clears the inbox unread flag on the conversation and nothing else — no
+  status change, no read receipt to the customer, no effect on the agent.
+  Organization-wide, not per user: the conversation is read for everybody.
+  There is no mark-as-unread. A new inbound message sets it back.`
+    )
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -620,13 +812,25 @@ Examples:
   // ── close ─────────────────────────────────────────────────────────────
   conversation
     .command("close")
-    .description("Close (soft-delete) a conversation")
-    .argument("<id>", "Conversation ID")
+    .description("Close a conversation — it disappears from every list, with no reopen")
+    .argument("<id>", "Conversation ID (UUID or nanoId)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus conversation close <id>`
+  $ nexus conversation close <id>
+
+Notes:
+  THERE IS NO REOPEN. This sets a DELETED status that "conversation
+  update-status" cannot set back — it accepts only OPEN, RUNNING and ARCHIVED.
+  If you want it out of the way but recoverable, use
+  "conversation update-status <id> --status ARCHIVED" instead.
+
+  IT VANISHES FROM "conversation list" AND "conversation search" while
+  remaining readable by id: "conversation get <id>" still works and reports
+  status DELETED. The messages are not erased.
+  Runs with no prompt and no --yes, on one call.
+  Needs conversations:delete, which conversations:write does not imply.`
     )
     .action(async (id: string) => {
       try {

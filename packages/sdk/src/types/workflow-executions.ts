@@ -71,7 +71,10 @@ export interface ListExecutionsForWorkflowParams {
 // Execution (response shapes)
 // ============================================================================
 
-/** Per-status node tallies for one execution. */
+/**
+ * Per-status node tallies for one execution. Lowercase keys, identical on every
+ * execution endpoint — `list`, `get` and `diagnose` alike.
+ */
 export interface ExecutionNodeStatusCounts {
   /** Nodes that finished successfully. */
   completed: number;
@@ -81,6 +84,8 @@ export interface ExecutionNodeStatusCounts {
   pending: number;
   /** Nodes currently executing. */
   running: number;
+  /** Nodes on a branch that was not taken. */
+  skipped: number;
 }
 
 /** One row of `client.workflowExecutions.list()`. */
@@ -106,8 +111,19 @@ export interface ExecutionSummary {
    * graph whose body this row ran. `null` for `run` and `node_test`.
    */
   parentNodeId?: string | null;
-  /** Node tallies by status. */
+  /**
+   * This execution's OWN nodes, tallied by status — one entry per graph node it
+   * ran, equal to `diagnose().nodes`'s length. The same figure whether read
+   * from `list()`, `get()` or `diagnose()`.
+   */
   nodeStatusCounts: ExecutionNodeStatusCounts;
+  /**
+   * Every node EXECUTION beneath this one, counting each pass of a loop
+   * separately: a `doWhile` that polled 8 times over 4 nodes contributes 32
+   * here and 1 above. Always >= {@link ExecutionSummary.nodeStatusCounts}, and
+   * identical to it when the workflow has no loop.
+   */
+  nodeExecutionStatusCounts: ExecutionNodeStatusCounts;
 }
 
 /** Response from `client.workflowExecutions.get()`. */
@@ -280,11 +296,18 @@ export interface ExecutionDiagnose {
   /** First error found walking `nodes` depth-first, or `null`. */
   error: string | null;
   /**
-   * Node counts keyed by whatever status strings the nodes carry, summed across
-   * loop iterations. NOT the fixed four-key {@link ExecutionNodeStatusCounts}
-   * that {@link ExecutionSummary} uses.
+   * This execution's own nodes, tallied by status — equal to `nodes`'s length,
+   * and to what {@link ExecutionSummary.nodeStatusCounts} reports for the same
+   * execution. Keyed by the lowercase buckets every execution endpoint uses;
+   * this route used to key it by the raw uppercase node status instead.
    */
-  nodeStatusCounts: Record<string, number>;
+  nodeStatusCounts: ExecutionNodeStatusCounts;
+  /**
+   * Plus every node inside every `loopIterations` entry, at any depth — the
+   * loop-inclusive figure, matching
+   * {@link ExecutionSummary.nodeExecutionStatusCounts}.
+   */
+  nodeExecutionStatusCounts: ExecutionNodeStatusCounts;
   /** The top-level node tree. */
   nodes: ExecutionDiagnoseNode[];
 }

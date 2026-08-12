@@ -32,6 +32,7 @@ import {
 } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { parseIdList } from "../util/ids";
+import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
 
 /**
  * `nexus role` — the Roles surface.
@@ -48,7 +49,7 @@ import { parseIdList } from "../util/ids";
  * |---|---|---|
  * | `systems` | a system the Role holds | `RoleResource` |
  * | `permission-sets` | a permission set | `RoleGroup` |
- * | — not covered — | the "Group access" tab | `RoleGroupGrant` |
+ * | — not exposed — | the "Group access" tab | `RoleGroupGrant` |
  *
  * `RoleGroup` and `RoleGroupGrant` are one character apart and mean opposite
  * things, which is why `permission-sets` is never spelled `groups` here even
@@ -679,7 +680,8 @@ Notes:
   a valid key can still get a 403.
 
   "not modelled" is NOT 0% and NOT 100%. An empty contributions list beside a
-  populated unmodelledSystems list means nobody has modelled anything.`
+  populated unmodelledSystems list means nobody has modelled anything.
+${COVERAGE_INPUTS_NOTE}`
     )
     .action(async (ref: string) => {
       try {
@@ -1891,7 +1893,8 @@ Notes:
     "source": {"kind": "fixed", "value": <number>}             a literal this
       job type owns
   There is no "constant", no "literal" and no "variableRef" — the last is a
-  database comment describing a design that never shipped.`
+  database comment describing a design that never shipped.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (opts) => {
       try {
@@ -1927,7 +1930,8 @@ Notes:
 
   A JOB TYPE IS SHARED ACROSS ROLES. REPRICED SCOPE LINES in the output is how
   many lines this write just repriced org-wide. That is the blast radius, and it
-  is the reason the number is reported rather than left to be discovered.`
+  is the reason the number is reported rather than left to be discovered.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (jobTypeId: string, opts) => {
       try {
@@ -1946,7 +1950,9 @@ Notes:
           printWarning(
             `${String(result.repricedScopeLines)} scope line(s) were REPRICED by this edit.`,
             "A job type is shared, so this changed what other Roles cost — not just this one.",
-            "Re-read the affected Roles' coverage if the money matters."
+            // The job model's cost, which is the Scope's. Naming the coverage
+            // read here sent a caller to a figure this write cannot move.
+            "Re-read the affected Roles' scope lines if the money matters."
           );
         }
       } catch (err) {
@@ -1968,10 +1974,11 @@ Notes:
   ORG-WIDE. A job type is shared across every Role, so this removes it from
   the library for all of them, not from the one you happen to be looking at.
   ANY SCOPE LINE NAMING IT LOSES ITS PRICE MODEL, AND NOTHING SAYS WHICH. That
-  changes coverage and money figures on Roles this command never mentioned.
+  changes the job model's cost and hours on Roles this command never mentioned.
   Run "nexus role scope-lines <role>" over the Roles that use it first.
   No confirmation prompt, and no undo.
-  Verify with "nexus role job-types" — the id is gone from the library.`
+  Verify with "nexus role job-types" — the id is gone from the library.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (jobTypeId: string) => {
       try {
@@ -2092,10 +2099,15 @@ Notes:
       }
     });
 
-  // ── the Role's authored workload ──────────────────────────────────────────
+  // ── the Scope — the job model's per-Role work items ───────────────────────
+  //
+  // NOT the Role's workload. `RoleWorkload` is a different table behind a
+  // different route, it is the coverage denominator, and it is not writable
+  // from here. Calling the Scope "the workload" in this section's own comment
+  // is how the same conflation reached three help strings below it.
   role
     .command("scope-lines")
-    .description("List a Role's scope lines — its authored workload")
+    .description("List a Role's scope lines — the job model's per-Role work items")
     .argument("<role>", "Role name or UUID")
     .addHelpText(
       "after",
@@ -2147,11 +2159,11 @@ Examples:
 Notes:
   THIS REPLACES THE WHOLE LIST. A line's identity is its index in the array, so
   anything absent from "lines" is DELETED. Read, modify, send the whole list
-  back. { "lines": [] } empties the workload and makes the Role's coverage
-  "not modelled".
+  back. { "lines": [] } removes every line and leaves the Role with no Scope.
 
   A quantity of 0 is LEGAL and is not a delete — it records a decision, and the
-  line keeps its scope sentence.`
+  line keeps its scope sentence.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
       try {
@@ -2229,7 +2241,8 @@ Notes:
   value:null MEANS UNSET AND IS NOT ZERO. Sending 0 asserts a measured zero;
   sending null leaves every part referencing that key unresolved. Both are
   accepted and they price differently, so nothing downstream will tell you
-  which you meant.`
+  which you meant.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
       try {
@@ -2303,8 +2316,9 @@ Notes:
 
   "none" MEANS NO OVERRIDE. IT IS NOT ZERO. --sickness none says "use the
   organization's value"; --sickness 0 asserts zero expected sickness. Both are
-  accepted, they produce different coverage denominators, and nothing
-  downstream will tell you which you meant.`
+  accepted, they produce different job-model denominators, and nothing
+  downstream will tell you which you meant.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
       try {
@@ -2405,7 +2419,7 @@ Examples:
 Notes:
   ONE PER CALL, AND THERE IS NO WHOLE-LIST REPLACE. That is deliberate: a
   replace re-mints every row id on every save, and a duty has to stay
-  referenceable because a task's coverage checklist points at it. Seeding
+  referenceable because a task's duty checklist points at it. Seeding
   several duties means several calls.
 
   The server assigns the id and appends at the END of the list. Blank text is
@@ -2437,7 +2451,7 @@ Examples:
   $ nexus role remove-responsibility "Support" 3f2b...
 
 Notes:
-  IT ALSO UNTICKS THE DUTY FROM EVERY TASK THAT COVERED IT. The link rows go
+  IT ALSO UNTICKS THE DUTY FROM EVERY TASK THAT TICKED IT. The link rows go
   with the duty, and this output reports the duty alone.
 
   A duty that is not this Role's answers 404, so a success means exactly one
@@ -2565,7 +2579,8 @@ Notes:
   a 400 rather than "leave it alone".
   A value that is not exactly "true" or "false" is refused rather than read as
   false, because a typo that silently disables a review gate is the worst
-  outcome available here.`
+  outcome available here.
+${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
       try {

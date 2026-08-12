@@ -1,0 +1,195 @@
+import { Command } from "commander";
+import { describe, expect, it } from "vitest";
+
+import { registerRoleCommands } from "./role";
+
+/**
+ * ONE WORD, ONE MEANING, ACROSS `nexus role`.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE DEFECT THIS PINS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * "Coverage" named two different things on commands an operator reads side by
+ * side. THE AUTOMATION FIGURE — person-hours automated over person-hours worked,
+ * what `nexus role coverage` returns. And THE TASK↔DUTY CHECKLIST — which duties
+ * a task ticks off, which has nothing to do with any figure.
+ *
+ * This is the harder sibling of the false-coverage-effect defect fixed just
+ * before it. There, five help strings claimed an effect the server does not
+ * have, and each sentence was false on its own. Here **every sentence is true**.
+ * The reader is the only thing that breaks: `remove-responsibility` said it
+ * unticks the duty "from every task that COVERED it" three screens from a
+ * command whose whole subject is a coverage percentage.
+ *
+ * ── WHY THE FIGURE KEEPS THE WORD, ON EVIDENCE RATHER THAN SENIORITY ─────────
+ *
+ * The automation sense owns IDENTIFIERS and the checklist sense owns none:
+ *
+ *   - `role_coverage:read` — a PUBLISHED public-API scope string. Renaming it
+ *     breaks every API key already holding it.
+ *   - `coverage.view` / `coverage.manage` — capability strings that gate real
+ *     requests.
+ *   - the `nexus role coverage` command, `RoleCoverageView`, the
+ *     `shared/domain/role-coverage/` tree, `GetRoleCoverageUseCase`.
+ *
+ * A search for a checklist-sense identifier returns nothing: it was prose in
+ * two help strings and nowhere else. So the cheap side to move is the checklist
+ * side, and it is cheap because it is words — not because it is newer.
+ *
+ * The checklist sense is now "the duty checklist", and a task "ticks" a duty.
+ * That reuses the metaphor the same paragraph already used ("unticks"), and
+ * "duty" is the word every one of these commands already prints.
+ *
+ * ── THE RULE IS OVER THE NAMESPACE, NOT OVER TWO STRINGS ────────────────────
+ *
+ * The command set below is DERIVED from the registrar, never typed. So a
+ * command added tomorrow is judged the day it exists, and the only way to use
+ * the word in it is to add it to `MAY_NAME_THE_FIGURE` deliberately, with a
+ * reason.
+ *
+ * ⚠️ WHAT THIS CANNOT REACH: `role.ts`'s module docblock, which is source rather
+ * than rendered help. It carried a third sense — a table row reading
+ * "— not covered —" for a surface this CLI does not expose — corrected in the
+ * same commit and pinned by nothing. A reader of that table is a maintainer, not
+ * a caller, which is the only reason it is acceptable to leave unpinned.
+ */
+
+/**
+ * The four spellings, as one alternation.
+ *
+ * 🚨 A FIXED STRING IS NOT ENOUGH AND THAT IS NOT HYPOTHETICAL. The defect was
+ * reported as the noun "coverage"; the second instance was the VERB, "every task
+ * that COVERED it", which a `grep -F "coverage"` never sees. A sweep's control
+ * proves the sweep ran — it can never prove the pattern covers the phrasings.
+ *
+ * `\b` before `cover` is load-bearing: without it this matches "discovered",
+ * which `set-automation-settings` and `update-job-type` both use innocently.
+ * Verified against discovered / rediscover / uncovered / recovery / undercover.
+ */
+const COVERAGE_WORD = /\bcover(age|s|ed|ing)?\b/i;
+
+/**
+ * The commands whose help may name the automation figure, and why each may.
+ *
+ * Everything else in the namespace must be silent about it. The reasons are not
+ * decoration: they are what stops the next reader adding an entry to make a red
+ * go away.
+ */
+const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
+  coverage: "it IS the figure",
+  "automation-settings": "reads the one coverage input this API can write",
+  "set-automation-settings": "writes it, and moves the figure for every Role at once",
+  // The seven job-model writes carry the shared statement that names the figure
+  // in order to DENY moving it. That sentence is the whole point of them.
+  "create-job-type": "carries the job-model disclaimer",
+  "update-job-type": "carries the job-model disclaimer",
+  "delete-job-type": "carries the job-model disclaimer",
+  "set-scope-lines": "carries the job-model disclaimer",
+  "set-variables": "carries the job-model disclaimer",
+  "set-working-year": "carries the job-model disclaimer",
+  "set-system-policy": "carries the job-model disclaimer"
+};
+
+/** Every `nexus role` subcommand, derived from the registrar rather than typed. */
+function roleSubcommands(): readonly Command[] {
+  const program = new Command();
+  program.name("nexus").exitOverride();
+  registerRoleCommands(program);
+
+  const group = program.commands.find((cmd) => cmd.name() === "role");
+  if (!group) throw new Error("registerRoleCommands registered no `role` command");
+  return group.commands;
+}
+
+/**
+ * The bytes a caller reads. `outputHelp()` and not `helpInformation()` — only
+ * the former runs the `addHelpText` handlers, and both senses lived in one.
+ */
+function helpText(command: Command): string {
+  const chunks: string[] = [];
+  command.configureOutput({
+    writeOut: (str: string) => chunks.push(str),
+    writeErr: (str: string) => chunks.push(str)
+  });
+  command.outputHelp();
+  return chunks.join("");
+}
+
+describe("nexus role — the coverage word names the automation figure and nothing else", () => {
+  const subcommands = roleSubcommands();
+
+  it("the namespace was enumerated, not assumed", () => {
+    // A derived list that resolved to nothing satisfies every per-command
+    // assertion below by having none to make. This is the control that
+    // separates "no command misuses the word" from "no command was read".
+    expect(subcommands.length).toBeGreaterThan(30);
+  });
+
+  it("every allowed command exists", () => {
+    // A stale entry here is a command that was renamed. The new name would be
+    // judged as forbidden and go red, which is correct — but the dead entry
+    // would sit here reading as deliberate, so it is caught on its own.
+    const registered = new Set(subcommands.map((cmd) => cmd.name()));
+    const stale = Object.keys(MAY_NAME_THE_FIGURE).filter((name) => !registered.has(name));
+
+    expect(
+      stale,
+      `MAY_NAME_THE_FIGURE names commands that do not exist: ${stale.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("no other command's help uses the word at all", () => {
+    const offenders = subcommands
+      .filter((cmd) => !(cmd.name() in MAY_NAME_THE_FIGURE))
+      .filter((cmd) => COVERAGE_WORD.test(helpText(cmd)))
+      .map((cmd) => {
+        const line = helpText(cmd)
+          .split("\n")
+          .find((l) => COVERAGE_WORD.test(l));
+        return `nexus role ${cmd.name()} — ${(line ?? "").trim()}`;
+      });
+
+    expect(
+      offenders,
+      offenders.length === 0
+        ? ""
+        : "These commands cannot reach the automation figure, so the word means something else " +
+            "in them and a reader has no way to tell which:\n  " +
+            offenders.join("\n  ")
+    ).toEqual([]);
+  });
+
+  it("every allowed command's help still uses it — a blanket scrub must fail", () => {
+    // The other direction, and the reason this is a fix rather than a sweep.
+    // Deleting the word everywhere satisfies the assertion above completely,
+    // and would take the one honest statement — that writing the job model does
+    // NOT move the figure — out of all seven writes that need it.
+    const silent = subcommands
+      .filter((cmd) => cmd.name() in MAY_NAME_THE_FIGURE)
+      .filter((cmd) => !COVERAGE_WORD.test(helpText(cmd)))
+      .map(
+        (cmd) => `nexus role ${cmd.name()} (allowed because: ${MAY_NAME_THE_FIGURE[cmd.name()]})`
+      );
+
+    expect(
+      silent,
+      silent.length === 0
+        ? ""
+        : "These reach the automation figure and say nothing about it:\n  " + silent.join("\n  ")
+    ).toEqual([]);
+  });
+
+  it("the checklist sense is stated in its own words", () => {
+    const byName = new Map(subcommands.map((cmd) => [cmd.name(), cmd]));
+    const add = byName.get("add-responsibility");
+    const remove = byName.get("remove-responsibility");
+    if (!add || !remove) throw new Error("the duty commands are not registered under these names");
+
+    // Positive assertions, not merely the absence above: a reader still has to
+    // be told what the thing IS, and "duty checklist" / "ticked" is the wording
+    // the rest of these two help texts already use.
+    expect(helpText(add)).toMatch(/duty checklist/i);
+    expect(helpText(remove)).toMatch(/ticked it/i);
+  });
+});

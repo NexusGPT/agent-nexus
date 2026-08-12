@@ -1086,9 +1086,8 @@ export class RolesResource extends BaseResource {
    * The tasks this Role proposes to run, with their assignments.
    *
    * ✅ A TASK ID IS DURABLE — a task submitted back with its id is updated in
-   * place and keeps it. ⚠️ AN ASSIGNMENT ID IS NOT: assignment rows are deleted
-   * and re-inserted under their task on every save, because nothing references
-   * one by id.
+   * place and keeps it. ⚠️ AN ASSIGNMENT HAS NO ID ON THIS SURFACE: its arm is
+   * its identity, unique within the task by database constraint.
    *
    * 🚨 READ-ONLY OVER v1 TODAY. There is no task write and no graduation call,
    * and the two absences are different: the write is DEFERRED to its own slice

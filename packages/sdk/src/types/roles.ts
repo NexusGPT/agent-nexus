@@ -824,8 +824,14 @@ export interface RoleCoverageContribution {
  *
  * - Read `coverage.kind`. `"not-modelled"` is not 0% and not 100%.
  * - An empty `contributions` with a populated `unmodelledSystems` means NOBODY
- *   HAS MODELLED ANYTHING, never "measured at zero". Every attached system
- *   appears in exactly one of the two arrays.
+ *   HAS MODELLED ANYTHING, never "measured at zero". Every `RoleResource` the
+ *   Role holds appears in exactly one of the two arrays.
+ * - 🚨 THOSE TWO ARRAYS COVER ONE OF THE THREE TABLES A ROLE HOLDS SYSTEMS IN.
+ *   A Collection or a Workspace reaches a Role by GRANT, and no impact model can
+ *   point at one, so neither array can carry it — `grantedSystems` counts them.
+ *   A total built from `contributions` and `unmodelledSystems` alone is a count
+ *   of part of what the Role holds, and this line said the opposite until
+ *   2026-08-12.
  * - `workingTime` is `null` if and only if `coverage` is
  *   `{ kind: "not-modelled", reason: "NO_WORKING_TIME_MODEL" }`.
  * - `workload` is the authored DENOMINATOR. Without it a percentage is an
@@ -862,6 +868,26 @@ export interface RoleCoverage {
   savingsProjection: CoverageSavingsProjection;
   /** Systems the Role holds that nobody has modelled. Carries no number. */
   unmodelledSystems: readonly UnmodelledRoleSystem[];
+  /**
+   * How many systems the Role holds by GRANT rather than by placement.
+   *
+   * The population `contributions` and `unmodelledSystems` structurally cannot
+   * cover: an impact model keys onto a `RoleResource` row, and a Collection or a
+   * Workspace grant has none. Counts rather than identities, because the job of
+   * these two numbers is to let a caller state what its own total excludes.
+   *
+   * Zero is a measurement — both grant tables are read on the same request as
+   * the coverage figures, so `0` never means "nobody looked".
+   */
+  grantedSystems: GrantedRoleSystems;
+}
+
+/** How many systems a Role holds by grant, per kind. */
+export interface GrantedRoleSystems {
+  /** Collection grants held by this Role. */
+  collections: number;
+  /** Workspace grants held by this Role. */
+  workspaces: number;
 }
 
 // ============================================================================
@@ -1795,9 +1821,11 @@ export type RoleTaskAssignment =
   | { kind: "resource"; resourceType: string; resourceId: string };
 
 /**
- * ⚠️ AN ASSIGNMENT HAS NO DURABLE ID, unlike the task above it. Assignment rows
- * are deleted and re-inserted under their task on every save of the list,
- * because nothing references one by id. Read one; never store one.
+ * ⚠️ AN ASSIGNMENT HAS NO ID AT ALL, unlike the task above it — the ARM is the
+ * identity. `person:<userId>` or `<resourceType>:<resourceId>` is unique within
+ * a task by database constraint, and it is the same key the dashboard derives to
+ * render the row. Assignment rows are re-created beneath a surviving task on each
+ * save, which no consumer can observe because none is published or referenced.
  */
 
 /** One task the Role proposes to run. */

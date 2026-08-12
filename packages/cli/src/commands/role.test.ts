@@ -1739,6 +1739,21 @@ describe("the help text carries the trap, not a summary of it", () => {
     // what makes the day that changes redden a test rather than pass review.
     expect(help).toContain("THE TIER IS RECORDED AND NOTHING READS IT");
   });
+
+  it("tasks says an assignment has no id, and names the arm that identifies it instead", () => {
+    const help = renderHelp(["role", "tasks"]);
+
+    // `RoleTaskAssignmentViewSchema` publishes exactly `kind` + one arm id, and
+    // REFUSES a payload carrying an `id` — so the absence is a contract, not an
+    // omission. Telling a caller the id is merely "not durable" sends them
+    // hunting a field that does not exist.
+    expect(help).toContain("AN ASSIGNMENT HAS NO ID ON THIS CONTRACT AT ALL");
+    expect(help).toContain("person:<userId>");
+
+    // A task id IS durable, and that half was always true — it is the contrast
+    // that makes the assignment sentence readable at all.
+    expect(help).toContain("A TASK ID IS DURABLE");
+  });
 });
 
 describe("the READINESS column is never truncated", () => {

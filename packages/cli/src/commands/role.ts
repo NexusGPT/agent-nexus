@@ -2481,15 +2481,17 @@ Examples:
 
 Notes:
   A TASK ID IS DURABLE — a task saved with its id is updated in place and keeps
-  it. AN ASSIGNMENT ID IS NOT: assignment rows are deleted and re-inserted under
-  their task on every save, so read one rather than storing it.
+  it. AN ASSIGNMENT HAS NO ID ON THIS CONTRACT AT ALL, and that is enforced
+  rather than merely omitted: a payload carrying one is refused. The ARM is the
+  identity — "person:<userId>" or "<resourceType>:<resourceId>" — which is what
+  the database already makes unique per task. Key an assignment that way.
 
   READ-ONLY TODAY. There is no "set-tasks" and no graduation verb, and the two
   absences differ: the write is deferred to its own slice, the graduation is
   refused outright. The public contract carries both reasons.
 
-  ASSIGNMENTS carry ids and no names. Resolve a person with "nexus role
-  members" and a system with "nexus role systems".`
+  ASSIGNMENTS carry the ids they point AT and no display names. Resolve a person
+  with "nexus role members" and a system with "nexus role systems".`
     )
     .action(async (ref: string) => {
       try {

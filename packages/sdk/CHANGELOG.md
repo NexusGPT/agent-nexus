@@ -1,5 +1,38 @@
 # @agent-nexus/sdk
 
+## 0.13.0
+### Minor Changes
+
+- a966eaa: `RoleCoverage` gains `grantedSystems: { collections, workspaces }`, and its docblock stops
+  promising a completeness the response never had.
+  
+  A Role holds systems through three placement tables. `contributions` and `unmodelledSystems`
+  are both derived from `RoleResource` rows alone, so a Collection or a Workspace reaching the
+  Role through a grant appeared in neither — while the Roles index counts all three tables under
+  the word _systems_. The type's own guidance said the opposite: _"Every attached system appears
+  in exactly one of the two arrays."_ That was true when `RoleResource` was the only placement
+  table anyone read and became false when the index started counting grants.
+  
+  `grantedSystems` is the population the two arrays structurally cannot carry.
+  `RoleSystemImpact.roleResourceId` is a `@unique` foreign key onto `RoleResource`, so a grant is
+  not _unmodelled yet_ — no impact model can ever point at one. Counts rather than identities,
+  because the field's job is to let a caller state what its own total excludes.
+  
+  Both numbers come from reads issued on the same request as the coverage figures, so `0` is a
+  measurement and never "nobody looked".
+  
+  A minor rather than a patch: the response type gains a required property, so a caller
+  constructing a `RoleCoverage` literal must supply it.
+
+### Patch Changes
+
+- 5b496f2: Correct what the SDK says about a task assignment's identity.
+  
+  The types said an assignment's id "is not durable" and told a caller never to
+  store one. There is no assignment id on this contract to store: the arm IS the
+  identity — `person:<userId>` or `<resourceType>:<resourceId>` — unique within a
+  task by database constraint. Comment-only; no shape changes.
+
 ## 0.12.0
 ### Minor Changes
 

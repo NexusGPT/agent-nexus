@@ -1,5 +1,73 @@
 # @agent-nexus/cli
 
+## 0.22.1
+### Patch Changes
+
+- 6e18439: `role tasks --help` stops describing an assignment id that does not exist.
+  
+  The help said "AN ASSIGNMENT ID IS NOT [durable]: assignment rows are deleted and
+  re-inserted under their task on every save", and separately that "ASSIGNMENTS carry ids
+  and no names". A `RoleTaskAssignment` has no published id at all.
+  
+  Measured against the built schema rather than read off source:
+  `RoleTaskAssignmentViewSchema` parses a person assignment to exactly `kind` and `userId`,
+  and a payload carrying an `id` is REFUSED. The refusal is the load-bearing half — a
+  schema that merely tolerated an extra key would have accepted it, so the absence is a
+  contract rather than an omission.
+  
+  The identity is the ARM — `person:<userId>` or `<resourceType>:<resourceId>` — which is
+  what `@@unique([taskId, userId])` and `@@unique([taskId, resourceType, resourceId])`
+  already enforce. The help now says that.
+  
+  The true half is kept: a task id IS durable and a task saved with its id is updated in
+  place, and assignments still carry the ids they point AT rather than display names.
+  
+  This is the CLI copy of a claim already corrected across the v1 contract, the v1 response
+  schema, the controller's Swagger description and the SDK in #3344.
+- 317be28: `nexus role` uses "coverage" for one thing only: the automation figure.
+  
+  The word named two things on commands an operator reads side by side — the
+  automation figure that `nexus role coverage` returns, and the task↔duty
+  checklist, which is not a figure at all. `remove-responsibility` said it unticks
+  a duty "from every task that COVERED it", three screens from a command whose
+  whole subject is a coverage percentage.
+  
+  Every sentence involved was true, which is what made it worse than the false
+  coverage claims corrected just before it: there was nothing to catch.
+  
+  The figure keeps the word on evidence, not seniority — it owns the published
+  `role_coverage:read` API scope, the `coverage.view` / `coverage.manage`
+  capability strings, the command name and the response schema, while the
+  checklist sense owned no identifier anywhere and was prose in two help strings.
+  So the checklist is now "the duty checklist", and a task "ticks" a duty, reusing
+  the metaphor those same paragraphs already used.
+  
+  A module docblock listing a surface this CLI does not expose as "— not covered —"
+  now reads "— not exposed —", which was a third sense of the same word.
+- 4f0604e: `nexus role` no longer tells a caller that writing the job model moves a Role's coverage.
+  It does not, and five help strings said it did.
+  
+  A Role carries two cost models with one vocabulary. Coverage is derived on the server from
+  the Role's workload, each held system's impact model, and the organization's automation
+  settings. The job model — the Scope, the job-type library, the Role's variables, its
+  working year — is stored by the server, read by the server for nothing, and evaluated in a
+  browser. An API caller wrote every job-model input the public surface exposes on one Role,
+  read them all back correctly, and the figure did not move by a digit.
+  
+  Corrected: `scope-lines` no longer calls the Scope "its authored workload";
+  `set-scope-lines` no longer claims an empty list makes coverage "not modelled";
+  `set-working-year` no longer claims to change "coverage denominators"; `delete-job-type`
+  no longer claims to change "coverage and money figures"; and `update-job-type`'s reprice
+  warning now sends the reader to the affected Roles' scope lines rather than to a coverage
+  read the write cannot move. Every job-model WRITE now carries one shared statement saying
+  which figure it does not touch.
+  
+  `nexus role coverage --help` gains the answer the caller went looking for: the three rows
+  that do move the figure, that only the organization's automation settings are writable
+  through this API, that the workload and the per-system impact are authored in the
+  dashboard on the Role's General tab, and that those two routes are absent from the public
+  API deliberately rather than by omission.
+
 ## 0.22.0
 ### Minor Changes
 

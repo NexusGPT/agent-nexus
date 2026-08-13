@@ -8,6 +8,7 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import {
   color,
@@ -19,6 +20,16 @@ import {
 } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
+import {
+  WORKFLOW_EXECUTION_CANCEL_CONTRACT,
+  WORKFLOW_EXECUTION_DIAGNOSE_CONTRACT,
+  WORKFLOW_EXECUTION_EXPORT_CONTRACT,
+  WORKFLOW_EXECUTION_GET_CONTRACT,
+  WORKFLOW_EXECUTION_GET_NODE_RESULT_CONTRACT,
+  WORKFLOW_EXECUTION_GET_OUTPUT_CONTRACT,
+  WORKFLOW_EXECUTION_POLL_CONTRACT,
+  WORKFLOW_EXECUTION_RETRY_NODE_CONTRACT
+} from "./execution.contract.generated";
 
 export function registerExecutionCommands(program: Command): void {
   const execution = program.command("execution").description("View workflow execution history");
@@ -116,7 +127,7 @@ Notes:
   });
 
   // ── get ───────────────────────────────────────────────────────────────
-  execution
+  const get = execution
     .command("get")
     .description("Get execution details")
     .argument("<id>", "Execution ID")
@@ -134,7 +145,11 @@ Notes:
   loop_iteration, "Loop node" is the graph node whose body this pass ran, so a
   handful of nodes and no trigger is the expected shape rather than a truncated run.
   --json adds triggerType, triggerData, error, outputData, pollingToken and
-  nodeStatusCounts.`
+  nodeStatusCounts.
+  pollingToken IS MINTED ONLY FOR A PRODUCTION WEBHOOK RUN. A run started by
+  "workflow test", by a schedule, by an agent or from this API carries null, and
+  that is the normal state, not a missing value — "execution poll --token" is
+  reachable only for webhook-triggered runs. Poll those other runs by id.`
     )
     .action(async (id: string) => {
       try {
@@ -156,7 +171,7 @@ Notes:
     });
 
   // ── diagnose ──────────────────────────────────────────────────────────
-  execution
+  const diagnose = execution
     .command("diagnose")
     .description("Diagnose execution — per-node status, errors, and data")
     .argument("<id>", "Execution ID")
@@ -246,7 +261,7 @@ Notes:
     });
 
   // ── poll ──────────────────────────────────────────────────────────────
-  execution
+  const poll = execution
     .command("poll")
     .description("Poll execution status and output data")
     .argument("[id]", "Execution ID")
@@ -269,9 +284,17 @@ Notes:
   finishedAt}. For per-node detail use "execution diagnose" or "execution follow".
   --token takes the pollingToken from "execution get --json" and is the way to
   watch a run without holding its id — pass one or the other, not neither.
+  ONLY A PRODUCTION WEBHOOK RUN HAS A pollingToken. Every other run — workflow
+  test, schedule, agent call, this API — stores null there, so --token has
+  nothing to take and polling by id is the only route. A token that matches no
+  run is a 404, indistinguishable from a token that was never minted.
   --watch stops at COMPLETED, FAILED or CANCELLED and does not time out, so a run
   wedged in RUNNING polls forever. --interval is floored at 500 ms.
-  outputData is null until the run finishes.`
+  outputData is null until the run finishes, AND STAYS NULL ON A FINISHED RUN
+  WHOSE GRAPH WROTE NOTHING. It is filled from the outputNode's own result, so a
+  workflow with no outputNode, or one whose outputNode has no data.instructions
+  to render, completes with outputData null and no error anywhere. Read the node
+  results with "execution diagnose" when a COMPLETED run polls back empty.`
     )
     .action(async (id: string | undefined, opts) => {
       try {
@@ -316,8 +339,15 @@ Notes:
           return;
         }
 
-        // Watch mode: poll until terminal status
-        let result: any;
+        // Watch mode: poll until terminal status.
+        //
+        // Typed off `doPoll` itself rather than restated. `--token` and an id
+        // reach two different SDK methods, so naming one method's response type
+        // here would be a claim the compiler could not check against the other;
+        // this one cannot drift from either. It was `any`, which is what let
+        // `printRecord(result, fields)` typecheck against a `fields` array
+        // declared for a different shape.
+        let result: Awaited<ReturnType<typeof doPoll>>;
         while (true) {
           result = await doPoll();
           const status = result?.status ?? "UNKNOWN";
@@ -360,7 +390,15 @@ Notes:
   --json emits one NDJSON object per state change, not a single document — read it
   line by line.
   Polling, not streaming: --interval (floored at 500 ms) decides how fast changes
-  appear, and a node that starts and finishes inside one interval is reported once.`
+  appear, and a node that starts and finishes inside one interval is reported once.
+  LOOP ITERATIONS ARE FLATTENED INTO THE SAME STREAM, one line per node per pass,
+  labelled "<loop name> iter <n>: <node name>". THE PRINTED ITERATION IS
+  ZERO-BASED while the diagnose payload's own iteration number starts at 1, so
+  "iter 0" and iteration 1 are the same pass — do not read the two as a run that
+  skipped one.
+  A line identifies its node by that path label, never by node id. To act on a
+  node — "execution node-result", "workflow node get" — take the id from
+  "execution diagnose" instead.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -397,7 +435,7 @@ Notes:
     });
 
   // ── output ────────────────────────────────────────────────────────────
-  execution
+  const output = execution
     .command("output")
     .description("Get execution output")
     .argument("<id>", "Execution ID")
@@ -413,6 +451,13 @@ Notes:
   outputType}, not the per-node results. Both are null on a run that has not
   finished, and on a workflow with no outputNode, which validate reports only as a
   warning.
+  A THIRD CASE READS THE SAME, AND IT IS THE ONE THAT WASTES AN AFTERNOON: a
+  COMPLETED run whose outputNode also COMPLETED still answers null when that node
+  had nothing to render. outputType defaults to "previous", which substitutes the
+  upstream value into data.instructions — with no instructions set there is
+  nothing to substitute into and nothing is written. Nothing validates this:
+  publish, validate and the node's own status all pass. Set the outputNode's
+  data.instructions with "nexus workflow node update", then run again.
   For a node's output use "execution node-result" or "execution diagnose --verbose".`
     )
     .action(async (id: string) => {
@@ -426,7 +471,7 @@ Notes:
     });
 
   // ── cancel ─────────────────────────────────────────────────────────────
-  execution
+  const cancel = execution
     .command("cancel")
     .description("Cancel a running execution and its in-flight loop iterations")
     .argument("<id>", "Execution ID")
@@ -462,7 +507,7 @@ Notes:
     });
 
   // ── retry ──────────────────────────────────────────────────────────────
-  execution
+  const retry = execution
     .command("retry")
     .description("Retry a failed node in an execution")
     .argument("<id>", "Execution ID")
@@ -474,10 +519,24 @@ Examples:
   $ nexus execution retry exec-123 node-456
 
 Notes:
-  IT REPORTS "RETRYING" AND RETRIES NOTHING. The endpoint is a stub today: it
-  echoes {executionId, nodeId, status: "RETRYING"} without re-running the node, and
-  without checking that either id exists — so a typo also answers RETRYING.
-  Until it is implemented, re-run the single node with
+  IT NEEDS THE RUN TO STILL BE RUNNING, AND THAT IS THE USUAL REFUSAL. The retry
+  re-queues the node on the live in-memory executor, so a run that already
+  reached FAILED, COMPLETED or CANCELLED has no executor left and answers 400
+  "Workflow execution is not running". Retry is for a node that errored inside a
+  run that is still going, not for resurrecting a finished one.
+  IT ONLY RETRIES A NODE IN ERROR, AND ONLY A RETRYABLE TYPE. A node in any other
+  state is a 400, and so is a node whose type is not on the retryable list — the
+  list is re-read at retry time, so a type that has since been removed from it
+  refuses even on a row recorded as retryable.
+  <node-id> TAKES EITHER SPELLING: the graph node id from
+  "execution diagnose", or the execution-node row id from
+  "execution node-result". The graph id is tried first.
+  A 404 means the execution is not yours or does not exist, or the node names
+  nothing inside it. A 400 means it was found and refused, and the message says
+  which of the reasons above applied.
+  "RETRYING" IS ACCEPTANCE, NOT COMPLETION. The node is queued and runs
+  asynchronously; watch it with "execution follow <id>".
+  To re-run a node OUTSIDE its original execution, use
   "nexus workflow node test <wf-id> <node-id>", or the whole chain with
   "nexus workflow test <wf-id>". Neither reuses the failed execution.`
     )
@@ -496,7 +555,7 @@ Notes:
     });
 
   // ── export ─────────────────────────────────────────────────────────────
-  execution
+  const exportCmd = execution
     .command("export")
     .description("Export execution data")
     .argument("<id>", "Execution ID")
@@ -508,9 +567,16 @@ Examples:
   $ nexus execution export exec-123 --json
 
 Notes:
-  The whole run in one payload — execution metadata plus every node's record —
-  meant for archiving or offline inspection rather than for reading in a terminal.
-  Use --json and redirect it; the table rendering of a large run is unusable.`
+  IT PRINTS A DOWNLOAD LINK, NOT THE EXPORT. The answer is {url, expiresAt} and
+  nothing else — the run itself is the JSON document at that url. Fetch it:
+    curl -sL "$(nexus execution export exec-123 --json | jq -r .data.url)" > run.json
+  THE LINK EXPIRES IN ABOUT FIVE MINUTES and carries its own authorization, so
+  it needs no API key and it is not re-fetchable afterwards. Download it in the
+  same breath as you mint it; re-run the command for a fresh link.
+  IT IS A LINK, SO IT IS SHAREABLE — anyone holding it downloads the run's full
+  contents, node inputs and outputs included, for as long as it lives.
+  What lands in the file is the whole run: root execution metadata plus every
+  node's record, and every nested loop sub-execution.`
     )
     .action(async (id: string) => {
       try {
@@ -523,7 +589,7 @@ Notes:
     });
 
   // ── node-result ────────────────────────────────────────────────────────
-  execution
+  const nodeResult = execution
     .command("node-result")
     .description("Get result of a specific node in an execution")
     .argument("<id>", "Execution ID")
@@ -542,8 +608,14 @@ Notes:
   or ERROR. A FAILED NODE READS "ERROR" — filtering for FAILED here finds nothing.
   A node inside a loop is found automatically: the lookup follows the run's loop
   sub-executions up to five levels deep, and returns the pass it finds first.
-  Answers input, output, logs, duration, timings and error — the input is what the
-  node's references actually resolved to, which is where a null usually shows up.
+  input, output and error are the fields that carry data here. The input is what
+  the node's references actually resolved to, which is where a null usually
+  shows up.
+  logs, duration, startedAt AND completedAt COME BACK null EVEN ON A HEALTHY
+  COMPLETED NODE. Four nulls on a node that plainly ran is this route's normal
+  answer, not a failed lookup and not a broken node. For per-node timings and a
+  duration use "nexus execution diagnose <id>", which derives them; there is no
+  per-node log stream in this API at all.
   A per-node TEST also stamps its id onto the node itself, overwriting the previous
   one, so the last test wins as the node's linked result in the dashboard.`
     )
@@ -556,6 +628,35 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and positional exists — see `bindCommand`.
+  //
+  // TWO LEAVES ARE DELIBERATELY UNBOUND, for two DIFFERENT reasons:
+  //
+  //   · `list` — its `sortBy` and `order` are query parameters with no flag, and
+  //     a GET leaf has no `--body` to reach them through. `--status` already
+  //     reaches `Params.status`, so one absent flag holds back three ready
+  //     enums; the gate is all-or-nothing per descriptor. Recorded in
+  //     `BLOCKED_DESCRIPTORS` on BOTH of its routes, because `--workflow-id`
+  //     switches it to `WorkflowExecutionListForWorkflow`.
+  //
+  //   · `follow` — it COMPOSES two descriptors rather than choosing between
+  //     them: one `WorkflowExecutionGet` for the workflow-id label, then
+  //     `WorkflowExecutionDiagnose` in a loop inside `util/run-follow.ts`.
+  //     `bindCommand` takes one shape, so either choice would print a contract
+  //     block describing half of what the command does. That is not the `poll`
+  //     case below, where `--token` picks ONE of two interchangeable routes.
+  bindCommand(get, WORKFLOW_EXECUTION_GET_CONTRACT);
+  bindCommand(diagnose, WORKFLOW_EXECUTION_DIAGNOSE_CONTRACT);
+  // `--token` switches this leaf to `WorkflowExecutionPollByToken`, which takes a
+  // polling token where this takes an execution id and is otherwise the same
+  // read. One leaf, two descriptors, one shape — the default branch binds.
+  bindCommand(poll, WORKFLOW_EXECUTION_POLL_CONTRACT);
+  bindCommand(output, WORKFLOW_EXECUTION_GET_OUTPUT_CONTRACT);
+  bindCommand(cancel, WORKFLOW_EXECUTION_CANCEL_CONTRACT);
+  bindCommand(retry, WORKFLOW_EXECUTION_RETRY_NODE_CONTRACT);
+  bindCommand(exportCmd, WORKFLOW_EXECUTION_EXPORT_CONTRACT);
+  bindCommand(nodeResult, WORKFLOW_EXECUTION_GET_NODE_RESULT_CONTRACT);
 }
 
 // ── diagnose helpers ──────────────────────────────────────────────────

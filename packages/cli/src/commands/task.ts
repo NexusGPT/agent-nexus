@@ -2,10 +2,17 @@ import type { CreateTaskBody, ExecuteTaskBody, UpdateTaskBody } from "@agent-nex
 import { Command } from "commander";
 
 import { createClient, seconds } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { resolveInputValue } from "../util/stdin";
+import {
+  SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER,
+  SKILLS_CREATE_TASK_CONTRACT,
+  SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER,
+  SKILLS_UPDATE_TASK_CONTRACT
+} from "./task.contract.generated";
 
 /**
  * Default timeout for `task execute`, in seconds. Structured-JSON generations
@@ -132,12 +139,18 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  task
+  const create = task
     .command("create")
     .description("Create an AI task")
     .requiredOption("--name <name>", "Task name")
     .requiredOption("--model-name <model>", "Model name (e.g. gpt-4o)")
-    .requiredOption("--model-provider <provider>", "Model provider (e.g. OPEN_AI)")
+    .addOption(
+      enumOption(
+        "--model-provider <provider>",
+        "Model provider",
+        SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER
+      ).makeOptionMandatory()
+    )
     .option("--description <text>", "Task description")
     .option("--prompt <file-or-->", "Task prompt (file path, or '-' for stdin)")
     .option("--expected-input <text>", "Description of expected input")
@@ -188,7 +201,9 @@ Notes:
 
   The JSON schemas take EITHER a full JSON Schema document
   ({"type":"object","properties":{...}}) OR the bare field map
-  ({"city":{"type":"string"}}); the bare form is wrapped server-side. What is
+  ({"city":{"type":"string"}}); the bare form is wrapped at GENERATION time, not
+  at write time, so "task get" reads the bare map back exactly as you sent it.
+  An unchanged readback is the expected result, not a dropped wrap. What is
   refused, at save and again at execute, is a root that is not an object — a
   top-level array or scalar cannot be a structured output.
 
@@ -201,7 +216,20 @@ Notes:
   accepted at the body root for compatibility. There is no flag:
     --body '{"...":"...","generation":{"multimodal":true,"...":"..."}}'
 
-  temperature defaults to 0.7 and is --body only.`
+  temperature defaults to 0.7 and is --body only. IT IS STORED AND NEVER READ
+  BACK: "task get" returns no temperature field at any value, so a missing
+  temperature is not a discarded write and there is no way to confirm one from
+  this API.
+
+  Only one flag per command may read standard input. Passing "-" to two of them
+  — "--body -" alongside "--prompt -", say — is refused with an error naming
+  both, and no request is sent. Give one of them a literal value or a file path.
+
+  THE PROMPT IS OPTIONAL HERE AND REQUIRED AT EXECUTE. A create carrying
+  "generation" but no prompt answers 201 and leaves a task that cannot run —
+  "nexus task execute" then refuses it for a missing prompt. That is a
+  legitimate draft state, not a broken create; fill it in with
+  "nexus task update <id> --prompt <file>" before executing.`
     )
     .action(async (opts) => {
       try {
@@ -234,7 +262,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  task
+  const update = task
     .command("update")
     .description("Update an AI task")
     .argument("<id>", "Task ID")
@@ -242,7 +270,13 @@ Notes:
     .option("--description <text>", "Task description")
     .option("--prompt <file-or-->", "Task prompt (file path, or '-' for stdin)")
     .option("--model-name <model>", "Model name (e.g. gpt-4o)")
-    .option("--model-provider <provider>", "Model provider (e.g. OPEN_AI)")
+    .addOption(
+      enumOption(
+        "--model-provider <provider>",
+        "Model provider",
+        SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER
+      )
+    )
     .option("--expected-input <text>", "Description of expected input")
     .option("--expected-output <text>", "Description of expected output")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -278,12 +312,19 @@ Notes:
   thinking level, thinking display and reasoning effort are stripped, because
   they mean nothing to the new provider. Nothing in the response says so.
 
-  The printed versionId is null WHEN NOTHING CHANGED — a no-op update
-  deliberately creates no version. A null there means your edit was identical to
-  what was stored, not that versioning failed.
+  EVERY ACCEPTED UPDATE CREATES A VERSION, INCLUDING ONE THAT CHANGES NOTHING.
+  The check is whether the body named a recognized field, never whether the
+  value differs, so re-sending a byte-identical prompt writes a fresh version
+  with a new versionId. A null versionId therefore does NOT mean "your edit
+  matched what was stored" — it means the body carried no field this route
+  recognizes, and nothing at all was written. Never use it as a no-op detector.
 
   The duplicate-prompt check does NOT apply to update: two tasks can end up with
-  identical prompts by editing one into the other.`
+  identical prompts by editing one into the other.
+
+  Only one flag per command may read standard input. Passing "-" to two of them
+  — "--body -" alongside "--prompt -", say — is refused with an error naming
+  both, and no request is sent. Give one of them a literal value or a file path.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -308,7 +349,9 @@ Notes:
         printSuccess("Task updated.", {
           id: t.id,
           name: t.name,
-          // Null when nothing changed — that update deliberately creates no version.
+          // Null only when the body named no recognized field, so nothing was
+          // written. NOT a no-op detector — an update whose values are identical
+          // to the stored ones still versions.
           versionId: t.versionId,
           versionCreatedAt: t.versionCreatedAt
         });
@@ -331,8 +374,14 @@ Examples:
   $ nexus task delete task-123 --yes
 
 Notes:
-  Fails with 409 if the task is still attached to an agent skill or workflow.
-  Detach it from those dependents (listed in the error) before deleting.
+  Fails with 409 if the task is still attached to an agent skill or a
+  NON-ARCHIVED workflow. Detach it from those dependents (listed in the error)
+  before deleting.
+  ARCHIVING THE WORKFLOW RELEASES THE TASK. A workflow stops counting as a
+  dependent once it is archived, so "nexus workflow delete <workflow-id>" —
+  which archives rather than destroys — clears a 409 you cannot otherwise get
+  past. Archiving is permanent, so do it because you meant to retire the
+  workflow, not merely to unblock this delete.
 
   THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
   in CI there is no prompt and no --yes is needed: the delete just happens.`
@@ -384,16 +433,23 @@ Notes:
   that --input is wrong. Check with "nexus task get <id> --json | jq -r .prompt"
   and set it with "nexus task update <id> --prompt ...".
 
-  A TASK WHOSE inputFormat IS "JSON" NEEDS A JSON OBJECT, not a string. Pass it
-  through --body: --body '{"input":{"city":"Paris"}}'. The schema the task
-  expects is jsonOutputSchema/jsonInputSchema on "task get".
+  A TASK WHOSE inputFormat IS "JSON" ALSO TAKES A PLAIN STRING. The route
+  accepts a string or an object whatever the task's inputFormat, and a
+  json-input task fed --input "Paris" still produces the structured output. Send
+  an object only when the task genuinely needs several named fields, and send it
+  through --body: --body '{"input":{"city":"Paris","country":"FR"}}'. The shape
+  the task expects is jsonInputSchema on "task get".
 
   A CLIENT TIMEOUT DOES NOT STOP THE SERVER. The generation keeps running and is
   still billed after this command gives up — raise --timeout rather than
   re-running, since a re-run starts a second generation.
 
   A jsonOutputSchema whose root is not an object (a top-level array or scalar)
-  fails here with a 400 EVERY time, however well the task saved.`
+  fails here with a 400 EVERY time, however well the task saved.
+
+  Only one flag per command may read standard input. Passing "-" to two of them
+  — "--body -" alongside "--input -", say — is refused with an error naming
+  both, and no request is sent. Give one of them a literal value or a file path.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -421,4 +477,17 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and after the hand-written prose.
+  bindCommand(create, SKILLS_CREATE_TASK_CONTRACT, {
+    // Both formats are --body only, and the root help block above already says
+    // so. Declaring them here is what stops the gate reading a deliberate
+    // omission as a field somebody forgot to expose.
+    "Body.inputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
+    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out"
+  });
+  bindCommand(update, SKILLS_UPDATE_TASK_CONTRACT, {
+    "Body.inputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
+    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out"
+  });
 }

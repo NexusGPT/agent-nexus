@@ -1,8 +1,31 @@
 import { readStdin, resolveInputValue } from "./stdin";
 
 /**
- * Resolve a `--body` flag value that commander guarantees is present
- * (`requiredOption`), into a parsed object.
+ * One resolution per distinct raw `--body` value, for the lifetime of the
+ * process.
+ *
+ * `--body` is now resolved TWICE on every command that also declares required
+ * flags: once by {@link applyBodySatisfiesRequired}'s pre-action check, which
+ * has to know which fields the body supplies before it can decide whether a
+ * required field is missing, and once by the action handler that builds the
+ * request. Without a cache those two reads are not guaranteed to be the same
+ * bytes, and for two of the three accepted forms they are actively wrong:
+ *
+ *  - `--body -` — stdin is consumable exactly ONCE. The second `readStdin()`
+ *    attaches listeners to a stream that has already emitted `end`, so its
+ *    promise never settles and the CLI hangs with no output and no exit.
+ *  - `--body file.json` — a second read can see different bytes than the ones
+ *    the check approved, so the request would carry a body nobody validated.
+ *
+ * Keyed on the raw flag value, which is the whole input to the resolution.
+ * This process is one-shot per command, so there is no staleness window to
+ * reason about.
+ */
+const resolvedBodies = new Map<string, Promise<Record<string, unknown>>>();
+
+/**
+ * Resolve a `--body` flag value that the caller guarantees is present, into a
+ * parsed object.
  *
  * Accepts:
  *  - `"-"` → reads JSON from stdin
@@ -16,6 +39,15 @@ import { readStdin, resolveInputValue } from "./stdin";
  * unreachable guard at the call site.
  */
 export async function resolveRequiredBody(raw: string): Promise<Record<string, unknown>> {
+  const cached = resolvedBodies.get(raw);
+  if (cached) return cached;
+
+  const pending = readAndParseBody(raw);
+  resolvedBodies.set(raw, pending);
+  return pending;
+}
+
+async function readAndParseBody(raw: string): Promise<Record<string, unknown>> {
   let jsonStr: string;
 
   if (raw === "-") {

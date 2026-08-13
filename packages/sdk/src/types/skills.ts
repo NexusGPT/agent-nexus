@@ -88,8 +88,35 @@ export interface TaskSummary {
   updatedAt: string;
 }
 
-/** Full AI task detail (extends summary with schemas). */
-export interface TaskDetail extends TaskSummary {
+/**
+ * Provider tuning stored alongside the model choice on an AI task.
+ *
+ * Each knob belongs to one provider, so a task carries at most the ones its
+ * provider understands and the rest are absent. A field you never set on
+ * create or update is absent here too — with one exception: `temperature`
+ * carries a server-side default of `0.7`, so a task created without one still
+ * reports it.
+ */
+export interface TaskModelTuning {
+  /** Sampling temperature, 0–1. Defaults to 0.7 at create time. */
+  temperature?: number;
+  /**
+   * Anthropic thinking level. `"fast" | "detailed" | "extended"` on legacy
+   * models; `"low" | "medium" | "high" | "xhigh" | "max"` on adaptive ones.
+   */
+  thinkingLevel?: string;
+  /** Anthropic adaptive thinking display mode. */
+  thinkingDisplay?: string;
+  /** OpenAI reasoning effort. Which values a model accepts varies by model. */
+  reasoningEffort?: string;
+  /** Google AI thinking level. */
+  geminiThinkingLevel?: string;
+  /** Kimi reasoning effort. Its value set differs from OpenAI's — not interchangeable. */
+  kimiReasoningEffort?: string;
+}
+
+/** Full AI task detail (extends summary with schemas and model tuning). */
+export interface TaskDetail extends TaskSummary, TaskModelTuning {
   /** Task prompt template. `null` if not set. */
   prompt: string | null;
   /**

@@ -11,12 +11,20 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
 import { parseMetadataPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  DOCUMENT_ADD_WEBSITE__BODY_MODE,
+  DOCUMENT_ADD_WEBSITE_CONTRACT,
+  DOCUMENT_LIST__PARAMS_STATUS,
+  DOCUMENT_LIST__PARAMS_TYPE,
+  DOCUMENT_LIST_CONTRACT
+} from "./document.contract.generated";
 
 /** Commander collector for repeatable `--metadata key=value` options. */
 function collectMetadata(value: string, previous: string[]): string[] {
@@ -24,16 +32,17 @@ function collectMetadata(value: string, previous: string[]): string[] {
 }
 
 /**
- * The crawl modes `POST /documents/website` accepts.
+ * The crawl modes `POST /documents/website` accepts, TAKEN FROM THE CONTRACT
+ * rather than typed again here.
  *
- * `satisfies` gates the list against the SDK's own field, so a value that stops
- * being legal stops compiling here rather than reaching the server. The CLI
- * advertised "single" for months; the contract has never accepted it.
+ * The list itself is generated from the Zod schema. `satisfies` keeps the old
+ * guarantee on top of it: the SDK's own field still has to agree, so a contract
+ * change the SDK has not followed stops compiling here rather than reaching the
+ * server. The CLI advertised "single" for months; the contract has never
+ * accepted it, and a hand-typed list is how that survived.
  */
-const CRAWL_MODES = [
-  "sitemap",
-  "crawl"
-] as const satisfies readonly AddWebsiteDocumentBody["mode"][];
+const CRAWL_MODES =
+  DOCUMENT_ADD_WEBSITE__BODY_MODE.contractValues satisfies readonly AddWebsiteDocumentBody["mode"][];
 
 export function registerDocumentCommands(program: Command): void {
   const document = program.command("document").description("Manage knowledge documents");
@@ -54,23 +63,28 @@ answer to almost every "why does retrieval find nothing".
     "collection attach-documents" silently drops folder ids — attach the
     children, listed by "nexus document children <folder-id>".
   • A 2xx MEANS THE WORK WAS ACCEPTED, NOT FINISHED. Poll the returned id with
-    "nexus document get <id>" until processingProgress is 100 and errorChildren
-    is 0 before treating the content as usable.`
+    "nexus document get <id>" — and poll the field that moves for that shape.
+    For a LEAF (a page, a tab, an uploaded file, a text document) poll status
+    until READY. For a FOLDER poll processingProgress to 100 with errorChildren
+    at 0.
+  • processingProgress IS A CRAWL-FOLDER FIELD. Only a crawl writes it, and only
+    onto the folder, so a leaf reports 0 for its whole life — READY included. A
+    loop waiting for 100 on a leaf can only exit by timing out.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const list = addPaginationOptions(
     document
       .command("list")
       .description("List documents")
       .option("--search <query>", "Search by name")
-      .option(
-        "--type <type>",
-        "Filter by type (PDF, CSV, TEXT, IMAGE, AUDIO, WEBSITE_FOLDER, WEBSITE_PAGE, NOTION_PAGE, NOTION_DATABASE, GOOGLE_DOC, GOOGLE_SHEET, GOOGLE_DRIVE, SHAREPOINT, AIRTABLE_BASE, AIRTABLE_TABLE, FOLDER, UNKNOWN)"
-      )
-      .option(
-        "--status <status>",
-        "Filter by status (PENDING, PROCESSING, READY, ERROR, SYNCING) — READY is terminal success"
+      .addOption(enumOption("--type <type>", "Filter by type", DOCUMENT_LIST__PARAMS_TYPE))
+      .addOption(
+        enumOption(
+          "--status <status>",
+          "Filter by status — READY is terminal success",
+          DOCUMENT_LIST__PARAMS_STATUS
+        )
       )
       .addHelpText(
         "after",
@@ -95,7 +109,9 @@ Notes:
   Deleted documents never appear here, so a document that vanishes from this
   list was deleted, not merely unlinked from a collection.`
       )
-  ).action(async (opts) => {
+  );
+
+  list.action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.documents.list({
@@ -130,7 +146,13 @@ Examples:
 
 Notes:
   THIS IS THE POLL TARGET for every asynchronous import. Status READY is
-  terminal success; ERROR is terminal failure. Progress is a percentage.
+  terminal success; ERROR is terminal failure.
+
+  ON A LEAF DOCUMENT, POLL status — NOT Progress. processingProgress is written
+  by the website crawler onto the FOLDER it creates, and by nothing else, so on
+  a page, a tab, an uploaded file or a text document it reads 0 even once the
+  document is READY. The Progress row here is that field: 0 on a leaf is normal
+  and is not a stalled import.
 
   FOR A FOLDER, READ THE CHILD COUNTERS, NOT THE STATUS. A website folder flips
   to READY when the crawl finishes, while its pages are still PENDING and not
@@ -277,7 +299,7 @@ Notes:
     });
 
   // ── add-website ───────────────────────────────────────────────────────
-  document
+  const addWebsite = document
     .command("add-website")
     .description("Crawl a website and create document(s)")
     .requiredOption("--url <url>", "Website URL")
@@ -286,9 +308,12 @@ Notes:
     // its values. The old default of "single" therefore made the bare command a
     // guaranteed 400, and it also overwrote the `mode` of every `--body`,
     // including this command's own example below.
-    .option(
-      `--mode <mode>`,
-      `Crawl mode: ${CRAWL_MODES.join(" or ")}. Required. See Notes — they are not interchangeable`
+    .addOption(
+      enumOption(
+        "--mode <mode>",
+        "Crawl mode. Required. See Notes — they are not interchangeable",
+        DOCUMENT_ADD_WEBSITE__BODY_MODE
+      )
     )
     .option(
       "--metadata <key=value...>",
@@ -350,8 +375,13 @@ Notes:
         const metadataFlags = opts.metadata as string[];
         const mode = readStringField(opts.mode, base, "mode");
         if (mode === undefined) {
+          // Both paths, because both work: the check above reads --body as well
+          // as the flag. Naming only the flag is what makes an operator holding a
+          // correct --body conclude the body form does not exist.
           console.error(
-            `Error: --mode is required.\n  nexus document add-website --url <url> --mode <${CRAWL_MODES.join("|")}>`
+            `Error: --mode is required. Pass it as a flag, or as "mode" inside --body (the flag wins if you supply both).\n` +
+              `  nexus document add-website --url <url> --mode <${CRAWL_MODES.join("|")}>\n` +
+              `  nexus document add-website --body '{"url":"<url>","mode":"${CRAWL_MODES[0]}"}'`
           );
           process.exitCode = 1;
           return;
@@ -429,6 +459,14 @@ Notes:
   DELETING A FOLDER TAKES ITS CHILDREN WITH IT. Every page, tab or file beneath
   it goes too. List them first with "nexus document children <id>".
 
+  A BIG FOLDER OUTLASTS THE 30s CLIENT TIMEOUT, AND THE SERVER KEEPS GOING. The
+  timeout error means the CLI stopped waiting, never that the delete stopped —
+  it carries on and lands PARTIALLY, so "document list" shrinks while you read
+  the error. Do not treat it as a failed call and do not delete the children by
+  hand. Re-run the same command with a longer budget until it returns:
+
+    $ nexus document delete <folder-id> --yes --timeout 180
+
   THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
   in CI there is no prompt and no --yes is needed: the delete just happens.`
     )
@@ -484,8 +522,9 @@ Notes:
 
   --metadata REPLACES THE WHOLE METADATA BAG, IT DOES NOT MERGE. Every key you
   do not repeat in this call is dropped, and nothing in the response says so.
-  Read the current set with "nexus document get <id> --json" and send it back in
-  full alongside the key you are changing.
+  Read the current bag first — it is the "metadata" key of
+  "nexus document get <id> --json" — then repeat every key it holds as its own
+  --metadata flag alongside the one you are changing.
 
   This changes the document's labels, never its CONTENT. Replacing the text
   means uploading a new document, or reprocessing the source.`
@@ -576,6 +615,13 @@ Notes:
   ONE LEVEL ONLY. A nested folder appears as a row here, not as its contents —
   recurse if the tree is deeper than one level.
 
+  THE NAME COLUMN IS BLANK FOR A CRAWLED HOME PAGE, AND THAT IS NOT AN ERROR. A
+  crawled page is named after the LAST PATH SEGMENT of its URL, so
+  /guides/setup is named "setup" and a bare domain root has nothing to take a
+  name from. --json carries displayName beside it, which holds the page title —
+  that is the field to read when NAME is empty or when two pages share a
+  segment. Neither view returns the page's URL.
+
   A crawl or import in flight returns a growing list. Zero children on a folder
   that reports READY means the import fetched nothing.`
       )
@@ -614,8 +660,11 @@ Notes:
   ASYNCHRONOUS. Success means re-indexing started. Poll "nexus document get <id>"
   for READY.
 
-  REPROCESSING A FOLDER DOES NOTHING. Only leaf documents are re-read — name the
-  page, tab or file, not the folder above it.
+  A FOLDER ID IS REFUSED WITH A 400, NOT IGNORED. Only leaf documents are
+  re-read, and naming a folder fails the call outright — so a sweep that walks a
+  tree and reprocesses every id it meets dies on the first folder rather than
+  skipping it. Name the page, tab or file; get the leaves from
+  "nexus document children <folder-id>".
 
   This re-reads the source, so it is also how a Google Sheet tab picks up edits
   made in the spreadsheet.`
@@ -712,8 +761,8 @@ Notes:
   A SNAPSHOT, NOT A LIVE LINK. Automatic re-sync is off for documents created
   through this API and cannot be turned on from here, so later edits to the
   spreadsheet are never picked up on their own. Refresh a tab with
-  "nexus document reprocess <tab-id>" — reprocessing the FOLDER is a no-op,
-  only individual tabs re-read the sheet.
+  "nexus document reprocess <tab-id>" — passing the FOLDER id there is a 400,
+  not a no-op, so loop over the tabs from "nexus document children".
 
   hasHeaderRow defaults to true — row 1 is read as column names, not as data.
   It is --body only, under "metadata".`
@@ -740,4 +789,8 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(list, DOCUMENT_LIST_CONTRACT);
+  bindCommand(addWebsite, DOCUMENT_ADD_WEBSITE_CONTRACT);
 }

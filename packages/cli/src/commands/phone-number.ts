@@ -1,9 +1,14 @@
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printTable } from "../output";
 import { getPaginationParams } from "../util/pagination";
+import {
+  PHONE_NUMBER_SEARCH_AVAILABLE__PARAMS_TYPE,
+  PHONE_NUMBER_SEARCH_AVAILABLE_CONTRACT
+} from "./phone-number.contract.generated";
 
 /**
  * Gate a command that SPENDS MONEY behind an explicit confirmation.
@@ -84,11 +89,17 @@ user, or it is a 401.`
   );
 
   // ── search ──────────────────────────────────────────────────────────
-  phoneNumber
+  const search = phoneNumber
     .command("search")
     .description("Search available phone numbers for purchase")
     .requiredOption("--country <code>", "ISO country code (e.g. US, GB, BE)")
-    .option("--type <type>", "Number type: local or mobile", "local")
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Number type",
+        PHONE_NUMBER_SEARCH_AVAILABLE__PARAMS_TYPE
+      ).default("local")
+    )
     .option("--sms", "Require SMS capability")
     .option("--mms", "Require MMS capability")
     .option("--voice", "Require voice capability")
@@ -113,7 +124,13 @@ Notes:
   PRICE is the monthly rate and is what "phone-number buy --price" must
   repeat. Copy it from this table rather than typing it.
   --area-code is digits only and Twilio applies it to US and Canada only.
-  --limit is capped at 50 and defaults to 5.`
+  --limit is capped at 50 and defaults to 5. Over the cap is a 400, NOT a clamp
+  to 50 — the search does not run at all.
+  THIS STEP NEEDS NO CONNECTION. The order above starts at "channel connection
+  create" because BUYING needs one; searching does not, and returns live carrier
+  inventory on an organization with no messaging connection at all. So an empty
+  result here means no matching numbers, never a missing prerequisite — and you
+  can price a country before setting anything up.`
     )
     .action(async (opts) => {
       try {
@@ -161,6 +178,17 @@ Notes:
   THIS IS A PURCHASE. It bills your account monthly until you run
   "nexus phone-number release <id>", and nothing expires it. It is confirmed
   once here and never again — there is no cancel, no undo and no refund.
+
+  IN A SCRIPT, WITHOUT --yes, IT BUYS NOTHING AND EXITS 1. There is no prompt to
+  answer when stdin is not a terminal, so the command refuses rather than
+  proceeding: you get "use --yes to confirm in non-interactive mode" and no
+  number. A pipeline that ignores the exit code carries on as though it had
+  bought one. This is the OPPOSITE of the delete commands elsewhere in this CLI,
+  which act unprompted in a script — do not carry that habit here, and do not
+  reach for --yes until you have read the --price note below.
+
+  THE GATE READS STDIN, NOT STDOUT. Redirecting output alone still prompts;
+  it is a piped or absent stdin that triggers the refusal.
 
   --price IS THE AMOUNT CHARGED, NOT A CHECK. Whatever you pass is what gets
   debited from the organization's balance; it is never compared against what
@@ -273,7 +301,10 @@ Examples:
 Notes:
   A RELEASED NUMBER IS A 404 HERE, not a record with a released status. This
   read is scoped to ACTIVE, so "not found" covers released, deleted, another
-  organization's, and never-existed alike.
+  organization's, never-existed, and an organization that has never bought a
+  number at all — all alike. A 404 is therefore not evidence of a permissions
+  problem. Check "nexus phone-number list" first: an empty list with total 0
+  says the organization owns nothing, which is the usual explanation.
   <id> is the Nexus UUID from "phone-number list", not the phone number and
   not the Twilio SID.`
     )
@@ -328,7 +359,14 @@ Notes:
   removedWhatsappSenders.
   Releasing an already-released number is a 409, not a silent success. A key
   that identifies no user is a 401 — the release is recorded against a person.
-  Needs phone_numbers:delete, which phone_numbers:write does not imply.`
+  Needs phone_numbers:delete, which phone_numbers:write does not imply.
+
+  IN A SCRIPT, WITHOUT --yes, IT RELEASES NOTHING AND EXITS 1. Non-interactive
+  stdin gets "use --yes to confirm in non-interactive mode" instead of a prompt,
+  so a cleanup job that never checks the exit code leaves every number in place
+  and still bills. The gate reads STDIN — redirecting output alone still
+  prompts. Note this is the opposite of the delete commands elsewhere in this
+  CLI, which act unprompted in a script.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -348,4 +386,7 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(search, PHONE_NUMBER_SEARCH_AVAILABLE_CONTRACT);
 }

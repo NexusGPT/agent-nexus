@@ -2,11 +2,17 @@ import type { NexusClient, PromptAssistantChatBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient, seconds } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  PROMPT_ASSISTANT_CHAT__BODY_MODE,
+  PROMPT_ASSISTANT_CHAT_CONTRACT
+} from "./prompt-assistant.contract.generated";
 
 /**
  * How long `prompt-assistant chat` waits on the API before giving up. The
@@ -74,10 +80,17 @@ export function registerPromptAssistantCommands(program: Command): void {
   const pa = program.command("prompt-assistant").description("AI-powered prompt writing assistant");
 
   // ── chat ────────────────────────────────────────────────────────────────
-  pa.command("chat")
+  const chat = pa
+    .command("chat")
     .description("Send a message to the prompt assistant")
     .option("--message <text-or->", "Message text (or '-' for stdin)")
-    .option("--mode <mode>", "Mode: agent or ai-task")
+    .addOption(
+      enumOption(
+        "--mode <mode>",
+        "Which assistant answers this turn",
+        PROMPT_ASSISTANT_CHAT__BODY_MODE
+      )
+    )
     .option("--thread-id <id>", "Thread ID for multi-turn conversations")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -233,10 +246,9 @@ Notes:
     });
 
   // ── delete-thread ───────────────────────────────────────────────────────
-  pa.command("delete-thread")
+  confirmable(pa.command("delete-thread"))
     .description("Delete a prompt assistant thread")
     .argument("<thread-id>", "Thread ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -248,28 +260,21 @@ Notes:
   THE GENERATED PROMPT GOES WITH THE THREAD. promptResult lives on the thread
   and nowhere else, so copy it out before deleting — deleting is the only way to
   lose a prompt you have not applied to an agent or task.
-  Confirmation is prompted only on a TTY. Piped or scripted, this deletes
-  immediately with or without --yes.`
+  WITHOUT A TERMINAL THIS REFUSES. A script must pass --yes; it will not delete
+  a thread on the assumption that nobody objected.`
     )
     .action(async (threadId: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete thread ${threadId}?`, opts))) return;
+
         const client = createClient(program.optsWithGlobals());
-
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete thread ${threadId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
-
         await client.promptAssistant.deleteThread(threadId);
         printSuccess("Thread deleted.", { threadId });
       } catch (err) {
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and after the hand-written prose.
+  bindCommand(chat, PROMPT_ASSISTANT_CHAT_CONTRACT);
 }

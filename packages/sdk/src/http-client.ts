@@ -151,23 +151,32 @@ function toApiError(status: number, body: unknown): NexusApiError {
   const err = isRecord(envelope?.error) ? envelope.error : undefined;
 
   if (err) {
-    const code = typeof err.code === "string" ? err.code : `HTTP_${status}`;
+    // `undefined` means THE SERVER SENT NO CODE, which is a different fact from
+    // any placeholder we would substitute — and the two paths below want
+    // DIFFERENT placeholders. Collapsing them here is what discarded the real
+    // code on 401: it arrived already flattened to `HTTP_401`, so forwarding it
+    // would have replaced one wrong constant with another.
+    const serverCode = typeof err.code === "string" ? err.code : undefined;
     const message =
       typeof err.message === "string" ? err.message : `Request failed with status ${status}`;
+    // A 401 carries the server's own code (AUTH_EXPIRED, REAUTH_REQUIRED, …) —
+    // the only thing distinguishing "your API key is bad" from "a connected
+    // provider's token expired". Absent one, the constructor's UNAUTHORIZED
+    // stands, which is what every 401 already reported.
     return status === 401
-      ? new NexusAuthenticationError(message)
-      : new NexusApiError(code, message, status, err.details);
+      ? new NexusAuthenticationError(message, serverCode)
+      : new NexusApiError(serverCode ?? `HTTP_${status}`, message, status, err.details);
   }
 
   const message =
     typeof envelope?.message === "string"
       ? envelope.message
       : `Request failed with status ${status}`;
-  const code = typeof envelope?.error === "string" ? envelope.error : `HTTP_${status}`;
+  const serverCode = typeof envelope?.error === "string" ? envelope.error : undefined;
 
   return status === 401
-    ? new NexusAuthenticationError(message)
-    : new NexusApiError(code, message, status);
+    ? new NexusAuthenticationError(message, serverCode)
+    : new NexusApiError(serverCode ?? `HTTP_${status}`, message, status);
 }
 
 /**

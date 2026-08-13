@@ -2,11 +2,20 @@ import type { AddCustomerNoteBody, CreateCustomerBody, UpdateCustomerBody } from
 import { Command } from "commander";
 
 import { createClient } from "../client";
-import { handleError } from "../errors";
+import { bindCommand } from "../contract-binding";
+import { handleError, printNotFound } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  CUSTOMER_ADD_NOTE_CONTRACT,
+  CUSTOMER_CREATE_CONTRACT,
+  CUSTOMER_DELETE_CONTRACT,
+  CUSTOMER_GET_BY_EXTERNAL_ID_CONTRACT,
+  CUSTOMER_GET_CONTRACT,
+  CUSTOMER_UPDATE_CONTRACT
+} from "./customer.contract.generated";
 
 export function registerCustomerCommands(program: Command): void {
   const customer = program.command("customer").description("Manage CRM customers");
@@ -41,7 +50,7 @@ Examples:
     }
   });
 
-  customer
+  const get = customer
     .command("get")
     .description("Get customer details")
     .argument("<id>", "Customer ID")
@@ -63,7 +72,7 @@ Examples:
       }
     });
 
-  customer
+  const getByExternalId = customer
     .command("get-by-external-id")
     .description("Find customer by external user ID")
     .argument("<external-user-id>", "External user ID")
@@ -72,7 +81,13 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const c = await client.customers.getByExternalId(externalUserId);
         if (!c) {
-          console.log("No customer found.");
+          // A miss here is a 200 with an empty body, not a 404, so handleError
+          // never sees it. printNotFound is what keeps it a FAILURE on both
+          // channels — one JSON error document under --json, exit 1 either way.
+          process.exitCode = printNotFound(
+            `No customer with external user ID "${externalUserId}".`,
+            'Run "nexus customer list --search <term>" to find the customer, then use its external user ID.'
+          );
           return;
         }
         printRecord(c);
@@ -81,7 +96,7 @@ Examples:
       }
     });
 
-  customer
+  const create = customer
     .command("create")
     .description("Create a customer")
     .requiredOption("--display-name <name>", "Customer display name")
@@ -108,7 +123,7 @@ Examples:
       }
     });
 
-  customer
+  const update = customer
     .command("update")
     .description("Update a customer")
     .argument("<id>", "Customer ID")
@@ -132,7 +147,7 @@ Examples:
       }
     });
 
-  customer
+  const note = customer
     .command("note")
     .description("Add a note to a customer")
     .argument("<id>", "Customer ID")
@@ -151,7 +166,7 @@ Examples:
       }
     });
 
-  customer
+  const del = customer
     .command("delete")
     .description("Delete a customer")
     .argument("<id>", "Customer ID")
@@ -175,4 +190,17 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and positional exists — see `bindCommand`.
+  //
+  // `list` is deliberately absent. Its sortBy, sortOrder and channel are QUERY
+  // parameters with no flag, and a GET leaf has no `--body` to reach them
+  // through, so the descriptor stays in `BLOCKED_DESCRIPTORS`. Binding it would
+  // mean adding three flags, which changes what the CLI can DO.
+  bindCommand(get, CUSTOMER_GET_CONTRACT);
+  bindCommand(getByExternalId, CUSTOMER_GET_BY_EXTERNAL_ID_CONTRACT);
+  bindCommand(create, CUSTOMER_CREATE_CONTRACT);
+  bindCommand(update, CUSTOMER_UPDATE_CONTRACT);
+  bindCommand(note, CUSTOMER_ADD_NOTE_CONTRACT);
+  bindCommand(del, CUSTOMER_DELETE_CONTRACT);
 }

@@ -120,28 +120,176 @@ export interface DeploymentStats {
 // Embed config
 // ============================================================================
 
+/** Localized string overrides, keyed by locale code (`"en"`, `"fr"`, ...). */
+export type EmbedLocalizedText = Record<string, string>;
+
+/** Localized string-array overrides, keyed by locale code. */
+export type EmbedLocalizedTextList = Record<string, string[]>;
+
+/** A link rendered in the widget footer or on the landing screen. */
+export interface EmbedFooterLink {
+  /** Stable id — the key a localized override is written against. */
+  id: string;
+  label: string;
+  url: string;
+}
+
+/** Per-locale override of a footer link. Omitted fields fall back to the shared entry. */
+export interface EmbedFooterLinkOverride {
+  label?: string;
+  url?: string;
+}
+
+/** Legacy preset icon names accepted for a landing-screen action button. */
+export type EmbedPresetIconName =
+  | "whatsapp"
+  | "email"
+  | "phone"
+  | "link"
+  | "messenger"
+  | "telegram"
+  | "instagram"
+  | "x"
+  | "facebook"
+  | "linkedin"
+  | "custom";
+
+/** Icon of a landing-screen action button. */
+export type EmbedActionButtonIcon =
+  | { type: "favicon" }
+  | { type: "emoji"; emoji: string }
+  | { type: "image"; url: string }
+  | { type: "preset"; name: EmbedPresetIconName };
+
+/** A channel button on the widget landing screen (WhatsApp link, email, phone, ...). */
+export interface EmbedActionButton {
+  /** Stable id — the key a localized override is written against. */
+  id: string;
+  label: string;
+  description: string;
+  /** A bare preset name is the legacy spelling and is still accepted. */
+  icon: EmbedActionButtonIcon | EmbedPresetIconName;
+  url: string;
+}
+
+/** Per-locale override of an action button. The icon stays shared across locales. */
+export interface EmbedActionButtonOverride {
+  label?: string;
+  description?: string;
+  url?: string;
+}
+
 /**
  * Response from `client.deployments.getEmbedConfig()` and
- * `updateEmbedConfig()`. Every field is `null` rather than absent when unset,
- * and `updateEmbedConfig` returns the whole merged config, not just the patch.
+ * `updateEmbedConfig()`.
+ *
+ * This is the widget's own appearance object — the same settings the dashboard
+ * editor writes and the rendered widget reads. `updateEmbedConfig` returns the
+ * whole merged config, not just the patch.
+ *
+ * A required field is always present; an optional one is absent when the owner
+ * never set it. Nothing here is ever `null`: a field the stored settings omit
+ * comes back as its product default, so a colour or a label is always a usable
+ * value.
+ *
+ * The server-side HMAC secret behind `identityVerificationEnabled` is
+ * deliberately not part of this object and cannot be read or written through
+ * the API — publishing it would let its holder forge a visitor identity.
+ * Manage it in the dashboard.
  */
 export interface EmbedConfig {
-  /** Widget theme name. */
-  theme: string | null;
-  /** Brand colour, as a CSS colour string. */
-  primaryColor: string | null;
-  /** Where the launcher sits on the page. */
-  position: string | null;
-  /** Message the widget opens with. */
-  initialMessage: string | null;
+  // -- Display ---------------------------------------------------------------
+  /** Agent name shown in the widget. */
+  displayName: string;
+  localizedDisplayName?: EmbedLocalizedText;
+  /** Messages the widget opens with. */
+  welcomeMessages: string[];
+  localizedWelcomeMessages?: EmbedLocalizedTextList;
+  /** Locale used when the visitor's own language is not configured. */
+  defaultLanguage?: string;
+  /** Locales the owner configured. Derived from the `localized*` keys when absent. */
+  supportedLanguages?: string[];
   /** Prompt chips offered to the visitor. */
-  suggestedMessages: string[] | null;
-  /** URL of the logo shown in the widget header. */
-  logoUrl: string | null;
-  /** URL of the agent avatar. */
-  avatarUrl: string | null;
-  /** Text shown in the widget header. */
-  headerTitle: string | null;
+  suggestedMessages: string[];
+  localizedSuggestedMessages?: EmbedLocalizedTextList;
+  /** Launcher style. */
+  format: "bubble" | "classic";
+  showTimestamp?: boolean;
+
+  // -- Opening popup ---------------------------------------------------------
+  autoShowInitialMessagePopup: boolean;
+  /** Delay in seconds before the popup appears. */
+  autoShowInitialMessagePopupDelay: number;
+
+  // -- Bubble ----------------------------------------------------------------
+  bubblePosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  bubbleBorderRadius: "none" | "sm" | "md" | "lg" | "full";
+  bubbleBackgroundColor: string;
+  bubbleBorderColor: string;
+  bubbleBorderWidth: number;
+  bubbleSize: "small" | "medium" | "large";
+
+  // -- Theming ---------------------------------------------------------------
+  uiAppearance: "system" | "light" | "dark";
+  uiRadius: "sm" | "md" | "lg";
+  uiContainerRadius: "sm" | "md" | "lg" | "none";
+  uiBgPattern: string;
+  uiPrimaryColor: string;
+  uiAgentMessageColor: string;
+  uiAgentMessageTextColor: string;
+  uiUserMessageColor: string;
+  uiUserMessageTextColor: string;
+
+  // -- Header ----------------------------------------------------------------
+  showHeader: boolean;
+  headerMessage: string;
+  localizedHeaderMessage?: EmbedLocalizedText;
+
+  // -- Footer ----------------------------------------------------------------
+  showFooter: boolean;
+  footerMessage: string;
+  localizedFooterMessage?: EmbedLocalizedText;
+  footerLinks: EmbedFooterLink[];
+  /** Locale code, then footer-link id. */
+  localizedFooterLinks?: Record<string, Record<string, EmbedFooterLinkOverride>>;
+
+  // -- Chat input ------------------------------------------------------------
+  chatInputPlaceholder: string;
+  localizedChatInputPlaceholder?: EmbedLocalizedText;
+
+  // -- Landing screen (bubble format only) -----------------------------------
+  landingScreenEnabled: boolean;
+  landingScreenWelcomeMessage: string;
+  localizedLandingScreenWelcomeMessage?: EmbedLocalizedText;
+  landingScreenNewConversationLabel: string;
+  localizedLandingScreenNewConversationLabel?: EmbedLocalizedText;
+  landingScreenNewConversationDescription: string;
+  localizedLandingScreenNewConversationDescription?: EmbedLocalizedText;
+  landingScreenShowPastConversations: boolean;
+  /** Allow a new conversation only when no past one is still active. */
+  landingScreenSingleActiveConversation?: boolean;
+  /** Hours of inactivity after which an open conversation stops blocking a new one. Defaults to 3. */
+  landingScreenInactiveConversationThresholdHours?: number;
+  landingScreenHidePastConversationsEnabled?: boolean;
+  /** Days of inactivity after which a past conversation is hidden. Defaults to 30. */
+  landingScreenHidePastConversationsAfterDays?: number;
+  landingScreenPastConversationsTitle: string;
+  localizedLandingScreenPastConversationsTitle?: EmbedLocalizedText;
+  landingScreenChannelsTitle: string;
+  localizedLandingScreenChannelsTitle?: EmbedLocalizedText;
+  landingScreenActionButtons: EmbedActionButton[];
+  /** Locale code, then action-button id. */
+  localizedLandingScreenActionButtons?: Record<string, Record<string, EmbedActionButtonOverride>>;
+  landingScreenShowFooter?: boolean;
+  landingScreenFooterMessage?: string;
+  localizedLandingScreenFooterMessage?: EmbedLocalizedText;
+  landingScreenFooterLinks?: EmbedFooterLink[];
+  /** Locale code, then footer-link id. */
+  localizedLandingScreenFooterLinks?: Record<string, Record<string, EmbedFooterLinkOverride>>;
+
+  // -- Identity verification -------------------------------------------------
+  /** Whether an `externalUserId` must arrive with a valid HMAC-SHA256 hash. */
+  identityVerificationEnabled?: boolean;
 }
 
 // ============================================================================
@@ -190,22 +338,11 @@ export interface UpdateDeploymentBody {
   isActive?: boolean;
 }
 
-/** Request body for `client.deployments.updateEmbedConfig()`. All fields are optional. */
-export interface UpdateEmbedConfigBody {
-  /** Widget theme name. */
-  theme?: string;
-  /** Brand colour, as a CSS colour string. */
-  primaryColor?: string;
-  /** Where the launcher sits on the page. */
-  position?: string;
-  /** Message the widget opens with. */
-  initialMessage?: string;
-  /** Prompt chips offered to the visitor. */
-  suggestedMessages?: string[];
-  /** URL of the logo shown in the widget header. */
-  logoUrl?: string;
-  /** URL of the agent avatar. */
-  avatarUrl?: string;
-  /** Text shown in the widget header. */
-  headerTitle?: string;
-}
+/**
+ * Request body for `client.deployments.updateEmbedConfig()`. A PATCH: every
+ * field is optional and a field you omit keeps its stored value.
+ *
+ * Symmetric with {@link EmbedConfig} by construction, so a config you read can
+ * be edited and sent straight back without a field being unwritable.
+ */
+export type UpdateEmbedConfigBody = Partial<EmbedConfig>;

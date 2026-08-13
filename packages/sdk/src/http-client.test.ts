@@ -474,3 +474,86 @@ describe("retryDelayMs", () => {
     expect(retryDelayMs(20, 250, () => 0.999999)).toBe(4999);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A 401 carries the server's OWN code, not a hardcoded "UNAUTHORIZED".
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * `toApiError` COMPUTED the code and then threw it away on both 401 branches by
+ * constructing `NexusAuthenticationError(message)`, whose constructor hardcoded
+ * `super("UNAUTHORIZED", …)`. Every 401 therefore arrived at every consumer as
+ * `UNAUTHORIZED`, whatever the server said.
+ *
+ * That is not cosmetic. The backend emits distinct 401 codes —
+ * `AUTH_EXPIRED`, `AUTH_INVALID`, `REAUTH_REQUIRED`
+ * (`documents/domain/errors/auth.errors.ts:17,38,59`) — and those are about a
+ * CONNECTED PROVIDER (Google Drive, SharePoint, Notion), not about the caller's
+ * Nexus API key. Flattened to `UNAUTHORIZED`, the CLI answers all of them with
+ * `Run "nexus auth login"`, which sends the user to re-authenticate the one
+ * thing that was never broken.
+ *
+ * The 401 branch is the ONLY place a computed code was discarded, and
+ * `NexusAuthenticationError` is the only subclass that called `super` with a
+ * code literal — verified across every class in `errors.ts`.
+ */
+describe("a 401 preserves the server's error code", () => {
+  const envelope = (code: string) =>
+    JSON.stringify({ success: false, error: { code, message: "Access token has expired" } });
+
+  it("carries AUTH_EXPIRED through instead of flattening it to UNAUTHORIZED", async () => {
+    const http = clientFor(401, envelope("AUTH_EXPIRED"));
+
+    const err = await http.request("GET", "/documents").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NexusAuthenticationError);
+    expect((err as NexusAuthenticationError).code).toBe("AUTH_EXPIRED");
+    // Still a 401 and still the auth subclass — the fix widens the code, it does
+    // not reclassify the error.
+    expect((err as NexusAuthenticationError).status).toBe(401);
+  });
+
+  it.each(["AUTH_INVALID", "REAUTH_REQUIRED"])("carries %s through", async (code) => {
+    const http = clientFor(401, envelope(code));
+
+    const err = await http.request("GET", "/documents").catch((e: unknown) => e);
+
+    expect((err as NexusAuthenticationError).code).toBe(code);
+  });
+
+  it("falls back to UNAUTHORIZED when the server sends no code", async () => {
+    // Matching the shape the non-401 path already has with `HTTP_${status}`:
+    // one default, stated in one place, rather than a second invented fallback.
+    const http = clientFor(401, JSON.stringify({ success: false, error: { message: "nope" } }));
+
+    const err = await http.request("GET", "/documents").catch((e: unknown) => e);
+
+    expect((err as NexusAuthenticationError).code).toBe("UNAUTHORIZED");
+  });
+
+  it("falls back to UNAUTHORIZED on a body that is not an error envelope at all", async () => {
+    const http = clientFor(401, JSON.stringify({ statusCode: 401, message: "Unauthorized" }));
+
+    const err = await http.request("GET", "/documents").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NexusAuthenticationError);
+    expect((err as NexusAuthenticationError).code).toBe("UNAUTHORIZED");
+  });
+
+  it("leaves the NON-401 fallback as HTTP_<status> — the two paths differ", async () => {
+    // The defaults are deliberately not the same, which is why the computed code
+    // is now `string | undefined` rather than pre-flattened. A 401 with no code
+    // means UNAUTHORIZED; a 500 with no code has no better name than its status.
+    const http = clientFor(500, JSON.stringify({ success: false, error: { message: "boom" } }));
+
+    const err = await http.request("GET", "/documents").catch((e: unknown) => e);
+
+    expect((err as NexusApiError).code).toBe("HTTP_500");
+  });
+
+  it("still defaults to UNAUTHORIZED when constructed with no code", async () => {
+    // The SDK is published; this constructor is public API. Existing callers pass
+    // only a message and must keep working.
+    expect(new NexusAuthenticationError("nope").code).toBe("UNAUTHORIZED");
+  });
+});

@@ -3,10 +3,29 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { resolveApiKey, resolveBaseUrl } from "../config";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { isJsonMode, printSuccess } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import {
+  CONVERSATION_EVAL_BATCH_LIST__PARAMS_STATUS,
+  CONVERSATION_EVAL_BATCH_LIST_CONTRACT,
+  CONVERSATION_EVAL_RUN_CREATE__BODY_SOURCE_MODE,
+  CONVERSATION_EVAL_RUN_CREATE_CONTRACT,
+  CONVERSATION_EVAL_RUN_LIST__PARAMS_SOURCE_MODE,
+  CONVERSATION_EVAL_RUN_LIST__PARAMS_STATUS,
+  CONVERSATION_EVAL_RUN_LIST_CONTRACT,
+  CONVERSATION_EVAL_SCHEDULE_LIST__PARAMS_STATUS,
+  CONVERSATION_EVAL_SCHEDULE_LIST_CONTRACT,
+  CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_KIND,
+  CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_SCOPE,
+  CONVERSATION_EVAL_TEMPLATE_LIST_CONTRACT,
+  CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE__PARAMS_KIND,
+  CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE_CONTRACT,
+  CONVERSATION_EVAL_TRIGGER_LIST__PARAMS_KIND,
+  CONVERSATION_EVAL_TRIGGER_LIST_CONTRACT
+} from "./agent-eval.contract.generated";
 
 /**
  * `nexus agent-eval` — LLM-as-judge for multi-turn agent conversations.
@@ -26,6 +45,10 @@ export function registerAgentEvalCommands(program: Command): void {
   root.addHelpText(
     "after",
     `
+THIS NAMESPACE SCORES MULTI-TURN AGENT CONVERSATIONS. To evaluate a single AI
+task's output against a dataset of inputs and expected outputs, you want
+"nexus task-eval" instead — a different namespace with a different pipeline.
+
 EVERY COMMAND HERE NEEDS THE CONVERSATION_EVAL FEATURE. With it off, all of them
 answer 403 FORBIDDEN whatever the arguments — ask an org admin to enable it before
 debugging anything else.
@@ -35,9 +58,14 @@ takes it to RUNNING then COMPLETED or FAILED, and "run abort" ends it ABORTED.
 Nothing runs at create time, so a run can be created wrong and only fail later.
 
 Two facts about reading a finished run:
-  • run.verdict IS ALWAYS null. Nothing writes it. The judged answer is
-    run.summaryText, which is markdown, plus the per-criterion scores from
-    "run results".
+  • run.verdict IS WRITTEN ONLY WHEN THE RUN CARRIES A thresholdConfig. Create
+    the run without one and the field stays null on a perfectly good COMPLETED
+    run — there is no default and nothing reports the omission. With one, the
+    run finishes PASS, FAIL or INCONCLUSIVE against those thresholds; a run that
+    is ABORTED after the verdict was computed has it cleared back to null. So a
+    null verdict means "no thresholds, or aborted", never "the judge had no
+    opinion". The judged answer regardless of thresholds is run.summaryText,
+    which is markdown, plus the per-criterion scores from "run results".
   • EVERY COST IS IN USD × 10,000. totalCostUsdTenThousandths: 12345 is $1.2345.
     Divide before showing it to anyone, and remember budgetCapUsdTenThousandths
     is in the same unit.`
@@ -79,12 +107,18 @@ Two facts about reading a finished run:
   // ─────────────────────────────────────────────────────────────────────────
   const run = root.command("run").description("Manage evaluation runs");
 
-  run
+  const runCreate = run
     .command("create")
     .description("Create a run (DRAFT state)")
     .option("--body <json>", "Run config JSON (string, .json file, or '-' for stdin)")
     .option("--name <name>", "Run name (REQUIRED)")
-    .option("--source-mode <mode>", "SIMULATED | INBOX (REQUIRED)")
+    .addOption(
+      enumOption(
+        "--source-mode <mode>",
+        "Where the conversations come from (REQUIRED)",
+        CONVERSATION_EVAL_RUN_CREATE__BODY_SOURCE_MODE
+      )
+    )
     .option("--target-deployment-id <id>", "Target deployment (SIMULATED — required to execute)")
     .option("--target-agent-id <id>", "Target agent (SIMULATED)")
     .option("--source-chat-id <id>", "Source inbox chat (INBOX)")
@@ -134,13 +168,25 @@ Notes:
       }
     });
 
-  addPaginationOptions(
+  const runList = addPaginationOptions(
     run
       .command("list")
       .description("List runs")
       .option("--agent-id <id>", "Filter by target agent")
-      .option("--status <status>", "Filter by run status")
-      .option("--source-mode <mode>", "Filter by source mode")
+      .addOption(
+        enumOption(
+          "--status <status>",
+          "Filter by run status",
+          CONVERSATION_EVAL_RUN_LIST__PARAMS_STATUS
+        )
+      )
+      .addOption(
+        enumOption(
+          "--source-mode <mode>",
+          "Filter by source mode",
+          CONVERSATION_EVAL_RUN_LIST__PARAMS_SOURCE_MODE
+        )
+      )
       .addHelpText(
         "after",
         `
@@ -410,11 +456,17 @@ Notes:
       }
     });
 
-  addPaginationOptions(
+  const batchList = addPaginationOptions(
     batch
       .command("list")
       .description("List batches")
-      .option("--status <status>", "Filter by status (QUEUED, RUNNING, COMPLETED, PARTIAL, FAILED)")
+      .addOption(
+        enumOption(
+          "--status <status>",
+          "Filter by batch status",
+          CONVERSATION_EVAL_BATCH_LIST__PARAMS_STATUS
+        )
+      )
       .addHelpText(
         "after",
         `
@@ -487,13 +539,25 @@ Two facts about ownership:
     and POSTing it back verbatim fails validation for a missing agentId.`
   );
 
-  addPaginationOptions(
+  const templateList = addPaginationOptions(
     template
       .command("list")
       .description("List templates (GLOBAL seeds ∪ agent-attached)")
       .option("--agent-id <id>", "Scope to GLOBAL ∪ templates attached to this agent")
-      .option("--kind <kind>", "TESTER_PERSONA | JUDGE_RUBRIC | SUMMARY_PROMPT")
-      .option("--scope <scope>", "GLOBAL | AGENT")
+      .addOption(
+        enumOption(
+          "--kind <kind>",
+          "Filter by template kind",
+          CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_KIND
+        )
+      )
+      .addOption(
+        enumOption(
+          "--scope <scope>",
+          "Filter by ownership scope",
+          CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_SCOPE
+        )
+      )
       .addHelpText(
         "after",
         `
@@ -524,12 +588,18 @@ Notes:
     }
   });
 
-  addPaginationOptions(
+  const templateImportable = addPaginationOptions(
     template
       .command("importable")
       .description("List templates importable onto an agent")
       .requiredOption("--agent-id <id>", "Agent the picker is relative to")
-      .option("--kind <kind>", "TESTER_PERSONA | JUDGE_RUBRIC | SUMMARY_PROMPT")
+      .addOption(
+        enumOption(
+          "--kind <kind>",
+          "Filter by template kind",
+          CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE__PARAMS_KIND
+        )
+      )
       .addHelpText(
         "after",
         `
@@ -805,11 +875,17 @@ Notes:
       }
     });
 
-  addPaginationOptions(
+  const scheduleList = addPaginationOptions(
     schedule
       .command("list")
       .description("List schedules")
-      .option("--status <status>", "ACTIVE | PAUSED")
+      .addOption(
+        enumOption(
+          "--status <status>",
+          "Filter by schedule status",
+          CONVERSATION_EVAL_SCHEDULE_LIST__PARAMS_STATUS
+        )
+      )
       .addHelpText(
         "after",
         `
@@ -977,12 +1053,18 @@ Notes:
       }
     });
 
-  trigger
+  const triggerList = trigger
     .command("list")
     .description("List triggers")
     .option("--agent-id <id>", "Filter by agent")
     .option("--deployment-id <id>", "Filter by deployment")
-    .option("--kind <kind>", "AUTO_ON_CLOSE | SCHEDULED_SAMPLE")
+    .addOption(
+      enumOption(
+        "--kind <kind>",
+        "Filter by trigger kind",
+        CONVERSATION_EVAL_TRIGGER_LIST__PARAMS_KIND
+      )
+    )
     .option("--enabled-only", "Only enabled triggers")
     .addHelpText(
       "after",
@@ -1062,6 +1144,11 @@ Notes:
   THE URL MUST BE PUBLICLY REACHABLE http(s). localhost, a private or link-local
   address and an internal hostname are all refused by an SSRF guard, so a webhook
   cannot be pointed at your own network for testing.
+  TO WRITE THE RECEIVER: delivery is a POST of the JSON body, and when a secret
+  is set it is signed HMAC-SHA256 over that body, sent as
+  "X-Nexus-Signature: sha256=<hex>". Set NO secret and the POST arrives unsigned
+  with no header at all — there is nothing to verify and anyone who learns the
+  URL can forge a completion.
   secret is write-only: "webhook get" REDACTS it, so store it when you set it —
   you cannot read it back to verify a signature later.
   Attach a webhook to a run by passing its id as webhookConfigId on "run create",
@@ -1124,4 +1211,24 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and after the hand-written prose, so the
+  // generated contract reference lands BELOW the Examples and Notes — see
+  // `bindCommand`. `contract-help.test.ts` asserts that ordering.
+  bindCommand(runCreate, CONVERSATION_EVAL_RUN_CREATE_CONTRACT, {
+    // `run create` is a --body command with a handful of convenience flags. The
+    // three enums below sit inside judgeConfigs / summaryConfig / the version
+    // pin, which are nested objects and arrays with no flag shape, so they are
+    // reachable only through --body. Naming them here is what stops the gate
+    // reading "somebody forgot to expose this".
+    "Body.targetVersionMode": "--body only; pins the agent version a SIMULATED run targets",
+    "Body.judgeConfigs[].provider": "--body only; judgeConfigs is an array of objects",
+    "Body.summaryConfig.provider": "--body only; summaryConfig is a nested object"
+  });
+  bindCommand(runList, CONVERSATION_EVAL_RUN_LIST_CONTRACT);
+  bindCommand(batchList, CONVERSATION_EVAL_BATCH_LIST_CONTRACT);
+  bindCommand(templateList, CONVERSATION_EVAL_TEMPLATE_LIST_CONTRACT);
+  bindCommand(templateImportable, CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE_CONTRACT);
+  bindCommand(scheduleList, CONVERSATION_EVAL_SCHEDULE_LIST_CONTRACT);
+  bindCommand(triggerList, CONVERSATION_EVAL_TRIGGER_LIST_CONTRACT);
 }

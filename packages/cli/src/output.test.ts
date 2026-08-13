@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { absent, printSuccess, printTable, setJsonMode } from "./output";
+import {
+  absent,
+  fitCell,
+  printList,
+  printRecord,
+  printSuccess,
+  printTable,
+  renderCell,
+  setJsonMode
+} from "./output";
 
 const UUID = "c053ea31-be30-479d-8aca-0b1d02a49156";
 
@@ -43,7 +52,9 @@ describe("printTable", () => {
     ]);
 
     expect(out).not.toContain(UUID);
-    expect(out).toContain("c053ea31-b");
+    // 9 characters of value plus the ellipsis: the cut is still a cut, and it
+    // now says so. Before this it read as a complete 10-char value.
+    expect(out).toContain("c053ea31-…");
   });
 
   it("caps an unbounded column at 50 chars, which still fits a 36-char uuid", () => {
@@ -82,7 +93,11 @@ describe("printSuccess and absent()", () => {
 
     const parsed = JSON.parse(capture({ owner: absent("(none)") })) as Record<string, unknown>;
 
-    expect(parsed).toEqual({ success: true, owner: null });
+    // `message` rides beside the data now — the human sentence and the machine
+    // document carry the same diagnostic. `toEqual` and not a subset match, so
+    // a key appearing or vanishing from this envelope has to be decided here
+    // rather than noticed by a consumer.
+    expect(parsed).toEqual({ success: true, message: "Done.", owner: null });
     // The symbol the text rides on is invisible to JSON.stringify, so an
     // unmapped AbsentValue would serialize as `{}` — a shape that reads as
     // "present, and an object" to every consumer.
@@ -100,6 +115,7 @@ describe("printSuccess and absent()", () => {
     setJsonMode(true);
     expect(JSON.parse(capture({ id: UUID, count: 0, flag: false, nested: { a: 1 } }))).toEqual({
       success: true,
+      message: "Done.",
       id: UUID,
       count: 0,
       flag: false,
@@ -108,5 +124,178 @@ describe("printSuccess and absent()", () => {
 
     setJsonMode(false);
     expect(capture({ id: UUID })).toContain(UUID);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The two printer-level classes. Both are properties of THE PRINTER, not of a
+// command, so one test here covers every table and every record in the CLI —
+// including the ones nobody has written yet.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Capture everything a printer writes to stdout. */
+function capturePrinter(run: () => void): string {
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((a) => String(a)).join(" "));
+  });
+  try {
+    run();
+  } finally {
+    spy.mockRestore();
+  }
+  return lines.join("\n");
+}
+
+/**
+ * `nexus workspace status` rendered four distinct mounts as one identical path,
+ * because the 50-char auto-cap cut them inside a shared prefix and said nothing.
+ * An operator picking a mount from that list picks blind, and there is no signal
+ * anywhere in the output that a choice is even being made.
+ *
+ * The property is not "do not truncate" — a table has to fit a terminal. It is
+ * "a cut is never silent", and it is enforced on the printer so no column array
+ * anywhere can opt out of it.
+ */
+describe("truncation is always visible", () => {
+  const PREFIX = "/Users/nab/Library/Application Support/nexus-workspaces/";
+
+  it("keeps four mounts under one long prefix distinguishable", () => {
+    const rows = ["acme", "globex", "initech", "umbrella"].map((slug) => ({
+      mountPath: `${PREFIX}${slug}`
+    }));
+    const out = capturePrinter(() =>
+      printTable(rows, [{ key: "mountPath", label: "Mount point" }])
+    );
+
+    const cells = out
+      .split("\n")
+      .slice(2)
+      .map((l) => l.trim());
+    expect(cells).toHaveLength(4);
+    expect(new Set(cells).size).toBe(4);
+  });
+
+  it("marks every cut cell, and only the cut ones", () => {
+    const cases: [string, number][] = [
+      ["short", 20],
+      ["exactly-ten", 11],
+      ["far-too-long-for-this-column", 12],
+      ["ab", 1],
+      ["ab", 2]
+    ];
+    for (const [text, width] of cases) {
+      const cell = fitCell(text, width);
+      expect(cell.length).toBe(width);
+      if (text.length > width) {
+        expect(cell.endsWith("…")).toBe(true);
+      } else {
+        expect(cell.trimEnd()).toBe(text);
+        expect(cell).not.toContain("…");
+      }
+    }
+  });
+
+  it("truncates an over-wide HEADER too, so the columns stay aligned", () => {
+    const out = capturePrinter(() =>
+      printTable(
+        [{ a: "x", b: "y" }],
+        [
+          { key: "a", label: "A VERY LONG HEADER", width: 6 },
+          { key: "b", label: "B", width: 3 }
+        ]
+      )
+    );
+    const [header, rule] = out.split("\n");
+    // Header row and separator row must be the same width, or every column to
+    // the right of the overflow is misaligned for the whole table.
+    expect(header.length).toBe(rule.length);
+    expect(header).toContain("…");
+  });
+});
+
+/**
+ * `String(someObject)` is `"[object Object]"`. It typechecks, it lints clean, it
+ * satisfies any test asserting the column is present, and it is unreadable.
+ * `analytics overview` shipped five such fields and `access-card get` shipped
+ * `policies` — the field whose entire purpose is that you read its key set.
+ *
+ * Every printer routes its values through one renderer, so this is a property of
+ * the CLI rather than of the commands audited today.
+ */
+describe("no printer can emit [object Object]", () => {
+  const NESTED = {
+    id: "abc",
+    tokenUsage: { input: 10, output: 20 },
+    byChannel: [{ channel: "web", count: 3 }],
+    policies: {},
+    empty: [],
+    missing: null
+  };
+
+  it("renderCell turns an object into readable JSON, never [object Object]", () => {
+    expect(renderCell({ input: 10 })).toBe('{"input":10}');
+    expect(renderCell([1, 2])).toBe("[1,2]");
+    expect(renderCell({})).toBe("{}");
+    expect(renderCell([])).toBe("[]");
+    expect(renderCell(null)).toBe("");
+    expect(renderCell(undefined)).toBe("");
+    expect(renderCell(0)).toBe("0");
+    expect(renderCell(false)).toBe("false");
+    expect(renderCell("plain")).toBe("plain");
+  });
+
+  it("never falls back to [object Object] on a value JSON cannot take", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(renderCell(circular)).not.toContain("[object");
+    expect(renderCell({ big: 1n })).not.toContain("[object");
+  });
+
+  it("holds for printTable", () => {
+    const out = capturePrinter(() =>
+      printTable(
+        [NESTED],
+        [
+          { key: "tokenUsage", label: "TOKENS" },
+          { key: "byChannel", label: "CHANNELS" },
+          { key: "policies", label: "POLICIES" }
+        ]
+      )
+    );
+    expect(out).not.toContain("[object Object]");
+    expect(out).toContain('"input"');
+  });
+
+  it("holds for printRecord with no field list — the analytics overview path", () => {
+    const out = capturePrinter(() => printRecord(NESTED));
+    expect(out).not.toContain("[object Object]");
+    expect(out).toContain('"input":10');
+    expect(out).toContain('"channel":"web"');
+  });
+
+  it("holds for printRecord WITH a field list — the access-card get path", () => {
+    const out = capturePrinter(() =>
+      printRecord(NESTED, [
+        { key: "id", label: "ID" },
+        { key: "policies", label: "Policies" }
+      ])
+    );
+    expect(out).not.toContain("[object Object]");
+  });
+
+  it("holds for printList and printSuccess", () => {
+    expect(
+      capturePrinter(() => printList([NESTED], undefined, [{ key: "tokenUsage", label: "TOKENS" }]))
+    ).not.toContain("[object Object]");
+    expect(
+      capturePrinter(() => printSuccess("done", { tokenUsage: NESTED.tokenUsage }))
+    ).not.toContain("[object Object]");
+  });
+
+  it("leaves --json untouched — a script still gets the real nested object", () => {
+    setJsonMode(true);
+    const out = capturePrinter(() => printList([NESTED], undefined, [{ key: "id", label: "ID" }]));
+    expect(JSON.parse(out).data[0].tokenUsage).toEqual({ input: 10, output: 20 });
   });
 });

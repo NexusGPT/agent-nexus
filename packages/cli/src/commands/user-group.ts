@@ -6,10 +6,19 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseIdList } from "../util/ids";
+import {
+  USER_GROUPS_ADD_MEMBER_CONTRACT,
+  USER_GROUPS_CREATE_CONTRACT,
+  USER_GROUPS_DELETE_CONTRACT,
+  USER_GROUPS_LIST_CONTRACT,
+  USER_GROUPS_REMOVE_MEMBER_CONTRACT,
+  USER_GROUPS_UPDATE_CONTRACT
+} from "./user-group.contract.generated";
 
 export function registerUserGroupCommands(program: Command): void {
   const userGroup = program
@@ -17,7 +26,7 @@ export function registerUserGroupCommands(program: Command): void {
     .description("Manage user groups — the group principal a permission grant names");
 
   // ── list ──────────────────────────────────────────────────────────────
-  userGroup
+  const list = userGroup
     .command("list")
     .description("List user groups")
     .addHelpText(
@@ -43,7 +52,7 @@ Examples:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  userGroup
+  const create = userGroup
     .command("create")
     .description("Create a user group")
     .requiredOption("--name <name>", "Group name")
@@ -54,7 +63,13 @@ Examples:
       `
 Examples:
   $ nexus user-group create --name "Support"
-  $ nexus user-group create --name "Support" --user-ids user_abc,user_def`
+  $ nexus user-group create --name "Support" --user-ids user_abc,user_def
+
+Notes:
+  EVERY SEED ID MUST ALREADY BE A MEMBER OF THIS ORGANIZATION. An id that is not
+  fails the whole create — no group is made — and the error counts the bad ids
+  rather than naming them, so a long list has to be bisected by hand. Seed with
+  a short list, or create empty and add members one at a time.`
     )
     .action(async (opts) => {
       try {
@@ -78,7 +93,7 @@ Examples:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  userGroup
+  const update = userGroup
     .command("update")
     .description("Rename a group, and optionally replace its membership")
     .argument("<id>", "User group UUID")
@@ -94,7 +109,17 @@ Examples:
 
 Notes:
   --user-ids REPLACES the membership. Passing an empty value empties the
-  group; omitting the flag leaves the membership alone.`
+  group; omitting the flag leaves the membership alone.
+  YOU CANNOT CHANGE MEMBERSHIP WITHOUT ALSO SENDING A NAME. A name is required
+  on every update, so a membership-only edit is not expressible — and sending a
+  name you guessed RENAMES the group as a side effect. Read the current name
+  with "nexus user-group get <id>" and pass it back unchanged:
+
+    $ nexus user-group update 1111... --name "$(nexus user-group get 1111... --json | jq -r .name)" --user-ids user_abc
+
+  A USER WHO IS NOT IN THIS ORGANIZATION IS REFUSED, and the refusal counts the
+  bad ids without naming them. Passing ten ids to find the one that fails means
+  bisecting by hand — verify the ids before you send a long list.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -119,7 +144,7 @@ Notes:
     });
 
   // ── add-member ────────────────────────────────────────────────────────
-  userGroup
+  const addMember = userGroup
     .command("add-member")
     .description("Add one user to a group")
     .argument("<id>", "User group UUID")
@@ -152,7 +177,7 @@ Examples:
     });
 
   // ── remove-member ─────────────────────────────────────────────────────
-  userGroup
+  const removeMember = userGroup
     .command("remove-member")
     .description("Remove one user from a group")
     .argument("<id>", "User group UUID")
@@ -185,7 +210,7 @@ Examples:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  userGroup
+  const remove = userGroup
     .command("delete")
     .description("Delete a group and every permission grant that named it")
     .argument("<id>", "User group UUID")
@@ -222,6 +247,14 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`.
+  bindCommand(list, USER_GROUPS_LIST_CONTRACT);
+  bindCommand(create, USER_GROUPS_CREATE_CONTRACT);
+  bindCommand(update, USER_GROUPS_UPDATE_CONTRACT);
+  bindCommand(addMember, USER_GROUPS_ADD_MEMBER_CONTRACT);
+  bindCommand(removeMember, USER_GROUPS_REMOVE_MEMBER_CONTRACT);
+  bindCommand(remove, USER_GROUPS_DELETE_CONTRACT);
 }
 
 /** Renders a group's `memberUserIds` array for the human-readable record output. */

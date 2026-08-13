@@ -2,9 +2,17 @@ import type { AssignAgentToFolderBody, CreateFolderBody, UpdateFolderBody } from
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import {
+  FOLDER_ASSIGN_AGENT_CONTRACT,
+  FOLDER_CREATE_CONTRACT,
+  FOLDER_DELETE_CONTRACT,
+  FOLDER_LIST_CONTRACT,
+  FOLDER_UPDATE_CONTRACT
+} from "./folder.contract.generated";
 
 export function registerFolderCommands(program: Command): void {
   const folder = program
@@ -30,7 +38,7 @@ the whole organization.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  folder
+  const list = folder
     .command("list")
     .description("List all folders (this prints folders only — not the agent assignments)")
     .addHelpText(
@@ -66,7 +74,7 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  folder
+  const create = folder
     .command("create")
     .description("Create a new folder")
     .requiredOption("--name <name>", "Folder name")
@@ -90,7 +98,12 @@ Notes:
   Body fields: name (required, non-empty), parentId (optional UUID). ANY OTHER
   FIELD IN --body IS SILENTLY DROPPED — the server strips what it does not know
   rather than refusing it, so a typo'd key looks accepted. A flag always
-  overrides the same field in --body.`
+  overrides the same field in --body.
+  "OPTIONAL" MEANS OMIT parentId, NOT SEND null. An explicit
+  --body '{"parentId":null}' is a 400 here, while the same null on
+  "folder update" is the documented way to move a folder to the root. So a
+  create body built by copying an update body fails on exactly that key: drop
+  it instead of nulling it.`
     )
     .action(async (opts) => {
       try {
@@ -112,7 +125,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  folder
+  const update = folder
     .command("update")
     .description("Update a folder")
     .argument("<id>", "Folder ID")
@@ -159,7 +172,7 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  folder
+  const remove = folder
     .command("delete")
     .description("Delete a folder — agents are unassigned, child folders are promoted to root")
     .argument("<id>", "Folder ID")
@@ -173,8 +186,9 @@ Examples:
 
 Notes:
   UNASSIGNS, DOES NOT DELETE. The agents in this folder survive and become
-  unfoldered — their assignment rows go with the folder. Returns
-  {id, deleted: true} at 200.
+  unfoldered — their assignment rows go with the folder. The response carries
+  the folder id and nothing else; there is no "deleted" field to assert on, so
+  a 200 IS the confirmation.
   CHILD FOLDERS SURVIVE AND ARE PROMOTED TO ROOT. Their parentId is set to
   null, so a nested tree is FLATTENED rather than removed, and nothing in the
   response or the confirmation prompt mentions them. Run "nexus folder list"
@@ -212,7 +226,7 @@ Notes:
     });
 
   // ── assign ────────────────────────────────────────────────────────────
-  folder
+  const assign = folder
     .command("assign")
     .description("Move an agent into a folder — THIS IS A MOVE, an agent sits in one folder")
     .requiredOption("--agent-id <id>", "Agent ID")
@@ -229,18 +243,25 @@ Examples:
 Notes:
   AN AGENT SITS IN ONE FOLDER, SO THIS IS A MOVE. Assigning again takes the
   agent out of the folder it was in — the row is upserted per agent, so there
-  is never a second assignment, and NOTHING NAMES THE FOLDER IT LEFT. Read
-  "nexus api GET /folders" -> assignments[] first if that matters.
+  is never a second assignment, and NOTHING NAMES THE FOLDER IT LEFT. No folder
+  command prints the assignments; one raw read does, and this is it:
+
+    $ nexus api GET /folders | jq '.data.assignments'
+
+  Each entry is {agentId, folderId}. Run it before and after if you need to know
+  where an agent came from.
   --folder-id null UNASSIGNS. "null" is the literal token; the flag is
-  required, so absence cannot say it. The response then carries
-  assigned: false.
-  IDEMPOTENT AND QUIET: unassigning an agent that was in no folder answers 200
-  with assigned: false, not a 404. So does re-assigning it to the folder it is
-  already in.
+  required, so absence cannot say it.
+  THE PRESENCE OF folderId IS THE SIGNAL — THERE IS NO "assigned" FIELD. An
+  assign answers {agentId, folderId}; an unassign answers {agentId} with the key
+  gone. A script testing .assigned reads undefined on both and cannot tell them
+  apart. Test whether folderId is there.
+  IDEMPOTENT AND QUIET: unassigning an agent that was in no folder answers 200,
+  not a 404. So does re-assigning it to the folder it is already in.
   --agent-id IS NOT CHECKED FOR EXISTENCE. It must be a UUID, but a deleted or
-  non-existent agent is accepted and the assignment is written, reporting
-  assigned: true. Only --folder-id is verified against your organization, and
-  a folder that is not yours answers 404.
+  non-existent agent is accepted and the assignment is written, reporting the
+  same success as a real one. Only --folder-id is verified against your
+  organization, and a folder that is not yours answers 404.
   Verify with "nexus api GET /folders" and read assignments[] — no folder
   command prints them.`
     )
@@ -272,4 +293,11 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`.
+  bindCommand(list, FOLDER_LIST_CONTRACT);
+  bindCommand(create, FOLDER_CREATE_CONTRACT);
+  bindCommand(update, FOLDER_UPDATE_CONTRACT);
+  bindCommand(remove, FOLDER_DELETE_CONTRACT);
+  bindCommand(assign, FOLDER_ASSIGN_AGENT_CONTRACT);
 }

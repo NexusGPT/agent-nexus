@@ -7,9 +7,19 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import {
+  EMULATOR_CREATE_SESSION_CONTRACT,
+  EMULATOR_DELETE_SCENARIO_CONTRACT,
+  EMULATOR_DELETE_SESSION_CONTRACT,
+  EMULATOR_GET_SCENARIO_CONTRACT,
+  EMULATOR_LIST_SCENARIOS_CONTRACT,
+  EMULATOR_LIST_SESSIONS_CONTRACT,
+  EMULATOR_SAVE_SCENARIO_CONTRACT
+} from "./emulator.contract.generated";
 
 export function registerEmulatorCommands(program: Command): void {
   const emulator = program.command("emulator").description("Test deployments via the emulator");
@@ -24,8 +34,9 @@ transport is emulated, so a tool that sends email really sends email.
   session create <dep>  →  send <dep> <session> --text "..."  →  session get
 
 READ THE "status" FIELD "send" RETURNS. "completed" and "failed" are finished
-turns; "processing" means the agent is STILL RUNNING and the reply is not in
-the response — poll "emulator session get" for it.
+turns; "processing" means the agent is still running. THE REPLY IS NOT IN THE
+SEND RESPONSE ON ANY STATUS — "emulator session get" is where every reply is
+read, not just a slow one.
 
 Scenarios record a session's messages so they can be replayed against another
 deployment. Replay is asynchronous and answers with a NEW session id.
@@ -48,11 +59,17 @@ when "emulator send" answered eventually lands.
 
 These are real DeploymentSession rows: they carry real conversations and are
 counted by "nexus deployment stats" alongside genuine customer traffic.
-Deleting one archives its conversation rather than erasing it.`
+Deleting one archives its conversation rather than erasing it.
+
+SO DELETING EVERY SESSION DOES NOT CLEAN UP AFTER A TEST. "session list" comes
+back empty while the conversations those sessions produced are still there,
+ARCHIVED, and still returned by
+"conversation list --deployment-id <dep> --status ARCHIVED". Close them one by
+one with "conversation close" if the inbox has to be clear.`
   );
 
   // ── session create ─────────────────────────────────────────────────────
-  session
+  const sessionCreate = session
     .command("create")
     .description("Create an emulator session")
     .argument("<deployment-id>", "Deployment ID")
@@ -104,7 +121,7 @@ Notes:
     });
 
   // ── session list ───────────────────────────────────────────────────────
-  session
+  const sessionList = session
     .command("list")
     .description("List emulator sessions")
     .argument("<deployment-id>", "Deployment ID")
@@ -172,7 +189,7 @@ Notes:
     });
 
   // ── session delete ─────────────────────────────────────────────────────
-  session
+  const sessionDelete = session
     .command("delete")
     .description("Delete an emulator session")
     .argument("<deployment-id>", "Deployment ID")
@@ -186,9 +203,10 @@ Examples:
   $ nexus emulator session delete dep-123 sess-456 --yes
 
 Notes:
-  RETURNS 204 WITH NO BODY, unlike the agent-family deletes which answer
-  {id, deleted: true} at 200. There is nothing to parse and --json prints
-  nothing useful — a zero exit code is the whole confirmation.
+  THE API ANSWERS 204 WITH NO BODY, unlike the agent-family deletes which
+  answer {id, deleted: true} at 200. Nothing from the server is echoed back, so
+  the exit code is the whole confirmation — the {"success": true, ...} that
+  --json prints is this command's own line, not a server response.
   THE CONVERSATION IS ARCHIVED, NOT DELETED. Only the session row goes; the
   chat it produced is set to ARCHIVED and survives, so this is not a way to
   erase what was said. A scenario saved from this session is untouched and
@@ -236,10 +254,16 @@ Examples:
   $ nexus emulator send dep-123 sess-456 --text "Test" --json
 
 Notes:
+  THE REPLY IS NEVER IN THIS RESPONSE, ON ANY STATUS. Even on "completed" the
+  payload is chatId, messageId, sessionId, status and debug — no text. Reading
+  the agent's answer is always a second call:
+  "nexus emulator session get <deployment-id> <session-id>". Treat "session get"
+  as step two of every send, not as a fallback for a slow turn.
+
   READ "status". IT IS THE ONLY COMPLETION SIGNAL and it has three values:
-  "completed" — the turn finished, and "debug" carries the tools and prompts
-  it used; "failed" — the agent errored, and the 2xx says nothing about it;
-  "processing" — THE AGENT IS STILL RUNNING AND ITS REPLY IS NOT HERE.
+  "completed" — the turn finished and "debug" is present; "failed" — the agent
+  errored, and the 2xx says nothing about it; "processing" — THE AGENT IS STILL
+  RUNNING and the turn has not settled.
 
   "processing" is not an error and not a timeout you should retry. The call
   waits up to 25 seconds and then answers so the connection is not held open;
@@ -251,6 +275,13 @@ Notes:
   There is no "debug" input field. Debug information is collected
   automatically and returned whenever the turn settles inside the wait, so it
   is present on "completed" and absent on "processing".
+  DEBUG CARRIES NO PROMPT AND NO REPLY — it is agentId, modelUsed, tokensUsed,
+  latencyMs, toolsInvoked and the run ids. toolsInvoked is real and is the
+  useful part; there is no way to read the prompt that was sent from here.
+  DO NOT BILL FROM debug.tokensUsed. It is summed from token-usage rows that
+  are written asynchronously, so a turn that settles first reports {input: 0,
+  output: 0, total: 0} beside a real latency and a real reply. Zero here means
+  "not recorded yet", never "free" — use "nexus tracing" for token numbers.
 
   The deployment must be ACTIVE and have an agent, or this is a 400 — that is
   the difference from "session create", which only needs the deployment to
@@ -303,7 +334,7 @@ been sent, and "emulator session get" is where the results appear.`
   );
 
   // ── scenario save ──────────────────────────────────────────────────────
-  scenario
+  const scenarioSave = scenario
     .command("save")
     .description("Save an emulator session's user messages as a replayable scenario")
     // --session-id, --deployment-id and --name are all REQUIRED by the route,
@@ -327,6 +358,11 @@ Notes:
   is saved is the messages the participants sent, with the pauses between
   them; the agent's replies are not stored and are not part of what replay
   compares against. Replaying re-runs the agent from scratch.
+
+  messageCount COUNTS PARTICIPANT MESSAGES, NOT TURNS. A session of one question
+  and one agent reply saves as messageCount 1, which is correct and not a lost
+  message. Replay's own advice is to compare counts, so compare this against the
+  participant messages in the session, never against its total.
 
   --session-id, --deployment-id and --name are all required, by flag or inside
   --body. name is 1-200 characters, --description is capped at 1000, and both
@@ -363,7 +399,7 @@ Notes:
     });
 
   // ── scenario list ──────────────────────────────────────────────────────
-  scenario
+  const scenarioList = scenario
     .command("list")
     .description("List emulator scenarios")
     .option("--deployment-id <id>", "Filter by deployment ID")
@@ -402,7 +438,7 @@ Notes:
     });
 
   // ── scenario get ───────────────────────────────────────────────────────
-  scenario
+  const scenarioGet = scenario
     .command("get")
     .description("Get scenario details")
     .argument("<scenario-id>", "Scenario ID")
@@ -492,7 +528,7 @@ Notes:
     });
 
   // ── scenario delete ────────────────────────────────────────────────────
-  scenario
+  const scenarioDelete = scenario
     .command("delete")
     .description("Delete a scenario")
     .argument("<scenario-id>", "Scenario ID")
@@ -505,8 +541,10 @@ Examples:
   $ nexus emulator scenario delete scn-123 --yes
 
 Notes:
-  RETURNS 204 WITH NO BODY, unlike the agent-family deletes which answer
-  {id, deleted: true} at 200. A zero exit code is the whole confirmation.
+  THE API ANSWERS 204 WITH NO BODY, unlike the agent-family deletes which
+  answer {id, deleted: true} at 200. The exit code is the whole confirmation —
+  the {"success": true, ...} that --json prints is this command's own line, not
+  a server response.
   Permanent: the recorded messages go with it and the session it was taken
   from cannot re-derive them once that session is gone.
   Sessions produced by past replays are NOT deleted and keep their history.
@@ -533,4 +571,14 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. `session get`,
+  // `send` and `scenario replay` reach routes the v1 contract does not declare.
+  bindCommand(sessionCreate, EMULATOR_CREATE_SESSION_CONTRACT);
+  bindCommand(sessionList, EMULATOR_LIST_SESSIONS_CONTRACT);
+  bindCommand(sessionDelete, EMULATOR_DELETE_SESSION_CONTRACT);
+  bindCommand(scenarioSave, EMULATOR_SAVE_SCENARIO_CONTRACT);
+  bindCommand(scenarioList, EMULATOR_LIST_SCENARIOS_CONTRACT);
+  bindCommand(scenarioGet, EMULATOR_GET_SCENARIO_CONTRACT);
+  bindCommand(scenarioDelete, EMULATOR_DELETE_SCENARIO_CONTRACT);
 }

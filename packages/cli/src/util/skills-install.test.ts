@@ -9,6 +9,8 @@ import {
   agentInstallables,
   detectProjectRoot,
   hookInstallables,
+  type InstallLedger,
+  openInstallLedger,
   resolveClaudeTarget,
   safeResolveWithinBase,
   sharedInstallable,
@@ -18,9 +20,13 @@ import {
 } from "./skills-install";
 
 let tmpHome: string;
+// One ledger per test, the way one install run holds one ledger: a file this
+// run wrote is recognised later in the same run.
+let led: InstallLedger;
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "skills-install-test-"));
+  led = openInstallLedger(path.join(tmpHome, ".claude"));
 });
 
 afterEach(() => {
@@ -205,7 +211,7 @@ describe("agentInstallables", () => {
   it("writes the agents into a flat .claude/agents directory", () => {
     const agentsDir = path.join(tmpHome, ".claude", "agents");
     const agents = agentInstallables();
-    const res = writeSkillFiles(agentsDir, agents.files);
+    const res = writeSkillFiles(agentsDir, agents.files, { ledger: led });
     expect(res.created.length).toBe(agents.files.length);
     for (const f of agents.files) {
       expect(fs.existsSync(path.join(agentsDir, f.path))).toBe(true);
@@ -279,17 +285,21 @@ describe("writeSkillFiles — the executable bit", () => {
 
   it("marks a shebang script executable and leaves everything else alone", () => {
     const hooksDir = path.join(tmpHome, ".claude", "hooks");
-    const res = writeSkillFiles(hooksDir, [
-      { path: "nexus-fs-firewall.py", content: Buffer.from("#!/usr/bin/env python3\nx = 1\n") },
-      { path: "guard.sh", content: Buffer.from("#!/bin/sh\necho hi\n") },
-      { path: "runner", content: Buffer.from("#!/usr/bin/env node\n") },
-      // No shebang: a module an entry point imports. An extension rule would
-      // wrongly mark these two executable — 7 bundled `.ts` and 1 `.js` are
-      // exactly this shape.
-      { path: "lib/hook_core.py", content: Buffer.from("x = 1\n") },
-      { path: "script-TEMPLATE.js", content: Buffer.from("export const x = 1;\n") },
-      { path: "README.md", content: Buffer.from("# hooks\n") }
-    ]);
+    const res = writeSkillFiles(
+      hooksDir,
+      [
+        { path: "nexus-fs-firewall.py", content: Buffer.from("#!/usr/bin/env python3\nx = 1\n") },
+        { path: "guard.sh", content: Buffer.from("#!/bin/sh\necho hi\n") },
+        { path: "runner", content: Buffer.from("#!/usr/bin/env node\n") },
+        // No shebang: a module an entry point imports. An extension rule would
+        // wrongly mark these two executable — 7 bundled `.ts` and 1 `.js` are
+        // exactly this shape.
+        { path: "lib/hook_core.py", content: Buffer.from("x = 1\n") },
+        { path: "script-TEMPLATE.js", content: Buffer.from("export const x = 1;\n") },
+        { path: "README.md", content: Buffer.from("# hooks\n") }
+      ],
+      { ledger: led }
+    );
 
     expect(res.created.sort()).toEqual([
       "README.md",
@@ -315,11 +325,11 @@ describe("writeSkillFiles — the executable bit", () => {
     const content = Buffer.from("#!/bin/sh\necho hi\n");
 
     // Reproduce what the pre-fix installer left on disk: right bytes, no +x.
-    writeSkillFiles(base, [{ path: "scripts/run.sh", content }]);
+    writeSkillFiles(base, [{ path: "scripts/run.sh", content }], { ledger: led });
     fs.chmodSync(path.join(base, "scripts", "run.sh"), 0o644);
     expect(modeOf(base, "scripts", "run.sh") & 0o111).toBe(0);
 
-    const res = writeSkillFiles(base, [{ path: "scripts/run.sh", content }]);
+    const res = writeSkillFiles(base, [{ path: "scripts/run.sh", content }], { ledger: led });
 
     // The content is byte-identical, so this is the `skipped` branch — the only
     // branch an existing user's re-install ever reaches.
@@ -333,10 +343,10 @@ describe("writeSkillFiles — the executable bit", () => {
     const base = path.join(tmpHome, "skills");
     const content = Buffer.from("#!/bin/sh\necho hi\n");
 
-    writeSkillFiles(base, [{ path: "private.sh", content }]);
+    writeSkillFiles(base, [{ path: "private.sh", content }], { ledger: led });
     fs.chmodSync(path.join(base, "private.sh"), 0o600);
 
-    writeSkillFiles(base, [{ path: "private.sh", content }]);
+    writeSkillFiles(base, [{ path: "private.sh", content }], { ledger: led });
 
     // 0o755 would hand group and other read+execute on a file the user had
     // deliberately kept to themselves.
@@ -345,9 +355,11 @@ describe("writeSkillFiles — the executable bit", () => {
 
   it("produces a file the OS will actually execute", () => {
     const base = path.join(tmpHome, "skills");
-    writeSkillFiles(base, [
-      { path: "scripts/hello.sh", content: Buffer.from("#!/bin/sh\necho ran-from-install\n") }
-    ]);
+    writeSkillFiles(
+      base,
+      [{ path: "scripts/hello.sh", content: Buffer.from("#!/bin/sh\necho ran-from-install\n") }],
+      { ledger: led }
+    );
 
     const full = path.join(base, "scripts", "hello.sh");
     // The harm is the ACT — a `permission denied` at exec time. Assert the act,
@@ -375,7 +387,7 @@ describe("the real bundle installs its documented scripts executable", () => {
   it("installs them executable, alongside non-executable docs", () => {
     const skillsDir = path.join(tmpHome, ".claude", "skills");
     const shared = sharedInstallable();
-    writeSkillFiles(path.join(skillsDir, shared.slug), shared.files);
+    writeSkillFiles(path.join(skillsDir, shared.slug), shared.files, { ledger: led });
 
     for (const rel of documented) {
       const full = path.join(skillsDir, "shared", rel);
@@ -395,7 +407,7 @@ describe("the real bundle installs its documented scripts executable", () => {
   it("installs every hook entry point executable", () => {
     const hooksDir = path.join(tmpHome, ".claude", "hooks");
     const hooks = hookInstallables();
-    writeSkillFiles(hooksDir, hooks.files);
+    writeSkillFiles(hooksDir, hooks.files, { ledger: led });
 
     const scripts = hooks.files.filter((f) => f.content.subarray(0, 2).toString() === "#!");
     expect(scripts.length).toBeGreaterThan(0);
@@ -408,13 +420,19 @@ describe("the real bundle installs its documented scripts executable", () => {
 describe("writeSkillFiles", () => {
   it("creates, then skips identical, then updates changed", () => {
     const base = path.join(tmpHome, "skills");
-    const r1 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v1") }]);
+    const r1 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v1") }], {
+      ledger: led
+    });
     expect(r1.created).toEqual(["SKILL.md"]);
 
-    const r2 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v1") }]);
+    const r2 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v1") }], {
+      ledger: led
+    });
     expect(r2.skipped).toEqual(["SKILL.md"]);
 
-    const r3 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v2") }]);
+    const r3 = writeSkillFiles(base, [{ path: "SKILL.md", content: Buffer.from("v2") }], {
+      ledger: led
+    });
     expect(r3.updated).toEqual(["SKILL.md"]);
     expect(fs.readFileSync(path.join(base, "SKILL.md"), "utf-8")).toBe("v2");
   });
@@ -422,7 +440,7 @@ describe("writeSkillFiles", () => {
   it("refuses an entry that escapes the base directory", () => {
     const base = path.join(tmpHome, "skills");
     expect(() =>
-      writeSkillFiles(base, [{ path: "../evil.md", content: Buffer.from("x") }])
+      writeSkillFiles(base, [{ path: "../evil.md", content: Buffer.from("x") }], { ledger: led })
     ).toThrow(/unsafe path/);
   });
 });

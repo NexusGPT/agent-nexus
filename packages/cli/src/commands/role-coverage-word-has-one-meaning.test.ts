@@ -88,7 +88,15 @@ const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
   "set-scope-lines": "carries the job-model disclaimer",
   "set-variables": "carries the job-model disclaimer",
   "set-working-year": "carries the job-model disclaimer",
-  "set-system-policy": "carries the job-model disclaimer"
+  "set-system-policy": "carries the job-model disclaimer",
+  // These two render the CAPABILITY enum out of the v1 contract, and
+  // `coverage.view` / `coverage.manage` are in it. That is the automation sense
+  // appearing as an identifier — the docblock above names those two strings as
+  // evidence the figure owns the word — so it is the SAME meaning, not a second
+  // one. Nothing here is prose that a reader could take the checklist way, and
+  // the values are generated, so they cannot be reworded on this side anyway.
+  "create-permission-set": "renders the contract's capability enum, which contains coverage.view",
+  "update-permission-set": "renders the contract's capability enum, which contains coverage.view"
 };
 
 /** Every `nexus role` subcommand, derived from the registrar rather than typed. */

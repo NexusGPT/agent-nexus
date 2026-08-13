@@ -7,6 +7,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "../config";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import {
   color,
@@ -31,6 +32,14 @@ import {
   unmountMissMessage,
   writeMounts
 } from "../workspace-mounts";
+import {
+  WORKSPACE_CREATE_CONTRACT,
+  WORKSPACE_DELETE_CONTRACT,
+  WORKSPACE_LIST_CONTRACT,
+  WORKSPACE_RENAME_CONTRACT,
+  WORKSPACE_RESTORE_CONTRACT,
+  WORKSPACE_SEARCH_CONTRACT
+} from "./workspace.contract.generated";
 
 // ── Mount engines ─────────────────────────────────────────────────────────────
 //
@@ -506,6 +515,21 @@ export function registerWorkspaceCommands(program: Command): void {
   ws.addHelpText(
     "after",
     `
+TWO GROUPS OF SUBCOMMAND, AND THEY FAIL FOR OPPOSITE REASONS.
+
+  Public API v1 (need a valid key and the network):
+    list · create · rename · delete · search · restore
+  This machine's mount registry (no Public API call):
+    mount · unmount · status
+
+"unmount" and "status" keep working after a key is revoked or while offline —
+they report what THIS machine recorded, never what the server holds. "mount" is
+in the local group but still reaches the server over WebDAV, authenticating with
+your API key, so it is the one local-group command a revoked key breaks.
+
+A mounted workspace deleted server-side still appears in "status". When the two
+disagree, "list" is the truth and "status" is the local record.
+
 THE DRIVE IS LIVE AND SHARED. Teammates and agents read and write the same
 files within seconds, and writes are last-write-wins per file. There is no
 checkout, no lock you can rely on and no merge — re-read before you overwrite.
@@ -528,11 +552,29 @@ MOUNTING NEEDS rclone ON LINUX AND WINDOWS (the default engine there):
 
 A SLUG IS NOT UNIQUE. The same slug can name both an org-owned workspace and
 an admin-shared one; the bare slug resolves to the org-owned copy and --shared
-picks the other.`
+picks the other.
+
+THERE IS NO UPLOAD VERB HERE, AND THAT IS THE FIRST THING PEOPLE LOOK FOR. This
+namespace creates, mounts and searches workspaces; it never puts a file into
+one. Two routes do:
+
+  1. Mount it and write through the drive — the normal way.
+  2. WebDAV directly, when a mount is not available (CI, a container):
+       $ curl -X PUT -u "$NEXUS_API_KEY:" --data-binary @local.md \\
+           <base-url>/webdav/<slug>/notes/local.md
+
+To LIST what is in a workspace without mounting, "workspace search" answers
+server-side — and one raw read gives you a plain directory listing:
+
+  $ nexus api GET /workspaces/<slug>/files --query path=<dir>
+
+Neither listing needs a mount, which makes them the cheap answer to "is my file
+there" — the question that otherwise drives a mount.`
   );
 
   // ── list ─────────────────────────────────────────────────────────────────
-  ws.command("list")
+  const list = ws
+    .command("list")
     .description("List the workspaces in your organization")
     .option(
       "--folder-stats",
@@ -550,6 +592,12 @@ Notes:
   READ THE KIND COLUMN BEFORE YOU MOUNT. "org" is your organization's own
   workspace, "shared" is an admin-shared one. Two rows can carry the SAME slug,
   one of each — the bare slug then mounts the org copy and --shared the other.
+  🚨 THE TABLE'S "KIND" AND --json's "kind" ARE DIFFERENT FIELDS WITH THE SAME
+  NAME. The column above shows OWNERSHIP (org / shared); the JSON key literally
+  called kind shows the STORAGE TYPE (CODE / DRIVE), which is the sense
+  "workspace create" documents. So a script reading .kind and testing for
+  "org" or "shared" never matches, and one testing for "CODE" is answering a
+  different question than the table. In --json, ownership is isShared.
   --folder-stats ADDS A COUNT, NOT THE FOLDERS. It costs a depth-1 walk
   server-side, the table shows only how many top-level folders there are, and
   the per-folder breakdown is --json only.
@@ -596,7 +644,8 @@ Notes:
     });
 
   // ── search ─────────────────────────────────────────────────────────────────
-  ws.command("search")
+  const search = ws
+    .command("search")
     .description("Search a workspace's docs server-side by keyword and/or frontmatter (no mount)")
     .argument("<slug>", "Workspace slug")
     .option(
@@ -641,6 +690,12 @@ Notes:
   rather than scanning everything.
   MATCHED tells you WHERE it hit — content, frontmatter or path. A path-only
   hit has no snippet, which is why SNIPPET can be blank on a real match.
+  🚨 A NON-TEXT FILE CANNOT BE FOUND BY ITS PATH EITHER, ONLY BY ITS CONTENT.
+  Non-text files are dropped before matching runs, so the path axis never
+  applies to them: searching an image's EXACT filename answers "No matches",
+  which reads as "that file is not in this workspace" when it is sitting there.
+  Confirm with a mount or with "nexus api GET /workspaces/<slug>/files
+  --query path=<dir>" before believing an absence.
   scanned (STDERR, or --json) is how many files were actually opened, not how
   many exist.
   No mount needed, and no local files are read — this runs server-side.`
@@ -708,7 +763,8 @@ Notes:
     );
 
   // ── create ───────────────────────────────────────────────────────────────
-  ws.command("create")
+  const create = ws
+    .command("create")
     .description("Create a new workspace — the slug is derived from the name and is permanent")
     .argument("<name>", "Workspace name (the slug is derived from it)")
     .addHelpText(
@@ -747,7 +803,8 @@ Notes:
     });
 
   // ── rename ───────────────────────────────────────────────────────────────
-  ws.command("rename")
+  const rename = ws
+    .command("rename")
     .description("Rename a workspace — the DISPLAY NAME only, the slug never changes")
     .argument("<slug>", "Workspace slug")
     .argument("<name>", "New name")
@@ -781,7 +838,8 @@ Notes:
     });
 
   // ── delete ───────────────────────────────────────────────────────────────
-  ws.command("delete")
+  const remove = ws
+    .command("delete")
     .description("Delete a workspace and PURGE every file in it — not a soft delete")
     .argument("<slug>", "Workspace slug")
     .option("--yes", "Skip confirmation")
@@ -800,8 +858,15 @@ Notes:
   ANYTHING MOUNTED KEEPS ITS MOUNT POINT AND STOPS WORKING. The local directory
   and the registry entry survive as a dead mount; run
   "nexus workspace unmount <slug>" yourself afterwards.
-  ROLE GRANTS AND AGENT LINKS TO IT GO SILENTLY. Nothing warns which agents or
-  Roles reached this workspace — check "nexus role workspace-grants" first.
+  ROLE GRANTS AND AGENT LINKS TO IT GO SILENTLY, AND YOU CANNOT LIST THEM
+  FIRST. "nexus role workspace-grants" is indexed by ROLE — its signature is
+  workspace-grants <role> — so answering "which Roles reach this workspace"
+  means running it once per Role and filtering. There is no workspace-indexed
+  read. Either do that sweep, or accept that grants are lost unrecorded.
+  A CODE WORKSPACE USUALLY BACKS A VIBE APP. Rows whose storage type is CODE
+  (the "kind" key in --json) are projections of a git project, and share a name
+  with the app and the project. Check "nexus vibe app list" for a matching name
+  before deleting one.
   A PARTIAL FAILURE LEAVES THE WORKSPACE PRESENT. If the storage purge fails
   the record is kept on purpose so a retry can finish; re-run the same command.
   --yes is REQUIRED when stdin is not a TTY: without it a script exits 1
@@ -835,7 +900,8 @@ Notes:
     });
 
   // ── restore ──────────────────────────────────────────────────────────────
-  ws.command("restore")
+  const restore = ws
+    .command("restore")
     .description("Restore a deleted file or folder from backup (within the recovery window)")
     .argument("<slug>", "Workspace slug")
     .argument("<path>", "The deleted file or folder path (relative to the workspace root)")
@@ -1218,6 +1284,10 @@ Notes:
   saying the mount does not exist.
   UNSAVED WORK IN FLIGHT IS NOT FLUSHED FOR YOU. Writes propagate within
   seconds — let a large copy finish before unmounting.
+  THE MOUNT-POINT DIRECTORY SURVIVES, EMPTY, AND YOU MUST REMOVE IT YOURSELF.
+  Since "workspace mount" refuses a mount point that is not empty, the leftover
+  directory is usually fine — but it is what bites you when something later
+  writes into it while unmounted. Run "rmdir" on the path you passed to --at.
   A mount point with no record answers "No mount recorded for <slug>". If the
   OS still has it mounted, unmount it with the platform tool (umount /
   fusermount -u) — this command only knows what it recorded.
@@ -1347,6 +1417,16 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. Only the six
+  // Public API v1 subcommands are bound; mount / unmount / status speak to this
+  // machine's own registry and call no v1 route at all.
+  bindCommand(list, WORKSPACE_LIST_CONTRACT);
+  bindCommand(search, WORKSPACE_SEARCH_CONTRACT);
+  bindCommand(create, WORKSPACE_CREATE_CONTRACT);
+  bindCommand(rename, WORKSPACE_RENAME_CONTRACT);
+  bindCommand(remove, WORKSPACE_DELETE_CONTRACT);
+  bindCommand(restore, WORKSPACE_RESTORE_CONTRACT);
 }
 
 /** OS-native unmount of a mount point. Best-effort across platforms/engines. */

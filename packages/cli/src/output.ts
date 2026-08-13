@@ -98,6 +98,177 @@ function field(row: object, key: string): unknown {
 }
 
 /**
+ * Marks a value the terminal cannot honestly render.
+ *
+ * A cell that says nothing is better than a cell that says the WRONG thing, and
+ * `[object Object]` is the wrong thing: it looks like a value, occupies the
+ * column, and tells the reader nothing about what is actually there.
+ */
+const UNRENDERABLE = "[unrenderable]";
+
+/**
+ * `String(x)` reached `Object.prototype.toString` somewhere in the value.
+ *
+ * A SUBSTRING test, not an anchored one, and the difference is a real hole:
+ * `String([{a:1},{b:2}])` is `"[object Object],[object Object]"`, which an
+ * anchored `^\[object \w+\]$` does not match — so a two-element array of objects
+ * slipped through while a one-element array (whose `toString` IS the element's)
+ * was caught. Arrays are handled before this test anyway, but the substring form
+ * is the one that stays correct for whatever shape arrives next.
+ */
+const USELESS_TO_STRING = /\[object [A-Za-z]+\]/;
+
+/**
+ * Render one value into one terminal cell. The ONLY value-to-text conversion
+ * the printers perform.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 `String(value)` ON AN OBJECT PRINTS `[object Object]`, AND NOTHING CATCHES IT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Every printer here used to interpolate `String(field(row, key) ?? "")`. That is
+ * correct for a string, a number and a boolean — and for an object or an array it
+ * emits `[object Object]`, which typechecks, lints clean, passes every test that
+ * asserts a column is present, and is unreadable. `nexus analytics overview`
+ * shipped four such fields of twelve (`tokenUsage`, `timeSeries`, `byChannel`,
+ * `byDeployment`, `byModel`), and `nexus access-card get` shipped `policies` — the
+ * field whose whole point is that you must read the key set.
+ *
+ * A response field is a nested object often enough that a per-command `format`
+ * cannot be the defence: the next command to render one has the bug again, and
+ * the bug is invisible until a human looks at the output. So the printer refuses
+ * to produce the shape at all.
+ *
+ * The rule is deliberately generic rather than a list of known types: use the
+ * value's own `toString` when it has a real one, and JSON otherwise. That covers
+ * every object shape a v1 response can carry, including ones nobody has written
+ * yet.
+ *
+ * `--json` never reaches this function. It serializes the untouched response, so
+ * a script still gets the full nested object.
+ */
+export function renderCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+
+  // A Date's own toString is a verbose local-time sentence; the wire format is
+  // ISO 8601 and that is what the rest of the CLI prints.
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? UNRENDERABLE : value.toISOString();
+  }
+  if (value instanceof Error) return value.message;
+
+  // An array's own toString is a comma join, which is a "real" toString by the
+  // test below and yet destroys the structure: `[1,2]` reads as `1,2`, and
+  // `[{a:1},{b:2}]` reads as `[object Object],[object Object]`. Always JSON.
+  if (Array.isArray(value)) {
+    try {
+      return JSON.stringify(value) ?? UNRENDERABLE;
+    } catch {
+      return UNRENDERABLE;
+    }
+  }
+
+  const asString = String(value);
+  if (!USELESS_TO_STRING.test(asString)) return asString;
+
+  // Only objects with no useful toString reach here. JSON says what they hold.
+  try {
+    const json = JSON.stringify(value);
+    return json ?? UNRENDERABLE;
+  } catch {
+    // Circular, or a BigInt inside. Never fall back to String() — that is the
+    // exact `[object Object]` this function exists to make impossible.
+    return UNRENDERABLE;
+  }
+}
+
+/** Appended to a cell that was cut. One column wide in every terminal. */
+const ELLIPSIS = "…";
+
+/**
+ * Fit rendered text to a column: pad it out, or cut it and SAY SO.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A SILENT CUT MAKES DISTINCT VALUES IDENTICAL, AND THE READER ACTS ON IT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The old code was `val.padEnd(width).slice(0, width)` — a hard cut with no
+ * marker. `nexus workspace status` renders four mounts under one long shared
+ * prefix, so past the 50-char auto-cap all four printed as the SAME path and an
+ * operator picking one from that list picks blind. Nothing in the output says a
+ * cut happened, which is strictly worse than printing nothing: a blank cell is
+ * read as absent, an unmarked truncation is read as the value.
+ *
+ * The root epilogue already promises "a table COLUMN IS TRUNCATED TO ITS WIDTH".
+ * That promise is only usable if a reader can tell WHICH cells it happened to.
+ *
+ * The ellipsis costs one column of content, which is the correct trade: a cell
+ * that is one character shorter and honest beats a cell that is full and wrong.
+ */
+export function fitCell(text: string, width: number, from: "end" | "middle" = "end"): string {
+  if (width <= 0) return "";
+  if (text.length <= width) return text.padEnd(width);
+  if (width === 1) return ELLIPSIS;
+  if (from === "end") return text.slice(0, width - 1) + ELLIPSIS;
+
+  // Middle: keep both ends. Used when cutting the tail would make two rows
+  // identical — see `chooseFit`.
+  const keep = width - 1;
+  const head = Math.ceil(keep / 2);
+  return text.slice(0, head) + ELLIPSIS + text.slice(text.length - (keep - head));
+}
+
+/** How one column will be cut, and how wide it ends up. */
+interface Fit {
+  width: number;
+  from: "end" | "middle";
+}
+
+/**
+ * Pick a fit for one column that CANNOT make two distinct rows read the same.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A VISIBLE CUT IS NOT ENOUGH. THE CELLS MUST STILL BE TELLABLE APART.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Adding an ellipsis fixes "the reader cannot tell a cut happened". It does NOT
+ * fix the harm that was actually reported: `workspace status` renders four
+ * mounts under a 56-character shared prefix, so cutting the TAIL at 50 leaves
+ * four identical cells — now four identical cells that each end in an ellipsis.
+ * The operator still cannot tell them apart, and still picks the wrong mount.
+ *
+ * Proven by the test that failed on the first attempt at this fix: with the
+ * ellipsis in and no collapse check, four distinct paths still rendered as one.
+ *
+ * The printer already holds every row before it chooses a width, so it can just
+ * check. Three rungs, cheapest first:
+ *
+ *  1. **End cut** — the normal case, and it keeps every existing table byte
+ *     identical. A uuid column at `width: 10` differs at the HEAD, so it never
+ *     leaves this rung.
+ *  2. **Middle cut**, if an end cut collapses rows. Paths, slugs and namespaced
+ *     ids carry their distinguishing part in the TAIL, so keeping both ends
+ *     recovers it at the same width.
+ *  3. **No cut**, if a middle cut still collapses rows. The column widens to its
+ *     longest value. A wide row is a cosmetic cost; a table asserting two
+ *     different things are the same thing is a wrong answer, and this rung is
+ *     bounded by the data rather than unbounded.
+ *
+ * An explicit `col.width` is a request, and rungs 2-3 may override it. That is
+ * deliberate: a width is a layout preference, and distinctness is correctness.
+ */
+function chooseFit(cells: readonly string[], width: number): Fit {
+  const distinct = new Set(cells).size;
+  const survives = (from: "end" | "middle"): boolean =>
+    new Set(cells.map((c) => fitCell(c, width, from))).size === distinct;
+
+  if (survives("end")) return { width, from: "end" };
+  if (survives("middle")) return { width, from: "middle" };
+  return { width: cells.reduce((max, c) => Math.max(max, c.length), width), from: "end" };
+}
+
+/**
  * Column formatter for a `folder` field (`{ id, name } | null`) — renders the
  * folder name, or a dash when the resource is not in a folder. JSON output keeps
  * the full object untouched; this only affects the human-readable table.
@@ -132,33 +303,29 @@ export function printTable<T extends object>(
     return;
   }
 
-  // Calculate widths
-  const widths = columns.map((col) => {
-    const headerLen = col.label.length;
-    const maxDataLen = rows.reduce((max, row) => {
-      const val = col.format ? col.format(field(row, col.key)) : String(field(row, col.key) ?? "");
-      return Math.max(max, val.length);
-    }, 0);
-    return col.width ?? Math.min(Math.max(headerLen, maxDataLen), 50);
+  // Render every cell up front. The fit for a column is a property of ALL its
+  // values together, not of one value at a time — see `chooseFit`.
+  const cells = columns.map((col) =>
+    rows.map((row) =>
+      col.format ? col.format(field(row, col.key)) : renderCell(field(row, col.key))
+    )
+  );
+
+  const fits = columns.map((col, i) => {
+    const maxDataLen = cells[i].reduce((max, c) => Math.max(max, c.length), 0);
+    const requested = col.width ?? Math.min(Math.max(col.label.length, maxDataLen), 50);
+    return chooseFit(cells[i], requested);
   });
 
-  // Header
-  const header = columns.map((col, i) => color.bold(col.label.padEnd(widths[i]))).join("  ");
-  console.log(header);
-  console.log(columns.map((_, i) => "─".repeat(widths[i])).join("  "));
+  // Header. Fitted like a data cell: an explicit `width` narrower than the label
+  // used to pad without cutting, so the label overflowed its column and every
+  // column to its right lost alignment for the whole table.
+  console.log(columns.map((col, i) => color.bold(fitCell(col.label, fits[i].width))).join("  "));
+  console.log(fits.map((f) => "─".repeat(f.width)).join("  "));
 
-  // Rows
-  for (const row of rows) {
-    const line = columns
-      .map((col, i) => {
-        const val = col.format
-          ? col.format(field(row, col.key))
-          : String(field(row, col.key) ?? "");
-        return val.padEnd(widths[i]).slice(0, widths[i]);
-      })
-      .join("  ");
-    console.log(line);
-  }
+  rows.forEach((_, r) => {
+    console.log(fits.map((f, i) => fitCell(cells[i][r], f.width, f.from)).join("  "));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -174,9 +341,9 @@ export function printRecord<T extends object>(data: T, fields?: readonly RecordF
   const entries = fields
     ? fields.map((f) => [
         f.label,
-        f.format ? f.format(field(data, f.key)) : String(field(data, f.key) ?? "")
+        f.format ? f.format(field(data, f.key)) : renderCell(field(data, f.key))
       ])
-    : Object.entries(data).map(([k, v]) => [k, String(v ?? "")]);
+    : Object.entries(data).map(([k, v]) => [k, renderCell(v)]);
 
   const maxLabel = entries.reduce((max, [label]) => Math.max(max, label.length), 0);
 
@@ -242,16 +409,45 @@ function jsonPayload(data: object | undefined): Record<string, unknown> {
   );
 }
 
+/**
+ * A 2xx, rendered.
+ *
+ * 🔴 `message` IS CARRIED INTO THE JSON DOCUMENT, AND THAT IS THE POINT OF THIS
+ * FUNCTION HAVING TWO ARGUMENTS.
+ *
+ * It used to be dropped under `--json`, which made the machine-readable output
+ * carry strictly LESS diagnostic information than the human one. That is only
+ * cosmetic while the message is a constant restating the data — and it is not a
+ * constant everywhere. Eight call sites choose the message on the RESULT:
+ *
+ *     printSuccess(result.removed ? "Workspace revoked." : "No such grant.",
+ *                  { removed: result.removed })
+ *
+ * There the branch IS the diagnosis. A caller reading the human form was told
+ * `No such grant.`; the same call under `--json` got a bare `removed: false`,
+ * which reads as "the operation failed" rather than "you named something that
+ * does not exist". A user who passed a workspace id where a grant id was wanted
+ * had the explanation available and the flag he used threw it away.
+ *
+ * Derived, not listed: an AST sweep of all 193 `printSuccess` call sites found
+ * the 8 with a conditional message, and 0 passing a `message` key of their own —
+ * so nothing collides with the key added here. The gate that keeps it that way
+ * is `output-json-keeps-the-diagnostic.test.ts`.
+ *
+ * `message` is added, never substituted, so every existing `--json` consumer
+ * reading `success` or a data field is unaffected.
+ */
 export function printSuccess(message: string, data?: object): void {
   if (_jsonMode) {
-    console.log(JSON.stringify({ success: true, ...jsonPayload(data) }, null, 2));
+    console.log(JSON.stringify({ success: true, message, ...jsonPayload(data) }, null, 2));
     return;
   }
 
   console.log(color.green("✓") + " " + message);
   if (data) {
     for (const [key, value] of Object.entries(data)) {
-      console.log(`  ${color.dim(key + ":")} ${isAbsent(value) ? value[ABSENT_TEXT] : value}`);
+      const rendered = isAbsent(value) ? value[ABSENT_TEXT] : renderCell(value);
+      console.log(`  ${color.dim(key + ":")} ${rendered}`);
     }
   }
 }

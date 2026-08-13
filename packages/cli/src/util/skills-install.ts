@@ -1,8 +1,8 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { color } from "../output";
 import {
   AGENT_FILES,
   CLAUDE_MD,
@@ -12,6 +12,7 @@ import {
   type SkillEntry,
   SKILLS
 } from "../skills-content.generated";
+import { confirmDestructive } from "./confirm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,11 @@ export interface WriteResult {
   created: string[];
   updated: string[];
   skipped: string[];
+  /**
+   * On disk, DIFFERENT from the bundle, and not recognisable as something this
+   * CLI wrote. Left exactly as it was; `--force` is the only way past it.
+   */
+  preserved: string[];
 }
 
 export type ClaudeMdStatus = "created" | "updated" | "skipped" | "preserved";
@@ -235,9 +241,8 @@ export function resolveClaudeTarget(
 ): ClaudeTarget {
   // 1. --dir wins outright (explicit user intent).
   if (opts.dir) {
-    const skillsDir = path.resolve(opts.dir);
-    const projectRoot = projectRootForSkillsDir(skillsDir, cwd);
-    const claudeDir = claudeDirForSkillsDir(skillsDir, projectRoot);
+    const skillsDir = path.resolve(cwd, opts.dir);
+    const { projectRoot, claudeDir } = layoutForExplicitDir(skillsDir);
     return {
       skillsDir,
       claudeDir,
@@ -295,32 +300,37 @@ function claudeTargetForRoot(root: string, reason: TargetReason): ClaudeTarget {
 }
 
 /**
- * Resolve the `.claude` dir for an explicit `--dir`. When the dir follows the
- * conventional `<root>/.claude/skills` layout we reuse that `.claude` parent so
- * settings.json + hooks sit beside the skills; otherwise we fall back to a
- * `.claude` under the resolved project root.
+ * `--dir` IS THE ONLY INPUT. Everything an explicit install writes is derived
+ * from the directory the user named, and nothing from the directory they happen
+ * to be standing in.
+ *
+ * That was not true, and the divergence was invisible: only `skillsDir` came
+ * from `--dir`. `projectRoot` fell back to the CURRENT WORKING DIRECTORY for any
+ * dir that did not end in `.claude/skills`, and `claudeDir` was built on top of
+ * it. So `nexus claude-code install --dir /tmp/scratch` wrote the skills to
+ * /tmp/scratch and then wrote `$CWD/CLAUDE.md`, `$CWD/.claude/settings.json`,
+ * `$CWD/.claude/hooks/**` and `$CWD/.claude/agents/**` into whatever real
+ * project the operator was in. The plan printed those paths, and every one of
+ * them read as part of a run the operator had aimed somewhere else.
+ *
+ * Two layouts, one rule:
+ *
+ *   - `<root>/.claude/skills` — the conventional shape, and the DEFAULT of
+ *     `claude-code install`. `<root>` is a real project root, so `CLAUDE.md`
+ *     goes there and the posture goes in `<root>/.claude`. Outside `--dir`, but
+ *     derived from it: the user named the skills subdirectory OF that tree.
+ *   - anything else — the named directory is the whole target. Skills, CLAUDE.md,
+ *     settings.json, hooks/ and agents/ all land inside it and nothing escapes.
+ *
+ * `skills where --dir <path>` prints the answer without writing, and it is now
+ * a complete answer: no path it prints can be changed by where you run it from.
  */
-function claudeDirForSkillsDir(skillsDir: string, projectRoot: string): string {
+function layoutForExplicitDir(skillsDir: string): { projectRoot: string; claudeDir: string } {
   const parent = path.dirname(skillsDir);
-  if (path.basename(skillsDir) === "skills" && path.basename(parent) === ".claude") {
-    return parent;
-  }
-  return path.join(projectRoot, ".claude");
-}
+  const conventional = path.basename(skillsDir) === "skills" && path.basename(parent) === ".claude";
 
-/**
- * Resolve the project root for an explicit `--dir`. Claude Code auto-loads
- * project memory from `<root>/CLAUDE.md`, so for the conventional
- * `<root>/.claude/skills` layout we walk up to `<root>`. For a custom dir that
- * doesn't follow that layout, fall back to the current working directory —
- * still the project root the user invoked us from.
- */
-function projectRootForSkillsDir(skillsDir: string, cwd: string): string {
-  const parent = path.dirname(skillsDir);
-  if (path.basename(skillsDir) === "skills" && path.basename(parent) === ".claude") {
-    return path.dirname(parent);
-  }
-  return path.resolve(cwd);
+  if (conventional) return { projectRoot: path.dirname(parent), claudeDir: parent };
+  return { projectRoot: skillsDir, claudeDir: skillsDir };
 }
 
 // ── fs helpers ────────────────────────────────────────────────────────────────
@@ -408,13 +418,141 @@ function grantExecute(fullPath: string): void {
   }
 }
 
+// ── The install ledger ────────────────────────────────────────────────────────
+
+/**
+ * WHAT THIS CLI WROTE, SO IT CAN TELL ITS OWN FILE FROM THE USER'S.
+ *
+ * ── The defect ───────────────────────────────────────────────────────────────
+ *
+ * `skills update` / `claude-code install` refreshed skills, hooks and agents
+ * "in place": any on-disk file whose bytes differed from the bundle was
+ * overwritten, with no prompt, no `--force`, and no way back. The only signal
+ * was a counter — "Installed 41 skills (612 files)" — which is identical whether
+ * those files were stale copies of our own output or hand-edited guardrails the
+ * operator wrote. `.claude/hooks/**` is executable Python that can DENY the
+ * user's tool calls; `.claude/agents/**` is their subagent definitions. Editing
+ * those is the normal reason to have them.
+ *
+ * ── Why a checksum ledger, and not the alternatives ──────────────────────────
+ *
+ * The question is "did the USER change this", and the only honest way to answer
+ * it is to know what WE last wrote. Three candidates:
+ *
+ *   - **mtime** — can produce a false "unmodified", which is the one error that
+ *     destroys work. `cp -p`, `git checkout`, `rsync --times`, a restore from a
+ *     backup and an unpacked archive all reinstate an old mtime over new bytes.
+ *   - **compare against the bundle** — this is what the code did. It cannot
+ *     distinguish "the user edited it" from "the bundle moved on", because both
+ *     are simply "differs".
+ *   - **a checksum of what we wrote** — a hash mismatch means the bytes changed
+ *     after our write, whatever touched them. No false "unmodified" exists: the
+ *     only way to hash equal is to hold the exact bytes we left.
+ *
+ * ── The one case it genuinely cannot answer, and which way it fails ──────────
+ *
+ * A tree installed BEFORE this ledger shipped has no entry for any file. Then
+ * "user-edited" and "written by an older CLI" are indistinguishable, and the
+ * choice is which error to make. It preserves — an unnecessary `--force` costs
+ * one re-run, and a wrong overwrite costs work that has no copy. The message
+ * names the files and the flag, so the cost is bounded and visible.
+ *
+ * `skipped` files are recorded too, which is how a legacy tree heals: every file
+ * that already matches the bundle enters the ledger on the first run, and only
+ * the genuinely-divergent ones ever need the flag.
+ */
+export const INSTALL_MANIFEST_BASENAME = ".nexus-install-manifest.json";
+
+interface InstallManifestFile {
+  version: 1;
+  files: Record<string, string>;
+}
+
+export interface InstallLedger {
+  /** Absolute `.claude` directory the manifest lives in and keys are relative to. */
+  readonly claudeDir: string;
+  /** What the previous install recorded. */
+  readonly previous: Readonly<Record<string, string>>;
+  /** What this install has written so far — becomes the next manifest. */
+  readonly next: Record<string, string>;
+}
+
+export function installManifestPath(claudeDir: string): string {
+  return path.join(claudeDir, INSTALL_MANIFEST_BASENAME);
+}
+
+/** Read the manifest for `claudeDir`. A missing or unreadable one is an empty ledger. */
+export function openInstallLedger(claudeDir: string): InstallLedger {
+  const resolved = path.resolve(claudeDir);
+  let previous: Record<string, string> = {};
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(installManifestPath(resolved), "utf-8"));
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as InstallManifestFile).version === 1
+    ) {
+      const files = (parsed as InstallManifestFile).files;
+      // Only string→string entries survive; a hand-mangled manifest degrades to
+      // "we do not recognise this file", never to "this file is ours".
+      if (typeof files === "object" && files !== null) {
+        previous = Object.fromEntries(
+          Object.entries(files).filter(([, v]) => typeof v === "string")
+        );
+      }
+    }
+  } catch {
+    /* absent, unreadable or malformed — an empty ledger preserves rather than overwrites */
+  }
+  return { claudeDir: resolved, previous, next: {} };
+}
+
+/** Persist what this install wrote. Best-effort: a manifest we cannot write must not fail an install. */
+export function commitInstallLedger(ledger: InstallLedger): void {
+  const body: InstallManifestFile = {
+    version: 1,
+    files: Object.fromEntries(Object.entries(ledger.next).sort(([a], [b]) => a.localeCompare(b)))
+  };
+  try {
+    fs.mkdirSync(ledger.claudeDir, { recursive: true });
+    fs.writeFileSync(installManifestPath(ledger.claudeDir), `${JSON.stringify(body, null, 2)}\n`);
+  } catch {
+    /* the next install simply falls back to "unrecognised" and preserves */
+  }
+}
+
+function ledgerKey(ledger: InstallLedger, fullPath: string): string {
+  const rel = path.relative(ledger.claudeDir, fullPath);
+  // A write base outside the .claude dir has no stable relative key; the
+  // absolute path is still deterministic and still only ever matches itself.
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return fullPath;
+  return rel.split(path.sep).join("/");
+}
+
+function sha256(content: Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
 // ── Writers ───────────────────────────────────────────────────────────────────
+
+export interface WriteOpts {
+  /**
+   * Required, not optional: an install that forgets to thread the ledger is the
+   * defect this whole mechanism exists to remove, and an optional parameter
+   * makes forgetting the default.
+   */
+  ledger: InstallLedger;
+  /** Overwrite a file this CLI does not recognise. */
+  force?: boolean;
+}
 
 export function writeSkillFiles(
   basePath: string,
-  files: { path: string; content: Buffer }[]
+  files: { path: string; content: Buffer }[],
+  opts: WriteOpts
 ): WriteResult {
-  const result: WriteResult = { created: [], updated: [], skipped: [] };
+  const result: WriteResult = { created: [], updated: [], skipped: [], preserved: [] };
+  const { ledger } = opts;
 
   for (const file of files) {
     const fullPath = safeResolveWithinBase(basePath, file.path);
@@ -438,6 +576,8 @@ export function writeSkillFiles(
       if (code !== "ENOENT") throw err;
     }
 
+    const key = ledgerKey(ledger, fullPath);
+
     if (existingStat) {
       if (!existingStat.isFile()) {
         throw new Error(
@@ -446,13 +586,26 @@ export function writeSkillFiles(
       }
       const existing = fs.readFileSync(fullPath);
       if (existing.equals(file.content)) {
+        // Already the bundle's bytes. Record it, so a tree installed before the
+        // ledger existed stops being unrecognised one file at a time.
+        ledger.next[key] = sha256(file.content);
         result.skipped.push(file.path);
       } else {
+        // `next` first: a file written earlier in THIS install is ours even
+        // though the on-disk manifest predates it.
+        const recorded = ledger.next[key] ?? ledger.previous[key];
+        const isOurs = recorded !== undefined && recorded === sha256(existing);
+        if (!isOurs && !opts.force) {
+          result.preserved.push(file.path);
+          continue;
+        }
         fs.writeFileSync(fullPath, file.content);
+        ledger.next[key] = sha256(file.content);
         result.updated.push(file.path);
       }
     } else {
       fs.writeFileSync(fullPath, file.content);
+      ledger.next[key] = sha256(file.content);
       result.created.push(file.path);
     }
 
@@ -460,6 +613,8 @@ export function writeSkillFiles(
     // install before this shipped has these scripts on disk with byte-identical
     // content at mode 0644, so `skipped` is the exact path their repair travels
     // — a chmod reachable only from `created`/`updated` would never fix them.
+    // A PRESERVED file is skipped by the `continue` above: it is the user's file
+    // now, and its mode is theirs to choose.
     if (hasShebang(file.content)) grantExecute(fullPath);
   }
 
@@ -531,23 +686,20 @@ export function writeRootSettingsJson(
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
+/**
+ * The installer's confirmation, on the one shared path.
+ *
+ * It already refused without a terminal, which was the safe branch — but it
+ * tested `process.stdout.isTTY`, so `nexus skills update > log.txt` from an
+ * interactive shell refused with a human sitting right there. A confirmation
+ * READS; `confirmDestructive` tests stdin, which is the only stream that says
+ * whether anyone can answer.
+ *
+ * @see confirmDestructive — the convention, and why refusing is the default.
+ */
 export async function confirmOrAbort(
   message: string,
   opts: { yes?: boolean; force?: boolean }
 ): Promise<boolean> {
-  if (opts.yes || opts.force) return true;
-
-  if (!process.stdout.isTTY) {
-    console.error(
-      color.red("Error:") + " Cannot prompt in non-interactive mode. Use --yes or --force."
-    );
-    process.exitCode = 1;
-    return false;
-  }
-
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(message);
-  rl.close();
-  return answer.toLowerCase() === "y" || answer === "";
+  return confirmDestructive(message, opts);
 }

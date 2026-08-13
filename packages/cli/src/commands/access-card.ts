@@ -2,14 +2,33 @@ import type { CreateAccessCardBody, UpdateAccessCardBody } from "@agent-nexus/sd
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import {
+  ACCESS_CARD_CREATE_CONTRACT,
+  ACCESS_CARD_UPDATE_CONTRACT
+} from "./access-card.contract.generated";
 
 export function registerAccessCardCommands(program: Command): void {
   const accessCard = program
     .command("access-card")
     .description("Manage access cards for credential-level action policies");
+
+  accessCard.addHelpText(
+    "after",
+    `
+WHAT AN ACCESS CARD IS FOR: handing the SAME connection to different agents
+under different restrictions. A card names exactly which actions a credential
+may run and which parameters those actions may set, so one Gmail connection can
+be read-only for one agent and send-to-a-fixed-address for another — without a
+second Gmail account and without giving either agent the raw credential.
+
+The credential is the ACCESS; the card is the LIMIT on it. Every credential
+already carries an unrestricted master card, so a card you create is always a
+narrowing of something that already works.`
+  );
 
   // ── list ──────────────────────────────────────────────────────────────
   accessCard
@@ -26,6 +45,9 @@ Examples:
 Notes:
   --credential-id IS REQUIRED. Cards are scoped to one credential; there is no
   org-wide listing on this command.
+  THE MASTER CARD IS CREATED WITH THE CREDENTIAL, BY THE PLATFORM. You never
+  make it and there is no command that would. So a brand-new credential already
+  lists exactly one card — one row is the baseline here, not zero.
   THE MASTER ROW IS IN THIS LIST (MASTER true, policies {}). It is the
   credential's own all-access card, it cannot be deleted, and its policies
   cannot be edited — do not mistake it for a card you created.
@@ -90,7 +112,7 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  accessCard
+  const create = accessCard
     .command("create")
     .description("Create a new access card")
     .requiredOption("--credential-id <id>", "Credential ID (required)")
@@ -161,7 +183,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  accessCard
+  const update = accessCard
     .command("update")
     .description("Update an access card")
     .argument("<id>", "Access Card ID")
@@ -181,6 +203,10 @@ Notes:
   time — sending one action drops every other action the card allowed, and the
   response looks like a successful update.
   Read the current map with "access-card get <id> --json" and edit that.
+  THE REPLACEMENT ONLY FIRES WHEN YOU ACTUALLY SEND policies. A metadata-only
+  edit — --name, --description or --color with no --data — leaves the existing
+  policies untouched. So renaming a card is safe; it is only a --data carrying
+  a partial policies map that silently narrows the card.
 
   THE MASTER CARD REFUSES policies AND variables: 400. Rename or recolour it
   freely; to restrict anything, create a derived card instead.
@@ -226,6 +252,10 @@ Examples:
 
 Notes:
   Master access cards cannot be deleted — that request is a 400.
+  IT IS NOT IDEMPOTENT: DELETING AN ALREADY-DELETED CARD IS A "not found". So a
+  retry after a timeout or a dropped connection reports a failure for a delete
+  that in fact succeeded. Treat "not found" here as "already gone", not as an
+  error to escalate.
   NO CONFIRMATION AND NO CHECK ON USE. A card an agent or workflow still names
   deletes without warning, and every call through it then fails 403
   ACCESS_CARD_NOT_FOUND at run time. Repoint the consumers first.
@@ -260,7 +290,13 @@ Notes:
   ACTION ID IS THE KEY, copied verbatim. A key that names no real action still
   saves — it simply matches nothing, so the card denies what you meant to allow
   and nothing reports the typo.
-  Use --json to read each action's parameter names before writing a policy.`
+  Use --json to read each action's parameter names before writing a policy.
+  THE ACTIONS DEPEND ON THE CREDENTIAL'S SOURCE, AND ARE NOT ALWAYS THE TOOL'S
+  API OPERATIONS. Some credentials expose only INFRASTRUCTURAL actions — a
+  single "use this in deployments" entry with no parameters, rather than the
+  per-operation list you would expect. A short, oddly-shaped list is that, not
+  a truncated response: whatever it returns is the complete set of keys a
+  policy on this credential can name.`
     )
     .action(async (opts) => {
       try {
@@ -277,4 +313,21 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST. Both enums sit inside `variables[]`, an ARRAY OF OBJECTS that
+  // reaches the request only through --data — there is no flag that could carry
+  // one element's `type`, let alone one element's `constraint.format`, so these
+  // are body-only by construction rather than by omission. Declaring them is
+  // what lets the gate tell that apart from a field somebody forgot to expose.
+  const VARIABLES_ARE_JSON_ONLY =
+    "variables is an array of objects inside --data; a flag cannot address one element";
+
+  bindCommand(create, ACCESS_CARD_CREATE_CONTRACT, {
+    "Body.variables[].type": VARIABLES_ARE_JSON_ONLY,
+    "Body.variables[].constraint.format": VARIABLES_ARE_JSON_ONLY
+  });
+  bindCommand(update, ACCESS_CARD_UPDATE_CONTRACT, {
+    "Body.variables[].type": VARIABLES_ARE_JSON_ONLY,
+    "Body.variables[].constraint.format": VARIABLES_ARE_JSON_ONLY
+  });
 }

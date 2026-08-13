@@ -839,37 +839,68 @@ bash packages/cli/scripts/sweep.sh --profile prod --json
 
 ### Release process
 
-Releases are fully automated. The `.github/workflows/cli-release.yml` workflow watches `main` for version bumps in `packages/cli/package.json` and publishes to npm via OIDC trusted publishing (no `NPM_TOKEN` secret — npm verifies a GitHub-issued OIDC token against the trusted-publisher config registered for `@agent-nexus/cli`).
+🚨 **A release takes TWO human merges.** Your feature PR is the first. The release pull request that `release-version.yml` opens on `main` is the second, and nothing reaches npm until someone merges that one too. Waiting for a publish after a single merge is waiting for something that will not happen.
 
-**To ship a release:**
-
-```bash
-# 1. Bump the version
-cd packages/cli
-npm version patch   # or minor / major
-
-# 2. Open a PR to staging, then promote to main
-# 3. On merge to main, the workflow detects the version diff and publishes.
-#    Tag cli-v<version> and a GitHub Release are created automatically.
-```
-
-**Trust config (one-time, already done):** npm package settings → Trusted Publisher → GitHub Actions, with `NexusGPT/nexus`, workflow filename `cli-release.yml`, permission `npm publish`. To re-issue or change scope, edit it from the [@agent-nexus/cli settings page](https://www.npmjs.com/package/@agent-nexus/cli/access).
-
-**No provenance badge — yet.** npm refuses provenance attestations from private source repositories (HTTP 422). The `NexusGPT/nexus` monorepo is private, so the "Built and signed on GitHub Actions" badge can't be earned today. Re-enabling it requires moving the CLI to a dedicated public repository — tracked separately as a mission. Auth itself is still OIDC trusted publishing; no `NPM_TOKEN` secret in CI.
-
-**Optional — failure alerts:** If the workflow fails, it pings the maintainers' Telegram bot when `TG_TOKEN` is set in repo secrets. Without the secret the alert step is a no-op and the GitHub Actions run page is the only failure surface.
-
-**Idempotency:** npm refuses to re-publish an existing version. If a manual publish raced ahead of the workflow, the publish step fails — that is the correct signal, not a bug. Recovery is a fresh patch bump.
-
-**Manual publish (escape hatch):** Required only if the workflow itself is broken. From a clean worktree synced with `main`:
+**1 — Declare the release inside your PR.** Add a changeset. Never touch the `version` field:
 
 ```bash
-cd packages/cli
-pnpm build
-npm publish --access public
+pnpm changeset      # pick @agent-nexus/cli, pick a bump, write one summary line
 ```
 
-This works for any maintainer of `@agent-nexus/cli` with 2FA-bypass or granular token.
+That writes `.changeset/<two-random-words>.md`, which you commit alongside your code. A new file per PR is exactly why two concurrent releases cannot conflict.
+
+🚨 **A hand-edited `version` value is REFUSED, and reaching for it is the most common way to get this wrong.** `version-bump-gate.yml` runs `scripts/check-release-intent.mjs` on every PR that touches `packages/{cli,sdk,mcp-server}`, and a hand-edited version fails it with `version was hand-edited`. Editing that line does not ship faster: when a changeset is already pending for the same package it ships the change TWICE, and when the gate catches it the PR is simply red. The only version value you may write by hand is the initial `X.Y.Z` of a package your PR CREATES. A `src/**` change that deliberately releases nothing takes the `no-version-bump` label instead.
+
+Full changeset rules, including what happens when you name the wrong package: [`.changeset/README.md`](../../.changeset/README.md).
+
+**2 — `staging` merges to `main`,** carrying the changeset.
+
+**3 — `release-version.yml` opens the release pull request.** On any push to `main` touching `.changeset/**` it runs `changeset version` on the fixed branch `release/version-packages`, force-pushes that branch, and opens or updates one PR titled `chore(release): version packages`. It writes nothing to `main`, so `main` keeps its changesets and every failed run is re-runnable.
+
+**4 — A HUMAN merges that release pull request.** This is the second merge, and it is the one that publishes.
+
+**5 — `mirror-public-packages.yml` syncs and tags.** That merge is a push to `main` by a real account, so `on: push` workflows fire. It copies the mirrored packages into the PUBLIC repository `NexusGPT/agent-nexus` and pushes `<package>-v<version>` whenever that tag is absent from the mirror. The tag step ensures by absence rather than by diff, so re-running it is safe and repairs a sync that died between commit and tag.
+
+**6 — The mirror publishes with provenance.** The tag triggers `release-cli.yml` IN `NexusGPT/agent-nexus`, which builds and runs `pnpm pack && npm publish ./*.tgz --access public --provenance` under an OIDC trusted publisher — no `NPM_TOKEN`. Two things in that job look like omissions and are load-bearing:
+
+- It sets no `registry-url` on `setup-node`. That input writes `//registry.npmjs.org/:_authToken=…` into `~/.npmrc`, which makes npm prefer classic-token auth and defeats OIDC.
+- It packs and then calls `npm`, rather than `pnpm publish`. pnpm 10 does not forward `--provenance`.
+
+**Which packages ride this pipeline** — read the list, do not trust one written down. From the repository root:
+
+```bash
+grep 'MIRROR_PACKAGES:' .github/workflows/mirror-public-packages.yml
+```
+
+**What is declared and waiting to ship** — the same predicate `release-version.yml` counts. From the repository root:
+
+```bash
+find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | sort
+```
+
+**The trusted publisher is configured on the MIRROR, never on `NexusGPT/nexus`.** Trust binds one triple: repository `NexusGPT/agent-nexus`, the workflow file, and no environment. Drift in any of the three blocks the publish until trust is reconfigured from the [@agent-nexus/cli settings page](https://www.npmjs.com/package/@agent-nexus/cli/access). The published attestation records that same triple, so ask npm instead of a document:
+
+```bash
+curl -s "https://registry.npmjs.org/-/npm/v1/attestations/@agent-nexus%2fcli@$(curl -s https://registry.npmjs.org/@agent-nexus/cli/latest | jq -r .version)" \
+  | jq -r '.attestations[] | select(.predicateType=="https://slsa.dev/provenance/v1") | .bundle.dsseEnvelope.payload' \
+  | base64 -d | jq '.predicate.buildDefinition.externalParameters.workflow'
+```
+
+**Provenance is live.** Every published version carries a Sigstore attestation, and npm records the publisher as `GitHub Actions` rather than a person:
+
+```bash
+curl -s https://registry.npmjs.org/@agent-nexus/cli/latest \
+  | jq -r '"\(.name)@\(.version)  published-by=\(._npmUser.name)  provenance=\(.dist.attestations.provenance.predicateType // "NONE")"'
+```
+
+**The publish posture is audited daily, and that audit outranks this section.** `npm-publish-auth.yml` runs `scripts/audit-npm-publish-auth.mjs` at 07:23 UTC against the live registry and fails when any `@agent-nexus` package's latest version was pushed by a human with a token. Known exceptions live in `KNOWN_GAPS` inside that script, each carrying its reason, and a waiver that outlives its problem fails the audit too. Read that run summary before believing any claim here — it re-derives the truth, and a sentence cannot.
+
+**Idempotency:** npm refuses to re-publish an existing version and returns `403 EPUBLISHCONFLICT`. That is the correct signal, not a bug. Recovery is a new changeset, never a hand-written version.
+
+**When a publish does not happen, work the pipeline — do not publish from a laptop.** A token publish carries no provenance, breaks the trusted-publisher posture, and the daily audit reports it as a regression that `KNOWN_GAPS` must not excuse. Find the stage that stalled instead:
+
+- **No release PR on `main`** → read the latest `release-version.yml` run. `count=0` means no changeset was ever declared; go back to step 1.
+- **Release PR merged, nothing on npm** → read the `mirror-public-packages.yml` run for that merge. Both remaining stages are idempotent and dispatchable: the mirror sync from this repository, and `release-cli.yml` in `NexusGPT/agent-nexus` with the existing `cli-v<version>` tag as its input.
 
 ---
 

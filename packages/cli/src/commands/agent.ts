@@ -5,11 +5,22 @@ import type { CreateAgentBody, UpdateAgentBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  AGENT_CREATE__BODY_MODEL,
+  AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER,
+  AGENT_CREATE_CONTRACT,
+  AGENT_LIST__PARAMS_STATUS,
+  AGENT_LIST_CONTRACT,
+  AGENT_UPDATE__BODY_MODEL,
+  AGENT_UPDATE__BODY_MODEL_CONFIG_MODEL_PROVIDER,
+  AGENT_UPDATE_CONTRACT
+} from "./agent.contract.generated";
 
 export function registerAgentCommands(program: Command): void {
   const agent = program.command("agent").description("Manage AI agents");
@@ -26,17 +37,18 @@ Three facts that decide whether a write does what you meant:
   • THE PROMPT IS NOT A COLUMN. --prompt creates and publishes a CHECKPOINT
     version, and create/update print only the id — read the prompt back with
     "nexus agent get", which carries it at top-level .prompt.
-  • AN EMPTY MODEL COLUMN DOES NOT MEAN THE AGENT HAS NO MODEL. MODEL is the
-    legacy enum and stays empty unless you pass --model. The model actually used
-    is modelConfig.modelName, which create defaults to gpt-5.6-sol / OPEN_AI.`
+  • model READS "DEFAULT", NOT null, ON AN AGENT THAT WAS NEVER GIVEN ONE, so a
+    "model === null" test never fires. It is the legacy enum, and the model
+    actually used is modelConfig.modelName, which create defaults to
+    gpt-5.6-sol / OPEN_AI.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const list = addPaginationOptions(
     agent
       .command("list")
       .description("List agents")
-      .option("--status <status>", "Filter by status (ACTIVE, DRAFT)")
+      .addOption(enumOption("--status <status>", "Filter by status", AGENT_LIST__PARAMS_STATUS))
       .option("--search <query>", "Search by name or role")
       .addHelpText(
         "after",
@@ -53,10 +65,13 @@ Notes:
   --status takes ACTIVE or DRAFT — the public spelling of the internal
   PUBLISHED / DRAFT. An agent created through this API is ACTIVE.
   --search matches first name, last name and role, case-insensitively.
-  The MODEL column is the legacy enum and is usually empty. Read the model in
-  use with "nexus agent get <id>" → modelConfig.modelName.`
+  THE TABLE PRINTS NO MODEL COLUMN, and the --json row carries only the legacy
+  "model" enum — never modelConfig. Read the model actually in use with
+  "nexus agent get <id>" → modelConfig.modelName.`
       )
-  ).action(async (opts) => {
+  );
+
+  list.action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.agents.list({
@@ -90,9 +105,18 @@ Examples:
   $ nexus agent get abc-123 --json
 
 Notes:
-  The system prompt is at top-level .prompt, as markdown, and is null until a
-  version has been published. The table above never shows it — use --json.
-  MODEL is the legacy enum and is usually null. modelConfig.modelName and
+  The system prompt is at top-level .prompt, and is null until a version has
+  been published. The table above never shows it — use --json.
+  .prompt IS THE DRAFT, NOT WHAT THE AGENT RUNS. A published agent serves its
+  production version, so after "nexus version restore" this field changes and
+  the running agent does not. "nexus version --help" owns that distinction.
+  .prompt IS NOT BARE MARKDOWN. Your text arrives wrapped in Nexus section
+  directives — a "::: section: name=…" line, then a "::: tab: NEXUS :::" line,
+  then the text. Feeding that whole string straight back to
+  "nexus agent update --prompt" round-trips it: the wrapper is not applied a
+  second time. Strip the directives only if you want the sections gone.
+  MODEL reads "DEFAULT", not null, on an agent that was never given one — a
+  "model === null" test never fires. modelConfig.modelName and
   modelConfig.modelProvider are the model in use, mirrored at top level as
   modelName / modelProvider.
   modelConfig itself reads null whenever the stored config is missing either
@@ -120,7 +144,7 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  agent
+  const create = agent
     .command("create")
     .description("Create a new agent")
     .requiredOption("--first-name <name>", "Agent first name (REQUIRED, min 1 char)")
@@ -128,9 +152,15 @@ Notes:
     .requiredOption("--role <role>", "Agent role, e.g. 'Customer Support' (REQUIRED, min 1 char)")
     .option("--bio <text>", "Full biography")
     .option("--short-bio <text>", "Short biography for cards")
-    .option("--model <model>", "Model ID (legacy enum, e.g. GPT_4_TURBO)")
+    .addOption(enumOption("--model <model>", "Model ID (legacy enum)", AGENT_CREATE__BODY_MODEL))
     .option("--model-name <name>", "Model name (e.g. gpt-4o, claude-sonnet-4-6)")
-    .option("--model-provider <provider>", "Model provider (OPEN_AI, ANTHROPIC, GOOGLE_AI, KIMI)")
+    .addOption(
+      enumOption(
+        "--model-provider <provider>",
+        "Model provider",
+        AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER
+      )
+    )
     .option("--prompt <file-or-->", "System prompt (file path, or '-' for stdin)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -160,9 +190,13 @@ Notes:
   fields. It also takes shortBio, bio, tags, gender, playgroundFirstMessage,
   model (the legacy enum) and modelConfig{modelName, modelProvider, thinkingLevel,
   reasoningEffort, geminiThinkingLevel, kimiReasoningEffort, temperature}.
+  TAGS IS ONE STRING DESPITE THE PLURAL NAME. Sending an array is a 400 naming
+  the field; put your own separator inside the string.
   AN UNKNOWN --body KEY IS SILENTLY STRIPPED, not refused. A typo returns 201
   having ignored the field, so check spelling against the list above.
-  Cannot use --body - and --prompt - simultaneously (both read stdin).`
+  Only one flag per command may read standard input. Passing "-" to two of them
+  — "--body -" alongside "--prompt -", say — is refused with an error naming
+  both, and no request is sent. Give one of them a literal value or a file path.`
     )
     .action(async (opts) => {
       try {
@@ -197,7 +231,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  agent
+  const update = agent
     .command("update")
     .description("Update an agent")
     .argument("<id>", "Agent ID")
@@ -206,9 +240,15 @@ Notes:
     .option("--role <role>", "Agent role")
     .option("--bio <text>", "Full biography")
     .option("--short-bio <text>", "Short biography")
-    .option("--model <model>", "Model ID (legacy enum, e.g. GPT_4_TURBO)")
+    .addOption(enumOption("--model <model>", "Model ID (legacy enum)", AGENT_UPDATE__BODY_MODEL))
     .option("--model-name <name>", "Model name (e.g. gpt-4o, claude-sonnet-4-6)")
-    .option("--model-provider <provider>", "Model provider (OPEN_AI, ANTHROPIC, GOOGLE_AI, KIMI)")
+    .addOption(
+      enumOption(
+        "--model-provider <provider>",
+        "Model provider",
+        AGENT_UPDATE__BODY_MODEL_CONFIG_MODEL_PROVIDER
+      )
+    )
     .option("--prompt <file-or-->", "System prompt (file path, or '-' for stdin)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -226,6 +266,12 @@ Notes:
   --prompt publishes a NEW CHECKPOINT version; there is no mutable prompt field.
   This command prints only the id, so confirm the write with
   "nexus agent get <id>" → .prompt. Over 1,000,000 characters is a 400.
+  ON AN AGENT THAT ALREADY HAS A PROMPT, ONE --prompt WRITES TWO VERSION ROWS:
+  an AUTO snapshot of the prompt it is about to overwrite, then the CHECKPOINT
+  carrying the new text, which it publishes. "version list" therefore grows by
+  two per write, not one. That AUTO row is the undo — it holds the prompt you
+  just replaced, so rolling back means publishing IT, not the CHECKPOINT above
+  it. The first --prompt on an agent that never had one writes a single row.
   ONE MODEL FLAG MERGES, BOTH REPLACE. --model-name or --model-provider alone is
   merged into the stored modelConfig, keeping temperature and thinking level;
   sending both replaces the whole config and DROPS those settings. To change the
@@ -234,7 +280,10 @@ Notes:
   answers 200 — the version write is the change, not a no-op.
   Every field is optional, but the ones you do send must be non-empty:
   --first-name, --last-name and --role each still require at least one character.
-  An unknown --body key is silently stripped, exactly as on create.`
+  An unknown --body key is silently stripped, exactly as on create.
+  Only one flag per command may read standard input. Passing "-" to two of them
+  — "--body -" alongside "--prompt -", say — is refused with an error naming
+  both, and no request is sent. Give one of them a literal value or a file path.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -285,7 +334,8 @@ Examples:
   $ nexus agent delete abc-123 --dry-run
 
 Notes:
-  Prompts for confirmation in TTY. Use --yes in scripts/CI.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed — it deletes immediately.
   --dry-run previews without deleting.
   Answers 200 with {id, deleted: true} — NOT 204, and not the deleted record.
   SOFT BY DEFAULT. The organization's deletion policy decides, its seeded value
@@ -344,7 +394,23 @@ Notes:
   accounts from the moment it exists.
   Knowledge collections are RE-CONNECTED, not copied: both agents point at the
   same collection, so editing that collection changes both.
-  The copy gets a new id and starts with no published version history.`
+  The copy gets a new id and starts with no published version history.
+
+  THREE THINGS DO NOT SURVIVE, AND NONE OF THEM RAISES AN ERROR:
+  TOOL LABELS ARE REWRITTEN. Every label is lowercased and every character that
+  is not a letter or digit becomes an underscore, so "Order lookup" and
+  "zz-t5" arrive as "order_lookup" and "zz_t5". A collision gets a numeric
+  suffix. Mentions inside the copied prompt are remapped for you, so the copy is
+  self-consistent — but anything OUTSIDE Nexus that names a tool by its old
+  label, a workflow, a script, a runbook, now names nothing.
+  A TOOL CONFIG YOUR ORG CANNOT REACH IS DROPPED, NOT COPIED. Duplicating an
+  agent from another organization keeps only the configs whose workflow, task,
+  collection, plugin or template your org actually holds; the rest are skipped
+  and their prompt mentions are rewritten to plain text. The copy answers 201
+  with fewer tools than the original and nothing says which went — count with
+  "nexus agent-tool list <new-id>" against the source before trusting it.
+  ATTACHED CLAUDE CODE SKILLS ARE DROPPED. The copy starts with none; re-attach
+  them with "nexus agent-skill add-preset" or "nexus agent-skill create".`
     )
     .action(async (id: string) => {
       try {
@@ -430,4 +496,29 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  //
+  // The four TUNING enums under modelConfig have no flag and are declared
+  // body-only rather than exposed. They are not interchangeable knobs: each one
+  // belongs to ONE provider family (thinkingLevel and reasoningEffort to
+  // OpenAI-shaped models, geminiThinkingLevel to Google, kimiReasoningEffort to
+  // Kimi), and three of the four are silently ignored for whatever provider you
+  // picked. Four flags whose validity depends on the value of a fifth is a worse
+  // surface than one JSON object, and --body already carries the whole
+  // modelConfig.
+  const TUNING_IS_PROVIDER_SPECIFIC =
+    "set it inside --body's modelConfig — the field only applies to one provider family, " +
+    "so a flag would advertise it for every model";
+
+  const MODEL_CONFIG_TUNING = {
+    "Body.modelConfig.thinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
+    "Body.modelConfig.reasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
+    "Body.modelConfig.geminiThinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
+    "Body.modelConfig.kimiReasoningEffort": TUNING_IS_PROVIDER_SPECIFIC
+  };
+
+  bindCommand(list, AGENT_LIST_CONTRACT);
+  bindCommand(create, AGENT_CREATE_CONTRACT, MODEL_CONFIG_TUNING);
+  bindCommand(update, AGENT_UPDATE_CONTRACT, MODEL_CONFIG_TUNING);
 }

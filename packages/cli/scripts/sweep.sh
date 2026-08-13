@@ -13,15 +13,26 @@
 #   ./sweep.sh --profile prod        # explicit profile
 #   ./sweep.sh --json                # machine-readable output (for /pinguin)
 #   ./sweep.sh --strict              # WARN counts as FAIL (used by CI)
-#   ./sweep.sh --check-drift         # walk `nexus --help`, diff against the
-#                                    # inventory; reports new untested leaves
-#                                    # and stale entries. Standalone — does
-#                                    # not run the sweep.
+#   ./sweep.sh --check-drift         # derive every command from the commander
+#                                    # tree and diff it against the declared
+#                                    # classification. Standalone — does not
+#                                    # run the sweep, and needs no auth.
 #
 # Exit code:
 #   default        — number of FAILs (0 = clean)
 #   --strict       — number of FAILs + WARNs (any non-PASS fails CI)
-#   --check-drift  — number of (untested + stale) entries (0 = no drift)
+#   --check-drift  — 1 if any drift, 0 if clean
+#
+# WHERE THE COMMAND LIST LIVES — not here, deliberately.
+#
+# This script used to carry three bash arrays (LEAVES / REGISTRATION_ONLY /
+# EXCLUDED) naming every command by hand. A hand list beside an evolving CLI
+# goes stale in silence, and a sweep over a stale list reads exactly like a
+# sweep over a complete one. Both the leaves executed below and the drift
+# verdict now come from `src/command-universe.ts`, whose POPULATION is derived
+# from the commander program tree and whose DISPOSITION per command is declared
+# in one table. `src/command-universe.test.ts` fails the build when the two
+# diverge, and it runs in `Tests: Vitest`, which is a required check.
 
 set -uo pipefail
 
@@ -65,294 +76,18 @@ NEXUS_ARGS=()
 read -ra NEXUS_CMD <<< "${NEXUS_BIN:-nexus}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Inventory — read-only leaves that take no required positional and have --json
-# Add a new line when a new read-only command lands in the CLI.
+# Inventory — resolved from src/command-universe.ts, never written down here
 # ─────────────────────────────────────────────────────────────────────────────
 
-LEAVES=(
-  "auth list"
-  "auth whoami"
-  "analytics overview"
-  "analytics feedback"
-  "channel connection list"
-  "channel whatsapp-sender list"
-  "channel whatsapp-template list"
-  "claude-code list"
-  "collection list"
-  "conversation list"
-  "credential list"
-  "custom-model list"
-  "deployment list"
-  "deployment folder list"
-  "document list"
-  "eval formats"
-  "eval judges"
-  "external-tool list"
-  "folder list"
-  "model list"
-  "phone-number list"
-  "prompt-assistant list-threads"
-  "task list"
-  "template list"
-  "ticket list"
-  "tracing traces"
-  "tracing generations"
-  "tracing models"
-  "tracing summary"
-  "tracing timeline"
-  "tracing cost-breakdown"
-  "tracing export-bulk"
-  "workflow list"
-  "workflow node-types"
-  "workflow platform-listener-events"
-)
+SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 
-# Drift mode: paths that exist in `nexus --help` but the sweep cannot
-# auto-invoke. Mutations (create/update/delete/etc) and reads that need
-# a required positional or option (e.g. `agent get <id>`). They count as
-# "covered" for drift purposes, so the detector verifies they're still
-# registered — but they're never tested by run_leaf().
-#
-# Grouped by domain. New mutations or positional-bearing reads land in
-# this list to keep --check-drift clean. If you add a command that takes
-# no required input and emits --json, add it to LEAVES instead.
-REGISTRATION_ONLY=(
-  # access-card
-  "access-card available-actions"
-  "access-card create"
-  "access-card delete"
-  "access-card get"
-  "access-card list"
-  "access-card update"
-  # agent
-  "agent list"
-  "agent create"
-  "agent delete"
-  "agent duplicate"
-  "agent get"
-  "agent update"
-  # agent-tool
-  "agent-tool attach-collection"
-  "agent-tool create"
-  "agent-tool delete"
-  "agent-tool get"
-  "agent-tool list"
-  "agent-tool update"
-  # analytics
-  "analytics export"
-  # channel
-  "channel connect-waba"
-  "channel connection create"
-  "channel setup"
-  "channel whatsapp-sender create"
-  "channel whatsapp-sender get"
-  "channel whatsapp-template approvals"
-  "channel whatsapp-template create"
-  "channel whatsapp-template delete"
-  "channel whatsapp-template get"
-  "channel whatsapp-template submit-approval"
-  "channel whatsapp-template test-send"
-  # collection
-  "collection attach-documents"
-  "collection create"
-  "collection delete"
-  "collection documents"
-  "collection get"
-  "collection remove-document"
-  "collection search"
-  "collection stats"
-  "collection update"
-  # conversation
-  "conversation assign"
-  "conversation close"
-  "conversation comment"
-  "conversation comments"
-  "conversation get"
-  "conversation messages"
-  "conversation search"
-  "conversation send-message"
-  "conversation send-template"
-  "conversation update-status"
-  "conversation update-topic"
-  # credential
-  "credential delete"
-  "credential get"
-  "credential update"
-  # cue prompt-editor
-  "cue prompt-editor accept"
-  "cue prompt-editor conversations delete"
-  "cue prompt-editor conversations get"
-  "cue prompt-editor conversations list"
-  "cue prompt-editor reject"
-  # custom-model
-  "custom-model create"
-  "custom-model delete"
-  "custom-model get"
-  "custom-model update"
-  # deployment
-  "deployment create"
-  "deployment delete"
-  "deployment duplicate"
-  "deployment embed-config"
-  "deployment embed-config-update"
-  "deployment get"
-  "deployment stats"
-  "deployment update"
-  "deployment folder assign"
-  "deployment folder create"
-  "deployment folder delete"
-  "deployment folder update"
-  "deployment template attach"
-  "deployment template detach"
-  "deployment template list"
-  "deployment template settings"
-  "deployment template update"
-  # document
-  "document add-website"
-  "document create-text"
-  "document delete"
-  "document get"
-  "document preview"
-  "document upload"
-  # emulator
-  "emulator scenario delete"
-  "emulator scenario get"
-  "emulator scenario list"
-  "emulator scenario replay"
-  "emulator scenario save"
-  "emulator session create"
-  "emulator session delete"
-  "emulator session get"
-  "emulator session list"
-  # eval
-  "eval dataset add"
-  "eval dataset list"
-  "eval execute"
-  "eval judge"
-  "eval results"
-  "eval session create"
-  "eval session delete"
-  "eval session get"
-  "eval session list"
-  # execution
-  "execution diagnose"
-  "execution export"
-  "execution get"
-  "execution list"
-  "execution node-result"
-  "execution output"
-  "execution poll"
-  "execution retry"
-  # external-tool
-  "external-tool create"
-  "external-tool execute"
-  "external-tool get"
-  "external-tool test"
-  "external-tool test-auth"
-  "external-tool update-auth"
-  "external-tool upload-icon"
-  # folder
-  "folder assign"
-  "folder create"
-  "folder delete"
-  "folder update"
-  # phone-number
-  "phone-number buy"
-  "phone-number get"
-  "phone-number release"
-  "phone-number search"
-  # prompt-assistant
-  "prompt-assistant delete-thread"
-  "prompt-assistant get-thread"
-  # task
-  "task create"
-  "task execute"
-  "task get"
-  # template
-  "template create"
-  "template generate"
-  "template get"
-  "template upload"
-  # ticket
-  "ticket attach"
-  "ticket comment"
-  "ticket comments"
-  "ticket create"
-  "ticket get"
-  "ticket update"
-  # tool
-  "tool credentials"
-  "tool get"
-  "tool search"
-  # tracing
-  "tracing delete"
-  "tracing export"
-  "tracing generation"
-  "tracing trace"
-  # version
-  "version create"
-  "version delete"
-  "version get"
-  "version list"
-  "version publish"
-  "version restore"
-  "version update"
-  # workflow
-  "workflow batch"
-  "workflow create"
-  "workflow delete"
-  "workflow duplicate"
-  "workflow get"
-  "workflow layout"
-  "workflow overview"
-  "workflow publish"
-  "workflow test"
-  "workflow test-node"
-  "workflow trigger"
-  "workflow unpublish"
-  "workflow update"
-  "workflow validate"
-  "workflow node-type"
-  "workflow branch create"
-  "workflow branch delete"
-  "workflow branch list"
-  "workflow branch update"
-  "workflow edge create"
-  "workflow edge delete"
-  "workflow node create"
-  "workflow node delete"
-  "workflow node get"
-  "workflow node output-format"
-  "workflow node reload-props"
-  "workflow node test"
-  "workflow node update"
-  "workflow node variables"
-)
-
-# Drift mode: paths in `nexus --help` that are NEVER testable in a sweep —
-# arbitrary surfaces, interactive flows, or self-modifying actions. These
-# never count as "untested" drift.
-EXCLUDED=(
-  # arbitrary or self-modifying
-  "api"                        # accepts any HTTP verb + path — unbounded
-  "docs"                       # interactive topic browser
-  "docs search"                # interactive
-  "upgrade"                    # self-update; would reinstall mid-sweep
-  "claude-code install"        # writes files into ~/.claude
-  # auth mutations / preflight
-  "auth login"                 # writes credentials
-  "auth logout"                # deletes credentials
-  "auth switch"                # flips active profile
-  "auth pin"                   # writes .nexusrc
-  "auth unpin"                 # deletes .nexusrc
-  "auth status"                # already used in preflight
-  # interactive / browser-opening
-  "emulator send"              # sends a message into an emulator (mutation)
-  "cue prompt-editor chat"     # interactive REPL
-  "prompt-assistant chat"      # interactive REPL
-  "external-tool initiate-oauth"  # opens browser OAuth flow
-  "tool connect"               # opens browser OAuth flow
-)
+# `pnpm exec` resolves tsx through the package's own node_modules, so the sweep
+# runs from any directory. No fallback and no `|| true` anywhere below: if the
+# derivation cannot run, the leaf list is UNKNOWN, and an unknown list must
+# never degrade into an empty one — a zero-leaf sweep passes.
+run_universe() {
+  (cd -- "$SCRIPT_DIR/.." && pnpm exec tsx scripts/command-universe.ts "$@")
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Run one leaf — capture exit code + JSON-parse result
@@ -405,101 +140,37 @@ run_leaf() {
   fi
 }
 
-# Drift-mode walker: recursively traverses `nexus <path> --help`, prints
-# every leaf path (space-joined, e.g. "auth whoami") to stdout one per line.
-# A leaf is a command whose --help has no "Commands:" section. Groups are
-# recursed into; `help` and `[command]` artifacts are filtered out; alias
-# variants like `list|ls` are normalised to the canonical (first) name.
-walk_help() {
-  local path="$1"
-  local help_out children
-
-  # shellcheck disable=SC2086
-  help_out=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} $path --help 2>&1)
-
-  children=$(printf '%s' "$help_out" | awk '
-    /^Commands:/{p=1; next}
-    /^[A-Z]/{p=0}
-    p && /^  [a-z]/{print $1}
-  ' | sed 's/|.*//' | grep -v '^help$' | grep -v '^\[')
-
-  if [[ -z "$children" ]]; then
-    [[ -n "$path" ]] && printf '%s\n' "$path"
-    return
-  fi
-
-  while IFS= read -r child; do
-    walk_help "${path:+$path }$child"
-  done <<< "$children"
-}
-
-# Drift-mode entry point: walks --help, diffs against the covered arrays,
-# reports + exits. Standalone — does NOT run the per-leaf sweep. The
-# (untested + stale) count is the exit code so CI / shell scripts can
-# gate on it cleanly.
+# Drift mode — delegated to the derivation, which reads the commander program
+# tree directly. This used to be ~60 lines of recursive `nexus <path> --help`
+# plus an awk scrape of the rendered text. Two things that cost were structural
+# and neither is fixable in bash:
+#
+#   1. A HIDDEN command is absent from `--help` by definition, so the scraper
+#      could not see one. The 18 hidden `upgrade` aliases were invisible to it,
+#      and so is every hidden command anyone adds next.
+#   2. It needed a BUILT dist/ and spawned one process per node. The tree is in
+#      the source; reading a rendering of it was always the longer way round.
+#
+# It also exited with the drift COUNT, and a process exit code is one byte —
+# 256 items of drift arrived as 0 and read as clean. The delegate exits 1 for
+# any drift at all.
 run_drift_check() {
-  local observed covered untested stale
-  observed=$(walk_help "" | sort -u)
-  covered=$(printf '%s\n' \
-    "${LEAVES[@]}" \
-    "${REGISTRATION_ONLY[@]}" \
-    "${EXCLUDED[@]}" | sort -u)
-
-  # Two-way set diff. comm needs sorted input on both sides; process
-  # substitution feeds it without spilling to tempfiles.
-  untested=$(comm -23 <(printf '%s\n' "$observed") <(printf '%s\n' "$covered"))
-  stale=$(comm -23 \
-    <(printf '%s\n' "${LEAVES[@]}" "${REGISTRATION_ONLY[@]}" | sort -u) \
-    <(printf '%s\n' "$observed"))
-
-  # grep -c counts lines; the || keeps `set -e`-style failures from
-  # blowing up the script when the diff is empty.
-  local untested_count stale_count
-  untested_count=$([[ -n "$untested" ]] && printf '%s\n' "$untested" | grep -c . || echo 0)
-  stale_count=$([[ -n "$stale" ]] && printf '%s\n' "$stale" | grep -c . || echo 0)
-
   if [[ "$OUTPUT" == "json" ]]; then
-    UNTESTED_BLOCK="$untested" STALE_BLOCK="$stale" \
-    BIN="$BINARY_VERSION" NPM_LATEST_V="$NPM_LATEST" PROF="$PROFILE" \
-    python3 <<'PYEOF'
-import json, os
-def lines(name):
-    s = os.environ.get(name, "").strip()
-    return s.splitlines() if s else []
-print(json.dumps({
-    "preflight": {
-        "binary": os.environ["BIN"],
-        "npm_latest": os.environ["NPM_LATEST_V"],
-        "profile": os.environ["PROF"],
-    },
-    "drift": {
-        "untested": lines("UNTESTED_BLOCK"),
-        "stale": lines("STALE_BLOCK"),
-    },
-}, indent=2))
-PYEOF
+    run_universe --check-drift --json
   else
-    echo "pinguin drift · binary=$BINARY_VERSION$DRIFT_NOTE · profile=${PROFILE:-default}"
-    echo ""
-    if [[ "$untested_count" -gt 0 ]]; then
-      echo "Untested ($untested_count) — observed in CLI --help but missing from LEAVES / REGISTRATION_ONLY / EXCLUDED:"
-      printf '%s\n' "$untested" | sed 's/^/  · /'
-      echo ""
-    fi
-    if [[ "$stale_count" -gt 0 ]]; then
-      echo "Stale ($stale_count) — in LEAVES / REGISTRATION_ONLY but not in CLI --help:"
-      printf '%s\n' "$stale" | sed 's/^/  · /'
-      echo ""
-    fi
-    if [[ "$untested_count" -eq 0 && "$stale_count" -eq 0 ]]; then
-      echo "Clean — no drift detected."
-    else
-      echo "Drift: $untested_count untested + $stale_count stale = $((untested_count + stale_count)) total"
-    fi
+    run_universe --check-drift
   fi
-
-  exit $((untested_count + stale_count))
+  exit $?
 }
+
+# Drift mode short-circuits BEFORE the preflight, not just before the auth
+# check. The derivation reads the TypeScript sources, so a drift verdict needs
+# no built dist/, no credentials and no network — and running the preflight
+# first would make it FATAL out on a fresh checkout for reasons that say
+# nothing about drift.
+if [[ "$CHECK_DRIFT" == "true" ]]; then
+  run_drift_check
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Preflight — binary, npm drift, auth
@@ -519,14 +190,6 @@ if [[ "$BINARY_VERSION" != "$NPM_LATEST" && "$NPM_LATEST" != "?" ]]; then
   DRIFT_NOTE=" ← npm-latest=$NPM_LATEST (drift)"
 fi
 
-# Drift mode short-circuits BEFORE the auth check — `nexus <path> --help`
-# does not require authentication, and a drift report should still be
-# obtainable on a fresh machine. Standalone per the M255 scope: drift and
-# sweep are separate runs.
-if [[ "$CHECK_DRIFT" == "true" ]]; then
-  run_drift_check
-fi
-
 AUTH_OUT=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} auth status 2>&1)
 AUTH_EXIT=$?
 if [[ $AUTH_EXIT -ne 0 ]]; then
@@ -542,7 +205,22 @@ fi
 START=$(date +%s)
 RESULTS=()
 
-for leaf in "${LEAVES[@]}"; do
+# The leaves come from the derivation, so this list cannot fall behind the CLI.
+# `readarray` under an explicit failure check rather than a pipeline: a pipeline
+# would hand back the exit code of its last stage, so a derivation that failed
+# would fill LEAVES with nothing and the sweep would report a clean 0-leaf pass.
+SWEEP_TARGETS_RAW=$(run_universe --print-safe-leaves)
+if [[ $? -ne 0 || -z "$SWEEP_TARGETS_RAW" ]]; then
+  echo "FATAL: could not derive the safe-leaf list from src/command-universe.ts." >&2
+  echo "Refusing to sweep an unknown list — an empty sweep passes." >&2
+  exit 5
+fi
+SWEEP_TARGETS=()
+while IFS= read -r line; do
+  [[ -n "$line" ]] && SWEEP_TARGETS+=("$line")
+done <<< "$SWEEP_TARGETS_RAW"
+
+for leaf in "${SWEEP_TARGETS[@]}"; do
   RESULTS+=("$(run_leaf "$leaf")")
 done
 

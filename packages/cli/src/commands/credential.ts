@@ -2,10 +2,18 @@ import type { UpdateCredentialBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import {
+  CREDENTIAL_LIST__PARAMS_SORT_BY,
+  CREDENTIAL_LIST__PARAMS_SORT_ORDER,
+  CREDENTIAL_LIST__PARAMS_SOURCE,
+  CREDENTIAL_LIST__PARAMS_STATUS,
+  CREDENTIAL_LIST_CONTRACT
+} from "./credential.contract.generated";
 
 export function registerCredentialCommands(program: Command): void {
   const credential = program
@@ -13,22 +21,26 @@ export function registerCredentialCommands(program: Command): void {
     .description("Manage credentials (OAuth, API keys, tool credentials)");
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const credentialList = addPaginationOptions(
     credential
       .command("list")
       .description("List credentials")
-      .option(
-        "--source <source>",
-        "Filter by source (oauth_connection, api_key_connection, tool_credential)"
+      .addOption(
+        enumOption(
+          "--source <source>",
+          "Filter by which record backs the row",
+          CREDENTIAL_LIST__PARAMS_SOURCE
+        )
       )
-      .option(
-        "--status <status>",
-        "Filter by status (CONNECTED, EXPIRING_SOON, NEEDS_REAUTH, DISCONNECTED)"
+      .addOption(
+        enumOption("--status <status>", "Filter by status", CREDENTIAL_LIST__PARAMS_STATUS)
       )
       .option("--service <service>", "Filter by service name")
-      .option("--search <query>", "Search by name")
-      .option("--sort-by <field>", "Sort by field (name, service, status, createdAt)")
-      .option("--sort-order <order>", "Sort order (asc, desc)")
+      .option("--search <query>", "Case-insensitive substring over several fields — see Notes")
+      .addOption(enumOption("--sort-by <field>", "Sort by field", CREDENTIAL_LIST__PARAMS_SORT_BY))
+      .addOption(
+        enumOption("--sort-order <order>", "Sort direction", CREDENTIAL_LIST__PARAMS_SORT_ORDER)
+      )
       .addHelpText(
         "after",
         `
@@ -44,7 +56,13 @@ Notes:
   "credential delete" has to tear down on the way out.
   The ID printed here is the one "access-card list --credential-id" wants and
   the one "external-tool execute --credential" accepts.
-  Paginated. Check meta.hasMore before concluding a credential is absent.`
+  --search MATCHES MORE THAN THE NAME, AND NOT THE SERVICE. It is a
+  case-insensitive substring over the connected account's email and name, an
+  API-key connection's name and DESCRIPTION, and a tool credential's name — so
+  a hit can come from text the table never shows, and the row looks arbitrary.
+  It does NOT match the service; filter on that with --service instead.
+  Paginated. Check meta.hasMore before concluding a credential is absent — and
+  a zero-result --search is weak evidence of absence for the same reason.`
       )
   ).action(async (opts) => {
     try {
@@ -234,4 +252,7 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and after the hand-written prose.
+  bindCommand(credentialList, CREDENTIAL_LIST_CONTRACT);
 }

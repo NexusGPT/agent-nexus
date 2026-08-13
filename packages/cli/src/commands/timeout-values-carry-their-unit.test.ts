@@ -183,3 +183,127 @@ describe("a timeout value names its unit at the boundary it crosses", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// `AbortSignal.timeout(...)` — the same class, through a shape the scan above
+// structurally cannot see.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The scan above walks `timeout:` PROPERTY ASSIGNMENTS. `AbortSignal.timeout(N)`
+ * is a CALL ARGUMENT, so every one of them was invisible to it — and that is not
+ * a hypothetical gap:
+ *
+ *   `docs.ts` fetched the docs feeds with a hardcoded `AbortSignal.timeout(60_000)`
+ *   and never read the global `--timeout`. The feed is ~2.5 MB, so on a slow link
+ *   `nexus docs --full` aborted at 60s and the flag that exists for exactly that
+ *   could not extend it. The whole rule set above was green the entire time.
+ *
+ * It is the same defect as NEX-3707's sibling clause — a command holding its own
+ * timeout constant instead of reading the configured one — reached by a different
+ * syntax. So it is gated in the same file, against the same converter and the same
+ * naming rule, rather than in a second place that can drift from this one.
+ *
+ * `AbortSignal.timeout` takes MILLISECONDS, so the rule is the millisecond rule:
+ * the argument comes out of `timeoutSecondsToMs(...)` or is a `*_MS` constant.
+ *
+ * 🔴 A LEDGER, NOT A CLEAN SWEEP. The sites below are real and still unfixed. They
+ * are listed so a NEW one fails rather than joining them silently; the list may
+ * only ever shrink. Deleting an entry without fixing its site re-opens the hole.
+ */
+const ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE: Readonly<Record<string, string>> = {
+  "commands/auth.ts": [
+    "5 sites at a fixed 30s across the login/device-code/org-switch fetches.",
+    "These are interactive auth round-trips against a known-fast endpoint, not",
+    "bulk transfers, so the ceiling has not bitten anyone yet — but they ignore",
+    "--timeout exactly like the docs feed did. Thread the global and delete this",
+    "entry; do not delete it on its own."
+  ].join(" ")
+};
+
+interface AbortSite {
+  readonly where: string;
+  readonly file: string;
+  readonly value: string;
+}
+
+/** Every `AbortSignal.timeout(<arg>)` in the CLI's production sources. */
+function collectAbortSignalTimeoutSites(): AbortSite[] {
+  const sites: AbortSite[] = [];
+
+  for (const file of sourceFiles()) {
+    const rel = relative(SRC_DIR, file);
+    if (isExcluded(rel)) continue;
+
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.getText(source) === "AbortSignal.timeout" &&
+        node.arguments.length > 0
+      ) {
+        const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+        sites.push({
+          where: `${rel}:${line}`,
+          file: rel,
+          value: node.arguments[0].getText(source).replace(/\s+/g, " ")
+        });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
+  return sites;
+}
+
+const ABORT_SITES = collectAbortSignalTimeoutSites();
+
+describe("AbortSignal.timeout reads the configured timeout, not its own constant", () => {
+  it("CONTROL: the walker finds AbortSignal.timeout calls at all", () => {
+    // A call-expression walker that matches nothing and a codebase with no such
+    // calls are the same empty array. Without this the rules below pass vacuously
+    // — which is precisely how the property-assignment scan stayed green over
+    // this defect.
+    expect(ABORT_SITES.length).toBeGreaterThan(0);
+  });
+
+  it("every argument is milliseconds — timeoutSecondsToMs(...) or a *_MS constant", () => {
+    const offenders = ABORT_SITES.filter((site) => {
+      if (site.file in ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE) return false;
+      const words = identifiersIn(site.value);
+      return !words.includes(CONVERTER) && !words.some((word) => word.endsWith(MS_SUFFIX));
+    }).map((site) => `${site.where} -> AbortSignal.timeout(${site.value})`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("every unlisted site still lets the global --timeout override it", () => {
+    // The CLI's timeout error tells the reader to raise `--timeout <seconds>`.
+    // A fetch that pins its own deadline makes that instruction false.
+    const offenders = ABORT_SITES.filter(
+      (site) =>
+        !(site.file in ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE) &&
+        !/\b(globals|opts)\.timeout\b/.test(site.value)
+    ).map((site) => `${site.where} -> AbortSignal.timeout(${site.value})`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the ledger honest — every listed file still has an unfixed site", () => {
+    // A ledger entry outliving its defect is worse than no ledger: it exempts a
+    // file that no longer needs exempting, so the next hardcoded timeout added
+    // there passes unnoticed.
+    const stale = Object.keys(ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE).filter(
+      (file) => !ABORT_SITES.some((site) => site.file === file)
+    );
+
+    expect(stale).toEqual([]);
+  });
+});

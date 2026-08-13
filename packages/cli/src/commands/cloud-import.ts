@@ -8,8 +8,15 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { type Column, isJsonMode, printList, printWarning } from "../output";
+import {
+  CLOUD_IMPORT_BROWSE_CONTRACT,
+  CLOUD_IMPORT_ITEMS_CONTRACT,
+  CLOUD_IMPORT_LIST_PROVIDERS_CONTRACT,
+  CLOUD_IMPORT_SEARCH_CONTRACT
+} from "./cloud-import.contract.generated";
 
 const PROVIDER_SLUGS: CloudImportProviderSlug[] = ["google-drive", "sharepoint", "notion"];
 
@@ -94,6 +101,22 @@ Every command here needs a --connection-id, and THERE IS NO COMMAND THAT MAKES
 ONE. Connecting a Google, SharePoint or Notion account is an OAuth flow that
 happens in the app; the id it produces is what you paste here.
 
+THAT ID IS A UUID, AND IT IS CHECKED BEFORE ANYTHING ELSE IN YOUR CALL. The
+"conn-1" style ids in the examples below are placeholders, not a shape the API
+takes: a value that is not a UUID is refused on the connectionId field alone, so
+every OTHER mistake in the same command — a missing --site-id, a bad item id —
+stays hidden until you put a real id in. Test a new call with a real connection.
+
+A CONNECTION THAT DOES NOT RESOLVE IS REPORTED AS AN API-KEY FAILURE, AND THE
+PRINTED HINT IS WRONG. The message names your Nexus credentials and tells you to
+run "nexus auth login". Re-authenticating cannot fix it — the rejected thing is
+the PROVIDER connection. Reconnect the account in the app instead.
+
+SHAREPOINT ALSO NEEDS A --site-id, AND NO COMMAND HERE REPORTS ONE. Five
+commands take it and none produces it: the sub-command that used to list sites
+is gone. Read the site id in the app, under the connected SharePoint account,
+the same way you read the connection id.
+
 The shape of a working import is always the same:
   1. "cloud-import browse <provider> --connection-id ... --folder-id root"
      (or "search") to get item ids — you cannot guess them.
@@ -117,7 +140,7 @@ endpoints as the provider-agnostic ones and behave identically.`
   // Provider-agnostic browsing
   // ==========================================================================
 
-  cloudImport
+  const providers = cloudImport
     .command("providers")
     .description("List cloud providers and what each one supports")
     .addHelpText(
@@ -150,7 +173,7 @@ Notes:
       }
     });
 
-  cloudImport
+  const browse = cloudImport
     .command("browse <provider>")
     .description(`List a folder's contents (${PROVIDER_SLUGS.join(" | ")})`)
     .requiredOption("--connection-id <id>", "OAuth connection ID")
@@ -198,7 +221,7 @@ Notes:
       }
     });
 
-  cloudImport
+  const search = cloudImport
     .command("search <provider>")
     .description(`Search a provider by file name (${PROVIDER_SLUGS.join(" | ")})`)
     .requiredOption("--connection-id <id>", "OAuth connection ID")
@@ -252,7 +275,7 @@ Notes:
       }
     });
 
-  cloudImport
+  const importItems = cloudImport
     .command("import <provider>")
     .description(`Import selected items into the knowledge base (${PROVIDER_SLUGS.join(" | ")})`)
     .requiredOption("--connection-id <id>", "OAuth connection ID")
@@ -282,7 +305,9 @@ Notes:
   the only case that reports a failure, as a 400.
 
   --site-id IS REQUIRED FOR SHAREPOINT and refused as SITE_ID_REQUIRED without
-  it. It is ignored by Google Drive and Notion.
+  it. It is ignored by Google Drive and Notion. That refusal comes from THIS
+  route only — "browse" and "search" reject a missing site id further in, under
+  a different code, so do not match on the code across the three commands.
 
   --parent-id NAMES THE DESTINATION FOLDER IN NEXUS. Omit it and everything
   lands at the root of the knowledge base, mixed in with everything else. Make
@@ -567,4 +592,11 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. The per-provider
+  // groups are convenience wrappers over the same four routes.
+  bindCommand(providers, CLOUD_IMPORT_LIST_PROVIDERS_CONTRACT);
+  bindCommand(browse, CLOUD_IMPORT_BROWSE_CONTRACT);
+  bindCommand(search, CLOUD_IMPORT_SEARCH_CONTRACT);
+  bindCommand(importItems, CLOUD_IMPORT_ITEMS_CONTRACT);
 }

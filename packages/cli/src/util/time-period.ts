@@ -31,6 +31,15 @@ const SHORTHAND_MAP: Record<string, TimePeriod> = {
   all: "all_time"
 };
 
+/**
+ * The shorthand spellings, as a list.
+ *
+ * Exported so a `--time-period` flag can offer them as `.choices()` alongside
+ * the canonical values instead of retyping them. A flag that normalises a
+ * spelling it does not advertise is a flag whose help is wrong.
+ */
+export const TIME_PERIOD_SHORTHANDS = Object.keys(SHORTHAND_MAP) as readonly string[];
+
 const VALID_ENUM = new Set<string>(TIME_PERIOD_VALUES);
 
 /**

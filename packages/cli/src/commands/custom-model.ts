@@ -1,10 +1,22 @@
 import type { CreateCustomModelBody, UpdateCustomModelBody } from "@agent-nexus/sdk";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { satisfiedByBodyField } from "../util/body-satisfies-required";
+import { booleanFlag } from "../util/boolean-flag";
+import { confirmable, confirmDestructive } from "../util/confirm";
+import {
+  CUSTOM_MODEL_CREATE__BODY_PROTOCOL,
+  CUSTOM_MODEL_CREATE_CONTRACT,
+  CUSTOM_MODEL_DELETE_CONTRACT,
+  CUSTOM_MODEL_GET_CONTRACT,
+  CUSTOM_MODEL_UPDATE__BODY_PROTOCOL,
+  CUSTOM_MODEL_UPDATE_CONTRACT
+} from "./custom-model.contract.generated";
 
 export function registerCustomModelCommands(program: Command): void {
   const customModel = program
@@ -46,7 +58,7 @@ Examples:
     });
 
   // ── get ────────────────────────────────────────────────────────────────
-  customModel
+  const get = customModel
     .command("get")
     .description("Get custom model details")
     .argument("<id>", "Custom model ID")
@@ -77,38 +89,74 @@ Examples:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  customModel
+  const create = customModel
     .command("create")
     .description("Create a custom model")
     .requiredOption("--display-name <name>", "Human-readable display name")
     .requiredOption("--model-name <name>", "API model ID (e.g. llama-3-70b)")
-    .requiredOption("--base-url <url>", "OpenAI-compatible API base URL (HTTPS)")
-    .requiredOption("--api-key <key>", "API key for the custom endpoint")
+    // NOT --base-url / --api-key. Those are GLOBAL flags naming the NEXUS API,
+    // and the root parses its own options across the whole of argv, so a
+    // subcommand option of the same name never receives a value: this command
+    // was refused outright ("required option '--base-url' not specified") while
+    // the URL and key the user typed were applied to the CLI's own transport
+    // instead. See src/util/global-option-shadowing.ts — the gate that now
+    // refuses a new collision.
+    //
+    // The flag name and the body field DIFFER here, and that is forced: the
+    // matching names are taken by globals. `satisfiedByBodyField` declares the
+    // join, so `--body '{"baseUrl":…}'` satisfies the requirement and a refusal
+    // names `baseUrl` rather than the flag's camelCase `endpointUrl` — a key the
+    // server discards.
+    .addOption(
+      satisfiedByBodyField(
+        new Option("--endpoint-url <url>", "OpenAI-compatible API base URL (HTTPS) → baseUrl"),
+        "baseUrl"
+      ).makeOptionMandatory()
+    )
+    .addOption(
+      satisfiedByBodyField(
+        new Option("--endpoint-key <key>", "API key for the custom endpoint → apiKey"),
+        "apiKey"
+      ).makeOptionMandatory()
+    )
     // No commander default: `CreateCustomModelBodySchema` already applies
     // `.default("openai")`, and a default here is not distinguishable from an
     // explicit flag, so it merged over `--body`'s own `protocol` every time.
-    .option("--protocol <protocol>", "Inference protocol (default: openai)")
+    .addOption(
+      enumOption(
+        "--protocol <protocol>",
+        "Inference protocol (default: openai)",
+        CUSTOM_MODEL_CREATE__BODY_PROTOCOL
+      )
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus custom-model create --display-name "My LLaMA" --model-name llama-3-70b \\
-      --base-url https://api.example.com/v1 --api-key sk-xxx
-  $ nexus custom-model create --body '{"displayName":"My Model","modelName":"gpt-4","baseUrl":"https://api.example.com/v1","apiKey":"sk-xxx"}'`
+      --endpoint-url https://api.example.com/v1 --endpoint-key sk-xxx
+  $ nexus custom-model create --body '{"displayName":"My Model","modelName":"gpt-4","baseUrl":"https://api.example.com/v1","apiKey":"sk-xxx"}'
+
+Notes:
+  --endpoint-url AND --endpoint-key DESCRIBE THE MODEL PROVIDER, NOT NEXUS. They
+  fill the body's baseUrl and apiKey. The global --base-url and --api-key point
+  the CLI at a Nexus environment and are a different thing entirely; passing the
+  provider's values there sends this CLI's own authenticated request to the
+  provider's host, carrying the provider key as the Nexus key.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           ...(opts.displayName !== undefined && { displayName: opts.displayName }),
           ...(opts.modelName !== undefined && { modelName: opts.modelName }),
-          ...(opts.baseUrl !== undefined && { baseUrl: opts.baseUrl }),
-          ...(opts.apiKey !== undefined && { apiKey: opts.apiKey }),
+          ...(opts.endpointUrl !== undefined && { baseUrl: opts.endpointUrl }),
+          ...(opts.endpointKey !== undefined && { apiKey: opts.endpointKey }),
           ...(opts.protocol !== undefined && { protocol: opts.protocol })
         });
 
+        const client = createClient(program.optsWithGlobals());
         const model = await client.customModels.create(asRequestBody<CreateCustomModelBody>(body));
         printSuccess("Custom model created.", {
           id: model.id,
@@ -120,16 +168,22 @@ Examples:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  customModel
+  const update = customModel
     .command("update")
     .description("Update a custom model")
     .argument("<id>", "Custom model ID")
     .option("--display-name <name>", "Display name")
     .option("--model-name <name>", "API model ID")
-    .option("--base-url <url>", "API base URL")
-    .option("--api-key <key>", "API key")
-    .option("--protocol <protocol>", "Inference protocol")
-    .option("--enabled <bool>", "Enable/disable (true/false)")
+    // See the create command above: --base-url / --api-key are GLOBAL flags and
+    // a subcommand can never receive them. Here they were OPTIONAL, so nothing
+    // was refused — the request simply left out baseUrl/apiKey and went to the
+    // provider's host with the provider's key in the api-key header.
+    .option("--endpoint-url <url>", "Provider's API base URL → baseUrl")
+    .option("--endpoint-key <key>", "Provider's API key → apiKey")
+    .addOption(
+      enumOption("--protocol <protocol>", "Inference protocol", CUSTOM_MODEL_UPDATE__BODY_PROTOCOL)
+    )
+    .option("--enabled <bool>", "Enable/disable — true or false", booleanFlag)
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -137,7 +191,12 @@ Examples:
 Examples:
   $ nexus custom-model update cm-123 --display-name "Renamed Model"
   $ nexus custom-model update cm-123 --enabled false
-  $ nexus custom-model update cm-123 --api-key sk-newkey`
+  $ nexus custom-model update cm-123 --endpoint-key sk-newkey
+
+Notes:
+  --endpoint-url AND --endpoint-key DESCRIBE THE MODEL PROVIDER, NOT NEXUS. The
+  global --base-url and --api-key point the CLI at a Nexus environment; they do
+  not rotate this model's credentials and never reach the request body.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -146,10 +205,10 @@ Examples:
         const flags: Record<string, unknown> = {};
         if (opts.displayName !== undefined) flags.displayName = opts.displayName;
         if (opts.modelName !== undefined) flags.modelName = opts.modelName;
-        if (opts.baseUrl !== undefined) flags.baseUrl = opts.baseUrl;
-        if (opts.apiKey !== undefined) flags.apiKey = opts.apiKey;
+        if (opts.endpointUrl !== undefined) flags.baseUrl = opts.endpointUrl;
+        if (opts.endpointKey !== undefined) flags.apiKey = opts.endpointKey;
         if (opts.protocol !== undefined) flags.protocol = opts.protocol;
-        if (opts.enabled !== undefined) flags.enabled = opts.enabled === "true";
+        if (opts.enabled !== undefined) flags.enabled = opts.enabled;
         const body = mergeBodyWithFlags(base, flags);
 
         await client.customModels.update(id, asRequestBody<UpdateCustomModelBody>(body));
@@ -160,11 +219,10 @@ Examples:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  customModel
+  const remove = customModel
     .command("delete")
     .description("Delete a custom model")
     .argument("<id>", "Custom model ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -174,28 +232,26 @@ Examples:
     )
     .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete custom model ${id}? This cannot be undone.`, opts)))
+          return;
+
         const client = createClient(program.optsWithGlobals());
-
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(
-            `Delete custom model ${id}? This cannot be undone. [y/N] `
-          );
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
-
         await client.customModels.delete(id);
         printSuccess("Custom model deleted.", { id });
       } catch (err) {
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists: `bindCommand` reads the command's own
+  // options to find the divergences it must render, so an option added after it
+  // would be invisible to the block already composed.
+  //
+  // `list` is absent on purpose — `CustomModelList` carries no input schema at
+  // all, so there is nothing to bind and nothing to print.
+  bindCommand(get, CUSTOM_MODEL_GET_CONTRACT);
+  bindCommand(create, CUSTOM_MODEL_CREATE_CONTRACT);
+  bindCommand(update, CUSTOM_MODEL_UPDATE_CONTRACT);
+  bindCommand(remove, CUSTOM_MODEL_DELETE_CONTRACT);
+  confirmable(remove);
 }

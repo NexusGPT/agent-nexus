@@ -52,20 +52,26 @@ import type { PermissionRelation, PermissionSubjectType } from "./permissions";
  * `PermissionResourceType`: a Role holds operational systems, which is a
  * different set from what a sharing grant is written against.
  *
+ * Membership is EXCLUSIVITY, not "is it a system a Role uses". A resource is here
+ * only when at most one Role per organisation can hold it. A system several Roles
+ * legitimately hold at once lives in its own M:N grant table instead — a
+ * Collection, a Workspace and an external Tool are all in that second group, and
+ * none of them is a member of this union.
+ *
  * ⚠️ A stored value can be outside this union. The column is loose TEXT rather
- * than a database enum, and `collection` was a member until its rows moved to
- * {@link RoleCollectionGrant} — the old rows did not disappear when the union
- * narrowed. The server drops what it cannot recognise before it reaches a
- * response, so this union is right for a READ; do not reuse it to narrow a value
- * you read out of a database yourself.
+ * than a database enum, and two members have been retired into grant tables:
+ * `collection` into {@link RoleCollectionGrant}, and `external_tool` on
+ * 2026-08-13 into `RoleExternalToolGrant`. The old rows did not disappear when
+ * the union narrowed. The server drops what it cannot recognise before it reaches
+ * a response, so this union is right for a READ; do not reuse it to narrow a
+ * value you read out of a database yourself.
  */
 export type RoleResourceType =
   | "agent"
   | "workflow"
   | "deployment"
   | "ai_task"
-  | "document_template"
-  | "external_tool";
+  | "document_template";
 
 /**
  * A user's standing inside a Role, as stored on a membership row.
@@ -108,6 +114,8 @@ export type RoleCapability =
   | "collection_grant.manage"
   | "workspace_grant.view"
   | "workspace_grant.manage"
+  | "external_tool_grant.view"
+  | "external_tool_grant.manage"
   | "coverage.view"
   | "coverage.manage"
   | "board.view"
@@ -826,12 +834,12 @@ export interface RoleCoverageContribution {
  * - An empty `contributions` with a populated `unmodelledSystems` means NOBODY
  *   HAS MODELLED ANYTHING, never "measured at zero". Every `RoleResource` the
  *   Role holds appears in exactly one of the two arrays.
- * - 🚨 THOSE TWO ARRAYS COVER ONE OF THE THREE TABLES A ROLE HOLDS SYSTEMS IN.
- *   A Collection or a Workspace reaches a Role by GRANT, and no impact model can
- *   point at one, so neither array can carry it — `grantedSystems` counts them.
- *   A total built from `contributions` and `unmodelledSystems` alone is a count
- *   of part of what the Role holds, and this line said the opposite until
- *   2026-08-12.
+ * - 🚨 THOSE TWO ARRAYS COVER ONE OF THE FOUR TABLES A ROLE HOLDS SYSTEMS IN.
+ *   A Collection, a Workspace or an external Tool reaches a Role by GRANT, and no
+ *   impact model can point at one, so neither array can carry it —
+ *   `grantedSystems` counts all three. A total built from `contributions` and
+ *   `unmodelledSystems` alone is a count of part of what the Role holds, and this
+ *   line said the opposite until 2026-08-12.
  * - `workingTime` is `null` if and only if `coverage` is
  *   `{ kind: "not-modelled", reason: "NO_WORKING_TIME_MODEL" }`.
  * - `workload` is the authored DENOMINATOR. Without it a percentage is an
@@ -872,12 +880,13 @@ export interface RoleCoverage {
    * How many systems the Role holds by GRANT rather than by placement.
    *
    * The population `contributions` and `unmodelledSystems` structurally cannot
-   * cover: an impact model keys onto a `RoleResource` row, and a Collection or a
-   * Workspace grant has none. Counts rather than identities, because the job of
-   * these two numbers is to let a caller state what its own total excludes.
+   * cover: an impact model keys onto a `RoleResource` row, and a Collection, a
+   * Workspace or an external Tool grant has none. Counts rather than identities,
+   * because the job of these numbers is to let a caller state what its own total
+   * excludes.
    *
-   * Zero is a measurement — both grant tables are read on the same request as
-   * the coverage figures, so `0` never means "nobody looked".
+   * Zero is a measurement — all three grant tables are read on the same request
+   * as the coverage figures, so `0` never means "nobody looked".
    */
   grantedSystems: GrantedRoleSystems;
 }
@@ -888,6 +897,15 @@ export interface GrantedRoleSystems {
   collections: number;
   /** Workspace grants held by this Role. */
   workspaces: number;
+  /**
+   * External tool (plugin) grants held by this Role.
+   *
+   * 🔴 THE NEWEST OF THE THREE AND THE ONE MOST LIKELY TO BE NON-ZERO. A client
+   * written before 2026-08-13 renders a "systems" sentence that silently
+   * excludes it, so a total that adds `collections` and `workspaces` alone is
+   * now short by the count customers are most likely to notice.
+   */
+  externalTools: number;
 }
 
 // ============================================================================

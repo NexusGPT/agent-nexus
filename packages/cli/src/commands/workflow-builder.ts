@@ -11,21 +11,29 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
+import {
+  WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE,
+  WORKFLOW_NODE_REPLACE_TRIGGER_CONTRACT
+} from "./workflow.contract.generated";
 
-// `satisfies readonly ReplaceTriggerBody["type"][]` forces this runtime tuple
-// to track the SDK union 1:1 — adding a new trigger type to the SDK without
-// updating this array becomes a compile error instead of a silent CLI gap.
-const TRIGGER_TYPES = [
-  "webhookTrigger",
-  "agentInputTrigger",
-  "scheduleTrigger",
-  "pluginTrigger",
-  "manualTrigger",
-  "platformListenerTrigger"
-] as const satisfies readonly ReplaceTriggerBody["type"][];
+/**
+ * The trigger types, from the v1 contract rather than retyped.
+ *
+ * This was a hand-written tuple of six strings kept in step with the SDK union
+ * by a `satisfies`. It agreed with the contract when it was written, which is
+ * the only guarantee a hand-copy ever gives: the compile-time link caught the
+ * SDK drifting and nothing caught the CONTRACT drifting.
+ *
+ * The annotation below does the same job in the same place — assigning the
+ * generated values to the SDK union is a compile error the moment the two stop
+ * agreeing — while the values themselves now come from one source.
+ */
+const TRIGGER_TYPES: readonly ReplaceTriggerBody["type"][] =
+  WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE.contractValues;
 
 export function registerWorkflowBuilderCommands(workflow: Command, program: Command): void {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,8 +66,20 @@ Notes:
   position is auto-computed when omitted — the whole graph is re-laid-out on every
   node write, so hand-set coordinates do not survive as given.
   data is MERGED over the node type's defaults, so you only send what differs.
-  A reference to a node that does not exist is refused rather than persisted, so
-  {{ghost.field}} cannot silently resolve to null at run time.
+  THE GHOST-REFERENCE GUARD COVERS STRUCTURED FIELDS ONLY. A {{ref}} to a node
+  that does not exist is refused with 400 VARIABLE_REFERENCE_MALFORMED when it
+  sits in a parameter setup, a variable array or a customScript input — but a
+  {{ghost.field}} inside a TEXT field (instructions, message, jsonString,
+  expression, a prompt) is not scanned and is stored verbatim at 201. "node get",
+  "workflow overview" and PUBLISH all pass it. "nexus workflow validate" is the
+  only command that names it, so run validate before publishing or the reference
+  reaches run time and resolves to nothing.
+  A customScript ARRIVES WITH A PLACEHOLDER FUNCTION BODY AND COUNTS AS
+  UNCONFIGURED. "workflow get" shows real-looking code in data.code while
+  "overview" and "validate" report the node incomplete with missingFields
+  ["code"] — the completeness check recognises the default stub specifically, so
+  the two are not in conflict. Replace data.code with your own function through
+  "node update"; nothing else clears it.
   Creating a loop or doWhile ALSO creates its start child, returned as children[].
   loopStart, doWhileStart and selectTrigger cannot be created directly; install a
   trigger with "nexus workflow trigger" instead.
@@ -131,9 +151,11 @@ Examples:
   $ echo '{"data":{"key":"val"}}' | nexus workflow node update wf-123 node-456 --body -
 
 Notes:
-  ONLY data AND parentId ARE WRITABLE, and the body must carry at least one of
-  them. Anything else in the body is dropped without comment, so a top-level
-  "label" or "type" is a 200 that changed nothing.
+  ONLY data AND parentId ARE WRITABLE, AND THE BODY MUST CARRY ONE OF THEM. A
+  body naming neither is a 400, so --body '{"label":"NOPE"}' is refused outright
+  rather than accepted as a no-op. The silent drop applies only ALONGSIDE a real
+  field: send data AND a top-level "label" and the label goes without comment
+  while the data lands.
   parentId MOVES THE NODE'S LOOP SCOPE: an id puts it inside that loop, null takes
   it out, and omitting it leaves the scope alone. A cycle, or a loopStart /
   doWhileStart / trigger node, is refused.
@@ -184,8 +206,11 @@ Notes:
   "nexus workflow trigger <wf-id> --type <triggerType>".
   A loopStart / doWhileStart cannot be deleted either (400) — delete its parent
   loop, which takes the start node with it.
-  Answers 204 with an empty body. Prompts for confirmation in TTY; use --yes in
-  scripts/CI.`
+  The API answers 204 with an empty body; this command prints its own
+  {success, workflowId, nodeId} line, so --json is a CLI confirmation and never a
+  server response — there is nothing from the server to parse.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -236,9 +261,16 @@ TEST RESULT, so an untested upstream contributes nothing and a green result
 proves only that the node did not crash. Mocking is how you make the input
 deterministic.
 
-It WRITES BACK this node's testExecutionId, runOutput and inferred outputFormat —
-that is what lets downstream nodes see this node's shape, and it overwrites the
-previous test's pointer. Mock data itself is never persisted.
+It WRITES BACK this node's testExecutionId and inferred outputFormat — that is
+what lets downstream nodes see this node's shape, and it overwrites the previous
+test's pointer. Mock data itself is never persisted.
+
+runOutput IS NOT KEPT ON MOST NODES, AND A null THERE IS NOT A FAILED TEST. The
+test result is stored only for an agentInputTrigger, a humanInput or a
+newsMonitorTrigger; on every other node type — customScript, aiTask, plugin —
+the snapshot is stripped before the graph is saved, so "workflow get" shows
+runOutput null right after a green test. testExecutionId is the pointer that
+survives; read the actual output from this command's own response.
 
 A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
 The returned executionId is a per-node test id, so "nexus execution get" on it
@@ -434,6 +466,10 @@ Notes:
   a loop boundary (EDGE_SCOPE_VIOLATION) — source and target must share a parentId
   unless one of them IS the loop container.
   Creating an edge re-lays-out the graph, so node positions move.
+  "branch delete" DELETES EDGES TOO. Removing a branch removes every edge using
+  that branch id as its sourceHandle, in the same call, and nothing on the branch
+  page enumerates them — the branch's whole downstream goes unwired. Re-read
+  "workflow edge list" after any branch delete and re-wire what went.
   Answers 201 with the edge, whose id is what "edge delete" takes.`
     )
     .action(async (wfId: string, opts) => {
@@ -475,9 +511,12 @@ Examples:
 Notes:
   <edge-id> is NOT a UUID by rule — edges drawn on the canvas carry ids like
   "xy-edge__<source>-<target>". Read the exact id from "nexus workflow get".
-  Answers 204 with an empty body. The nodes survive; only the connection goes, so
-  the target may become a DISCONNECTED_NODE in validate.
-  Prompts for confirmation in TTY. Use --yes in scripts/CI.`
+  The API answers 204 with an empty body; this command prints its own
+  {success, workflowId, edgeId} line, so --json is a CLI confirmation and never a
+  server response. The nodes survive; only the connection goes, so the target may
+  become a DISCONNECTED_NODE in validate.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed.`
     )
     .action(async (wfId: string, edgeId: string, opts) => {
       try {
@@ -527,9 +566,13 @@ Examples:
 Notes:
   Branch operations only work on a "branching" node — anything else is 400
   BRANCH_NODE_NOT_BRANCHING.
-  READ IDS FROM HERE, ALWAYS. A branch id is assigned as br-001, br-002 … from the
-  branch count at creation time, so ids are not a stable sequence once one has been
-  deleted. An edge's --source-handle must equal an id that this command reports.
+  READ IDS FROM HERE, ALWAYS, AND RE-READ THEM AFTER EVERY DELETE. A branch id is
+  assigned as br-001, br-002 … from the branch COUNT at creation time, so ids are
+  reused: delete br-002 from three branches and the next create is handed br-003
+  again, which the surviving br-003 already answers to. An id you held across a
+  delete now addresses a different branch, and every command accepts it happily.
+  Track branches by NAME through this command and look the id up each time you
+  need one. An edge's --source-handle must equal an id this command reports.
   NEXT STEP is the branch's own pointer and is null until an edge leaves the branch.`
     )
     .action(async (wfId: string, nodeId: string) => {
@@ -574,7 +617,12 @@ Notes:
   using the logic entry this command created for the branch.
   Answers the new branch, including the br-NNN id an edge's --source-handle needs.
   The branch reaches nothing until an edge leaves it, and an unreached branch is a
-  silent dead end at run time.`
+  silent dead end at run time.
+  BRANCHES DO NOT MAKE THE NODE VALID. A branching node has its own required
+  field, data.instructions, and no number of branches fills it: with the branches
+  created and wired, validate still refuses to publish because instructions is
+  not configured. Set it with
+  "nexus workflow node update <wf> <node> --body '{"data":{"instructions":"…"}}'".`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -659,8 +707,11 @@ Notes:
   EVERY EDGE that used this branch as its sourceHandle. Whatever those edges led to
   is now unreachable from this node and validate will report it as a
   DISCONNECTED_NODE.
-  Answers 204 with an empty body. Prompts for confirmation in TTY; use --yes in
-  scripts/CI.`
+  The API answers 204 with an empty body; this command prints its own
+  {success, workflowId, nodeId, branchId} line, so --json is a CLI confirmation
+  and never a server response.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed.`
     )
     .action(async (wfId: string, nodeId: string, branchId: string, opts) => {
       try {
@@ -845,11 +896,17 @@ Notes:
     });
 
   // ── trigger ────────────────────────────────────────────────────────────
-  workflow
+  const replaceTrigger = workflow
     .command("trigger")
     .description("Replace the trigger node of a workflow")
     .argument("<wf-id>", "Workflow ID")
-    .requiredOption("--type <type>", `New trigger type. One of: ${TRIGGER_TYPES.join(", ")}`)
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "New trigger type",
+        WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE
+      ).makeOptionMandatory()
+    )
     .option("--body <json-or-file-or-->", "Additional body JSON")
     .addHelpText(
       "after",
@@ -867,6 +924,14 @@ Notes:
   "nexus workflow node update <wf-id> <trigger-node-id> --body '{"data":{…}}'".
   REPLACE IS HOW YOU DELETE A TRIGGER — "node delete" refuses one with a 403.
   A response still showing type "selectTrigger" means nothing was installed.
+  FOR AN agentInputTrigger, STEP TWO IS data.parameters AND IT IS LOAD-BEARING
+  THREE TIMES OVER:
+    $ nexus workflow node update <wf-id> <trigger-node-id> \\
+        --body '{"data":{"parameters":{"city":{"type":"string","handler":"prompt"}}}}'
+  That one write is what makes "workflow test --input" resolve, what publish
+  derives the workflow's agentInputSchema from, and what an "agent-tool create
+  --type WORKFLOW" schema is then checked against. Skip it and the trigger
+  installs cleanly, the workflow publishes, and it accepts no parameters at all.
   A platformListenerTrigger needs its platformEventType from
   "nexus workflow platform-listener-events", set in step two.
   newsMonitorTrigger is deliberately absent: it needs provider configuration only
@@ -874,9 +939,10 @@ Notes:
     )
     .action(async (wfId: string, opts: { type: string; body?: string }) => {
       try {
-        // Client-side narrow: a typo ("webhook" instead of "webhookTrigger")
-        // would otherwise round-trip to the API and return a verbose ZodError.
-        // Rejecting here keeps the error CLI-shaped.
+        // Commander refuses anything outside the contract list before this runs,
+        // so this narrow is what makes the assertion below honest rather than a
+        // second gate: `TRIGGER_TYPES` is annotated as the SDK union, so a value
+        // that survives the check is a member of it.
         if (!(TRIGGER_TYPES as readonly string[]).includes(opts.type)) {
           throw new Error(
             `--type must be one of: ${TRIGGER_TYPES.join(", ")} (got '${opts.type}')`
@@ -897,4 +963,7 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option and after the hand-written prose.
+  bindCommand(replaceTrigger, WORKFLOW_NODE_REPLACE_TRIGGER_CONTRACT);
 }

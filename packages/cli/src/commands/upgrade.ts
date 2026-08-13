@@ -68,7 +68,38 @@ export function registerUpgradeCommand(program: Command): void {
   program
     .command("upgrade")
     .description("Upgrade the Nexus CLI to the latest version")
-    .addHelpText("after", `\nExamples:\n  $ nexus upgrade`)
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus upgrade
+
+Notes:
+  IT NEEDS NO API KEY, NO BASE URL AND NO PROFILE. Unlike every resource command
+  group, this one does not call the Public API — it manages your local CLI
+  install and touches nothing in your workspace. An unauthenticated or
+  logged-out machine can upgrade normally.
+
+  IT RUNS A GLOBAL PACKAGE-MANAGER INSTALL AS YOU. The manager is inferred from
+  where the running binary actually lives — pnpm, yarn, otherwise npm — and the
+  install runs with your permissions and no elevation. If your global prefix
+  needs root, the install fails rather than prompting; the error prints the
+  exact command, so re-run that one yourself with whatever privilege it needs.
+
+  IT IS A NO-OP WHEN YOU ARE CURRENT. The version is checked first, and an
+  already-current CLI prints its version and exits 0 without installing
+  anything, so this is safe to run repeatedly and safe to put in a script.
+
+  A CLI THAT DID NOT COME FROM A GLOBAL INSTALL IS NOT UPGRADABLE HERE. Run
+  through npx, vendored into a repo, or installed as a project dependency, this
+  installs a SEPARATE global copy rather than replacing the one you invoked —
+  so the next run of your local binary is still the old version. Upgrade those
+  through whatever installed them.
+
+  EXIT 1 MEANS NOTHING CHANGED. Both failure paths — the version check could not
+  reach the registry, or the install command failed — leave the CLI exactly as
+  it was. There is no partial upgrade to clean up.`
+    )
     .action(upgradeAction);
 
   // Register hidden aliases so any intuitive word triggers the upgrade

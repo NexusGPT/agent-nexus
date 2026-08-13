@@ -10,11 +10,23 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  TICKET_CREATE__BODY_PRIORITY,
+  TICKET_CREATE__BODY_TYPE,
+  TICKET_CREATE_CONTRACT,
+  TICKET_LIST__PARAMS_PRIORITY,
+  TICKET_LIST__PARAMS_TYPE,
+  TICKET_LIST_CONTRACT,
+  TICKET_UPDATE__BODY_PRIORITY,
+  TICKET_UPDATE__BODY_TYPE,
+  TICKET_UPDATE_CONTRACT
+} from "./ticket.contract.generated";
 
 /**
  * Parse a `--labels` value into the array the API expects. An empty value
@@ -138,15 +150,25 @@ verbatim. Redaction is not a safety net — do not paste secrets.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  //
+  // Bound to `TicketList`. `--all-orgs` routes the SAME leaf to
+  // `TicketListAcrossOrganizations`, whose params are the same two enums plus the
+  // same free-string status — one command, two descriptors, and `bindCommand`
+  // takes one shape. Binding the org-scoped one is the honest choice: it is the
+  // default branch, and the values are identical, so the printed contract block
+  // is true of both. `TicketListAcrossOrganizations` is therefore not in the
+  // ledger and its own enums are not separately gated.
+  const list = addPaginationOptions(
     ticket
       .command("list")
       .description("List tickets")
-      .option("--type <type>", "Filter by type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
-      .option("--priority <priority>", "Filter by priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
+      .addOption(enumOption("--type <type>", "Filter by type", TICKET_LIST__PARAMS_TYPE))
+      .addOption(
+        enumOption("--priority <priority>", "Filter by priority", TICKET_LIST__PARAMS_PRIORITY)
+      )
       .option(
         "--status <status>",
-        "Filter by status (Triage, Backlog, Todo, In Progress, In Review, Done, Canceled) — comma-separate for several"
+        "Filter by workflow-state name — comma-separate for several. See Notes for how to read the set your team defines"
       )
       .option("--search <query>", "Search by title or description")
       .option(
@@ -165,9 +187,16 @@ Examples:
   $ nexus ticket list --all-orgs --search "webhook"
 
 Notes:
-  Statuses are the workflow states configured on the Linear team, matched
-  case-insensitively. A name the team does not define is rejected with the
-  complete allowed set — it never comes back as an empty page.
+  READ THE STATUS SET, NEVER ASSUME IT. Statuses are the workflow states
+  configured on the Linear team, so the team renames and adds them and any list
+  written down here is a lie waiting to happen. They are matched
+  case-insensitively, and a name the team does not define is rejected with the
+  COMPLETE allowed set rather than an empty page — so the fastest way to see
+  today's states is to ask for one that cannot exist:
+
+    $ nexus ticket list --status zzz
+
+  The states are not the generic Linear defaults. Do not guess "Done".
 
   Without --all-orgs, results come from the profile's active organization only.
   Every organization is backed by the same ticket workspace, so a ticket filed
@@ -185,15 +214,26 @@ Notes:
   check it before concluding a ticket does not exist.
 
   NO DESCRIPTION AND NO context HERE. The list carries the summary fields only;
-  read either with "nexus ticket get <id>".
+  read either with "nexus ticket get <id>". --search matches the description
+  too, so a row can look like an arbitrary hit — the text that matched it is not
+  in this output. "ticket get" is where you see why.
 
-  LABELS EXCLUDE THE TYPE LABEL — that one is surfaced as TYPE. What you see is
-  safe to feed straight back into --labels on create or update.
+  LABELS AND TYPE OVERLAP — LABELS IS NOT SAFE TO FEED BACK. The label a ticket
+  was typed with stays in LABELS as well as being surfaced as TYPE, so passing
+  the LABELS list straight into --labels on update re-sends a reserved label.
+  Drop the type-bearing label before you send it back.
+
+  TYPE IS OFTEN EMPTY, AND THAT IS NOT A DATA FAULT. A ticket filed outside this
+  CLI carries its type as an ordinary label and never gets the typed field set,
+  so filtering or grouping on TYPE silently omits those rows. Filter on the
+  label when you need every ticket of a kind.
 
   Paginated: --limit / --page, and the total is in the meta line (in --json,
   meta.total). --search is a substring over title and description.`
       )
-  ).action(async (opts) => {
+  );
+
+  list.action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const params = {
@@ -220,13 +260,13 @@ Notes:
   ticket
     .command("get")
     .description("Get ticket details")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket get TKT-42
-  $ nexus ticket get TKT-42 --json
+  $ nexus ticket get NEX-3469
+  $ nexus ticket get NEX-3469 --json
 
 Notes:
   This reads the profile's ACTIVE organization only, so a ticket filed under
@@ -270,12 +310,12 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  ticket
+  const create = ticket
     .command("create")
     .description("Create a new ticket")
     .requiredOption("--title <title>", "Ticket title")
-    .option("--type <type>", "Ticket type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
-    .option("--priority <priority>", "Priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
+    .addOption(enumOption("--type <type>", "Ticket type", TICKET_CREATE__BODY_TYPE))
+    .addOption(enumOption("--priority <priority>", "Priority", TICKET_CREATE__BODY_PRIORITY))
     .option("--description <text>", "Ticket description")
     .option("--labels <list>", "Comma-separated Linear labels to attach (e.g. CUE)")
     .option("--data <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -360,17 +400,19 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  ticket
+  const update = ticket
     .command("update")
     .description("Update a ticket")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .option("--title <title>", "Updated title")
-    .option("--type <type>", "Updated type (BUG, FEATURE_REQUEST, IMPROVEMENT)")
-    .option("--priority <priority>", "Updated priority (NONE, URGENT, HIGH, MEDIUM, LOW)")
+    .addOption(enumOption("--type <type>", "Updated type", TICKET_UPDATE__BODY_TYPE))
+    .addOption(
+      enumOption("--priority <priority>", "Updated priority", TICKET_UPDATE__BODY_PRIORITY)
+    )
     .option("--description <text>", "Updated description")
     .option(
       "--status <status>",
-      "Transition status (Triage, Backlog, Todo, In Progress, In Review, Done, Canceled)"
+      'Transition to a workflow-state name defined by the team — run "nexus ticket list --status zzz" to print the real set'
     )
     .option(
       "--labels <list>",
@@ -381,13 +423,13 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus ticket update TKT-42 --priority URGENT
-  $ nexus ticket update TKT-42 --labels "CUE,needs-triage"
-  $ nexus ticket update TKT-42 --labels ""
-  $ nexus ticket update TKT-42 --title "Updated title" --type BUG
-  $ nexus ticket update TKT-42 --status "In Progress"
-  $ nexus ticket update TKT-42 --status Canceled
-  $ nexus ticket update TKT-42 --data '{"priority":"URGENT"}'
+  $ nexus ticket update NEX-3469 --priority URGENT
+  $ nexus ticket update NEX-3469 --labels "CUE,needs-triage"
+  $ nexus ticket update NEX-3469 --labels ""
+  $ nexus ticket update NEX-3469 --title "Updated title" --type BUG
+  $ nexus ticket update NEX-3469 --status "In Progress"
+  $ nexus ticket update NEX-3469 --status Canceled
+  $ nexus ticket update NEX-3469 --data '{"priority":"URGENT"}'
 
 Notes:
   Uses --data (not --body) for JSON input, like "ticket create".
@@ -403,7 +445,14 @@ Notes:
   update: to keep it, read the description first and re-send it with your edit.
 
   --status IS A LINEAR WORKFLOW-STATE NAME and is validated against the team's
-  real states; an unknown one is refused with the allowed set.
+  real states; an unknown one is refused with the allowed set. Read that set
+  before you write against it — the states are configured per team and are not
+  the generic Linear defaults, so a name that reads as obviously right can be
+  one the team does not define. "nexus ticket list --status zzz" prints them.
+
+  VERIFY WITH "nexus ticket get". Create and update both transform silently —
+  unknown context keys dropped, a long requestBody truncated — and the response
+  here does not distinguish what was kept from what was sent.
 
   AN EMPTY UPDATE IS A SUCCESS THAT CHANGES NOTHING — every field is optional.
   A flag always overrides the same field in --data.`
@@ -442,20 +491,27 @@ Notes:
   ticket
     .command("close")
     .description("Close a ticket by transitioning it to a terminal status")
-    .argument("<id>", "Ticket ID or identifier")
-    .option("--as <status>", "Status to close as (e.g. Canceled, Done)", "Canceled")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
+    .option("--as <status>", "Workflow-state name to close as", "Canceled")
     .option("--comment <text-or-->", "Optional comment to add before closing ('-' for stdin)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket close TKT-42
-  $ nexus ticket close TKT-42 --as Done
-  $ nexus ticket close TKT-42 --as Canceled --comment "Duplicate of TKT-41"
+  $ nexus ticket close NEX-3469
+  $ nexus ticket close NEX-3469 --as Canceled --comment "Duplicate of NEX-3468"
 
 Notes:
-  IT CLOSES AS Canceled BY DEFAULT, NOT Done. Canceled reads as "we are not
-  doing this"; pass --as Done for work that shipped.
+  IT CLOSES AS Canceled BY DEFAULT, WHICH READS AS "we are not doing this".
+  That is the right state for a ticket being dropped and the wrong one for work
+  that shipped.
+  THERE IS NO "Done" STATE TO PASS. --as takes a workflow-state name the LINEAR
+  TEAM defines, and the generic Linear vocabulary is not what this team uses —
+  so the obvious --as Done is refused. Print the real set before closing
+  anything as shipped:
+
+    $ nexus ticket list --status zzz
+
   --as IS A WORKFLOW-STATE NAME, so this is "ticket update --status" with a
   default. Nothing checks that the state you name is terminal — --as Backlog
   is accepted and reopens the ticket.
@@ -492,14 +548,14 @@ Notes:
   ticket
     .command("comment")
     .description("Add a comment to a ticket")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .requiredOption("--body <text-or-->", "Comment body (text or '-' for stdin)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket comment TKT-42 --body "This is fixed in v2.1"
-  $ echo "Detailed comment" | nexus ticket comment TKT-42 --body -
+  $ nexus ticket comment NEX-3469 --body "This is fixed in v2.1"
+  $ echo "Detailed comment" | nexus ticket comment NEX-3469 --body -
 
 Notes:
   --body HERE IS COMMENT TEXT, NOT JSON. It is the one --body in this namespace
@@ -509,7 +565,20 @@ Notes:
   NOTHING IS REDACTED IN A COMMENT. The scrubbing that applies to
   context.requestBody on create does not apply here; a pasted token goes to
   Linear as typed.
-  Comments cannot be edited or deleted through this API.`
+  Comments cannot be edited or deleted through this API.
+
+  YOUR COMMENT IS NOT ATTRIBUTED TO YOU. Every comment this route posts lands
+  under ONE shared internal account, whichever key sent it, and nothing in the
+  response says so. Nobody reading the ticket can tell which person or which
+  automation wrote it, and there is no flag that changes this. Sign the body
+  yourself when the author matters:
+
+    $ nexus ticket comment NEX-3469 --body "[deploy-bot] retried, green on 2nd run"
+
+  A FAILURE HERE NAMES ITS CAUSE. When the comment does not post, the error says
+  what went wrong — a rate limit, a rejected body, an upstream fault — so read
+  it rather than retrying blind. Retrying a rate limit immediately just spends
+  the next attempt.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -526,20 +595,23 @@ Notes:
   ticket
     .command("comments")
     .description("List comments on a ticket")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket comments TKT-42
-  $ nexus ticket comments TKT-42 --json
+  $ nexus ticket comments NEX-3469
+  $ nexus ticket comments NEX-3469 --json
 
 Notes:
   THE BODY COLUMN IS TRUNCATED TO 50 CHARACTERS in the table. Use --json to
   read a comment in full — the table is a index, not the content.
   Unpaginated — there are no --limit / --page options here.
-  AUTHOR is null for a comment written by an integration rather than a person,
-  and renders blank rather than saying so.`
+  THE AUTHOR COLUMN IS "authorName" IN --json, not "author". A script reading
+  .author gets undefined on every row and reads it as an unattributed comment.
+  IT IS null FOR A COMMENT WRITTEN BY AN INTEGRATION, and renders blank rather
+  than saying so. Every comment posted with "nexus ticket comment" is written by
+  an integration, so this column cannot tell you who ran the command.`
     )
     .action(async (id: string) => {
       try {
@@ -562,14 +634,14 @@ Notes:
   ticket
     .command("attach")
     .description("Upload a file attachment to a ticket")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .requiredOption("--file <path>", "Path to the file to upload")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket attach TKT-42 --file ./screenshot.png
-  $ nexus ticket attach TKT-42 --file ~/Downloads/error-log.txt
+  $ nexus ticket attach NEX-3469 --file ./screenshot.png
+  $ nexus ticket attach NEX-3469 --file ~/Downloads/error-log.txt
 
 Notes:
   THE WHOLE FILE IS READ INTO MEMORY AND UPLOADED IN ONE REQUEST. There is no
@@ -609,13 +681,13 @@ Notes:
   ticket
     .command("attachments")
     .description("List attachments on a ticket")
-    .argument("<id>", "Ticket ID or identifier")
+    .argument("<id>", 'Ticket id (see "nexus ticket list")')
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus ticket attachments TKT-42
-  $ nexus ticket attachments TKT-42 --json
+  $ nexus ticket attachments NEX-3469
+  $ nexus ticket attachments NEX-3469 --json
 
 Notes:
   THIS IS THE VERIFICATION STEP FOR "ticket attach" — a 2xx on the upload is
@@ -638,4 +710,9 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(list, TICKET_LIST_CONTRACT);
+  bindCommand(create, TICKET_CREATE_CONTRACT);
+  bindCommand(update, TICKET_UPDATE_CONTRACT);
 }

@@ -26,6 +26,7 @@ import { NexusApiError } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import {
   color,
@@ -92,6 +93,7 @@ import {
   type VibeGitCredentialsDto,
   type VibeGitProjectAliasDto
 } from "../vibe-wire-types";
+import { VIBE_REGISTER_APP_AS_TOOL_CONTRACT } from "./vibe.contract.generated";
 import {
   type AppLogsFlags,
   emitLogLines,
@@ -139,6 +141,26 @@ Subcommands:
   approvals        Review gated deployments — pending queue, get, approve/reject.
   audit            Inspect the per-org Vibe audit feed (deployments, approvals,
                    cost-safety state changes, rollbacks).
+
+🚨 THIS NAMESPACE PROVISIONS REAL CLOUD INFRASTRUCTURE THAT COSTS MONEY AND
+OUTLIVES THE COMMAND. A cluster, a git host and every running deployment keep
+consuming until something removes them; nothing here is a sandbox and nothing
+expires on its own. Treat "cluster provision", "app create", "deploy" and
+"app provision-repo" as spend, and clean up what you were only trying out.
+
+THE SUBCOMMANDS ARE LISTED ALPHABETICALLY AND THAT IS NOT THE ORDER TO RUN THEM.
+End to end, once the cluster exists:
+
+  1. vibe app create                    the app record
+  2. vibe app provision-repo            a new repo — or attach-repo for one you have
+  3. vibe git-credentials               your push token AND the address to push to
+  4. vibe git-project clone / commit / push
+  5. vibe deploy                        names the commit sha to build
+  6. vibe deploy-state                  did the push land, is it what is live
+  7. vibe app register-as-tool          only once a deployment is healthy
+
+Each step's own --help is right about its step; nothing but this list says how
+they compose.
 
 This surface is feature-flagged — your org must have the VIBE feature
 flag enabled. If you get a 403, ping platform-ops to flip the flag.
@@ -454,6 +476,14 @@ Upsert semantics: a fresh (scope, NAME) is created, an existing one is
 overwritten. NAME must be SCREAMING_SNAKE_CASE (A-Z, 0-9, underscore).
 The value is everything after the first '=', so it may itself contain
 '=' and may be empty (NAME= sets an empty value).
+
+⚠️ THE SCOPE IS PART OF THE KEY, SO THE SAME NAME CAN EXIST TWICE AND NEITHER
+ROW OVERWRITES THE OTHER. Setting DATABASE_URL at ALL and again at PROD leaves
+two rows, both live, and "env list" shows both without saying which one the
+running app reads. Keep each NAME at exactly ONE scope: use ALL for a value that
+never varies, PROD or STAGING for one that does, never a mix for the same name.
+If you already have both, delete one with "vibe env rm" rather than reasoning
+about precedence.
 
 Examples:
   $ nexus vibe env set 11111111-2222-4333-8444-555555555555 LOG_LEVEL=debug
@@ -1545,6 +1575,13 @@ The app's git project is NOT deleted — a project can back several apps, so it
 outlives any one of them. Remove it separately with "git-project delete" if
 nothing else needs it.
 
+🚨 THE APP'S ENVIRONMENT VARIABLES GO WITH IT, AND THEY ARE NOT IN THE GIT
+PROJECT. "vibe env" is a sibling namespace, so it is easy to assume its rows
+survive alongside the code; they do not. Every plaintext var and every imported
+access card on this app becomes unreachable the moment it is deleted, and
+re-creating an app with the same name does not bring them back. Copy them out
+first — "nexus vibe env list <appId> --json" — if you might rebuild this app.
+
 Examples:
   $ nexus vibe app delete 11111111-2222-4333-8444-555555555555
   $ nexus vibe app delete 11111111-2222-4333-8444-555555555555 --yes
@@ -1595,6 +1632,13 @@ caller removes app-level auth for everyone, and is not the same trade.
 
 A PUBLIC app has no token and this command returns 409 — it needs none, since
 anyone with the URL already reaches it.
+
+A TOKEN THAT SUDDENLY STOPS WORKING IS USUALLY A VISIBILITY FLIP, NOT AN
+EXPIRY. Going public DESTROYS the token (this command then 409s); going private
+again mints a FRESH one rather than restoring the old. Either direction breaks
+every caller holding the previous value, including registered tools. Check
+"nexus vibe app get <appId>" for the current mode before hunting for a rotation
+you did not run.
 
 The token is printed in full. Treat the output as a secret: pipe it, don't paste
 it into a shared terminal.
@@ -1661,7 +1705,7 @@ Examples:
       }
     });
 
-  app
+  const registerAsTool = app
     .command("register-as-tool <appId>")
     .description("Register a deployed Vibe app as a CUSTOM_MANIFEST agent tool")
     .option("--spec-file <path>", "Path to the app's OpenAPI spec file (JSON or YAML).")
@@ -1674,11 +1718,16 @@ Examples:
     .addHelpText(
       "after",
       `
+DEPLOY FIRST. This is the last step of the flow, not a way to set one up: an app
+with no healthy deployment is refused with a 409 saying exactly that, and it is
+the first thing most people hit. Run "nexus vibe deploy <appId>" and confirm
+with "nexus vibe deploy-state <appId>" before coming here.
+
 The platform owns the tool's endpoint URL — it is the app's canonical
 public URL (\`VibeApp.publicUrl\`), set server-side. You cannot point the
 tool at an arbitrary host. Supply exactly one of --spec-file / --spec.
 
-The app must have a healthy deployment and must not already be registered
+The app must not already be registered
 (idempotent: a second call returns 409 with the existing tool id). Auth
 defaults to none at v1 — a deployed Vibe app is reachable without extra
 credentials; tighten per-app as Vault-backed secrets land.
@@ -1712,6 +1761,14 @@ Examples:
         }
       }
     );
+
+  // THE ONLY LEAF OF THIS NAMESPACE THE v1 CONTRACT DECLARES, and the split is a
+  // property of the server rather than of this rollout: every other verb here
+  // posts to the `/api/vibe/...` tenant surface, which `ZPublicApiV1` does not
+  // declare, so there is nothing to derive for them. Bound here, immediately
+  // after its own chain, because nothing else adds an option to this leaf — see
+  // `bindCommand` on why the call must come last.
+  bindCommand(registerAsTool, VIBE_REGISTER_APP_AS_TOOL_CONTRACT);
 
   app
     .command("provision-repo <appId>")

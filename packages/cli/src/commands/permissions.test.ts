@@ -69,13 +69,22 @@ describe("permissions access", () => {
   });
 
   it("refuses a resource type the API does not serve, without calling it", async () => {
-    // A `string` from commander has to be narrowed before it reaches the SDK.
-    // Sending it anyway would 400 on a path segment, which reads as a bad id.
-    await run(["permissions", "access", "spaceship", RESOURCE_ID]);
+    // 🚨 THE REFUSAL MOVED FROM THE ACTION TO THE PARSER, and the assertion has
+    // to follow it. `<resource-type>` is bound to the contract enum through
+    // `enumArgument`, so commander now rejects the value while parsing — before
+    // the action body, and therefore before the narrowing check that used to set
+    // `process.exitCode`. Under `exitOverride()` that arrives as a REJECTED
+    // PROMISE, so `await run(...)` no longer returns and an assertion after it
+    // never runs.
+    //
+    // Asserting on the rejection is also the stronger check: it proves the value
+    // never reached the SDK, and it names the list the operator can use, which
+    // the old exit code did not.
+    await expect(run(["permissions", "access", "spaceship", RESOURCE_ID])).rejects.toThrow(
+      /Allowed choices are .*\bagent\b/
+    );
 
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
-    process.exitCode = 0;
   });
 
   it("renders the grant rows in table mode, not only in JSON", async () => {
@@ -290,12 +299,20 @@ describe("permissions org settings", () => {
   });
 
   it("refuses an unknown --visibility token without calling the API", async () => {
-    await run(["permissions", "set-visibility", "--resource-type", "agent", "--visibility", "non"]);
+    // REFUSED BY THE PARSER NOW, not by the action. The flag is bound to the
+    // contract enum, so commander rejects the value before the action runs and
+    // names the allowed list — including "none", the token this CLI invents.
+    // Forwarded verbatim it would 400 with a message listing enum values that do
+    // not include it.
+    //
+    // `run` builds its program with `exitOverride()`, so that refusal arrives as
+    // a rejected promise rather than as an exit code. Asserting the rejection is
+    // what keeps this a test of the refusal rather than of the mechanism that
+    // used to carry it.
+    await expect(
+      run(["permissions", "set-visibility", "--resource-type", "agent", "--visibility", "non"])
+    ).rejects.toThrow(/'non' is invalid/);
 
-    // "none" is a token this CLI invents. Forwarded verbatim it would 400 with a
-    // message listing enum values that do not include it.
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
-    process.exitCode = 0;
   });
 });

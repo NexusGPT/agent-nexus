@@ -18,7 +18,7 @@ export function registerApiCommand(program: Command): void {
   program
     .command("api")
     .description("Call any Nexus API endpoint directly")
-    .argument("<method>", "HTTP method (GET, POST, PATCH, PUT, DELETE)")
+    .argument("<method>", "HTTP method, uppercased and sent as given — see Notes")
     .argument("<path>", "API path relative to /api/public/v1 (e.g. /models)")
     .option("--body <json>", "Request body as JSON string, .json file path, or '-' for stdin")
     .option(
@@ -55,9 +55,30 @@ File uploads:
 
 Notes:
   For long-running calls, raise the global --timeout <seconds> flag (default 30 s).
-  Every 2xx is a success. Routes answering with the standard envelope are
-  unwrapped to their "data"; a route speaking its own protocol (POST /mcp is
-  JSON-RPC 2.0) is returned verbatim under "data" — pipe through 'jq .data'.`
+
+  THE OUTPUT IS ALWAYS AN OBJECT WITH A "data" KEY. Every path through this
+  command reads .data — envelope or not. What is stripped from an enveloped
+  response is "success", never the "data" key itself, and a paginated route
+  keeps "meta" beside it. So a route speaking its own protocol (POST /mcp is
+  JSON-RPC 2.0) is also nested one level down, under "data". Write every jq
+  pipeline against .data, and do not expect the payload at the top level:
+
+    $ nexus api GET /models | jq '.data[0].id'
+
+  THE METHOD IS NOT VALIDATED LOCALLY. Whatever you type is uppercased and
+  sent, so a typo travels to the server and comes back as a bare 400 that never
+  names the method. Read the method you typed before you read the request.
+
+  --json DOES NOT MAKE THE OUTPUT JSON — IT IS ALREADY JSON. This command has no
+  table view. The flag only switches pretty-printed two-space output to compact
+  single-line, which is what you want when piping into jq. Reaching for --json
+  to "get JSON out" changes nothing you were missing.
+
+  🚨 THERE IS NO --yes AND NO --dry-run HERE. Every typed destructive verb in
+  this CLI declares one, so arriving from those pages you will expect a gate;
+  this command has none. The request is sent exactly as written the moment you
+  press enter. Re-read the method and the path before running a DELETE or a
+  PATCH — that reading is the only confirmation step that exists.`
     )
     .action(async (method: string, path: string, opts) => {
       try {

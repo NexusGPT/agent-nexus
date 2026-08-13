@@ -1,11 +1,72 @@
 import { Command } from "commander";
 
-import { createClient } from "../client";
+import { createClient, timeoutSecondsToMs } from "../client";
+import { resolveBaseUrl, resolveDashboardUrl } from "../config";
+import { bindCommand } from "../contract-binding";
 import { color, isJsonMode } from "../output";
+import { DOCS_SEARCH_CONTRACT } from "./docs.contract.generated";
 
-const DOCS_URL = "https://gpt.nexus/docs";
-const LLMS_FULL_URL = `${DOCS_URL}/llms-full.txt`;
-const LLMS_INDEX_URL = `${DOCS_URL}/llms.txt`;
+/**
+ * The two docs feeds, on the API host.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE FEEDS ARE NOT ON THE DASHBOARD HOST, AND THE DASHBOARD HOST 200s ANYWAY.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * These used to be hardcoded as `https://gpt.nexus/docs/llms-full.txt`.
+ * `gpt.nexus` is the DASHBOARD — a static SPA whose `vercel.json` rewrites
+ * `/((?!assets/).*)` to `/index.html`. So every path on it answers 200 with the
+ * HTML shell, including this one. `res.ok` was true, `res.text()` returned a
+ * document, and `nexus docs --full` printed an HTML page as if it were the
+ * documentation. Nothing errored and no status code could have revealed it.
+ *
+ * The feeds are served by the BACKEND: `DocsFeedsController` is `@Controller("docs")`
+ * under the `api` global prefix, both routes `@AllowUnauthenticated`, both
+ * `Content-Type: text/plain`. So they follow the API base URL, and building them
+ * from {@link resolveBaseUrl} is also what makes `--base-url`, `--profile`,
+ * `NEXUS_BASE_URL` and `NEXUS_ENV` work here at all — a hardcoded host bypassed
+ * the whole precedence chain, so this command could not be pointed at staging or
+ * dev in any way.
+ *
+ * A 200 is not the check. The content type is: an HTML shell arrives at 200 too.
+ */
+function feedUrls(baseUrl: string): { full: string; index: string } {
+  const root = baseUrl.replace(/\/+$/, "");
+  return {
+    full: `${root}/api/docs/llms-full.txt`,
+    index: `${root}/api/docs/llms.txt`
+  };
+}
+
+/** A feed that answers 200 with a web page is the dashboard-host bug, not docs. */
+function isPlainText(res: Response): boolean {
+  return (res.headers.get("content-type") ?? "").toLowerCase().includes("text/plain");
+}
+
+/**
+ * How long to wait for a feed when `--timeout` is not given. MILLISECONDS.
+ *
+ * A default is fine. A CEILING is not, which is the whole of the defect this
+ * replaced: the fetch was `AbortSignal.timeout(60_000)` and the global
+ * `--timeout <seconds>` was never read, so on a slow link `nexus docs --full`
+ * aborted at 60s and the flag that exists for exactly this could not extend it.
+ * `llms-full.txt` is ~2.5 MB — the one command in this namespace most likely to
+ * need longer, and the one that could not be given it.
+ *
+ * Named `*_MS` on purpose. `AbortSignal.timeout` takes MILLISECONDS, and the
+ * convention `timeout-values-carry-their-unit.test.ts` enforces is that a
+ * millisecond slot is fed either `timeoutSecondsToMs(...)` or a `*_MS` constant.
+ * This is NOT the NEX-3707 shape — that was a `*_MS` constant handed to a
+ * SECONDS parameter. Into a millisecond slot it is the prescribed form.
+ */
+const DOCS_FEED_DEFAULT_TIMEOUT_MS = 60_000;
+
+/**
+ * The same default in the unit `--timeout` speaks, for the help text and the
+ * timeout message. A display divide, never a deadline conversion — the deadline
+ * only ever changes unit inside `timeoutSecondsToMs`.
+ */
+const DOCS_FEED_DEFAULT_TIMEOUT_SECONDS = DOCS_FEED_DEFAULT_TIMEOUT_MS / 1000;
 
 export function registerDocsCommand(program: Command): void {
   const docs = program
@@ -23,16 +84,59 @@ Examples:
   $ nexus docs search "how to deploy to WhatsApp"     # Semantic search
   $ nexus docs search "creating agents" --limit 10
 
-Full documentation: ${DOCS_URL}`
+Notes:
+  --full and --index read the llms.txt feeds from the API HOST, so they follow
+  --base-url / --profile / NEXUS_BASE_URL / NEXUS_ENV like every other command.
+  The browsable doc links printed by a bare "nexus docs" are on the DASHBOARD
+  host, which is a different host and follows NEXUS_DASHBOARD_URL.
+  --full is large (megabytes). Redirect it rather than reading it in a pager.
+  The global --timeout <seconds> applies to these fetches; without it they wait
+  ${DOCS_FEED_DEFAULT_TIMEOUT_SECONDS}s. On a slow link --full is the one that
+  needs raising.
+  --full and --index need NO API key. They read public files. Only
+  "nexus docs search" authenticates.
+  A feed answering 200 with HTML is a MISCONFIGURED BASE URL pointing at the
+  dashboard, not at the API — this command refuses it rather than printing the
+  web page as if it were documentation.`
     )
     .action(async (opts: { full?: boolean; index?: boolean }) => {
+      const globals = program.optsWithGlobals();
+
       if (opts.full || opts.index) {
-        const url = opts.full ? LLMS_FULL_URL : LLMS_INDEX_URL;
+        const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
+        const url = opts.full ? feeds.full : feeds.index;
         try {
-          const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+          // The converter is named AT the call site on purpose: it is the one
+          // place the unit changes, and the gate reads this text to prove the
+          // deadline is milliseconds and that the global flag can still move it.
+          const res = await fetch(url, {
+            signal: AbortSignal.timeout(
+              timeoutSecondsToMs(globals.timeout) ?? DOCS_FEED_DEFAULT_TIMEOUT_MS
+            )
+          });
           if (!res.ok) {
             console.error(
               color.red("Error:") + ` Failed to fetch docs: ${res.status} ${res.statusText}`
+            );
+            console.error(color.dim(`  ${url}`));
+            process.exitCode = 1;
+            return;
+          }
+          // The status is not the check. The dashboard host serves its SPA shell
+          // at 200 for every path, so a 200 alone cannot tell "here are the docs"
+          // from "here is a web page" — and printing the shell as documentation
+          // is exactly how this command looked healthy while returning nothing.
+          if (!isPlainText(res)) {
+            console.error(
+              color.red("Error:") +
+                ` Expected a text/plain docs feed, got "${res.headers.get("content-type") ?? "no content-type"}".`
+            );
+            console.error(
+              color.dim(`  ${url}`) +
+                "\n" +
+                color.dim(
+                  "  This base URL is serving a web page, not the API. Check --base-url / NEXUS_BASE_URL."
+                )
             );
             process.exitCode = 1;
             return;
@@ -44,20 +148,42 @@ Full documentation: ${DOCS_URL}`
           } else {
             console.log(text);
           }
-        } catch (error: any) {
-          console.error(color.red("Error:") + ` ${error.message ?? error}`);
+        } catch (error: unknown) {
+          // An abort is the one failure here with an ACTION attached, so it must
+          // not read as a generic network error. `AbortSignal.timeout` rejects
+          // with a DOMException named TimeoutError whose message says only "the
+          // operation was aborted" — which names neither the cause nor the flag
+          // that fixes it.
+          const timedOut = error instanceof Error && error.name === "TimeoutError";
+          if (timedOut) {
+            const waited = globals.timeout ?? DOCS_FEED_DEFAULT_TIMEOUT_SECONDS;
+            console.error(color.red("Error:") + ` The docs feed did not finish within ${waited}s.`);
+            console.error(
+              color.dim(`  ${url}`) +
+                "\n" +
+                color.dim("  Raise it with the global --timeout <seconds>. --full is ~2.5 MB.")
+            );
+          } else {
+            console.error(
+              color.red("Error:") + ` ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
           process.exitCode = 1;
         }
         return;
       }
 
-      // Default: show links
+      // Default: show links. These are pages a human opens in a browser, so they
+      // are on the dashboard host — a different host from the feeds above, and
+      // the reason both resolvers are used in one command.
+      const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl).replace(/\/+$/, "")}/docs`;
+      const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
       console.log(color.bold("Nexus Documentation\n"));
-      console.log(`  Full docs:     ${color.cyan(DOCS_URL)}`);
-      console.log(`  CLI reference: ${color.cyan(`${DOCS_URL}/api-reference/cli/overview`)}`);
-      console.log(`  API reference: ${color.cyan(`${DOCS_URL}/api-reference/authentication`)}`);
-      console.log(`  LLM index:     ${color.cyan(LLMS_INDEX_URL)}`);
-      console.log(`  LLM full:      ${color.cyan(LLMS_FULL_URL)}`);
+      console.log(`  Full docs:     ${color.cyan(docsUrl)}`);
+      console.log(`  CLI reference: ${color.cyan(`${docsUrl}/api-reference/cli/overview`)}`);
+      console.log(`  API reference: ${color.cyan(`${docsUrl}/api-reference/authentication`)}`);
+      console.log(`  LLM index:     ${color.cyan(feeds.index)}`);
+      console.log(`  LLM full:      ${color.cyan(feeds.full)}`);
       console.log();
       console.log(
         color.dim("Use ") +
@@ -69,7 +195,7 @@ Full documentation: ${DOCS_URL}`
     });
 
   // Semantic search subcommand (requires API key)
-  docs
+  const search = docs
     .command("search")
     .description("Semantic search across Nexus product documentation (requires API key)")
     .argument("<query>", "Natural language search query")
@@ -117,9 +243,15 @@ Examples:
           console.log(`  ${r.snippet.slice(0, 200)}${r.snippet.length > 200 ? "..." : ""}`);
           console.log();
         }
-      } catch (error: any) {
-        console.error(color.red("Error:") + ` ${error.message ?? error}`);
+      } catch (error: unknown) {
+        console.error(
+          color.red("Error:") + ` ${error instanceof Error ? error.message : String(error)}`
+        );
         process.exitCode = 1;
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. Only `search`
+  // calls a v1 route; the rest of this namespace opens URLs.
+  bindCommand(search, DOCS_SEARCH_CONTRACT);
 }

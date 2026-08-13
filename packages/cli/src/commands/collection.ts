@@ -2,11 +2,26 @@ import type { CreateCollectionBody, UpdateCollectionBody } from "@agent-nexus/sd
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { isJsonMode, printList, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseFilterPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import {
+  SKILLS_ATTACH_COLLECTION_DOCUMENTS_CONTRACT,
+  SKILLS_CREATE_COLLECTION_CONTRACT,
+  SKILLS_DELETE_COLLECTION_CONTRACT,
+  SKILLS_GET_COLLECTION_CONTRACT,
+  SKILLS_GET_COLLECTION_STATISTICS_CONTRACT,
+  SKILLS_LIST_COLLECTION_DOCUMENTS_CONTRACT,
+  SKILLS_LIST_COLLECTIONS_CONTRACT,
+  SKILLS_QUERY_COLLECTION_CONTRACT,
+  SKILLS_REMOVE_COLLECTION_DOCUMENT_CONTRACT,
+  SKILLS_SEARCH_COLLECTION_CONTRACT,
+  SKILLS_SEARCH_MULTIPLE_COLLECTIONS_CONTRACT,
+  SKILLS_UPDATE_COLLECTION_CONTRACT
+} from "./collection.contract.generated";
 
 /** Commander collector for repeatable `--filter key=value` options. */
 function collectFilter(value: string, previous: string[]): string[] {
@@ -36,7 +51,7 @@ Three facts decide whether a call does what you think:
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  collection
+  const list = collection
     .command("list")
     .description("List knowledge collections")
     .option("--search <query>", "Search by name")
@@ -78,7 +93,7 @@ Notes:
     });
 
   // ── get ───────────────────────────────────────────────────────────────
-  collection
+  const get = collection
     .command("get")
     .description("Get collection details")
     .argument("<id>", "Collection ID")
@@ -118,7 +133,7 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  collection
+  const create = collection
     .command("create")
     .description("Create a knowledge collection")
     .requiredOption("--name <name>", "Collection name (unique slug)")
@@ -169,7 +184,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  collection
+  const update = collection
     .command("update")
     .description("Update a collection")
     .argument("<id>", "Collection ID")
@@ -219,7 +234,7 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  collection
+  const remove = collection
     .command("delete")
     .description("Delete a collection")
     .argument("<id>", "Collection ID")
@@ -263,7 +278,7 @@ Notes:
     });
 
   // ── search ────────────────────────────────────────────────────────────
-  collection
+  const search = collection
     .command("search")
     .description("Search a collection by document name (slug match — not content)")
     .argument("<id>", "Collection ID")
@@ -287,6 +302,15 @@ Notes:
   --query is a case-insensitive SUBSTRING of the document name. It is not a
   glob, not a regex and not tokenised, so "reset PIN" matches only a name that
   literally contains "reset PIN". --limit defaults to 10.
+
+  A CRAWLED PAGE IS NAMED AFTER THE LAST SEGMENT OF ITS URL, so this command
+  finds /guides/setup by "setup" and CANNOT find a home page at all — a bare
+  domain root has no segment and is stored with an empty name. A collection
+  built from a website crawl therefore looks empty here while answering
+  "collection query" perfectly. Search CONTENT for crawled material.
+
+  METADATA COMES BACK null and no flag on this command changes that. The
+  --include-metadata flag belongs to "collection query".
 
   Only documents linked DIRECTLY to the collection are searched.`
     )
@@ -318,7 +342,7 @@ Notes:
     });
 
   // ── query (semantic content retrieval) ─────────────────────────────────
-  collection
+  const query = collection
     .command("query")
     .description("Query a collection's content (semantic retrieval via ZeroEntropy)")
     .argument("<id>", "Collection ID")
@@ -358,7 +382,12 @@ Notes:
   what your agents retrieve. Change that with "collection update --k".
 
   --filter only reaches metadata that has been INDEXED. A metadata edit made
-  with "document update" needs "document reprocess <id>" before it filters.`
+  with "document update" needs "document reprocess <id>" before it filters.
+
+  --filter MATCHES SCALAR METADATA ONLY. An attribute stored as an ARRAY is not
+  filterable, and asking for one is not an error — it returns zero results,
+  which looks exactly like an empty collection or a bad query. Drop the filter
+  and re-run: if the documents come back, the attribute was an array.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -391,7 +420,7 @@ Notes:
     });
 
   // ── search-multiple ───────────────────────────────────────────────────
-  collection
+  const searchMultiple = collection
     .command("search-multiple")
     .description("Search several collections by document name (slug match — not content)")
     .requiredOption("--query <query>", "Substring to match against document names")
@@ -412,9 +441,11 @@ Examples:
 Notes:
   EVERY HIT SCORES 1.000 here too — this endpoint does not rank.
 
-  METADATA IS ALWAYS null. There is no --include-metadata on this command, so
-  the field is present and empty rather than absent. Use "collection search" on
-  one collection if you need it.
+  METADATA IS ALWAYS null, HERE AND ON "collection search". Both name-matching
+  commands return the field present and empty, and neither takes a flag that
+  fills it. --include-metadata lives on "nexus collection query" — the CONTENT
+  retrieval command — so reaching metadata means changing which search you run,
+  not adding a flag to this one.
 
   The results do not say which collection each hit came from. Search the
   collections one at a time when that matters.`
@@ -449,7 +480,7 @@ Notes:
     });
 
   // ── documents ──────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const documents = addPaginationOptions(
     collection
       .command("documents")
       .description("List documents in a collection")
@@ -474,7 +505,9 @@ Notes:
   Soft-deleted documents are excluded, so a document deleted elsewhere leaves
   this list silently rather than appearing as a broken row.`
       )
-  ).action(async (id: string, opts) => {
+  );
+
+  documents.action(async (id: string, opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.skills.listCollectionDocuments(
@@ -494,7 +527,7 @@ Notes:
   });
 
   // ── attach-documents ───────────────────────────────────────────────────
-  collection
+  const attachDocuments = collection
     .command("attach-documents")
     .description("Attach documents to a collection")
     .argument("<id>", "Collection ID")
@@ -509,9 +542,13 @@ Notes:
   SILENTLY DROPS FOLDER DOCUMENTS. Any id naming a folder — FOLDER, a website
   folder from "document add-website", the folder an imported Google Sheet or a
   Google Drive import produces — is filtered out server-side, and the call still
-  reports success with the count you sent. Attach the CHILDREN instead:
-  "nexus document children <folder-id>". Passing only folder ids attaches
-  nothing at all and still succeeds.
+  succeeds. Attach the CHILDREN instead: "nexus document children <folder-id>".
+  Passing only folder ids attaches nothing at all and still succeeds.
+
+  THE RESPONSE COUNTS NOTHING, SO IT CANNOT TELL YOU WHAT WAS DROPPED. It
+  carries the collection id and nothing else — no attached count, no rejected
+  list — so "it worked" and "every id I sent was a folder" print the same line.
+  The only proof is the read: "nexus collection documents <id>".
 
   ALL OR NOTHING ON EXISTENCE. If any id is unknown, deleted, or owned by
   another organization the whole call is a 404 and nothing is attached.
@@ -539,7 +576,7 @@ Notes:
     });
 
   // ── remove-document ────────────────────────────────────────────────────
-  collection
+  const removeDocument = collection
     .command("remove-document")
     .description("Remove a document from a collection")
     .argument("<id>", "Collection ID")
@@ -579,7 +616,7 @@ Notes:
     });
 
   // ── stats ──────────────────────────────────────────────────────────────
-  collection
+  const stats = collection
     .command("stats")
     .description("Get collection statistics")
     .argument("<id>", "Collection ID")
@@ -610,4 +647,18 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`.
+  bindCommand(list, SKILLS_LIST_COLLECTIONS_CONTRACT);
+  bindCommand(get, SKILLS_GET_COLLECTION_CONTRACT);
+  bindCommand(create, SKILLS_CREATE_COLLECTION_CONTRACT);
+  bindCommand(update, SKILLS_UPDATE_COLLECTION_CONTRACT);
+  bindCommand(remove, SKILLS_DELETE_COLLECTION_CONTRACT);
+  bindCommand(search, SKILLS_SEARCH_COLLECTION_CONTRACT);
+  bindCommand(query, SKILLS_QUERY_COLLECTION_CONTRACT);
+  bindCommand(searchMultiple, SKILLS_SEARCH_MULTIPLE_COLLECTIONS_CONTRACT);
+  bindCommand(attachDocuments, SKILLS_ATTACH_COLLECTION_DOCUMENTS_CONTRACT);
+  bindCommand(removeDocument, SKILLS_REMOVE_COLLECTION_DOCUMENT_CONTRACT);
+  bindCommand(stats, SKILLS_GET_COLLECTION_STATISTICS_CONTRACT);
+  bindCommand(documents, SKILLS_LIST_COLLECTION_DOCUMENTS_CONTRACT);
 }

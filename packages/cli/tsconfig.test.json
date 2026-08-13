@@ -1,0 +1,24 @@
+// Typechecks the code `tsconfig.json` cannot see.
+//
+// `tsconfig.json` is `include: ["src"]`, so `tsc --noEmit` reads NOTHING under
+// `test/` or `scripts/` — while `pnpm test` runs `test/unit/*.test.ts` through
+// `tsx --test`, and the build-time generators under `scripts/` emit files the
+// repo then commits. Both directories are real, shipped code that no gate read.
+//
+// Proved by positive control 2026-08-13: `const x: number = "s";` planted in
+// `test/unit/sample-config.test.ts` left `pnpm --filter @agent-nexus/cli
+// typecheck` at exit 0. The same plant reds under this config. A stale import
+// in that directory had already reached runtime as `is not a function`.
+//
+// `rootDir` is dropped rather than widened: this config never emits, and
+// `src`'s rootDir would reject every file outside it with TS6059.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": null,
+    "outDir": null
+  },
+  "include": ["src", "test/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

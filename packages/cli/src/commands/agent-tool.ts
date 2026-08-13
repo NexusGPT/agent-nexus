@@ -6,9 +6,20 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import {
+  TOOL_ATTACH_COLLECTION_CONTRACT,
+  TOOL_CREATE__BODY_TYPE,
+  TOOL_CREATE_CONTRACT,
+  TOOL_DELETE_CONTRACT,
+  TOOL_GET_CONTRACT,
+  TOOL_LIST_CONTRACT,
+  TOOL_UPDATE__BODY_TYPE,
+  TOOL_UPDATE_CONTRACT
+} from "./agent-tool.contract.generated";
 
 export function registerAgentToolCommands(program: Command): void {
   const agentTool = program.command("agent-tool").description("Manage agent tool configurations");
@@ -31,7 +42,7 @@ Two facts decide whether a config does anything at run time:
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  agentTool
+  const list = agentTool
     .command("list")
     .description("List tools attached to an agent")
     .argument("<agent-id>", "Agent ID")
@@ -67,7 +78,7 @@ Notes:
     });
 
   // ── get ───────────────────────────────────────────────────────────────
-  agentTool
+  const get = agentTool
     .command("get")
     .description("Get tool configuration details")
     .argument("<agent-id>", "Agent ID")
@@ -97,7 +108,7 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  agentTool
+  const create = agentTool
     .command("create")
     .description("Add a tool to an agent")
     .argument("<agent-id>", "Agent ID")
@@ -105,9 +116,11 @@ Notes:
     // can also come from --body, so neither is Commander-required — the API
     // returns a clean validation error if either is missing.
     .option("--label <label>", "Tool label (required by the API, min 1 char)")
-    .option(
-      "--type <type>",
-      "Tool type: WORKFLOW, PLUGIN, TASK, COLLECTION or DOCUMENT_TEMPLATE (required by the API)"
+    // The values come from the contract, so commander prints and enforces them.
+    // The old description typed the five out by hand; two copies of one list is
+    // one copy too many, and the hand-typed one is the copy that goes stale.
+    .addOption(
+      enumOption("--type <type>", "Tool type (required by the API)", TOOL_CREATE__BODY_TYPE)
     )
     .option(
       "--config <json>",
@@ -125,8 +138,8 @@ Examples:
   $ nexus agent-tool create agt-123 --label "Nightly sync" --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}' --body '{"agentInputSchema":{}}' --fire-and-forget
 
 Notes:
-  --type is one of WORKFLOW, PLUGIN, TASK, COLLECTION, DOCUMENT_TEMPLATE. THERE
-  IS NO WEBHOOK TYPE; reach a webhook through a WORKFLOW that has one.
+  THERE IS NO WEBHOOK TYPE; reach a webhook through a WORKFLOW that has one. The
+  types themselves are listed once, on the --type flag, from the contract.
   agentInputSchema is REQUIRED on every create and has no flag of its own, so
   every create carries a --body holding it. Send {} for a tool the agent calls
   with no arguments, or whose inputs come from config.parameters instead.
@@ -141,6 +154,21 @@ Notes:
   never a silent strip.
   A WORKFLOW config takes config.workflowId (stored internally as config.toolId,
   and read back as workflowId). THE WORKFLOW MUST BE PUBLISHED.
+  ON A WORKFLOW TOOL, EVERY agentInputSchema NAME MUST ALREADY EXIST ON THE
+  PUBLISHED WORKFLOW'S AGENT INPUT TRIGGER. Inventing one is a 400 naming the
+  parameter; declaring FEWER than the trigger accepts is fine and normal.
+  Read the accepted names first — they are the keys of
+  "nexus workflow get <workflowId> --json" → .agentInputSchema, which the
+  workflow derives from its agentInputTrigger node's data.parameters at publish.
+  A workflow with NO agent input trigger accepts nothing, so the only schema it
+  takes is {}.
+  THE CHECK IS SILENT WHEN IT CANNOT SEE A CONTRACT — an unpublished workflow,
+  or one that has never been published, is accepted with any schema you like and
+  the mismatch surfaces later, so publish before you attach.
+  THE WHOLE ORDER, FOR A WORKFLOW TOOL: publish the workflow → read
+  .agentInputSchema off "workflow get" → create the config with exactly those
+  names (or {}) → confirm with "agent-tool get". Skipping step 2 is what turns
+  step 3 into a 400.
   A PLUGIN config REQUIRES config.toolId, and the credential goes in
   config.toolCredentialId. CREDENTIAL IDS ARE PER-TOOL: take the id from
   "nexus tool credentials <toolId>" for THIS tool — an id from another tool's
@@ -148,8 +176,9 @@ Notes:
   --fire-and-forget ENDS THE AGENT'S TURN AT THE CALL. The model receives only
   "Tool … has been triggered successfully", never the output, so never use it for
   a tool whose result the agent has to read. Off by default.
-  Answers 201 with the full config. Read agentInputSchema back with
-  "nexus agent-tool get" to confirm the shape that was stored.`
+  The API answers 201 with the full config, but this command prints only the id
+  and the label. Read agentInputSchema back with "nexus agent-tool get" to
+  confirm the shape that was actually stored.`
     )
     .action(async (agentId: string, opts) => {
       try {
@@ -180,7 +209,7 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  agentTool
+  const update = agentTool
     .command("update")
     .description("Update a tool configuration")
     .argument("<agent-id>", "Agent ID")
@@ -190,9 +219,8 @@ Notes:
     // update (wholesale-replace semantics, validated against the type). Without
     // this flag, `--config` on its own could only ever produce that 400, so the
     // flag the CLI already shipped was unusable except through --body.
-    .option(
-      "--type <type>",
-      "Tool type: WORKFLOW, PLUGIN, TASK, COLLECTION or DOCUMENT_TEMPLATE (REQUIRED with --config)"
+    .addOption(
+      enumOption("--type <type>", "Tool type (REQUIRED with --config)", TOOL_UPDATE__BODY_TYPE)
     )
     .option("--config <json>", "Updated configuration as JSON (wholesale replace — send it whole)")
     .option("--fire-and-forget", "Trigger and end the turn — the agent never sees the result")
@@ -212,10 +240,13 @@ Notes:
   \`type\` when updating \`config\`" — because the config shape is validated against
   the type it belongs to.
   --config REPLACES THE STORED CONFIG WHOLESALE. Keys you leave out are gone, so
-  read the current config with "nexus agent-tool get" and send it back complete.
-  agentInputSchema CANNOT BE CLEARED here: null is a no-op that leaves the stored
-  schema exactly as it was. Send {} to fall back to the schema derived from
-  config.parameters. The same flat-vs-wrapped rule as create applies.
+  read the current config and send it back complete:
+    $ cfg=$(nexus agent-tool get agt-123 tool-456 --json | jq -c '.config')
+    # edit $cfg, then:
+    $ nexus agent-tool update agt-123 tool-456 --type WORKFLOW --config "$cfg"
+  NEVER SEND agentInputSchema: null HERE. Send {} to fall back to the schema
+  derived from config.parameters, or send the schema whole — those are the two
+  supported ways to change it. The same flat-vs-wrapped rule as create applies.
   --fire-and-forget ends the agent's turn at the call and hides the tool's output
   from the model; --no-fire-and-forget is the way back to waiting for the result.
   This command prints only the id — confirm with "nexus agent-tool get".`
@@ -242,7 +273,7 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  agentTool
+  const remove = agentTool
     .command("delete")
     .description("Remove a tool from an agent")
     .argument("<agent-id>", "Agent ID")
@@ -286,7 +317,7 @@ Notes:
     });
 
   // ── attach-collection ──────────────────────────────────────────────────
-  agentTool
+  const attachCollection = agentTool
     .command("attach-collection")
     .description("Attach a knowledge collection to an agent")
     .argument("<agent-id>", "Agent ID")
@@ -335,4 +366,12 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`.
+  bindCommand(list, TOOL_LIST_CONTRACT);
+  bindCommand(get, TOOL_GET_CONTRACT);
+  bindCommand(create, TOOL_CREATE_CONTRACT);
+  bindCommand(update, TOOL_UPDATE_CONTRACT);
+  bindCommand(remove, TOOL_DELETE_CONTRACT);
+  bindCommand(attachCollection, TOOL_ATTACH_COLLECTION_CONTRACT);
 }

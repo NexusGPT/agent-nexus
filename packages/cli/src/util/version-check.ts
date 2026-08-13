@@ -180,6 +180,29 @@ export async function checkForUpdate(currentVersion: string): Promise<string | n
   }
 }
 
+/**
+ * The newest version this machine has already been told about, read from the
+ * cache and NOTHING ELSE — no network, no promise.
+ *
+ * `checkForUpdate` is async because it may fetch, and help rendering in
+ * commander is synchronous, so the help surface could not call it. That is the
+ * whole reason this exists: the fact is already on disk, written by the last
+ * command that ran, and a help screen that omits it omits something the process
+ * already knows.
+ *
+ * Null when no check has ever run, when the cache is unreadable, or when the
+ * cached version is not newer than the running one. Callers get "there is
+ * nothing to say" and "I could not look" as the same answer on purpose — a help
+ * footer has no way to act on the difference, and inventing a "could not check"
+ * line on every help screen would train the reader to skip the line that
+ * matters.
+ */
+export function readCachedNewerVersion(currentVersion: string): string | null {
+  const cache = loadCache();
+  if (!cache?.latestVersion) return null;
+  return compareSemver(currentVersion, cache.latestVersion) < 0 ? cache.latestVersion : null;
+}
+
 export function formatUpdateMessage(current: string, latest: string): string {
   return (
     `\n  Update available: ${current} → ${latest}\n` +

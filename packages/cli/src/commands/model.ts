@@ -21,12 +21,19 @@ Examples:
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const { models } = await client.models.list();
+
+        // `GET /models` returns a FLAT ARRAY. This read used to be
+        // `const { models } = ...` against an SDK signature that claimed a
+        // `{ models }` wrapper the route stopped sending — so `models` was
+        // undefined, `--json` printed `{}` and the table threw on
+        // `undefined.length`. The SDK signature is the fix; this line just
+        // follows it, and now a wrong read here is a compile error.
+        const models = await client.models.list();
 
         // Keys must match `ModelSummary`: it declares `displayName` and
-        // `contextSize`, never `name` or `contextWindow`. `Column.key` is a
-        // bare `string`, so a wrong key is not a type error — it renders an
-        // empty cell forever. These two were blank in every table run.
+        // `contextSize`, never `name` or `contextWindow`. `ColumnKey<T>` checks
+        // them against the row type, so a wrong key no longer renders an empty
+        // column forever — it fails the typecheck.
         printList(models, undefined, [
           { key: "displayName", label: "NAME", width: 30 },
           { key: "provider", label: "PROVIDER", width: 20 },

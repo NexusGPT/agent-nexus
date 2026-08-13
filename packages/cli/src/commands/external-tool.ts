@@ -12,6 +12,7 @@ import {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import type {
   ToolHasAttachmentsDetails,
@@ -25,6 +26,15 @@ import {
   resolveInputJson,
   resolveRequiredBody
 } from "../util/body";
+import {
+  SKILLS_CREATE_EXTERNAL_TOOL_CONTRACT,
+  SKILLS_DELETE_EXTERNAL_TOOL_CONTRACT,
+  SKILLS_GET_EXTERNAL_TOOL_CONTRACT,
+  SKILLS_LIST_EXTERNAL_TOOLS_CONTRACT,
+  SKILLS_TEST_EXTERNAL_TOOL_CONTRACT,
+  SKILLS_UPDATE_EXTERNAL_TOOL_CONTRACT,
+  SKILLS_UPLOAD_EXTERNAL_TOOL_ICON_CONTRACT
+} from "./external-tool.contract.generated";
 
 export function registerExternalToolCommands(program: Command): void {
   const externalTool = program
@@ -32,7 +42,7 @@ export function registerExternalToolCommands(program: Command): void {
     .description("Manage external tools (OpenAPI integrations)");
 
   // ── list ────────────────────────────────────────────────────────────────
-  externalTool
+  const list = externalTool
     .command("list")
     .description("List external tools")
     .option("--search <query>", "Search by name")
@@ -64,7 +74,7 @@ Examples:
     });
 
   // ── get ─────────────────────────────────────────────────────────────────
-  externalTool
+  const get = externalTool
     .command("get")
     .description("Get external tool details")
     .argument("<id>", "External tool ID")
@@ -103,7 +113,7 @@ Notes:
     });
 
   // ── create ──────────────────────────────────────────────────────────────
-  externalTool
+  const create = externalTool
     .command("create")
     .description("Create an external tool from an OpenAPI spec")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -128,6 +138,11 @@ Notes:
   REQUIRED IN THE BODY: name, openApiSpec, endpointUrl (a valid URL) and auth.
   auth.type is one of none, service_http, user_http, oauth, user_oauth, keys —
   send { "type": "none" } rather than omitting auth.
+
+  THERE IS NO DRAFT AND NO PUBLISH STEP. The tool comes back PUBLISHED and is
+  live the moment this returns — unlike a workflow, which you publish
+  separately. Do not go looking for a publish verb, and do not create against a
+  production endpoint expecting a staging state first.
 
   DECLARE requestBody FOR EVERY WRITE OPERATION. Actions are parsed from the
   spec, and an operation with no requestBody gets no body fields — the call
@@ -154,7 +169,7 @@ Notes:
     });
 
   // ── upload-icon ─────────────────────────────────────────────────────────
-  externalTool
+  const uploadIcon = externalTool
     .command("upload-icon")
     .description("Upload an icon/logo image for an external tool")
     .argument("<id>", "External tool ID")
@@ -235,7 +250,22 @@ The tool's auth must be configured with type "oauth" and grant_type "client_cred
       `
 Examples:
   $ nexus external-tool update-auth ext-123 --body '{"type":"oauth","grant_type":"client_credentials","client_id":"...","client_secret":"...","client_url":"...","audience":"..."}'
-  $ nexus external-tool update-auth ext-123 --body auth-config.json`
+  $ nexus external-tool update-auth ext-123 --body auth-config.json
+
+Notes:
+  🚨 A BODY OF {"type":"keys"} SUCCEEDS WITH NO KEY MATERIAL AND LEAVES THE TOOL
+  UNUSABLE. Nothing requires the credential fields for that type, so the call
+  answers success, the tool's old auth is gone, and every operation fails
+  afterwards. There is no warning and no rollback. Send the credentials in the
+  same body, then prove it with "nexus external-tool test-auth <id>" before you
+  trust the tool again.
+  THE FIELDS DEPEND ON "type", AND ONLY THE oauth SHAPE IS SHOWN ABOVE. The
+  other types want different keys, and the refusal for a wrong shape names
+  exactly which fields it wanted — so the cheapest way to learn a shape is to
+  send {"type":"<the type>"} and read the rejection. Do that on a tool you can
+  afford to break, because a shape that HAPPENS to validate is applied.
+  THIS REPLACES THE AUTH WHOLESALE. It is not a patch: what you send is what the
+  tool has afterwards.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -372,7 +402,7 @@ Notes:
     });
 
   // ── test ────────────────────────────────────────────────────────────────
-  externalTool
+  const test = externalTool
     .command("test")
     .description("Test an external tool operation")
     .argument("<id>", "External tool ID")
@@ -385,7 +415,25 @@ Notes:
 Examples:
   $ nexus external-tool test ext-123 --operation-id getWeather --input '{"city":"London"}'
   $ nexus external-tool test ext-123 --body '{"operationId":"getWeather","input":{"city":"London"}}'
-  $ nexus external-tool test ext-123 --operation-id listItems --json`
+  $ nexus external-tool test ext-123 --operation-id listItems --input '{}' --json
+
+Notes:
+  --input IS EFFECTIVELY REQUIRED, EVEN FOR AN OPERATION THAT TAKES NOTHING.
+  There is no default, so omitting it fails validation on the "input" field.
+  Pass --input '{}' for a parameterless operation. ("test-auth" does default
+  it; this command does not.)
+  🚨 THAT SAME "input" ERROR IS ALSO WHAT A WRONG --operation-id LOOKS LIKE.
+  Input is validated before the operation is resolved, so a typo'd operation id
+  is reported as a problem with your input and sends you to fix the wrong
+  argument. Always send --input '{}' FIRST; only once that is in place does the
+  message become a real one about the operation.
+  A BOGUS OPERATION ID DOES NOT LIST THE REAL ONES HERE. Its sibling does —
+  "nexus external-tool execute <id> --action nope" answers with the tool's
+  available actions. Use that to discover them, then come back.
+  TEST vs EXECUTE: test takes --operation-id and answers {status, output,
+  executionTimeMs} — it is the liveness check. execute takes --action and
+  answers {success, toolId, action, result} — it is the real invocation. Both
+  run the operation for real against the upstream API.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -407,7 +455,7 @@ Examples:
     });
 
   // ── update ─────────────────────────────────────────────────────────────
-  externalTool
+  const update = externalTool
     .command("update")
     .description(
       "Update an external tool (name, description, documentation, endpointUrl, openApiSpec, auth)"
@@ -432,7 +480,13 @@ Examples:
   $ nexus external-tool update ext-123 --body update.json --description "New description"
 
 To refresh just the OpenAPI spec from a file, prefer:
-  $ nexus external-tool update-spec ext-123 --file openapi.yaml`
+  $ nexus external-tool update-spec ext-123 --file openapi.yaml
+
+Notes:
+  A KEY THE UPDATE DOES NOT RECOGNISE IS DROPPED IN SILENCE, and the call still
+  succeeds. So a misspelled field looks applied: the response is a success and
+  the value never lands. Read the field back with "nexus external-tool get <id>"
+  after any --body update rather than trusting the 200.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -540,7 +594,7 @@ Notes:
     });
 
   // ── delete ─────────────────────────────────────────────────────────────
-  externalTool
+  const remove = externalTool
     .command("delete")
     .description("Delete an external tool")
     .argument("<id>", "External tool ID")
@@ -574,6 +628,17 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. `initiate-oauth`,
+  // `update-auth`, `test-auth`, `execute` and `update-spec` reach routes the v1
+  // contract does not declare, so they stay unbound.
+  bindCommand(list, SKILLS_LIST_EXTERNAL_TOOLS_CONTRACT);
+  bindCommand(get, SKILLS_GET_EXTERNAL_TOOL_CONTRACT);
+  bindCommand(create, SKILLS_CREATE_EXTERNAL_TOOL_CONTRACT);
+  bindCommand(uploadIcon, SKILLS_UPLOAD_EXTERNAL_TOOL_ICON_CONTRACT);
+  bindCommand(test, SKILLS_TEST_EXTERNAL_TOOL_CONTRACT);
+  bindCommand(update, SKILLS_UPDATE_EXTERNAL_TOOL_CONTRACT);
+  bindCommand(remove, SKILLS_DELETE_EXTERNAL_TOOL_CONTRACT);
 }
 
 function extractToolHasAttachmentsDetails(err: unknown): ToolHasAttachmentsDetails | null {

@@ -254,10 +254,15 @@ describe("the ten read verbs reach the paths the v1 contract declares", () => {
   });
 
   it("refuses an unknown --status without calling the API", async () => {
-    await run(["role", "access-requests", ROLE_ID, "--status", "waiting"]);
+    // REFUSED BY THE PARSER NOW, not by the action: the flag is bound to the
+    // contract enum, so commander rejects the value before the action runs and
+    // names the allowed list. `run` uses `exitOverride()`, so that refusal
+    // arrives as a rejected promise rather than as an exit code.
+    await expect(run(["role", "access-requests", ROLE_ID, "--status", "waiting"])).rejects.toThrow(
+      /'waiting' is invalid/
+    );
 
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
   });
 
   it("reads coverage off the coverage path", async () => {
@@ -843,10 +848,15 @@ describe("attach is a MOVE, and the CLI says so", () => {
   it("refuses a resource type from the PERMISSIONS vocabulary, without calling the API", async () => {
     // `knowledge` is a valid PermissionResourceType and is not a RoleResourceType.
     // Forwarded, it would 400 on the request body and read as a bad id.
-    await run(["role", "attach", ROLE_ID, "--type", "knowledge", "--id", AGENT_ID]);
+    // REFUSED BY THE PARSER NOW, not by the action: the flag is bound to the
+    // contract enum, so commander rejects the value before the action runs and
+    // names the allowed list. `run` uses `exitOverride()`, so that refusal
+    // arrives as a rejected promise rather than as an exit code.
+    await expect(
+      run(["role", "attach", ROLE_ID, "--type", "knowledge", "--id", AGENT_ID])
+    ).rejects.toThrow(/'knowledge' is invalid/);
 
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
   });
 });
 
@@ -1205,10 +1215,15 @@ describe("access request create and review", () => {
   });
 
   it("refuses a verdict of PENDING, which is a start state and never a target", async () => {
-    await run(["role", "review-access", ROLE_ID, GRANT_ID, "--status", "PENDING"]);
+    // REFUSED BY THE PARSER NOW, not by the action: the flag is bound to the
+    // contract enum, so commander rejects the value before the action runs and
+    // names the allowed list. `run` uses `exitOverride()`, so that refusal
+    // arrives as a rejected promise rather than as an exit code.
+    await expect(
+      run(["role", "review-access", ROLE_ID, GRANT_ID, "--status", "PENDING"])
+    ).rejects.toThrow(/'PENDING' is invalid/);
 
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
   });
 
   it("case-folds a lower-case verdict and patches the nested path", async () => {

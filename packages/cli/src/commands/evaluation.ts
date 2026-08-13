@@ -2,10 +2,17 @@ import type { AddEvalDatasetRowBody, CreateEvalSessionBody, JudgeEvalBody } from
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import {
+  EVALUATION_CREATE_CONTRACT,
+  EVALUATION_FORMATS_CONTRACT,
+  EVALUATION_JUDGES_CONTRACT,
+  EVALUATION_LIST_CONTRACT
+} from "./task-eval.contract.generated";
 
 export function registerEvaluationCommands(program: Command): void {
   const eval_ = program
@@ -15,13 +22,42 @@ export function registerEvaluationCommands(program: Command): void {
       'Manage evaluations for AI tasks (renamed from "eval"; the "eval" alias still works)'
     );
 
+  eval_.addHelpText(
+    "after",
+    `
+THE ORDER IS FIXED AND A SESSION WALKS IT ONCE:
+
+  session create  →  dataset add (one call per row)  →  execute  →  judge  →  results
+  DRAFT           →  ...still DRAFT...               →  EXECUTING → EXECUTED → JUDGING → COMPLETED
+
+EXECUTE AND JUDGE ARE EACH USABLE ONCE PER SESSION, and the session's status is
+what refuses a second one — "execute" needs DRAFT, "judge" needs EXECUTED, and
+either one out of turn is a 400 naming the status it found. There is no reset:
+re-running an evaluation means creating a new session.
+
+ADD EVERY DATASET ROW BEFORE "execute". Once the session leaves DRAFT the
+dataset is what it is, and a row added late is not evaluated.
+
+BOTH WRITES RETURN IMMEDIATELY AND FINISH IN THE BACKGROUND. "execute" answers
+EXECUTING and "judge" answers JUDGING before any work is done — poll
+"nexus task-eval session get" until the status is EXECUTED or COMPLETED. A
+handled failure lands on FAILED; an unexpected one rolls the session back to
+DRAFT (after execute) or EXECUTED (after judge), which is what makes a retry
+possible.
+
+A ROW CARRIES TWO INDEPENDENT STATUSES: "status" is its execution and
+"judgeStatus" is its scoring, and judgeStatus stays PENDING until "judge" runs.
+So a score of null before judging is the correct answer, not a failure — read
+judgeStatus before you read score.`
+  );
+
   // ═══════════════════════════════════════════════════════════════════════
   // session sub-group
   // ═══════════════════════════════════════════════════════════════════════
   const session = eval_.command("session").description("Manage evaluation sessions");
 
   // ── session create ─────────────────────────────────────────────────────
-  session
+  const sessionCreate = session
     .command("create")
     .description("Create an evaluation session")
     .argument("<task-id>", "Task ID")
@@ -62,7 +98,7 @@ Examples:
     });
 
   // ── session list ───────────────────────────────────────────────────────
-  addPaginationOptions(
+  const sessionList = addPaginationOptions(
     session
       .command("list")
       .description("List evaluation sessions")
@@ -135,7 +171,16 @@ Examples:
       `
 Examples:
   $ nexus task-eval session delete task-123 sess-456
-  $ nexus task-eval session delete task-123 sess-456 --yes`
+  $ nexus task-eval session delete task-123 sess-456 --yes
+
+Notes:
+  --yes SKIPS THE INTERACTIVE PROMPT. THE PROMPT ONLY APPEARS ON A TTY: when
+  output is not a terminal — a script, a pipeline, CI — the command proceeds
+  without prompting whatever this flag says, so --yes changes nothing there.
+  IT TAKES THE DATASET AND THE RESULTS WITH IT. The session's rows and every
+  score judged against them go too, and there is no reset or re-run, so a
+  deleted session means executing and judging again from a new one. Read what
+  you need with "task-eval results" first.`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -208,7 +253,21 @@ Examples:
       `
 Examples:
   $ nexus task-eval dataset add task-123 sess-456 --body '{"input":"Hello","expectedOutput":"Hi there"}'
-  $ nexus task-eval dataset add task-123 sess-456 --body dataset-row.json`
+  $ nexus task-eval dataset add task-123 sess-456 --body dataset-row.json
+
+Notes:
+  ONE CALL, ONE ROW. This is the only way to fill a dataset from the CLI — there
+  is no import command and no file argument here, so a 100-row dataset is 100
+  calls. The extensions "task-eval formats" lists are not accepted by any
+  command in this namespace.
+  metadata IS ACCEPTED AND NOT STORED. The body schema takes it, the call
+  answers 201, and every later read of that row shows metadata null. Put
+  anything you need to keep inside "input" instead.
+  ADD ROWS WHILE THE SESSION IS STILL DRAFT. Nothing refuses a row added after
+  "execute" — it is created, it is never evaluated, and no result row ever
+  appears for it.
+  Rows are numbered in the order they arrive and "dataset list" returns them
+  that way.`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -339,7 +398,7 @@ Examples:
   // ═══════════════════════════════════════════════════════════════════════
   // formats
   // ═══════════════════════════════════════════════════════════════════════
-  eval_
+  const formats = eval_
     .command("formats")
     .description("List available evaluation formats")
     .addHelpText(
@@ -368,7 +427,7 @@ Examples:
   // ═══════════════════════════════════════════════════════════════════════
   // judges
   // ═══════════════════════════════════════════════════════════════════════
-  eval_
+  const judges = eval_
     .command("judges")
     .description("List available judge models")
     .addHelpText(
@@ -393,4 +452,11 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`. The remaining
+  // subcommands reach routes the v1 contract does not declare.
+  bindCommand(sessionCreate, EVALUATION_CREATE_CONTRACT);
+  bindCommand(sessionList, EVALUATION_LIST_CONTRACT);
+  bindCommand(formats, EVALUATION_FORMATS_CONTRACT);
+  bindCommand(judges, EVALUATION_JUDGES_CONTRACT);
 }

@@ -30,6 +30,7 @@
   },
   "scripts": {
     "gen:audit-types": "tsx scripts/generate-vibe-audit-event-types.ts",
+    "gen:contract-help": "tsx scripts/generate-contract-help.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",
     "check:skills-lock": "tsx scripts/check-skills-lock.ts",
     "build": "tsup",
@@ -37,7 +38,7 @@
     "dev": "tsup --watch",
     "test:auth": "tsx scripts/test-auth-login.ts",
     "test": "vitest run && tsx --test test/unit/*.test.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint . --max-warnings 9",
     "prepublishOnly": "pnpm run build"
   },
@@ -50,6 +51,7 @@
     "jszip": "^3.10.1",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "zod": "^4.1.12"
   }
 }

@@ -12,10 +12,51 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { absent, color, printList, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { booleanFlag } from "../util/boolean-flag";
 import { getPaginationParams } from "../util/pagination";
+import {
+  DEPLOYMENT_CREATE__BODY_TYPE,
+  DEPLOYMENT_CREATE_CONTRACT,
+  DEPLOYMENT_LIST__PARAMS_TYPE,
+  DEPLOYMENT_LIST_CONTRACT,
+  DEPLOYMENT_UPDATE_CONTRACT,
+  DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT
+} from "./deployment.contract.generated";
+
+/**
+ * `--type` accepts lowercase; the contract does not. That is the only remaining
+ * divergence on this flag, and it is a WIDENING.
+ *
+ * ── What used to be here, and why it is worth one paragraph ─────────────────
+ *
+ * A declared NARROWING sat here, omitting `SMS`: the contract listed it, no
+ * settings schema existed behind it, and the create failed as a 500 rather than
+ * a validation message. The CLI omitted it on purpose and spent three lines of
+ * `--help` saying so.
+ *
+ * It is gone because the CONTRACT was fixed rather than routed around.
+ * `DeploymentTypeSchema` now derives from the Prisma enum, so `SMS` is not a
+ * value anywhere and `INSTAGRAM` — which had a receiver, a sender, a validator
+ * and a settings schema, and was invisible to every API consumer — is one. That
+ * is the outcome a CLI-side omission could never have reached: the SDK and the
+ * MCP catalog read the same schema and were being told the same false thing.
+ *
+ * The generator is what made the change impossible to miss. It refused to write
+ * this namespace the moment the two lists stopped agreeing, printed both, and
+ * named `INSTAGRAM` as present upstream and undeclared here. It picked no
+ * winner, which was correct — on the previous run the contract was the wrong
+ * list, and on this one the CLI was.
+ */
+const CASE_INSENSITIVE = {
+  because: "Values are case-insensitive"
+} as const;
+
+/** `--type embed` has always worked; the action upper-cases before sending. */
+const upperCase = (value: string): string => value.toUpperCase();
 
 export function registerDeploymentCommands(program: Command): void {
   const deployment = program
@@ -42,11 +83,19 @@ deployments:delete.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  deployment
+  const list = deployment
     .command("list")
     .description("List deployments")
     .option("--search <query>", "Search by name")
-    .option("--type <type>", "Filter by deployment type")
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Filter by deployment type",
+        DEPLOYMENT_LIST__PARAMS_TYPE,
+        CASE_INSENSITIVE,
+        upperCase
+      )
+    )
     .option("--active", "Show only active deployments")
     // Declared here rather than through addPaginationOptions so the cap can be
     // stated: the server bounds limit at 1-100 and 400s outside it, which the
@@ -134,16 +183,24 @@ Notes:
     });
 
   // ── create ────────────────────────────────────────────────────────────
-  deployment
+  const create = deployment
     .command("create")
     .description("Create a new deployment")
     // --name and --type are part of the API contract (CreateDeploymentBody)
     // but they can also come from --body, so neither is a Commander-required
     // option — the API returns a clean validation error if either is missing.
     .option("--name <name>", "Deployment name")
-    .option(
-      "--type <type>",
-      "Deployment type — one of EMBED, WHATSAPP, TELEGRAM, OUTLOOK, SLACK, TEAMS, TWILIO_SMS, TWILIO_VOICE, GMAIL, FB_MESSENGER, GOOGLE_SHEETS, EXCEL_ADDIN, OUTLOOK_ADDIN, POWERPOINT_ADDIN, WORD_ADDIN, AIRTABLE, GOOGLE_MEET, ZOOM, API, IMAP, SMTP (case-insensitive)"
+    // The 21 values were retyped here as one long sentence. They now come from
+    // the contract minus the declared omission, so this list cannot drift from
+    // the schema and cannot re-acquire `SMS` without the gate saying so.
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Deployment type",
+        DEPLOYMENT_CREATE__BODY_TYPE,
+        CASE_INSENSITIVE,
+        upperCase
+      )
     )
     .option("--agent-id <id>", "Agent ID to deploy")
     .option("--description <text>", "Deployment description")
@@ -172,9 +229,11 @@ Notes:
   owned by this organization. A released number still resolves by id and is
   refused; WHATSAPP additionally 400s unless a sender is registered on it.
 
-  SMS IS NOT A USABLE TYPE. The parser accepts it and no settings schema
-  exists behind it, so the create fails as a server error rather than a
-  validation message. TWILIO_SMS is the SMS channel.
+  TWILIO_SMS IS THE SMS CHANNEL. A bare "SMS" is now refused before the request
+  leaves. It was a contract value that could not work in two independent ways:
+  no settings schema stood behind it, so the lookup was undefined and the call
+  threw rather than answering a validation error, and it was not a database
+  enum value either, so no row could have held it. It is gone from the contract.
 
   settings is capped at 50 top-level keys and 50KB serialized.
   Verify with "nexus deployment get <id>" — it is the only read carrying
@@ -207,14 +266,14 @@ Notes:
     });
 
   // ── update ────────────────────────────────────────────────────────────
-  deployment
+  const update = deployment
     .command("update")
     .description("Update a deployment")
     .argument("<id>", "Deployment ID")
     .option("--name <name>", "Deployment name")
     .option("--description <text>", "Description (use 'null' to clear)")
     .option("--agent-id <id>", "Agent ID (use 'null' to detach)")
-    .option("--active <bool>", "Set active status (true/false)")
+    .option("--active <bool>", "Set active status — true or false", booleanFlag)
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -258,7 +317,7 @@ Notes:
           flags.agentId = opts.agentId === "null" ? null : opts.agentId;
         }
         if (opts.active !== undefined) {
-          flags.isActive = opts.active === "true";
+          flags.isActive = opts.active;
         }
         const body = mergeBodyWithFlags(base, flags);
 
@@ -407,16 +466,29 @@ Notes:
 Examples:
   $ nexus deployment embed-config dep-123
   $ nexus deployment embed-config dep-123 --json
+  $ nexus deployment embed-config dep-123 --json > widget.json
 
 Notes:
-  ALL-NULL IS THE NORMAL ANSWER AND DOES NOT MEAN UNCONFIGURED. This reads
-  eight flat keys (theme, primaryColor, position, initialMessage,
-  suggestedMessages, logoUrl, avatarUrl, headerTitle) off the top of
-  settings, while a widget built through the dashboard stores its appearance
-  under settings.embedSettings.* instead. The two do not meet.
-  To read what the widget actually renders, use "nexus deployment get <id>"
-  and look at settings.embedSettings.
-  Works on any deployment id, not just EMBED — it never checks the type.`
+  THIS IS WHAT THE WIDGET ACTUALLY RENDERS. It reads settings.embedSettings —
+  the same group the dashboard writes and the same one the widget loads — and
+  returns all 61 published keys: the ui* palette, the bubble* placement, the
+  header, footer and landing-screen groups, the localized* variants beside
+  every translatable string, and suggestedMessages.
+
+  EMBED DEPLOYMENTS ONLY. Any other type is a 400 with code
+  NOT_AN_EMBED_DEPLOYMENT, naming the type it found. Other channels keep their
+  settings elsewhere — read those with "nexus deployment get <id>".
+
+  ONE KEY OF THE 62 IS NEVER RETURNED: identityVerificationSecret. It is the
+  server-side HMAC key that signs a visitor's externalUserId, so anyone holding
+  it can forge a visitor identity — publishing it would hand that to every
+  deployments:read caller. The contract omits it; nothing here filters it, so
+  it cannot be re-exposed by accident. identityVerificationEnabled IS returned,
+  because whether verification is on is not a secret. The secret survives an
+  update untouched (see "embed-config-update").
+
+  THE OUTPUT IS A VALID UPDATE BODY. The update accepts exactly these 61 keys,
+  every one optional, so a read can be edited and PATCHed straight back.`
     )
     .action(async (id: string) => {
       try {
@@ -429,7 +501,7 @@ Notes:
     });
 
   // ── embed-config-update ───────────────────────────────────────────────
-  deployment
+  const embedConfigUpdate = deployment
     .command("embed-config-update")
     .description("Update deployment embed configuration")
     .argument("<id>", "Deployment ID")
@@ -438,19 +510,30 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment embed-config-update dep-123 --body '{"theme":"dark"}'
-  $ nexus deployment embed-config-update dep-123 --body config.json
+  $ nexus deployment embed-config-update dep-123 --body '{"uiAppearance":"dark"}'
+  $ nexus deployment embed-config-update dep-123 --body '{"uiPrimaryColor":"#0055ff","bubblePosition":"bottom-left"}'
+  $ nexus deployment embed-config-update dep-123 --body widget.json
 
 Notes:
-  A 200 HERE DOES NOT MEAN THE WIDGET CHANGED. The eight keys this accepts
-  are written flat at the top of settings; the widget reads its appearance
-  from settings.embedSettings.*, which this never touches. The value comes
-  back in the response and in "embed-config" because both sides read the same
-  flat keys — that round-trip is not evidence the widget moved.
-  Change the rendered widget through the dashboard, or by sending a complete
-  settings.embedSettings object to "nexus deployment update".
-  Only those eight keys are accepted; anything else in --body is dropped
-  without an error. An empty --body is a valid no-op PATCH.`
+  A 200 MEANS THE WIDGET CHANGED. The patch lands inside settings.embedSettings,
+  which is the group the widget loads, and the response is a fresh read of what
+  was stored.
+
+  🚨 AN UNDECLARED KEY IS DROPPED SILENTLY, NOT REFUSED. The write parses
+  against a non-strict schema, so a misspelling — "primaryColor" for
+  "uiPrimaryColor", "theme" for "uiAppearance" — is stripped before the column
+  and answers 200 with the old value still in place. Nothing reports it. THE
+  CHECK IS THE RESPONSE: the key you sent is in it with the value you sent, or
+  the write did not happen. Run "embed-config" first for the exact spellings.
+
+  PATCH SEMANTICS, AND THEY ARE REAL. Only the keys you name change; the rest
+  of the group is re-read from storage and written back. That is also what
+  preserves identityVerificationSecret, which this API never returns and
+  therefore can never send back — a full-object PUT would erase it. An empty
+  --body is a valid no-op.
+
+  EMBED DEPLOYMENTS ONLY — a 400 with code NOT_AN_EMBED_DEPLOYMENT otherwise,
+  on this verb and on the read alike.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -1009,7 +1092,8 @@ Notes:
     .argument("<deploymentId>", "Deployment ID")
     .option(
       "--allow-dynamic-templates <bool>",
-      "Allow agent to dynamically create and send templates (true/false)"
+      "Allow agent to dynamically create and send templates — true or false",
+      booleanFlag
     )
     .addHelpText(
       "after",
@@ -1032,7 +1116,7 @@ Notes:
         const client = createClient(program.optsWithGlobals());
 
         if (opts.allowDynamicTemplates !== undefined) {
-          const value = opts.allowDynamicTemplates === "true";
+          const value = opts.allowDynamicTemplates;
           await client.deployments.updateDeploymentTemplateSettings(deploymentId, {
             allowAgentToCreateAndSendTemplates: value
           });
@@ -1052,4 +1136,24 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists and after the hand-written prose, so
+  // the generated reference lands below the Notes rather than above them.
+  bindCommand(list, DEPLOYMENT_LIST_CONTRACT);
+  bindCommand(create, DEPLOYMENT_CREATE_CONTRACT);
+  bindCommand(update, DEPLOYMENT_UPDATE_CONTRACT);
+  // A pure `--body` PATCH: every one of these seven enums is reachable, and none
+  // has a flag. Naming them keeps the gate honest, and the contract block above
+  // is now the ONLY place their values are written down — the Notes below this
+  // command say to read them off a prior `embed-config`, which is a round trip
+  // an operator should not have to make to learn a closed list.
+  bindCommand(embedConfigUpdate, DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT, {
+    "Body.format": "--body only; embed-config-update takes no flags at all",
+    "Body.bubblePosition": "--body only; embed-config-update takes no flags at all",
+    "Body.bubbleBorderRadius": "--body only; embed-config-update takes no flags at all",
+    "Body.bubbleSize": "--body only; embed-config-update takes no flags at all",
+    "Body.uiAppearance": "--body only; embed-config-update takes no flags at all",
+    "Body.uiRadius": "--body only; embed-config-update takes no flags at all",
+    "Body.uiContainerRadius": "--body only; embed-config-update takes no flags at all"
+  });
 }

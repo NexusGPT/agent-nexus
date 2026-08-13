@@ -10,9 +10,16 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
+import {
+  TOOL_DISCOVERY_SEARCH__PARAMS_TYPE,
+  TOOL_DISCOVERY_SEARCH_CONTRACT,
+  TOOL_DISCOVERY_SKILLS__PARAMS_TYPE,
+  TOOL_DISCOVERY_SKILLS_CONTRACT
+} from "./tool.contract.generated";
 
 /**
  * The `authType` discriminants `POST /tools/:toolId/connect` accepts.
@@ -38,12 +45,12 @@ export function registerToolCommands(program: Command): void {
   const tool = program.command("tool").description("Discover and manage marketplace tools");
 
   // ── search ────────────────────────────────────────────────────────────
-  tool
+  const search = tool
     .command("search")
     .description("Search marketplace tools")
     .option("--query <query>", "Search query")
     .option("--category <category>", "Filter by category")
-    .option("--type <type>", "Filter by type")
+    .addOption(enumOption("--type <type>", "Filter by type", TOOL_DISCOVERY_SEARCH__PARAMS_TYPE))
     .option("--limit <number>", "Max results", parseInt)
     .addHelpText(
       "after",
@@ -51,7 +58,14 @@ export function registerToolCommands(program: Command): void {
 Examples:
   $ nexus tool search --query "gmail"
   $ nexus tool search --category "Communication" --limit 10
-  $ nexus tool search --query "slack" --json`
+  $ nexus tool search --query "slack" --json
+
+Notes:
+  THERE IS NO SECOND PAGE, AND A TRUNCATED RESULT LOOKS COMPLETE. This command
+  takes no --offset and no --page, and the response carries no total, so a query
+  matching more tools than --limit allows returns a full page with nothing
+  saying more exist. Narrow with --query or --category rather than paging;
+  a short result is the only evidence you have seen everything.`
     )
     .action(async (opts) => {
       try {
@@ -151,7 +165,25 @@ Notes:
   --service names the account to authorize, and the tool ID does not imply it:
   neither "nexus tool search" nor "nexus tool get" returns it. Use the built-in
   OAuth service name (GOOGLE_SHEETS, GMAIL, NOTION, ...) or the Pipedream app
-  slug (google_sheets).`
+  slug (google_sheets).
+
+  --auth-type http IS NARROWER THAN IT SOUNDS, AND ITS REFUSAL NAMES THE WRONG
+  THING. It fits ONE kind of tool: the marketplace calls that kind "user_http".
+  Every other tool answers 400 "Tool auth type is not http" — including the
+  API-key tools, which the marketplace calls "keys" and which are the common
+  case. That message names an auth type no tool ever reports, so it reads as a
+  typo in your flag when it is really the wrong tool for this branch.
+
+  MOST TOOLS CONNECT ON THE DEFAULT PATH, API KEY OR NOT. Leave --auth-type
+  alone, pass --service, and follow the link the response returns; the key is
+  entered there. Reach for --auth-type http only after the default path has
+  refused you.
+
+  CONNECTING WITH --auth-type http ADDS A CREDENTIAL, IT DOES NOT REPLACE ONE.
+  A tool holds many, so a second key for the same tool is a second row and both
+  keep working — a re-run to "try another key" leaves you with two, not one.
+  List them with "nexus tool credentials <id>" and remove the one you no longer
+  want with "nexus tool delete-credential".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -186,8 +218,12 @@ Notes:
         if (rawAuthType === "http") {
           const apiKey = readStringField(opts.apiKeyValue, base, "apiKey");
           if (apiKey === undefined) {
+            // The body key is apiKey, NOT apiKeyValue — the flag and the field
+            // do not share a name here, so the message has to say which.
             console.error(
-              "Error: --api-key-value is required for HTTP auth.\n  nexus tool connect <id> --auth-type http --api-key-value <key>"
+              'Error: --api-key-value is required for HTTP auth. Pass it as a flag, or as "apiKey" inside --body (the flag wins if you supply both).\n' +
+                "  nexus tool connect <id> --auth-type http --api-key-value <key>\n" +
+                '  nexus tool connect <id> --body \'{"authType":"http","apiKey":"<key>"}\''
             );
             process.exitCode = 1;
             return;
@@ -206,7 +242,10 @@ Notes:
         const service = readStringField(opts.service, base, "service");
         if (service === undefined) {
           console.error(
-            "Error: --service is required for OAuth.\n  nexus tool connect <id> --service <service>\n  e.g. --service GOOGLE_SHEETS (built-in OAuth) or --service google_sheets (Pipedream app slug)"
+            'Error: --service is required for OAuth. Pass it as a flag, or as "service" inside --body (the flag wins if you supply both).\n' +
+              "  nexus tool connect <id> --service <service>\n" +
+              '  nexus tool connect <id> --body \'{"authType":"oauth","service":"GOOGLE_SHEETS"}\'\n' +
+              "  e.g. --service GOOGLE_SHEETS (built-in OAuth) or --service google_sheets (Pipedream app slug)"
           );
           process.exitCode = 1;
           return;
@@ -251,10 +290,13 @@ Examples:
     });
 
   // ── skills ────────────────────────────────────────────────────────────
-  tool
+  const skills = tool
     .command("skills")
     .description("List organization skills (workflows, tasks, collections)")
-    .option("--type <type>", "Filter by type: WORKFLOW, TASK, or COLLECTION")
+    // A SHORTER list than `tool search --type`, and the contract says so: the
+    // skills route accepts the three org-owned kinds, the search route every
+    // marketplace kind. Neither is a narrowing declared here.
+    .addOption(enumOption("--type <type>", "Filter by type", TOOL_DISCOVERY_SKILLS__PARAMS_TYPE))
     .option("--search <query>", "Search by name")
     .option("--limit <number>", "Max results", parseInt)
     .addHelpText(
@@ -263,7 +305,14 @@ Examples:
 Examples:
   $ nexus tool skills
   $ nexus tool skills --type WORKFLOW --search "onboarding"
-  $ nexus tool skills --json`
+  $ nexus tool skills --json
+
+Notes:
+  THIS LISTS YOUR ORGANIZATION'S OWN SKILLS, NOT MARKETPLACE TOOLS. Despite
+  sitting under "tool", it returns the workflows, AI tasks and collections your
+  organization has built — the things you attach to an agent alongside a
+  marketplace tool. It lives here because that is the catalogue an agent picks
+  from. For marketplace tools use "nexus tool search".`
     )
     .action(async (opts) => {
       try {
@@ -335,7 +384,17 @@ Examples:
   $ nexus tool execute tool-123 --body '{"action":"getWeather","input":{"city":"London"}}'
 
 Notes:
-  For CUSTOM_MANIFEST external tools, use "nexus external-tool execute" instead.`
+  THIS RUNS CUSTOM_MANIFEST TOOLS TOO. "nexus external-tool execute" is a
+  sibling, not a required detour — both reach the same execution and return the
+  same envelope. Prefer external-tool execute when you are already working in
+  that namespace; nothing here is refused for being a custom manifest.
+
+  IT RUNS UNDER THE CREDENTIAL'S FULL AUTHORITY, WITH NO ACCESS CARD APPLIED.
+  This route is deliberately unscoped: it does not filter your parameters and it
+  does not enforce the policy an agent or a workflow goes through. Naming an
+  accessCardId in --body does not scope the call — it is REFUSED with a 403,
+  rather than honoured, so nobody can believe a call was delegated when it was
+  not. Route work that must be scoped through an agent or a workflow instead.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -423,7 +482,27 @@ Examples:
       `
 Examples:
   $ nexus tool delete-credential tool-123 cred-456
-  $ nexus tool delete-credential tool-123 cred-456 --yes`
+  $ nexus tool delete-credential tool-123 cred-456 --yes
+
+Notes:
+  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL, so --yes is not the guard
+  a script needs. Piped, redirected or run in CI there is no prompt and no --yes
+  is required: the delete just happens. This is NOT the convention every
+  destructive command here follows — "phone-number buy" and "phone-number
+  release" REFUSE without --yes and exit 1 instead. Read each command's own
+  help; the flag name is the same and the behaviour is opposite.
+
+  IT REVOKES AT THE PROVIDER BEFORE IT DROPS THE ROW, AND A REFUSED REVOCATION
+  ABORTS THE WHOLE DELETE. For a Pipedream-backed credential the connected
+  account is revoked first; if the provider refuses, nothing is removed and the
+  credential still works. That error means "try again", not "half-deleted".
+
+  DELETING A CREDENTIAL TAKES ITS ACCESS CARDS WITH IT. Every card written
+  against it goes too, including hand-written non-master ones. Agent tool
+  configs and workflow nodes naming this credential are NOT updated and NOT
+  warned about — they keep pointing at the dropped row and fail later, somewhere
+  else, as an orphaned-credential error. List what depends on it before you
+  delete, not after something breaks.`
     )
     .action(async (toolId: string, credentialId: string, opts) => {
       try {
@@ -446,4 +525,8 @@ Examples:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(search, TOOL_DISCOVERY_SEARCH_CONTRACT);
+  bindCommand(skills, TOOL_DISCOVERY_SKILLS_CONTRACT);
 }

@@ -8,10 +8,25 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumArgument, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseIdList } from "../util/ids";
+import {
+  PERMISSIONS_GRANT__BODY_RELATION,
+  PERMISSIONS_GRANT__BODY_RESOURCE_TYPE,
+  PERMISSIONS_GRANT__BODY_SUBJECT_TYPE,
+  PERMISSIONS_GRANT_CONTRACT,
+  PERMISSIONS_LIST_RESOURCE_ACCESS__PATH_VARS_RESOURCE_TYPE,
+  PERMISSIONS_LIST_RESOURCE_ACCESS_CONTRACT,
+  PERMISSIONS_REVOKE__BODY_RESOURCE_TYPE,
+  PERMISSIONS_REVOKE__BODY_SUBJECT_TYPE,
+  PERMISSIONS_REVOKE_CONTRACT,
+  PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY__BODY_RESOURCE_TYPE,
+  PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY__BODY_VISIBILITY,
+  PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY_CONTRACT
+} from "./permissions.contract.generated";
 
 /**
  * Every member of `PermissionResourceType`, as a runtime lookup.
@@ -71,18 +86,58 @@ export function registerPermissionsCommands(program: Command): void {
     .command("permissions")
     .description("Share resources: read access lists, grant and revoke, read org visibility");
 
+  permissions.addHelpText(
+    "after",
+    `
+BEING AN ORG ADMIN IS NOT ENOUGH HERE, AND THAT SURPRISES EVERYONE ONCE.
+Grants are DELEGATED, not administered: what you can read and write on a
+resource depends on YOUR OWN relation to that resource, not on your role in the
+organization. An org admin with no relation on an agent cannot list its grants
+and cannot grant on it — both answer 403.
+
+  • READING NEEDS A RELATION. "permissions access" on a resource you hold no
+    relation on is refused, so an org-wide audit of who-can-see-what is not
+    something this namespace can perform.
+  • GRANTING NEEDS A RELATION AT LEAST AS STRONG AS THE ONE YOU GIVE. You cannot
+    hand out access you do not hold. The refusal names the relation you have, or
+    says you have none — read that half of the message, it is the diagnosis.
+  • THE FIX IS A RELATION, NOT A ROLE. Have someone who already holds owner on
+    the resource grant you one; changing your organization role does nothing.
+
+RESOURCE IDS ARE VERSION-4 UUIDs, checked for more than their shape. A
+hand-written 8-4-4-4-12 string with tidy digits is refused as an invalid UUID
+even though it looks right — copy the id from the resource's own list command.`
+  );
+
   // ── access ────────────────────────────────────────────────────────────
-  permissions
+  const access = permissions
     .command("access")
     .description("List every grant written against one resource")
-    .argument("<resource-type>", `Resource type (${RESOURCE_TYPE_NAMES})`)
+    // The values come from the contract and commander enforces them on the
+    // POSITIONAL, so a wrong type is refused here rather than becoming a 400 on
+    // a path segment that reads as a bad id. NO NORMALISER: the v1 schema is a
+    // bare `z.enum` and refuses `AGENT`, so case-folding would make this CLI
+    // accept a spelling the server rejects.
+    .addArgument(
+      enumArgument("<resource-type>", "Resource type", PERMISSIONS_LIST_RESOURCE_ACCESS__PATH_VARS_RESOURCE_TYPE)
+    )
     .argument("<resource-id>", "Resource UUID")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus permissions access agent 11111111-1111-1111-1111-111111111111
-  $ nexus permissions access workflow 2222... --json`
+  $ nexus permissions access workflow 2222... --json
+
+Notes:
+  A FRESH RESOURCE ALREADY HAS TWO GRANTS NOBODY WROTE. Creating anything stamps
+  an organization-wide editor grant and an owner grant for its creator, both
+  dated at the resource's creation. So an empty list here is not the baseline —
+  two rows is. Compare against those two before concluding a resource was
+  shared.
+
+  IT REFUSES UNLESS YOU HOLD A RELATION ON THIS RESOURCE, org admin or not. The
+  403 names the relation it wanted. See the namespace help.`
     )
     .action(async (resourceType: string, resourceId: string) => {
       try {
@@ -108,24 +163,49 @@ Examples:
     });
 
   // ── grant ─────────────────────────────────────────────────────────────
-  permissions
+  const grant = permissions
     .command("grant")
     .description("Grant a principal a relation on a resource")
-    .requiredOption("--resource-type <type>", `Resource type (${RESOURCE_TYPE_NAMES})`)
+    .addOption(
+      enumOption(
+        "--resource-type <type>",
+        "Resource type",
+        PERMISSIONS_GRANT__BODY_RESOURCE_TYPE
+      ).makeOptionMandatory()
+    )
     .requiredOption("--resource-id <id>", "Resource UUID")
-    .requiredOption(
-      "--subject-type <type>",
-      "Subject type (user, group, organization, api_key, role)"
+    .addOption(
+      enumOption(
+        "--subject-type <type>",
+        "Subject type",
+        PERMISSIONS_GRANT__BODY_SUBJECT_TYPE
+      ).makeOptionMandatory()
     )
     .requiredOption("--subject-id <id>", "Subject ID — user id, group UUID, org id, or API key id")
-    .requiredOption("--relation <relation>", "Relation to grant (owner, editor, viewer)")
+    .addOption(
+      enumOption(
+        "--relation <relation>",
+        "Relation to grant",
+        PERMISSIONS_GRANT__BODY_RELATION
+      ).makeOptionMandatory()
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus permissions grant --resource-type agent --resource-id 1111... \\
-      --subject-type group --subject-id 2222... --relation viewer`
+      --subject-type group --subject-id 2222... --relation viewer
+
+Notes:
+  YOU CANNOT GRANT ON A RESOURCE YOU HAVE NO RELATION ON. This is delegation,
+  not administration, so an organization admin is refused exactly like anyone
+  else — with a 403 that names the relation you hold, or states you hold none.
+  That message is about YOUR standing, never about --subject-id. See the
+  namespace help.
+
+  A WILDCARD GRANT ('*' as the resource id) IS ADMIN-ONLY, and is the one
+  operation here that does turn on your organization role.`
     )
     .action(async (opts) => {
       try {
@@ -146,14 +226,23 @@ Examples:
     });
 
   // ── revoke ────────────────────────────────────────────────────────────
-  permissions
+  const revoke = permissions
     .command("revoke")
     .description("Revoke a principal's grant on a resource")
-    .requiredOption("--resource-type <type>", `Resource type (${RESOURCE_TYPE_NAMES})`)
+    .addOption(
+      enumOption(
+        "--resource-type <type>",
+        "Resource type",
+        PERMISSIONS_REVOKE__BODY_RESOURCE_TYPE
+      ).makeOptionMandatory()
+    )
     .requiredOption("--resource-id <id>", "Resource UUID, or '*' to target a wildcard grant")
-    .requiredOption(
-      "--subject-type <type>",
-      "Subject type (user, group, organization, api_key, role)"
+    .addOption(
+      enumOption(
+        "--subject-type <type>",
+        "Subject type",
+        PERMISSIONS_REVOKE__BODY_SUBJECT_TYPE
+      ).makeOptionMandatory()
     )
     .requiredOption("--subject-id <id>", "Subject ID")
     .option("--cascade-subject-ids <ids>", "Comma-separated subject IDs delegated from this grant")
@@ -229,11 +318,33 @@ Notes:
     });
 
   // ── set-visibility ────────────────────────────────────────────────────
-  permissions
+  const setVisibility = permissions
     .command("set-visibility")
     .description("Set or clear the org's visibility override for one resource type")
-    .requiredOption("--resource-type <type>", `Resource type (${RESOURCE_TYPE_NAMES})`)
-    .requiredOption("--visibility <value>", "open, closed, or none to clear the override")
+    // The list this offers is SHORTER than `permissions grant`'s, and that is
+    // the contract's own doing rather than a narrowing declared here:
+    // access_card and vibe_app are pinned by the system, and the visibility
+    // schema already leaves them out.
+    .addOption(
+      enumOption(
+        "--resource-type <type>",
+        "Resource type — access_card and vibe_app are pinned by the system and are not offered",
+        PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY__BODY_RESOURCE_TYPE
+      ).makeOptionMandatory()
+    )
+    .addOption(
+      enumOption(
+        "--visibility <value>",
+        "Visibility to set",
+        PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY__BODY_VISIBILITY,
+        {
+          alsoAccepts: ["none"],
+          because:
+            "'none' is this CLI's own token for clearing the override; the wire value is null, " +
+            "and omitting the field is refused, so 'clear it' has to be sayable"
+        }
+      ).makeOptionMandatory()
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -264,4 +375,10 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(access, PERMISSIONS_LIST_RESOURCE_ACCESS_CONTRACT);
+  bindCommand(grant, PERMISSIONS_GRANT_CONTRACT);
+  bindCommand(revoke, PERMISSIONS_REVOKE_CONTRACT);
+  bindCommand(setVisibility, PERMISSIONS_UPDATE_RESOURCE_TYPE_VISIBILITY_CONTRACT);
 }

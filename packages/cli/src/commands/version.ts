@@ -2,10 +2,12 @@ import type { CreateCheckpointBody, UpdateVersionBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { absent, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { VERSION_LIST__PARAMS_TYPE, VERSION_LIST_CONTRACT } from "./version.contract.generated";
 
 export function registerVersionCommands(program: Command): void {
   const version = program
@@ -35,12 +37,15 @@ deleted and published — the type is a label about origin, not a protection.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const list = addPaginationOptions(
     version
       .command("list")
       .description("List prompt versions for an agent")
       .argument("<agent-id>", "Agent ID")
-      .option("--type <type>", "Filter by type (AUTO, CHECKPOINT)")
+      // The values are NOT repeated in the description: commander prints
+      // `(choices: …)` from the generated list, and a second hand-typed copy is
+      // a second thing to go stale.
+      .addOption(enumOption("--type <type>", "Filter by type", VERSION_LIST__PARAMS_TYPE))
       .addHelpText(
         "after",
         `
@@ -58,12 +63,19 @@ Notes:
   Newest first, and paginated — the default page is 20, so PROD=yes can be on
   page 2. --type CHECKPOINT is the usual filter; AUTO rows accumulate on every
   prompt change and are the bulk of the list.
-  --json also carries meta.checkpointCount: how many CHECKPOINT versions exist
-  in total, regardless of --type and of the page you asked for.
+  ONE PROMPT WRITE PRODUCES TWO ROWS. "agent update --prompt" files the OUTGOING
+  draft as an AUTO row and the new text as a CHECKPOINT, so the list grows by
+  two per edit rather than one. Counting rows is not counting edits, and a list
+  that jumped by more than you expected is this, not a duplicate write.
+  meta CARRIES total, page AND hasMore — there is no checkpointCount. To count
+  the checkpoints, ask for them and read the total:
+  "nexus version list <agent-id> --type CHECKPOINT --json" -> meta.total.
   An agent id your key cannot see answers 404, the same as one that does not
   exist.`
       )
-  ).action(async (agentId: string, opts) => {
+  );
+
+  list.action(async (agentId: string, opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.agents.versions.list(agentId, {
@@ -97,9 +109,16 @@ Examples:
   $ nexus version get agt-123 ver-456 --json
 
 Notes:
-  THE ONLY COMMAND THAT RETURNS THE PROMPT. "version list" omits it entirely.
-  The prompt comes back as MARKDOWN, serialized from the stored document. It
-  is the right shape to feed back into "nexus agent update --prompt".
+  THIS IS THE ONLY WAY TO READ AN OLD VERSION'S PROMPT — "version list" omits it
+  entirely. It is not the only source of A prompt: "agent get" returns the
+  agent's current DRAFT at .prompt, and "version restore" returns the text it
+  restored. Use this one when you want a specific historical version.
+  THE PROMPT IS NEXUS SECTION MARKUP, NOT PLAIN MARKDOWN. It comes back wrapped
+  in "::: section: ... :::" and "::: tab: ... :::" directives that carry the
+  prompt's structure. Feed it back into "nexus agent update --prompt" verbatim —
+  that round-trip is exact and does not double-wrap. Do NOT strip the
+  directives, and do not expect prose you can diff against hand-written
+  markdown.
   Production is a fact about the AGENT, not about the row: this prints
   Production yes/no by comparing the version to the agent's current published
   one, so the same version can read yes today and no tomorrow.
@@ -148,6 +167,12 @@ Notes:
   stop it, or {"autoPublish": true} to publish deliberately.
   IT SNAPSHOTS THE AGENT'S CURRENT DRAFT. With no prompt of its own it copies
   the draft as it stands — so update the agent first, then checkpoint it.
+  AN EMPTY DRAFT CHECKPOINTS AND PUBLISHES ANYWAY. On a fresh agent whose prompt
+  is still null this succeeds, and the two rules above then compose into the one
+  outcome nobody wants: an EMPTY version is published to production, and there
+  is no unpublish in this API to take it back. Write the prompt first, or pass
+  {"autoPublish": false}. Check with "nexus agent get <agent-id>" that .prompt
+  is not null before the first checkpoint.
   IT CAN ALSO WRITE THE PROMPT, and there is no flag for that. A "prompt" key
   in --body OVERWRITES the agent's draft, saves the previous draft as an AUTO
   version first, and checkpoints the new text. Max 1,000,000 characters,
@@ -247,7 +272,13 @@ Notes:
   naming the reason. Publish a different version first, then delete this one.
   Check the PROD column in "nexus version list" before you call it.
   ANY OTHER VERSION GOES, INCLUDING AUTO ONES, and the prompt it held is gone
-  with it. There is no undo. Returns {id, deleted: true} at 200.
+  with it. There is no undo. The response carries the id and nothing else —
+  there is no "deleted" field to assert on, so a 200 IS the confirmation.
+  TO DELETE THE PRODUCTION VERSION, PUBLISH ANOTHER ONE FIRST. Three commands,
+  in this order — the delete then succeeds:
+    $ nexus version list <agent-id>            # find the PROD=yes row
+    $ nexus version publish <agent-id> <other-version-id>
+    $ nexus version delete <agent-id> <old-version-id>
   THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
   confirmation and no --yes is needed — it deletes immediately.`
     )
@@ -365,4 +396,9 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — including the pagination flags
+  // `addPaginationOptions` adds. `bindCommand` renders its block from the
+  // command's own options, so anything added afterwards is invisible to it.
+  bindCommand(list, VERSION_LIST_CONTRACT);
 }

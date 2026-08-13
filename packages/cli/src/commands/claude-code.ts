@@ -5,15 +5,18 @@ import { Command } from "commander";
 import { handleError } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
 import { SKILL_LIST, SKILLS } from "../skills-content.generated";
+import { confirmable } from "../util/confirm";
 import {
   agentInstallables,
   bundleToInstallables,
   claudeMdContent,
   type ClaudeMdStatus,
   type ClaudeTarget,
+  commitInstallLedger,
   confirmOrAbort,
   hookInstallables,
   type InstallableSkill,
+  openInstallLedger,
   resolveClaudeTarget,
   settingsJsonContent,
   sharedInstallable,
@@ -80,12 +83,11 @@ CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@lates
   // This is the original entry point; `nexus skills update` (skills.ts) wraps
   // the same machinery with project-root auto-detection. Kept for back-compat.
 
-  cc.command("install")
+  confirmable(cc.command("install"))
     .description("Install the Claude Code skills bundled with this CLI version to your project")
     .argument("[skills...]", "Skill slugs to install (omit for all)")
     .option("--dir <path>", "Target directory", ".claude/skills")
-    .option("--force", "Overwrite existing files without prompting")
-    .option("--yes", "Skip confirmation prompt")
+    .option("--force", "Replace files this CLI did not write (see Notes) without prompting")
     .option("--dry-run", "Show what would be installed without writing")
     .option("--no-claude-md", "Skip writing the CLAUDE.md system prompt to the project root")
     .option(
@@ -124,6 +126,22 @@ Alongside the skills, install writes:
                      Skip both settings.json and hooks with --no-settings.
   • agents/        — the Nexus subagent definitions, written to
                      .claude/agents and refreshed in place on every install.
+
+Notes:
+  YOUR OWN EDITS TO SKILLS, HOOKS AND AGENTS ARE NEVER OVERWRITTEN SILENTLY.
+  Every install records a checksum of each file it writes, in
+  .claude/.nexus-install-manifest.json. On the next install a file whose bytes
+  still match that record is refreshed; a file whose bytes do not is LEFT ALONE,
+  named in the output, and replaced only if you pass --force. A tree installed
+  before this CLI kept that record has no checksums yet, so its differing files
+  are preserved too — pass --force once to adopt them.
+
+  --dir NAMES THE TARGET AND NOTHING IS COMPUTED FROM WHERE YOU STAND. For the
+  conventional <root>/.claude/skills shape the posture goes to <root>/.claude and
+  CLAUDE.md to <root>/CLAUDE.md, both derived from --dir. For any other path,
+  everything — skills, CLAUDE.md, settings.json, hooks/, agents/ — lands inside
+  the directory you named. Run "nexus skills where --dir <path>" to see every
+  path before writing.
 
 Skills are bundled with the CLI binary at build time from the canonical
 claude-code-skills-nexus repository. No network calls, no API key required.
@@ -330,16 +348,23 @@ export async function runSkillsInstallToTarget(
       return;
     }
 
-    // Write
+    // Write. One ledger for the whole install: it is read once, accumulates
+    // every file this run writes, and is committed at the end — so a file
+    // written earlier in this same run is recognised later in it.
+    const ledger = openInstallLedger(target.claudeDir);
+    const writeOpts = { ledger, force: opts.force };
+
     let totalCreated = 0;
     let totalUpdated = 0;
     let totalSkipped = 0;
+    const preservedPaths: string[] = [];
     for (const skill of skillInstallables) {
       const targetDir = path.join(skillsDir, skill.slug);
-      const result = writeSkillFiles(targetDir, skill.files);
+      const result = writeSkillFiles(targetDir, skill.files, writeOpts);
       totalCreated += result.created.length;
       totalUpdated += result.updated.length;
       totalSkipped += result.skipped.length;
+      preservedPaths.push(...result.preserved.map((p) => path.join(targetDir, p)));
     }
 
     let claudeMdStatus: ClaudeMdStatus | null = null;
@@ -356,10 +381,11 @@ export async function runSkillsInstallToTarget(
     // should exist by the time it lands.
     let settingsStatus: ClaudeMdStatus | null = null;
     if (installSettings) {
-      const hooksResult = writeSkillFiles(target.hooksDir, hooks.files);
+      const hooksResult = writeSkillFiles(target.hooksDir, hooks.files, writeOpts);
       totalCreated += hooksResult.created.length;
       totalUpdated += hooksResult.updated.length;
       totalSkipped += hooksResult.skipped.length;
+      preservedPaths.push(...hooksResult.preserved.map((p) => path.join(target.hooksDir, p)));
 
       settingsStatus = writeRootSettingsJson(target.settingsJsonPath, settingsContent, opts);
       if (settingsStatus === "created") totalCreated += 1;
@@ -370,11 +396,14 @@ export async function runSkillsInstallToTarget(
     // Agents (Nexus-owned, refreshed in place like skills/hooks). Written
     // directly into .claude/agents — the flat .md files Claude Code discovers.
     if (installAgents) {
-      const agentsResult = writeSkillFiles(target.agentsDir, agents.files);
+      const agentsResult = writeSkillFiles(target.agentsDir, agents.files, writeOpts);
       totalCreated += agentsResult.created.length;
       totalUpdated += agentsResult.updated.length;
       totalSkipped += agentsResult.skipped.length;
+      preservedPaths.push(...agentsResult.preserved.map((p) => path.join(target.agentsDir, p)));
     }
+
+    commitInstallLedger(ledger);
 
     // Summary
     if (isJsonMode()) {
@@ -394,7 +423,8 @@ export async function runSkillsInstallToTarget(
             targetReason: target.reason,
             created: totalCreated,
             updated: totalUpdated,
-            skipped: totalSkipped
+            skipped: totalSkipped,
+            preserved: preservedPaths
           },
           null,
           2
@@ -406,6 +436,22 @@ export async function runSkillsInstallToTarget(
       );
       if (totalSkipped > 0) {
         console.log(color.dim(`  ${totalSkipped} files already up to date`));
+      }
+      if (preservedPaths.length > 0) {
+        // Named, not counted. A count is what the old destructive behaviour
+        // already printed, and a count cannot tell an operator WHICH of their
+        // own files this install would have replaced.
+        console.log(
+          color.yellow(
+            `  ${preservedPaths.length} file${preservedPaths.length === 1 ? "" : "s"} left unchanged — ` +
+              `on disk, different from the bundle, and not written by this CLI (edited since, or ` +
+              `installed before this CLI recorded what it writes). Re-run with --force to replace them:`
+          )
+        );
+        for (const p of preservedPaths.slice(0, 10)) console.log(color.yellow(`      ${p}`));
+        if (preservedPaths.length > 10) {
+          console.log(color.yellow(`      … and ${preservedPaths.length - 10} more`));
+        }
       }
       if (claudeMdStatus === "created") {
         console.log(color.dim(`  CLAUDE.md written to ${claudeMdTarget}`));

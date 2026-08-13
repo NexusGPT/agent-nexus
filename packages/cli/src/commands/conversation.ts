@@ -7,11 +7,28 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumInCompositeOption, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { type Column, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import {
+  CONVERSATION_GET__PARAMS_SATISFACTION,
+  CONVERSATION_GET_CONTRACT,
+  CONVERSATION_LIST__PARAMS_ASSIGNED_TO,
+  CONVERSATION_LIST__PARAMS_LAST_MESSAGE_TYPE_IN_ITEM,
+  CONVERSATION_LIST__PARAMS_RESPONSE_HANDLING,
+  CONVERSATION_LIST__PARAMS_STATUS,
+  CONVERSATION_LIST__PARAMS_TICKET_STATUS,
+  CONVERSATION_LIST__PARAMS_TICKET_STATUS_IN_ITEM,
+  CONVERSATION_LIST__PARAMS_TICKET_STATUS_NOT,
+  CONVERSATION_LIST_CONTRACT,
+  CONVERSATION_UPDATE_STATUSES__BODY_RESPONSE_HANDLING,
+  CONVERSATION_UPDATE_STATUSES__BODY_STATUS,
+  CONVERSATION_UPDATE_STATUSES__BODY_TICKET_STATUS,
+  CONVERSATION_UPDATE_STATUSES_CONTRACT
+} from "./conversation.contract.generated";
 
 // `satisfies readonly SatisfactionMode[]` forces this runtime tuple to track
 // the SDK type 1:1 — a future mode (e.g. "none") added to the SDK union without
@@ -49,6 +66,10 @@ export function registerConversationCommands(program: Command): void {
 EVERY <id> HERE TAKES EITHER FORM: the UUID or the short nanoId (XXXXX_XXXXX)
 a customer sees. Anything else is a 400, and an id from another organization
 is a 404 — the two are never distinguished.
+NOT EVERY CONVERSATION HAS A nanoId. Only some creation paths mint one, and an
+emulator conversation is created without, so its nanoId reads null in
+"conversation get" and "conversation list". Where it is null the short form
+simply does not exist — use the UUID. Never derive one from the id.
 
 WHAT THE AGENT STORED IS NOT WHAT THE CUSTOMER SAW. A tool-using conversation
 records the runtime's own working memory — tool calls, tool results, internal
@@ -64,25 +85,54 @@ conversations:delete.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  conversation
+  const list = conversation
     .command("list")
     .description("List conversations")
-    .option("--status <status>", "Filter by status (OPEN, RUNNING, ARCHIVED)")
-    .option(
-      "--ticket-status <status>",
-      "Filter by ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
+    .addOption(
+      enumOption("--status <status>", "Filter by status", CONVERSATION_LIST__PARAMS_STATUS)
     )
-    .option("--response-handling <mode>", "Filter by response handling (AUTO, ON_APPROVAL, MANUAL)")
-    .option(
-      "--ticket-status-in <a,b,c>",
-      "Filter by ticket status (comma-separated: SUBMITTED,IN_PROGRESS,WAITING_ON_CUSTOMER,RESOLVED)"
+    .addOption(
+      enumOption(
+        "--ticket-status <status>",
+        "Filter by ticket status",
+        CONVERSATION_LIST__PARAMS_TICKET_STATUS
+      )
     )
-    .option(
-      "--ticket-status-not <status>",
-      "Exclude a ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
+    .addOption(
+      enumOption(
+        "--response-handling <mode>",
+        "Filter by response handling",
+        CONVERSATION_LIST__PARAMS_RESPONSE_HANDLING
+      )
+    )
+    // COMMA-SEPARATED, so commander cannot validate it: `.choices()` compares
+    // the whole token, and "SUBMITTED,RESOLVED" is no member of any enum. The
+    // binding is recorded and the values are rendered into the description,
+    // which is the honest half-measure — a bad item is still refused by the
+    // server, not here.
+    .addOption(
+      enumInCompositeOption(
+        "--ticket-status-in <a,b,c>",
+        "Filter by ticket status, comma-separated",
+        CONVERSATION_LIST__PARAMS_TICKET_STATUS_IN_ITEM,
+        "each item"
+      )
+    )
+    .addOption(
+      enumOption(
+        "--ticket-status-not <status>",
+        "Exclude a ticket status",
+        CONVERSATION_LIST__PARAMS_TICKET_STATUS_NOT
+      )
     )
     .option("--deployment-id <id>", "Filter by deployment ID")
-    .option("--assigned-to <filter>", "Filter by assignment (me, none)")
+    .addOption(
+      enumOption(
+        "--assigned-to <filter>",
+        "Filter by assignment",
+        CONVERSATION_LIST__PARAMS_ASSIGNED_TO
+      )
+    )
     .option("--search <query>", "Search by topic or message content")
     .option(
       "--last-message-before <iso>",
@@ -92,9 +142,13 @@ conversations:delete.`
       "--last-message-after <iso>",
       "Only conversations whose last message is newer than this ISO date"
     )
-    .option(
-      "--last-message-type-in <a,b,c>",
-      "Filter by last message role (comma-separated: USER, AGENT, SYSTEM)"
+    .addOption(
+      enumInCompositeOption(
+        "--last-message-type-in <a,b,c>",
+        "Filter by last message role, comma-separated",
+        CONVERSATION_LIST__PARAMS_LAST_MESSAGE_TYPE_IN_ITEM,
+        "each item"
+      )
     )
     .option(
       "--comment-contains <substring>",
@@ -177,13 +231,19 @@ Notes:
     });
 
   // ── get ───────────────────────────────────────────────────────────────
-  conversation
+  const get = conversation
     .command("get")
     .description("Get conversation details")
     .argument("<id>", "Conversation ID (UUID or nanoId)")
-    .option(
-      "--satisfaction <mode>",
-      "Project satisfaction on the response: 'latest' (most-recent score), 'all' (full history), or 'summary' (latest + totalCount)"
+    // The MEANING of each mode stays here; commander prints the values from the
+    // contract, so they are not spelled a second time.
+    .addOption(
+      enumOption(
+        "--satisfaction <mode>",
+        "Project satisfaction on the response: 'latest' is the most-recent score, " +
+          "'all' the full history, 'summary' the latest plus totalCount",
+        CONVERSATION_GET__PARAMS_SATISFACTION
+      )
     )
     .addHelpText(
       "after",
@@ -197,7 +257,8 @@ Examples:
 Notes:
   Carries no messages — "conversation messages <id>" is a separate read.
   A CLOSED CONVERSATION IS STILL READABLE HERE, unlike in "conversation list"
-  where it never appears. Its status reads DELETED.
+  where it never appears. Its status reads DELETED, which is a status a read
+  reports and no write can set — "conversation update-status" refuses it.
   --satisfaction is off by default and costs an extra read: "latest" is the
   most recent score, "all" the full history, "summary" the latest plus a
   totalCount. Nothing is projected without it — an absent field means you did
@@ -277,7 +338,10 @@ Notes:
   it, quoting this output back to a customer quotes machinery at them. It
   filters before pagination, so --limit counts real messages either way.
 
-  Newest first, and --limit is capped at 100 (default 50) — a long
+  THE PAGE IS THE NEWEST MESSAGES; THE ROWS INSIDE IT READ OLDEST FIRST. Paging
+  walks backwards in time while each page prints forwards, so concatenating
+  pages in the order you fetch them produces a transcript in the wrong order —
+  prepend each page, never append. --limit is capped at 100 (default 50); a long
   conversation needs paging, not a bigger limit.
   --before is the SERVER'S nextBefore, passed back verbatim. It is an opaque
   "<iso>_<id>" pair, not a date. A bare ISO timestamp still works and still
@@ -380,16 +444,27 @@ Notes:
     });
 
   // ── update-status ─────────────────────────────────────────────────────
-  conversation
+  const updateStatus = conversation
     .command("update-status")
     .description("Update conversation status, ticket status, or response handling")
     .argument("<id>", "Conversation ID")
-    .option("--status <status>", "New status (OPEN, RUNNING, ARCHIVED)")
-    .option(
-      "--ticket-status <status>",
-      "New ticket status (SUBMITTED, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED)"
+    .addOption(
+      enumOption("--status <status>", "New status", CONVERSATION_UPDATE_STATUSES__BODY_STATUS)
     )
-    .option("--response-handling <mode>", "New response handling (AUTO, ON_APPROVAL, MANUAL)")
+    .addOption(
+      enumOption(
+        "--ticket-status <status>",
+        "New ticket status",
+        CONVERSATION_UPDATE_STATUSES__BODY_TICKET_STATUS
+      )
+    )
+    .addOption(
+      enumOption(
+        "--response-handling <mode>",
+        "New response handling",
+        CONVERSATION_UPDATE_STATUSES__BODY_RESPONSE_HANDLING
+      )
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -578,31 +653,63 @@ Notes:
     .command("assign")
     .description("Set assigned users on a conversation (replaces existing)")
     .argument("<id>", "Conversation ID")
-    .requiredOption("--user-ids <ids...>", "User IDs to assign (space-separated)")
+    .option("--user-ids <ids...>", "User IDs to assign (space-separated)")
+    .option("--clear", "Remove every assignee, leaving the conversation unassigned")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus conversation assign <id> --user-ids user-1 user-2
-  $ nexus conversation assign <id> --user-ids  # empty to unassign all
+  $ nexus conversation assign <id> --clear
 
 Notes:
   THIS REPLACES THE ASSIGNEE LIST, IT DOES NOT ADD TO IT. Anyone already
   assigned and not named here loses the conversation, and nothing reports who
   was removed. Read "conversation assigned-users <id>" first and pass the full
   list back.
-  --user-ids with no values clears every assignee — that is the unassign path.
+  --clear IS THE UNASSIGN PATH, and it is a separate flag on purpose. Passing
+  --user-ids with no values is not the unassign path and never was: a variadic
+  option demands at least one value, so that spelling is refused by the parser
+  before this command runs.
+  EXACTLY ONE OF --user-ids AND --clear. A bare "assign <id>" is refused rather
+  than treated as an empty list — under replace-all semantics, defaulting to
+  empty makes the no-flags form the most destructive one.
+  A BLANK ID IS REFUSED, NOT SENT. --user-ids "$SOME_UNSET_VAR" hands over an
+  empty string; it is a shell accident, never a user, and the server answers a
+  blank id with a persistence error rather than a validation message.
   Up to 50 users. Assignment is filing, not permission: it does not grant
   anyone access they did not already have, and it does not stop the agent
   replying — --response-handling does that.`
     )
     .action(async (id: string, opts) => {
       try {
+        const rawIds = opts.userIds as string[] | undefined;
+        const clear = opts.clear === true;
+
+        if (clear && rawIds !== undefined) {
+          throw new Error("Pass either --user-ids or --clear, not both");
+        }
+        if (!clear && rawIds === undefined) {
+          throw new Error(
+            "Provide --user-ids to set the assignees, or --clear to remove them all. " +
+              "This replaces the whole list, so it will not default to empty."
+          );
+        }
+
+        const userIds = clear ? [] : (rawIds ?? []);
+        // A blank arrives from an unset shell variable, not from a person. The
+        // server treats it as a malformed id and surfaces a persistence error,
+        // so refusing here is both earlier and legible.
+        const blanks = userIds.filter((u) => u.trim().length === 0).length;
+        if (blanks > 0) {
+          throw new Error(
+            `--user-ids contains ${blanks} blank value(s). Use --clear to unassign everyone.`
+          );
+        }
+
         const client = createClient(program.optsWithGlobals());
-        const conv = await client.conversations.setAssignedUsers(id, {
-          userIds: opts.userIds ?? []
-        });
-        printSuccess("Users assigned.", {
+        const conv = await client.conversations.setAssignedUsers(id, { userIds });
+        printSuccess(clear ? "Assignees cleared." : "Users assigned.", {
           conversationId: id,
           assignedUserIds: conv.assignedUserIds
         });
@@ -659,6 +766,11 @@ Notes:
   Internal notes only — none of this was seen by the customer. The customer
   side is "conversation messages <id> --visible-only".
   Unpaginated, oldest first.
+  THE AUTHOR COLUMN IS BLANK ON EVERY COMMENT THIS API WROTE. "conversation
+  comment" stores the author's user id and no display name, so authorName reads
+  null for those rows and only comments left in the dashboard carry one. Read
+  authorId in --json and resolve the name yourself; a blank AUTHOR does not mean
+  the comment is unattributed.
   A stored comment that does not match the current schema is SKIPPED rather
   than reported, so this list can be shorter than what is on the record.`
     )
@@ -826,9 +938,14 @@ Notes:
   If you want it out of the way but recoverable, use
   "conversation update-status <id> --status ARCHIVED" instead.
 
-  IT VANISHES FROM "conversation list" AND "conversation search" while
-  remaining readable by id: "conversation get <id>" still works and reports
-  status DELETED. The messages are not erased.
+  IT VANISHES FROM "conversation list" AND "conversation search" AND STAYS
+  READABLE BY ID. "conversation get", "conversation messages", "conversation
+  comments" and "conversation get-metadata" all still answer afterwards, and
+  "get" reports status DELETED — the one status a read reports and no write can
+  set. The messages are not erased and the transcript stays reachable, so the
+  disappearance from both lists is the whole of what a close hides.
+  THE WRITE PATHS REFUSE A CLOSED CONVERSATION with a 404: "assign",
+  "update-status", "comment", "mark-as-read", and a second "close".
   Runs with no prompt and no --yes, on one call.
   Needs conversations:delete, which conversations:write does not imply.`
     )
@@ -841,4 +958,9 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(list, CONVERSATION_LIST_CONTRACT);
+  bindCommand(get, CONVERSATION_GET_CONTRACT);
+  bindCommand(updateStatus, CONVERSATION_UPDATE_STATUSES_CONTRACT);
 }

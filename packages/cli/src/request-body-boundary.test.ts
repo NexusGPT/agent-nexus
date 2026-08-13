@@ -24,14 +24,82 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
  * nothing, and carried no cast for any census to count. A `grep` for `as any` cannot
  * see a crossing that never needed a cast.
  *
- * Two things are therefore checked, over the real `src/` tree:
+ * Three things are therefore checked, over the real `src/` tree:
  *
- *  1. an operator-JSON value handed to an SDK method must be wrapped;
- *  2. `as any` and `as unknown as T` must not appear at all.
+ *  1. an operator-JSON value handed to an SDK method must be wrapped — however it
+ *     reaches the argument: inlined, bound to a local, renamed through a chain of
+ *     locals, spread into an object literal, or passed to a client the file
+ *     destructured rather than named;
+ *  2. an assertion must not widen to `any`, and must not launder a value through
+ *     `unknown` into a concrete type — in EITHER spelling (`x as T` and `<T>x`),
+ *     whether the launder is written on one line or spread across two statements;
+ *  3. a shape that widens a type with NO assertion node at all — a module
+ *     augmentation, a `declare global`, a `@ts-expect-error` — needs an entry in
+ *     `UNGATED_WITH_REASON`, because it is the cheapest way past (1) and (2) and
+ *     its blast radius is the whole package rather than one call site.
  *
  * (2) exists because (1) is evadable by one keystroke: a double assertion at the
  * DECLARATION makes the identifier reach the call already typed, which is the exact
- * shape `asRequestBody` replaced.
+ * shape `asRequestBody` replaced. (3) exists because (2) is evadable by writing no
+ * assertion: `declare module "commander" { interface Command { _hidden?: boolean } }`
+ * makes a private field a legitimate optional in every file that imports commander,
+ * and there is no cast anywhere for a cast scan to count.
+ *
+ * ── WHAT THIS GATE DOES NOT SEE ──────────────────────────────────────────────
+ *
+ * A gate that names its own holes is worth more than one implying completeness.
+ * It parses with `ts.createSourceFile` — a SYNTAX tree, no `ts.Program` and no
+ * type checker — so everything below is out of reach by construction, not by
+ * omission. Each was inserted into a real `src/` file and watched pass.
+ *
+ *  - **`any` in a TYPE ANNOTATION.** `function f(x: any)`, `{ v?: any }`, `let
+ *    x: any`. Widening a signature is the standard cure for a red cast gate: the
+ *    cast count improves and the hole grows. This is a MEASURED hole, and the
+ *    measurement is a command rather than a number:
+ *
+ *        git grep -nE '\w: any\b' -- packages/cli/src ':!*.test.ts' ':!*.generated.ts' \
+ *          | grep -vE ':[0-9]+: *(//|\*)'
+ *
+ *    The second stage drops prose — a comment reading "the command: any failure"
+ *    matches the first. What survives is the live set. NO LINE NUMBER AND NO
+ *    COUNT IS WRITTEN HERE, deliberately: both are stale the moment another lane
+ *    reformats a file or fixes a site, and a citation that resolves to the wrong
+ *    line reads as precise while being uncheckable — which is worse than no
+ *    citation, because the whole claim of this section is that its holes are
+ *    checkable. An empty result means the hole is closed.
+ *
+ *    The live sites are `find`/`map` callback parameters in `commands/channel.ts`
+ *    — under `channel whatsapp-template create`, `... approvals` and
+ *    `... submit-approval` — each typing a callback over a template approval the
+ *    SDK returns loosely. Not closed: they are owned by another lane, and a rule
+ *    that reds on correct work is a rule that gets deleted. An ASSERTION to a
+ *    type that merely CONTAINS `any` (`as any[]`, `as Record<string, any>`) IS
+ *    caught — the command above is also the evidence that costs nothing, since
+ *    every match it returns is an annotation and none is an assertion.
+ *  - **A cast laundered through a generic function's return type.**
+ *    `function launder<T>(x: unknown): T { return x as T }` — the call site
+ *    `launder<Secret>(junk)` carries no assertion. Structurally unclosable here:
+ *    `asRequestBody` IS that shape, so any rule broad enough to catch the abuse
+ *    catches the sanctioned helper.
+ *  - **A non-null assertion over an `any`-typed member.** `x.v!`, where `x.v` is
+ *    declared `any`, reaches a typed slot with no cast. Same root as the first
+ *    bullet — the `any` is in the declaration, and the declaration is where this
+ *    gate stops looking. The WRAPPER is not the hole: `peel` knows
+ *    `ts.NonNullExpression`, so `client.folders.update(id, body!)` is reported
+ *    like any other unwrapped crossing.
+ *  - **Anything a type checker would infer.** An `any` arriving from an untyped
+ *    dependency propagates through this tree invisibly.
+ *  - **A body that crosses a FUNCTION boundary.** `send(id, body)`, where `send`
+ *    holds the client, is dataflow between two functions; every resolver here
+ *    stops at the nearest binding in the enclosing scope.
+ *  - **A client held on `this`.** `this.api.folders.update(id, body)` — the chain
+ *    is rooted at a `this` expression, which is no identifier to bind. Not closed
+ *    because the hand-written tree holds no class that owns a client (the only
+ *    classes in `src/` are `Error` subclasses and `SseDecoder`), so the rule would
+ *    be surface nothing exercises — and an untested branch in a gate is how a gate
+ *    starts refusing correct work.
+ *  - **`*.test.ts`, `*.generated.ts`, and every file outside `src/`.** Excluded by
+ *    `handWrittenSources`, deliberately, for the reasons written on it.
  */
 
 /** The helpers that produce operator-supplied JSON. `src/util/body.ts`. */
@@ -104,12 +172,11 @@ function normalise(code: string): string {
   return code.replace(/\s+/g, " ").trim();
 }
 
+const lineOf = (sf: ts.SourceFile, node: ts.Node): number =>
+  sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+
 function finding(file: string, sf: ts.SourceFile, node: ts.Node): Finding {
-  return {
-    file,
-    line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
-    code: normalise(node.getText(sf))
-  };
+  return { file, line: lineOf(sf, node), code: normalise(node.getText(sf)) };
 }
 
 const isScopeNode = (n: ts.Node): boolean =>
@@ -121,7 +188,7 @@ const isScopeNode = (n: ts.Node): boolean =>
   ts.isMethodDeclaration(n);
 
 /**
- * The initializer of the nearest binding of `name`, or null.
+ * The nearest binding of `name`, or null.
  *
  * Scope-aware on purpose. A file-wide name lookup reported `workflow test` and
  * `workflow test-node` as unwrapped crossings because a DIFFERENT action in the
@@ -129,13 +196,26 @@ const isScopeNode = (n: ts.Node): boolean =>
  * through a typed helper. Two false positives in a gate this size is how an
  * allowlist starts absorbing things that are fine.
  */
-function nearestBindingInit(node: ts.Node, name: string): ts.Expression | null {
+/** Does this declaration bind `name` — plainly, or out of a destructuring pattern? */
+function declares(decl: ts.VariableDeclaration, name: string): boolean {
+  if (ts.isIdentifier(decl.name)) return decl.name.text === name;
+  // `const { folders } = createClient(o)` binds `folders`, and a walk that only
+  // knows plain identifiers reports `folders.update(...)` as reaching no SDK.
+  if (ts.isObjectBindingPattern(decl.name) || ts.isArrayBindingPattern(decl.name)) {
+    return decl.name.elements.some(
+      (el) => ts.isBindingElement(el) && ts.isIdentifier(el.name) && el.name.text === name
+    );
+  }
+  return false;
+}
+
+function nearestBinding(node: ts.Node, name: string): ts.VariableDeclaration | null {
   for (let scope: ts.Node | undefined = node.parent; scope; scope = scope.parent) {
     if (!isScopeNode(scope)) continue;
     let found: ts.VariableDeclaration | null = null;
     const scan = (n: ts.Node): void => {
       if (found !== null) return;
-      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) {
+      if (ts.isVariableDeclaration(n) && declares(n, name)) {
         found = n;
         return;
       }
@@ -144,22 +224,62 @@ function nearestBindingInit(node: ts.Node, name: string): ts.Expression | null {
       ts.forEachChild(n, scan);
     };
     scan(scope);
-    if (found !== null) return (found as ts.VariableDeclaration).initializer ?? null;
+    if (found !== null) return found;
   }
   return null;
+}
+
+/** The initializer of the nearest binding of `name`, or null. */
+function nearestBindingInit(node: ts.Node, name: string): ts.Expression | null {
+  return nearestBinding(node, name)?.initializer ?? null;
+}
+
+/**
+ * BOTH spellings of an assertion, as one predicate.
+ *
+ * `x as T` is `ts.AsExpression`; `<T>x` is `ts.TypeAssertion` — a different node
+ * kind carrying the same meaning. A walk that knows only the first is defeated by
+ * an angle bracket, in the crossing scan and in the ban alike, and TypeScript
+ * emits no diagnostic to notice the difference by. Anywhere one is handled, the
+ * other must be.
+ */
+type Assertion = ts.AsExpression | ts.TypeAssertion;
+const isAssertion = (n: ts.Node): n is Assertion =>
+  ts.isAsExpression(n) || ts.isTypeAssertionExpression(n);
+
+/** The two types an assertion can widen TO rather than narrow to. */
+const WIDE = new Set<ts.SyntaxKind>([ts.SyntaxKind.AnyKeyword, ts.SyntaxKind.UnknownKeyword]);
+
+/** Does this type mention `any` — as itself, or inside `any[]` / `Record<string, any>`? */
+function mentionsAny(type: ts.TypeNode): boolean {
+  let hit = false;
+  const walk = (n: ts.Node): void => {
+    if (n.kind === ts.SyntaxKind.AnyKeyword) hit = true;
+    if (!hit) ts.forEachChild(n, walk);
+  };
+  walk(type);
+  return hit;
 }
 
 /**
  * Strip every wrapper an argument can reach a call site through.
  *
- * `await x`, `(x)`, `x as T` and `x ?? {}` — repeatedly, and in any order, because
- * they compose: `(await resolveBody(o)) ?? {}` is three of them. One shared peel is
- * what stops a wrapper being handled in one classifier and not the next.
+ * `await x`, `(x)`, `x as T`, `<T>x`, `x satisfies T`, `x!` and `x ?? {}` —
+ * repeatedly, and in any order, because they compose: `(await resolveBody(o)) ?? {}`
+ * is three of them. One shared peel is what stops a wrapper being handled in one
+ * classifier and not the next, and every one of these is a single keystroke away
+ * from an argument that would otherwise be reported.
  */
 function peel(expr: ts.Expression): ts.Expression {
   let e: ts.Expression = expr;
   for (;;) {
-    if (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) {
+    if (
+      ts.isAwaitExpression(e) ||
+      ts.isParenthesizedExpression(e) ||
+      ts.isSatisfiesExpression(e) ||
+      ts.isNonNullExpression(e) ||
+      isAssertion(e)
+    ) {
       e = e.expression;
     } else if (
       ts.isBinaryExpression(e) &&
@@ -170,6 +290,51 @@ function peel(expr: ts.Expression): ts.Expression {
       return e;
     }
   }
+}
+
+/**
+ * Peel only what can sit BETWEEN an assertion and the value it asserts.
+ *
+ * Narrower than `peel` on purpose: `(x as unknown) as T` and
+ * `x as unknown satisfies unknown as T` are the same double assertion as
+ * `x as unknown as T`, and one pair of brackets is the whole evasion. Stopping at
+ * an assertion is what lets the caller ask whether the inner one widened.
+ */
+function peelToAssertedValue(expr: ts.Expression): ts.Expression {
+  let e: ts.Expression = expr;
+  while (ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
+  return e;
+}
+
+/**
+ * Does this declaration DISCARD a type the value already had?
+ *
+ * `const u: unknown = x` is `x as unknown` written as a statement — the value
+ * arrived typed and the annotation is the only thing widening it. Assert `u` to a
+ * concrete type on the next line and you have the banned double assertion, spread
+ * over two statements, with no node for the ban to match.
+ *
+ * Three shapes are deliberately NOT this, and all three are live in `src/` today:
+ *
+ *  - `catch (err: unknown)` — TypeScript widens it, no author did, and there is no
+ *    other spelling. It has no initializer, which is what excludes it here.
+ *  - `let parsed: unknown;` assigned later — same, and the source is a wide value.
+ *  - `const parsed: unknown = JSON.parse(text)` — `JSON.parse` returns `any`, so
+ *    the annotation NARROWS it. Refusing that spelling pushes the fix towards
+ *    `any`, which is the opposite of the point.
+ *
+ * So the rule is the initializer: a plain identifier or property/element read was
+ * already typed; a call was not.
+ */
+function laundersThroughWideDeclaration(decl: ts.VariableDeclaration | null): boolean {
+  if (decl === null || decl.type === undefined || !WIDE.has(decl.type.kind)) return false;
+  if (decl.initializer === undefined) return false;
+  const init = peelToAssertedValue(decl.initializer);
+  return (
+    ts.isIdentifier(init) ||
+    ts.isPropertyAccessExpression(init) ||
+    ts.isElementAccessExpression(init)
+  );
 }
 
 /**
@@ -188,6 +353,35 @@ function isOperatorJson(expr: ts.Expression): boolean {
     ts.isIdentifier(e.expression) &&
     OPERATOR_JSON_SOURCES.includes(e.expression.text)
   );
+}
+
+/**
+ * Does this expression carry operator JSON — directly, through a chain of local
+ * aliases, or spread into an object literal?
+ *
+ * `const payload = body` is one rename, and a lookup that resolves exactly one hop
+ * stops at `body` — an identifier, not a call — and reports the crossing clean.
+ * `{ ...body }` is the same value in an object literal, which is no identifier and
+ * no call, so both classifiers skip it. The depth bound is what stops `const a = a`
+ * spinning; six is far past anything a command module writes.
+ */
+function carriesOperatorJson(expr: ts.Expression, depth = 6): boolean {
+  const e = peel(expr);
+
+  if (isOperatorJson(e)) return true;
+
+  if (ts.isObjectLiteralExpression(e)) {
+    return e.properties.some(
+      (p) => ts.isSpreadAssignment(p) && carriesOperatorJson(p.expression, depth - 1)
+    );
+  }
+
+  if (depth > 0 && ts.isIdentifier(e)) {
+    const bound = nearestBindingInit(e, e.text);
+    return bound !== null && carriesOperatorJson(bound, depth - 1);
+  }
+
+  return false;
 }
 
 /** The identifier a property-access chain is rooted at (`client.a.b` -> `client`). */
@@ -257,18 +451,9 @@ function scanCrossings(file: string, sf: ts.SourceFile): CrossingScan {
           continue;
         }
 
-        // Inlined at the call, with no local to bind.
-        if (isOperatorJson(inner)) {
-          out.unwrapped.push(finding(file, sf, n));
-          continue;
-        }
-
-        if (!ts.isIdentifier(inner)) continue;
-
-        const boundTo = nearestBindingInit(inner, inner.text);
-        if (boundTo !== null && isOperatorJson(boundTo)) {
-          out.unwrapped.push(finding(file, sf, n));
-        }
+        // Inlined at the call, bound to a local, aliased through several locals,
+        // or spread into an object literal — one resolver for all four.
+        if (carriesOperatorJson(inner)) out.unwrapped.push(finding(file, sf, n));
       }
     }
     ts.forEachChild(n, visit);
@@ -278,21 +463,84 @@ function scanCrossings(file: string, sf: ts.SourceFile): CrossingScan {
   return out;
 }
 
-/** `as any`, and the `as unknown as T` double assertion that hides from an `as any` grep. */
+/**
+ * An assertion that widens to `any`, or launders a value through `unknown`.
+ *
+ * Both spellings, and all three shapes of the launder — one line, bracketed, and
+ * split across two statements. A single narrowing assertion (`opts.type as
+ * Trigger["type"]`) is left alone: `opts` is untyped commander input, and banning
+ * that pushes the fix towards widening the target instead.
+ */
 function scanBannedAssertions(file: string, sf: ts.SourceFile): Finding[] {
   const out: Finding[] = [];
   const visit = (n: ts.Node): void => {
-    if (ts.isAsExpression(n)) {
-      const isAny = n.type.kind === ts.SyntaxKind.AnyKeyword;
-      const isDouble =
-        ts.isAsExpression(n.expression) && n.expression.type.kind === ts.SyntaxKind.UnknownKeyword;
+    if (isAssertion(n)) {
+      const inner = peelToAssertedValue(n.expression);
+      const widensToAny = mentionsAny(n.type);
+      const isDouble = isAssertion(inner) && inner.type.kind === ts.SyntaxKind.UnknownKeyword;
+      const isSplitDouble =
+        !WIDE.has(n.type.kind) &&
+        ts.isIdentifier(inner) &&
+        laundersThroughWideDeclaration(nearestBinding(inner, inner.text));
       // Report the OUTER node of a double assertion, so the finding reads as the
       // whole `x as unknown as T` rather than as a bare `x as unknown`.
-      if (isAny || isDouble) out.push(finding(file, sf, n));
+      if (widensToAny || isDouble || isSplitDouble) out.push(finding(file, sf, n));
     }
     ts.forEachChild(n, visit);
   };
   visit(sf);
+  return out;
+}
+
+/** The comment forms that switch the type checker off for the line below. */
+const SUPPRESSIONS = /@ts-(expect-error|ignore|nocheck)/g;
+
+/**
+ * Widenings that leave NO assertion node behind — the cheapest way past the scan
+ * above, and the one with the largest blast radius.
+ *
+ * A module augmentation edits a type the package does not own, for every file that
+ * imports it: `declare module "commander" { interface Command { _hidden?: boolean } }`
+ * turns a private field into a legitimate optional package-wide, and no cast
+ * exists anywhere for any census to find. `declare global` is the same act against
+ * the global scope. A `@ts-expect-error` is the same act against one line.
+ *
+ * These are REQUIRED TO BE DECLARED rather than banned outright. An augmentation is
+ * the legitimate mechanism for typing a genuine third-party gap, and a rule with no
+ * legal path pushes the next author to `as any`, which is strictly worse and which
+ * this file would then have to allowlist anyway. Refusing only the members whose
+ * NAME marks them private — a leading underscore — would be defeated by renaming
+ * the member, and name-coupling is the failure `isSdkCall` already documents.
+ *
+ * The finding is the HEADER, not the block: a whole augmentation body as the
+ * allowlist key would relapse the moment anyone reformatted it.
+ */
+function scanUndeclaredWidenings(file: string, sf: ts.SourceFile): Finding[] {
+  const out: Finding[] = [];
+
+  const visit = (n: ts.Node): void => {
+    if (ts.isModuleDeclaration(n)) {
+      if (ts.isStringLiteral(n.name)) {
+        out.push({ file, line: lineOf(sf, n), code: `declare module ${n.name.getText(sf)}` });
+      } else if ((n.flags & ts.NodeFlags.GlobalAugmentation) !== 0) {
+        out.push({ file, line: lineOf(sf, n), code: "declare global" });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+
+  // Comments are trivia, so they are not in the tree. Read them off the text.
+  for (const match of sf.text.matchAll(SUPPRESSIONS)) {
+    const at = match.index ?? 0;
+    const eol = sf.text.indexOf("\n", at);
+    out.push({
+      file,
+      line: sf.getLineAndCharacterOfPosition(at).line + 1,
+      code: normalise(sf.text.slice(at, eol === -1 ? sf.text.length : eol))
+    });
+  }
+
   return out;
 }
 
@@ -339,6 +587,7 @@ const UNTYPED = CROSSINGS.flatMap((c) => c.untyped);
 const SDK_CALLS = CROSSINGS.reduce((n, c) => n + c.sdkCalls, 0);
 const WRAPPED = CROSSINGS.reduce((n, c) => n + c.wrapped, 0);
 const BANNED = PARSED.flatMap(({ file, sf }) => scanBannedAssertions(file, sf));
+const WIDENINGS = PARSED.flatMap(({ file, sf }) => scanUndeclaredWidenings(file, sf));
 
 const allowed = (f: Finding): boolean =>
   UNGATED_WITH_REASON.some((e) => e.file === f.file && normalise(e.code) === f.code);
@@ -384,11 +633,23 @@ describe("operator JSON crosses into a typed SDK argument only through asRequest
     ).toEqual([]);
   });
 
+  it("widens no type without an assertion for the scan above to find", () => {
+    const offenders = WIDENINGS.filter((f) => !allowed(f)).map(describeFinding);
+    expect(
+      offenders,
+      "a module augmentation, a `declare global` or a `@ts-expect-error` widens a type with no " +
+        "cast anywhere to count — the augmentation does it for every file in the package. Type " +
+        "the gap honestly, or add an entry saying why this one is unavoidable"
+    ).toEqual([]);
+  });
+
   it("has no stale exception", () => {
     // An entry whose code no longer occurs is a permission nobody is using, and
     // the cheapest way past a red gate is to widen a list that already looks
     // approved. An exception that has been fixed has to be deleted.
-    const live = new Set([...UNWRAPPED, ...BANNED].map((f) => `${f.file}::${f.code}`));
+    const live = new Set(
+      [...UNWRAPPED, ...BANNED, ...WIDENINGS].map((f) => `${f.file}::${f.code}`)
+    );
     const stale = UNGATED_WITH_REASON.filter(
       (e) => !live.has(`${e.file}::${normalise(e.code)}`)
     ).map((e) => `${e.file}  ${e.code}`);
@@ -534,6 +795,151 @@ describe("the detectors fail on the shapes they exist to catch", () => {
         "synthetic.ts",
         parse("synthetic.ts", 'const t = opts.type as Trigger["type"];')
       )
+    ).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // The evasions. Every one of these passed the gate clean, in a real `src/`
+  // file, while a plain `x as any` beside it went red — so the scan demonstrably
+  // read the same bytes each of them sat in.
+  // -------------------------------------------------------------------------
+
+  const banned = (text: string): string[] =>
+    scanBannedAssertions("synthetic.ts", parse("synthetic.ts", text)).map((f) => f.code);
+
+  const widened = (text: string): string[] =>
+    scanUndeclaredWidenings("synthetic.ts", parse("synthetic.ts", text)).map((f) => f.code);
+
+  it("catches an angle-bracket assertion, which is a different AST node", () => {
+    // `<any>x` is ts.TypeAssertion; `x as any` is ts.AsExpression. A walk that
+    // knows only the second reads this file and reports it clean.
+    expect(banned("const a = <any>x;")).toEqual(["<any>x"]);
+    expect(banned("const b = <Thing>(<unknown>y);")).toEqual(["<Thing>(<unknown>y)"]);
+  });
+
+  it("sees an angle-bracket assertion in the crossing scan too", () => {
+    // `peel` is shared, so the same blindness reached detector (1): the argument
+    // is operator JSON wearing an angle bracket, and neither classifier saw it.
+    expect(
+      scanText(ACTION("await client.folders.update(id, <UpdateFolderBody>body);")).unwrapped
+    ).toHaveLength(1);
+  });
+
+  it("catches a double assertion behind one pair of brackets", () => {
+    // A single keystroke: `(x as unknown) as T` puts a ParenthesizedExpression
+    // between the two assertions, and the inner one stops being reachable.
+    expect(banned("const a = (x as unknown) as Thing;")).toEqual(["(x as unknown) as Thing"]);
+  });
+
+  it("catches a double assertion laundered through `satisfies`", () => {
+    expect(banned("const a = (x as unknown satisfies unknown) as Thing;")).toHaveLength(1);
+  });
+
+  it("catches a double assertion split across two statements", () => {
+    // This is the shape detector (2) exists for, written on two lines: the value
+    // arrives typed, is re-declared `unknown`, and leaves as a concrete type. The
+    // outer node's inner is an identifier, so nothing matched before.
+    expect(banned("function f(x: string) { const u: unknown = x; const t = u as Thing; }")).toEqual(
+      ["u as Thing"]
+    );
+    expect(banned("function f(x: A) { const u: any = x.y; return u as Thing; }")).toEqual([
+      "u as Thing"
+    ]);
+  });
+
+  it("leaves the three `unknown` declarations that are correct work alone", () => {
+    // All three are live in `src/` today. Redding any of them is how a gate that
+    // refuses correct work gets deleted, and then the real violations flow again.
+    expect(
+      banned("try { f(); } catch (err: unknown) { const e = err as NodeJS.ErrnoException; }")
+    ).toEqual([]);
+    expect(
+      banned(
+        "function f(t: string) { let parsed: unknown; parsed = JSON.parse(t); return parsed as Envelope; }"
+      )
+    ).toEqual([]);
+    expect(
+      banned(
+        "function f(t: string) { const parsed: unknown = JSON.parse(t); return parsed as Manifest; }"
+      )
+    ).toEqual([]);
+  });
+
+  it("catches an assertion to a type that merely CONTAINS `any`", () => {
+    expect(banned("const bag = x as { [k: string]: any };")).toHaveLength(1);
+    expect(banned("const list = x as any[];")).toHaveLength(1);
+    expect(banned("const rec = x as Record<string, any>;")).toHaveLength(1);
+  });
+
+  it("catches a module augmentation, where no assertion node exists at all", () => {
+    // The cheapest way past everything above, and the only one whose blast radius
+    // is the package: every file importing commander then sees `_hidden` as a
+    // legitimate optional, with no cast anywhere for any scan to find.
+    expect(
+      widened('declare module "commander" { interface Command { _hidden?: boolean } }')
+    ).toEqual(['declare module "commander"']);
+  });
+
+  it("catches `declare global` and a type-checker suppression", () => {
+    expect(widened("declare global { interface Window { _x: number } }")).toEqual([
+      "declare global"
+    ]);
+    expect(widened("// @ts-expect-error narrowing is hard\nconst a: number = s;")).toEqual([
+      "@ts-expect-error narrowing is hard"
+    ]);
+    expect(widened("// @ts-ignore\nconst a: number = s;")).toEqual(["@ts-ignore"]);
+  });
+
+  it("catches operator JSON spread into an object literal", () => {
+    // `{ ...body }` is neither an identifier nor a call, so both classifiers
+    // skipped it — and the value reaching the SDK is exactly the same one.
+    expect(
+      scanText(ACTION("await client.folders.update(id, { ...body });")).unwrapped
+    ).toHaveLength(1);
+    expect(
+      scanText(ACTION("await client.folders.update(id, { ...body, name: opts.name });")).unwrapped
+    ).toHaveLength(1);
+  });
+
+  it("catches it through a chain of local aliases", () => {
+    // One rename. The lookup resolved a single hop, found an identifier rather
+    // than a call, and reported the crossing clean.
+    expect(
+      scanText(ACTION("const payload = body; await client.folders.update(id, payload);")).unwrapped
+    ).toHaveLength(1);
+  });
+
+  it("catches it on a destructured client", () => {
+    // `const { folders } = createClient(...)` binds no plain identifier, so the
+    // binding lookup found nothing and the call reached no SDK as far as the gate
+    // could tell. Renaming the local was the whole evasion.
+    const text = `
+      export function register(program: Command): void {
+        program.command("x").action(async (opts) => {
+          const { folders } = createClient(program.optsWithGlobals());
+          const body = mergeBodyWithFlags(await resolveBody(opts.body), {});
+          await folders.update(id, body);
+        });
+      }`;
+    expect(scanText(text).unwrapped).toHaveLength(1);
+  });
+
+  it("sees operator JSON behind a non-null assertion", () => {
+    // One keystroke, and the same class as the angle bracket above: `body!` is a
+    // ts.NonNullExpression wrapping the identifier, so a peel that does not know
+    // the node hands every classifier a wrapper instead of the value, and the
+    // crossing reads clean. It asserts nothing a cast scan could count either.
+    expect(scanText(ACTION("await client.folders.update(id, body!);")).unwrapped).toHaveLength(1);
+    expect(
+      scanText(ACTION("await client.folders.update(id, (body ?? {})!);")).unwrapped
+    ).toHaveLength(1);
+  });
+
+  it("leaves an ordinary module alone", () => {
+    // `namespace X {}` and a plain import are not augmentations. Only a module
+    // declaration naming a STRING — the specifier of something someone else owns.
+    expect(
+      widened('import { x } from "commander";\nexport namespace Local { export const a = 1; }')
     ).toEqual([]);
   });
 });

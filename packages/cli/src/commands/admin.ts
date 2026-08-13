@@ -45,11 +45,29 @@ export function registerAdminCommands(program: Command): void {
     .addHelpText(
       "after",
       `
+🚨 EVERY SUBCOMMAND HERE ACTS ON ANOTHER ORGANIZATION'S PRODUCTION STATE, AND
+MOST OF THEM SPEND MONEY. This is the platform operator's surface, not yours:
+cluster provisioning stands up real paid infrastructure for a tenant, the
+runner and sweep verbs fire real pipeline ticks against live deployments, and a
+cost-safety or consumption-cap write changes what a customer is allowed to
+spend. Nothing here is scoped to your own organization and nothing is a
+rehearsal. Read the org id you typed twice.
+
 Authentication:
   Admin endpoints require a Clerk JWT, not an org API key. Set
   NEXUS_ADMIN_TOKEN or pass --admin-token <jwt> on the subcommand.
   Grab the JWT from gpt.nexus DevTools → Network → any request →
   Authorization header (the "Bearer eyJ..." value).
+
+  CHECK THE TOKEN BEFORE YOU DRIVE ANYTHING WITH IT. Every listed subcommand
+  changes operator state, so there is no harmless verb to typo-test on except
+  this read, which touches nothing and answers OK even for an org with no row:
+
+    $ nexus admin vibe-cost-safety get <organizationId>
+
+  Exit 2 means the token is missing or invalid; exit 3 means it parsed and the
+  identity lacks the permission. Those are different problems — a fresh JWT
+  fixes the first and nothing but a permission grant fixes the second.
 
 Subcommands:
   vibe-cost-safety     List the gated fleet; read/write one org's state

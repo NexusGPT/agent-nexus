@@ -5,6 +5,7 @@ import { Command } from "commander";
 
 import { color, isJsonMode } from "../output";
 import { SKILL_LIST, SKILLS, SKILLS_NEXUS_SHA } from "../skills-content.generated";
+import { confirmable } from "../util/confirm";
 import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
 import { runSkillsInstallToTarget, type SkillsInstallOpts } from "./claude-code";
 
@@ -99,8 +100,7 @@ export function registerSkillsCommands(program: Command): void {
   // project's .claude folder so it never drops a stray copy into a subfolder
   // or overrides another project's CLAUDE.md.
 
-  skills
-    .command("update")
+  confirmable(skills.command("update"))
     .alias("install")
     .alias("sync")
     .description("Install/refresh the bundled Claude Code skills + CLAUDE.md into your project")
@@ -108,8 +108,7 @@ export function registerSkillsCommands(program: Command): void {
     .option("--dir <path>", "Explicit target skills directory (skips auto-detection)")
     .option("--global", "Install into the user-global ~/.claude instead of a project")
     .option("--here", "Use the current directory; skip walking up to the project root")
-    .option("--force", "Overwrite an existing, differing CLAUDE.md without prompting")
-    .option("--yes", "Skip confirmation prompts (use the detected location)")
+    .option("--force", "Replace files this CLI did not write (see Notes) without prompting")
     .option("--dry-run", "Show what would change without writing")
     .option("--no-claude-md", "Skip writing the CLAUDE.md system prompt to the project root")
     .option(
@@ -135,6 +134,17 @@ Auto-detect walks up from the current directory and picks the first of:
   up to the OWNING project root is what stops a stray .claude landing in a
   subfolder, or another folder's CLAUDE.md being overwritten. An existing,
   differing CLAUDE.md is always preserved unless you pass --force.
+--dir names the target outright: nothing is derived from the directory you are
+  standing in. "nexus skills where --dir <path>" prints every path first.
+
+Notes:
+  YOUR OWN EDITS TO SKILLS, HOOKS AND AGENTS ARE NEVER OVERWRITTEN SILENTLY.
+  Each install records a checksum of every file it writes, in
+  .claude/.nexus-install-manifest.json. Next time, a file still matching that
+  record is refreshed; one that does not is LEFT ALONE and named in the output,
+  and only --force replaces it. A tree installed before this CLI kept that
+  record has no checksums, so its differing files are preserved as well — pass
+  --force once to adopt them.
 
 Skills are version-locked to the CLI binary — run "nexus skills version" to
 see the bundle commit, and "nexus upgrade" (then re-run this) to pull newer

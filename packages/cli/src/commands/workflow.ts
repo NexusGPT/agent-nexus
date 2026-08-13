@@ -5,6 +5,7 @@ import type { BatchRequestBody, CreateWorkflowBody, UpdateWorkflowBody } from "@
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, formatFolder, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
@@ -12,6 +13,10 @@ import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
 import { parseSampleConfig } from "../util/sample-config";
 import { buildTestNodeBody, buildTestWorkflowBody, parseInputFlag } from "../util/test-body";
+import {
+  WORKFLOW_LIST__PARAMS_STATUS,
+  WORKFLOW_LIST_CONTRACT
+} from "./workflow.contract.generated";
 import { registerWorkflowBuilderCommands } from "./workflow-builder";
 
 /** Commander collector for repeatable options. */
@@ -37,15 +42,31 @@ Two facts that decide whether a build works:
     once a node's own required fields are filled — not that its inputs are wired,
     that {{upstream.field}} resolves, or that any value is right. Use
     "workflow validate" for the graph and variable checks, and remember an
-    outputNode has no required fields, so it always reports complete.`
+    outputNode has no required fields, so it always reports complete.
+
+PUBLISH DOES NOT RUN "workflow validate", AND THAT IS THE GAP THAT BITES. Publish
+checks required fields, parameter setups and the outputNode's outputType — it
+does NOT check variable references. A {{ghost.field}} written into a TEXT field
+(a node's instructions, message or prompt) is stored at 201, survives "node
+get", "overview" and publish, and resolves to nothing at run time. "workflow
+validate" is the ONLY command that reports it. Run validate before every
+publish; nothing runs it for you.
+
+THE API'S NAMED ERROR CODES DO NOT REACH THIS CLI. Every refusal below
+(EDGE_SELF_LOOP, EDGE_DUPLICATE, BRANCH_NOT_FOUND, NODE_IS_TRIGGER,
+WORKFLOW_ALREADY_PUBLISHED and the rest) carries a machine-readable code on the
+HTTP response, and this CLI prints only the message — including under --json,
+where the payload is {"error":{"message":…}} with no code. Error handling
+written against the code names matches nothing here. Match on the message, or
+call the route through "nexus api" and read error.code off the raw response.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const workflowList = addPaginationOptions(
     workflow
       .command("list")
       .description("List workflows")
-      .option("--status <status>", "Filter by status (DRAFT, PUBLISHED, ARCHIVED)")
+      .addOption(enumOption("--status <status>", "Filter by status", WORKFLOW_LIST__PARAMS_STATUS))
       .option("--search <query>", "Search by name")
       .option("--folder <name|id>", "Filter by folder name or id")
       .addHelpText(
@@ -104,9 +125,15 @@ Examples:
 Notes:
   --json carries the whole graph: nodes, edges, publishedNodes, publishedEdges,
   agentInputSchema and the editor's data blob. The table shows six fields.
+  data IS THE DASHBOARD EDITOR'S OWN BLOB AND IS null ON A WORKFLOW BUILT HERE.
+  Only the canvas writes it, so its absence says nothing about the graph — nodes
+  and edges are the graph. Never test data for emptiness to decide whether a
+  workflow is built.
   publishedNodes / publishedEdges are the LAST-PUBLISHED SNAPSHOT and are null —
   not [] — until the first publish. Comparing them with nodes / edges is how you
-  learn whether the live version still matches the draft you are editing.
+  learn whether the live version still matches the draft you are editing, and it
+  is the check to run right after "workflow publish": an edit made after a
+  publish leaves the snapshot behind, with nothing reporting the drift.
   agentInputSchema is DERIVED from the agentInputTrigger node's parameters. It is
   read-only here and not writable through "workflow update".`
     )
@@ -149,7 +176,14 @@ Notes:
   THE NEW WORKFLOW IS NOT EMPTY AND HAS NO TRIGGER. It carries one non-deletable
   selectTrigger placeholder, which validate counts as no trigger at all. Turn it
   into a real one with "nexus workflow trigger <id> --type <triggerType>".
-  Status is DRAFT. Answers 201 with the full graph.`
+  THE PLACEHOLDER'S NODE ID IS NOT IN THIS RESPONSE, and every next step needs
+  it. Follow every create with "nexus workflow get <id> --json" and read the
+  node id out of .nodes before wiring anything — there is no way to derive it
+  from the workflow id.
+  Status is DRAFT. This command prints the id and the name; read the graph back
+  with "workflow get".
+  ARCHIVING IS THE ONLY DELETE. A workflow you create here cannot be destroyed
+  later — see "nexus workflow delete --help" before you create a throwaway.`
     )
     .action(async (opts) => {
       try {
@@ -230,10 +264,20 @@ Notes:
   EVERY TRIGGER IT DEPLOYED IS REMOVED — a live webhook or schedule stops firing
   the moment this returns. The graph itself survives and is still readable with
   "workflow list --status ARCHIVED" and "workflow get".
-  Answers 200 with {id, status: "ARCHIVED", archivedAt}, not 204.
-  Prompts for confirmation in TTY. Use --yes in scripts/CI. --dry-run only reads
-  the workflow back and prints its name.
-  It frees the name: uniqueness ignores archived workflows.`
+  ARCHIVING IS THE END OF THE ROAD. There is no hard delete here and no route
+  behind one — an archived workflow is a permanent row. Running this again on an
+  archived id re-archives it and reports success, which is not a second, harder
+  delete. Every throwaway workflow you build is kept forever, so reuse one
+  scratch workflow rather than creating a new one per experiment.
+  The API answers 200 with {id, status: "ARCHIVED", archivedAt}; this command
+  prints only the id, so read the archive back with "workflow get" if you need
+  the timestamp.
+  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
+  confirmation and no --yes is needed — it archives immediately. --dry-run only
+  reads the workflow back and prints its name.
+  It frees the name: uniqueness ignores archived workflows.
+  It also releases any AI task the workflow was holding: an archived workflow no
+  longer counts as a dependent, so a "task delete" that 409'd now succeeds.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -382,8 +426,12 @@ Notes:
   graphIssues names the two structural faults: DISCONNECTED_NODE (no incoming
   edges) and ORPHANED_NODE (inside a loop with no connections at all, so it is
   invisible on the canvas and will never run).
-  variableIssues names every {{node.field}} that no upstream node exposes — the
-  check "workflow overview" does not make.
+  variableIssues names every {{node.field}} that no upstream node exposes, AND
+  THIS IS THE ONLY COMMAND IN THE CLI THAT MAKES THAT CHECK. "node create",
+  "node update", "node get", "workflow overview" and "workflow publish" all pass
+  a workflow carrying an unresolvable reference in a text field. So a run of
+  validate is not optional politeness before publish — it is the only thing
+  standing between a ghost reference and run time.
   This is a READ. It changes nothing and never publishes.`
     )
     .action(async (id: string) => {
@@ -454,7 +502,11 @@ Notes:
   --sample needs --sample-node (the loop node's id). Caps only apply to runs that
   start immediately — they cannot reach a run an external event starts later.
   Answers {executionId, status:"RUNNING"}. Follow it with --follow, or later with
-  "nexus execution diagnose <executionId>".`
+  "nexus execution diagnose <executionId>".
+  WITH --follow, --json EMITS NDJSON — one JSON object per node state change, not
+  a single document. Read it line by line; piping it to a jq that expects one
+  document fails on the second line. Without --follow, --json is one document as
+  usual.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -681,6 +733,12 @@ Notes:
       }
     });
 
+  // Bound LAST, after every option and after the hand-written prose.
+  bindCommand(workflowList, WORKFLOW_LIST_CONTRACT);
+
   // ── builder sub-commands (nodes, edges, branches) ────────────────────
+  // `workflow trigger` lives there and binds itself to
+  // `WorkflowNodeReplaceTrigger`, so the ledger entry for this namespace names
+  // both descriptors.
   registerWorkflowBuilderCommands(workflow, program);
 }

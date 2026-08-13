@@ -11,9 +11,14 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import {
+  SKILLS_CREATE_DOCUMENT_TEMPLATE_CONTRACT,
+  SKILLS_LIST_DOCUMENT_TEMPLATES_CONTRACT
+} from "./template.contract.generated";
 
 export function registerTemplateCommands(program: Command): void {
   const template = program.command("template").description("Manage document templates");
@@ -37,11 +42,19 @@ after:
 
 INVENTED VARIABLE NAMES DO NOT ERROR. A name the template does not use is
 ignored and its placeholder is left unfilled, so the call succeeds and the
-document comes back blank where you expected content.`
+document comes back blank where you expected content.
+
+A TEMPLATE CANNOT BE DELETED. There is no "template delete" here and no
+route behind one — every template you create is permanent, and so is every file
+it generates. NAMES ARE NOT UNIQUE EITHER, so two creates with the same --name
+both succeed and sit side by side forever with different ids. Get the name and
+the type right on the first call, and never use this namespace for a throwaway
+experiment: a mistake is clutter nobody can clear, carrying whatever customer
+data it was filled with.`
   );
 
   // ── list ────────────────────────────────────────────────────────────────
-  template
+  const list = template
     .command("list")
     .description("List document templates")
     .option("--search <query>", "Search by name")
@@ -59,8 +72,13 @@ Notes:
   template's VARIABLES — "nexus template get <id> --json" is the only read that
   does, and you need them before generating.
 
-  A template with no file uploaded lists here exactly like a finished one. Its
-  status is DRAFT and its fileUrl is null on the detail read.`
+  A template with no file uploaded lists here exactly like a finished one, and
+  status does not separate them — every template reachable through this API is
+  DRAFT, uploaded or not. Read fileUrl on "template get <id>" instead: null means
+  no file.
+  NAMES ARE NOT UNIQUE. Two templates with the same name are two rows with
+  different ids, and neither can be deleted, so address them by id and expect
+  duplicates in this list.`
     )
     .action(async (opts) => {
       try {
@@ -100,11 +118,17 @@ Notes:
   the template expects; slidesInputFormat is the PowerPoint form, one entry per
   slide. The table view prints neither.
 
-  An EMPTY inputFormat means no file has been uploaded yet, or the uploaded file
-  contains no placeholders. Generating from that template fills nothing.
+  inputFormat READS null WHEN THERE IS NOTHING TO DESCRIBE — no file uploaded
+  yet, or an uploaded file with no placeholders. Generating from that template
+  fills nothing. Its PowerPoint sibling slidesInputFormat uses the other empty
+  shape and reads [], so test the two differently: null on one, length 0 on the
+  other.
 
-  status is DRAFT or SAVED. fileUrl and previewFileUrl are null until a file is
-  uploaded.`
+  fileUrl IS THE READINESS SIGNAL, NOT status. status is DRAFT or SAVED, and
+  nothing in this API ever writes SAVED — a template uploaded through the CLI
+  stays DRAFT with a real fileUrl, so "status === DRAFT" does not mean the
+  template is unfinished. Check fileUrl for the file and inputFormat for the
+  variables. fileUrl and previewFileUrl are null until a file is uploaded.`
     )
     .action(async (id: string) => {
       try {
@@ -123,7 +147,7 @@ Notes:
     });
 
   // ── create ──────────────────────────────────────────────────────────────
-  template
+  const create = template
     .command("create")
     .description("Create a document template")
     .option("--name <name>", "Template name")
@@ -140,9 +164,7 @@ Examples:
 Notes:
   type IS REQUIRED AND THERE IS NO --type FLAG. It has to go through --body, so
   a create built only from --name and --description is a 400 every time. The
-  accepted values are:
-    WORD_FORMAT   WORD_TEMPLATE   WORD_CONTENT   POWERPOINT_TEMPLATE
-    EXCEL_TEMPLATE
+  accepted values are listed in the Contract block below, from the schema.
 
   CREATING A TEMPLATE CREATES AN EMPTY SHELL. It has no file, no placeholders
   and no variables until "nexus template upload <id> --file ..." runs. Generate
@@ -474,4 +496,14 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists — see `bindCommand`.
+  bindCommand(list, SKILLS_LIST_DOCUMENT_TEMPLATES_CONTRACT);
+  bindCommand(create, SKILLS_CREATE_DOCUMENT_TEMPLATE_CONTRACT, {
+    // `type` is REQUIRED and has no flag of its own, so every create carries it
+    // in --body. Naming it here is what stops the gate reading a deliberate
+    // shape as a field somebody forgot to expose — and the contract block above
+    // is now the one place its values are written down.
+    "Body.type": "--body only; there is no --type flag, and the Notes above say so"
+  });
 }

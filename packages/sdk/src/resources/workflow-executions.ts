@@ -109,10 +109,21 @@ export class WorkflowExecutionsResource extends BaseResource {
   }
 
   /**
-   * Re-run one failed node.
+   * Re-run one failed node inside a run that is STILL RUNNING.
+   *
+   * The node is re-queued on the execution's live in-memory executor, so this is
+   * not a way to resurrect a finished run: once the execution reaches FAILED,
+   * COMPLETED or CANCELLED its executor is gone and this rejects with a 400
+   * ("Workflow execution is not running"). To re-run a node outside its original
+   * execution, use the node-test surface instead.
+   *
+   * Rejects with 404 when the execution is not yours or the node names nothing
+   * inside it, and with 400 when the node is not in `ERROR` or its type is not
+   * retryable.
    *
    * @param executionId - Execution UUID.
-   * @param nodeId - Graph node id.
+   * @param nodeId - Graph node id, or the execution-node row id. Either is
+   *   accepted; the graph id is resolved first.
    * @returns Acknowledgement. The retry runs asynchronously — poll for progress.
    */
   async retryNode(executionId: string, nodeId: string): Promise<RetryNodeResponse> {

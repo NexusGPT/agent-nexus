@@ -22,6 +22,12 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import {
+  bindCommand,
+  enumArgument,
+  enumInCompositeOption,
+  enumOption
+} from "../contract-binding";
 import { handleError } from "../errors";
 import {
   absent,
@@ -34,6 +40,36 @@ import {
 } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { parseIdList } from "../util/ids";
+import {
+  ROLE_ACCESS_REQUESTS_CREATE__BODY_RESOURCE_TYPE,
+  ROLE_ACCESS_REQUESTS_CREATE_CONTRACT,
+  ROLE_ACCESS_REQUESTS_REVIEW__BODY_STATUS,
+  ROLE_ACCESS_REQUESTS_REVIEW_CONTRACT,
+  ROLE_CREATION_REQUESTS_LIST__PARAMS_STATUS,
+  ROLE_CREATION_REQUESTS_LIST_CONTRACT,
+  ROLE_CREATION_REQUESTS_REVIEW__BODY_STATUS,
+  ROLE_CREATION_REQUESTS_REVIEW_CONTRACT,
+  ROLE_DELETION_REQUESTS_LIST__PARAMS_STATUS,
+  ROLE_DELETION_REQUESTS_LIST_CONTRACT,
+  ROLE_DELETION_REQUESTS_REVIEW__BODY_STATUS,
+  ROLE_DELETION_REQUESTS_REVIEW_CONTRACT,
+  ROLE_JOB_TYPES_CREATE_CONTRACT,
+  ROLE_JOB_TYPES_UPDATE_CONTRACT,
+  ROLES_ATTACH_RESOURCE__BODY_RESOURCE_TYPE,
+  ROLES_ATTACH_RESOURCE_CONTRACT,
+  ROLES_CREATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
+  ROLES_CREATE_PERMISSION_SET__BODY_RESOURCE_RELATION,
+  ROLES_CREATE_PERMISSION_SET_CONTRACT,
+  ROLES_DETACH_RESOURCE__PATH_VARS_RESOURCE_TYPE,
+  ROLES_DETACH_RESOURCE_CONTRACT,
+  ROLES_LIST_ACCESS_REQUESTS__PARAMS_STATUS,
+  ROLES_LIST_ACCESS_REQUESTS_CONTRACT,
+  ROLES_UPDATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
+  ROLES_UPDATE_PERMISSION_SET__BODY_RESOURCE_RELATION,
+  ROLES_UPDATE_PERMISSION_SET_CONTRACT,
+  ROLES_UPSERT_MEMBER__BODY_TIER,
+  ROLES_UPSERT_MEMBER_CONTRACT
+} from "./role.contract.generated";
 import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
 
 /**
@@ -81,14 +117,22 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * OPERATIONAL systems; a sharing grant is written against a different set, and
  * `knowledge` / `credential` / `workspace` appear only in the second. Passing one
  * of those here is refused locally rather than 400ing on a path segment.
+ *
+ * 🔴 `external_tool` LEFT THIS SET ON 2026-08-13 AND MUST NOT BE PUT BACK. A
+ * Role reaches a tool through `RoleExternalToolGrant`, an M:N table, because
+ * several Roles legitimately hold the same catalogue tool — which
+ * `RoleResource @@unique([organizationId, resourceType, resourceId])` cannot
+ * express. `attach`/`detach` write `RoleResource`, so offering `external_tool`
+ * here sends an operator down a path the server refuses. The compile error that
+ * removing it from the SDK produced HERE is this comment's whole point working
+ * as designed: it fires in the removal direction too, not only on an addition.
  */
 const ROLE_RESOURCE_TYPES: Record<RoleResourceType, true> = {
   agent: true,
   workflow: true,
   deployment: true,
   ai_task: true,
-  document_template: true,
-  external_tool: true
+  document_template: true
 };
 
 const RESOURCE_TYPE_NAMES = Object.keys(ROLE_RESOURCE_TYPES).sort().join(", ");
@@ -206,6 +250,19 @@ function readPositiveNumber(raw: string, flag: string): number {
     throw new Error(`${flag} must be a finite number greater than 0. Got "${raw}".`);
   }
   return value;
+}
+
+/**
+ * Case-fold a flag value before it is checked against a contract enum.
+ *
+ * The wire values are upper-case and nobody types them that way, so folding is
+ * what keeps `--status pending` working. It is passed to `enumOption` as its
+ * NORMALISER rather than applied in the action: normalising first and validating
+ * the OUTPUT asserts that the thing which actually goes on the wire is an enum
+ * member, whatever the operator typed.
+ */
+function foldUpper(raw: string): string {
+  return raw.toUpperCase();
 }
 
 /** Parse `--flag true|false`. A typo must not read as `false`. */
@@ -484,12 +541,28 @@ Examples:
 Notes:
   The OWNER is a field on the Role, never a membership row — so they do not
   appear under admins. Read the Owner line, and use "nexus role update" to
-  hand a Role over.`
+  hand a Role over.
+  The terminal rendering is TWO blocks — a summary, then one table of admins and
+  members with a TIER column. Under --json it is the untouched response,
+  {roleId, ownerUserId, admins, members}, with the two tiers as separate arrays.`
     )
     .action(async (ref: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const membership = await client.roles.listMembers(await resolveRoleId(client, ref));
+
+        // `--json` gets the WHOLE response, once. The two blocks below are a
+        // human rendering of the same object, and every printer in `output.ts`
+        // short-circuits to its own `console.log(JSON.stringify(...))` under
+        // `--json` — so calling two of them emitted `{...}{"data":[...]}`, which
+        // `JSON.parse` rejects outright and `jq` reads as a stream. A script got
+        // either a crash or, worse, only the first document: the counts without
+        // a single member in them (NEX-2176). Same shape and same fix as
+        // `skill-folder list`.
+        if (isJsonMode()) {
+          console.log(JSON.stringify(membership, null, 2));
+          return;
+        }
 
         printRecord(membership, [
           { key: "roleId", label: "Role" },
@@ -621,11 +694,19 @@ Notes:
     });
 
   // ── access-requests ───────────────────────────────────────────────────────
-  role
+  const accessRequests = role
     .command("access-requests")
     .description("List requests for access to one of a Role's systems")
     .argument("<role>", "Role name or UUID")
-    .option("--status <status>", "Filter to PENDING, APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <status>",
+        "Filter by request status",
+        ROLES_LIST_ACCESS_REQUESTS__PARAMS_STATUS,
+        undefined,
+        foldUpper
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -976,11 +1057,17 @@ Notes:
     });
 
   // ── attach ────────────────────────────────────────────────────────────────
-  role
+  const attach = role
     .command("attach")
     .description("Put a system in a Role — THIS MOVES IT off whatever Role held it")
     .argument("<role>", "Role name or UUID — the Role that will hold the system")
-    .requiredOption("--type <type>", `Kind of system (${RESOURCE_TYPE_NAMES})`)
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Kind of system",
+        ROLES_ATTACH_RESOURCE__BODY_RESOURCE_TYPE
+      ).makeOptionMandatory()
+    )
     .requiredOption("--id <id>", "The system's UUID")
     .addHelpText(
       "after",
@@ -1036,10 +1123,16 @@ Notes:
     });
 
   // ── detach ────────────────────────────────────────────────────────────────
-  role
+  const detach = role
     .command("detach")
     .description("Take a system out of whichever Role holds it — this DISABLES its access")
-    .argument("<type>", `Kind of system (${RESOURCE_TYPE_NAMES})`)
+    // The values come from the contract and commander enforces them on the
+    // POSITIONAL. NO NORMALISER: the v1 path-var schema is a bare `z.enum` and
+    // refuses `AGENT`, so case-folding here would accept a spelling the server
+    // rejects — an undeclared widening.
+    .addArgument(
+      enumArgument("<type>", "Kind of system", ROLES_DETACH_RESOURCE__PATH_VARS_RESOURCE_TYPE)
+    )
     .argument("<id>", "The system's UUID")
     .addHelpText(
       "after",
@@ -1086,12 +1179,20 @@ Notes:
     });
 
   // ── add-member ────────────────────────────────────────────────────────────
-  role
+  const addMember = role
     .command("add-member")
     .description("Seat a user in a Role as ADMIN or MEMBER, or change their tier")
     .argument("<role>", "Role name or UUID")
     .argument("<user-id>", "Clerk user id of somebody in your organization")
-    .option("--tier <tier>", "ADMIN or MEMBER", "MEMBER")
+    .addOption(
+      enumOption(
+        "--tier <tier>",
+        "Seat tier",
+        ROLES_UPSERT_MEMBER__BODY_TIER,
+        undefined,
+        foldUpper
+      ).default("MEMBER")
+    )
     .addHelpText(
       "after",
       `
@@ -1238,9 +1339,12 @@ Notes:
           grantId
         );
 
-        printSuccess(result.removed ? "Collection revoked." : "No such grant.", {
-          removed: result.removed
-        });
+        printSuccess(
+          result.removed
+            ? "Collection revoked."
+            : 'No such grant. Nothing was removed. The id must be the GRANT row\'s, which "nexus role collection-grants" prints in the first column — a COLLECTION id matches nothing here.',
+          { removed: result.removed }
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1297,22 +1401,43 @@ Notes:
           grantId
         );
 
-        printSuccess(result.removed ? "Workspace revoked." : "No such grant.", {
-          removed: result.removed
-        });
+        printSuccess(
+          result.removed
+            ? "Workspace revoked."
+            : 'No such grant. Nothing was removed. The id must be the GRANT row\'s, which "nexus role workspace-grants" prints in the first column — a WORKSPACE id matches nothing here.',
+          { removed: result.removed }
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
     });
   // ── permission-set writes ─────────────────────────────────────────────────
-  role
+  const createPermSet = role
     .command("create-permission-set")
     .description("Create a permission set on a Role")
     .argument("<role>", "Role name or UUID")
     .requiredOption("--name <name>", "Display name")
     .requiredOption("--surfaces <list>", 'Comma-separated surfaces, or "*" for every surface')
-    .option("--relation <relation>", "owner, editor, viewer, or none for capability-only")
-    .option("--capabilities <list>", "Comma-separated capabilities, e.g. role.view,team.view")
+    .addOption(
+      enumOption(
+        "--relation <relation>",
+        "Relation the set grants",
+        ROLES_CREATE_PERMISSION_SET__BODY_RESOURCE_RELATION,
+        {
+          alsoAccepts: ["none"],
+          because:
+            "'none' is this CLI's own token for a capability-only set; the wire value is null"
+        }
+      )
+    )
+    .addOption(
+      enumInCompositeOption(
+        "--capabilities <list>",
+        "Comma-separated capabilities, e.g. role.view,team.view",
+        ROLES_CREATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
+        "each item"
+      )
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -1360,15 +1485,33 @@ Notes:
       }
     });
 
-  role
+  const updatePermSet = role
     .command("update-permission-set")
     .description("Change a permission set")
     .argument("<role>", "Role name or UUID")
     .argument("<permission-set-id>", "Permission-set UUID")
     .option("--name <name>", "New display name")
     .option("--surfaces <list>", 'REPLACES the surface list. Comma-separated, or "*"')
-    .option("--relation <relation>", "owner, editor, viewer, or none for capability-only")
-    .option("--capabilities <list>", "REPLACES the capability list. Comma-separated")
+    .addOption(
+      enumOption(
+        "--relation <relation>",
+        "Relation the set grants",
+        ROLES_UPDATE_PERMISSION_SET__BODY_RESOURCE_RELATION,
+        {
+          alsoAccepts: ["none"],
+          because:
+            "'none' is this CLI's own token for a capability-only set; the wire value is null"
+        }
+      )
+    )
+    .addOption(
+      enumInCompositeOption(
+        "--capabilities <list>",
+        "REPLACES the capability list. Comma-separated",
+        ROLES_UPDATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
+        "each item"
+      )
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -1534,11 +1677,17 @@ Notes:
     });
 
   // ── access requests ───────────────────────────────────────────────────────
-  role
+  const requestAccess = role
     .command("request-access")
     .description("Ask for access to one of a Role's systems")
     .argument("<role>", "Role name or UUID")
-    .requiredOption("--type <type>", `Kind of system (${RESOURCE_TYPE_NAMES})`)
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Kind of system",
+        ROLE_ACCESS_REQUESTS_CREATE__BODY_RESOURCE_TYPE
+      ).makeOptionMandatory()
+    )
     .requiredOption("--id <id>", "The system's UUID")
     .option("--note <text>", "Why you need it, up to 2000 characters")
     .addHelpText(
@@ -1570,12 +1719,20 @@ Notes:
       }
     });
 
-  role
+  const reviewAccess = role
     .command("review-access")
     .description("Approve or reject an access request")
     .argument("<role>", "Role name or UUID")
     .argument("<request-id>", "Request UUID")
-    .requiredOption("--status <verdict>", "APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <verdict>",
+        "Verdict",
+        ROLE_ACCESS_REQUESTS_REVIEW__BODY_STATUS,
+        undefined,
+        foldUpper
+      ).makeOptionMandatory()
+    )
     .addHelpText(
       "after",
       `
@@ -1619,7 +1776,12 @@ Notes:
   The drivable path without admin rights is the other direction: run
   "nexus role create", read what it reports, and if it filed a request follow it
   with "nexus role creation-requests" / "creation-request <id>".
-  REQUIRES APPROVAL is the column that decides which branch a write takes.`
+
+  REQUIRES APPROVAL DOES NOT PREDICT WHAT YOUR WRITE WILL DO. It is the
+  organization's policy for the action, not a verdict about your key: with
+  REQUIRES APPROVAL yes on CREATE_ROLE, an org-admin key still creates the role
+  outright and files no request. The branch a write actually took is in the
+  STATUS the write itself returns — read that, never this table.`
     )
     .action(async () => {
       try {
@@ -1651,10 +1813,18 @@ Notes:
       }
     });
 
-  role
+  const creationRequests = role
     .command("creation-requests")
     .description("List filed requests to CREATE a Role")
-    .option("--status <status>", "Filter to PENDING, APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <status>",
+        "Filter by request status",
+        ROLE_CREATION_REQUESTS_LIST__PARAMS_STATUS,
+        undefined,
+        foldUpper
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -1719,11 +1889,19 @@ Notes:
       }
     });
 
-  role
+  const reviewCreation = role
     .command("review-creation-request")
     .description("Approve or reject a filed Role-creation request")
     .argument("<request-id>", "Request UUID")
-    .requiredOption("--status <verdict>", "APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <verdict>",
+        "Verdict",
+        ROLE_CREATION_REQUESTS_REVIEW__BODY_STATUS,
+        undefined,
+        foldUpper
+      ).makeOptionMandatory()
+    )
     .addHelpText(
       "after",
       `
@@ -1754,10 +1932,18 @@ Notes:
       }
     });
 
-  role
+  const deletionRequests = role
     .command("deletion-requests")
     .description("List filed requests to DELETE a Role")
-    .option("--status <status>", "Filter to PENDING, APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <status>",
+        "Filter by request status",
+        ROLE_DELETION_REQUESTS_LIST__PARAMS_STATUS,
+        undefined,
+        foldUpper
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -1822,11 +2008,19 @@ Notes:
       }
     });
 
-  role
+  const reviewDeletion = role
     .command("review-deletion-request")
     .description("Approve or reject a filed Role-deletion request")
     .argument("<request-id>", "Request UUID")
-    .requiredOption("--status <verdict>", "APPROVED or REJECTED")
+    .addOption(
+      enumOption(
+        "--status <verdict>",
+        "Verdict",
+        ROLE_DELETION_REQUESTS_REVIEW__BODY_STATUS,
+        undefined,
+        foldUpper
+      ).makeOptionMandatory()
+    )
     .addHelpText(
       "after",
       `
@@ -1860,7 +2054,7 @@ Notes:
     });
 
   // ── the job model ─────────────────────────────────────────────────────────
-  role
+  const createJobType = role
     .command("create-job-type")
     .description("Add a job type to the organization's library")
     .requiredOption("--body <json>", "The whole job type as JSON, .json file, or '-' for stdin")
@@ -1914,7 +2108,7 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
       }
     });
 
-  role
+  const updateJobType = role
     .command("update-job-type")
     .description("Replace a job type (PUT — send the whole object)")
     .argument("<job-type-id>", "Job-type UUID")
@@ -2239,6 +2433,15 @@ Examples:
 
 Notes:
   REPLACES THE WHOLE LIST, exactly like the scope lines. Keys must be unique.
+
+  EVERY ELEMENT NEEDS label, description AND unit BESIDE key AND value. All
+  three are required strings, so the smallest legal element is five fields —
+  {"key":"x","value":null} alone is a 400 naming the three that are missing.
+  The read-first example above hides this, because a Role that already HAS
+  variables gives you complete elements to edit. Writing the FIRST variable onto
+  a Role that has none means composing all five fields yourself:
+
+    {"variables":[{"key":"seats","label":"Seats","description":"Licensed seats","unit":"seat","value":10}]}
 
   value:null MEANS UNSET AND IS NOT ZERO. Sending 0 asserts a measured zero;
   sending null leaves every part referencing that key unresolved. Both are
@@ -2758,6 +2961,35 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  //
+  // `create-job-type` and `update-job-type` take the WHOLE job type as one JSON
+  // document and expose no field flags at all — 15 required fields including a
+  // `parts[]` array and three expression strings. Both enums are body-only by
+  // that design rather than by omission.
+  const JOB_TYPE_IS_ONE_DOCUMENT =
+    "the whole job type is supplied as one JSON document through --body; this command has no field flags";
+
+  const JOB_TYPE_BODY_ONLY = {
+    "Body.basis": JOB_TYPE_IS_ONE_DOCUMENT,
+    "Body.group": JOB_TYPE_IS_ONE_DOCUMENT
+  };
+
+  bindCommand(accessRequests, ROLES_LIST_ACCESS_REQUESTS_CONTRACT);
+  bindCommand(attach, ROLES_ATTACH_RESOURCE_CONTRACT);
+  bindCommand(detach, ROLES_DETACH_RESOURCE_CONTRACT);
+  bindCommand(addMember, ROLES_UPSERT_MEMBER_CONTRACT);
+  bindCommand(createPermSet, ROLES_CREATE_PERMISSION_SET_CONTRACT);
+  bindCommand(updatePermSet, ROLES_UPDATE_PERMISSION_SET_CONTRACT);
+  bindCommand(requestAccess, ROLE_ACCESS_REQUESTS_CREATE_CONTRACT);
+  bindCommand(reviewAccess, ROLE_ACCESS_REQUESTS_REVIEW_CONTRACT);
+  bindCommand(creationRequests, ROLE_CREATION_REQUESTS_LIST_CONTRACT);
+  bindCommand(reviewCreation, ROLE_CREATION_REQUESTS_REVIEW_CONTRACT);
+  bindCommand(deletionRequests, ROLE_DELETION_REQUESTS_LIST_CONTRACT);
+  bindCommand(reviewDeletion, ROLE_DELETION_REQUESTS_REVIEW_CONTRACT);
+  bindCommand(createJobType, ROLE_JOB_TYPES_CREATE_CONTRACT, JOB_TYPE_BODY_ONLY);
+  bindCommand(updateJobType, ROLE_JOB_TYPES_UPDATE_CONTRACT, JOB_TYPE_BODY_ONLY);
 }
 
 /**

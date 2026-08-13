@@ -5,8 +5,18 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { resolveDashboardUrl } from "../config";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, printRecord, printSuccess, printTable } from "../output";
+import {
+  CHANNEL_CONNECTION_CREATE__BODY_REGION,
+  CHANNEL_CONNECTION_CREATE_CONTRACT,
+  CHANNEL_SETUP_AUTO_PROVISION__BODY_REGION,
+  CHANNEL_SETUP_AUTO_PROVISION__BODY_TYPE,
+  CHANNEL_SETUP_AUTO_PROVISION_CONTRACT,
+  CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT__BODY_CATEGORY,
+  CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT
+} from "./channel.contract.generated";
 
 const VARIABLE_PATTERN = /\{\{\d+\}\}/g;
 
@@ -101,15 +111,28 @@ phone_numbers:read / :write / :delete instead.`
   );
 
   // ── setup ──────────────────────────────────────────────────────────
-  channel
+  //
+  // Bound to `ChannelSetupAutoProvision`, the --auto branch. Without --auto the
+  // same leaf reads `ChannelSetupGet`, whose only enum is the SAME deployment
+  // type with the SAME values, so one binding describes both branches truthfully.
+  const setup = channel
     .command("setup")
     .description("Check or auto-provision channel setup prerequisites")
-    .requiredOption(
-      "--type <type>",
-      "Deployment type (WHATSAPP, TWILIO_SMS, TWILIO_VOICE, EMBED, etc.)"
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Deployment type",
+        CHANNEL_SETUP_AUTO_PROVISION__BODY_TYPE
+      ).makeOptionMandatory()
     )
     .option("--auto", "Auto-provision what is possible (e.g., create messaging connection)")
-    .option("--region <region>", "Region for auto-provisioning (us1 or ie1)", "us1")
+    .addOption(
+      enumOption(
+        "--region <region>",
+        "Region for auto-provisioning",
+        CHANNEL_SETUP_AUTO_PROVISION__BODY_REGION
+      ).default("us1")
+    )
     .addHelpText(
       "after",
       `
@@ -121,8 +144,16 @@ Examples:
 Notes:
   THE "DEPLOYMENT" STEP ALWAYS READS action_needed. It is the thing you run
   this before doing, and it is never checked — do not wait for it to turn
-  green. When every step ABOVE it is completed the response reports
-  ready: true, and that is the signal to create the deployment.
+  green. When every step ABOVE it is completed, the table prints "All
+  prerequisites met", and that is the signal to create the deployment.
+
+  🚨 --json DOES NOT CARRY THAT VERDICT. It emits the steps and a bare success
+  flag; there is no "ready" key to gate automation on, so a script testing
+  .ready reads undefined and can never proceed. Derive it from the steps
+  instead — every step except the last must read completed:
+
+    $ nexus channel setup --type WHATSAPP --json \\
+        | jq '[.[] | select(.label != "Deployment") | .status] | all(. == "completed")'
 
   THIS STOPS AT THE FIRST GAP. The first step that reads action_needed blocks
   the rest, and every step after it reads "pending" whatever its real state
@@ -218,6 +249,13 @@ The messaging connection is the account WhatsApp, SMS and Voice all hang off,
 and an organization gets exactly ONE. Its region is fixed when it is created
 and every number bought afterwards lives there, so create it deliberately.
 
+AN EMPTY LIST IS THE SAME OUTPUT AS "YOU HAVE NOT SET THIS UP YET". With no
+connection, this list, "whatsapp-sender list", "whatsapp-template list" and
+"whatsapp-template approvals" all answer an empty array and exit 0 — no error,
+no hint that the prerequisite is what is missing rather than the inventory being
+empty. Run "nexus channel setup --type WHATSAPP" to tell the two apart; it is
+the one command that reports a missing prerequisite as a prerequisite.
+
 There is no delete and no update here — a second create is a 409.`
   );
 
@@ -255,10 +293,14 @@ Notes:
       }
     });
 
-  connection
+  const connectionCreate = connection
     .command("create")
     .description("Create a messaging connection (max 1 per organization)")
-    .option("--region <region>", "Region: us1 or ie1", "us1")
+    .addOption(
+      enumOption("--region <region>", "Region", CHANNEL_CONNECTION_CREATE__BODY_REGION).default(
+        "us1"
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -815,15 +857,18 @@ Notes:
       }
     });
 
-  waTemplate
+  const submitApproval = waTemplate
     .command("submit-approval")
     .description("Submit a template for Meta WhatsApp approval")
     .requiredOption("--connection-id <id>", "Messaging connection ID")
     .requiredOption("--template-id <id>", "Template ID (Twilio SID)")
     .requiredOption("--name <name>", "Template name for approval")
-    .requiredOption(
-      "--category <category>",
-      "Approval category: UTILITY, MARKETING, or AUTHENTICATION"
+    .addOption(
+      enumOption(
+        "--category <category>",
+        "Approval category",
+        CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT__BODY_CATEGORY
+      ).makeOptionMandatory()
     )
     .option("--wait", "Poll approval status until resolved (up to 2 minutes)")
     .addHelpText(
@@ -1022,4 +1067,9 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  bindCommand(setup, CHANNEL_SETUP_AUTO_PROVISION_CONTRACT);
+  bindCommand(connectionCreate, CHANNEL_CONNECTION_CREATE_CONTRACT);
+  bindCommand(submitApproval, CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT);
 }

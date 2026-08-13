@@ -41,10 +41,34 @@ export class NexusApiError extends NexusError {
 // Authentication error — 401
 // ============================================================================
 
-/** Thrown when the API returns a 401 status (invalid or missing API key). */
+/**
+ * Thrown when the API returns a 401.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A 401 IS NOT ONE CONDITION, AND `code` IS THE ONLY THING THAT SEPARATES THEM.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The code used to be hardcoded `"UNAUTHORIZED"` here, and `toApiError` computed
+ * the real one and then discarded it on both 401 branches. So every 401 reached
+ * every consumer identically, however specific the server had been.
+ *
+ * The server is specific. `AUTH_EXPIRED`, `AUTH_INVALID` and `REAUTH_REQUIRED`
+ * all carry 401 and all describe a CONNECTED PROVIDER — a Google Drive,
+ * SharePoint or Notion connection — not the caller's own API key. Flattened to
+ * one code, a consumer can only give one answer, and the obvious answer
+ * ("re-authenticate") is the wrong one for every provider case: it sends the
+ * user to fix the credential that was never broken.
+ *
+ * `UNAUTHORIZED` remains the fallback when the server sends no code, matching
+ * `HTTP_${status}` on the non-401 path — one default per path, stated once.
+ *
+ * @param message - Human-readable reason.
+ * @param code - The server's error code. Defaults to `"UNAUTHORIZED"`, so the
+ *   single-argument form every existing caller uses is unchanged.
+ */
 export class NexusAuthenticationError extends NexusApiError {
-  constructor(message = "Invalid or missing API key") {
-    super("UNAUTHORIZED", message, 401);
+  constructor(message = "Invalid or missing API key", code = "UNAUTHORIZED") {
+    super(code, message, 401);
     this.name = "NexusAuthenticationError";
   }
 }

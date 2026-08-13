@@ -1,9 +1,19 @@
 import { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import {
+  TRACING_ANALYTICS_TIMELINE__PARAMS_GRANULARITY,
+  TRACING_ANALYTICS_TIMELINE_CONTRACT,
+  TRACING_EXPORT_BULK__BODY_FORMAT,
+  TRACING_EXPORT_BULK__BODY_STATUS,
+  TRACING_EXPORT_BULK_CONTRACT,
+  TRACING_EXPORT_TRACE__BODY_FORMAT,
+  TRACING_EXPORT_TRACE_CONTRACT
+} from "./tracing.contract.generated";
 
 export function registerTracingCommands(program: Command): void {
   const tracing = program
@@ -30,7 +40,19 @@ text come back from "tracing generation <id>" and from nowhere else — and
 even there only under --json, because the table view prints metadata only.
 
 Deleting is real: "tracing delete" removes the trace AND its generations, and
-nothing else in the platform keeps a copy.`
+nothing else in the platform keeps a copy.
+
+THIS NAMESPACE READS ROWS; "nexus analytics" AGGREGATES THE SAME DATA. Every
+command here answers "what did this run do", one trace or one generation at a
+time, and the only shaping on offer is the fixed grouping of cost-breakdown. A
+cross-cutting question — an arbitrary group-by, a join, the earliest startedAt
+still retained — is not expressible here and is a one-liner over the
+analytics_traces and analytics_generations views:
+
+  $ nexus analytics query "SELECT min(startedAt) FROM analytics_traces"
+
+Same window, same data. Use that to establish what retention actually leaves
+you before concluding a trace is missing.`
   );
 
   // ── traces ────────────────────────────────────────────────────────────
@@ -460,7 +482,7 @@ Notes:
   tracing
     .command("cost-breakdown")
     .description("Get cost breakdown by model, agent, or workflow")
-    .option("--group-by <key>", "Group by (model, agent, workflow)", "model")
+    .option("--group-by <key>", "Group by one key — see Notes; not repeatable", "model")
     .option("--start-date <iso>", "Period start")
     .option("--end-date <iso>", "Period end")
     .addHelpText(
@@ -472,8 +494,17 @@ Examples:
   $ nexus tracing cost-breakdown --group-by workflow --json
 
 Notes:
-  --group-by TAKES model, agent OR workflow, and defaults to model. Anything
-  else is refused.
+  --group-by TAKES MORE THAN THE THREE IN THE EXAMPLES. deployment, customer and
+  workflowExecution are accepted too, and a rejected value prints the full
+  accepted set — read that refusal rather than trusting any list. It defaults to
+  model.
+  REPEATING --group-by SILENTLY KEEPS ONLY THE LAST ONE. The server groups by a
+  LIST, but this flag is not repeatable, so "--group-by model --group-by agent"
+  returns the agent grouping alone, with nothing saying model was discarded. Ask
+  for one grouping per call.
+  THE LABEL COLUMN IS EMPTY FOR SOME GROUPINGS, LEAVING A BARE UUID IN KEY.
+  Grouping by agent is the common case — resolve those with "nexus agent get".
+  Grouping by workflow or deployment does fill LABEL.
   THE ROWS DO NOT ADD UP TO YOUR BILL. Grouped by agent or workflow, only
   generations whose recorded context names one is counted — anything run
   outside an agent or a workflow is in no row at all, so the column total is
@@ -512,10 +543,16 @@ Notes:
     });
 
   // ── timeline ──────────────────────────────────────────────────────────
-  tracing
+  const timeline = tracing
     .command("timeline")
     .description("Get tracing timeline data")
-    .option("--granularity <g>", "Granularity (hour, day, week)", "day")
+    .addOption(
+      enumOption(
+        "--granularity <g>",
+        "Granularity",
+        TRACING_ANALYTICS_TIMELINE__PARAMS_GRANULARITY
+      ).default("day")
+    )
     .option("--start-date <iso>", "Period start")
     .option("--end-date <iso>", "Period end")
     .addHelpText(
@@ -571,11 +608,15 @@ Notes:
     });
 
   // ── export ────────────────────────────────────────────────────────────
-  tracing
+  const exportTrace = tracing
     .command("export")
     .description("Export a single trace")
     .argument("<id>", "Trace ID")
-    .option("--format <fmt>", "Output format (json, csv)", "json")
+    .addOption(
+      enumOption("--format <fmt>", "Output format", TRACING_EXPORT_TRACE__BODY_FORMAT).default(
+        "json"
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -604,11 +645,17 @@ Notes:
     });
 
   // ── export-bulk ───────────────────────────────────────────────────────
-  tracing
+  const exportBulk = tracing
     .command("export-bulk")
     .description("Bulk export traces — max 500 per call, rate limited to 5 calls a minute")
-    .option("--format <fmt>", "Output format (json, csv)", "json")
-    .option("--status <status>", "Filter by status")
+    .addOption(
+      enumOption("--format <fmt>", "Output format", TRACING_EXPORT_BULK__BODY_FORMAT).default(
+        "json"
+      )
+    )
+    .addOption(
+      enumOption("--status <status>", "Filter by status", TRACING_EXPORT_BULK__BODY_STATUS)
+    )
     .option("--agent-id <id>", "Filter by agent ID")
     .option("--workflow-id <id>", "Filter by workflow ID")
     .option("--start-date <iso>", "Filter from date")
@@ -651,6 +698,18 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after every option exists.
+  //
+  // `traces`, `generations` and `cost-breakdown` are DELIBERATELY ABSENT. Each
+  // carries a contract enum this CLI has no flag for — `source` on traces,
+  // `sortBy` and `order` on generations, `bucket` on cost-breakdown — and the
+  // gate is all-or-nothing per descriptor. Binding them means ADDING FLAGS,
+  // which is a change to what the CLI can do rather than to what it says, so it
+  // is left to a decision rather than taken here.
+  bindCommand(timeline, TRACING_ANALYTICS_TIMELINE_CONTRACT);
+  bindCommand(exportTrace, TRACING_EXPORT_TRACE_CONTRACT);
+  bindCommand(exportBulk, TRACING_EXPORT_BULK_CONTRACT);
 }
 
 function formatStatus(v: unknown): string {

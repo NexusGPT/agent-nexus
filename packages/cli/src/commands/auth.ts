@@ -113,7 +113,15 @@ Examples:
 Notes:
   API keys start with "nxs_". Get yours at https://app.nexusgpt.io/app/settings/api-keys
   Use --profile to name the saved profile (default: org name or "default").
-  Run "nexus auth list" to see all profiles, "nexus auth switch <name>" to change active.`
+  Run "nexus auth list" to see all profiles, "nexus auth switch <name>" to change active.
+
+  --env dev MEANS TWO HARDCODED LOCALHOST PORTS, AND THEY ARE STORED ON THE
+  PROFILE. It points the API at http://localhost:3001 and the dashboard at
+  http://localhost:3000 — the ports are fixed, not read from anything you can
+  set, so a local stack listening elsewhere cannot be reached this way. Pass
+  --base-url instead for any other address. Because both URLs are written onto
+  the saved profile, a profile created with --env dev keeps pointing at
+  localhost until you log in again.`
     )
     .action(async (opts, command) => {
       // Commander 13 routes `--api-key` / `--profile` to the program-level
@@ -636,7 +644,20 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus auth pin work`
+  $ nexus auth pin work
+
+Notes:
+  IT WRITES ./.nexusrc IN THE CURRENT DIRECTORY, holding {"profile":"<name>"}
+  and nothing else. It names a profile; it stores no key.
+
+  ⚠️ IN A REPOSITORY THAT FILE IS COMMITTABLE, AND COMMITTING IT REPOINTS YOUR
+  TEAMMATES' CLI. A colleague who has a profile of the same name silently starts
+  acting against THAT organization in this directory, with no prompt and nothing
+  in the output saying a pin is in effect. A colleague who does not have it gets
+  an unexplained failure. Add .nexusrc to .gitignore unless the whole team
+  genuinely shares the profile name.
+
+  Run "nexus auth whoami" from the directory to see which profile is winning.`
     )
     .action((profileName: string) => {
       // Validate profile exists
@@ -888,7 +909,20 @@ Examples:
 
 Notes:
   Shows profile resolution: --profile flag > NEXUS_PROFILE env > .nexusrc > active > "default".
-  Use "nexus auth pin <profile>" to pin a directory to a profile via .nexusrc.`
+  Use "nexus auth pin <profile>" to pin a directory to a profile via .nexusrc.
+
+  A SIXTH SOURCE SITS ABOVE ALL FIVE: an explicit --api-key flag or a
+  NEXUS_API_KEY environment variable. Either one overrides the resolved
+  profile's key entirely and writes no profile of its own — this command reports
+  it as "override". That is the case to look for when the key in use is not the
+  key the named profile holds.
+
+  🚨 IT READS LOCAL CONFIG AND MAKES NO NETWORK CALL, SO IT IS NOT VERIFICATION.
+  A revoked, expired or mistyped key still reports here exactly as it did the
+  day it was stored, and the org and user lines are whatever was cached last —
+  stale, or absent if nothing ever cached them. "This command succeeded" is not
+  evidence the key works. Run "nexus auth whoami" for that: it resolves against
+  the API live, and it is also what fills those lines in when they are missing.`
     )
     .action(() => {
       try {
@@ -957,7 +991,13 @@ Examples:
 
 Notes:
   Calls the API live to resolve the current org name, org ID, and user email
-  for the active profile's key, so you always know which org you're acting on.`
+  for the active profile's key, so you always know which org you're acting on.
+
+  A PROFILE NAME THAT DOES NOT EXIST REPORTS AS "Not logged in". So
+  "--profile <typo>" sends you to run "nexus auth login" when you are already
+  logged in and only misspelled the name. Before re-authenticating, run
+  "nexus auth status --profile <name>" — it distinguishes the two and lists the
+  profiles that do exist.`
     )
     .action(async () => {
       let resolved;

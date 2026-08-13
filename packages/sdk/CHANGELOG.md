@@ -1,5 +1,35 @@
 # @agent-nexus/sdk
 
+## 0.14.1
+### Patch Changes
+
+- e44f330: The SDK now replays a transient edge failure on an idempotent request, and never on a POST.
+  
+  A request that is in flight when staging finishes a rolling deploy comes back `502` with an
+  HTML body, so `JSON.parse` fails and the caller gets
+  `API error (502): Failed to parse response body (status 502)`. Nothing retried: `HttpClient`
+  had no retry policy at all, so a single 502 from the proxy in front of the API failed the
+  whole call. A real user hitting a deploy saw the same thing.
+  
+  `GET`, `HEAD`, `OPTIONS`, `PUT` and `DELETE` are now replayed up to twice on `502`, `503`,
+  `504`, and on a dropped connection, with full-jitter exponential backoff (250 ms base,
+  doubling, capped at 5 s). `maxRetries: 0` turns it off.
+  
+  **`POST` and `PATCH` are deliberately never replayed.** A 502 from a proxy cannot distinguish
+  "no healthy upstream, never forwarded" from "applied, and the connection died before the
+  response". Replaying a POST on the second reading duplicates its effect —
+  `POST /emulator/:deploymentId/sessions/:sessionId/messages` writes a message and starts an
+  agent turn, so an automatic retry would post a user's message twice and bill two model calls.
+  A POST that needs to survive this needs an idempotency key on the wire, which this API does
+  not have.
+  
+  A client-side timeout is not retried either, even though it is a connection error: the caller
+  stated a deadline, and unlike a 502 the server may still be processing the request.
+  
+  A discarded `502` has its body cancelled before the next attempt — Node pins the connection in
+  the undici pool until a body is consumed or cancelled, so dropping the response object would
+  leak one socket per retry.
+
 ## 0.14.0
 ### Minor Changes
 

@@ -21,8 +21,7 @@ export const ROLE_ACCESS_REQUESTS_CREATE__BODY_RESOURCE_TYPE = {
     "workflow",
     "deployment",
     "ai_task",
-    "document_template",
-    "external_tool"
+    "document_template"
   ]
 } as const satisfies ContractEnum;
 
@@ -123,8 +122,7 @@ export const ROLES_ATTACH_RESOURCE__BODY_RESOURCE_TYPE = {
     "workflow",
     "deployment",
     "ai_task",
-    "document_template",
-    "external_tool"
+    "document_template"
   ]
 } as const satisfies ContractEnum;
 
@@ -154,6 +152,8 @@ export const ROLES_CREATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM = {
     "collection_grant.manage",
     "workspace_grant.view",
     "workspace_grant.manage",
+    "external_tool_grant.view",
+    "external_tool_grant.manage",
     "coverage.view",
     "coverage.manage",
     "board.view",
@@ -171,8 +171,7 @@ export const ROLES_DETACH_RESOURCE__PATH_VARS_RESOURCE_TYPE = {
     "workflow",
     "deployment",
     "ai_task",
-    "document_template",
-    "external_tool"
+    "document_template"
   ]
 } as const satisfies ContractEnum;
 
@@ -211,6 +210,8 @@ export const ROLES_UPDATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM = {
     "collection_grant.manage",
     "workspace_grant.view",
     "workspace_grant.manage",
+    "external_tool_grant.view",
+    "external_tool_grant.manage",
     "coverage.view",
     "coverage.manage",
     "board.view",
@@ -235,7 +236,7 @@ export const ROLE_ACCESS_REQUESTS_CREATE_CONTRACT = {
   route: "/public/v1/roles/:roleId/access-requests",
   fields: [
     { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
-    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template", "external_tool"] },
+    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template"] },
     { path: "Body.resourceId", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.note", slot: "Body", type: "string", required: false, depth: 0 }
   ]
@@ -343,7 +344,7 @@ export const ROLES_ATTACH_RESOURCE_CONTRACT = {
   route: "/public/v1/roles/:roleId/resources",
   fields: [
     { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
-    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template", "external_tool"] },
+    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template"] },
     { path: "Body.resourceId", slot: "Body", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -357,7 +358,7 @@ export const ROLES_CREATE_PERMISSION_SET_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.resourceRelation", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["owner", "editor", "viewer"] },
     { path: "Body.capabilities", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
+    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
     { path: "Body.surfaces", slot: "Body", type: "array", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -367,7 +368,7 @@ export const ROLES_DETACH_RESOURCE_CONTRACT = {
   method: "DELETE",
   route: "/public/v1/role-resources/:resourceType/:resourceId",
   fields: [
-    { path: "PathVars.resourceType", slot: "PathVars", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template", "external_tool"] },
+    { path: "PathVars.resourceType", slot: "PathVars", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template"] },
     { path: "PathVars.resourceId", slot: "PathVars", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -392,7 +393,7 @@ export const ROLES_UPDATE_PERMISSION_SET_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.resourceRelation", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["owner", "editor", "viewer"] },
     { path: "Body.capabilities", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
+    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
     { path: "Body.surfaces", slot: "Body", type: "array", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

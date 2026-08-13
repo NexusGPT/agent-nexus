@@ -43,6 +43,7 @@ export type * from "./emulator";
 export type * from "./evaluations";
 export type * from "./folders";
 export type * from "./html-message-templates";
+export type * from "./known-issues";
 export type * from "./me";
 export type * from "./models";
 export type * from "./permissions";

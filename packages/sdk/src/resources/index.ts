@@ -22,6 +22,7 @@ export { EmulatorResource } from "./emulator";
 export { EvaluationsResource } from "./evaluations";
 export { FoldersResource } from "./folders";
 export { HtmlMessageTemplatesResource } from "./html-message-templates";
+export { KnownIssuesResource } from "./known-issues";
 export { MeResource } from "./me";
 export { ModelsResource } from "./models";
 export { PermissionsResource } from "./permissions";

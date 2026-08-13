@@ -33,6 +33,7 @@ import { registerExecutionCommands } from "./commands/execution";
 import { registerExternalToolCommands } from "./commands/external-tool";
 import { registerFolderCommands } from "./commands/folder";
 import { registerHtmlMessageTemplateCommands } from "./commands/html-message-template";
+import { registerKnownIssuesCommand } from "./commands/known-issues";
 import { registerModelCommands } from "./commands/model";
 import { registerPermissionsCommands } from "./commands/permissions";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
@@ -53,6 +54,7 @@ import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
 import { registerHelpScopeFooter } from "./help-scope";
+import { applyKnownIssuesHelpLine } from "./known-issues-help";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
 import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
 import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
@@ -323,6 +325,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerEvaluationCommands(program);
   registerTemplateCommands(program);
   registerHtmlMessageTemplateCommands(program);
+  registerKnownIssuesCommand(program);
   registerExternalToolCommands(program);
   registerPromptAssistantCommands(program);
   registerSkillFolderCommands(program);
@@ -352,6 +355,12 @@ export function buildRootProgram(version: string = VERSION): Command {
   // tree, so it needs no cooperation from any command file and no list of
   // participating commands to keep current. See the module docblock.
   applyBodySatisfiesRequired(program);
+
+  // The known-issues pointer, on every command's --help. Walks the FINISHED
+  // tree, so it needs no list of participating commands; a namespace added
+  // tomorrow carries the line without being registered anywhere. Static text —
+  // `--help` must never touch the network. See `known-issues-help.ts`.
+  applyKnownIssuesHelpLine(program);
 
   return program;
 }

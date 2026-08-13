@@ -20,6 +20,7 @@ import { EmulatorResource } from "./resources/emulator";
 import { EvaluationsResource } from "./resources/evaluations";
 import { FoldersResource } from "./resources/folders";
 import { HtmlMessageTemplatesResource } from "./resources/html-message-templates";
+import { KnownIssuesResource } from "./resources/known-issues";
 import { MeResource } from "./resources/me";
 import { ModelsResource } from "./resources/models";
 import { PermissionsResource } from "./resources/permissions";
@@ -142,6 +143,9 @@ export class NexusClient {
 
   /** Manage folders and agent-folder assignments. */
   public readonly folders: FoldersResource;
+
+  /** Read the platform issues published against a CLI route. */
+  public readonly knownIssues: KnownIssuesResource;
 
   /** Get organization info for the current API key. */
   public readonly me: MeResource;
@@ -274,6 +278,7 @@ export class NexusClient {
     this.assets = new AssetsResource(http);
     this.documents = new DocumentsResource(http);
     this.folders = new FoldersResource(http);
+    this.knownIssues = new KnownIssuesResource(http);
     this.me = new MeResource(http);
     this.models = new ModelsResource(http);
     this.customModels = new CustomModelsResource(http);

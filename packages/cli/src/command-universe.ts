@@ -413,6 +413,12 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "html-template render": "registration-only",
   "html-template update": "registration-only",
 
+  // ── known-issues ───────────────────────────────────────────────────────────
+  // A read, and it mutates nothing — but it takes a REQUIRED positional, so the
+  // sweep has no value it could supply. `registration-only` is what a required
+  // argument means here, not a judgement about the call being unsafe.
+  "known-issues": "registration-only",
+
   // ── model ──────────────────────────────────────────────────────────────────
   "model list": "safe",
 

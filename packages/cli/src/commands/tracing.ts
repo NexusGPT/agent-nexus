@@ -307,10 +307,15 @@ Notes:
   --provider TAKES A MODEL PROVIDER, NOT A CHANNEL. A provider with no recorded
   generation returns an empty page rather than an error, so an empty result is
   "nothing ran on it" and never "that provider does not exist".
-  --sort-by costUsd LEADS WITH THE UNPRICED CALLS UNDER --order desc. A null
-  cost is not zero and Postgres sorts it FIRST when descending, so the first
-  page of "most expensive" is the generations with no cost at all. Pair it with
-  --min-cost 0 to drop them, or read the cheapest end with --order asc.
+  A NULL COST SORTS LAST IN BOTH DIRECTIONS, on --sort-by costUsd and on
+  --sort-by duration-ms alike, so the first page of "most expensive" is the
+  most expensive. Null means NOT PRICED — no usage was ever recorded for it —
+  and it is never zero, so it is neither the dearest nor the cheapest. Cost
+  renders "-" for it.
+  A NULL COST ON A **COMPLETED** GENERATION IS NORMAL AND IS NOT A BUG. An
+  ABORTED generation is stored with status COMPLETED, and the abort path writes
+  no cost. So the three states that leave cost null are RUNNING, FAILED, and
+  COMPLETED-because-aborted.
   --model is a CASE-INSENSITIVE SUBSTRING match, not an exact one: --model gpt
   also returns gpt-4o and gpt-4o-mini. Use "nexus tracing models" for the exact
   names, and pass a full one when you mean only that model.`
@@ -381,8 +386,13 @@ Notes:
   finishReason IS NULL WHEN THE STORED VALUE IS NOT ONE THIS API RECOGNISES —
   it is coerced to null rather than reported, so null means "unrecognised or
   absent", never "the model gave no reason".
-  Cost renders "-" for null, which is not zero — an unpriced model records no
-  cost at all.`
+  Cost renders "-" for null, which is not zero and does NOT mean the model has
+  no price. A model missing from the pricing catalog is recorded at 0, with a
+  warning in the server log. Null means the cost column was never written:
+  the generation is still RUNNING, or it terminated before any usage was
+  recorded. A terminated one reads FAILED, or COMPLETED when it was ABORTED —
+  the abort path stores status COMPLETED and writes no cost, so a COMPLETED
+  generation showing "-" is expected rather than a gap.`
     )
     .action(async (id: string) => {
       try {

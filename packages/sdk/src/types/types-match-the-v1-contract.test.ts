@@ -28,6 +28,7 @@ import {
   ListResourceAccessV1ResponseSchema,
   ListSkillFoldersResponseSchema,
   ListUserGroupsV1ResponseSchema,
+  ModelProviderSchema,
   PhoneNumberSummarySchema,
   PublicPermissionGrantSchema,
   PublicUserGroupSchema,
@@ -76,7 +77,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
-import type { DeleteResponse } from "./common";
+import type { DeleteResponse, ModelProvider } from "./common";
 import type {
   AssignDeploymentToFolderBody,
   AssignDeploymentToFolderResponse,
@@ -295,6 +296,21 @@ export type V1ContractAssertions = [
   // ── evaluations ── the dataset upload's response (NEX-2961)
   Expect<Equals<UploadDatasetResult, Received<typeof UploadDatasetResponseSchema>>>,
 
+  // ── the model-provider enum ──────────────────────────────────────────────
+  //
+  // 🚨 ONE PAIR, MANY SURFACES. `ModelProvider` is the only spelling of the
+  // provider set this package publishes, and it is reached by `ModelConfig`,
+  // `GenerationSummary` and `ListGenerationsParams`. Gating it here means the
+  // enum is DERIVED-AND-CHECKED rather than hand-copied at each of them.
+  //
+  // The pair only became assertable when `ModelProviderSchema` stopped casting
+  // its argument to `[string, ...string[]]`: under that cast `Sent<>` was bare
+  // `string`, so this line would have failed while describing a contract that
+  // was correct at runtime the whole time. That is the tell for a schema whose
+  // TYPE has been widened away from what it PARSES — the assertion cannot be
+  // written, rather than failing loudly.
+  Expect<Equals<ModelProvider, Sent<typeof ModelProviderSchema>>>,
+
   // ── roles ── /public/v1/roles/*, /public/v1/role-job-types
   //
   // Ten routes, ten pairs, and the deep ones are here deliberately. `RoleCoverage`
@@ -450,6 +466,8 @@ const GATED_PAIRS = [
 
   "UploadDatasetResult ↔ UploadDatasetResponseSchema",
 
+  "ModelProvider ↔ ModelProviderSchema",
+
   "RolesListResponse ↔ RolesListV1ResponseSchema",
   "RoleResponse ↔ RoleV1ResponseSchema",
   "RoleSystemsResponse ↔ RoleResourcesV1ResponseSchema",
@@ -550,10 +568,10 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 80 pairs are covered. Most of the contract is not, and this file does not
+ * 81 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
  */
-const GATED_PAIR_FLOOR = 80;
+const GATED_PAIR_FLOOR = 81;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

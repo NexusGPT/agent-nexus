@@ -1,3 +1,5 @@
+import type { ModelProvider } from "./common";
+
 // ── Trace ──
 
 export interface TraceSummary {
@@ -27,7 +29,7 @@ export interface TraceDetail extends TraceSummary {
 export interface GenerationSummary {
   id: string;
   traceId: string;
-  provider: string;
+  provider: ModelProvider;
   modelName: string;
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
   inputTokens: number | null;
@@ -158,7 +160,7 @@ export interface ListGenerationsParams {
   page?: number;
   limit?: number;
   traceId?: string;
-  provider?: string;
+  provider?: ModelProvider;
   /** Filter by model name (max 255 characters). */
   modelName?: string;
   status?: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";

@@ -1,5 +1,6 @@
 import {
   AgentFolderSchema,
+  AgentModelSchema,
   AssignAgentToFolderBodySchema,
   AssignAgentToFolderResponseSchema,
   AssignDeploymentToFolderBodySchema,
@@ -77,7 +78,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
-import type { DeleteResponse, ModelProvider } from "./common";
+import type { AgentModel, DeleteResponse, ModelProvider } from "./common";
 import type {
   AssignDeploymentToFolderBody,
   AssignDeploymentToFolderResponse,
@@ -311,6 +312,17 @@ export type V1ContractAssertions = [
   // written, rather than failing loudly.
   Expect<Equals<ModelProvider, Sent<typeof ModelProviderSchema>>>,
 
+  // ── the agent-model enum ─────────────────────────────────────────────────
+  //
+  // Same shape, same cause, one file over. `AgentModel` is this package's only
+  // spelling of the legacy model set and is reached by `Agent.model`,
+  // `CreateAgentParams` and `UpdateAgentParams`. It was hand-written and
+  // CORRECT, and nothing could say so: `AgentModelSchema` carried the same
+  // `[string, ...string[]]` cast, so `Sent<>` was bare `string` and this line
+  // could not be written. A hand-copied enum that no gate can reach is one
+  // rename away from being wrong silently.
+  Expect<Equals<AgentModel, Sent<typeof AgentModelSchema>>>,
+
   // ── roles ── /public/v1/roles/*, /public/v1/role-job-types
   //
   // Ten routes, ten pairs, and the deep ones are here deliberately. `RoleCoverage`
@@ -467,6 +479,7 @@ const GATED_PAIRS = [
   "UploadDatasetResult ↔ UploadDatasetResponseSchema",
 
   "ModelProvider ↔ ModelProviderSchema",
+  "AgentModel ↔ AgentModelSchema",
 
   "RolesListResponse ↔ RolesListV1ResponseSchema",
   "RoleResponse ↔ RoleV1ResponseSchema",
@@ -568,10 +581,10 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 81 pairs are covered. Most of the contract is not, and this file does not
+ * 82 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
  */
-const GATED_PAIR_FLOOR = 81;
+const GATED_PAIR_FLOOR = 82;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

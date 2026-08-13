@@ -34,7 +34,7 @@ vi.mock("../client", () => ({
   })
 }));
 
-import { registerRoleCommands } from "./role";
+import { ASSIGNMENT_KIND_NAMES, registerRoleCommands, RESOURCE_TYPE_NAMES } from "./role";
 
 async function run(argv: string[]): Promise<void> {
   const program = new Command();
@@ -1777,11 +1777,70 @@ describe("the help text carries the trap, not a summary of it", () => {
     // omission. Telling a caller the id is merely "not durable" sends them
     // hunting a field that does not exist.
     expect(help).toContain("AN ASSIGNMENT HAS NO ID ON THIS CONTRACT AT ALL");
-    expect(help).toContain("person:<userId>");
 
     // A task id IS durable, and that half was always true — it is the contrast
     // that makes the assignment sentence readable at all.
     expect(help).toContain("A TASK ID IS DURABLE");
+  });
+
+  /**
+   * NEX-3778. This help told callers to key an assignment `"person:<userId>"` or
+   * `"<resourceType>:<resourceId>"` and the API has NEVER accepted either — the
+   * schema's creating commit already carried the two `kind` arms. The sentence
+   * was a true statement about the DATABASE's uniqueness keys, promoted into an
+   * instruction about the wire, which is why it read as checked for weeks.
+   *
+   * The assertions below read the arms and the member kinds OUT OF `role.ts`,
+   * which derives both from the SDK's own unions through a `Record<…, true>`.
+   * Spelling them here would be a third copy — the exact defect.
+   */
+  it("tasks and set-tasks document the assignment OBJECT, not the database's key", () => {
+    for (const command of ["tasks", "set-tasks"]) {
+      const help = renderHelp(["role", command]);
+
+      expect(help, `${command}: names the arms it accepts`).toContain(ASSIGNMENT_KIND_NAMES);
+      expect(help, `${command}: shows the person arm`).toContain('{ "kind": "person"');
+      expect(help, `${command}: shows the resource arm`).toContain('{ "kind": "resource"');
+      expect(help, `${command}: names the resource field`).toContain('"resourceId"');
+      expect(help, `${command}: lists the member kinds`).toContain(RESOURCE_TYPE_NAMES);
+
+      // The false form stays NAMED, as a refusal. It was documented for weeks
+      // and it is the shape the database's own key still suggests, so deleting
+      // it silently leaves every caller who learned it with no correction.
+      //
+      // ⚠️ MATCH A FRAGMENT THAT CANNOT STRADDLE A LINE BREAK. The Notes blocks
+      // are hand-wrapped at 80 columns, so a phrase asserted whole passes or
+      // fails on where the wrap happened to land rather than on what the help
+      // says — this assertion reddened on exactly that, with correct copy.
+      expect(help, `${command}: refuses the string form by name`).toMatch(
+        /THERE IS NO "person:<userId>" STRING FORM|"<type>:<id>" string/
+      );
+      // The instruction that sent them there. Its absence is the fix.
+      expect(help, `${command}: no longer instructs the string form`).not.toContain(
+        "Key an assignment that way"
+      );
+    }
+  });
+
+  it("set-tasks names every key of the task object a caller must send", () => {
+    const help = renderHelp(["role", "set-tasks"]);
+
+    // The ticket's first complaint: `--body` was described as `{ tasks: [...] }`
+    // and nothing named a single field inside it.
+    for (const key of [
+      '"id"',
+      '"name"',
+      '"description"',
+      '"occurrencesPerYear"',
+      '"peoplePerYear"',
+      '"revenuePerYear"',
+      '"assignments"'
+    ]) {
+      expect(help, `set-tasks help must name ${key}`).toContain(key);
+    }
+    // `null` is "not stated" and is not zero — the distinction the contract draws
+    // and the one a caller defaulting to 0 destroys.
+    expect(help).toContain("is NOT zero");
   });
 });
 

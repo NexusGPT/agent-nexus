@@ -1829,21 +1829,32 @@ export interface RoleResponsibilityRemoved {
 /**
  * Who or what a proposed task is assigned to.
  *
- * ⚠️ IDS AND NO DISPLAY NAME, deliberately. The resource arm spans six tables
- * behind a loose `resourceType` with no foreign key to join through, so a name
- * would cost six queries per read. Resolve a `userId` with `listMembers()` and a
- * `resourceId` with `listSystems()`.
+ * ⚠️ IDS AND NO DISPLAY NAME, deliberately. The resource arm spans every table
+ * {@link RoleResourceType} names, behind a loose `resourceType` with no foreign
+ * key to join through, so a name would cost one query per kind on every read.
+ * Resolve a `userId` with `listMembers()` and a `resourceId` with
+ * `listSystems()`.
+ *
+ * ⚠️ `resourceType` IS A LOOSE STRING ON THE READ AND NARROW ON THE WRITE, which
+ * is the same split {@link RoleResourceType} states for itself: a stored row may
+ * carry a retired kind, and tightening a response would fail a whole listing over
+ * one legacy row.
  */
 export type RoleTaskAssignment =
   | { kind: "person"; userId: string }
   | { kind: "resource"; resourceType: string; resourceId: string };
 
 /**
- * ⚠️ AN ASSIGNMENT HAS NO ID AT ALL, unlike the task above it — the ARM is the
- * identity. `person:<userId>` or `<resourceType>:<resourceId>` is unique within
- * a task by database constraint, and it is the same key the dashboard derives to
- * render the row. Assignment rows are re-created beneath a surviving task on each
+ * ⚠️ AN ASSIGNMENT HAS NO ID AT ALL, unlike the task above it — the ARM OBJECT is
+ * the identity. Assignment rows are re-created beneath a surviving task on each
  * save, which no consumer can observe because none is published or referenced.
+ *
+ * 🚨 THERE IS NO `person:<userId>` STRING FORM ON THE WIRE, and there never has
+ * been. That spelling is the DATABASE's uniqueness key on the row
+ * (`@@unique([taskId, userId])` and `@@unique([taskId, resourceType,
+ * resourceId])`); it was documented here and in the CLI's `--help` as though it
+ * were the payload, and sending it is refused. A statement that is true about
+ * one layer and addressed to another reads as checked (NEX-3778).
  */
 
 /** One task the Role proposes to run. */
@@ -1880,10 +1891,18 @@ export interface RoleTasksResponse {
   tasks: RoleTask[];
 }
 
-/** One assignment as a caller SENDS it. Same two arms, no id — see the type above. */
+/**
+ * One assignment as a caller SENDS it. Same two arms, no id — see the type above.
+ *
+ * 🚨 NARROWER THAN THE READ ON PURPOSE. `resourceType` is
+ * {@link RoleResourceType} here rather than `string`, because the server refuses
+ * anything outside that union naming every member of it — so a wider type here
+ * would advertise a value the write cannot take. The read stays loose for the
+ * opposite reason: a stored row may carry a retired kind.
+ */
 export type RoleTaskAssignmentInput =
   | { kind: "person"; userId: string }
-  | { kind: "resource"; resourceType: string; resourceId: string };
+  | { kind: "resource"; resourceType: RoleResourceType; resourceId: string };
 
 /** One task as a caller SENDS it in the whole-list replace. */
 export interface RoleTaskInput {

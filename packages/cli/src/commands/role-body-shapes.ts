@@ -1,0 +1,295 @@
+import type {
+  CoverageMoneyNotModelledReason,
+  CoverageNotModelledReason,
+  RoleJobTypeBasis,
+  RoleJobTypeBody,
+  RoleJobTypeGroup,
+  RoleJobTypePart,
+  RoleScopeLineInput
+} from "@agent-nexus/sdk";
+
+/**
+ * The BODY SHAPES `nexus role`'s `--body` commands accept, rendered for `--help`.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * EVERY LIST HERE IS A `Record` OVER AN SDK TYPE, AND THAT IS THE WHOLE POINT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A `--body` command's help can only be wrong in one way: it can name fewer
+ * fields than the server requires. That is not a cosmetic failure — the route
+ * refuses the request, the caller reads a validation error naming a field no
+ * surface ever mentioned, and the only offered route out is "read an existing
+ * one", which does not exist in an organization that has none. `create-job-type`
+ * shipped exactly that: the Notes said "every field is required" and named five
+ * of eleven.
+ *
+ * So each list below is keyed by an SDK type rather than typed as prose:
+ *
+ * - a field ADDED to `RoleJobTypeBody` is a compile error here until it carries
+ *   a line, so the help cannot fall behind the contract;
+ * - a field REMOVED is a `TS2353` on this object, so the help cannot describe a
+ *   key the server would now refuse.
+ *
+ * That is the same gate `ROLE_RESOURCE_TYPES` in `role.ts` already applies to
+ * the resource-type list, applied to the thing a caller actually has to compose.
+ * Nothing else binds a Notes block to a schema — which is why the wrong count
+ * survived review.
+ *
+ * ⚠️ THE GATE PROVES THE KEY SET, NEVER THE SENTENCE. A line saying `fte number`
+ * where the contract says `number | null` compiles perfectly. The nullability
+ * and the "null is not zero" statements are read from the schema by hand and are
+ * pinned by `role-body-shapes.test.ts` against the SDK's own doc comments where
+ * that is possible, and by a reader where it is not.
+ */
+
+/** Indent every field line by four, and align the descriptions past the keys. */
+const KEY_COLUMN = 20;
+
+/**
+ * Where a field line's description starts — four of indent plus the key column.
+ *
+ * Derived rather than typed, so a continuation line inside a description stays
+ * aligned when `KEY_COLUMN` moves. Hand-counted spaces drifted by five the first
+ * time this block was rendered.
+ */
+const CONTINUATION = " ".repeat(4 + KEY_COLUMN);
+
+/**
+ * Render one `Record<keyof T, string>` as an aligned block.
+ *
+ * The KEY comes from the record's own key, never from the description, so a
+ * description cannot name a field the type does not have. A description may
+ * carry its own newlines for a value that will not fit the remaining width; it
+ * is the author's job to indent those continuations.
+ */
+function renderFields(fields: Record<string, string>): string {
+  return Object.entries(fields)
+    .map(([key, description]) => `    ${key.padEnd(KEY_COLUMN)}${description}`)
+    .join("\n");
+}
+
+/**
+ * Render a closed union's members as a quoted alternation.
+ *
+ * Read off a `Record<Union, true>` for the reason the whole file exists: a value
+ * added to the union is a compile error at the record rather than a `--help`
+ * that omits it.
+ */
+function renderUnion(members: Record<string, true>, width = Infinity): string {
+  const quoted = Object.keys(members).map((member) => JSON.stringify(member));
+  const lines: string[] = [];
+  let line = "";
+  for (const member of quoted) {
+    const candidate = line === "" ? member : `${line}|${member}`;
+    if (candidate.length > width && line !== "") {
+      lines.push(`${line}|`);
+      line = member;
+    } else {
+      line = candidate;
+    }
+  }
+  lines.push(line);
+  return lines.join(`\n${CONTINUATION}`);
+}
+
+/** Every basis, as a runtime lookup so the help can enumerate them. */
+const ROLE_JOB_TYPE_BASES: Record<RoleJobTypeBasis, true> = {
+  SALARY: true,
+  HOURLY: true,
+  SEAT: true,
+  DAY: true,
+  UNIT: true,
+  FIXED: true,
+  CREDIT: true,
+  CUSTOM: true
+};
+
+/** Every Scope-tab heading a job type can subtotal under. */
+const ROLE_JOB_TYPE_GROUPS: Record<RoleJobTypeGroup, true> = {
+  PEOPLE: true,
+  PARTNERS: true,
+  PLATFORM: true,
+  CREDITS: true
+};
+
+/** One rate input of a job type. `unit` is the one callers omit. */
+const JOB_TYPE_PART_FIELDS: Record<keyof RoleJobTypePart, string> = {
+  key: 'string   what an expression calls this term: "salary"',
+  label: 'string   what a human sees beside it: "Gross salary"',
+  unit: `string   how it reads: "EUR a year", "%".\n${CONTINUATION}"" is legal.`,
+  source: "the tagged union below. The tag IS the whole field."
+};
+
+/**
+ * The whole of `POST/PUT /roles/job-types`, field by field.
+ *
+ * 🚨 EVERY ONE OF THESE IS REQUIRED, INCLUDING THE NULLABLE ONES. The schema is
+ * a `strictObject` with no `.optional()` anywhere, so an omitted key is a 400
+ * naming it — `null` is how a caller says "none", and it is never `0` and never
+ * an absent key. Five of these were undocumented until 2026-08-13.
+ */
+const JOB_TYPE_BODY_FIELDS: Record<keyof RoleJobTypeBody, string> = {
+  name: 'string   "Support agent, Manila"',
+  basis: `one of ${renderUnion(ROLE_JOB_TYPE_BASES, 46)}`,
+  group: `one of ${renderUnion(ROLE_JOB_TYPE_GROUPS)}`,
+  category: 'string   the band in the "Add a line" picker',
+  quantityUnit: 'string   what ONE unit IS: "people", "seats", "h / wk"',
+  note: "string|null   the author's own sentence",
+  fte: `number|null   null is a FULL contract, NEVER 0.\n${CONTINUATION}0 < fte <= 1`,
+  parts: "Part[]   at least one; the shape is below",
+  costExpression: "string|null   null uses the basis' built-in expression",
+  hoursExpression: "string|null   null uses the basis' built-in expression",
+  revenueExpression: "string|null   null when the type credits nothing back"
+};
+
+/**
+ * The whole of a scope line.
+ *
+ * `scope` is the field callers miss: it is REQUIRED, and there is no `note` on a
+ * line — a body carrying one is refused by name, because the schema is strict.
+ */
+const SCOPE_LINE_FIELDS: Record<keyof RoleScopeLineInput, string> = {
+  jobTypeId: 'uuid     from "nexus role job-types"',
+  quantity: "number   how many units of that type. 0 is legal",
+  scope: `string   REQUIRED. What this line covers, in words.\n${CONTINUATION}"" is legal.`
+};
+
+/** Every reason a Role has no coverage percentage at all. */
+const COVERAGE_NOT_MODELLED_REASONS: Record<CoverageNotModelledReason, true> = {
+  NO_WORKLOAD_MODEL: true,
+  NO_WORKING_TIME_MODEL: true,
+  WORKING_TIME_MODEL_INVALID: true,
+  WORKLOAD_MODEL_INVALID: true,
+  WORKLOAD_WRONG_DIMENSION: true,
+  WORKLOAD_ZERO_HOURS: true,
+  WORKLOAD_NEGATIVE_HOURS: true,
+  WORKLOAD_WRONG_PERIOD_BASIS: true,
+  RATIO_NOT_FINITE: true
+};
+
+/** Every reason a Role has no money figures at all. */
+const COVERAGE_MONEY_NOT_MODELLED_REASONS: Record<CoverageMoneyNotModelledReason, true> = {
+  NO_CURRENCY: true
+};
+
+/** Wrap a member list at `width`, indenting every continuation line. */
+function wrapMembers(members: readonly string[], indent: string, width: number): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const member of members) {
+    const candidate = line === "" ? member : `${line}, ${member}`;
+    if (candidate.length > width && line !== "") {
+      // The trailing comma is what says the list CONTINUES. Without it a wrapped
+      // enumeration reads as several complete lists, which is the one thing this
+      // block exists to prevent — a caller who stops at line one has an
+      // incomplete vocabulary and no way to know it.
+      lines.push(`${line},`);
+      line = member;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line !== "") lines.push(line);
+  return lines.map((entry) => `${indent}${entry}`).join("\n");
+}
+
+/**
+ * Appended to `nexus role create-job-type` and `update-job-type`.
+ *
+ * The worked example is not decoration: the reporter who found this could not
+ * compose a legal body from the Notes, and the fallback the Notes offered —
+ * "read an existing one" — is unavailable in an organization whose library is
+ * empty, which is every new organization.
+ */
+export const JOB_TYPE_BODY_SHAPE = `
+  THE WHOLE BODY, AND EVERY KEY IS REQUIRED — the nullable ones included. Send
+  null, never omit and never 0. The schema is strict, so an unknown key is
+  refused by name.
+
+${renderFields(JOB_TYPE_BODY_FIELDS)}
+
+  A Part is:
+
+${renderFields(JOB_TYPE_PART_FIELDS)}
+
+  A PART'S SOURCE IS A TAGGED UNION, AND THE TAG IS THE WHOLE FIELD. Exactly two
+  kinds, and no third:
+    {"kind": "variable", "variable": "<part key>"}   resolved against the ROLE's
+      own variables at evaluation time — which is why one org-wide job type
+      prices differently in each Role
+    {"kind": "fixed", "value": <number>}             a literal this type owns
+  There is no "constant", no "literal" and no "variableRef" — the last is a
+  database comment describing a design that never shipped.
+
+  A COMPLETE BODY THAT IS ACCEPTED, to copy:
+    {"name":"Support agent","basis":"SALARY","group":"PEOPLE",
+     "category":"PEOPLE","quantityUnit":"FTE","note":"","fte":null,
+     "costExpression":null,"hoursExpression":"","revenueExpression":"",
+     "parts":[{"key":"salary","label":"Salary","unit":"EUR a year",
+               "source":{"kind":"fixed","value":50000}}]}`;
+
+/** Appended to `nexus role set-scope-lines`. */
+export const SCOPE_LINES_BODY_SHAPE = `
+  THE BODY IS { "lines": [ Line, ... ] } and a Line is:
+
+${renderFields(SCOPE_LINE_FIELDS)}
+
+  THOSE THREE KEYS AND NO OTHERS. The schema is strict, so a line carrying a
+  "note" is refused by name — "scope" is the text field, and it is required
+  rather than optional.
+
+  A COMPLETE BODY THAT IS ACCEPTED, to copy:
+    {"lines":[{"jobTypeId":"<uuid>","quantity":6,
+               "scope":"France, Monday to Friday"}]}`;
+
+/**
+ * Appended to `nexus role coverage`.
+ *
+ * The reason names ARE the actionable part of the not-modelled arm, and every
+ * sibling enum on this server already enumerates itself — `basis` answers
+ * *"expected one of "SALARY"|"HOURLY"|…"*. This one field did not, so a caller
+ * met a bare `NO_WORKING_TIME_MODEL` with no way to learn what else could come.
+ */
+export const COVERAGE_REASON_VOCABULARY = `
+  THE not-modelled ARMS CARRY A CLOSED "reason", and these are all of them.
+  coverage.reason is one of:
+${wrapMembers(Object.keys(COVERAGE_NOT_MODELLED_REASONS), "    ", 68)}
+  money.reason is one of:
+${wrapMembers(Object.keys(COVERAGE_MONEY_NOT_MODELLED_REASONS), "    ", 68)}
+
+  NO_WORKLOAD_MODEL means this Role has no workload row. NO_WORKING_TIME_MODEL
+  means the ORGANIZATION has no automation settings row, and NO_CURRENCY means
+  it states no currency — both are org-wide rather than per Role, so they answer
+  the same for every Role until "nexus role set-automation-settings" is run.
+  Every other reason names a stored model that did not evaluate; the matching
+  integrity.warnings entry carries the detail.`;
+
+/**
+ * Appended to `nexus role --help`.
+ *
+ * ⚠️ AN ENUMERATION OF VERBS IS READ AS AN ENUMERATION OF THE PLATFORM, and a
+ * CEO audit of this namespace concluded the product could not do these things.
+ * It can; they are served only to a logged-in dashboard session. Naming the gap
+ * is what stops the next reader making the same inference — an absent verb and
+ * an absent capability are indistinguishable from inside `--help`.
+ *
+ * Every line below is a route that exists on the internal API today. Do not add
+ * a line for something that is genuinely absent from the product; the value of
+ * this block is that everything in it is reachable somewhere.
+ */
+export const ROLE_NAMESPACE_GAPS = `
+WHAT THIS NAMESPACE DOES NOT COVER, AND WHY THAT IS NOT THE PLATFORM'S LIMIT.
+These have NO verb here at any version, and they are not missing features —
+they exist in the product and are served only to a logged-in dashboard session:
+
+  • boards and card placement  the Role's Overview lanes
+  • the system map             every system the organization runs, and the
+                               edges between them
+  • a Role's workload          the person-hours coverage divides by
+  • a system's impact model    the person-hours one system gives back
+  • task graduation            turning a task into a system
+
+The workload and the impact model are the two writes that move the coverage
+figure, and their absence from the public API is a decision with a reason —
+"nexus role coverage --help" carries it. Author all five on the Role's own
+screens in the dashboard.`;

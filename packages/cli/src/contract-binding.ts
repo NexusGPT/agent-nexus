@@ -206,11 +206,27 @@ export function bindCommand(
   if (block !== "") command.addHelpText("after", `\n${block}`);
 
   command.option("--print-contract", "Print every field of the API contract behind this command");
-  command.hook("preAction", (_root, actionCommand) => {
-    if (actionCommand.opts().printContract === true) {
-      process.stdout.write(`${renderFullContract(shape)}\n`);
-      process.exit(0);
-    }
+  // 🚨 AN `option:` LISTENER, NOT A `preAction` HOOK, AND THE DIFFERENCE IS
+  // WHETHER THE FLAG WORKS AT ALL ON HALF THE COMMANDS THAT OFFER IT.
+  //
+  // Commander enforces `.requiredOption()` inside `_parseCommand`, BEFORE any
+  // action hook runs. So on `role create-job-type` — whose whole point is that
+  // `--body` is required — `--print-contract` answered
+  // `error: required option '--body <json>' not specified` and exited 1, while
+  // the block right above it printed *"Use --print-contract for the full list"*.
+  // A false instruction in shipped output, on the one route whose nested fields
+  // are reachable NOWHERE else: the summary hides `parts[].unit`, and a caller
+  // who cannot see it cannot compose a body the server accepts.
+  //
+  // `option:<name>` is emitted during option parsing, which is upstream of that
+  // check — the same place `--help` and `--version` take their exits. Reading it
+  // here also makes the flag independent of whether the command has an action at
+  // all. Pinned by `contract-binding.print-contract.test.ts`, whose control is a
+  // command with NO required option: it must print either way, so a green there
+  // cannot come from the flag being broken in both.
+  command.on("option:print-contract", () => {
+    process.stdout.write(`${renderFullContract(shape)}\n`);
+    process.exit(0);
   });
 
   return command;

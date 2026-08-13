@@ -12,6 +12,7 @@ import type {
   RoleResourceType,
   RoleScopeLinesBody,
   RoleSystemPolicyBody,
+  RoleTaskAssignmentInput,
   RoleTaskDutiesBody,
   RoleTasksBody,
   RoleVariablesBody,
@@ -22,12 +23,7 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
-import {
-  bindCommand,
-  enumArgument,
-  enumInCompositeOption,
-  enumOption
-} from "../contract-binding";
+import { bindCommand, enumArgument, enumInCompositeOption, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import {
   absent,
@@ -70,6 +66,12 @@ import {
   ROLES_UPSERT_MEMBER__BODY_TIER,
   ROLES_UPSERT_MEMBER_CONTRACT
 } from "./role.contract.generated";
+import {
+  COVERAGE_REASON_VOCABULARY,
+  JOB_TYPE_BODY_SHAPE,
+  ROLE_NAMESPACE_GAPS,
+  SCOPE_LINES_BODY_SHAPE
+} from "./role-body-shapes";
 import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
 
 /**
@@ -136,6 +138,30 @@ const ROLE_RESOURCE_TYPES: Record<RoleResourceType, true> = {
 };
 
 const RESOURCE_TYPE_NAMES = Object.keys(ROLE_RESOURCE_TYPES).sort().join(", ");
+
+/**
+ * The two arms a task assignment may take, as a Record over the SDK's own union.
+ *
+ * 🚨 THE `Record<…, true>` IS THE GATE, EXACTLY AS IT IS FOR THE RESOURCE TYPES
+ * ABOVE. An arm added to the SDK is a compile error until it is listed here; an
+ * arm removed is a `TS2353` on this object. That is the only thing binding the
+ * `--help` below to the shape the API actually accepts — and the help documented
+ * a `"person:<userId>"` string form that the API has never taken, for as long as
+ * nothing read both (NEX-3778).
+ */
+const ROLE_TASK_ASSIGNMENT_KINDS: Record<RoleTaskAssignmentInput["kind"], true> = {
+  person: true,
+  resource: true
+};
+
+/**
+ * Exported so `role.test.ts` can assert the `--help` INTERPOLATED these rather
+ * than restating them. A test spelling the arms out itself would be a third copy
+ * beside the schema and the help, which is the shape that produced NEX-3778.
+ */
+export const ASSIGNMENT_KIND_NAMES = Object.keys(ROLE_TASK_ASSIGNMENT_KINDS).sort().join(" and ");
+
+export { RESOURCE_TYPE_NAMES };
 
 function isRoleResourceType(value: string): value is RoleResourceType {
   return Object.prototype.hasOwnProperty.call(ROLE_RESOURCE_TYPES, value);
@@ -405,7 +431,8 @@ Two facts that decide whether a write does damage:
     attaching takes it off whatever Role held it, along with the access that
     Role's members had. The command prints which Role it came from.
   • A system in NO Role reaches nothing at runtime and reports no error. So
-    "role detach", and deleting a Role, are quiet disablings — not tidy-ups.`
+    "role detach", and deleting a Role, are quiet disablings — not tidy-ups.
+${ROLE_NAMESPACE_GAPS}`
   );
 
   // ── list ──────────────────────────────────────────────────────────────────
@@ -764,6 +791,7 @@ Notes:
 
   "not modelled" is NOT 0% and NOT 100%. An empty contributions list beside a
   populated unmodelledSystems list means nobody has modelled anything.
+${COVERAGE_REASON_VOCABULARY}
 ${COVERAGE_INPUTS_NOTE}`
     )
     .action(async (ref: string) => {
@@ -987,7 +1015,19 @@ Notes:
 
   A transfer is checked separately against the CURRENT owner: refused, it is a
   403 and NOTHING ELSE in the request is applied.
-  At least one field is required — an empty update is a 400.`
+
+  AN UNKNOWN FIELD IN --body IS DROPPED, NOT REFUSED. This body schema is not
+  strict, so a key it does not know is stripped before the write and the call
+  still answers success with that field unchanged — a typo looks like it worked.
+  Only name, jobDescription and ownerUserId exist here. The Role's currency, its
+  data-retention window, its paused state and its access card are NOT settable
+  through this command and sending them changes nothing.
+
+  A BODY CARRYING ONLY UNKNOWN KEYS ANSWERS "An update must change at least one
+  field", because after they are dropped there is nothing left. That 400 is the
+  one signal a field name was wrong — so it is worth sending a suspect key ALONE
+  once, rather than beside a real one that would mask it.
+  At least one field is required — an empty update is a 400 for that reason.`
     )
     .action(async (ref: string, opts) => {
       try {
@@ -2067,8 +2107,8 @@ Examples:
 
 Notes:
   --body IS REQUIRED because "parts" is a nested array of rate inputs and no
-  flag spelling of it is honest. Every field is required, including the
-  nullable ones: send null, never omit and never 0.
+  flag spelling of it is honest.
+${JOB_TYPE_BODY_SHAPE}
 
   null IS NOT ZERO. fte:null is a full contract; a null expression means "use
   the basis' built-in one"; an EMPTY STRING expression evaluates to zero, which
@@ -2077,19 +2117,6 @@ Notes:
   basis "CUSTOM" with costExpression null is REFUSED — CUSTOM has no built-in
   cost expression, so a null one would price every scope line quantifying this
   type at ZERO with no error on any read.
-
-  A type needs AT LEAST ONE part. Read an existing one with
-  "nexus role job-types --json" to copy the shape.
-
-  A PART'S RATE IS A TAGGED UNION, AND THE TAG IS THE WHOLE FIELD. There are
-  exactly two kinds:
-    "source": {"kind": "variable", "variable": "<part key>"}   resolved against
-      the ROLE's own variables at evaluation time — which is why one org-wide
-      job type prices differently in each Role
-    "source": {"kind": "fixed", "value": <number>}             a literal this
-      job type owns
-  There is no "constant", no "literal" and no "variableRef" — the last is a
-  database comment describing a design that never shipped.
 ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (opts) => {
@@ -2123,6 +2150,7 @@ Notes:
   A PUT OF THE WHOLE OBJECT. An omitted field is a validation error, not "leave
   it alone" — read the current row with "nexus role job-types --json", change
   what you mean, send it all back.
+${JOB_TYPE_BODY_SHAPE}
 
   A JOB TYPE IS SHARED ACROSS ROLES. REPRICED SCOPE LINES in the output is how
   many lines this write just repriced org-wide. That is the blast radius, and it
@@ -2169,10 +2197,19 @@ Examples:
 Notes:
   ORG-WIDE. A job type is shared across every Role, so this removes it from
   the library for all of them, not from the one you happen to be looking at.
-  ANY SCOPE LINE NAMING IT LOSES ITS PRICE MODEL, AND NOTHING SAYS WHICH. That
-  changes the job model's cost and hours on Roles this command never mentioned.
-  Run "nexus role scope-lines <role>" over the Roles that use it first.
-  No confirmation prompt, and no undo.
+
+  REFUSED WHILE ANYTHING STILL QUANTIFIES IT, AND NOTHING IS MODIFIED. A job
+  type that any scope line names is not deletable: the call answers 409 Conflict
+  and states how many scope lines still quantify it. No line loses its price
+  model and no row is touched — RoleScopeLine's key into the library is NO
+  ACTION, so the database refuses the delete whatever anything else does. Clear
+  those lines with "nexus role set-scope-lines" first, then delete.
+
+  THE COUNT IS ORG-WIDE AND NAMES NO ROLE. It is every scope line in the
+  organization, and the message cannot say which Roles hold them, so
+  "nexus role scope-lines <role>" per Role is still how you find them.
+
+  Once it IS deletable there is no confirmation prompt and no undo.
   Verify with "nexus role job-types" — the id is gone from the library.
 ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
@@ -2353,6 +2390,8 @@ Examples:
   $ nexus role set-scope-lines "Support" --body ./lines.json
 
 Notes:
+${SCOPE_LINES_BODY_SHAPE}
+
   THIS REPLACES THE WHOLE LIST. A line's identity is its index in the array, so
   anything absent from "lines" is DELETED. Read, modify, send the whole list
   back. { "lines": [] } removes every line and leaves the Role with no Scope.
@@ -2447,6 +2486,19 @@ Notes:
   sending null leaves every part referencing that key unresolved. Both are
   accepted and they price differently, so nothing downstream will tell you
   which you meant.
+
+  A VARIABLE CARRIES NO DIMENSION, AND A "dimension" KEY IS REFUSED BY NAME.
+  "unit" is free text for a human and nothing parses it. The DIMENSIONAL check —
+  multiply each term's exponents out and ask whether the result lands on money a
+  year — reads exponents nothing written here can carry, so it is unreachable
+  from this command however the variables are spelled.
+
+  THAT IS NOT "expressions are checked elsewhere and not here". Nothing on this
+  API parses one at all: a job type's costExpression, hoursExpression and
+  revenueExpression are infix STRINGS stored verbatim, so a malformed one is
+  accepted by every write here and fails only in the browser that evaluates it.
+  The dimensioned models the product DOES check are a different shape on a
+  different row, and they are authored in the dashboard.
 ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
@@ -2687,9 +2739,18 @@ Examples:
 Notes:
   A TASK ID IS DURABLE — a task saved with its id is updated in place and keeps
   it. AN ASSIGNMENT HAS NO ID ON THIS CONTRACT AT ALL, and that is enforced
-  rather than merely omitted: a payload carrying one is refused. The ARM is the
-  identity — "person:<userId>" or "<resourceType>:<resourceId>" — which is what
-  the database already makes unique per task. Key an assignment that way.
+  rather than merely omitted: a payload carrying one is refused. Its ARM is its
+  identity, and an arm is an OBJECT keyed by "kind" — ${ASSIGNMENT_KIND_NAMES}:
+
+    { "kind": "person",   "userId": "<user id>" }
+    { "kind": "resource", "resourceType": "agent", "resourceId": "<uuid>" }
+
+  A "resourceType" is one of these:
+    ${RESOURCE_TYPE_NAMES}
+
+  THERE IS NO "person:<userId>" STRING FORM, and sending one is refused. That
+  spelling is the DATABASE's uniqueness key on the assignment row, never the
+  wire.
 
   THE WRITE IS "set-tasks", AND IT REPLACES THE WHOLE LIST. Send each task's id
   back or that task is deleted and re-created, which takes its ticked duties with
@@ -2731,7 +2792,10 @@ Notes:
     .command("set-tasks")
     .description("REPLACE a Role's task list")
     .argument("<role>", "Role name or UUID")
-    .requiredOption("--body <json>", "{ tasks: [...] } as JSON, .json file, or '-' for stdin")
+    .requiredOption(
+      "--body <json>",
+      "{ tasks: [...] } — Notes name every key — as JSON, a .json file, or '-' for stdin"
+    )
     .addHelpText(
       "after",
       `
@@ -2740,6 +2804,28 @@ Examples:
   $ nexus role set-tasks "Support" --body ./tasks.json
 
 Notes:
+  THE BODY IS { "tasks": [ ... ] } AND A TASK IS:
+
+    { "id": "<uuid — OMIT to create>", "name": "Answer the phone",
+      "description": null, "occurrencesPerYear": null, "peoplePerYear": null,
+      "revenuePerYear": null, "assignments": [] }
+
+  Every key but "id" is required. null is how you say "nobody stated this" and
+  is NOT zero — a defaulted 0 prices unfinished work as free.
+
+  AN ASSIGNMENT IS AN OBJECT KEYED BY "kind" (${ASSIGNMENT_KIND_NAMES}), never a
+  "<type>:<id>" string:
+
+    { "kind": "person",   "userId": "<user id>" }
+    { "kind": "resource", "resourceType": "agent", "resourceId": "<uuid>" }
+
+  A "resourceType" is one of these:
+    ${RESOURCE_TYPE_NAMES}
+
+  A "kind" outside that pair is refused naming both of them; a "resourceType"
+  outside that list is refused naming the list. An assignment carries no id and
+  needs none: its arm is its identity.
+
   THIS REPLACES THE WHOLE LIST. Anything absent from "tasks" is DELETED and the
   answer is still a success. Read, modify, send the whole list back. The array
   index is the position, so a reorder is the same request with the elements
@@ -2750,8 +2836,6 @@ Notes:
   ticked duties attached — a re-minted id takes every tick with it. This is the
   single most expensive thing to get wrong here, and dropping the ids still
   answers success.
-
-  An ASSIGNMENT carries no id and needs none: its arm is its identity.
 
   Every id is checked against this Role and this organization first. A foreign
   task, person or system is refused with a COUNT, never the ids.`

@@ -55,17 +55,29 @@
  * REMOVING an entry is never how a build is fixed. A namespace whose flags stop
  * matching the contract is the exact event this ledger exists to catch.
  *
- * ── Why an explicit list and not a sweep over all 46 namespaces ─────────────
+ * ── Why an explicit list and not a sweep over every namespace ───────────────
  *
  * Because a sweep would be red from the first commit to the last and would be
  * deleted long before it went green — the reasoning `help-completeness.test.ts`
- * records for its own list. The ratio of this length to 46 is the progress.
+ * records for its own list.
  *
- * 46 is the commander tree's 64 top-level names MINUS the 18 hidden `upgrade`
- * aliases, which register no namespace of their own. Re-derive it rather than
- * trusting this sentence:
+ * 🚨 THE DENOMINATOR IS NOT WRITTEN DOWN HERE, AND THE REASON IS THAT IT WAS.
+ * This header said 46, derived as "64 top-level names MINUS the 18 hidden
+ * `upgrade` aliases". Both halves aged: `known-issues` landed, the tree went to
+ * 65 top-level names and 47 visible namespaces, and the sentence carried on
+ * reading like a measurement. Worse, the missing namespace was in NO list at
+ * all — so the ratio was wrong in the numerator too, and nothing said so.
  *
- *   tsx scripts/command-universe.ts --check-drift --json
+ * `test/unit/contract-blocked-audit.ts` now derives the whole partition and
+ * fails on a namespace that is in neither this ledger, nor
+ * `UNCONTRACTED_NAMESPACES`, nor a `BLOCKED_DESCRIPTORS` leaf. Read the ratio
+ * off it, never off a comment:
+ *
+ *   pnpm --filter @agent-nexus/cli exec tsx test/unit/contract-blocked-audit.ts
+ *
+ * The count of hidden aliases is likewise not stated anywhere that matters: the
+ * census filters with `isHiddenCommand`, so a nineteenth alias changes the
+ * output rather than falsifying a sentence.
  */
 
 /** One converted namespace and the `ZPublicApiV1` keys its leaves call. */
@@ -103,7 +115,8 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "DeploymentList",
       "DeploymentCreate",
       "DeploymentUpdate",
-      "DeploymentUpdateEmbedConfig"
+      "DeploymentUpdateEmbedConfig",
+      "DeploymentWhatsappTemplateAttach"
     ]
   },
   {
@@ -132,7 +145,12 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     namespace: "workflow",
-    descriptors: ["WorkflowList", "WorkflowNodeReplaceTrigger"]
+    descriptors: [
+      "WorkflowList",
+      "WorkflowNodeReplaceTrigger",
+      "WorkflowBatchExecute",
+      "WorkflowEdgeCreate"
+    ]
   },
   {
     namespace: "access-card",
@@ -147,7 +165,8 @@ export const GENERATED_NAMESPACE_LEDGER = [
     descriptors: [
       "ChannelConnectionCreate",
       "ChannelSetupAutoProvision",
-      "ChannelWhatsappTemplateApprovalSubmit"
+      "ChannelWhatsappTemplateApprovalSubmit",
+      "ChannelWhatsappTemplateCreate"
     ]
   },
   {
@@ -376,6 +395,15 @@ export const GENERATED_NAMESPACE_LEDGER = [
     // Binding the one leaf is the whole of what is derivable.
     namespace: "vibe",
     descriptors: ["VibeRegisterAppAsTool"]
+  },
+  {
+    // A ONE-LEAF NAMESPACE, AND IT WAS IN NO LIST AT ALL until the namespace
+    // partition became a gate — not this ledger, not UNCONTRACTED_NAMESPACES,
+    // and not BLOCKED_DESCRIPTORS. `KnownIssuesForRoute` declares no enum, so
+    // the blocked audit's population never reached it either: that audit
+    // polices enums and is total over DESCRIPTORS, never over namespaces.
+    namespace: "known-issues",
+    descriptors: ["KnownIssuesForRoute"]
   }
 ] as const satisfies readonly LedgerEntry[];
 

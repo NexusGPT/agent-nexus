@@ -136,6 +136,15 @@ export const DEPLOYMENT_UPDATE_EMBED_CONFIG__BODY_UI_CONTAINER_RADIUS = {
   ]
 } as const satisfies ContractEnum;
 
+export const DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH__BODY_TYPE = {
+  path: "DeploymentWhatsappTemplateAttach.Body.type",
+  contractValues: [
+    "template",
+    "card",
+    "carousel"
+  ]
+} as const satisfies ContractEnum;
+
 export const DEPLOYMENT_CREATE_CONTRACT = {
   name: "DeploymentCreate",
   method: "POST",
@@ -261,5 +270,41 @@ export const DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT = {
     { path: "Body.landingScreenFooterLinks[].url", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.localizedLandingScreenFooterLinks", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
     { path: "Body.identityVerificationEnabled", slot: "Body", type: "boolean", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH_CONTRACT = {
+  name: "DeploymentWhatsappTemplateAttach",
+  method: "POST",
+  route: "/public/v1/deployments/:deploymentId/whatsapp-templates",
+  fields: [
+    { path: "PathVars.deploymentId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.templateId", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.description", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.variables", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
+    { path: "Body.type", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["template", "card", "carousel"] },
+    { path: "Body.enableMultiLanguage", slot: "Body", type: "boolean", required: false, depth: 0 },
+    { path: "Body.templateGroup", slot: "Body", type: "object", required: false, depth: 0 },
+    { path: "Body.templateGroup.baseName", slot: "Body", type: "string", required: true, depth: 1 },
+    { path: "Body.templateGroup.availableLanguages", slot: "Body", type: "array", required: true, depth: 1 },
+    { path: "Body.templateGroup.availableLanguages[].language", slot: "Body", type: "string", required: true, depth: 2 },
+    { path: "Body.templateGroup.availableLanguages[].templateId", slot: "Body", type: "string", required: true, depth: 2 },
+    { path: "Body.templateGroup.defaultLanguage", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.enableDynamicSize", slot: "Body", type: "boolean", required: false, depth: 0 },
+    { path: "Body.carouselTemplateGroup", slot: "Body", type: "object", required: false, depth: 0 },
+    { path: "Body.carouselTemplateGroup.baseName", slot: "Body", type: "string", required: true, depth: 1 },
+    { path: "Body.carouselTemplateGroup.availableTemplates", slot: "Body", type: "array", required: true, depth: 1 },
+    { path: "Body.carouselTemplateGroup.availableTemplates[].language", slot: "Body", type: "string", required: true, depth: 2 },
+    { path: "Body.carouselTemplateGroup.availableTemplates[].carouselSize", slot: "Body", type: "integer", required: true, depth: 2 },
+    { path: "Body.carouselTemplateGroup.availableTemplates[].templateId", slot: "Body", type: "string", required: true, depth: 2 },
+    { path: "Body.carouselTemplateGroup.defaultLanguage", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.carouselTemplateGroup.minCarouselSize", slot: "Body", type: "integer", required: false, depth: 1 },
+    { path: "Body.carouselTemplateGroup.maxCarouselSize", slot: "Body", type: "integer", required: false, depth: 1 },
+    { path: "Body.singleItemCardTemplateId", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.singleItemCardTemplateGroup", slot: "Body", type: "object", required: false, depth: 0 },
+    { path: "Body.singleItemCardTemplateGroup.availableTemplates", slot: "Body", type: "array", required: true, depth: 1 },
+    { path: "Body.singleItemCardTemplateGroup.availableTemplates[].language", slot: "Body", type: "string", required: true, depth: 2 },
+    { path: "Body.singleItemCardTemplateGroup.availableTemplates[].templateId", slot: "Body", type: "string", required: true, depth: 2 }
   ]
 } as const satisfies ProjectedDescriptor;

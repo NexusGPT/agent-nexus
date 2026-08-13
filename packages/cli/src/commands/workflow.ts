@@ -14,6 +14,7 @@ import { runFollow, shortTag } from "../util/run-follow";
 import { parseSampleConfig } from "../util/sample-config";
 import { buildTestNodeBody, buildTestWorkflowBody, parseInputFlag } from "../util/test-body";
 import {
+  WORKFLOW_BATCH_EXECUTE_CONTRACT,
   WORKFLOW_LIST__PARAMS_STATUS,
   WORKFLOW_LIST_CONTRACT
 } from "./workflow.contract.generated";
@@ -626,7 +627,7 @@ Notes:
     });
 
   // ── batch ─────────────────────────────────────────────────────────────
-  workflow
+  const batch = workflow
     .command("batch")
     .description("Batch-create nodes, edges, and branches in a workflow")
     .argument("<id>", "Workflow ID")
@@ -735,6 +736,15 @@ Notes:
 
   // Bound LAST, after every option and after the hand-written prose.
   bindCommand(workflowList, WORKFLOW_LIST_CONTRACT);
+  // A pure `--body` command: `--body` IS the whole request, so both enums are
+  // genuinely reachable and neither has, or should have, a flag. The Notes above
+  // already name the six trigger types nowhere — they point at "workflow
+  // node-types" for node type names and say nothing about `triggerType` at all,
+  // so the contract block is the first place an operator can read either list.
+  bindCommand(batch, WORKFLOW_BATCH_EXECUTE_CONTRACT, {
+    "Body.edges[].type": "--body only; one type per edge, inside the edges array",
+    "Body.triggerType": "--body only; batch takes no flags but --body"
+  });
 
   // ── builder sub-commands (nodes, edges, branches) ────────────────────
   // `workflow trigger` lives there and binds itself to

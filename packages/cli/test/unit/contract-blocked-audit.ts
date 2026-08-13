@@ -76,11 +76,13 @@
 import { Command } from "commander";
 
 import { descriptorNames, projectDescriptor } from "../../scripts/v1-contract-projection";
+import { isHiddenCommand } from "../../src/command-universe";
 import {
   BLOCKED_DESCRIPTORS,
   type BlockedDescriptor,
   type BlockedReason,
-  GENERATED_NAMESPACES
+  GENERATED_NAMESPACES,
+  UNCONTRACTED_NAMESPACES
 } from "../../src/commands/contract-help.namespaces";
 import { boundArgument, boundCommand, boundOption } from "../../src/contract-binding";
 import {
@@ -129,6 +131,50 @@ export interface BlockedAudit {
   readonly violations: readonly string[];
   /** Leaves carrying an SDK call the scanner could not resolve to a route. */
   readonly unresolvedLeaves: number;
+  /** Every visible top-level namespace, and which list accounts for it. */
+  readonly namespaces: NamespaceCensus;
+}
+
+/**
+ * THE PARTITION OVER NAMESPACES, which is a different claim from the partition
+ * over descriptors and was made by nothing at all until now.
+ *
+ * `population` above is total over the descriptors a leaf CALLS AND THAT DECLARE
+ * AN ENUM. Both qualifiers are deliberate and both leave a namespace-shaped
+ * hole: a namespace whose only descriptor declares no enum never enters that
+ * population, so no arm of this module ever looks at it, and it is neither bound
+ * nor blocked nor complained about.
+ *
+ * 🚨 THAT IS NOT HYPOTHETICAL. `known-issues` shipped, called
+ * `KnownIssuesForRoute` through the SDK, declared no enum, and appeared in NO
+ * list — not the ledger, not `UNCONTRACTED_NAMESPACES`, not
+ * `BLOCKED_DESCRIPTORS`. The rollout ratio was being read as 39/46 while the
+ * tree had 47 visible namespaces, so the denominator was wrong and the missing
+ * one was invisible rather than merely unconverted.
+ *
+ * A namespace is accounted for three ways, and every one of them is a place a
+ * human wrote something down:
+ *
+ *   · the ledger converts it;
+ *   · `UNCONTRACTED_NAMESPACES` records that its leaves call no v1 route;
+ *   · a `BLOCKED_DESCRIPTORS` record names a leaf under it — which is how `model`
+ *     and `auth` are accounted for, both on `no-projected-fields`.
+ *
+ * HIDDEN COMMANDS ARE EXCLUDED, through `isHiddenCommand` rather than a name
+ * list. `upgrade` registers 18 hidden aliases that reinstall the running binary
+ * and register no namespace of their own; that is exactly why 65 top-level names
+ * are 47 namespaces, and hard-coding the number 18 here would make this gate
+ * silently wrong the day somebody adds a nineteenth.
+ */
+export interface NamespaceCensus {
+  /** Visible top-level command names, sorted. */
+  readonly visible: readonly string[];
+  readonly converted: readonly string[];
+  readonly uncontracted: readonly string[];
+  /** Accounted for only by a `BLOCKED_DESCRIPTORS` record naming one of its leaves. */
+  readonly blockedOnly: readonly string[];
+  /** In no list at all. MUST be empty. */
+  readonly unaccounted: readonly string[];
 }
 
 /**
@@ -291,6 +337,43 @@ function callGraph(nodes: readonly TreeNode[]): {
  * Returns rather than throws, so the census prints the same object the gate
  * asserts on and a red is readable before it is a stack trace.
  */
+/**
+ * Which list accounts for each visible top-level namespace.
+ *
+ * Exported so the gate can drive it against a SYNTHETIC tree. Asserting
+ * `unaccounted` is empty on the real CLI proves nothing on its own — an
+ * `isHiddenCommand` that returned true for everything, or a `visible` list that
+ * came back empty, would satisfy it perfectly.
+ */
+export function censusNamespaces(root: Command): NamespaceCensus {
+  const visible = root.commands
+    .filter((cmd) => cmd.name() !== "help" && !isHiddenCommand(cmd))
+    .map((cmd) => cmd.name())
+    .sort();
+
+  const converted = new Set(GENERATED_NAMESPACES.map((entry) => entry.namespace));
+  const uncontracted = new Set(UNCONTRACTED_NAMESPACES.map((entry) => entry.namespace));
+  // The leaf string is `"<namespace> <verb> …"`, sometimes with a trailing flag
+  // naming the branch. Only the first token is a namespace.
+  const blocked = new Set(
+    BLOCKED_DESCRIPTORS.map((entry) => entry.leaf.trim().split(/\s+/)[0]).filter(
+      (name) => name !== undefined && name !== ""
+    )
+  );
+
+  return {
+    visible,
+    converted: visible.filter((name) => converted.has(name)),
+    uncontracted: visible.filter((name) => uncontracted.has(name)),
+    blockedOnly: visible.filter(
+      (name) => !converted.has(name) && !uncontracted.has(name) && blocked.has(name)
+    ),
+    unaccounted: visible.filter(
+      (name) => !converted.has(name) && !uncontracted.has(name) && !blocked.has(name)
+    )
+  };
+}
+
 export function auditBlockedDescriptors(): BlockedAudit {
   const root = buildProgram();
   const nodes = walkTree(root);
@@ -317,13 +400,36 @@ export function auditBlockedDescriptors(): BlockedAudit {
     violations.push(...auditOne(entry, { root, bound, calledBy, enums }));
   }
 
+  // ── 6. EVERY VISIBLE NAMESPACE IS IN SOME LIST ─────────────────────────────
+  const namespaces = censusNamespaces(root);
+  for (const name of namespaces.unaccounted) {
+    violations.push(
+      `unaccounted namespace: "${name}" is in neither GENERATED_NAMESPACE_LEDGER, ` +
+        `UNCONTRACTED_NAMESPACES nor any BLOCKED_DESCRIPTORS leaf — convert it, or record ` +
+        `why the contract has nothing to say about it`
+    );
+  }
+  // The other direction, and it is the one that rots quietly: a record for a
+  // namespace that no longer exists excuses nothing and reads exactly like a
+  // live one.
+  const live = new Set(namespaces.visible);
+  for (const entry of UNCONTRACTED_NAMESPACES) {
+    if (!live.has(entry.namespace)) {
+      violations.push(
+        `dead namespace record: UNCONTRACTED_NAMESPACES names "${entry.namespace}", which is ` +
+          `no visible top-level command — it was renamed or removed`
+      );
+    }
+  }
+
   return {
     calledBy,
     population,
     bound: population.filter((name) => bound.has(name)),
     blocked: [...ledger.keys()].sort(),
     violations,
-    unresolvedLeaves
+    unresolvedLeaves,
+    namespaces
   };
 }
 
@@ -453,7 +559,17 @@ function auditOne(entry: BlockedDescriptor, ctx: AuditContext): string[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function renderAudit(audit: BlockedAudit): string {
+  const { namespaces } = audit;
   const lines: string[] = [];
+  lines.push(`visible top-level namespaces               : ${namespaces.visible.length}`);
+  lines.push(`  converted (ledger)                      : ${namespaces.converted.length}`);
+  lines.push(`  no v1 route at all                      : ${namespaces.uncontracted.length}`);
+  lines.push(
+    `  refused, per a BLOCKED_DESCRIPTORS record: ${namespaces.blockedOnly.length}` +
+      (namespaces.blockedOnly.length > 0 ? `  (${namespaces.blockedOnly.join(", ")})` : "")
+  );
+  lines.push(`  UNACCOUNTED                             : ${namespaces.unaccounted.length}`);
+  lines.push("");
   lines.push(`descriptors a leaf calls, carrying an enum : ${audit.population.length}`);
   lines.push(`  bound (generated help)                  : ${audit.bound.length}`);
   lines.push(`  blocked (BLOCKED_DESCRIPTORS)           : ${audit.blocked.length}`);

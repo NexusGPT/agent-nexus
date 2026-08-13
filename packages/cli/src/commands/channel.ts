@@ -15,7 +15,8 @@ import {
   CHANNEL_SETUP_AUTO_PROVISION__BODY_TYPE,
   CHANNEL_SETUP_AUTO_PROVISION_CONTRACT,
   CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT__BODY_CATEGORY,
-  CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT
+  CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT,
+  CHANNEL_WHATSAPP_TEMPLATE_CREATE_CONTRACT
 } from "./channel.contract.generated";
 
 const VARIABLE_PATTERN = /\{\{\d+\}\}/g;
@@ -577,7 +578,7 @@ Notes:
       }
     });
 
-  waTemplate
+  const waTemplateCreate = waTemplate
     .command("create")
     .description("Create a WhatsApp message template")
     .requiredOption("--connection-id <id>", "Messaging connection ID")
@@ -1072,4 +1073,21 @@ Notes:
   bindCommand(setup, CHANNEL_SETUP_AUTO_PROVISION_CONTRACT);
   bindCommand(connectionCreate, CHANNEL_CONNECTION_CREATE_CONTRACT);
   bindCommand(submitApproval, CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT);
+  // BOTH ENUMS SIT INSIDE THE TWILIO TYPES OBJECT, one array element deep, and
+  // `--body-file` supplies that object whole. There is no flag to give them: a
+  // carousel carries one action type PER ACTION PER CARD, so a `--type` could
+  // only ever set one of many.
+  //
+  // ⚠️ THIS LEAF'S `--body <text>` IS THE MESSAGE TEXT, NOT THE JSON BODY. The
+  // JSON arrives through `--body-file`. Both reasons say `--body-file` for that
+  // reason, and it is worth writing down: `contract-blocked-audit.ts` counts an
+  // option merely NAMED `body` as reaching every `Body.*` path, so this leaf
+  // read as reachable for a reason that was not the true one. A bodyOnly record
+  // is matched by exact path, so these two are now proved rather than assumed.
+  bindCommand(waTemplateCreate, CHANNEL_WHATSAPP_TEMPLATE_CREATE_CONTRACT, {
+    "Body.types.twilio/call-to-action.actions[].type":
+      "--body-file only; one type per action inside the call-to-action object",
+    "Body.types.twilio/carousel.cards[].actions[].type":
+      "--body-file only; one type per action per card inside the carousel object"
+  });
 }

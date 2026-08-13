@@ -25,6 +25,7 @@ import { registerExecutionCommands } from "./execution";
 import { registerExternalToolCommands } from "./external-tool";
 import { registerFolderCommands } from "./folder";
 import { registerHtmlMessageTemplateCommands } from "./html-message-template";
+import { registerKnownIssuesCommand } from "./known-issues";
 import { registerPermissionsCommands } from "./permissions";
 import { registerPhoneNumberCommands } from "./phone-number";
 import { registerPromptAssistantCommands } from "./prompt-assistant";
@@ -104,7 +105,7 @@ import { registerWorkspaceCommands } from "./workspace";
  * `.choices()` on options only; the sentence was never measured, it is false, and
  * it cost four descriptors their binding while reading exactly like a fact.
  *
- * TWO reasons genuinely block a descriptor today:
+ * ONE reason genuinely blocks a descriptor today:
  *
  *   · `no-flag-and-no-body` — the enum is a QUERY PARAMETER the CLI never sends,
  *     and there is no `--body` to reach it through. `customer list` sends no
@@ -120,10 +121,16 @@ import { registerWorkspaceCommands } from "./workspace";
  *     `Body.type`, and `deployment embed-config-update` for all seven of its
  *     enums. Reading the two as one shape leaves bindable descriptors on the
  *     floor, which is exactly what happened.
- *   · `open-union` — `tool connect --service` takes a built-in OAuth service
- *     name OR any Pipedream app slug, so `.choices()` would refuse valid input
- *     and `alsoAccepts` would have to enumerate thousands of slugs. Neither
- *     `enumOption` nor any list can express it. A permanent limit.
+ *
+ * 🚨 `open-union` HOLDS NO RECORD, AND THE EXAMPLE THIS TEXT USED TO GIVE FOR IT
+ * WAS NOT ONE. It read: "`tool connect --service` takes a built-in OAuth service
+ * name OR any Pipedream app slug, so `.choices()` would refuse valid input" — and
+ * `ToolConnectionConnect` projects exactly one field, `PathVars.toolId`, with no
+ * enum and no `service` at all. There was nothing to refuse and therefore nothing
+ * to block, which is why the census has always printed `open-union (0)` while
+ * this paragraph called it one of two live blocks. The reason stays in the union
+ * because an open set IS a real permanent limit; it simply does not describe
+ * anything in the contract today. Count it, never quote it.
  *
  * These are NOT blocks, and each was read as one at some point. Each now has a
  * reason of its own, so it is countable instead of being folded into a wall:
@@ -138,10 +145,15 @@ import { registerWorkspaceCommands } from "./workspace";
  *     `bindCommand` takes one shape. A DECISION already taken and argued at the
  *     call site — the default branch is bound because the two descriptors' enums
  *     are identical. Do not reopen it.
- *   · A NESTED OR ARRAY-OF-OBJECT BODY ENUM -> `reachable-not-yet-bound`.
- *     `judgeConfigs[].provider`, `filters[].op`, `edges[].type`. These need a
- *     `bodyOnly` REASON WRITTEN, not a decision taken, and they are the largest
- *     remaining group.
+ *   · A NESTED OR ARRAY-OF-OBJECT BODY ENUM -> `reachable-not-yet-bound`. This
+ *     was the largest remaining group and it is now EMPTY: `judgeConfigs[]
+ *     .provider` and `filters[].op` were bound with their namespaces, and
+ *     `channel whatsapp-template create`, `deployment template attach`,
+ *     `workflow batch` and `workflow edge create` — the last four — are bound
+ *     here. Each took a `bodyOnly` reason, or in `deployment template attach`'s
+ *     case one `enumOption` on a `--type` that already existed and validated
+ *     nothing. The reason stays in the union for the next namespace, because
+ *     "nobody got to it" must never be spellable as "it cannot be done".
  *
  * One shape stops a NAMESPACE rather than a descriptor: `no-projected-fields`.
  * `ModelList` is `GET /public/v1/models` with no path, query or body, so the
@@ -155,6 +167,17 @@ import { registerWorkspaceCommands } from "./workspace";
  * this one is the absence of any: a namespace whose leaves call no v1 route at
  * all. {@link UNCONTRACTED_NAMESPACES} records those, with the surface each one
  * calls instead.
+ *
+ * 🚨 THOSE THREE LISTS NOW HAVE TO COVER EVERY VISIBLE NAMESPACE, AND UNTIL
+ * RECENTLY NOTHING CHECKED THAT. `BLOCKED_DESCRIPTORS` is total over the
+ * descriptors a leaf CALLS AND THAT DECLARE AN ENUM — both qualifiers are
+ * deliberate, and together they leave a namespace-shaped hole. `known-issues`
+ * shipped through it: one leaf, one descriptor, no enum, and therefore no entry
+ * in the audit's population and no entry in any list here.
+ *
+ * `contract-blocked-audit.ts` derives the namespace partition too, and reds on
+ * one that is accounted for nowhere. Read the ratio off that census rather than
+ * off any sentence — the denominator moved the last time somebody wrote it down.
  */
 /**
  * Why a descriptor the CLI genuinely calls is NOT in the ledger.
@@ -290,33 +313,6 @@ export const BLOCKED_DESCRIPTORS: readonly BlockedDescriptor[] = [
     descriptor: "ChannelSetupGet",
     reason: "route-twin-bound-elsewhere",
     leaf: "channel setup",
-    unreachable: []
-  },
-  {
-    // Both enums live inside the Twilio Types object, which `--body-file` supplies
-    // whole. Two `bodyOnly` reasons away from binding.
-    descriptor: "ChannelWhatsappTemplateCreate",
-    reason: "reachable-not-yet-bound",
-    leaf: "channel whatsapp-template create",
-    unreachable: []
-  },
-  {
-    // `--type carousel` is already on this leaf and already hand-types the list.
-    descriptor: "DeploymentWhatsappTemplateAttach",
-    reason: "reachable-not-yet-bound",
-    leaf: "deployment template attach",
-    unreachable: []
-  },
-  {
-    descriptor: "WorkflowBatchExecute",
-    reason: "reachable-not-yet-bound",
-    leaf: "workflow batch",
-    unreachable: []
-  },
-  {
-    descriptor: "WorkflowEdgeCreate",
-    reason: "reachable-not-yet-bound",
-    leaf: "workflow edge create",
     unreachable: []
   }
 ];
@@ -461,7 +457,8 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   "task-eval": registerEvaluationCommands,
   customer: registerCustomerCommands,
   execution: registerExecutionCommands,
-  vibe: registerVibeCommands
+  vibe: registerVibeCommands,
+  "known-issues": registerKnownIssuesCommand
 };
 
 /**

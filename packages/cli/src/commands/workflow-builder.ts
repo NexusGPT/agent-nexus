@@ -16,6 +16,7 @@ import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import {
+  WORKFLOW_EDGE_CREATE_CONTRACT,
   WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE,
   WORKFLOW_NODE_REPLACE_TRIGGER_CONTRACT
 } from "./workflow.contract.generated";
@@ -437,7 +438,7 @@ Notes:
     .description("Manage workflow edges (connections between nodes)");
 
   // ── edge create ────────────────────────────────────────────────────────
-  edge
+  const edgeCreate = edge
     .command("create")
     .description("Create an edge between two nodes")
     .argument("<wf-id>", "Workflow ID")
@@ -966,4 +967,11 @@ Notes:
 
   // Bound LAST, after every option and after the hand-written prose.
   bindCommand(replaceTrigger, WORKFLOW_NODE_REPLACE_TRIGGER_CONTRACT);
+  // `--source`, `--target` and `--source-handle` have flags; `type` does not,
+  // and `--body` is the documented way to set it — the Examples above show
+  // exactly that (`--body '{"type":"rewind"}'`). So it is body-only by design
+  // rather than by omission, and the reason says which.
+  bindCommand(edgeCreate, WORKFLOW_EDGE_CREATE_CONTRACT, {
+    "Body.type": '--body only; the Examples show --body \'{"type":"rewind"}\''
+  });
 }

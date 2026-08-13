@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 
-import { BLOCKED_DESCRIPTORS } from "../../src/commands/contract-help.namespaces";
+import { Command } from "commander";
+
+import {
+  BLOCKED_DESCRIPTORS,
+  UNCONTRACTED_NAMESPACES
+} from "../../src/commands/contract-help.namespaces";
 import {
   auditBlockedDescriptors,
   BLOCKED_REASONS,
   type BlockedAudit,
+  censusNamespaces,
   renderAudit
 } from "./contract-blocked-audit";
 
@@ -77,6 +83,64 @@ test("every reason in the ledger is one the audit knows how to check", () => {
     (entry) => !(BLOCKED_REASONS as readonly string[]).includes(entry.reason)
   ).map((entry) => `${entry.descriptor}: ${entry.reason}`);
   assert.deepEqual(unknown, []);
+});
+
+test("every visible namespace is in some list", () => {
+  // 🚨 THE HOLE THIS CLOSES IS A NAMESPACE, NOT A DESCRIPTOR, and every other
+  // arm in this file is blind to it. The population above is total over the
+  // descriptors a leaf CALLS AND THAT DECLARE AN ENUM, so a namespace whose only
+  // descriptor declares no enum is examined by nothing.
+  //
+  // `known-issues` shipped exactly that way: it called `KnownIssuesForRoute`
+  // through the SDK, declared no enum, and appeared in no list at all — while
+  // the rollout ratio was being quoted as 39/46 against a tree of 47.
+  assert.deepEqual(audit.namespaces.unaccounted, [], `\n\n${renderAudit(audit)}\n`);
+});
+
+test("the namespace census is real, and its verdict is not vacuous", () => {
+  // The control for the arm above. A `visible` list that came back empty, or an
+  // `isHiddenCommand` that answered true for everything, would make it green
+  // over nothing.
+  const { visible, converted, uncontracted, blockedOnly, unaccounted } = audit.namespaces;
+  assert.ok(visible.length > 40, `only ${visible.length} visible namespaces — the walk broke`);
+  assert.equal(
+    converted.length + uncontracted.length + blockedOnly.length + unaccounted.length,
+    visible.length,
+    "the four buckets do not partition the visible namespaces"
+  );
+  assert.ok(converted.length > 0 && uncontracted.length > 0 && blockedOnly.length > 0);
+});
+
+test("the census FIRES on an unaccounted namespace, and skips a hidden one", () => {
+  // Driven against a synthetic tree, because the assertion above can only ever
+  // observe the real CLI passing. A gate never seen to fail is not a gate.
+  const probe = new Command();
+  probe.command("agent"); // in the ledger
+  probe.command("upgrade"); // in UNCONTRACTED_NAMESPACES
+  probe.command("model"); // accounted for by a BLOCKED_DESCRIPTORS leaf
+  probe.command("brand-new-thing"); // in nothing
+  probe.command("secret-alias", { hidden: true }); // in nothing, and invisible
+
+  const census = censusNamespaces(probe);
+  assert.deepEqual(census.converted, ["agent"]);
+  assert.deepEqual(census.uncontracted, ["upgrade"]);
+  assert.deepEqual(census.blockedOnly, ["model"]);
+  // The hidden one must NOT appear: `upgrade` registers 18 hidden aliases, and a
+  // census counting those would be red on a correct tree.
+  assert.deepEqual(census.unaccounted, ["brand-new-thing"]);
+  assert.ok(!census.visible.includes("secret-alias"));
+});
+
+test("every UNCONTRACTED_NAMESPACES record names a command that exists", () => {
+  // The opposite rot: a record for a namespace that was renamed or removed
+  // excuses nothing and reads exactly like a live one. Asserted through the
+  // audit's own violations, so the census and the gate cannot disagree.
+  const live = new Set(audit.namespaces.visible);
+  const dead = UNCONTRACTED_NAMESPACES.filter((entry) => !live.has(entry.namespace));
+  assert.deepEqual(
+    dead.map((entry) => entry.namespace),
+    []
+  );
 });
 
 test("the audit's reach is bounded and does not silently shrink", () => {

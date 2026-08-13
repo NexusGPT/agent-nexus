@@ -389,12 +389,15 @@ Notes:
   same envelope. Prefer external-tool execute when you are already working in
   that namespace; nothing here is refused for being a custom manifest.
 
-  IT RUNS UNDER THE CREDENTIAL'S FULL AUTHORITY, WITH NO ACCESS CARD APPLIED.
-  This route is deliberately unscoped: it does not filter your parameters and it
-  does not enforce the policy an agent or a workflow goes through. Naming an
-  accessCardId in --body does not scope the call — it is REFUSED with a 403,
-  rather than honoured, so nobody can believe a call was delegated when it was
-  not. Route work that must be scoped through an agent or a workflow instead.`
+  AN UNNAMED CALL STILL RUNS UNDER THE CREDENTIAL'S FULL AUTHORITY. Omitting
+  accessCardId resolves the credential's MASTER card, and a master card permits
+  every action the credential can perform and filters no parameter — so this
+  command, used as the examples above use it, is unscoped.
+
+  Naming accessCardId in --body is what scopes it, and it is HONOURED rather
+  than refused: the card must belong to the credential being spent, and its
+  policy decides which action and which parameters survive. A refusal is a 403
+  naming what it refused. "nexus access-card list" shows the cards you can name.`
     )
     .action(async (id: string, opts) => {
       try {

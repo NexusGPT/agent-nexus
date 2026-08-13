@@ -24,7 +24,9 @@ import {
   DEPLOYMENT_LIST__PARAMS_TYPE,
   DEPLOYMENT_LIST_CONTRACT,
   DEPLOYMENT_UPDATE_CONTRACT,
-  DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT
+  DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT,
+  DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH__BODY_TYPE,
+  DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH_CONTRACT
 } from "./deployment.contract.generated";
 
 /**
@@ -820,7 +822,7 @@ Notes:
       }
     });
 
-  depTemplate
+  const templateAttach = depTemplate
     .command("attach")
     .description("Attach a WhatsApp template to a deployment")
     .argument("<deploymentId>", "Deployment ID")
@@ -831,7 +833,16 @@ Notes:
       "--variables <json>",
       'Variables JSON: {"1":{"description":"Name","isBodyVariable":true}}'
     )
-    .option("--type <type>", "Template type: template, card, or carousel", "template")
+    // The list used to be typed into the description, where nothing checked it
+    // and nothing refused a fourth value. Commander prints the choices itself,
+    // so repeating them here would be a second copy to go stale.
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "Template type",
+        DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH__BODY_TYPE
+      ).default("template")
+    )
     .option("--enable-multi-language", "Enable multi-language support")
     .option("--enable-dynamic-size", "Enable dynamic carousel size (carousel only)")
     .option(
@@ -1156,4 +1167,10 @@ Notes:
     "Body.uiRadius": "--body only; embed-config-update takes no flags at all",
     "Body.uiContainerRadius": "--body only; embed-config-update takes no flags at all"
   });
+  // Its one enum, `Body.type`, is on `--type` above, so this needs no bodyOnly
+  // exemption. What the binding adds beyond the enum is the 28-field shape: the
+  // three nested template-group objects reach the operator only as `--*-group
+  // <json>`, and `--print-contract` is now the only place their keys are
+  // written down.
+  bindCommand(templateAttach, DEPLOYMENT_WHATSAPP_TEMPLATE_ATTACH_CONTRACT);
 }

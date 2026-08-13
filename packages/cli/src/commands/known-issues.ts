@@ -1,8 +1,10 @@
 import type { Command } from "commander";
 
 import { createClient } from "../client";
+import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { color, isJsonMode, printTable } from "../output";
+import { KNOWN_ISSUES_FOR_ROUTE_CONTRACT } from "./known-issues.contract.generated";
 
 /**
  * `nexus known-issues <route-id>` — what is known to be broken on one command.
@@ -32,7 +34,7 @@ import { color, isJsonMode, printTable } from "../output";
  * which `JSON.parse` refuses and a script silently truncates.
  */
 export function registerKnownIssuesCommand(program: Command): void {
-  program
+  const knownIssues = program
     .command("known-issues")
     .description("Show the platform issues published against a CLI route")
     .argument("<route-id>", "Dotted route id of the command, e.g. workflow.node.test")
@@ -110,4 +112,11 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // Bound LAST, after the hand-written prose, so the generated reference lands
+  // below the Notes. `Params.route` is this descriptor's only field and the
+  // positional above fills it, so there is no enum here and nothing to declare
+  // body-only — what the binding buys is `--print-contract` and a --help block
+  // naming the route the SDK actually calls.
+  bindCommand(knownIssues, KNOWN_ISSUES_FOR_ROUTE_CONTRACT);
 }

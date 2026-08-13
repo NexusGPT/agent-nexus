@@ -1,5 +1,138 @@
 # @agent-nexus/cli
 
+## 0.23.0
+### Minor Changes
+
+- 67920d3: A Role's task list and its duty ticks are writable over the Public API v1.
+  
+  Three routes ship with SDK methods and CLI commands: `replaceTasks`
+  (`nexus role set-tasks`), `listTaskDuties` (`nexus role task-duties`) and
+  `replaceTaskDuties` (`nexus role set-task-duties`).
+  
+  Send each task's `id` back on a replace. A named task is updated in place and
+  keeps its id; one without an id is created; one the body omits is deleted. The id
+  is what keeps that task's ticked duties attached, and dropping it still answers
+  success.
+
+### Patch Changes
+
+- d5f2a6d: The CLI no longer installs over itself unless you pass `--auto-update`.
+  
+  A self-update broke working installs mid-session. `pnpm add -g` writes a NEW hash directory
+  under `<pnpm home>/global/v11/` and relinks the global bin shim; the CLI ran that install from
+  inside the directory being replaced, through `execSync` with a 60-second SIGTERM ceiling. An
+  install cut off at that ceiling leaves the shim resolving to a directory that no longer exists,
+  and every later invocation dies with `Cannot find module '.../@agent-nexus/cli/dist/index.js'`
+  until the user reinstalls by hand. Reported four or more times in a single session, with the
+  version advancing on its own across reinstalls.
+  
+  **Nothing in this package can repair that state, and that is why the default moved rather than
+  a recovery path being added.** The failure is in Node's module resolution, so it happens before
+  the first line of this code runs — `--no-auto-update` cannot help either, which was the
+  reporter's own complaint. The CLI also cannot make the swap atomic: it does not own the shim and
+  does not control the order in which the package manager replaces the directory it is executing
+  from.
+  
+  So the risk is simply not taken unasked. Without a flag you get one line naming the newer
+  version and the command that installs it — the same notice the CLI already printed under
+  `--no-auto-update`, `NEXUS_NO_AUTO_UPDATE` or in CI. `--auto-update` opts back in;
+  `--no-auto-update` keeps working, so a script that passes it is unaffected.
+  
+  This is a judgement about a shipped default, and it is stated so it can be reversed
+  deliberately: the updater delivers a version bump nobody asked for, and it has now produced two
+  tickets — one for adding 18 to 120 seconds to every invocation, one for bricking the tool
+  mid-session. The notice delivers the same information and cannot break an install.
+  
+  The mechanism is one commander subtlety and it regresses silently: a lone `--no-x` carries an
+  implicit default of `true`, and declaring the positive `--x` beside it is what removes that
+  default. Deleting the `--auto-update` line reads like tidying a redundant flag and would turn
+  the updater back on for everyone, so a test derives both flag declarations from `index.ts` and
+  asserts the resolved value rather than the presence of a line.
+- 11dd25f: `prompt-assistant chat` reaches the server again, and the global `--timeout` governs its wait.
+  
+  Every invocation of `nexus prompt-assistant chat` aborted before its request left the machine,
+  in both `--mode agent` and `--mode ai-task`, on every published version that carried the
+  command. The output named a wait it never performed:
+  
+  ```
+  (node:XXXXX) TimeoutOverflowWarning: 7200000000 does not fit into a 32-bit signed integer.
+  Timeout duration was set to 1.
+  The request was still running after 7200000s, so the CLI stopped waiting…
+  ```
+  
+  `createClient({ timeout })` takes SECONDS — the unit of the global `--timeout <seconds>` flag it
+  is spread from — and converts once, on the way to the transport. The command handed it a
+  constant named `PROMPT_ASSISTANT_TIMEOUT_MS`, already two hours in milliseconds, so the value
+  was multiplied by 1000 a second time. Node clamps a `setTimeout` delay past 2^31-1 ms **to
+  1 ms**, warning only on stderr, so the abort fired immediately and then reported itself as a
+  timeout after the 7,200,000 seconds it had not waited.
+  
+  The same call also pinned that value unconditionally, after the spread that carried the flag.
+  So `--timeout` changed nothing, while the CLI's own error told the user to raise it — a false
+  instruction in shipped output, and the reason the defect had no workaround.
+  
+  Three changes, at the boundary rather than at the symptom:
+  
+  - the command's default is `PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS`, in the unit the
+    parameter takes, and falls back to it only when `--timeout` is absent — the shape
+    `task execute` already used;
+  - `timeoutSecondsToMs` and `parseTimeoutSeconds` REFUSE a value past Node's timer ceiling and
+    say so, naming the likely cause. A clamp to 24.8 days would be indistinguishable from
+    working; an instant abort was indistinguishable from a slow server;
+  - `chat --help` derives both of its waits from the constants, so the poll's five minutes and
+    the request's two hours cannot drift from the code.
+  
+  No unit crossed a boundary unlabelled anywhere else: the other six `timeout` wirings in the CLI
+  all convert through `timeoutSecondsToMs` or name a `*_MS` constant, and a source gate now holds
+  that convention in both directions.
+- 2a1fc22: `nexus role tasks --help` names the write verb instead of denying it.
+  
+  The note read `READ-ONLY TODAY. There is no "set-tasks"` while `set-tasks` was
+  defined thirty lines below it in the same file. An operator reading the help was
+  told the write did not exist, so the sentence sent them looking for an API the
+  CLI already exposed.
+  
+  It was also silent on the consequence that matters. `PUT /roles/:id/tasks`
+  replaces the whole list: a task sent without its `id` is deleted and re-created,
+  and `RoleTaskResponsibility.taskId` cascades, so that task's ticked duties go
+  with it — at 200 OK, with a correct-looking body and nothing in a log. The help
+  now says to send each task's id back, and says what dropping it costs.
+  
+  The claim rotted because no assertion held it. `role.test.ts` now asserts both
+  halves — that the help names `set-tasks`, and that it carries the id
+  consequence — so restoring the stale sentence reds a test rather than passing
+  review as tidying.
+- a900658: A millisecond number can no longer reach a parameter that means seconds.
+  
+  `createClient`'s `timeout` is SECONDS and every transport under it is milliseconds. Both were
+  `number`, so nothing stopped a constant named `PROMPT_ASSISTANT_TIMEOUT_MS` crossing that
+  boundary. It was multiplied by 1000 a second time, overflowed Node's 32-bit timer, was clamped
+  to 1 ms, and aborted every `prompt-assistant chat` before the request left the machine. The
+  docblock on that parameter already said SECONDS and was already right — a docblock is not a
+  check.
+  
+  The option is now typed `Seconds`, a branded number with exactly one way in: `seconds(...)`.
+  Calling it is the moment somebody states the unit out loud. Passing a plain number does not
+  compile.
+  
+  Nothing else had to change. `createClient(program.optsWithGlobals())` — the shape at the great
+  majority of call sites — still compiles, because commander types its option bag with an `any`
+  index signature. That is also the brand's honest limit: `globals.timeout ?? SOME_MS_CONSTANT`
+  is `any` and slips through, so the type does not subsume the source gate that already refuses a
+  `*_MS` identifier in the seconds slot and requires a command default to keep reading
+  `globals.timeout`. The two overlap on purpose. The type catches what a name cannot — an unnamed
+  literal like `7_200_000` — and it fires in the editor rather than after a push, which is the
+  half that matters for a branch months behind staging.
+  
+  Deliberately NOT built: a repo-wide rule against an explicit key set after a spread of user
+  options, the shape that made `--timeout` unoverridable. Measured before deciding — across
+  `packages/cli`, `packages/sdk`, `packages/types` and `apps/backend` the pattern has 23
+  instances, of which 21 are ordinary correct code like
+  `{ ...this.attributionColumns(options.attribution), status: "IN_PROGRESS" }`. Only 2 sites
+  involve user flags at all and both are already correct. A gate there would be roughly 91% false
+  positives on a shape that is normal everywhere else, and a guard that cries wolf is switched off
+  within a day.
+
 ## 0.22.1
 ### Patch Changes
 

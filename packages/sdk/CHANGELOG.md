@@ -1,5 +1,19 @@
 # @agent-nexus/sdk
 
+## 0.14.0
+### Minor Changes
+
+- 67920d3: A Role's task list and its duty ticks are writable over the Public API v1.
+  
+  Three routes ship with SDK methods and CLI commands: `replaceTasks`
+  (`nexus role set-tasks`), `listTaskDuties` (`nexus role task-duties`) and
+  `replaceTaskDuties` (`nexus role set-task-duties`).
+  
+  Send each task's `id` back on a replace. A named task is updated in place and
+  keeps its id; one without an id is created; one the body omits is deleted. The id
+  is what keeps that task's ticked duties attached, and dropping it still answers
+  success.
+
 ## 0.13.0
 ### Minor Changes
 

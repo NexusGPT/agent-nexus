@@ -1,7 +1,7 @@
 import type { CreateTaskBody, ExecuteTaskBody, UpdateTaskBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
-import { createClient } from "../client";
+import { createClient, seconds } from "../client";
 import { handleError } from "../errors";
 import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
@@ -13,7 +13,7 @@ import { resolveInputValue } from "../util/stdin";
  * server keeps processing after the client gives up — so this command waits
  * far longer by default. An explicit global `--timeout` still wins.
  */
-const EXECUTE_DEFAULT_TIMEOUT_SECONDS = 600;
+const EXECUTE_DEFAULT_TIMEOUT_SECONDS = seconds(600);
 
 export function registerTaskCommands(program: Command): void {
   const task = program.command("task").description("Manage AI tasks");

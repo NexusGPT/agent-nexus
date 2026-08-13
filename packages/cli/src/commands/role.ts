@@ -2488,9 +2488,10 @@ Notes:
   identity — "person:<userId>" or "<resourceType>:<resourceId>" — which is what
   the database already makes unique per task. Key an assignment that way.
 
-  READ-ONLY TODAY. There is no "set-tasks" and no graduation verb, and the two
-  absences differ: the write is deferred to its own slice, the graduation is
-  refused outright. The public contract carries both reasons.
+  THE WRITE IS "set-tasks", AND IT REPLACES THE WHOLE LIST. Send each task's id
+  back or that task is deleted and re-created, which takes its ticked duties with
+  it. There is still no graduation verb: that one is refused outright rather than
+  merely absent, and the public contract carries the reason.
 
   ASSIGNMENTS carry the ids they point AT and no display names. Resolve a person
   with "nexus role members" and a system with "nexus role systems".`

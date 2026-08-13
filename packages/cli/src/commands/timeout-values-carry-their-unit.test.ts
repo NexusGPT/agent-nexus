@@ -29,6 +29,21 @@ import { describe, expect, it } from "vitest";
  *
  * So a `*_MS` constant in the seconds slot, or a `*_SECONDS` constant in a
  * millisecond slot, is a build failure rather than a silent instant abort.
+ *
+ * 🔴 THIS GATE IS NOT MADE REDUNDANT BY THE BRANDED `Seconds` TYPE, and deleting
+ * it because the type exists would reopen half the class.
+ *
+ * Commander types its option bag with an `any` index signature, so
+ * `globals.timeout ?? SOME_MS_CONSTANT` is `any` and satisfies the brand
+ * silently — the type cannot see it. This scan can, because it reads the NAME.
+ * The type covers what a name cannot: an unnamed literal such as `7_200_000`,
+ * which no naming rule will ever match. Neither instrument subsumes the other,
+ * and only this one enforces the third rule at all — that a command default
+ * keeps reading `globals.timeout`, so the CLI's own error hint stays true.
+ *
+ * The type also fires in the editor while this fires in CI. Both matter; they
+ * reach different people at different moments. See
+ * `../timeout-unit-is-in-the-type.test.ts`.
  */
 
 const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

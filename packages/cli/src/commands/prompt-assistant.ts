@@ -1,7 +1,7 @@
 import type { NexusClient, PromptAssistantChatBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
-import { createClient } from "../client";
+import { createClient, seconds } from "../client";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
@@ -19,7 +19,7 @@ import { resolveInputValue } from "../util/stdin";
  * to 1 ms, and aborts every chat before the request leaves the machine
  * (NEX-3707). `timeoutSecondsToMs` now refuses such a value outright.
  */
-const PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS = 2 * 60 * 60;
+const PROMPT_ASSISTANT_DEFAULT_TIMEOUT_SECONDS = seconds(2 * 60 * 60);
 
 /** Poll interval when waiting for the backend to finish processing (2 s). */
 const POLL_INTERVAL_MS = 2_000;

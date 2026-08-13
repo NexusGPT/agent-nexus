@@ -4,6 +4,38 @@ import { InvalidArgumentError } from "commander";
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "./config";
 
 /**
+ * A number that has been STATED to be in seconds.
+ *
+ * `createClient`'s timeout is seconds and every transport under it is
+ * milliseconds. Both are `number`, so nothing stopped a constant named
+ * `PROMPT_ASSISTANT_TIMEOUT_MS` crossing that boundary — it was multiplied by
+ * 1000 a second time, overflowed Node's 32-bit timer, and aborted every
+ * request instantly (NEX-3707). The docblock saying SECONDS was already there
+ * and was already right; a docblock is not a check.
+ *
+ * The brand makes the unit part of the TYPE, so a plain millisecond number can
+ * no longer be passed where seconds are expected. It fires in the editor,
+ * which matters more than a CI gate here: the branch that reproduced this
+ * defect four times over is months behind staging and its author will meet the
+ * error at the line rather than after a push.
+ *
+ * A brand cannot be constructed by accident — `seconds()` is the only way in,
+ * and calling it is the moment somebody states the unit out loud.
+ */
+export type Seconds = number & { readonly __brand: unique symbol };
+
+/**
+ * State that a number is in seconds.
+ *
+ * Deliberately unvalidated beyond finiteness: `timeoutSecondsToMs` owns the
+ * range refusal, and duplicating it here would put two ceilings in the code
+ * that could disagree.
+ */
+export function seconds(value: number): Seconds {
+  return value as Seconds;
+}
+
+/**
  * The largest delay Node's timers accept: 2^31 - 1 ms, about 24.8 days.
  *
  * Every timeout this CLI builds ends in `setTimeout(() => controller.abort(),
@@ -24,18 +56,21 @@ export const MAX_TIMEOUT_SECONDS = Math.floor(MAX_TIMEOUT_MS / 1000);
  * seconds (fractions allowed); rejects everything else at parse time so a typo
  * fails fast instead of silently falling back to the default timeout.
  */
-export function parseTimeoutSeconds(raw: string): number {
-  const seconds = Number(raw);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
+export function parseTimeoutSeconds(raw: string): Seconds {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new InvalidArgumentError("--timeout must be a positive number of seconds.");
   }
-  if (seconds > MAX_TIMEOUT_SECONDS) {
+  if (parsed > MAX_TIMEOUT_SECONDS) {
     throw new InvalidArgumentError(
       `--timeout must be at most ${MAX_TIMEOUT_SECONDS} seconds; a longer timer overflows ` +
         `Node's 32-bit delay and aborts the request immediately instead of waiting.`
     );
   }
-  return seconds;
+  // Minted through the helper rather than cast, so `seconds()` stays the ONE
+  // construction site for the brand. The local was called `seconds` and shadowed
+  // it, which is what forced a second cast here.
+  return seconds(parsed);
 }
 
 /**
@@ -83,8 +118,12 @@ export function createClient(opts?: {
   apiKey?: string;
   baseUrl?: string;
   profile?: string;
-  /** Timeout in SECONDS (the unit of the global `--timeout` flag), not ms. */
-  timeout?: number;
+  /**
+   * Timeout in SECONDS — the unit of the global `--timeout` flag this is
+   * usually spread from. Typed as `Seconds` so a millisecond value cannot be
+   * passed here at all; mint one with `seconds(...)`.
+   */
+  timeout?: Seconds;
 }): NexusClient {
   const resolved = resolveProfile(opts);
   _lastResolved = resolved;

@@ -29,7 +29,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { deleteCredential } = vi.hoisted(() => ({ deleteCredential: vi.fn() }));
 
-vi.mock("../client", () => ({
+// Derived from the real module rather than enumerated. A hand-written factory
+// is a DECLARATION LIST — it covers what someone typed, never what `../client`
+// actually exports — so adding an export there breaks every consumer of the
+// mock. That is how this file went red when `seconds()` was added: it registers
+// the prompt-assistant commands, which import it. Spreading the real module
+// first means a new export cannot break this again.
+vi.mock("../client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../client")>()),
   createClient: () => ({
     credentials: { delete: deleteCredential }
   })

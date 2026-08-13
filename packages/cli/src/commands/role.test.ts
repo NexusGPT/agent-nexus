@@ -1696,6 +1696,20 @@ describe("the help text carries the trap, not a summary of it", () => {
     expect(help).toContain("requestId");
   });
 
+  it("tasks names the write verb rather than denying it, and says an id must go back", () => {
+    const help = renderHelp(["role", "tasks"]);
+
+    // This note read `There is no "set-tasks"` for as long as `set-tasks` had
+    // existed — 30 lines below it in the same file — because no assertion held
+    // it. The sentence a reader acts on is the one that goes stale silently, so
+    // the correction is worth nothing without this test underneath it.
+    expect(help).toContain("set-tasks");
+    expect(help).not.toContain('There is no "set-tasks"');
+    // The consequence, not just the verb: a caller who drops the ids is told
+    // success while the duty ticks are cascaded away.
+    expect(help).toContain("Send each task's id");
+  });
+
   it("delete says pending means the Role is still there, in the machine's words too", () => {
     const help = renderHelp(["role", "delete"]);
 

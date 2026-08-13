@@ -20,8 +20,94 @@ export interface HttpClientOptions {
   fetch?: typeof globalThis.fetch;
   /** Additional headers sent with every request. */
   defaultHeaders?: Record<string, string>;
-  /** Request timeout in milliseconds (default 30 000). */
+  /** Request timeout in milliseconds (default 30 000). Applies to EACH attempt. */
   timeout?: number;
+  /**
+   * How many times a transient failure may be replayed, on top of the first
+   * attempt. Default {@link DEFAULT_MAX_RETRIES}; `0` disables retrying.
+   *
+   * Only requests whose method is idempotent are ever replayed — see
+   * {@link IDEMPOTENT_METHODS}.
+   */
+  maxRetries?: number;
+  /** Base backoff in milliseconds (default {@link DEFAULT_RETRY_BASE_DELAY_MS}). */
+  retryBaseDelayMs?: number;
+  /**
+   * Injectable sleep, so a test does not have to wait out the backoff. Defaults
+   * to a real timer. Not part of the API surface a caller is expected to use.
+   */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Methods a retry cannot add an effect to.
+ *
+ * This set is the whole safety argument for retrying at all, so it is
+ * deliberately narrow. HTTP defines GET/HEAD/OPTIONS/PUT/DELETE as idempotent:
+ * replaying one lands the caller in the same state as sending it once, whether
+ * or not the first attempt reached the server.
+ *
+ * **POST and PATCH are absent on purpose and must stay absent.** A 502 from an
+ * edge proxy cannot distinguish "no healthy upstream, the request was never
+ * forwarded" from "the upstream applied it and the connection died before the
+ * response came back". Replaying a POST on the second reading duplicates its
+ * effect. `POST /emulator/:id/sessions/:id/messages` is the worked example: it
+ * writes a message and starts an agent turn, so an automatic retry would post
+ * the user's message twice and bill two model calls — strictly worse than
+ * surfacing the error. A POST that needs to survive this needs an idempotency
+ * key on the wire, which this API does not have.
+ */
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PUT",
+  "DELETE"
+]);
+
+/**
+ * Statuses that mean "the edge could not reach a healthy upstream right now".
+ *
+ * All three are produced by the proxy in front of the API rather than by the
+ * application, which is why the body is typically HTML and never the v1 error
+ * envelope. They are the signature of a rolling deploy: a request in flight on a
+ * pod that is being replaced comes back as one of these, seconds into a call
+ * that normally succeeds.
+ *
+ * 500 is NOT here. An application-level failure is deterministic often enough
+ * that replaying it just triples the load, and it carries a real error body the
+ * caller should see.
+ */
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
+/** Retries on top of the first attempt. Three attempts total. */
+const DEFAULT_MAX_RETRIES = 2;
+
+/** First backoff step; each subsequent retry doubles it. */
+const DEFAULT_RETRY_BASE_DELAY_MS = 250;
+
+/** Upper bound on a single backoff, so a large `maxRetries` cannot stall a CLI. */
+const MAX_RETRY_DELAY_MS = 5_000;
+
+/**
+ * Full-jitter exponential backoff: a uniform draw from `[0, base * 2^n]`,
+ * capped.
+ *
+ * Jittered rather than fixed because every client that failed did so for the
+ * same reason at the same instant — a synchronised retry would hit the
+ * recovering upstream as one wave. Drawing from zero spreads them out.
+ *
+ * @param attempt - 1 for the first retry, 2 for the second, and so on.
+ * @param baseDelayMs - The first step.
+ * @param random - Injectable source, so a test can pin the delay.
+ */
+export function retryDelayMs(
+  attempt: number,
+  baseDelayMs: number,
+  random: () => number = Math.random
+): number {
+  const ceiling = Math.min(baseDelayMs * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
+  return Math.floor(random() * ceiling);
 }
 
 /** Options for a single HTTP request. */
@@ -145,6 +231,9 @@ export class HttpClient {
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly defaultHeaders: Record<string, string>;
   private readonly timeout: number;
+  private readonly maxRetries: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(opts: HttpClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -152,6 +241,71 @@ export class HttpClient {
     this.fetchFn = opts.fetch ?? globalThis.fetch;
     this.defaultHeaders = opts.defaultHeaders ?? {};
     this.timeout = opts.timeout ?? 30_000;
+    this.maxRetries = Math.max(0, opts.maxRetries ?? DEFAULT_MAX_RETRIES);
+    this.retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
+    this.sleep =
+      opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  }
+
+  /**
+   * Perform one attempt: fetch under the per-attempt timeout, mapping a
+   * transport failure onto the SDK's own error types.
+   */
+  private async attempt(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      return await this.fetchFn(url, { ...init, signal: controller.signal });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new NexusTimeoutError(this.timeout);
+      }
+      throw new NexusConnectionError(
+        err instanceof Error ? err.message : "Network request failed",
+        err instanceof Error ? err : undefined
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Send a request, replaying a transient failure when — and only when — the
+   * method is idempotent.
+   *
+   * Retryable in two ways, and both need to be here rather than at the call
+   * sites: a proxy status ({@link RETRYABLE_STATUSES}), which arrives as an
+   * ordinary `Response`, and a dropped connection, which arrives as a thrown
+   * {@link NexusConnectionError}.
+   *
+   * A {@link NexusTimeoutError} is deliberately NOT retried even though it is a
+   * subclass of the connection error. The caller stated a deadline; spending it
+   * two more times over is not what they asked for, and unlike a 502 the server
+   * may still be processing the request.
+   *
+   * A discarded 502 has its body cancelled before the next attempt. Node pins
+   * the connection in the undici pool until a body is consumed or cancelled, so
+   * dropping the response object on the floor leaks one socket per retry —
+   * invisible to every gate, and worst under exactly the load that triggers a
+   * retry in the first place.
+   */
+  private async send(method: string, url: string, init: RequestInit): Promise<Response> {
+    const attempts = IDEMPOTENT_METHODS.has(method.toUpperCase()) ? this.maxRetries + 1 : 1;
+
+    for (let n = 1; ; n++) {
+      const isLast = n === attempts;
+      try {
+        const res = await this.attempt(url, init);
+        if (isLast || !RETRYABLE_STATUSES.has(res.status)) return res;
+        await res.body?.cancel().catch(() => undefined);
+      } catch (err) {
+        if (isLast || err instanceof NexusTimeoutError || !(err instanceof NexusConnectionError)) {
+          throw err;
+        }
+      }
+      await this.sleep(retryDelayMs(n, this.retryBaseDelayMs));
+    }
   }
 
   /**
@@ -187,9 +341,6 @@ export class HttpClient {
       "api-key": this.apiKey
     };
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-
     // `RequestOptions` advertises a body, so send it. It used to be dropped
     // silently here, which turned any non-GET raw call into a request the
     // server saw as empty.
@@ -198,25 +349,10 @@ export class HttpClient {
     const fetchInit: RequestInit = {
       method,
       headers,
-      signal: controller.signal,
       ...(requestBody === undefined ? {} : { body: requestBody })
     };
 
-    let res: Response;
-    try {
-      res = await this.fetchFn(url.toString(), fetchInit);
-    } catch (err) {
-      clearTimeout(timer);
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new NexusTimeoutError(this.timeout);
-      }
-      throw new NexusConnectionError(
-        err instanceof Error ? err.message : "Network request failed",
-        err instanceof Error ? err : undefined
-      );
-    } finally {
-      clearTimeout(timer);
-    }
+    const res = await this.send(method, url.toString(), fetchInit);
 
     const text = await readBody(res);
 
@@ -271,26 +407,7 @@ export class HttpClient {
       if (serialized !== undefined) fetchInit.body = serialized;
     }
 
-    // Timeout via AbortController
-    const controller = new AbortController();
-    fetchInit.signal = controller.signal;
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-
-    let res: Response;
-    try {
-      res = await this.fetchFn(url.toString(), fetchInit);
-    } catch (err) {
-      clearTimeout(timer);
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new NexusTimeoutError(this.timeout);
-      }
-      throw new NexusConnectionError(
-        err instanceof Error ? err.message : "Network request failed",
-        err instanceof Error ? err : undefined
-      );
-    } finally {
-      clearTimeout(timer);
-    }
+    const res = await this.send(method, url.toString(), fetchInit);
 
     // Handle 204 No Content (e.g. DELETE responses)
     if (res.status === 204) {

@@ -136,9 +136,7 @@ stamp "session id: ${SESSION_ID}"
 # Step 5 — send a message
 # ---------------------------------------------------------------------------
 stamp "sending message"
-nx emulator send "${DEPLOYMENT_ID}" "${SESSION_ID}" \
-  --text "hello" \
-  --json > "${SEND_JSON}"
+send_message "${DEPLOYMENT_ID}" "${SESSION_ID}" "hello" "${SEND_JSON}" "${SESSION_GET_JSON}"
 
 # ---------------------------------------------------------------------------
 # Step 6 — assert the agent replied

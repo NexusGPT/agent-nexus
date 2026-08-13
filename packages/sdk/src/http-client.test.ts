@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "./errors";
-import { HttpClient, withDerivedHasMore } from "./http-client";
+import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  NexusTimeoutError
+} from "./errors";
+import { HttpClient, retryDelayMs, withDerivedHasMore } from "./http-client";
 
 /**
  * NEX-3021 — the client decided success from the BODY (`json.success`) instead
@@ -287,5 +292,185 @@ describe("withDerivedHasMore", () => {
       totalPages: 9,
       hasMore: true
     });
+  });
+});
+
+/**
+ * Transient-failure retry.
+ *
+ * `CLI: E2E flows` went red about 3% of runs against staging with
+ * `API error (502): Failed to parse response body (status 502)`. Measured over
+ * every failure since 2026-08-05: the 502-class ones land 0.7–2.6 minutes AFTER
+ * a staging `porter-deploy` job reports success, never during one, and always on
+ * the longest-running call in the flow. The 502 body is not JSON, which is what
+ * puts it at the edge proxy rather than in the application.
+ *
+ * The retry below covers that for idempotent calls. The call that actually
+ * failed is a POST, and the cases here pin that it is NOT replayed — replaying
+ * it would post a user's message twice.
+ */
+
+/** A stub `fetch` that answers each call from a script and counts attempts. */
+function scriptedFetch(script: ReadonlyArray<number | Error>) {
+  const calls: string[] = [];
+  const fetchFn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const step = script[Math.min(calls.length, script.length - 1)];
+    calls.push(String(init?.method ?? "GET"));
+    if (step instanceof Error) throw step;
+    return new Response(
+      step === 204 ? null : JSON.stringify({ success: true, data: { ok: true } }),
+      {
+        status: step,
+        headers: { "content-type": "application/json" }
+      }
+    );
+  });
+  return { fetchFn: fetchFn as unknown as typeof globalThis.fetch, calls };
+}
+
+function retryClient(script: ReadonlyArray<number | Error>, maxRetries?: number) {
+  const { fetchFn, calls } = scriptedFetch(script);
+  const http = new HttpClient({
+    baseUrl: "https://api.nexusgpt.io",
+    apiKey: "nxs_test",
+    fetch: fetchFn,
+    sleep: async () => undefined,
+    ...(maxRetries === undefined ? {} : { maxRetries })
+  });
+  return { http, calls };
+}
+
+describe("retrying a transient failure", () => {
+  it("replays a 502 on a GET and returns the attempt that succeeded", async () => {
+    const { http, calls } = retryClient([502, 200]);
+
+    await expect(http.request("GET", "/agents")).resolves.toEqual({ ok: true });
+    expect(calls).toEqual(["GET", "GET"]);
+  });
+
+  it("replays 503 and 504 too", async () => {
+    for (const status of [503, 504]) {
+      const { http, calls } = retryClient([status, 200]);
+      await expect(http.request("GET", "/agents")).resolves.toEqual({ ok: true });
+      expect({ status, attempts: calls.length }).toEqual({ status, attempts: 2 });
+    }
+  });
+
+  it("gives up after maxRetries and surfaces the last status — three attempts, not more", async () => {
+    const { http, calls } = retryClient([502]);
+
+    await expect(http.request("GET", "/agents")).rejects.toMatchObject({ status: 502 });
+    expect(calls.length).toBe(3);
+  });
+
+  it("honours maxRetries: 0 as OFF — one attempt, no replay", async () => {
+    const { http, calls } = retryClient([502], 0);
+
+    await expect(http.request("GET", "/agents")).rejects.toMatchObject({ status: 502 });
+    expect(calls.length).toBe(1);
+  });
+
+  it.each([400, 401, 403, 404, 409, 422, 500])(
+    "never replays %i — it is the server's answer, not a transient edge failure",
+    async (status) => {
+      const { http, calls } = retryClient([status, 200]);
+
+      await expect(http.request("GET", "/agents")).rejects.toBeInstanceOf(Error);
+      expect(calls.length).toBe(1);
+    }
+  );
+
+  it.each(["POST", "PATCH"])(
+    "NEVER replays a %s, even on 502 — a replay can double-apply it",
+    async (method) => {
+      const { http, calls } = retryClient([502, 200]);
+
+      await expect(
+        http.request(method, "/emulator/d/sessions/s/messages", { body: { t: "hi" } })
+      ).rejects.toMatchObject({ status: 502 });
+      expect(calls).toEqual([method]);
+    }
+  );
+
+  it.each(["PUT", "DELETE"])("replays an idempotent %s", async (method) => {
+    const { http, calls } = retryClient([502, 200]);
+
+    await expect(http.request(method, "/agents/a")).resolves.toEqual({ ok: true });
+    expect(calls.length).toBe(2);
+  });
+
+  it("replays a dropped connection but NEVER a timeout the caller asked for", async () => {
+    const dropped = retryClient([new TypeError("fetch failed"), 200]);
+    await expect(dropped.http.request("GET", "/agents")).resolves.toEqual({ ok: true });
+
+    const abort = new DOMException("aborted", "AbortError");
+    const timedOut = retryClient([abort, 200]);
+    await expect(timedOut.http.request("GET", "/agents")).rejects.toBeInstanceOf(NexusTimeoutError);
+
+    expect({ dropped: dropped.calls.length, timedOut: timedOut.calls.length }).toEqual({
+      dropped: 2,
+      timedOut: 1
+    });
+  });
+
+  it("cancels the body of a discarded 502 so the socket is released", async () => {
+    const cancel = vi.fn(async () => undefined);
+    let n = 0;
+    const fetchFn = vi.fn(async () => {
+      n += 1;
+      if (n === 1) {
+        const res = new Response("<html>502 Bad Gateway</html>", { status: 502 });
+        Object.defineProperty(res, "body", { value: { cancel }, configurable: true });
+        return res;
+      }
+      return new Response(JSON.stringify({ success: true, data: { ok: true } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch,
+      sleep: async () => undefined
+    });
+
+    await expect(http.request("GET", "/agents")).resolves.toEqual({ ok: true });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits between attempts rather than hammering — the delays are the backoff", async () => {
+    const slept: number[] = [];
+    const { fetchFn } = scriptedFetch([502]);
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn,
+      retryBaseDelayMs: 100,
+      sleep: async (ms) => {
+        slept.push(ms);
+      }
+    });
+
+    await expect(http.request("GET", "/agents")).rejects.toMatchObject({ status: 502 });
+    expect({ count: slept.length, allBounded: slept.every((ms) => ms >= 0 && ms <= 200) }).toEqual({
+      count: 2,
+      allBounded: true
+    });
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("doubles its ceiling per attempt and draws from zero", () => {
+    expect([
+      retryDelayMs(1, 250, () => 0.999999),
+      retryDelayMs(2, 250, () => 0.999999),
+      retryDelayMs(3, 250, () => 0.999999),
+      retryDelayMs(1, 250, () => 0)
+    ]).toEqual([249, 499, 999, 0]);
+  });
+
+  it("caps a runaway ceiling at 5s so a large maxRetries cannot stall a CLI", () => {
+    expect(retryDelayMs(20, 250, () => 0.999999)).toBe(4999);
   });
 });

@@ -208,9 +208,8 @@ SESSION_ID=$(jq -r '.id' "${SESSION_JSON}")
 }
 
 stamp "asking about sky color"
-nx emulator send "${DEPLOYMENT_ID}" "${SESSION_ID}" \
-  --text "What color is the sky in the fact sheet?" \
-  --json > "${SEND_JSON}"
+send_message "${DEPLOYMENT_ID}" "${SESSION_ID}" \
+  "What color is the sky in the fact sheet?" "${SEND_JSON}" "${SESSION_GET_JSON}"
 
 # ---------------------------------------------------------------------------
 # Step 8 — assert assistant replied (and optionally surfaced the canary)

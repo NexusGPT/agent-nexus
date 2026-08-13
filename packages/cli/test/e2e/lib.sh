@@ -169,6 +169,79 @@ arm_traps() {
   trap 'exit 129' HUP
 }
 
+# Send one message, surviving a transient edge failure WITHOUT ever double-sending.
+#
+# `emulator send` is a POST: it writes the HUMAN message and starts an agent
+# turn. A 502 from the edge proxy cannot tell us whether the server applied it
+# before the connection died, so a blind retry can post the message twice and
+# bill two model calls. That is why the SDK deliberately does not retry a POST,
+# and why this cannot simply loop.
+#
+# So it asks instead. On a failed send it reads the session back: this session
+# was created seconds earlier and nothing else writes to it, so "a HUMAN message
+# exists" means the send landed and only its RESPONSE was lost. Only a session
+# still holding zero HUMAN messages is re-sent to.
+#
+# A PROBE THAT CANNOT ANSWER IS NOT A SESSION WITH ZERO MESSAGES, and conflating
+# the two reintroduces the double-send this helper exists to prevent — in exactly
+# the window it exists for, since whatever 502s the send can 502 the probe. So the
+# probe is polled until it ANSWERS, and an unread session refuses to re-send and
+# fails instead. A duplicated user message costs more than a red CI job.
+#
+# Why this is needed at all: measured over every `CLI: E2E flows` failure since
+# 2026-08-05, the 502-class ones land 0.7–2.6 minutes AFTER a staging
+# `porter-deploy` reports success — never during the rollout — and always on this
+# call, which is the longest in the flow (10–13 s against 1–3 s for every other).
+# The assertions the flow makes are unchanged; only a lost RESPONSE is absorbed.
+send_message() {
+  local deployment_id="$1" session_id="$2" text="$3" out_file="$4" probe_file="$5"
+  local max_attempts="${6:-3}"
+  local humans=""
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if nx emulator send "${deployment_id}" "${session_id}" \
+      --text "${text}" --json > "${out_file}"; then
+      return 0
+    fi
+
+    stamp "send attempt ${attempt} failed; asking the session whether it landed"
+
+    # Empty means UNKNOWN, never zero. Only a numeric answer authorises anything.
+    humans=""
+    for ((probe = 1; probe <= 5; probe++)); do
+      if nx emulator session get "${deployment_id}" "${session_id}" --json > "${probe_file}" 2>/dev/null; then
+        humans=$(jq '[.messages[]? | select(.type == "HUMAN")] | length' "${probe_file}" 2>/dev/null || true)
+        if [[ "${humans}" =~ ^[0-9]+$ ]]; then
+          break
+        fi
+        humans=""
+      fi
+      stamp "the session did not answer (probe ${probe}); retrying the READ, not the send"
+      sleep 2
+    done
+
+    if [[ -z "${humans}" ]]; then
+      echo "FAIL: emulator send failed and the session could not be read." >&2
+      echo "  Refusing to re-send: the message may already have landed, and a" >&2
+      echo "  duplicate would post twice and bill a second model call." >&2
+      return 1
+    fi
+
+    if [[ "${humans}" -ge 1 ]]; then
+      stamp "the message DID land (${humans} HUMAN message(s)) — only the response was lost"
+      return 0
+    fi
+
+    if [[ "${attempt}" -lt "${max_attempts}" ]]; then
+      stamp "the session confirms nothing landed; re-sending in $((attempt * 2))s"
+      sleep "$((attempt * 2))"
+    fi
+  done
+
+  echo "FAIL: emulator send did not land after ${max_attempts} attempt(s)" >&2
+  return 1
+}
+
 # Poll `emulator session get` until an AI message lands or we run out of
 # attempts. `emulator send` returns synchronously after writing the HUMAN
 # message; the AI reply is generated async and lands later, so any flow

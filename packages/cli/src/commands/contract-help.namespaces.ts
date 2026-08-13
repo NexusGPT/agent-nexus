@@ -110,10 +110,16 @@ import { registerWorkspaceCommands } from "./workspace";
  *   · `no-flag-and-no-body` — the enum is a QUERY PARAMETER the CLI never sends,
  *     and there is no `--body` to reach it through. `customer list` sends no
  *     sortBy, sortOrder or channel; `tracing traces` sends no source; `tracing
- *     generations` sends no sortBy or order; `tracing cost-breakdown` sends no
- *     bucket; `execution list` sends no sortBy or order. Binding one means
- *     ADDING A FLAG — a change to what the CLI can DO, not to what it says, and
- *     therefore a product decision rather than rollout.
+ *     cost-breakdown` sends no bucket; `execution list` sends no sortBy or
+ *     order. Binding one means ADDING A FLAG — a change to what the CLI can DO,
+ *     not to what it says, and therefore a product decision rather than rollout.
+ *
+ *     `tracing generations` WAS on that list and came off it by taking the
+ *     decision rather than deferring it: `--sort-by` and `--order` were added,
+ *     which unblocked the descriptor and let `--provider` and `--status` bind.
+ *     Until then `--provider` printed a hand-typed three-value list while the
+ *     server accepted four, so a KIMI generation was unfilterable by anyone
+ *     reading --help.
  *
  *     ⚠️ A BODY FIELD WITH NO FLAG IS A DIFFERENT SHAPE AND IS NOT BLOCKED. A
  *     command carrying `--body` genuinely reaches it, so `bodyOnly` states the
@@ -264,12 +270,6 @@ export const BLOCKED_DESCRIPTORS: readonly BlockedDescriptor[] = [
     reason: "no-flag-and-no-body",
     leaf: "tracing traces",
     unreachable: ["Params.source"]
-  },
-  {
-    descriptor: "TracingListGenerations",
-    reason: "no-flag-and-no-body",
-    leaf: "tracing generations",
-    unreachable: ["Params.sortBy", "Params.order"]
   },
   {
     descriptor: "TracingAnalyticsCostBreakdown",

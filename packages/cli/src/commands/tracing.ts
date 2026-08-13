@@ -12,7 +12,12 @@ import {
   TRACING_EXPORT_BULK__BODY_STATUS,
   TRACING_EXPORT_BULK_CONTRACT,
   TRACING_EXPORT_TRACE__BODY_FORMAT,
-  TRACING_EXPORT_TRACE_CONTRACT
+  TRACING_EXPORT_TRACE_CONTRACT,
+  TRACING_LIST_GENERATIONS__PARAMS_ORDER,
+  TRACING_LIST_GENERATIONS__PARAMS_PROVIDER,
+  TRACING_LIST_GENERATIONS__PARAMS_SORT_BY,
+  TRACING_LIST_GENERATIONS__PARAMS_STATUS,
+  TRACING_LIST_GENERATIONS_CONTRACT
 } from "./tracing.contract.generated";
 
 export function registerTracingCommands(program: Command): void {
@@ -246,27 +251,47 @@ Notes:
     });
 
   // ── generations ───────────────────────────────────────────────────────
-  addPaginationOptions(
-    tracing
-      .command("generations")
-      .description("List LLM generations across traces")
-      .option("--trace-id <id>", "Filter by trace ID")
-      .option("--provider <provider>", "Filter by provider (OPEN_AI, ANTHROPIC, GOOGLE_AI)")
-      .option("--model <name>", "Filter by model name (max 255 chars)")
-      .option("--status <status>", "Filter by status (PENDING, RUNNING, COMPLETED, FAILED)")
-      .option("--agent-id <id>", "Filter by agent ID")
-      .option("--task-id <id>", "Filter by task ID")
-      .option("--start-date <iso>", "Filter from date (ISO 8601, e.g. 2026-03-01)")
-      .option("--end-date <iso>", "Filter to date (ISO 8601, e.g. 2026-03-01)")
-      .option("--min-cost <usd>", "Minimum cost in USD")
-      .option("--max-cost <usd>", "Maximum cost in USD")
-      .addHelpText(
-        "after",
-        `
+  const generations = tracing
+    .command("generations")
+    .description("List LLM generations across traces")
+    .option("--trace-id <id>", "Filter by trace ID")
+    .addOption(
+      enumOption(
+        "--provider <provider>",
+        "Filter by provider",
+        TRACING_LIST_GENERATIONS__PARAMS_PROVIDER
+      )
+    )
+    .option("--model <name>", "Filter by model name (max 255 chars)")
+    .addOption(
+      enumOption("--status <status>", "Filter by status", TRACING_LIST_GENERATIONS__PARAMS_STATUS)
+    )
+    .option("--agent-id <id>", "Filter by agent ID")
+    .option("--task-id <id>", "Filter by task ID")
+    .option("--start-date <iso>", "Filter from date (ISO 8601, e.g. 2026-03-01)")
+    .option("--end-date <iso>", "Filter to date (ISO 8601, e.g. 2026-03-01)")
+    .option("--min-cost <usd>", "Minimum cost in USD")
+    .option("--max-cost <usd>", "Maximum cost in USD")
+    .addOption(
+      enumOption(
+        "--sort-by <field>",
+        "Sort by field",
+        TRACING_LIST_GENERATIONS__PARAMS_SORT_BY
+      ).default("startedAt")
+    )
+    .addOption(
+      enumOption("--order <dir>", "Sort order", TRACING_LIST_GENERATIONS__PARAMS_ORDER).default(
+        "desc"
+      )
+    )
+    .addHelpText(
+      "after",
+      `
 Examples:
   $ nexus tracing generations
   $ nexus tracing generations --provider ANTHROPIC --status FAILED
   $ nexus tracing generations --trace-id abc-123 --json
+  $ nexus tracing generations --sort-by costUsd --order desc --limit 10
 
 Notes:
   NO PROMPTS, MESSAGES OR RESPONSES HERE, at any --limit and under --json.
@@ -277,13 +302,21 @@ Notes:
   --min-cost / --max-cost are USD and are compared against the stored cost,
   so a generation whose cost is null matches NEITHER bound and disappears from
   a filtered list. Leave both off to see unpriced calls.
-  --status here is PENDING, RUNNING, COMPLETED or FAILED — a different set from
-  the trace statuses (IN_PROGRESS, COMPLETED, FAILED).
+  --status here is a DIFFERENT SET from the trace statuses, which are
+  IN_PROGRESS, COMPLETED and FAILED.
+  --provider TAKES A MODEL PROVIDER, NOT A CHANNEL. A provider with no recorded
+  generation returns an empty page rather than an error, so an empty result is
+  "nothing ran on it" and never "that provider does not exist".
+  --sort-by costUsd LEADS WITH THE UNPRICED CALLS UNDER --order desc. A null
+  cost is not zero and Postgres sorts it FIRST when descending, so the first
+  page of "most expensive" is the generations with no cost at all. Pair it with
+  --min-cost 0 to drop them, or read the cheapest end with --order asc.
   --model is a CASE-INSENSITIVE SUBSTRING match, not an exact one: --model gpt
   also returns gpt-4o and gpt-4o-mini. Use "nexus tracing models" for the exact
   names, and pass a full one when you mean only that model.`
-      )
-  ).action(async (opts) => {
+    );
+
+  addPaginationOptions(generations).action(async (opts) => {
     try {
       const client = createClient(program.optsWithGlobals());
       const { data, meta } = await client.tracing.listGenerations({
@@ -297,7 +330,9 @@ Notes:
         startDate: opts.startDate,
         endDate: opts.endDate,
         minCostUsd: opts.minCost ? parseFloat(opts.minCost) : undefined,
-        maxCostUsd: opts.maxCost ? parseFloat(opts.maxCost) : undefined
+        maxCostUsd: opts.maxCost ? parseFloat(opts.maxCost) : undefined,
+        sortBy: opts.sortBy,
+        order: opts.order
       });
 
       printList(data, meta, [
@@ -701,12 +736,18 @@ Notes:
 
   // Bound LAST, after every option exists.
   //
-  // `traces`, `generations` and `cost-breakdown` are DELIBERATELY ABSENT. Each
-  // carries a contract enum this CLI has no flag for — `source` on traces,
-  // `sortBy` and `order` on generations, `bucket` on cost-breakdown — and the
-  // gate is all-or-nothing per descriptor. Binding them means ADDING FLAGS,
-  // which is a change to what the CLI can do rather than to what it says, so it
-  // is left to a decision rather than taken here.
+  // `traces` and `cost-breakdown` are DELIBERATELY ABSENT. Each carries a
+  // contract enum this CLI has no flag for — `source` on traces, `bucket` on
+  // cost-breakdown — and the gate is all-or-nothing per descriptor. Binding
+  // them means ADDING FLAGS, which is a change to what the CLI can do rather
+  // than to what it says, so it is left to a decision rather than taken here.
+  //
+  // `generations` WAS in that set and came out of it by taking the decision:
+  // `--sort-by` and `--order` were added, so all four of its enums are now
+  // reachable and the descriptor binds. That is what `--provider` needed —
+  // unbound, its description hand-typed three providers while the server
+  // accepted four, and the missing one was invisible to anyone reading --help.
+  bindCommand(generations, TRACING_LIST_GENERATIONS_CONTRACT);
   bindCommand(timeline, TRACING_ANALYTICS_TIMELINE_CONTRACT);
   bindCommand(exportTrace, TRACING_EXPORT_TRACE_CONTRACT);
   bindCommand(exportBulk, TRACING_EXPORT_BULK_CONTRACT);

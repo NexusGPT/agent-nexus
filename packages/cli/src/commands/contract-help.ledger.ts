@@ -200,7 +200,12 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     namespace: "tracing",
-    descriptors: ["TracingAnalyticsTimeline", "TracingExportBulk", "TracingExportTrace"]
+    descriptors: [
+      "TracingAnalyticsTimeline",
+      "TracingExportBulk",
+      "TracingExportTrace",
+      "TracingListGenerations"
+    ]
   },
   {
     namespace: "version",

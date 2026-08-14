@@ -1,5 +1,132 @@
 # @agent-nexus/sdk
 
+## 0.17.0
+### Minor Changes
+
+- 1173a01: `template generate` returns a SIGNED url that expires in about an hour. It used to return a
+  world-readable link that never expired.
+  
+  **This changes what a stored link does, not what a call returns.** The response shape is
+  unchanged — still `{ url }` — so nothing stops compiling. What stops working is a link you kept:
+  a url written into a script, a ticket, a chat message or a fixture is dead after roughly an hour,
+  where before it worked forever. Fetch it in the same session, or generate again; there is no
+  re-sign call, and generating produces a new document.
+  
+  That is the whole point of the change. The object behind the url was uploaded world-readable, so
+  possession of the string was permanent, unauthenticated access to a document generated from a
+  client template. Verified against production before the fix: a url of that shape, recovered from a
+  persisted message, answered an unauthenticated HEAD with 200 and 16 KB of docx, while the same key
+  with a nonsense suffix answered 403 on the identical prefix.
+  
+  The object is now uploaded private and the url is presigned at the moment it is returned, scoped
+  to the caller's own organization, with the same one-hour life as `document download` and
+  `document preview`. `nexus template generate --help` and the SDK's `generateDocumentTemplate`
+  docstring both said the opposite of the truth and now state this.
+  
+  **Documents already generated are unaffected and remain world-readable.** This decides the
+  protection of documents generated from now on; remediating what is already stored is a separate
+  piece of work.
+- 27cd03b: Ten SDK response types omitted 24 fields the v1 contract declares, and one enum hid a live value
+  
+  The types under `packages/sdk/src/types/` are hand-written by reading the Zod
+  contract. Reading is not a gate, and a drift gate already existed covering 102
+  type pairs — these ten were outside it. A field the SDK omits is data the caller
+  never learns exists: it arrives in the JSON, and the published type says it does
+  not.
+  
+  **BREAKING for anyone who declares one of these types structurally.** Adding a
+  required field to a published interface breaks an object literal that is checked
+  against it. Consumers who only READ these types (the normal case) gain fields and
+  break nothing.
+  
+  ### Response fields added, per type
+  
+  - `TraceSummary`, `TraceDetail` — `source`, `tags`, `triggeredBy`.
+    `@agent-nexus/cli` now binds `--source` as a filter on `tracing traces`, so a
+    caller could filter by a field the SDK's own result type said did not exist.
+  - `GenerationSummary` — `cacheReadInputTokens`, `cacheCreationInputTokens`,
+    `reasoningTokens`, `thinkingDurationMs`, `ttftMs`, `streamDurationMs`,
+    `metadata`, `isAborted`, `temperature`, `finishReason`, `responseId`. Cache
+    and reasoning token counts are cost inputs, and no SDK consumer could see them.
+  - `GenerationDetail` — inherits the eleven above. `temperature` moves to
+    `GenerationSummary`, where the contract declares it. `messages` and `tools`
+    become `unknown[] | null` and `responseJson` becomes `unknown`; the previous
+    `Record<string, unknown>` claimed a shape the contract does not promise.
+  - `EvalResult` — `judgeStatus`, `executionError`, `judgeError`. Judging is a
+    second dimension from execution, so a judge failure was indistinguishable from
+    a row that was never judged.
+  - `EvalSessionDetail` — `judgeFailedRows`.
+  - `DeploymentDetail` — `inboundWebhook`.
+  - `DocumentDetail` — `metadata`.
+  - `ExternalToolDetail` — `documentation`.
+  
+  ### An enum that hid a live value
+  
+  `ApiKeyService` omitted `META_INSTAGRAM`, a real member of the `ApiKeyService`
+  database enum. A caller could not name a connection the server accepts. This is
+  the same defect class as `DeploymentType` (which declared a `SMS` the server
+  rejects and omitted the real `INSTAGRAM`), found independently.
+  
+  `ApiKeyConnection.updatedAt` becomes optional, matching the contract's `nullish`.
+  
+  ### One fix in the other direction — the contract was the drifting party
+  
+  `ModelSummarySchema` omitted `source`. The backend's models repository emits
+  `source: "system"` from `listSystem` and `source: "custom"` from `listCustom` on
+  every row. The SDK's `ModelSummary` had it and was correct; the contract did not.
+  The field is added to the schema, so the two agree and the pair becomes gatable.
+  
+  That change lands in `@nexus/types`, which is private and carries no changeset
+  entry of its own — naming it here would make this a MIXED changeset (one ignored
+  package, one released) and `changeset status` refuses those outright. Nothing
+  about it is consumer-visible: no published package's types change because of it.
+  
+  ### The gate
+  
+  All ten pairs join `types-match-the-v1-contract.test.ts`, enforced by `tsc`. The
+  ungatable remainder is ledgered with a reason per entry rather than left silent.
+
+### Patch Changes
+
+- aecc0ef: `unpricedGenerationCount` reached one analytics endpoint of four. A per-group total
+  could still absorb an unpriced call in silence — which is the failure the field was
+  added to end, and the breakdown is where it costs most.
+  
+  An LLM call whose model has no catalog price is stored with a placeholder cost of `0`.
+  SQL `SUM` ignores `NULL`, so no in-band value can separate that from a genuinely free
+  call: `SUM({100, NULL})` and `SUM({100, 0})` are both `100`. The scalar summary already
+  disclosed the gap out of band. `cost-breakdown`, `timeline` and the attribution `export`
+  did not, so a group, a bucket or a trace whose whole traffic was unpriced reported
+  `totalCostUsd: 0` and read as one that spent nothing.
+  
+  All three now carry `unpricedGenerationCount`:
+  
+  - **`GET /tracing/analytics/cost-breakdown`** — per entry, on every dimension
+    (`model`, `agent`, `workflow`, `deployment`, `customer`, `workflowExecution`),
+    single- and multi-dimension, bucketed and not.
+  - **`GET /tracing/analytics/timeline`** — per point.
+  - **`GET /tracing/analytics/export`** — per row, i.e. per trace. `totalCostUsd` on an
+    export row is the trace's stored total, so this is also the first per-trace
+    disclosure. The column is LAST in the CSV, after `completedAt`, so every existing
+    column keeps the index it has always had.
+  
+  `nexus tracing cost-breakdown` and `nexus tracing timeline` print an `UNPRICED` column,
+  and all three commands explain in `--help` what a non-zero value means for the cost
+  beside it.
+  
+  Nothing existing changes name, type or meaning. `totalCostUsd` is a disclosure target,
+  never a correction target: the missing amount is unknown, not merely unreported.
+  
+  On the breakdown and the timeline the count is computed as a filtered aggregate in the
+  SAME query, WHERE and GROUP BY as `generationCount`, so `unpricedGenerationCount <=
+  generationCount` holds by construction on every row rather than by assertion. (No such
+  relation holds on the summary, where the count is over generations and `totalCostUsd`
+  is over traces — that grain split is unchanged and still documented at the query.)
+  
+  The predicate is `pricingResolved = false`, never `IS NOT TRUE`. `NULL` means the
+  pricing question was never asked — a running, failed or aborted call, and every row
+  written before the column existed — and none of those is an unpriced call.
+
 ## 0.16.0
 ### Minor Changes
 

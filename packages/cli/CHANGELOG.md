@@ -1,5 +1,160 @@
 # @agent-nexus/cli
 
+## 0.25.0
+### Minor Changes
+
+- 1173a01: `template generate` returns a SIGNED url that expires in about an hour. It used to return a
+  world-readable link that never expired.
+  
+  **This changes what a stored link does, not what a call returns.** The response shape is
+  unchanged — still `{ url }` — so nothing stops compiling. What stops working is a link you kept:
+  a url written into a script, a ticket, a chat message or a fixture is dead after roughly an hour,
+  where before it worked forever. Fetch it in the same session, or generate again; there is no
+  re-sign call, and generating produces a new document.
+  
+  That is the whole point of the change. The object behind the url was uploaded world-readable, so
+  possession of the string was permanent, unauthenticated access to a document generated from a
+  client template. Verified against production before the fix: a url of that shape, recovered from a
+  persisted message, answered an unauthenticated HEAD with 200 and 16 KB of docx, while the same key
+  with a nonsense suffix answered 403 on the identical prefix.
+  
+  The object is now uploaded private and the url is presigned at the moment it is returned, scoped
+  to the caller's own organization, with the same one-hour life as `document download` and
+  `document preview`. `nexus template generate --help` and the SDK's `generateDocumentTemplate`
+  docstring both said the opposite of the truth and now state this.
+  
+  **Documents already generated are unaffected and remain world-readable.** This decides the
+  protection of documents generated from now on; remediating what is already stored is a separate
+  piece of work.
+- 9098073: Say which `--help` notes nobody could check for free.
+  
+  An audit of 674 shipped `--help` claims settled 581 by running the command:
+  398 TRUE, 75 FALSE, 108 with behaviour the help never states. It left 93
+  UNTESTED — not passing, UNMEASURED — because probing them buys a phone number,
+  spends a provider's tokens, provisions a cluster, or delivers a message to a
+  real customer. Those claims shipped in the same typeface as the verified ones,
+  so a reader could not tell them apart.
+  
+  `nexus <command> --help` now ends with a `Probe barrier` block on the 109 leaves
+  whose claims cannot be settled inside one organisation at zero external cost. It
+  names the barrier (MONEY, THIRD-PARTY or SETUP), says what the act spends or
+  touches, and — where one exists — a free check that settles part of the same
+  ground: `phone-number search` instead of `phone-number buy`, `cloud-import
+  providers` instead of a connected Drive.
+  
+  The barrier is a ceiling on confidence, never a verdict on a sentence. A
+  barrier'd command may still have been probed in part; what the block says is
+  that the reader cannot repeat that check for free.
+
+### Patch Changes
+
+- 6812350: `nexus role` no longer sends a reader to an organization value that does not exist.
+  
+  **This corrects six statements that were false, on two commands.** A Role's working
+  year (`calendarWeeks`, `paidLeaveWeeks`, `publicHolidayDays`, `sicknessDays`) has no
+  organization-level counterpart — `OrganizationAutomationSettings` holds
+  `hoursPerDay`, `daysPerWeek`, `workingWeeksPerYear` and `currency`, and the two sets
+  are disjoint. `nexus role working-year` and `nexus role set-working-year` nonetheless
+  told the reader that a blank term "falls back to the organization's value", and
+  printed `(org default)` for every unstated one.
+  
+  **What changes for you.** An unstated term now renders `(not stated)` instead of
+  `(org default)`. `--json` is untouched: it emitted a literal `null` before and after,
+  which is the channel that never lost the distinction between "nobody stated this" and
+  "a measured zero".
+  
+  `nexus role system-policy` carried the same shape — "read the organization's defaults"
+  over a row that exists once per Role and nowhere else — and now says an unauthored
+  policy is an absence rather than a set of inherited values.
+- 674d509: `nexus role coverage` prints its money figures rounded, instead of showing floating-point
+  residue as if the model were broken.
+  
+  `Projected saving` read `16250.000000000002 EUR (at 35.32608695652174/h)` for a Role
+  costed at €260,000 over 7,360 worked person-hours. Both numbers are CORRECT and neither is
+  a defect in the coverage engine: `savingsProjection.ratePerHour` is
+  `workloadCost ÷ workloadPersonHours` and `savingsProjection.amount` multiplies it back by
+  those same hours, so the headline is a division multiplied by its own divisor — which
+  IEEE-754 does not round-trip. `(260000 / 7360) * 7360` is `16250.000000000002`.
+  
+  What was wrong is printing twelve digits of residue in a HUMAN table, on the one figure a
+  reader is most likely to be looking at, with no way to tell it from a model that had gone
+  wrong. Every other field in that record was already formatted for a human — the coverage
+  ratio two rows above it is `(ratio * 100).toFixed(2)` — and the money fields were the ones
+  that were not.
+  
+  `--json` is UNCHANGED and keeps every digit. `printRecord`'s `format` is the human channel
+  only and leaves the JSON document untouched, so a caller reconciling `amount` against
+  `ratePerHour × impactPersonHours` still gets the number the server used. This is the same
+  split the dashboard already makes: it renders €16,250 and a €35.33/h rate from that exact
+  payload.
+  
+  Two decimals rather than whole units, because the same line carries a blended hourly rate:
+  `35.33/h` rounded to whole units is `35`, a 1% error printed directly beside the total it
+  produced. `money.totals` (revenue, cost, workload cost) take the same formatter, so one
+  record does not mix two rules.
+- 1c75afa: `--help` now names every command that spells the body flag `--data`. It named one of three
+  namespaces and called that set complete.
+  
+  The root epilogue said: _"nexus ticket create" and "nexus ticket update" take `--data`, not
+  `--body`. This is the only namespace that does._ Five commands across three namespaces do —
+  `ticket create`, `ticket update`, `credential update`, `access-card create` and
+  `access-card update`.
+  
+  The missing word is "only". An incomplete list invites you to check; a list that says it is
+  exhaustive stops you looking. So a caller reaching for `--body` on `access-card create` gets
+  `unknown option '--body'` from a page that told them the flag was universal outside `ticket`.
+  The epilogue now also says which of the two happens — commander refuses a flag it does not
+  know, so a wrong spelling costs a retry rather than being silently dropped, and those call for
+  opposite next moves.
+  
+  A sixth command declares `--data` and it is **not** a request body: `html-template render`
+  takes the data object a template renders against, on a namespace whose `create` and `update`
+  take `--body`. It is named separately rather than folded into the list.
+  
+  No behaviour changes. `findJsonBodyOption()` already matched both spellings generically; what
+  was wrong was the three hand-maintained sentences describing it — the epilogue, a source
+  comment, and the docs site. A new spec derives the set from the real command tree and asserts
+  the epilogue names each member and no ex-member, so the sentence cannot drift from the CLI
+  again.
+- aecc0ef: `unpricedGenerationCount` reached one analytics endpoint of four. A per-group total
+  could still absorb an unpriced call in silence — which is the failure the field was
+  added to end, and the breakdown is where it costs most.
+  
+  An LLM call whose model has no catalog price is stored with a placeholder cost of `0`.
+  SQL `SUM` ignores `NULL`, so no in-band value can separate that from a genuinely free
+  call: `SUM({100, NULL})` and `SUM({100, 0})` are both `100`. The scalar summary already
+  disclosed the gap out of band. `cost-breakdown`, `timeline` and the attribution `export`
+  did not, so a group, a bucket or a trace whose whole traffic was unpriced reported
+  `totalCostUsd: 0` and read as one that spent nothing.
+  
+  All three now carry `unpricedGenerationCount`:
+  
+  - **`GET /tracing/analytics/cost-breakdown`** — per entry, on every dimension
+    (`model`, `agent`, `workflow`, `deployment`, `customer`, `workflowExecution`),
+    single- and multi-dimension, bucketed and not.
+  - **`GET /tracing/analytics/timeline`** — per point.
+  - **`GET /tracing/analytics/export`** — per row, i.e. per trace. `totalCostUsd` on an
+    export row is the trace's stored total, so this is also the first per-trace
+    disclosure. The column is LAST in the CSV, after `completedAt`, so every existing
+    column keeps the index it has always had.
+  
+  `nexus tracing cost-breakdown` and `nexus tracing timeline` print an `UNPRICED` column,
+  and all three commands explain in `--help` what a non-zero value means for the cost
+  beside it.
+  
+  Nothing existing changes name, type or meaning. `totalCostUsd` is a disclosure target,
+  never a correction target: the missing amount is unknown, not merely unreported.
+  
+  On the breakdown and the timeline the count is computed as a filtered aggregate in the
+  SAME query, WHERE and GROUP BY as `generationCount`, so `unpricedGenerationCount <=
+  generationCount` holds by construction on every row rather than by assertion. (No such
+  relation holds on the summary, where the count is over generations and `totalCostUsd`
+  is over traces — that grain split is unchanged and still documented at the query.)
+  
+  The predicate is `pricingResolved = false`, never `IS NOT TRUE`. `NULL` means the
+  pricing question was never asked — a running, failed or aborted call, and every row
+  written before the column existed — and none of those is an unpriced call.
+
 ## 0.24.1
 ### Patch Changes
 

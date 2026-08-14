@@ -320,9 +320,9 @@
 - 5b496f2: Correct what the SDK says about a task assignment's identity.
   
   The types said an assignment's id "is not durable" and told a caller never to
-  store one. There is no assignment id on this contract to store: the arm IS the
-  identity — `person:<userId>` or `<resourceType>:<resourceId>` — unique within a
-  task by database constraint. Comment-only; no shape changes.
+  store one. There is no assignment id on this contract to store: the ARM OBJECT is
+  the identity — `{ kind: "person", userId }` or
+  `{ kind: "resource", resourceType, resourceId }`. Comment-only; no shape changes.
 
 ## 0.12.0
 ### Minor Changes

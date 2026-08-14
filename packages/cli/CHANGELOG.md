@@ -779,9 +779,10 @@
   schema that merely tolerated an extra key would have accepted it, so the absence is a
   contract rather than an omission.
   
-  The identity is the ARM — `person:<userId>` or `<resourceType>:<resourceId>` — which is
-  what `@@unique([taskId, userId])` and `@@unique([taskId, resourceType, resourceId])`
-  already enforce. The help now says that.
+  The identity is the ARM OBJECT — `{ kind: "person", userId }` or
+  `{ kind: "resource", resourceType, resourceId }` — which is what
+  `@@unique([taskId, userId])` and `@@unique([taskId, resourceType, resourceId])` already
+  enforce on the row. The help now says that.
   
   The true half is kept: a task id IS durable and a task saved with its id is updated in
   place, and assignments still carry the ids they point AT rather than display names.

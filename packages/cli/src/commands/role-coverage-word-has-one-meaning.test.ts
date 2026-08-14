@@ -1,7 +1,6 @@
-import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
-import { registerRoleCommands } from "./role";
+import { roleHelpText as helpText, roleSubcommands } from "./role-help.testkit";
 
 /**
  * ONE WORD, ONE MEANING, ACROSS `nexus role`.
@@ -98,31 +97,6 @@ const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
   "create-permission-set": "renders the contract's capability enum, which contains coverage.view",
   "update-permission-set": "renders the contract's capability enum, which contains coverage.view"
 };
-
-/** Every `nexus role` subcommand, derived from the registrar rather than typed. */
-function roleSubcommands(): readonly Command[] {
-  const program = new Command();
-  program.name("nexus").exitOverride();
-  registerRoleCommands(program);
-
-  const group = program.commands.find((cmd) => cmd.name() === "role");
-  if (!group) throw new Error("registerRoleCommands registered no `role` command");
-  return group.commands;
-}
-
-/**
- * The bytes a caller reads. `outputHelp()` and not `helpInformation()` — only
- * the former runs the `addHelpText` handlers, and both senses lived in one.
- */
-function helpText(command: Command): string {
-  const chunks: string[] = [];
-  command.configureOutput({
-    writeOut: (str: string) => chunks.push(str),
-    writeErr: (str: string) => chunks.push(str)
-  });
-  command.outputHelp();
-  return chunks.join("");
-}
 
 describe("nexus role — the coverage word names the automation figure and nothing else", () => {
   const subcommands = roleSubcommands();

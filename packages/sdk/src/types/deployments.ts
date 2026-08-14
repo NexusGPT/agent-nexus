@@ -10,6 +10,15 @@
  * one of these — the column is non-null in the schema, so that fallback is
  * unreachable rather than a case to model here.
  */
+/**
+ * The channel a deployment runs on — the `DeploymentType` database enum.
+ *
+ * 🚨 `SMS` IS NOT A MEMBER AND NEVER WAS. This union declared one until it was
+ * measured against the schema: the server 400s on it, and `TWILIO_SMS` is the
+ * SMS channel. It also OMITTED `INSTAGRAM`, which is a real member — so the one
+ * hand-typed copy of this enum was wrong in both directions at once, offering a
+ * value nothing accepts while hiding a value that works.
+ */
 export type DeploymentType =
   | "EMBED"
   | "WHATSAPP"
@@ -17,7 +26,7 @@ export type DeploymentType =
   | "OUTLOOK"
   | "SLACK"
   | "TEAMS"
-  | "SMS"
+  | "INSTAGRAM"
   | "TWILIO_SMS"
   | "TWILIO_VOICE"
   | "GMAIL"
@@ -70,6 +79,21 @@ export interface DeploymentDetail extends DeploymentSummary {
    * API-key connection's.
    */
   connectionStatus: string | null;
+  /**
+   * State of the channel's inbound webhook subscription.
+   *
+   * Optional rather than merely nullable: the field is ABSENT from a backend
+   * older than the one that introduced it, which is a different fact from a
+   * channel that has no webhook.
+   */
+  inboundWebhook?: InboundWebhookState | null;
+}
+
+/** Whether a deployment's inbound webhook is live, and until when. */
+export interface InboundWebhookState {
+  status: "ACTIVE" | "EXPIRED" | "NOT_CONFIGURED";
+  /** ISO 8601 expiry, or `null` when the subscription does not expire. */
+  expiresAt: string | null;
 }
 
 /**

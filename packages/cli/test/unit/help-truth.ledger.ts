@@ -357,22 +357,71 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
 export const LEDGER_CEILING = 334;
 
 /**
+ * The DENOMINATOR: how many namespaces the CLI registers, as measured.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHY A NUMERATOR ALONE IS NOT PROGRESS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * {@link CLEAN_NAMESPACES} counts the namespaces that are done. On its own that
+ * is a number with nothing to divide by, so "how far along is this?" had no
+ * answer anywhere in the repository — and the only two counts that had been
+ * written down lived in prose, in `because:` strings and docblocks, where
+ * nothing checked them. Both had gone stale by one. That is the whole failure
+ * this constant exists to prevent: a count nobody can check reads exactly like a
+ * count somebody checked.
+ *
+ * `PROGRESS 1` asserts this equals the live commander tree, so the denominator
+ * cannot rot in silence. Registering a namespace reddens it, and the fix is to
+ * raise this number in the same diff — where a reviewer reads it.
+ *
+ * ⚠️ VISIBLE namespaces. `upgrade` registers 18 hidden aliases (`up`, `bump`,
+ * `install`, …); `deriveCommandNamespaces()` drops them, so they are outside
+ * this count. They are top-level command NAMES, never namespaces — 65 top-level
+ * names are {@link NAMESPACE_TOTAL} namespaces.
+ */
+export const NAMESPACE_TOTAL = 47;
+
+/**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
  * derived, because a derived list is true by construction and gates nothing.
  *
  * These are the namespaces whose `--help` is true by every rule this gate can
- * check. Six of the seven are the NEX-3626 conversions; `role` is the model the
- * rest were written from, so a red here means the FORM has drifted.
+ * check. `role` is the model the rest were written from, so a red here means the
+ * FORM has drifted.
  *
- * ⚠️ The 18 hidden `upgrade` aliases also produce no entry, and are deliberately
- * NOT listed: they are exempt from R0 rather than clean under it, and a name
- * here has to mean the stronger thing.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THIS LIST IS THE NUMERATOR, SO IT HAS TO BE COMPLETE IN BOTH DIRECTIONS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `LEDGER 6` guards one direction — a name here must stay clean. That alone
+ * makes the list a floor and not a measurement: four namespaces
+ * (`agent-tool`, `conversation`, `known-issues`, `upgrade`) had become clean and
+ * nobody added them, so the recorded numerator said 6 where the tree said 10 and
+ * no gate could tell the difference.
+ *
+ * `PROGRESS 2` guards the other direction: a namespace with zero violations MUST
+ * be named here. Fixing the last defect in a namespace now reddens the build
+ * until the name is added.
+ *
+ * `PROGRESS 3` guards the third side — every name here must still BE a
+ * namespace. `LEDGER 6` cannot supply it: it asks whether a declared name holds
+ * a ledger entry, and a namespace that does not exist holds none, so a ghost
+ * name passes as clean and inflates the count with the build green.
+ *
+ * Together the three make `CLEAN_NAMESPACES.length / NAMESPACE_TOTAL` the
+ * programme's actual progress. Drop `PROGRESS 2` and it reads low; drop
+ * `PROGRESS 3` and it reads high.
  */
 export const CLEAN_NAMESPACES: readonly string[] = [
   "agent-eval",
+  "agent-tool",
   "api",
+  "conversation",
+  "known-issues",
   "prompt-assistant",
   "role",
+  "upgrade",
   "version",
   "workspace"
 ];

@@ -10,7 +10,8 @@ export type ApiKeyService =
   | "TEAMS_BOT"
   | "OFFICE_ADDIN"
   | "FB_MESSENGER_PAGE"
-  | "META_WHATSAPP";
+  | "META_WHATSAPP"
+  | "META_INSTAGRAM";
 
 export interface ApiKeyConnection {
   id: string;
@@ -21,7 +22,8 @@ export interface ApiKeyConnection {
   apiKeyConnectionId: string | null;
   oauthConnectionId: string | null;
   createdAt: string;
-  updatedAt: string | null;
+  /** Absent on rows the server has never updated. */
+  updatedAt?: string | null;
 }
 
 // ============================================================================

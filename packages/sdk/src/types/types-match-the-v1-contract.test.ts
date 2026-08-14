@@ -1,6 +1,8 @@
 import {
   AgentFolderSchema,
   AgentModelSchema,
+  ApiKeyConnectionSchema,
+  ApiKeyServiceSchema,
   AssignAgentToFolderBodySchema,
   AssignAgentToFolderResponseSchema,
   AssignDeploymentToFolderBodySchema,
@@ -18,18 +20,27 @@ import {
   CreateUserGroupV1BodySchema,
   DeleteDeploymentFolderResponseSchema,
   DeleteUserGroupV1ResponseSchema,
+  DeploymentDetailSchema,
   DeploymentFolderSchema,
+  DeploymentTypeSchema,
+  DocumentDetailSchema,
   DocumentTemplateFolderSchema,
+  EvalSessionDetailSchema,
+  ExternalToolDetailSchema,
+  GenerationDetailSchema,
+  GenerationSummarySchema,
   GetOrgPermissionSettingsV1ResponseSchema,
   GrantPermissionV1BodySchema,
   GrantPermissionV1ResponseSchema,
   ListDeploymentFoldersResponseSchema,
   ListDocumentTemplateFoldersResponseSchema,
+  ListExternalToolsResponseSchema,
   ListFoldersResponseSchema,
   ListResourceAccessV1ResponseSchema,
   ListSkillFoldersResponseSchema,
   ListUserGroupsV1ResponseSchema,
   ModelProviderSchema,
+  ModelSummarySchema,
   PhoneNumberSummarySchema,
   PublicPermissionGrantSchema,
   PublicUserGroupSchema,
@@ -64,6 +75,8 @@ import {
   RoleWorkingYearV1BodySchema,
   RoleWorkspaceGrantsV1ResponseSchema,
   SkillFolderSchema,
+  TraceDetailSchema,
+  TraceSummarySchema,
   UpdateDeploymentFolderBodySchema,
   UpdateDocumentTemplateFolderBodySchema,
   UpdateFolderBodySchema,
@@ -78,6 +91,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
+import type { ApiKeyConnection, ApiKeyService } from "./api-key-connections";
 import type { AgentModel, DeleteResponse, ModelProvider } from "./common";
 import type {
   AssignDeploymentToFolderBody,
@@ -87,6 +101,7 @@ import type {
   ListDeploymentFoldersResponse,
   UpdateDeploymentFolderBody
 } from "./deployment-folders";
+import type { DeploymentDetail, DeploymentType } from "./deployments";
 import type {
   AssignTemplateToFolderBody,
   AssignTemplateToFolderResponse,
@@ -95,7 +110,8 @@ import type {
   ListDocumentTemplateFoldersResponse,
   UpdateDocumentTemplateFolderBody
 } from "./document-template-folders";
-import type { UploadDatasetResult } from "./evaluations";
+import type { DocumentDetail } from "./documents";
+import type { EvalSessionDetail, UploadDatasetResult } from "./evaluations";
 import type {
   AgentFolder,
   AssignAgentToFolderBody,
@@ -104,6 +120,7 @@ import type {
   ListFoldersResponse,
   UpdateFolderBody
 } from "./folders";
+import type { ModelSummary } from "./models";
 import type {
   GrantPermissionBody,
   GrantPermissionResponse,
@@ -158,6 +175,8 @@ import type {
   SkillFolder,
   UpdateSkillFolderBody
 } from "./skill-folders";
+import type { ExternalToolDetail, ListExternalToolsResponse } from "./skills";
+import type { GenerationDetail, GenerationSummary, TraceDetail, TraceSummary } from "./tracing";
 import type {
   CreateUserGroupBody,
   DeleteUserGroupResponse,
@@ -296,6 +315,52 @@ export type V1ContractAssertions = [
 
   // ── evaluations ── the dataset upload's response (NEX-2961)
   Expect<Equals<UploadDatasetResult, Received<typeof UploadDatasetResponseSchema>>>,
+  Expect<Equals<EvalSessionDetail, Received<typeof EvalSessionDetailSchema>>>,
+
+  // ── the RESPONSE-SHAPE slice ─────────────────────────────────────────────
+  //
+  // 🚨 EVERY PAIR BELOW WAS DRIFTED WHEN IT WAS ADDED, AND EACH DRIFT WAS FOUND
+  // BY A SWEEP RATHER THAN BY A CONSUMER. That is the argument for the sweep,
+  // not for these ten types: the gate above this line already covered 82 pairs
+  // and every one of these sat outside it, so `tsc`, ESLint and the whole suite
+  // were green over ten published types that omitted 24 fields the server sends.
+  //
+  // The omission direction is the quiet one. A field the SDK INVENTS reads
+  // `undefined` at runtime and someone eventually notices; a field the SDK OMITS
+  // arrives in the JSON, is typed out of existence, and nobody ever looks for it.
+  // `TraceSummary.source` is the worked example — the CLI bound `--source` as a
+  // filter while this package's own result type said the field did not exist.
+  Expect<Equals<TraceSummary, Received<typeof TraceSummarySchema>>>,
+  Expect<Equals<TraceDetail, Received<typeof TraceDetailSchema>>>,
+  Expect<Equals<GenerationSummary, Received<typeof GenerationSummarySchema>>>,
+  Expect<Equals<GenerationDetail, Received<typeof GenerationDetailSchema>>>,
+  Expect<Equals<DeploymentDetail, Received<typeof DeploymentDetailSchema>>>,
+  Expect<Equals<DocumentDetail, Received<typeof DocumentDetailSchema>>>,
+  Expect<Equals<ExternalToolDetail, Received<typeof ExternalToolDetailSchema>>>,
+  Expect<Equals<ListExternalToolsResponse, Received<typeof ListExternalToolsResponseSchema>>>,
+
+  // ── the two enums, and why an enum is worth its own pair ─────────────────
+  //
+  // An enum drifts in two directions and they are DIFFERENT BUGS. A member the
+  // SDK invents is a caller writing correct-looking code that 400s. A member the
+  // SDK omits is a legal value the caller cannot name at all — no error, just an
+  // unreachable channel. `DeploymentType` managed both at once: it declared an
+  // `SMS` the server rejects and hid the real `INSTAGRAM`.
+  //
+  // `ApiKeyService` is the same defect found independently, hiding
+  // `META_INSTAGRAM`. Both enums derive from a Prisma enum on the schema side, so
+  // gating them here means the next value added to the database cannot land
+  // without this package following it.
+  Expect<Equals<DeploymentType, Received<typeof DeploymentTypeSchema>>>,
+  Expect<Equals<ApiKeyService, Received<typeof ApiKeyServiceSchema>>>,
+  Expect<Equals<ApiKeyConnection, Received<typeof ApiKeyConnectionSchema>>>,
+
+  // `ModelSummary` is the one pair here that was fixed on the CONTRACT side.
+  // The models repository emits `source` from both `listSystem` and `listCustom`;
+  // `ModelSummarySchema` omitted it. This package was right and the schema was
+  // wrong, which is worth stating plainly — "the contract is authoritative" is a
+  // good default and it is not a law.
+  Expect<Equals<ModelSummary, Received<typeof ModelSummarySchema>>>,
 
   // ── the model-provider enum ──────────────────────────────────────────────
   //
@@ -477,6 +542,20 @@ const GATED_PAIRS = [
   "DeleteUserGroupResponse ↔ DeleteUserGroupV1ResponseSchema",
 
   "UploadDatasetResult ↔ UploadDatasetResponseSchema",
+  "EvalSessionDetail ↔ EvalSessionDetailSchema",
+
+  "TraceSummary ↔ TraceSummarySchema",
+  "TraceDetail ↔ TraceDetailSchema",
+  "GenerationSummary ↔ GenerationSummarySchema",
+  "GenerationDetail ↔ GenerationDetailSchema",
+  "DeploymentDetail ↔ DeploymentDetailSchema",
+  "DocumentDetail ↔ DocumentDetailSchema",
+  "ExternalToolDetail ↔ ExternalToolDetailSchema",
+  "ListExternalToolsResponse ↔ ListExternalToolsResponseSchema",
+  "DeploymentType ↔ DeploymentTypeSchema",
+  "ApiKeyService ↔ ApiKeyServiceSchema",
+  "ApiKeyConnection ↔ ApiKeyConnectionSchema",
+  "ModelSummary ↔ ModelSummarySchema",
 
   "ModelProvider ↔ ModelProviderSchema",
   "AgentModel ↔ AgentModelSchema",
@@ -569,6 +648,17 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
       "and no partial form of this assertion exists."
   ],
   [
+    "EvalResult",
+    "Its `status` and `judgeStatus` are z.string() in the schema and a four-member literal " +
+      "union here, so equality refuses the pair while the SDK is the more precise of the two. " +
+      "The four members are the EVALUATION_EXECUTION_STATUS_VALUES / " +
+      "EVALUATION_JUDGE_STATUS_VALUES Prisma enums, which is where the server reads them from, " +
+      "so widening this package to `string` would lose real information to satisfy an " +
+      "instrument. The three fields this pair was drifting on — judgeStatus, executionError, " +
+      "judgeError — are fixed and UNGATED: nothing stops them drifting again, and saying so " +
+      "is the point of this entry."
+  ],
+  [
     "ListRoleAccessRequestsParams",
     "RoleAccessRequestListParamsV1Schema wraps its status in `optionalQueryParam`, whose INPUT " +
       "is `unknown` by construction — a query string arrives as text and the wrapper " +
@@ -581,10 +671,28 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 82 pairs are covered. Most of the contract is not, and this file does not
+ * 95 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
+ *
+ * ## What a sweep of the WHOLE surface measured, so the gap has a denominator
+ *
+ * Every exported type under `types/` was paired by name against the v1 schemas
+ * and compared by the same `Equals` this file uses — `Sent` for a request type,
+ * `Received` for a response — rather than eyeballed:
+ *
+ * - 618 exported types in this package; 343 have a name-matched v1 schema.
+ * - Of those 343, 268 were outside this gate. 81 of the 268 did not compare
+ *   equal.
+ * - Those 81 are not 81 defects. 4 are name collisions (`ExecutionStatus` here
+ *   is an object, `ExecutionStatusSchema` is an enum) and ~40 are the
+ *   query-param coercion class already exempted below, where equality is the
+ *   wrong instrument. The RESPONSE axis is where the real drift concentrated:
+ *   ten types omitting 24 fields the server sends, and two enums.
+ *
+ * Re-run the sweep rather than trusting these numbers — they move with the
+ * contract, and a figure written down is a figure that stops being measured.
  */
-const GATED_PAIR_FLOOR = 82;
+const GATED_PAIR_FLOOR = 95;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**
@@ -640,6 +748,6 @@ describe("the SDK's types match the Public API v1 contract", () => {
         `${name} is listed as BOTH gated and ungated`
       ).toBe(false);
     }
-    expect(UNGATED_WITH_REASON.length).toBe(6);
+    expect(UNGATED_WITH_REASON.length).toBe(7);
   });
 });

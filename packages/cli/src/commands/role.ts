@@ -72,7 +72,12 @@ import {
   ROLE_NAMESPACE_GAPS,
   SCOPE_LINES_BODY_SHAPE
 } from "./role-body-shapes";
-import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
+import {
+  COVERAGE_INPUTS_NOTE,
+  JOB_MODEL_DOES_NOT_MOVE_COVERAGE,
+  NOT_STATED,
+  WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK
+} from "./role-coverage-copy";
 
 /**
  * `nexus role` — the Roles surface.
@@ -107,6 +112,45 @@ import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-c
 
 /** A Role id is `@db.Uuid`, so a uuid-shaped argument is never a name. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A coverage money figure, with the floating-point residue taken off.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * `String(amount)` PRINTS `16250.000000000002`, AND THAT NUMBER IS CORRECT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `savingsProjection.amount` is `impactPersonHours × ratePerHour`, and
+ * `ratePerHour` is `workloadCost ÷ workloadPersonHours` — so the headline is a
+ * division multiplied back by its own divisor. In IEEE-754 that is not an
+ * identity: `(260000 / 7360) * 7360` is `16250.000000000002`. The engine is
+ * right, the payload is right, and `--json` must keep every digit — a caller
+ * reconciling the rate against the amount needs the number that was used.
+ *
+ * What is wrong is printing those digits in a HUMAN table. `printRecord`'s
+ * `format` is the human channel and leaves the JSON document untouched
+ * (`output.ts` states that split), and every other figure in this record is
+ * already formatted for it — the ratio two fields up is `(ratio * 100).toFixed(2)`.
+ * `String()` on the money was the one field that was not, so a reader saw twelve
+ * digits of residue on the one number a demo puts on screen and had no way to
+ * tell it from a broken model.
+ *
+ * Two decimals, not zero: these are currency amounts and a blended rate is two
+ * significant figures wide — `35.33/h` rounded to whole units is `35`, a 1%
+ * error printed directly beside the total it produced. The dashboard makes the
+ * same split for the same reason (`formatFigures.ts`: `formatMoney` pins 0,
+ * `formatRate` pins 2); a CLI table has one column and no room for two rules, so
+ * it takes the finer of the two.
+ *
+ * `Number(...)` around the `toFixed` is what drops a trailing `.00`, so a whole
+ * amount still reads `16250` rather than `16250.00`. Deliberately NOT `Intl`:
+ * this string is read in a terminal on an unknown locale, and grouping
+ * separators that move with `LANG` are a worse cost here than they are in a
+ * browser that already knows the reader's language.
+ */
+function coverageMoney(amount: number): string {
+  return String(Number(amount.toFixed(2)));
+}
 
 /**
  * Every member of `RoleResourceType`, as a runtime lookup.
@@ -881,8 +925,8 @@ ${COVERAGE_INPUTS_NOTE}`
             label: "Projected saving",
             format: () =>
               view.savingsProjection.kind === "projected"
-                ? `${String(view.savingsProjection.amount)} ${view.savingsProjection.currency}` +
-                  ` (at ${String(view.savingsProjection.ratePerHour)}/h)`
+                ? `${coverageMoney(view.savingsProjection.amount)} ${view.savingsProjection.currency}` +
+                  ` (at ${coverageMoney(view.savingsProjection.ratePerHour)}/h)`
                 : `unavailable (${view.savingsProjection.reason})`
           },
           {
@@ -890,9 +934,13 @@ ${COVERAGE_INPUTS_NOTE}`
             label: "Money",
             format: () =>
               view.money.kind === "modelled"
-                ? `${view.money.currency} · revenue ${String(view.money.totals.revenue)}` +
-                  ` · cost ${String(view.money.totals.cost)}` +
-                  ` · workload cost ${view.money.totals.workloadCost?.toString() ?? "not modelled"}`
+                ? `${view.money.currency} · revenue ${coverageMoney(view.money.totals.revenue)}` +
+                  ` · cost ${coverageMoney(view.money.totals.cost)}` +
+                  ` · workload cost ${
+                    view.money.totals.workloadCost === null
+                      ? "not modelled"
+                      : coverageMoney(view.money.totals.workloadCost)
+                  }`
                 : `not modelled (${view.money.reason})`
           },
           {
@@ -2589,7 +2637,7 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
 
   role
     .command("working-year")
-    .description("Read a Role's working-year override")
+    .description("Read a Role's working year")
     .argument("<role>", "Role name or UUID")
     .addHelpText(
       "after",
@@ -2597,22 +2645,20 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
 Examples:
   $ nexus role working-year "Support agent"
 
-Notes:
-  A blank field means NO OVERRIDE — the organization's value applies. It does
-  not mean zero.`
+Notes:${WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK}`
     )
     .action(async (ref: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const year = await client.roles.getWorkingYear(await resolveRoleId(client, ref));
-        const orgDefault = (val: unknown): string => (val === null ? "(org default)" : String(val));
+        const notStated = (val: unknown): string => (val === null ? NOT_STATED : String(val));
 
         printStatedOrNothing(year, "This Role's working year", [
           { key: "roleId", label: "Role" },
-          { key: "calendarWeeks", label: "Calendar weeks", format: orgDefault },
-          { key: "paidLeaveWeeks", label: "Paid leave (weeks)", format: orgDefault },
-          { key: "publicHolidayDays", label: "Public holidays (days)", format: orgDefault },
-          { key: "sicknessDays", label: "Sickness (days)", format: orgDefault }
+          { key: "calendarWeeks", label: "Calendar weeks", format: notStated },
+          { key: "paidLeaveWeeks", label: "Paid leave (weeks)", format: notStated },
+          { key: "publicHolidayDays", label: "Public holidays (days)", format: notStated },
+          { key: "sicknessDays", label: "Sickness (days)", format: notStated }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -2621,7 +2667,7 @@ Notes:
 
   role
     .command("set-working-year")
-    .description("Replace a Role's working-year override")
+    .description("Replace a Role's working year")
     .argument("<role>", "Role name or UUID")
     .option("--calendar-weeks <n>", 'Weeks in the year, or "none" for no override')
     .option("--paid-leave <n>", 'Paid leave in weeks, or "none"')
@@ -2638,10 +2684,11 @@ Examples:
 Notes:
   ALL FOUR ARE REQUIRED — this replaces the whole object.
 
-  "none" MEANS NO OVERRIDE. IT IS NOT ZERO. --sickness none says "use the
-  organization's value"; --sickness 0 asserts zero expected sickness. Both are
-  accepted, they produce different job-model denominators, and nothing
+  "none" MEANS NOT STATED. IT IS NOT ZERO. --sickness none records that nobody
+  has stated expected sickness; --sickness 0 asserts zero expected sickness.
+  Both are accepted, they produce different job-model denominators, and nothing
   downstream will tell you which you meant.
+${WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK}
 ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
     )
     .action(async (ref: string, opts) => {
@@ -2676,7 +2723,7 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
             { field: "publicHolidayDays", flag: "public-holidays" },
             { field: "sicknessDays", flag: "sickness" }
           ],
-          'This route replaces the whole object. Pass "none" for a field with no override.'
+          'This route replaces the whole object. Pass "none" for a term nobody has stated.'
         );
         const year = await client.roles.upsertWorkingYear(
           roleId,
@@ -2689,10 +2736,10 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
         // channel that exists to preserve it — and `role working-year` returns
         // the same fields as proper nulls.
         printSuccess("Working year updated.", {
-          calendarWeeks: year.calendarWeeks ?? absent("(org default)"),
-          paidLeaveWeeks: year.paidLeaveWeeks ?? absent("(org default)"),
-          publicHolidayDays: year.publicHolidayDays ?? absent("(org default)"),
-          sicknessDays: year.sicknessDays ?? absent("(org default)")
+          calendarWeeks: year.calendarWeeks ?? absent(NOT_STATED),
+          paidLeaveWeeks: year.paidLeaveWeeks ?? absent(NOT_STATED),
+          publicHolidayDays: year.publicHolidayDays ?? absent(NOT_STATED),
+          sicknessDays: year.sicknessDays ?? absent(NOT_STATED)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -3010,7 +3057,8 @@ Notes:
   "NOT CONFIGURED" IS A SUCCESS, NOT AN EMPTY POLICY. A Role nobody has
   authored a policy for prints that line and exits 0; under --json it is a
   literal null. It is NOT the same as every flag being false — nothing has been
-  stated, so read the organization's defaults, do not infer them from here.
+  stated, and there is NO organization-level system policy to inherit from, so
+  an unauthored policy is an absence rather than a set of borrowed values.
   Write it with "nexus role set-system-policy", which REPLACES the whole
   policy rather than patching it.`
     )

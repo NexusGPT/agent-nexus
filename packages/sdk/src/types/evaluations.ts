@@ -48,6 +48,11 @@ export interface EvalSessionDetail extends EvalSession {
   averageScore: number | null;
   /** Rows the judge has scored. */
   judgedRows: number;
+  /**
+   * Rows the judge attempted and failed on. Without it a session whose every
+   * judgement errored reads identically to one that was never judged.
+   */
+  judgeFailedRows: number;
   /** Model used to judge, or `null` before judging is configured. */
   judgeModel: string | null;
   /** Prompt used to judge, or `null` before judging is configured. */
@@ -100,6 +105,18 @@ export interface EvalResult {
   executionTimeMs: number | null;
   /** Row execution status. */
   status: EvalRowStatus;
+  /**
+   * Judging status, a SECOND dimension from {@link EvalResult.status}.
+   *
+   * A row can be `COMPLETED` and still unjudged. Reading judging off `status`
+   * alone makes a judge failure indistinguishable from a row nothing has judged
+   * yet.
+   */
+  judgeStatus: EvalRowStatus;
+  /** Why the row's task execution failed, or `null` when it did not. */
+  executionError: string | null;
+  /** Why judging the row failed, or `null` when it did not. */
+  judgeError: string | null;
 }
 
 // ============================================================================

@@ -357,6 +357,8 @@ export interface ExternalToolDetail {
   description: string | null;
   /** URL to the tool's logo/icon image. */
   imageUrl: string | null;
+  /** Free-text usage notes shown alongside the tool. */
+  documentation: string | null;
   /** Always "CUSTOM_MANIFEST". */
   type: "CUSTOM_MANIFEST";
   /** Base endpoint URL. */

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { setJsonMode } from "../output";
 import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
+import { flatHelp, roleHelpText, roleSubcommand } from "./role-help.testkit";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 
@@ -56,41 +57,16 @@ import { registerRoleCommands } from "./role";
  */
 
 /**
- * The `--help` a caller actually reads.
+ * The `--help` a caller actually reads, and the one-line form every comparison
+ * here is made in.
  *
- * `outputHelp()` and NOT `helpInformation()`: only the former runs the
- * `addHelpText("after")` handlers, and every statement this file checks for
- * lives in one. A test built on `helpInformation()` passes against a command
- * whose whole Notes block was deleted.
+ * Both now live in `role-help.testkit.ts`, with the `outputHelp()` /
+ * `helpInformation()` trap written down once — a third test in this namespace
+ * was written on `helpInformation()` and passed against a Notes block replaced
+ * by the exact sentence it forbade.
  */
-function renderHelp(name: string): string {
-  const program = new Command();
-  program.name("nexus").exitOverride();
-  registerRoleCommands(program);
-
-  const group = program.commands.find((cmd) => cmd.name() === "role");
-  if (!group) throw new Error("registerRoleCommands registered no `role` command");
-
-  const command = group.commands.find((cmd) => cmd.name() === name);
-  if (!command) throw new Error(`No such command: nexus role ${name}`);
-
-  const chunks: string[] = [];
-  command.configureOutput({
-    writeOut: (str: string) => chunks.push(str),
-    writeErr: (str: string) => chunks.push(str)
-  });
-  command.outputHelp();
-  return chunks.join("");
-}
-
-/**
- * Help text is hard-wrapped by hand and by commander, so every comparison here
- * is made on one line. Without this a correct sentence fails on a line break
- * somebody moved, which is the kind of red that gets a test deleted.
- */
-function flat(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
+const renderHelp = (name: string): string => roleHelpText(roleSubcommand(name));
+const flat = flatHelp;
 
 /**
  * The commands that WRITE the job model.

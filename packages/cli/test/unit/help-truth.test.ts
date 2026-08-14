@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 
-import { CLEAN_NAMESPACES, HELP_TRUTH_LEDGER, LEDGER_CEILING } from "./help-truth.ledger";
+import { deriveCommandNamespaces } from "../../src/command-universe";
+import {
+  CLEAN_NAMESPACES,
+  HELP_TRUTH_LEDGER,
+  LEDGER_CEILING,
+  NAMESPACE_TOTAL
+} from "./help-truth.ledger";
 import { deriveCommandLeaves, runHelpTruthScan, type ScanReport } from "./help-truth-rules";
 
 /**
@@ -47,10 +53,12 @@ import { deriveCommandLeaves, runHelpTruthScan, type ScanReport } from "./help-t
 
 let report: ScanReport;
 let derived: string[];
+let namespaces: string[];
 
 before(async () => {
   report = await runHelpTruthScan();
   derived = await deriveCommandLeaves();
+  namespaces = (await deriveCommandNamespaces()).map((ns) => ns.name).sort();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +256,109 @@ test("LEDGER 6: a namespace declared clean holds no entry at all", () => {
     [],
     `\n\nnamespace(s) declared clean have regressed: ${regressed.join(", ")}.\n\n` +
       regressed.map((ns) => detailFor(ns)).join("\n")
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRAMME PROGRESS — one place that answers "how far along is this"
+//
+// The ledger arms above are about DEFECTS: which commands are broken, and is
+// every one of them written down. None of them answers the programme's own
+// question, and before these two arms nothing did — `CLEAN_NAMESPACES.length`
+// was a numerator with no denominator, and `LEDGER 6` only stopped it going
+// DOWN, so it was a floor rather than a measurement.
+//
+// Three arms make the fraction honest, and it takes all three:
+//
+//   PROGRESS 1 pins the DENOMINATOR to the live commander tree.
+//   PROGRESS 2 forces the NUMERATOR to be COMPLETE  — every clean namespace is in.
+//   PROGRESS 3 forces the NUMERATOR to be SOUND     — nothing else is.
+//
+// 2 and 3 are separate because they fail in opposite directions and neither
+// implies the other: without 2 the ratio reads LOW, without 3 it reads HIGH, and
+// a numerator that can only be bounded on one side is not a measurement.
+//
+// With all three, `CLEAN_NAMESPACES.length / NAMESPACE_TOTAL` is the progress of
+// the `--help` completeness programme, in the repository, checkable by CI.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("PROGRESS 1: the denominator is the live tree, so the ratio cannot rot", () => {
+  // A hand-written count beside an evolving CLI is the defect this whole gate
+  // was built to delete, and it grew back in prose: a `because:` string in
+  // contract-help.namespaces.ts said "64 top-level names are 46 namespaces"
+  // while the tree said 65 and 47, and this file's own ledger said "six of the
+  // seven" over a six-entry list. Prose cannot go red. This can.
+  assert.equal(
+    namespaces.length,
+    NAMESPACE_TOTAL,
+    `\n\nthe CLI registers ${namespaces.length} visible namespaces, NAMESPACE_TOTAL says ${NAMESPACE_TOTAL}.\n` +
+      `A namespace was added or removed. Update NAMESPACE_TOTAL in help-truth.ledger.ts\n` +
+      `in the same change, so the programme's denominator moves where a reviewer reads it.\n\n` +
+      `  live: ${namespaces.join(", ")}`
+  );
+});
+
+test("PROGRESS 2: a namespace that became clean is recorded as clean", () => {
+  // The converse of LEDGER 6, and the arm that turns the list into a
+  // measurement. Without it, fixing a namespace's last defect is invisible: the
+  // ledger shrinks, no test notices, and the recorded numerator stays behind the
+  // real one. That is exactly what had happened to the four names this arm
+  // forced into the list.
+  //
+  // NOT true by construction — CLEAN_NAMESPACES is still hand-written. This
+  // makes the edit MANDATORY, it does not make it automatic.
+  const observed = observedLedger();
+  const hasDefect = (ns: string): boolean =>
+    [...observed.keys()].some((c) => c === ns || c.startsWith(`${ns} `));
+
+  const undeclared = namespaces.filter((ns) => !hasDefect(ns) && !CLEAN_NAMESPACES.includes(ns));
+  assert.deepEqual(
+    undeclared,
+    [],
+    `\n\n${undeclared.length} namespace(s) have no --help defect and are not recorded as clean:\n` +
+      `${undeclared.map((ns) => `  ${ns}`).join("\n")}\n\n` +
+      `Add each to CLEAN_NAMESPACES in help-truth.ledger.ts. Until then the programme's\n` +
+      `progress reads lower than it is, and nothing else in the repository can tell.`
+  );
+});
+
+test("PROGRESS 3: every namespace recorded as clean still exists", () => {
+  // The third side, and without it the other two do not add up to a ratio.
+  //
+  // PROGRESS 2 forces live-and-clean INTO the list. Nothing forced the list to
+  // hold only live namespaces, and every existing arm is blind to a name that
+  // is not one: LEDGER 6 asks whether a declared name holds a ledger entry, and
+  // a namespace that does not exist holds none, so it passes as CLEAN. So a
+  // deleted namespace left behind here, or a typo that ADDS rather than
+  // replaces, inflates the numerator while the whole gate stays green — the
+  // ratio reads as measured and is not.
+  //
+  // (A typo that REPLACES a name is already caught, by PROGRESS 2: the real
+  // namespace becomes clean-and-undeclared. Only the additive case gets through,
+  // which is exactly why this arm is separate rather than folded in.)
+  //
+  // This is LEDGER 4's shape applied to the numerator: a ghost name must be
+  // deleted, never carried.
+  const ghosts = CLEAN_NAMESPACES.filter((ns) => !namespaces.includes(ns));
+  assert.deepEqual(
+    ghosts,
+    [],
+    `\n\n${ghosts.length} name(s) in CLEAN_NAMESPACES are not namespaces the CLI registers:\n` +
+      `${ghosts.map((ns) => `  ${ns}`).join("\n")}\n\n` +
+      `A renamed namespace needs its name changed; a deleted one needs its line deleted.\n` +
+      `Until then CLEAN_NAMESPACES.length overstates the programme's progress.`
+  );
+
+  // The ratio itself, printed so a CI log carries the answer rather than only
+  // the verdict. A gate that proves the number and never shows it makes the
+  // reader go and derive it again. Printed HERE, from the last of the three
+  // arms, so the number is only ever emitted once all three have held.
+  const clean = CLEAN_NAMESPACES.length;
+  console.log(
+    `    PROGRESS: ${clean}/${NAMESPACE_TOTAL} namespaces clean ` +
+      `(${((clean / NAMESPACE_TOTAL) * 100).toFixed(0)}%) — ` +
+      `${report.violations.length} violations across ${observedLedger().size} commands, ` +
+      `${report.leafCount} leaves`
   );
 });
 

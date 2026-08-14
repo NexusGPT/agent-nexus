@@ -267,11 +267,13 @@ Notes:
   its placeholder stays unfilled, and the document comes back blank there.
   Nothing in the response lists which variables were used.
 
-  THE RETURNED url IS PUBLIC AND DOES NOT EXPIRE. The generated file is uploaded
-  world-readable, so the link is the only thing protecting it: anyone who has it
-  can download the document, forever. Treat it as a secret, and do not paste it
-  into a ticket, a chat or a log. (This is the opposite of
-  "nexus document download", whose URL is signed and expires in an hour.)
+  THE RETURNED url IS SIGNED AND EXPIRES IN ABOUT AN HOUR, the same as
+  "nexus document download" and "nexus document preview". Download it in the
+  same session; a link kept in a script, a ticket or a chat message stops
+  working. Re-running the command generates a new document and a new link — no
+  command here re-signs an old one. Until it expires the link is still a bearer
+  credential, so anyone holding it can download the document: treat it as a
+  secret for that hour.
 
   EVERY RUN PRODUCES A NEW FILE. Generating twice leaves two downloadable
   documents; there is no command here that deletes either of them.

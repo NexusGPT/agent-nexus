@@ -230,10 +230,17 @@ export function resolveBodyField(option: Option): {
 /**
  * Which flags carry a JSON request body.
  *
- * `--body` on most namespaces, `--data` on `ticket` — the root epilogue records
- * that exception. The placeholder is what discriminates a JSON body from a
- * same-named prose field: `ticket comment --body <text-or-->` is a comment's
- * TEXT, not a request body, and must keep commander's early check.
+ * `--body` on most commands, `--data` on five of them across three namespaces —
+ * `ticket create/update`, `credential update` and `access-card create/update`.
+ * The root epilogue names that set, and `request-body-flag-spelling.test.ts`
+ * derives it from this tree so the two cannot drift.
+ *
+ * NEITHER NAME IS SUFFICIENT ON ITS OWN, WHICH IS WHY THE PLACEHOLDER IS TESTED
+ * TOO. It is what discriminates a JSON body from a same-named prose field:
+ * `ticket comment --body <text-or-->` is a comment's TEXT and must keep
+ * commander's early check, and `html-template render --data <json>` is a
+ * render input rather than a request body — the second is caught by the shape
+ * rule below (it declares no other mandatory option), not by this predicate.
  */
 function findJsonBodyOption(command: Command): Option | undefined {
   return command.options.find(

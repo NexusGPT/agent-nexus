@@ -93,6 +93,8 @@ export interface DocumentDetail {
   processingProgress: number;
   /** Document tags. */
   tags: string[];
+  /** User-declared filterable attributes as stored (raw, pre-index). */
+  metadata: Record<string, unknown> | null;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   /** ISO 8601 last update timestamp. */

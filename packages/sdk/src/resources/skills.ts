@@ -639,7 +639,9 @@ export class SkillsResource extends BaseResource {
    *
    * @param templateId - Document template UUID.
    * @param body - Variables to fill in the template.
-   * @returns URL to the generated document.
+   * @returns A SIGNED URL to the generated document, valid for about an hour.
+   *   Fetch it now; storing it produces a link that stops working. There is no
+   *   re-sign call — generate again to get a fresh one.
    *
    * @example
    * ```ts

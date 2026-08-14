@@ -758,9 +758,10 @@ describe("--json emits null where the human rendering reads a sentence", () => {
       "none"
     ]);
 
-    // THE distinction this whole family exists for: null is "use the
-    // organization's value", 0 is a measured zero, and they produce different
-    // coverage denominators. "(org default)" collapses the pair into prose.
+    // THE distinction this whole family exists for: null is "nobody stated
+    // this", 0 is a measured zero, and they produce different job-model
+    // denominators. Any English rendering collapses the pair into prose, which
+    // is why `--json` keeps the null verbatim.
     expect(out.sicknessDays).toBeNull();
     expect(out.publicHolidayDays).toBe(0);
   });
@@ -832,7 +833,46 @@ describe("--json emits null where the human rendering reads a sentence", () => {
         "--sickness",
         "none"
       ])
-    ).toContain("(org default)");
+    ).toContain("(not stated)");
+  });
+
+  // 🚨 THE RENDERING IS THE HALF THE HELP GATE CANNOT SEE.
+  // `role-help-offers-no-absent-fallback.test.ts` reads `--help` and
+  // proves from `@nexus/types` that no organization row holds a working-year
+  // term. It cannot reach these two strings, which exist only once a response
+  // is in hand — and `(org default)` lived in exactly that blind spot for as
+  // long as it did. Both commands are asserted, because the read and the write
+  // formatted the same null through two separate code paths.
+  it("never offers an organization fallback for a working-year term it read back", async () => {
+    request.mockResolvedValue({
+      roleId: ROLE_ID,
+      calendarWeeks: 52,
+      paidLeaveWeeks: null,
+      publicHolidayDays: null,
+      sicknessDays: null
+    });
+    const read = await runTable(["role", "working-year", ROLE_ID]);
+
+    expect(read).toContain("(not stated)");
+    expect(read).not.toContain("org default");
+
+    request.mockResolvedValue({ roleId: ROLE_ID, sicknessDays: null });
+    const written = await runTable([
+      "role",
+      "set-working-year",
+      ROLE_ID,
+      "--calendar-weeks",
+      "52",
+      "--paid-leave",
+      "none",
+      "--public-holidays",
+      "none",
+      "--sickness",
+      "none"
+    ]);
+
+    expect(written).toContain("(not stated)");
+    expect(written).not.toContain("org default");
   });
 });
 
@@ -1186,6 +1226,63 @@ describe("coverage never renders an unmeasured Role as a number", () => {
 
     // `ratio` is 0.1828, not 18.28. Printing it unscaled would report 0.18%.
     expect(out).toContain("18.28%");
+  });
+});
+
+describe("the money figures do not print floating-point residue", () => {
+  /**
+   * The exact numbers `evaluateRoleCoverage` returns for `4 × 40 × 46` worked
+   * hours priced at €260,000 — measured over HTTP against a real Postgres in
+   * `apps/backend/test/integration/roles/demo-coverage-http-replay.integration.spec.ts`.
+   *
+   * `16250.000000000002` is REAL and is not a defect: `ratePerHour` is
+   * `260000 / 7360` and the amount multiplies it back by the same 7360, which
+   * IEEE-754 does not round-trip. The payload must keep it; a human table must
+   * not print it.
+   */
+  const PROJECTED = {
+    ...coverageFixture({ kind: "modelled", ratio: 0.0625 }),
+    workloadPersonHours: 7360,
+    impactPersonHours: 460,
+    money: {
+      kind: "modelled",
+      currency: "EUR",
+      totals: {
+        workloadCost: 260000,
+        workloadRevenue: null,
+        revenue: 0,
+        cost: 0,
+        net: 0
+      }
+    },
+    savingsProjection: {
+      kind: "projected",
+      amount: 16250.000000000002,
+      currency: "EUR",
+      ratePerHour: 35.32608695652174
+    }
+  };
+
+  it("rounds the projected amount and its rate to two decimals", async () => {
+    request.mockResolvedValue(PROJECTED);
+
+    const out = await runTable(["role", "coverage", ROLE_ID]);
+
+    expect(out).toContain("16250 EUR (at 35.33/h)");
+    expect(out).not.toContain("16250.000000000002");
+    expect(out).not.toContain("35.32608695652174");
+  });
+
+  it("CONTROL — the unavailable arm still prints its reason and no amount", async () => {
+    request.mockResolvedValue(
+      coverageFixture({ kind: "not-modelled", reason: "NO_WORKLOAD_MODEL" })
+    );
+
+    const out = await runTable(["role", "coverage", ROLE_ID]);
+
+    // Without this, a formatter that swallowed the whole field would pass the
+    // case above by printing nothing at all.
+    expect(out).toContain("unavailable (NO_CURRENCY)");
   });
 });
 
@@ -1727,9 +1824,9 @@ describe("working year — none is not zero", () => {
       "none"
     ]);
 
-    // THE distinction in this family: 0 asserts a measured zero, null says "use
-    // the organization's value". They produce different coverage denominators and
-    // nothing downstream reports which was meant.
+    // THE distinction in this family: 0 asserts a measured zero, null says
+    // nobody has stated the term. They produce different job-model denominators
+    // and nothing downstream reports which was meant.
     expect(request).toHaveBeenCalledWith("PUT", `/roles/${ROLE_ID}/working-year`, {
       body: {
         calendarWeeks: 52,

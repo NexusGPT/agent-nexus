@@ -33,12 +33,22 @@
  *
  * ── WHY THE ACCRETION HALF SHIPS WITH A LEDGER ──────────────────────────────
  *
- * The rule below is already violated, live, in four pages. A gate that lands RED
- * is reverted by whoever it blocks and then the real rot flows again, so the
- * known violations are counted into {@link ACCRETION_LEDGER} and the count may
- * only ever SHRINK. A ledger entry that matches nothing is itself a failure: a
- * filter whose target is already gone excludes nothing and reads exactly like
- * one still doing its job.
+ * The rule below is violated, live, in three pages. A gate that lands RED is
+ * reverted by whoever it blocks and then the real rot flows again, so the known
+ * violations are counted into {@link ACCRETION_LEDGER} and the count may only
+ * ever SHRINK. A ledger entry that matches nothing is itself a failure: a filter
+ * whose target is already gone excludes nothing and reads exactly like one still
+ * doing its job.
+ *
+ * ── THE THIRD DIRECTION: A PAGE THAT IS SIMPLY WRONG ────────────────────────
+ *
+ * Equality catches a generated page that drifted. It says nothing about an
+ * AUTHORED one, and the authored pages are where the false claims live, because
+ * no projection can correct them and nothing else reads them. Two rules here
+ * cover the part of that surface which is derivable: a page claiming to list
+ * "the global flags" must list all of them, and it must NAME each one rather
+ * than merely contain it as a prefix. The claims that are not derivable —
+ * warnings, sequencing, precedence — stay a reader's job by construction.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -69,16 +79,18 @@ const AUTHORED_PAGES: ReadonlySet<string> = new Set([
   "output-and-input",
   "recipes",
   "troubleshooting",
-  // Authored today and carrying a `## Command reference` table it should not.
-  // Ledgered below rather than exempted.
+  // Its `## Command reference` table is gone. It listed 8 of the 10 `nexus auth`
+  // subcommands while the generated `commands/auth.mdx` had all 10, which is the
+  // reason an authored page carries no command reference in the first place.
   "authentication",
   // STAYS AUTHORED, deliberately. Only its flags table is derivable; its
   // "Environment variables" and "Resolution order" sections are precedence,
   // decided by branching in `config.ts`, and no option list contains them.
   // `buildRootProgram()` exists now, so generating it is POSSIBLE and still
-  // wrong — it would trade three missing flag names for the only written
-  // account of how a profile, an env var and a flag resolve. The completeness
-  // assertion below covers the derivable half instead.
+  // wrong — it would trade the only written account of how a profile, an env var
+  // and a flag resolve for a uniform list. The completeness assertion below
+  // covers the derivable half instead, and it is what closed the three flags
+  // this page used to omit.
   "global-options"
 ]);
 
@@ -97,21 +109,58 @@ const DECLARED_FLAG = /<Property name="--/g;
 const COMMAND_TABLE_ROW = /^\|\s*`nexus\s+[a-z][a-z-]*\s+[a-z][a-z-]*[^`]*`\s*\|/gm;
 
 /**
- * Known accretion, measured 2026-08-13. SHRINK-ONLY.
+ * Known accretion. SHRINK-ONLY.
  *
- * `global-options` is NOT exempt — its six declarations are legitimate for its
- * subject, and they are ledgered rather than waived so that they disappear when
- * the page moves to the generated set instead of becoming a permanent hole.
+ * Three entries have shrunk since it was first measured on 2026-08-13, and each
+ * shrink was a page being made TRUE rather than a page being tidied:
+ *
+ *   · `global-options` is GONE (was `{flags: 6}`). Its flag list is a table now,
+ *     because that is the only form in which it can be COMPLETE: three real
+ *     program-level flags were missing, and a fourth `<Property>` block would
+ *     have needed the ledger to grow.
+ *   · `authentication` 8 rows → 0. The table listed 8 of the 10 `nexus auth`
+ *     subcommands — `orgs` and `use-org` had been added and never reached it —
+ *     while the generated `commands/auth.mdx` had all 10. A stale copy of a
+ *     generated page is the whole subject of this file.
+ *   · `output-and-input` 6 flags → 5. It documented a `nexus api --timeout <ms>`
+ *     that no longer exists and whose unit was wrong by 1000.
  */
 const ACCRETION_LEDGER: Readonly<Record<string, { flags: number; rows: number }>> = {
-  authentication: { flags: 3, rows: 8 },
-  "global-options": { flags: 6, rows: 0 },
+  authentication: { flags: 3, rows: 0 },
   installation: { flags: 1, rows: 0 },
-  "output-and-input": { flags: 6, rows: 0 }
+  "output-and-input": { flags: 5, rows: 0 }
 };
 
 const countOf = (source: string, pattern: RegExp): number =>
   (source.match(new RegExp(pattern.source, pattern.flags)) ?? []).length;
+
+/**
+ * Every long flag the ROOT program declares — the set a page claiming to list
+ * "the global flags" has to match.
+ *
+ * `--help` is deliberately absent: commander keeps it on `_helpOption` rather
+ * than in `.options`, so it never appears here and no assertion can demand it.
+ * The pages name it anyway, which is correct and is simply not gated.
+ */
+const programLongFlags = (): string[] =>
+  buildRootProgram()
+    .options.map((option) => option.long)
+    .filter((long): long is string => typeof long === "string");
+
+/**
+ * Does the page NAME this flag — as the whole flag, not as a prefix of another?
+ *
+ * 🚨 `page.includes(flag)` was the first spelling and it fails OPEN in the one
+ * direction that matters. Proven by mutation: renaming the page's row to
+ * `--timeoutXX` left both completeness cases GREEN, because `"--timeoutXX"`
+ * contains `"--timeout"`. A page naming a flag that does not exist is exactly
+ * the rot this file is for, and the check could not see it.
+ *
+ * The reverse direction was already safe and stays so: a flag renamed in the
+ * CODE is a new string the page does not contain, which reds.
+ */
+const namesFlag = (page: string, flag: string): boolean =>
+  new RegExp(`(?<![\\w-])${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(page);
 
 describe("CLI docs are generated, and authored pages carry no command reference", () => {
   const pages = existsSync(COMMAND_DOCS)
@@ -259,7 +308,43 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     expect(dark).toEqual([]);
   });
 
-  it("global-options.mdx names every program-level flag, beyond its ledger", () => {
+  it("every page that presents THE global flags presents all of them", () => {
+    // 🚨 THE ROT THIS CATCHES IS DUPLICATION, NOT ABSENCE. Three authored pages
+    // carried a "global flags" list and all three were different subsets of the
+    // real one — `index.mdx` had 6 of 9, `global-options.mdx` had 6 of 9 (a
+    // DIFFERENT 6), and neither named `--timeout`, whose unit is the difference
+    // between a 120-second wait and a 33-hour one. Each list was true when
+    // written and none of them was ever read again.
+    //
+    // Scoped BY HEADING, deliberately. A page saying "Flags that matter in CI"
+    // (`recipes.mdx`) is presenting a SUBSET on purpose and completeness would
+    // be the wrong demand there; a page saying "Global flags" is claiming to be
+    // the list. The heading is the claim, so the heading is the trigger.
+    const GLOBAL_HEADING = /^#{2,3}\s+Global (flags|options)\s*$/m;
+
+    const flags = programLongFlags();
+    expect(flags.length).toBeGreaterThan(5);
+
+    const claimants: string[] = [];
+    const incomplete: string[] = [];
+    for (const name of AUTHORED_PAGES) {
+      const source = readFileSync(join(CLI_DOCS, `${name}.mdx`), "utf8");
+      if (!GLOBAL_HEADING.test(source)) continue;
+      claimants.push(name);
+
+      const missing = flags.filter((flag) => !namesFlag(source, flag));
+      if (missing.length > 0) {
+        incomplete.push(`${name}.mdx omits ${missing.join(", ")}`);
+      }
+    }
+
+    // Anti-vacuity: a heading rename would empty the population and this case
+    // would pass by checking nothing at all.
+    expect(claimants.sort()).toEqual(["global-options", "index"]);
+    expect(incomplete).toEqual([]);
+  });
+
+  it("global-options.mdx names every program-level flag", () => {
     // 🔴 THIS PAGE STAYS AUTHORED. THIS IS A COMPLETENESS CHECK, NOT A STEP
     // TOWARDS GENERATING IT.
     //
@@ -274,27 +359,20 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     //
     // So the derivable half gets an assertion and the authored half is left
     // alone: the page must NAME every flag the root program declares.
+    // ── THE UNDOCUMENTED LEDGER IS GONE, AND ITS EMPTINESS IS THE RESULT.
+    // It held `--dashboard-url`, `--timeout` and `--auto-update` — three real
+    // program-level flags this page did not name — and it was shrink-only. All
+    // three are on the page now, so the ledger and the filter that read it are
+    // deleted rather than left as an empty set: an empty filter excludes nothing
+    // and reads exactly like one still doing its job.
     const page = readFileSync(join(CLI_DOCS, "global-options.mdx"), "utf8");
 
-    // Measured 2026-08-13. SHRINK-ONLY: delete a name here in the same commit
-    // that documents it. An entry for a flag the page already covers is itself a
-    // failure — a filter whose target is gone excludes nothing and reads exactly
-    // like one still doing its job.
-    const UNDOCUMENTED_LEDGER = new Set(["--dashboard-url", "--timeout", "--auto-update"]);
+    const flags = programLongFlags();
 
-    const flags = buildRootProgram()
-      .options.map((option) => option.long)
-      .filter((long): long is string => typeof long === "string");
-
-    // Anti-vacuity: an empty flag list would satisfy every assertion below.
+    // Anti-vacuity: an empty flag list would satisfy the assertion below.
     expect(flags.length).toBeGreaterThan(5);
 
-    expect(flags.filter((flag) => !page.includes(flag) && !UNDOCUMENTED_LEDGER.has(flag))).toEqual(
-      []
-    );
-    expect(
-      [...UNDOCUMENTED_LEDGER].filter((flag) => !flags.includes(flag) || page.includes(flag))
-    ).toEqual([]);
+    expect(flags.filter((flag) => !namesFlag(page, flag))).toEqual([]);
   });
 
   // ── Direction 3: re-accretion into an authored page. ────────────────────────

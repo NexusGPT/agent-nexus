@@ -265,13 +265,18 @@ const CLAIMS: readonly HelpClaim[] = [
     phrases: ["--json IS THE ONLY WAY TO DISCOVER A TEMPLATE'S VARIABLE NAMES"]
   },
   {
-    what: "template generate names the ignored variables and the public URL",
+    what: "template generate names the ignored variables and the URL's lifetime",
     register: registerTemplateCommands,
     namespace: "template",
     path: ["generate"],
     phrases: [
       "THE VARIABLE NAMES MUST BE THE TEMPLATE'S OWN",
-      "THE RETURNED url IS PUBLIC AND DOES NOT EXPIRE"
+      // NEX-3712 flipped this fact rather than the wording: the URL was public
+      // and permanent, and the help said so; it is now signed and short-lived.
+      // The phrase is pinned so the two cannot drift apart again in either
+      // direction — a help text describing the wrong lifetime is what let the
+      // string be pasted somewhere durable.
+      "THE RETURNED url IS SIGNED AND EXPIRES IN ABOUT AN HOUR"
     ]
   },
   {

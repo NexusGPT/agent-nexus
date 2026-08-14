@@ -490,7 +490,13 @@ Notes:
   of the same length immediately before yours, and the table view never shows
   it. With one date or none, previousPeriod is null.
   Completed + Failed + In Progress can be less than Total Traces — a status
-  outside those three is counted in the total and in none of the three.`
+  outside those three is counted in the total and in none of the three.
+  UNPRICED CALLS > 0 MEANS TOTAL COST ($) IS LOW BY AN UNKNOWN AMOUNT. Those
+  calls had no price to look up and sit in the total at $0. The row discloses
+  it; it never corrects the total, because the missing amount is unknown rather
+  than merely unreported. "nexus tracing cost-breakdown" and "timeline" carry
+  the same column per group and per bucket, which is where you find WHICH spend
+  is missing.`
     )
     .action(async (opts) => {
       try {
@@ -568,6 +574,13 @@ Notes:
   a lower bound on spend, never the whole of it.
   TRACES is DISTINCT traces touching that group, so summing the TRACES column
   double-counts any trace that used two models.
+  UNPRICED > 0 MEANS THAT ROW'S COST ($) IS LOW BY AN UNKNOWN AMOUNT. Those
+  calls had no price to look up, so they are in the row's cost at $0 — a group
+  whose whole traffic is unpriced reads as $0.0000, i.e. indistinguishable from
+  a group that spent nothing. UNPRICED is a subset of GENS, never larger, and
+  is a disclosure rather than a correction: COST ($) is not adjusted by it.
+  Ranking by cost with a non-zero UNPRICED anywhere is ranking on an incomplete
+  column — read UNPRICED before concluding which group is cheapest.
   Same retention window as everything else: this is at most the last few days
   unless you narrow it further with --start-date / --end-date.`
     )
@@ -591,6 +604,9 @@ Notes:
           },
           { key: "traceCount", label: "TRACES", width: 8 },
           { key: "generationCount", label: "GENS", width: 8 },
+          // A table cannot carry the caveat the summary's single value can, so
+          // the Notes above own the sentence and this column owns the number.
+          { key: "unpricedGenerationCount", label: "UNPRICED", width: 9 },
           { key: "totalInputTokens", label: "IN TOKENS", width: 12 },
           { key: "totalOutputTokens", label: "OUT TOKENS", width: 12 }
         ]);
@@ -630,6 +646,11 @@ Notes:
   entirely in the bucket it began in.
   COST ($) 0.0000 in a bucket is a real zero for that bucket; a bucket with no
   cost at all is missing rather than zero.
+  UNPRICED > 0 MEANS THAT BUCKET'S COST ($) IS LOW BY AN UNKNOWN AMOUNT. Those
+  calls had no price to look up and sit in the bucket's cost at $0. Watch this
+  column across the series: a model that stops being priced makes COST ($)
+  FLATTEN while GENS keeps climbing, which reads exactly like traffic that got
+  cheaper. UNPRICED is a subset of GENS and never corrects COST ($).
   Same retention window as everything else — "--granularity week" over a
   7-day window gives you one or two rows, not a quarter.`
     )
@@ -646,6 +667,7 @@ Notes:
           { key: "date", label: "DATE", width: 22 },
           { key: "traceCount", label: "TRACES", width: 8 },
           { key: "generationCount", label: "GENS", width: 8 },
+          { key: "unpricedGenerationCount", label: "UNPRICED", width: 9 },
           {
             key: "totalCostUsd",
             label: "COST ($)",

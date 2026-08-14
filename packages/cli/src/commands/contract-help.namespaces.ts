@@ -393,7 +393,11 @@ export const UNCONTRACTED_NAMESPACES: readonly UncontractedNamespace[] = [
     because:
       "manages the local CLI install. Its --help states it needs no API key, no " +
       "base URL and no profile. Its 18 hidden aliases register no namespace of " +
-      "their own, which is why 64 top-level names are 46 namespaces."
+      "their own, which is why the top-level name count exceeds the namespace " +
+      "count. The namespace total is NAMESPACE_TOTAL in test/unit/" +
+      "help-truth.ledger.ts, where a test pins it to the live tree; a number " +
+      "written here would be prose that nothing can redden, and the two that " +
+      "used to be here had both gone stale."
   }
 ];
 

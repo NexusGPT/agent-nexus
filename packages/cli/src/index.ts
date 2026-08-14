@@ -56,6 +56,7 @@ import { resolveProfile } from "./config";
 import { registerHelpScopeFooter } from "./help-scope";
 import { applyKnownIssuesHelpLine } from "./known-issues-help";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
+import { applyProbeBarrierHelpLine } from "./probe-barrier";
 import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
 import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
 
@@ -268,8 +269,15 @@ export function buildRootProgram(version: string = VERSION): Command {
     A KEY THE SERVER DOES NOT KNOW IS USUALLY DROPPED, NOT REFUSED — a typo'd or
     misplaced field is accepted and silently ignored, so read each command's body
     shape rather than guessing it.
-    "nexus ticket create" and "nexus ticket update" take --data, not --body.
-    This is the only namespace that does.
+    FIVE COMMANDS SPELL THE BODY FLAG --data, ACROSS THREE NAMESPACES:
+    "ticket create", "ticket update", "credential update", "access-card create"
+    and "access-card update". Every other command spells it --body, and neither
+    spelling is accepted where the other is declared — commander refuses the flag
+    it does not know, so this costs you a retry rather than a silent drop.
+    "html-template render" ALSO TAKES --data AND IT IS NOT A REQUEST BODY: it is
+    the data object a template renders against, on a namespace whose create and
+    update take --body. Read the command's own Options block, never the
+    namespace's.
 
   SCOPES AND WHO YOU ARE
     Scopes are NOT hierarchical: :write does not imply :delete, and a read scope
@@ -361,6 +369,11 @@ export function buildRootProgram(version: string = VERSION): Command {
   // tomorrow carries the line without being registered anywhere. Static text —
   // `--help` must never touch the network. See `known-issues-help.ts`.
   applyKnownIssuesHelpLine(program);
+
+  // Which of the notes above nobody can check for free. Walks the FINISHED tree
+  // for the same reason as the line before it, and lands ABOVE the scope footer
+  // so the global caveat stays last. See `probe-barrier.ts`.
+  applyProbeBarrierHelpLine(program);
 
   return program;
 }

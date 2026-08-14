@@ -353,6 +353,8 @@
   previously accepted any deployment id and never checked the type. Some non-embed channels —
   Telegram, Twilio Voice, Teams — hold a top-level `initialMessage` that the old read returned,
   so a caller that passed a non-embed deployment id and used that value now gets a 400 instead.
+  In production 25 deployments carry one — 10 on Telegram, 12 on Twilio Voice and 3 on Microsoft
+  Teams — and 21 of those hold a non-empty value rather than an empty string.
   Read those channels' settings with `deployment get`.
   
   `identityVerificationSecret` is the one key of the 62 the API never returns. It is the

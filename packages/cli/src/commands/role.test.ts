@@ -860,6 +860,206 @@ describe("attach is a MOVE, and the CLI says so", () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// The two warnings that report damage — they NAME the Role
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A `request` double that answers by ROUTE rather than by call ORDER.
+ *
+ * A `mockResolvedValueOnce` chain binds each answer to a POSITION, so a mutant
+ * that swaps two calls is served the other one's body and dies on the DATA. That
+ * red looks like the assertion working and is not: the ordering requirement would
+ * still be pinned by nothing, and any refactor that kept both calls correct while
+ * reversing them would go green. Answering by route keeps every call correct in
+ * whatever order it arrives, which leaves the ORDER assertion in
+ * "reads the names BEFORE the PATCH" as the only thing that can catch it.
+ *
+ * An unfixtured route REJECTS rather than resolving `undefined` — a call nobody
+ * expected must be visible, not silently satisfied.
+ */
+function respondByRoute(routes: Record<string, unknown>): void {
+  request.mockImplementation((...args: unknown[]) => {
+    const key = `${String(args[0])} ${String(args[1])}`;
+    return key in routes
+      ? Promise.resolve(routes[key])
+      : Promise.reject(new Error(`No fixture for ${key}`));
+  });
+}
+
+/** Every request the double actually received, as `METHOD /path`. */
+function routesCalled(): string[] {
+  return request.mock.calls.map((call) => `${String(call[0])} ${String(call[1])}`);
+}
+
+const OTHER_ROLE_NAME = "Support tier two";
+const DOOMED_ROLE_NAME = "Vehicle sales";
+const ATTACH_ROUTE = `POST /roles/${ROLE_ID}/resources`;
+const REVIEW_DELETION_ROUTE = `PATCH /role-deletion-requests/${GRANT_ID}`;
+
+/** The move that costs another team a system, with the mover's name resolvable. */
+function aResolvableMove(): void {
+  respondByRoute({
+    [ATTACH_ROUTE]: { attached: true, movedFromRoleId: OTHER_ROLE_ID },
+    "GET /roles": rolesList([{ id: OTHER_ROLE_ID, name: OTHER_ROLE_NAME }])
+  });
+}
+
+const ATTACH_ARGV = ["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID];
+
+/**
+ * A UUID names no team to anybody, and these two sentences exist to tell a reader
+ * WHICH team just lost something. Both printed a bare UUID while `role attach
+ * --help` promised "a warning naming the Role the system came from" (NEX-3811).
+ *
+ * Every case below folds its facts into ONE assertion over an object. A case
+ * aborts at its first failing `expect`, so a pair of expectations means the
+ * second is never judged in the red state — and the red run that "proves" the
+ * spec then proves only half of it.
+ */
+describe("the warnings that report damage identify the Role, not a UUID", () => {
+  it("attach: the move warning names the Role — its name AND its uuid", async () => {
+    aResolvableMove();
+
+    const stderr = await captureStderr(() => run(ATTACH_ARGV));
+
+    expect(
+      {
+        identifies: stderr.includes(`${OTHER_ROLE_NAME} (${OTHER_ROLE_ID})`),
+        warned: stderr.includes("MOVE"),
+        exitCode: process.exitCode
+      },
+      "the move warning must identify the Role as `Name (uuid)` — the name is what a reader recognises, the uuid is what the remedy accepts"
+    ).toEqual({ identifies: true, warned: true, exitCode: 0 });
+  });
+
+  it("attach: the warning still prints, with the bare uuid, when the name lookup is refused", async () => {
+    // THE DEGRADATION GUARANTEE, and the case most likely to regress. Listing
+    // Roles needs `roles:read`, which a write-scoped key need not hold — so the
+    // lookup can 403 on a call that otherwise succeeded. A name IMPROVES this
+    // sentence; it is never a precondition for printing it.
+    request.mockResolvedValueOnce({ attached: true, movedFromRoleId: OTHER_ROLE_ID });
+    request.mockRejectedValueOnce(new Error("403 Forbidden: missing scope roles:read"));
+
+    const stderr = await captureStderr(() => run(ATTACH_ARGV));
+
+    expect(
+      {
+        // The bare form, terminated — so this cannot be satisfied by `Name (uuid)`.
+        namesTheBareUuid: stderr.includes(`taken from Role ${OTHER_ROLE_ID}.`),
+        warned: stderr.includes("MOVE"),
+        // The lookup was ATTEMPTED and swallowed. Without this the case also
+        // passes on an implementation that never looks a name up at all.
+        routes: routesCalled(),
+        exitCode: process.exitCode
+      },
+      "a refused name lookup must degrade to the bare uuid, never suppress the warning and never fail the command"
+    ).toEqual({
+      namesTheBareUuid: true,
+      warned: true,
+      routes: [ATTACH_ROUTE, "GET /roles"],
+      exitCode: 0
+    });
+  });
+
+  it("attach: no move means no warning and NO name lookup at all", async () => {
+    request.mockResolvedValue({ attached: true, movedFromRoleId: null });
+
+    const stderr = await captureStderr(() => run(ATTACH_ARGV));
+
+    expect(
+      { routes: routesCalled(), warned: stderr.includes("MOVE") },
+      "an attach that moved nothing must cost exactly one request — the POST — and print no warning"
+    ).toEqual({ routes: [ATTACH_ROUTE], warned: false });
+  });
+
+  it("attach --json: movedFrom stays a bare uuid and no name enters the document", async () => {
+    aResolvableMove();
+
+    const out = await runJson(ATTACH_ARGV);
+
+    expect(
+      {
+        // `role` is the anti-vacuity control: an EMPTY document also contains no
+        // name, so `namesTheRole: false` proves nothing without it.
+        role: out.role,
+        movedFrom: out.movedFrom,
+        namesTheRole: JSON.stringify(out).includes(OTHER_ROLE_NAME)
+      },
+      "the channels are split: the prose goes to stderr, and `movedFrom` stays the raw uuid seizure detection is built on"
+    ).toEqual({ role: ROLE_ID, movedFrom: OTHER_ROLE_ID, namesTheRole: false });
+  });
+
+  it("review-deletion-request APPROVED: the names are read BEFORE the PATCH that deletes the Role", async () => {
+    // THE ORDER IS THE WHOLE CORRECTNESS ARGUMENT AND NOTHING STRUCTURAL PINS IT.
+    // Approving is what DELETES the Role, and `RoleDeletionRequest` carries only
+    // `roleId` — so after the PATCH there is no name left anywhere to resolve.
+    // The double answers by route, so a reversed implementation still resolves
+    // the name and only this assertion can see the defect.
+    respondByRoute({
+      "GET /roles": rolesList([{ id: ROLE_ID, name: DOOMED_ROLE_NAME }]),
+      [REVIEW_DELETION_ROUTE]: {
+        request: { id: GRANT_ID, status: "APPROVED", roleId: ROLE_ID }
+      }
+    });
+
+    const stderr = await captureStderr(() =>
+      run(["role", "review-deletion-request", GRANT_ID, "--status", "APPROVED"])
+    );
+
+    expect(
+      {
+        order: routesCalled(),
+        identifies: stderr.includes(`${DOOMED_ROLE_NAME} (${ROLE_ID})`),
+        warned: stderr.includes("ORPHAN")
+      },
+      "the name must be read before the deletion, because afterwards nothing can resolve it"
+    ).toEqual({
+      order: ["GET /roles", REVIEW_DELETION_ROUTE],
+      identifies: true,
+      warned: true
+    });
+  });
+
+  it("review-deletion-request REJECTED: no name lookup, no warning", async () => {
+    respondByRoute({
+      [REVIEW_DELETION_ROUTE]: {
+        request: { id: GRANT_ID, status: "REJECTED", roleId: ROLE_ID }
+      }
+    });
+
+    const stderr = await captureStderr(() =>
+      run(["role", "review-deletion-request", GRANT_ID, "--status", "REJECTED"])
+    );
+
+    expect(
+      { routes: routesCalled(), warned: stderr.includes("ORPHAN") },
+      "a rejection deletes nothing and prints no warning, so it must pay for no lookup"
+    ).toEqual({ routes: [REVIEW_DELETION_ROUTE], warned: false });
+  });
+
+  it("attach --help promises a name, and the same run's stderr delivers one", async () => {
+    // NOT `toContain("name")`: this file's Notes blocks quote copyable examples,
+    // so a bare substring assertion survives the deletion of the very clause it
+    // is about. The regex matches the PROMISE, which a revert has to move; the
+    // stderr half is measured on the same run, so help and output cannot drift
+    // apart with this green.
+    const help = renderHelp(["role", "attach"]);
+    aResolvableMove();
+
+    const stderr = await captureStderr(() => run(ATTACH_ARGV));
+
+    expect(
+      {
+        helpPromisesNameAndUuid:
+          /naming the Role the system came from — its NAME\s+and its UUID/.test(help),
+        stderrDelivers: stderr.includes(`${OTHER_ROLE_NAME} (${OTHER_ROLE_ID})`)
+      },
+      "the help and the output are one claim — assert them in one breath so neither can go stale alone"
+    ).toEqual({ helpPromisesNameAndUuid: true, stderrDelivers: true });
+  });
+});
+
 describe("detach names no Role", () => {
   it("deletes off the top-level role-resources literal", async () => {
     request.mockResolvedValue({ removed: true, removedFromRoleId: ROLE_ID });

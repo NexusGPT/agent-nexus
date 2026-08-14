@@ -162,6 +162,49 @@ beforeEach(() => {
   process.exitCode = 0;
 });
 
+/**
+ * A `request` double that answers by ROUTE rather than by call ORDER.
+ *
+ * A `mockResolvedValueOnce` chain binds each answer to a POSITION, so a mutant
+ * that swaps two calls is served the other one's body and dies on the DATA. That
+ * red looks like the assertion working and is not: the ordering requirement would
+ * still be pinned by nothing, and any refactor that kept both calls correct while
+ * reversing them would go green. Answering by route keeps every call correct in
+ * whatever order it arrives, which leaves the ORDER assertion in
+ * "reads the names BEFORE the PATCH" as the only thing that can catch it.
+ *
+ * An unfixtured route REJECTS rather than resolving `undefined` — a call nobody
+ * expected must be visible, not silently satisfied.
+ */
+function respondByRoute(routes: Record<string, unknown>): void {
+  request.mockImplementation((...args: unknown[]) => {
+    const key = `${String(args[0])} ${String(args[1])}`;
+    return key in routes
+      ? Promise.resolve(routes[key])
+      : Promise.reject(new Error(`No fixture for ${key}`));
+  });
+}
+
+/** Every request the double actually received, as `METHOD /path`. */
+function routesCalled(): string[] {
+  return request.mock.calls.map((call) => `${String(call[0])} ${String(call[1])}`);
+}
+
+const OTHER_ROLE_NAME = "Support tier two";
+const DOOMED_ROLE_NAME = "Vehicle sales";
+const ATTACH_ROUTE = `POST /roles/${ROLE_ID}/resources`;
+const REVIEW_DELETION_ROUTE = `PATCH /role-deletion-requests/${GRANT_ID}`;
+
+/** The move that costs another team a system, with the mover's name resolvable. */
+function aResolvableMove(): void {
+  respondByRoute({
+    [ATTACH_ROUTE]: { attached: true, movedFromRoleId: OTHER_ROLE_ID },
+    "GET /roles": rolesList([{ id: OTHER_ROLE_ID, name: OTHER_ROLE_NAME }])
+  });
+}
+
+const ATTACH_ARGV = ["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Every read, on its exact path
 // ═══════════════════════════════════════════════════════════════════════════
@@ -651,13 +694,27 @@ describe("--json emits null where the human rendering reads a sentence", () => {
   });
 
   it("attach: a REAL move still carries the uuid — nulling is not blanket", async () => {
-    request.mockResolvedValue({ attached: true, movedFromRoleId: OTHER_ROLE_ID });
+    // THE NAME MUST BE RESOLVABLE, OR THIS CASE CANNOT SEE ITS OWN SUBJECT. With
+    // a fixture the lookup cannot read, `movedFrom` is a bare uuid because there
+    // was no name to substitute — the field is right for the wrong reason, and
+    // the channel split is asserted by nothing. Resolvable, the claim bites:
+    // a name EXISTS, the warning prints it, and `movedFrom` is STILL the uuid.
+    aResolvableMove();
 
-    const out = await runJson(["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID]);
+    let out: Record<string, unknown> = {};
+    const stderr = await captureStderr(async () => {
+      out = await runJson(ATTACH_ARGV);
+    });
 
-    // The seizure signal. A fix that mapped every value to null would pass the
-    // assertion above and destroy the field this one guards.
-    expect(out.movedFrom).toBe(OTHER_ROLE_ID);
+    expect(
+      {
+        // The seizure signal. A fix that mapped every value to null would pass
+        // the assertion above and destroy the field this one guards.
+        movedFrom: out.movedFrom,
+        aNameWasThereToSubstitute: stderr.includes(`${OTHER_ROLE_NAME} (${OTHER_ROLE_ID})`)
+      },
+      "the prose names the Role and the machine-readable field does not — that is the split, and it is only tested while a name exists"
+    ).toEqual({ movedFrom: OTHER_ROLE_ID, aNameWasThereToSubstitute: true });
   });
 
   it("detach: removedFromRole is null when there was nothing to leave", async () => {
@@ -823,26 +880,26 @@ describe("attach is a MOVE, and the CLI says so", () => {
   });
 
   it("warns, on stderr, that another Role lost the system", async () => {
-    request.mockResolvedValue({ attached: true, movedFromRoleId: OTHER_ROLE_ID });
+    // The old fixture answered the name lookup with the ATTACH body, whose
+    // `roles` is undefined — so this case ran the lookup's `catch` and asserted
+    // a bare uuid that was bare because nothing had resolved. It was green
+    // through the DEGRADED arm while its name claims the ordinary one.
+    aResolvableMove();
 
-    const stderr: string[] = [];
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string) => {
-      stderr.push(String(chunk));
-      return true;
-    }) as typeof process.stderr.write;
+    const stderr = await captureStderr(() => run(ATTACH_ARGV));
 
-    try {
-      await run(["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID]);
-    } finally {
-      process.stderr.write = write;
-    }
-
-    // `movedFromRoleId` is the ONLY signal that another team's access just went.
-    // A CLI that printed a bare success would hide a seizure behind a tick.
-    const out = stderr.join("");
-    expect(out).toContain("MOVE");
-    expect(out).toContain(OTHER_ROLE_ID);
+    expect(
+      {
+        // `movedFromRoleId` is the ONLY signal that another team's access just
+        // went. A CLI that printed a bare success would hide a seizure behind a
+        // tick.
+        warned: stderr.includes("MOVE"),
+        carriesTheHandle: stderr.includes(OTHER_ROLE_ID),
+        // The arm proof: on a resolvable lookup the sentence carries the name.
+        resolvedTheName: stderr.includes(OTHER_ROLE_NAME)
+      },
+      "the seizure must be reported, on the ordinary arm — a lookup that resolved"
+    ).toEqual({ warned: true, carriesTheHandle: true, resolvedTheName: true });
   });
 
   it("refuses a resource type from the PERMISSIONS vocabulary, without calling the API", async () => {
@@ -863,49 +920,6 @@ describe("attach is a MOVE, and the CLI says so", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // The two warnings that report damage — they NAME the Role
 // ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * A `request` double that answers by ROUTE rather than by call ORDER.
- *
- * A `mockResolvedValueOnce` chain binds each answer to a POSITION, so a mutant
- * that swaps two calls is served the other one's body and dies on the DATA. That
- * red looks like the assertion working and is not: the ordering requirement would
- * still be pinned by nothing, and any refactor that kept both calls correct while
- * reversing them would go green. Answering by route keeps every call correct in
- * whatever order it arrives, which leaves the ORDER assertion in
- * "reads the names BEFORE the PATCH" as the only thing that can catch it.
- *
- * An unfixtured route REJECTS rather than resolving `undefined` — a call nobody
- * expected must be visible, not silently satisfied.
- */
-function respondByRoute(routes: Record<string, unknown>): void {
-  request.mockImplementation((...args: unknown[]) => {
-    const key = `${String(args[0])} ${String(args[1])}`;
-    return key in routes
-      ? Promise.resolve(routes[key])
-      : Promise.reject(new Error(`No fixture for ${key}`));
-  });
-}
-
-/** Every request the double actually received, as `METHOD /path`. */
-function routesCalled(): string[] {
-  return request.mock.calls.map((call) => `${String(call[0])} ${String(call[1])}`);
-}
-
-const OTHER_ROLE_NAME = "Support tier two";
-const DOOMED_ROLE_NAME = "Vehicle sales";
-const ATTACH_ROUTE = `POST /roles/${ROLE_ID}/resources`;
-const REVIEW_DELETION_ROUTE = `PATCH /role-deletion-requests/${GRANT_ID}`;
-
-/** The move that costs another team a system, with the mover's name resolvable. */
-function aResolvableMove(): void {
-  respondByRoute({
-    [ATTACH_ROUTE]: { attached: true, movedFromRoleId: OTHER_ROLE_ID },
-    "GET /roles": rolesList([{ id: OTHER_ROLE_ID, name: OTHER_ROLE_NAME }])
-  });
-}
-
-const ATTACH_ARGV = ["role", "attach", ROLE_ID, "--type", "agent", "--id", AGENT_ID];
 
 /**
  * A UUID names no team to anybody, and these two sentences exist to tell a reader
@@ -1492,13 +1506,25 @@ describe("governance queues", () => {
   });
 
   it("warns that a Role's systems are orphaned when a deletion is APPROVED", async () => {
-    request.mockResolvedValue({ request: { id: GRANT_ID, status: "APPROVED", roleId: ROLE_ID } });
+    // Same repair as the attach warning: the old fixture answered `GET /roles`
+    // with the review body, so the name lookup threw and this case measured the
+    // degraded arm. Approving is what DELETES the Role, so the ordinary arm is
+    // the one an operator actually sees.
+    respondByRoute({
+      "GET /roles": rolesList([{ id: ROLE_ID, name: DOOMED_ROLE_NAME }]),
+      [REVIEW_DELETION_ROUTE]: {
+        request: { id: GRANT_ID, status: "APPROVED", roleId: ROLE_ID }
+      }
+    });
 
     const stderr = await captureStderr(() =>
       run(["role", "review-deletion-request", GRANT_ID, "--status", "APPROVED"])
     );
 
-    expect(stderr).toContain("ORPHAN");
+    expect(
+      { warned: stderr.includes("ORPHAN"), resolvedTheName: stderr.includes(DOOMED_ROLE_NAME) },
+      "the orphan warning must fire, on the arm where the Role's name resolved"
+    ).toEqual({ warned: true, resolvedTheName: true });
   });
 
   it("gets one deletion request", async () => {

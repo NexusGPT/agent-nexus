@@ -516,7 +516,19 @@ Notes:
             label: "Avg Duration",
             format: (v) => (v != null ? `${Number(v).toFixed(0)}ms` : "-")
           },
-          { key: "distinctModelCount", label: "Distinct Models" }
+          { key: "distinctModelCount", label: "Distinct Models" },
+          {
+            key: "unpricedGenerationCount",
+            label: "Unpriced Calls",
+            // A bare number reads as a statistic. It is a caveat on the line
+            // above it: those calls are in Total Cost at $0, so the total is LOW
+            // by an unknown amount. Say so, rather than leaving the reader to
+            // know that a spend total silently absorbs what it could not price.
+            format: (v) =>
+              Number(v) > 0
+                ? `${Number(v)} — no price found, so Total Cost is LOW by an unknown amount`
+                : "0"
+          }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);

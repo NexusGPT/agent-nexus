@@ -120,7 +120,7 @@ const CLAIMS: readonly HelpClaim[] = [
     namespace: "collection",
     path: ["search-multiple"],
     phrases: [
-      "Matches document NAMES, exactly like \"nexus collection search\"",
+      'Matches document NAMES, exactly like "nexus collection search"',
       "METADATA IS ALWAYS null"
     ]
   },
@@ -147,7 +147,7 @@ const CLAIMS: readonly HelpClaim[] = [
     register: registerCollectionCommands,
     namespace: "collection",
     path: ["update"],
-    phrases: ["A \"name\" in --body IS ACCEPTED AND SILENTLY IGNORED"]
+    phrases: ['A "name" in --body IS ACCEPTED AND SILENTLY IGNORED']
   },
   {
     what: "collection delete says the documents survive",
@@ -164,7 +164,7 @@ const CLAIMS: readonly HelpClaim[] = [
     namespace: "task",
     path: ["create"],
     phrases: [
-      "\"generation\" IS REQUIRED AND CANNOT BE EMPTY",
+      '"generation" IS REQUIRED AND CANNOT BE EMPTY',
       "THE PROMPT GOES AT THE BODY ROOT",
       "A BYTE-IDENTICAL PROMPT IS REFUSED WITH 409 DUPLICATE_TASK_PROMPT",
       "A SCHEMA WITHOUT ITS FORMAT IS A 400, NOT A SILENT DROP"
@@ -188,12 +188,12 @@ const CLAIMS: readonly HelpClaim[] = [
     ]
   },
   {
-    what: "task execute explains the misleading \"Prompt is required\"",
+    what: 'task execute explains the misleading "Prompt is required"',
     register: registerTaskCommands,
     namespace: "task",
     path: ["execute"],
     phrases: [
-      "\"Prompt is required\" HERE MEANS THE TASK WAS CREATED WITHOUT A PROMPT",
+      '"Prompt is required" HERE MEANS THE TASK WAS CREATED WITHOUT A PROMPT',
       "A CLIENT TIMEOUT DOES NOT STOP THE SERVER"
     ]
   },
@@ -352,7 +352,7 @@ describe("knowledge & content --help carries the behavioural facts", () => {
     for (const example of examples ?? []) {
       const carriesFlags =
         example.includes("--expected-input") && example.includes("--expected-output");
-      const carriesBody = example.includes("\"generation\"");
+      const carriesBody = example.includes('"generation"');
 
       expect(
         carriesFlags || carriesBody,

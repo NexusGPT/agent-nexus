@@ -196,7 +196,8 @@ function readSource(dir: string): string {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out += readSource(full);
-    else if (full.endsWith(".ts") && !full.endsWith(".test.ts")) out += fs.readFileSync(full, "utf8");
+    else if (full.endsWith(".ts") && !full.endsWith(".test.ts"))
+      out += fs.readFileSync(full, "utf8");
   }
   return out;
 }

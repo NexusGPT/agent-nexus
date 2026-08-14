@@ -328,7 +328,9 @@ describe("CLI docs are generated, and authored pages carry no command reference"
       // like one still doing its job. Tighten it in the same commit that fixes
       // the page.
       if (flags < allowed.flags) {
-        stale.push(`${name}.mdx now declares ${flags} flags — lower the ledger from ${allowed.flags}`);
+        stale.push(
+          `${name}.mdx now declares ${flags} flags — lower the ledger from ${allowed.flags}`
+        );
       }
       if (rows < allowed.rows) {
         stale.push(`${name}.mdx now has ${rows} rows — lower the ledger from ${allowed.rows}`);

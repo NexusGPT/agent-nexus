@@ -65,6 +65,15 @@ export interface TracingSummary {
   totalOutputTokens: number;
   avgDurationMs: number | null;
   distinctModelCount: number;
+  /**
+   * How many generations in this window could not be priced, and are therefore
+   * absorbed into `totalCostUsd` as zero-cost calls.
+   *
+   * `totalCostUsd` keeps its exact meaning — the sum of every cost that was
+   * measured — and is NOT corrected by this field. A non-zero count means
+   * `totalCostUsd` is LOW by an unknown amount. `0` is the normal answer.
+   */
+  unpricedGenerationCount: number;
   previousPeriod: {
     totalTraces: number;
     totalCostUsd: number;

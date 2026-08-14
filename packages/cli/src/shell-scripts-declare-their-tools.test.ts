@@ -65,8 +65,7 @@ interface Manifest {
   readonly bin?: string | Readonly<Record<string, string>>;
 }
 
-const readManifest = (path: string): Manifest =>
-  JSON.parse(readFileSync(path, "utf8")) as Manifest;
+const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf8")) as Manifest;
 
 const CLI_MANIFEST = readManifest(join(PKG_ROOT, "package.json"));
 const ROOT_MANIFEST = readManifest(join(REPO_ROOT, "package.json"));
@@ -100,7 +99,8 @@ function binariesProvidedBy(manifest: Manifest, nodeModules: string): Set<string
     }
     const dependency = readManifest(manifestPath);
     if (typeof dependency.bin === "string") binaries.add(name.replace(/^@[^/]+\//, ""));
-    else if (dependency.bin !== undefined) for (const key of Object.keys(dependency.bin)) binaries.add(key);
+    else if (dependency.bin !== undefined)
+      for (const key of Object.keys(dependency.bin)) binaries.add(key);
   }
   return binaries;
 }

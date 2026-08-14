@@ -452,7 +452,10 @@ Notes:
     .option("--repo <owner/name>", "Source repository", DEFAULT_PRESET_REPO)
     .option("--from-dir <path>", "Use a local checkout of the source repo instead of downloading")
     .option("--replace", "Replace the bundle when a skill of the same name already exists")
-    .option("--dry-run", "Show what would be attached without calling Nexus (still fetches the source)")
+    .option(
+      "--dry-run",
+      "Show what would be attached without calling Nexus (still fetches the source)"
+    )
     .addHelpText(
       "after",
       `

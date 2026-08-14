@@ -119,7 +119,11 @@ even though it looks right — copy the id from the resource's own list command.
     // bare `z.enum` and refuses `AGENT`, so case-folding would make this CLI
     // accept a spelling the server rejects.
     .addArgument(
-      enumArgument("<resource-type>", "Resource type", PERMISSIONS_LIST_RESOURCE_ACCESS__PATH_VARS_RESOURCE_TYPE)
+      enumArgument(
+        "<resource-type>",
+        "Resource type",
+        PERMISSIONS_LIST_RESOURCE_ACCESS__PATH_VARS_RESOURCE_TYPE
+      )
     )
     .argument("<resource-id>", "Resource UUID")
     .addHelpText(

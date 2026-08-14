@@ -156,7 +156,10 @@ test("agent-tool create --help lists exactly the tool types the contract accepts
   // WEBHOOK was in the shipped help and its fourth example. It is not a type.
   assert.ok(!AgentToolConfigTypeSchema.options.includes("WEBHOOK" as never));
   for (const example of examplesIn(help)) {
-    assert.ok(!/--type WEBHOOK\b/.test(example), `example uses a type outside the enum: ${example}`);
+    assert.ok(
+      !/--type WEBHOOK\b/.test(example),
+      `example uses a type outside the enum: ${example}`
+    );
   }
 });
 

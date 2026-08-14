@@ -7,7 +7,7 @@ import type { ProjectedDescriptor, ProjectedField } from "./contract-help.render
  * whole reason it is its own file:
  *
  *   · `scripts/generate-contract-help.ts` renders and writes.
- *   · `commands/contract-help.test.ts` re-renders and fails on a byte of drift.
+ *   · `contract-help.codegen.test.ts` renders fixtures and asserts the shape.
  *
  * Sharing them is the point. A second implementation in the test would agree
  * with the generator only by luck, and drift is exactly the case where the two
@@ -217,9 +217,13 @@ export function renderGeneratedModule(
 // Source: packages/types/src/api/public/v1/contract/, via z.toJSONSchema.
 // Regenerate: pnpm --filter @agent-nexus/cli run gen:contract-help
 //
-// \`commands/contract-help.test.ts\` re-derives this from the live contract and
-// fails when the committed copy drifts, so a contract change cannot ship with
-// the CLI still offering the old values.
+// NOTHING UNDER \`src/\` RE-DERIVES THIS. That needs Zod, which the published
+// binary does not depend on, so \`commands/contract-help.test.ts\` checks the
+// flags against this data and says so in its own header — it cannot tell you
+// the data is current. \`scripts/generated-drift.mjs\` is what does: it
+// regenerates and requires a byte-exact match, at review time in the
+// \`Generated config\` job of pr-checks.yml and again on every push to
+// staging/main.
 //
 // 🚨 THIS FILE IS ONE OF TWO OPINIONS, NEVER THE AUTHORITY. Where the CLI offers
 // fewer values than the contract lists, the reason is declared at the flag in

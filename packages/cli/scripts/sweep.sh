@@ -81,10 +81,18 @@ read -ra NEXUS_CMD <<< "${NEXUS_BIN:-nexus}"
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 
-# `pnpm exec` resolves tsx through the package's own node_modules, so the sweep
+# `pnpm exec` resolves tsx through THIS package's own node_modules, so the sweep
 # runs from any directory. No fallback and no `|| true` anywhere below: if the
 # derivation cannot run, the leaf list is UNKNOWN, and an unknown list must
 # never degrade into an empty one — a zero-leaf sweep passes.
+#
+# 🚨 `tsx` HAS TO BE A devDependency OF `packages/cli` ITSELF, and that is what
+# `src/shell-scripts-declare-their-tools.test.ts` asserts. `pnpm exec` also
+# searches the WORKSPACE ROOT's `node_modules/.bin`, so a tool the monorepo root
+# happens to declare resolves here and looks declared. The public mirror is a
+# different workspace whose root declares nothing at all — every tool a script
+# under `packages/cli/` runs has to come from this package's own manifest, or it
+# resolves in the monorepo and is absent in the mirror.
 run_universe() {
   (cd -- "$SCRIPT_DIR/.." && pnpm exec tsx scripts/command-universe.ts "$@")
 }
@@ -209,12 +217,28 @@ RESULTS=()
 # `readarray` under an explicit failure check rather than a pipeline: a pipeline
 # would hand back the exit code of its last stage, so a derivation that failed
 # would fill LEAVES with nothing and the sweep would report a clean 0-leaf pass.
-SWEEP_TARGETS_RAW=$(run_universe --print-safe-leaves)
-if [[ $? -ne 0 || -z "$SWEEP_TARGETS_RAW" ]]; then
+# The derivation's OWN diagnosis is printed on refusal. Both streams, because
+# neither is reliably the one carrying it: `pnpm exec` reports an unresolvable
+# tool on STDOUT, which `$(...)` captures into the variable below — so the
+# refusal used to discard the only sentence naming the cause and print two
+# lines that say a list could not be derived without ever saying why. Nine
+# consecutive red runs read identically to each other and to any future cause.
+UNIVERSE_STDERR=$(mktemp)
+SWEEP_TARGETS_RAW=$(run_universe --print-safe-leaves 2>"$UNIVERSE_STDERR")
+UNIVERSE_EXIT=$?
+if [[ $UNIVERSE_EXIT -ne 0 || -z "$SWEEP_TARGETS_RAW" ]]; then
   echo "FATAL: could not derive the safe-leaf list from src/command-universe.ts." >&2
   echo "Refusing to sweep an unknown list — an empty sweep passes." >&2
+  echo "  command : pnpm exec tsx scripts/command-universe.ts --print-safe-leaves" >&2
+  echo "  exit    : $UNIVERSE_EXIT" >&2
+  echo "  --- its stdout ---" >&2
+  printf '%s\n' "$SWEEP_TARGETS_RAW" >&2
+  echo "  --- its stderr ---" >&2
+  cat "$UNIVERSE_STDERR" >&2
+  rm -f "$UNIVERSE_STDERR"
   exit 5
 fi
+rm -f "$UNIVERSE_STDERR"
 SWEEP_TARGETS=()
 while IFS= read -r line; do
   [[ -n "$line" ]] && SWEEP_TARGETS+=("$line")

@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/sdk",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Official TypeScript SDK for the Nexus Public API — manage agents, tools, folders, and versions programmatically.",
   "license": "MIT",
   "keywords": [

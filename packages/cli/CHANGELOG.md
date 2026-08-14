@@ -1,5 +1,39 @@
 # @agent-nexus/cli
 
+## 0.24.1
+### Patch Changes
+
+- b0653e4: `nexus role attach` and `nexus role review-deletion-request` name the Role their warning is about.
+  
+  Both printed a bare UUID on the line that reports damage — the system another team just lost, and the Role that was just deleted. `role attach --help` promised a warning "naming the Role the system came from", so the help and the output disagreed. They now print `Name (uuid)`: the name is what a reader recognises, and the UUID stays because a name matching two Roles is refused as an argument, so the remedy the same warning prescribes needs the unambiguous handle.
+  
+  `--json` is untouched. Those warnings go to stderr and never enter the JSON document; `movedFrom` in the `role attach` payload is still the raw UUID, so seizure detection is unaffected.
+  
+  Resolving the name costs one `GET /roles` and needs the `roles:read` scope. It is best-effort — a key that cannot list Roles still gets the warning, with the UUID alone.
+- d9db1c9: `tracing analytics summary` now reports how many model calls in the window could not be priced, so a spend total that is LOW says so instead of looking complete.
+  
+  **The problem.** A model with no pricing row was recorded at a cost of `0`, exactly like a call that genuinely cost nothing. Every cost surface sums that column, so an uncatalogued model made organization spend under-report silently and by an unknown amount — in the surface a customer would use to check their spend. The only thing separating the two cases was a server WARN line no query reads.
+  
+  **Why the total could not carry it.** SQL `SUM` ignores NULL, so `SUM({100, NULL})` and `SUM({100, 0})` are both `100`. Whether an unpriced call is stored as `0` or stored as nothing, every total absorbs it identically. The gap has to be reported out of band or not at all.
+  
+  **SDK type change, and it is the reason this is a `minor`.** `TracingSummary` gains a required field:
+  
+  ```ts
+  unpricedGenerationCount: number;
+  ```
+  
+  Reading a summary is unaffected. Code that CONSTRUCTS a `TracingSummary` — a test fixture, a mock, a hand-built stub — no longer compiles until it supplies the field. That is deliberate: a fixture that omits it would assert a complete total it never measured.
+  
+  `totalCostUsd` keeps its name, its type and its meaning. It does **not** move, and it is **not** corrected by the new field. A non-zero count means the total is low by an amount nobody can compute, because the price was never known — so the count is a disclosure, never a term to add back.
+  
+  `0` is the normal answer and means every call in the window had a price.
+  
+  **Grain.** The count is over generations by their own start time; `totalCostUsd` sums traces by theirs. At a window edge the populations differ slightly, so the count answers "how many unpriced calls happened in this window", not "how many calls are missing from the number beside it".
+  
+  **CLI.** `nexus tracing analytics summary` prints an `Unpriced Calls` row. At `0` it prints `0`; above `0` it says the total is low by an unknown amount, because a bare number there reads as a statistic rather than as a caveat on the line above it.
+  
+  Not covered: `cost-breakdown`, `timeline` and `export` return per-group rows and carry no unpriced count, so a breakdown can still absorb an unpriced call silently.
+
 ## 0.24.0
 
 ### Minor Changes

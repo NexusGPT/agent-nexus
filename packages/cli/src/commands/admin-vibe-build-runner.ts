@@ -34,7 +34,7 @@ Examples:
   $ nexus admin vibe-build-runner tick
   $ nexus admin vibe-build-runner tick --json
 
-Why this exists:
+Notes:
   The build-runner cron is the production driver — sub-second cadence
   across all tenants. This admin command exists for QA + incident
   response: fire a tick now, see the structured outcome, repeat.

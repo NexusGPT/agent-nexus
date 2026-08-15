@@ -13,7 +13,13 @@ import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
-import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
+import {
+  asRequestBody,
+  mergeBodyWithFlags,
+  readStringField,
+  resolveBody,
+  resolveRequiredBody
+} from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   TOOL_DISCOVERY_SEARCH__PARAMS_TYPE,
@@ -116,8 +122,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tool get tool-123
-  $ nexus tool get tool-123 --json
+  $ nexus tool get 11111111-1111-4111-8111-111111111111
+  $ nexus tool get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THIS IS THE AUTHORITATIVE ACTION LIST FOR A MARKETPLACE TOOL, and it is what
@@ -158,8 +164,20 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tool credentials tool-123
-  $ nexus tool credentials tool-123 --json`
+  $ nexus tool credentials 11111111-1111-4111-8111-111111111111
+  $ nexus tool credentials 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THE ID COLUMN IS THE CREDENTIAL, NOT THE TOOL. The argument is the tool's id;
+  every row's ID is a credential id, and that is what "tool execute" and
+  "tool delete-credential" take.
+  TYPE says how the credential was obtained — it is what tells a Pipedream OAuth
+  account apart from a key entered by hand, which matters because only one of
+  them can be re-minted without a person.
+  ONE TOOL CAN HOLD SEVERAL, and nothing here marks one as default. When two rows
+  look alike, NAME is the only thing separating them, so name them on creation.
+  An empty list prints an empty table rather than an error — a tool with no
+  credential is a normal state, not a failure.`
     )
     .action(async (id: string) => {
       try {
@@ -195,9 +213,9 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus tool connect tool-123 --service GOOGLE_SHEETS
-  $ nexus tool connect tool-123 --auth-type http --api-key-value sk-abc123 --name "Production key"
-  $ nexus tool connect tool-123 --body '{"authType":"http","apiKey":"sk-abc"}'
+  $ nexus tool connect 11111111-1111-4111-8111-111111111111 --service GOOGLE_SHEETS
+  $ nexus tool connect 11111111-1111-4111-8111-111111111111 --auth-type http --api-key-value sk-abc123 --name "Production key"
+  $ nexus tool connect 11111111-1111-4111-8111-111111111111 --body '{"authType":"http","apiKey":"sk-abc"}'
 
 Notes:
   --service names the account to authorize, and the tool ID does not imply it:
@@ -313,21 +331,34 @@ Notes:
     .command("resolve-options")
     .description("Resolve dynamic dropdown options for a tool parameter")
     .argument("<id>", "Tool ID")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .requiredOption("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus tool resolve-options tool-123 --body '{"componentId":"gmail-send","propName":"label","credentialId":"cred-123","configuredProps":{}}'`
+  $ nexus tool resolve-options 11111111-1111-4111-8111-111111111111 --body '{"componentId":"gmail-send","propName":"label","credentialId":"cred-123","configuredProps":{}}'
+
+Notes:
+  --body IS REQUIRED even though it reads as optional above: the command refuses
+  without it rather than sending an empty request, because every field in it
+  selects what to resolve.
+  IT ANSWERS A DROPDOWN, NOT A TOOL. propName names the single parameter whose
+  choices you want; componentId names the action it belongs to. Asking for a
+  parameter that carries no dynamic options is a question with no answer.
+  configuredProps IS WHAT MAKES THE ANSWER CORRECT, and {} is rarely right. Later
+  options usually depend on earlier ones — a sheet's tab list needs the
+  spreadsheet already chosen — so pass what is set so far.
+  credentialId picks WHOSE options these are; the same parameter resolves
+  differently per connected account.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const body = await resolveBody(opts.body);
-        if (!body) {
-          process.exitCode = refuse("--body is required.");
-          return;
-        }
+        // Every field in the body selects WHAT to resolve, so there is no
+        // usable default. `--body` is a requiredOption above; commander refuses
+        // before this action runs rather than the action hand-rolling a refusal
+        // that `--help` gave no warning of.
+        const body = await resolveRequiredBody(opts.body);
         const result = await client.tools.resolveOptions(
           id,
           asRequestBody<ResolveRemoteOptionsBody>(body)
@@ -395,8 +426,22 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tool test agt-123 tool-cfg-456 --input '{"to":"test@example.com"}'
-  $ nexus tool test agt-123 tool-cfg-456 --body '{"input":{"query":"hello"}}'`
+  $ nexus tool test 33333333-3333-4333-8333-333333333333 22222222-2222-4222-8222-222222222222 --input '{"to":"test@example.com"}'
+  $ nexus tool test 33333333-3333-4333-8333-333333333333 22222222-2222-4222-8222-222222222222 --body '{"input":{"query":"hello"}}'
+
+Notes:
+  TWO IDS, AND NEITHER IS THE TOOL'S. The first is the AGENT; the second is that
+  agent's tool CONFIGURATION — the row that binds a tool and a credential to this
+  agent. A marketplace tool id will not work in either slot.
+  🚨 IT REALLY EXECUTES, with the agent's own credential. This is the configured
+  tool doing its job, so a send action sends and a write action writes. It is a
+  test of the wiring, never a dry run.
+  --input is the shorthand and lands as "input" inside the body; --body is the
+  same request written out. Passing both merges them, with --input winning on
+  that key.
+  A pass proves this agent can run this tool with this credential — which is a
+  narrower claim than the tool working, and the one worth checking after a
+  credential changes.`
     )
     .action(async (agentId: string, toolConfigId: string, opts) => {
       try {
@@ -429,8 +474,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus tool execute tool-123 --action "google_sheets-create-spreadsheet" --input '{"title":"My Sheet"}'
-  $ nexus tool execute tool-123 --body '{"action":"getWeather","input":{"city":"London"}}'
+  $ nexus tool execute 11111111-1111-4111-8111-111111111111 --action "google_sheets-create-spreadsheet" --input '{"title":"My Sheet"}'
+  $ nexus tool execute 11111111-1111-4111-8111-111111111111 --body '{"action":"getWeather","input":{"city":"London"}}'
 
 Notes:
   THIS RUNS CUSTOM_MANIFEST TOOLS TOO. "nexus external-tool execute" is a
@@ -522,8 +567,19 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tool create-credential tool-123 --account-id pd-acct-456
-  $ nexus tool create-credential tool-123 --account-id pd-acct-456 --name "Production Gmail"`
+  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id pd-acct-456
+  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id pd-acct-456 --name "Production Gmail"
+
+Notes:
+  THIS IS THE STEP AFTER THE BROWSER, NOT INSTEAD OF IT. The OAuth happens at a
+  Pipedream connect link; this records the account it produced against the tool.
+  Running it before that consent has nothing to record.
+  --account-id IS PIPEDREAM'S ID, not a Nexus one, and it is the one identifier
+  here that does not come from this CLI — read it back from the connect flow.
+  --name is what tells two credentials on the same tool apart in
+  "nexus tool credentials". Skip it and you get a list you cannot choose from.
+  It answers with the new credential's own id, which is the handle
+  "tool execute" takes.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -551,8 +607,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus tool delete-credential tool-123 cred-456
-  $ nexus tool delete-credential tool-123 cred-456 --yes
+  $ nexus tool delete-credential 11111111-1111-4111-8111-111111111111 44444444-4444-4444-8444-444444444444
+  $ nexus tool delete-credential 11111111-1111-4111-8111-111111111111 44444444-4444-4444-8444-444444444444 --yes
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES

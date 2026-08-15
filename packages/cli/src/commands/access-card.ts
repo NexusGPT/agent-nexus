@@ -39,8 +39,8 @@ narrowing of something that already works.`
       "after",
       `
 Examples:
-  $ nexus access-card list --credential-id abc-123
-  $ nexus access-card list --credential-id abc-123 --json
+  $ nexus access-card list --credential-id 22222222-2222-4222-8222-222222222222
+  $ nexus access-card list --credential-id 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   --credential-id IS REQUIRED. Cards are scoped to one credential; there is no
@@ -81,8 +81,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus access-card get xyz-456
-  $ nexus access-card get xyz-456 --json
+  $ nexus access-card get 11111111-1111-4111-8111-111111111111
+  $ nexus access-card get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Policies is the WHOLE policy — an action absent from it is denied, so read
@@ -124,12 +124,17 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus access-card create --credential-id abc-123 --name "Send Only" \\
+  $ nexus access-card create --credential-id 11111111-1111-4111-8111-111111111111 --name "Send Only" \\
       --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":true}}}}}'
-  $ nexus access-card create --credential-id abc-123 --name "Full Access" \\
-      --data policies.json
+  $ nexus access-card create --credential-id 11111111-1111-4111-8111-111111111111 --name "Full Access" \\
+      --data '{"policies":{"gmail:send_email":{}}}'
 
 Notes:
+  --data ALSO TAKES A .json PATH OR "-" FOR STDIN, and the examples above use the
+  inline form on purpose: this command declares other required flags, so --data
+  is resolved BEFORE the action runs and a missing file fails at parse time
+  rather than in the request.
+
   policies IS A MAP OF ACTION ID TO { "parameters": { "<path>": { "enabled":
   ... } } }. Action ids are taken VERBATIM from "access-card available-actions
   --credential-id <id>" — nothing else is a valid key.
@@ -195,8 +200,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus access-card update xyz-456 --name "Restricted Send"
-  $ nexus access-card update xyz-456 --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":false,"value":"support@company.com"}}}}}'
+  $ nexus access-card update 11111111-1111-4111-8111-111111111111 --name "Restricted Send"
+  $ nexus access-card update 11111111-1111-4111-8111-111111111111 --data '{"policies":{"gmail:send_email":{"parameters":{"to":{"enabled":false,"value":"support@company.com"}}}}}'
 
 Notes:
   policies IS REPLACED WHOLESALE, NEVER MERGED. Send the complete map every
@@ -248,7 +253,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus access-card delete xyz-456
+  $ nexus access-card delete 11111111-1111-4111-8111-111111111111
 
 Notes:
   Master access cards cannot be deleted — that request is a 400.
@@ -281,8 +286,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus access-card available-actions --credential-id abc-123
-  $ nexus access-card available-actions --credential-id abc-123 --json
+  $ nexus access-card available-actions --credential-id 22222222-2222-4222-8222-222222222222
+  $ nexus access-card available-actions --credential-id 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   --credential-id IS REQUIRED, and this is the ONLY authoritative source of the

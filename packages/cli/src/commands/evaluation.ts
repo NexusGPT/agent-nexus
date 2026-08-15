@@ -3,9 +3,9 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
@@ -69,9 +69,19 @@ judgeStatus before you read score.`
       "after",
       `
 Examples:
-  $ nexus task-eval session create task-123 --name "Accuracy Test v1"
-  $ nexus task-eval session create task-123 --name "Edge cases" --description "Tests edge cases"
-  $ nexus task-eval session create task-123 --body '{"name":"Full test","description":"..."}'`
+  $ nexus task-eval session create 11111111-1111-4111-8111-111111111111 --name "Accuracy Test v1"
+  $ nexus task-eval session create 11111111-1111-4111-8111-111111111111 --name "Edge cases" --description "Tests edge cases"
+  $ nexus task-eval session create 11111111-1111-4111-8111-111111111111 --body '{"name":"Full test","description":"..."}'
+
+Notes:
+  A SESSION IS THE CONTAINER, NOT THE RUN. Creating one evaluates nothing: add
+  rows with "dataset add", then "execute", then "judge". Four verbs, in order.
+  The session is bound to the TASK id given here and cannot be moved to another.
+  --name and --description are both optional and both label-only — nothing about
+  the evaluation depends on them. They are what tell sessions apart in
+  "session list", which shows the name and not the description.
+  It answers with the new session's id, which every later verb takes as its
+  second argument.`
     )
     .action(async (taskId: string, opts) => {
       try {
@@ -108,9 +118,20 @@ Examples:
         "after",
         `
 Examples:
-  $ nexus task-eval session list task-123
-  $ nexus task-eval session list task-123 --limit 10
-  $ nexus task-eval session list task-123 --json`
+  $ nexus task-eval session list 11111111-1111-4111-8111-111111111111
+  $ nexus task-eval session list 11111111-1111-4111-8111-111111111111 --limit 10
+  $ nexus task-eval session list 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  SCOPED TO ONE TASK — the argument is the task id, and sessions belonging to
+  other tasks are not listed here.
+  STATUS IS THE EXECUTION'S, NOT THE JUDGE'S. The two move independently, so a
+  session can read complete here and still carry no score. "session get" is where
+  the judge's side shows.
+  THIS ROW IS A SMALLER SHAPE THAN "session get" RETURNS. averageScore,
+  judgedRows, judgeFailedRows, judgeModel and judgePrompt are ABSENT from a list
+  row rather than null — do not read their absence as zero.
+  The ID column is what "dataset", "execute", "judge" and "results" all take.`
       )
   ).action(async (taskId: string, opts) => {
     try {
@@ -140,8 +161,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus task-eval session get task-123 sess-456
-  $ nexus task-eval session get task-123 sess-456 --json
+  $ nexus task-eval session get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval session get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THIS COMMAND AND "session list" RETURN DIFFERENT SHAPES, and the difference is
@@ -187,8 +208,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task-eval session delete task-123 sess-456
-  $ nexus task-eval session delete task-123 sess-456 --yes
+  $ nexus task-eval session delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval session delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
@@ -227,9 +248,20 @@ Notes:
         "after",
         `
 Examples:
-  $ nexus task-eval dataset list task-123 sess-456
-  $ nexus task-eval dataset list task-123 sess-456 --limit 20
-  $ nexus task-eval dataset list task-123 sess-456 --json`
+  $ nexus task-eval dataset list 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval dataset list 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --limit 20
+  $ nexus task-eval dataset list 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
+
+Notes:
+  THREE COLUMNS, AND THE RESULTS ARE NOT AMONG THEM. This is the INPUT side —
+  the rows an execution will run. Scores and outputs come from "task-eval
+  results".
+  input and expectedOutput each accept a string OR an object, so a cell showing
+  JSON is a real nested value and not a string that looks like one. --json is
+  where that distinction survives; the table flattens it to fit a column.
+  expectedOutput may be empty — a row without one still executes, and only the
+  judge needs something to compare against.
+  Paginated: --limit and the meta block bound what you are seeing.`
       )
   ).action(async (taskId: string, sessionId: string, opts) => {
     try {
@@ -254,13 +286,13 @@ Examples:
     .description("Add a row to the evaluation dataset")
     .argument("<task-id>", "Task ID")
     .argument("<session-id>", "Session ID")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .requiredOption("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus task-eval dataset add task-123 sess-456 --body '{"input":"Hello","expectedOutput":"Hi there"}'
-  $ nexus task-eval dataset add task-123 sess-456 --body dataset-row.json
+  $ nexus task-eval dataset add 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --body '{"input":"Hello","expectedOutput":"Hi there"}'
+  $ nexus task-eval dataset add 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --body dataset-row.json
 
 Notes:
   ONE CALL, ONE ROW. This is the only way to fill a dataset from the CLI — there
@@ -286,13 +318,10 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         // `AddEvalDatasetRowBody.input` is required, so there is no usable
         // default: omitting `--body` could only ever produce a server 400.
-        // Refuse locally rather than substitute `{}`, which would send a
-        // request that cannot succeed.
-        const body = await resolveBody(opts.body);
-        if (body === undefined) {
-          process.exitCode = refuse("--body is required.");
-          return;
-        }
+        // That is why `--body` is a requiredOption above: commander refuses
+        // before this action runs, with a usage message, rather than the action
+        // hand-rolling a refusal `--help` gave no warning of.
+        const body = await resolveRequiredBody(opts.body);
 
         const row = await client.evaluations.addDatasetRow(
           taskId,
@@ -321,8 +350,19 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task-eval execute task-123 sess-456
-  $ nexus task-eval execute task-123 sess-456 --json`
+  $ nexus task-eval execute 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval execute 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
+
+Notes:
+  IT RUNS THE TASK FOR REAL, once per dataset row, with whatever the task is
+  configured to do. There is no dry mode, and the cost scales with the row count.
+  EXECUTION IS NOT SCORING. This produces outputs; "task-eval judge" is what
+  compares them to expectedOutput. A session that executed and was never judged
+  has results with no scores, which is a normal intermediate state.
+  Add the rows FIRST — executing an empty dataset runs nothing and still
+  succeeds.
+  Read the outcome with "task-eval results"; this answers with the run's own
+  record rather than the per-row output.`
     )
     .action(async (taskId: string, sessionId: string) => {
       try {
@@ -347,9 +387,9 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus task-eval judge task-123 sess-456
-  $ nexus task-eval judge task-123 sess-456 --body '{"judgeModel":"gpt-4o","judgePrompt":"Rate accuracy"}'
-  $ nexus task-eval judge task-123 sess-456 --json
+  $ nexus task-eval judge 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval judge 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --body '{"judgeModel":"gpt-4o","judgePrompt":"Rate accuracy"}'
+  $ nexus task-eval judge 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   --body IS OPTIONAL AND A BODILESS JUDGE STILL SCORES. Both of its fields are
@@ -399,9 +439,9 @@ Notes:
         "after",
         `
 Examples:
-  $ nexus task-eval results task-123 sess-456
-  $ nexus task-eval results task-123 sess-456 --limit 50
-  $ nexus task-eval results task-123 sess-456 --json
+  $ nexus task-eval results 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus task-eval results 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --limit 50
+  $ nexus task-eval results 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THE TABLE SHOWS 5 OF 11 FIELDS AND HIDES THE ONE THAT EXPLAINS A BLANK SCORE.
@@ -448,7 +488,16 @@ Notes:
       `
 Examples:
   $ nexus task-eval formats
-  $ nexus task-eval formats --json`
+  $ nexus task-eval formats --json
+
+Notes:
+  THESE ARE UPLOAD FORMATS FOR A DATASET, not output formats for a task. They say
+  what "task-eval dataset upload" will accept.
+  A row is an extension, its MIME type and a description. The EXTENSION is what
+  the upload matches on, so a file with the right content and the wrong suffix is
+  refused.
+  This list is a property of the platform, not of your task or session, so it
+  takes no arguments and never varies per organization.`
     )
     .action(async () => {
       try {
@@ -477,7 +526,17 @@ Examples:
       `
 Examples:
   $ nexus task-eval judges
-  $ nexus task-eval judges --json`
+  $ nexus task-eval judges --json
+
+Notes:
+  THE ID COLUMN IS WHAT "task-eval judge" TAKES as judgeModel — the display name
+  is for reading, and provider only says whose model it is.
+  A judge is the model that SCORES an execution, which is a different choice from
+  the model the task itself runs on. Picking a strong judge does not change what
+  the task produced.
+  This list is the platform's and takes no arguments. Omitting judgeModel on
+  "task-eval judge" falls back to a default rather than refusing, so an absent
+  choice is still a choice.`
     )
     .action(async () => {
       try {

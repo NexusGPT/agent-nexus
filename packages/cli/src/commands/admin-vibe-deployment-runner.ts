@@ -33,7 +33,7 @@ Examples:
   $ nexus admin vibe-deployment-runner tick
   $ nexus admin vibe-deployment-runner tick --json
 
-Why this exists:
+Notes:
   The deployer cron is the production driver — picks up DEPLOYING
   rows whose build runner has stamped imageRef, hands them off to
   the Nomad service + ALB target-group flip. This admin command

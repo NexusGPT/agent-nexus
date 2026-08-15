@@ -99,8 +99,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus credential get abc-123
-  $ nexus credential get abc-123 --json
+  $ nexus credential get 11111111-1111-4111-8111-111111111111
+  $ nexus credential get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   SOURCE IS THE FIELD THAT DECIDES WHAT ELSE WORKS, and it is the one printed
@@ -152,9 +152,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus credential update abc-123 --name "Production Gmail"
-  $ nexus credential update abc-123 --description "Used by marketing agents"
-  $ nexus credential update abc-123 --data '{"name":"Staging","description":null}'
+  $ nexus credential update 11111111-1111-4111-8111-111111111111 --name "Production Gmail"
+  $ nexus credential update 11111111-1111-4111-8111-111111111111 --description "Used by marketing agents"
+  $ nexus credential update 11111111-1111-4111-8111-111111111111 --data '{"name":"Staging","description":null}'
 
 Notes:
   ONLY name AND description ARE WRITABLE, and WHICH OF THE TWO depends on the
@@ -218,8 +218,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus credential delete abc-123
-  $ nexus credential delete abc-123 --yes
+  $ nexus credential delete 11111111-1111-4111-8111-111111111111
+  $ nexus credential delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   BLAST RADIUS — THERE IS NO UNDO. Deleting a credential DELETES EVERY ACCESS

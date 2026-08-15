@@ -155,7 +155,7 @@ Examples:
   $ nexus admin vibe-cost-safety get org_abc123
   $ nexus admin vibe-cost-safety get org_abc123 --json
 
-Output fields:
+Notes:
   status            OK | WARNING | SUSPENDED. SUSPENDED refuses new deploys.
   suspendedReason   Carried verbatim into the refuse-deploy HTTP message.
   present           false = no row exists (treated as OK at the deploy gate).

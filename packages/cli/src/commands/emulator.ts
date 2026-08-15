@@ -81,9 +81,9 @@ one with "conversation close" if the inbox has to be clear.`
       "after",
       `
 Examples:
-  $ nexus emulator session create dep-123
-  $ nexus emulator session create dep-123 --body '{"participants":[{"identifier":"+15551234567","displayName":"Ada"}]}'
-  $ nexus emulator session create dep-123 --json
+  $ nexus emulator session create 44444444-4444-4444-8444-444444444444
+  $ nexus emulator session create 44444444-4444-4444-8444-444444444444 --body '{"participants":[{"identifier":"+15551234567","displayName":"Ada"}]}'
+  $ nexus emulator session create 44444444-4444-4444-8444-444444444444 --json
 
 Notes:
   THE ONLY BODY FIELD IS participants, AN ARRAY. Anything else — including the
@@ -132,8 +132,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator session list dep-123
-  $ nexus emulator session list dep-123 --json
+  $ nexus emulator session list 44444444-4444-4444-8444-444444444444
+  $ nexus emulator session list 44444444-4444-4444-8444-444444444444 --json
 
 Notes:
   Emulator sessions for this deployment only, and unpaginated.
@@ -167,8 +167,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator session get dep-123 sess-456
-  $ nexus emulator session get dep-123 sess-456 --json
+  $ nexus emulator session get 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333
+  $ nexus emulator session get 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --json
 
 Notes:
   THIS IS WHERE A "processing" TURN LANDS. When "emulator send" gives up
@@ -201,8 +201,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator session delete dep-123 sess-456
-  $ nexus emulator session delete dep-123 sess-456 --yes
+  $ nexus emulator session delete 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333
+  $ nexus emulator session delete 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --yes
 
 Notes:
   THE API ANSWERS 204 WITH NO BODY, unlike the agent-family deletes which
@@ -243,9 +243,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator send dep-123 sess-456 --text "Hello, agent!"
-  $ nexus emulator send dep-123 sess-456 --body '{"content":"Hi","participantId":"participant_2"}'
-  $ nexus emulator send dep-123 sess-456 --text "Test" --json
+  $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --text "Hello, agent!"
+  $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --body '{"content":"Hi","participantId":"participant_2"}'
+  $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --text "Test" --json
 
 Notes:
   THE REPLY IS NEVER IN THIS RESPONSE, ON ANY STATUS. Even on "completed" the
@@ -344,8 +344,8 @@ been sent, and "emulator session get" is where the results appear.`
       "after",
       `
 Examples:
-  $ nexus emulator scenario save --session-id sess-123 --deployment-id dep-456 --name "Happy path"
-  $ nexus emulator scenario save --body '{"sessionId":"sess-123","deploymentId":"dep-456","name":"Edge case"}'
+  $ nexus emulator scenario save --session-id 22222222-2222-4222-8222-222222222222 --deployment-id 55555555-5555-4555-8555-555555555555 --name "Happy path"
+  $ nexus emulator scenario save --body '{"sessionId":"22222222-2222-4222-8222-222222222222","deploymentId":"55555555-5555-4555-8555-555555555555","name":"Edge case"}'
 
 Notes:
   A SCENARIO IS THE USER'S SIDE ONLY — IT IS A SCRIPT, NOT A TRANSCRIPT. What
@@ -402,7 +402,7 @@ Notes:
       `
 Examples:
   $ nexus emulator scenario list
-  $ nexus emulator scenario list --deployment-id dep-123
+  $ nexus emulator scenario list --deployment-id 44444444-4444-4444-8444-444444444444
   $ nexus emulator scenario list --json
 
 Notes:
@@ -440,8 +440,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator scenario get scn-123
-  $ nexus emulator scenario get scn-123 --json
+  $ nexus emulator scenario get 11111111-1111-4111-8111-111111111111
+  $ nexus emulator scenario get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Messages here are the USER side only, in order, each with the pause that
@@ -480,9 +480,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator scenario replay scn-123 --deployment-id dep-456
-  $ nexus emulator scenario replay scn-123 --body '{"deploymentId":"dep-456"}'
-  $ nexus emulator scenario replay scn-123 --deployment-id dep-456 --json
+  $ nexus emulator scenario replay 11111111-1111-4111-8111-111111111111 --deployment-id 55555555-5555-4555-8555-555555555555
+  $ nexus emulator scenario replay 11111111-1111-4111-8111-111111111111 --body '{"deploymentId":"55555555-5555-4555-8555-555555555555"}'
+  $ nexus emulator scenario replay 11111111-1111-4111-8111-111111111111 --deployment-id 55555555-5555-4555-8555-555555555555 --json
 
 Notes:
   REPLAY IS ASYNCHRONOUS AND THE RESPONSE CARRIES NO RESULTS. It answers as
@@ -529,8 +529,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus emulator scenario delete scn-123
-  $ nexus emulator scenario delete scn-123 --yes
+  $ nexus emulator scenario delete 11111111-1111-4111-8111-111111111111
+  $ nexus emulator scenario delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   THE API ANSWERS 204 WITH NO BODY, unlike the agent-family deletes which

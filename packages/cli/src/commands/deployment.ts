@@ -3,6 +3,7 @@ import type {
   CreateDeploymentFolderBody,
   DeploymentCarouselTemplateGroup,
   DeploymentSingleItemCardTemplateGroup,
+  DeploymentTemplateGroup,
   DeploymentTemplateVariable,
   UpdateDeploymentBody,
   UpdateDeploymentFolderBody,
@@ -68,6 +69,53 @@ const CASE_INSENSITIVE = {
 
 /** `--type embed` has always worked; the action upper-cases before sending. */
 const upperCase = (value: string): string => value.toUpperCase();
+
+/**
+ * A SETTING TURNED ON BY `--enable-<x>` AND OFF BY `--no-<x>` LANDS ON TWO
+ * SEPARATE COMMANDER KEYS, AND READING ONLY ONE OF THEM IS SILENT.
+ *
+ * Commander derives an option key from that option's OWN long name. So
+ * `--enable-multi-language` writes `opts.enableMultiLanguage` and
+ * `--no-multi-language` writes `opts.multiLanguage` — two flags for one
+ * setting, on two keys that never meet. `deployment template update` read only
+ * the first, so both negative flags parsed, were accepted, contributed NOTHING
+ * to the request body, and the command still printed `Deployment template
+ * updated.` over an unchanged setting.
+ *
+ * ── Why `=== false` and never a bare forward ─────────────────────────────────
+ *
+ * A `--no-x` flag declared with no positive twin ON ITS OWN KEY carries
+ * commander's implicit default `true`. Forwarding `opts.multiLanguage` as-is
+ * would therefore write `enableMultiLanguage: true` into every body that never
+ * named the flag, turning the setting ON for an operator who only meant to
+ * rename a template. That is the same defect one layer up, and it would pass a
+ * test that only checked the negative case.
+ *
+ * ── Why both flags together is a REFUSAL, not a precedence rule ──────────────
+ *
+ * Two keys means commander records no ordering between them, so there is no
+ * last-one-wins to read and any winner this file picked would be a guess about
+ * what the operator meant. `util/boolean-flag.ts` is the house precedent: a
+ * boolean surface here refuses what it cannot understand rather than coercing.
+ */
+type EnableDisablePair =
+  | { readonly contradiction: true }
+  | { readonly contradiction: false; readonly value: boolean | undefined };
+
+function readEnableDisablePair(enabled: unknown, notDisabled: unknown): EnableDisablePair {
+  const turnedOn = enabled === true;
+  const turnedOff = notDisabled === false;
+
+  if (turnedOn && turnedOff) return { contradiction: true };
+  if (turnedOn) return { contradiction: false, value: true };
+  if (turnedOff) return { contradiction: false, value: false };
+  return { contradiction: false, value: undefined };
+}
+
+/** The hint both contradiction refusals share, so they cannot drift apart. */
+const CONTRADICTORY_TOGGLE_HINT =
+  "Send one of the two. They land on separate commander keys, so there is no " +
+  "last-one-wins order to read and this command will not guess which you meant.";
 
 export function registerDeploymentCommands(program: Command): void {
   const deployment = program
@@ -163,8 +211,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment get dep-123
-  $ nexus deployment get dep-123 --json
+  $ nexus deployment get 11111111-1111-4111-8111-111111111111
+  $ nexus deployment get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   The only command that returns settings — list omits it. Read it before any
@@ -228,9 +276,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment create --name "Web Widget" --type EMBED --agent-id agt-123 --body embed-settings.json
-  $ nexus deployment create --name "Slack Bot" --type SLACK --agent-id agt-456
-  $ nexus deployment create --name "WhatsApp Bot" --type WHATSAPP --agent-id agt-456 --body '{"whatsappSenderId":"XE..."}'
+  $ nexus deployment create --name "Web Widget" --type EMBED --agent-id 33333333-3333-4333-8333-333333333333 --body embed-settings.json
+  $ nexus deployment create --name "Slack Bot" --type SLACK --agent-id 44444444-4444-4444-8444-444444444444
+  $ nexus deployment create --name "WhatsApp Bot" --type WHATSAPP --agent-id 44444444-4444-4444-8444-444444444444 --body '{"whatsappSenderId":"XE..."}'
 
 Notes:
   FIVE TYPES REJECT A CREATE THAT CARRIES NO SETTINGS: EMBED, TELEGRAM,
@@ -322,10 +370,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment update dep-123 --name "Renamed Widget"
-  $ nexus deployment update dep-123 --active false
-  $ nexus deployment update dep-123 --agent-id agt-456
-  $ nexus deployment update dep-123 --body '{"name":"Renamed"}'
+  $ nexus deployment update 11111111-1111-4111-8111-111111111111 --name "Renamed Widget"
+  $ nexus deployment update 11111111-1111-4111-8111-111111111111 --active false
+  $ nexus deployment update 11111111-1111-4111-8111-111111111111 --agent-id 44444444-4444-4444-8444-444444444444
+  $ nexus deployment update 11111111-1111-4111-8111-111111111111 --body '{"name":"Renamed"}'
 
 Notes:
   Pass "null" as string to clear a field (e.g., --agent-id null to detach, --description null to clear).
@@ -388,9 +436,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment delete dep-123
-  $ nexus deployment delete dep-123 --yes
-  $ nexus deployment delete dep-123 --dry-run
+  $ nexus deployment delete 11111111-1111-4111-8111-111111111111
+  $ nexus deployment delete 11111111-1111-4111-8111-111111111111 --yes
+  $ nexus deployment delete 11111111-1111-4111-8111-111111111111 --dry-run
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
@@ -445,8 +493,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment stats dep-123
-  $ nexus deployment stats dep-123 --json
+  $ nexus deployment stats 11111111-1111-4111-8111-111111111111
+  $ nexus deployment stats 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   totalSessions AND totalMessages ARE CAPPED AT THE NEWEST 500 SESSIONS. They
@@ -484,7 +532,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment duplicate dep-123
+  $ nexus deployment duplicate 11111111-1111-4111-8111-111111111111
 
 Notes:
   THIS COMMAND CANNOT SUCCEED. The Public API v1 serves no
@@ -518,9 +566,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment embed-config dep-123
-  $ nexus deployment embed-config dep-123 --json
-  $ nexus deployment embed-config dep-123 --json > widget.json
+  $ nexus deployment embed-config 11111111-1111-4111-8111-111111111111
+  $ nexus deployment embed-config 11111111-1111-4111-8111-111111111111 --json
+  $ nexus deployment embed-config 11111111-1111-4111-8111-111111111111 --json > widget.json
 
 Notes:
   THIS IS WHAT THE WIDGET ACTUALLY RENDERS. It reads settings.embedSettings —
@@ -564,9 +612,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment embed-config-update dep-123 --body '{"uiAppearance":"dark"}'
-  $ nexus deployment embed-config-update dep-123 --body '{"uiPrimaryColor":"#0055ff","bubblePosition":"bottom-left"}'
-  $ nexus deployment embed-config-update dep-123 --body widget.json
+  $ nexus deployment embed-config-update 11111111-1111-4111-8111-111111111111 --body '{"uiAppearance":"dark"}'
+  $ nexus deployment embed-config-update 11111111-1111-4111-8111-111111111111 --body '{"uiPrimaryColor":"#0055ff","bubblePosition":"bottom-left"}'
+  $ nexus deployment embed-config-update 11111111-1111-4111-8111-111111111111 --body widget.json
 
 Notes:
   A 200 MEANS THE WIDGET CHANGED. The patch lands inside settings.embedSettings,
@@ -666,7 +714,7 @@ Notes:
 Examples:
   $ nexus deployment folder create --name "Production"
   $ nexus deployment folder create --body '{"name":"Staging"}'
-  $ nexus deployment folder create --body '{"name":"EU","parentId":"fld-123"}'
+  $ nexus deployment folder create --body '{"name":"EU","parentId":"55555555-5555-4555-8555-555555555555"}'
 
 Notes:
   Names are not unique — two "Production" folders can exist side by side and
@@ -703,9 +751,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment folder update fld-123 --name "Renamed"
-  $ nexus deployment folder update fld-123 --body '{"name":"Renamed"}'
-  $ nexus deployment folder update fld-123 --body '{"parentId":null}'
+  $ nexus deployment folder update 55555555-5555-4555-8555-555555555555 --name "Renamed"
+  $ nexus deployment folder update 55555555-5555-4555-8555-555555555555 --body '{"name":"Renamed"}'
+  $ nexus deployment folder update 55555555-5555-4555-8555-555555555555 --body '{"parentId":null}'
 
 Notes:
   Renaming and re-parenting only — the deployments filed here are untouched.
@@ -735,8 +783,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment folder delete fld-123
-  $ nexus deployment folder delete fld-123 --yes
+  $ nexus deployment folder delete 55555555-5555-4555-8555-555555555555
+  $ nexus deployment folder delete 55555555-5555-4555-8555-555555555555 --yes
 
 Notes:
   UNFILES, DOES NOT DELETE. Every deployment in this folder survives and
@@ -771,8 +819,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment folder assign --deployment-id dep-123 --folder-id fld-456
-  $ nexus deployment folder assign --deployment-id dep-123 --folder-id null
+  $ nexus deployment folder assign --deployment-id 11111111-1111-4111-8111-111111111111 --folder-id 66666666-6666-4666-8666-666666666666
+  $ nexus deployment folder assign --deployment-id 11111111-1111-4111-8111-111111111111 --folder-id null
 
 Notes:
   THIS IS A MOVE, NOT AN ADD. A deployment belongs to exactly ONE folder, so
@@ -834,8 +882,8 @@ Attaching is what makes a template reachable by the agent on this deployment.`
       "after",
       `
 Examples:
-  $ nexus deployment template list dep-123
-  $ nexus deployment template list dep-123 --json
+  $ nexus deployment template list 11111111-1111-4111-8111-111111111111
+  $ nexus deployment template list 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Lists what is ATTACHED here, not what exists in Twilio — a template can be
@@ -891,6 +939,10 @@ Notes:
       ).default("template")
     )
     .option("--enable-multi-language", "Enable multi-language support")
+    .option(
+      "--template-group <json>",
+      "Template group JSON mapping languages to template IDs (standard templates)"
+    )
     .option("--enable-dynamic-size", "Enable dynamic carousel size (carousel only)")
     .option(
       "--carousel-template-group <json>",
@@ -908,11 +960,19 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment template attach dep-123 --template-id HX456 --name welcome --description "Welcome message"
-  $ nexus deployment template attach dep-123 --template-id HX456 --name order --description "Order confirmation" --variables '{"1":{"description":"Customer name","isBodyVariable":true}}'
-  $ nexus deployment template attach dep-123 --template-id HX456 --name products --description "Product carousel" --type carousel --enable-dynamic-size --carousel-template-group '{"baseName":"products","availableTemplates":[{"language":"en","carouselSize":3,"templateId":"HX111"},{"language":"en","carouselSize":5,"templateId":"HX222"}],"minCarouselSize":3,"maxCarouselSize":5}'
+  $ nexus deployment template attach 11111111-1111-4111-8111-111111111111 --template-id HX456 --name welcome --description "Welcome message"
+  $ nexus deployment template attach 11111111-1111-4111-8111-111111111111 --template-id HX456 --name order --description "Order confirmation" --variables '{"1":{"description":"Customer name","isBodyVariable":true}}'
+  $ nexus deployment template attach 11111111-1111-4111-8111-111111111111 --template-id HX456 --name products --description "Product carousel" --type carousel --enable-dynamic-size --carousel-template-group '{"baseName":"products","availableTemplates":[{"language":"en","carouselSize":3,"templateId":"HX111"},{"language":"en","carouselSize":5,"templateId":"HX222"}],"minCarouselSize":3,"maxCarouselSize":5}'
+  $ nexus deployment template attach 11111111-1111-4111-8111-111111111111 --template-id HX456 --name welcome --description "Welcome message" --enable-multi-language --template-group '{"baseName":"welcome","availableLanguages":[{"language":"en","templateId":"HX456"},{"language":"fr","templateId":"HX789"}],"defaultLanguage":"en"}'
 
 Notes:
+  --enable-multi-language ON ITS OWN CHANGES NOTHING AT SEND TIME. The setting
+  is the switch; --template-group is the per-language map it reads. A standard
+  template with the switch on and no group resolves no language and fails when
+  the agent sends. Name both, in the same command.
+  --template-group is the STANDARD-template map (baseName, availableLanguages,
+  defaultLanguage). --carousel-template-group is the carousel one. Naming BOTH
+  is a 400 — they are mutually exclusive.
   A DRAFT OR REJECTED TEMPLATE ATTACHES WITHOUT AN ERROR. Approval is not
   checked here; the failure arrives when the agent sends. Confirm with
   "nexus channel whatsapp-template approvals" first.
@@ -942,6 +1002,16 @@ Notes:
             );
           } catch {
             process.exitCode = refuse("--variables must be valid JSON.");
+            return;
+          }
+        }
+
+        let templateGroup: DeploymentTemplateGroup | undefined;
+        if (opts.templateGroup) {
+          try {
+            templateGroup = asRequestBody<DeploymentTemplateGroup>(JSON.parse(opts.templateGroup));
+          } catch {
+            process.exitCode = refuse("--template-group must be valid JSON.");
             return;
           }
         }
@@ -978,6 +1048,7 @@ Notes:
           variables,
           type: opts.type,
           enableMultiLanguage: opts.enableMultiLanguage,
+          templateGroup,
           enableDynamicSize: opts.enableDynamicSize,
           carouselTemplateGroup,
           singleItemCardTemplateId: opts.singleItemCardTemplateId,
@@ -1006,6 +1077,10 @@ Notes:
     .option("--variables <json>", "Updated variables JSON")
     .option("--enable-multi-language", "Enable multi-language support")
     .option("--no-multi-language", "Disable multi-language support")
+    .option(
+      "--template-group <json>",
+      "Template group JSON mapping languages to template IDs (standard templates)"
+    )
     .option("--enable-dynamic-size", "Enable dynamic carousel size (carousel only)")
     .option("--no-dynamic-size", "Disable dynamic carousel size")
     .option(
@@ -1024,25 +1099,57 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment template update dep-123 HX456 --name "Updated Welcome"
-  $ nexus deployment template update dep-123 HX456 --variables '{"1":{"description":"Full name"}}'
-  $ nexus deployment template update dep-123 HX456 --enable-dynamic-size --carousel-template-group '{"baseName":"products","availableTemplates":[...]}'
+  $ nexus deployment template update 11111111-1111-4111-8111-111111111111 HX456 --name "Updated Welcome"
+  $ nexus deployment template update 11111111-1111-4111-8111-111111111111 HX456 --variables '{"1":{"description":"Full name"}}'
+  $ nexus deployment template update 11111111-1111-4111-8111-111111111111 HX456 --enable-dynamic-size --carousel-template-group '{"baseName":"products","availableTemplates":[...]}'
+  $ nexus deployment template update 11111111-1111-4111-8111-111111111111 HX456 --enable-multi-language --template-group '{"baseName":"welcome","availableLanguages":[{"language":"en","templateId":"HX456"},{"language":"fr","templateId":"HX789"}],"defaultLanguage":"en"}'
 
 Notes:
+  --enable-multi-language ON ITS OWN CHANGES NOTHING AT SEND TIME. It is the
+  switch; --template-group is the per-language map a standard template reads.
+  Turning the switch on without a group leaves the template unable to resolve
+  any language.
+  --template-group REPLACES the whole group, exactly as --variables replaces the
+  whole map. --carousel-template-group is the carousel sibling; the two are
+  mutually exclusive.
   --variables REPLACES the whole map, it does not merge one key in. Read
-  "deployment template list dep-123 --json" and send the complete map back.
+  "deployment template list 11111111-1111-4111-8111-111111111111 --json" and
+  send the complete map back.
   A template id that is not attached to this deployment is a 404, not a
   silent create.
+  Each setting has an ON flag and an OFF flag: --enable-multi-language /
+  --no-multi-language, and --enable-dynamic-size / --no-dynamic-size. Naming
+  neither leaves the stored value alone. Naming BOTH is refused, because the
+  two spellings carry no order and this command will not guess.
   Sending nothing is accepted and changes nothing.`
     )
     .action(async (deploymentId: string, templateId: string, opts) => {
       try {
+        // `readEnableDisablePair` owns why this reads two keys per setting and
+        // why both flags together is a refusal rather than a precedence rule.
+        const multiLanguage = readEnableDisablePair(opts.enableMultiLanguage, opts.multiLanguage);
+        if (multiLanguage.contradiction) {
+          process.exitCode = refuse(
+            "--enable-multi-language and --no-multi-language contradict each other.",
+            CONTRADICTORY_TOGGLE_HINT
+          );
+          return;
+        }
+
+        const dynamicSize = readEnableDisablePair(opts.enableDynamicSize, opts.dynamicSize);
+        if (dynamicSize.contradiction) {
+          process.exitCode = refuse(
+            "--enable-dynamic-size and --no-dynamic-size contradict each other.",
+            CONTRADICTORY_TOGGLE_HINT
+          );
+          return;
+        }
+
         const body: Record<string, unknown> = {};
         if (opts.name !== undefined) body.name = opts.name;
         if (opts.description !== undefined) body.description = opts.description;
-        if (opts.enableMultiLanguage !== undefined)
-          body.enableMultiLanguage = opts.enableMultiLanguage;
-        if (opts.enableDynamicSize !== undefined) body.enableDynamicSize = opts.enableDynamicSize;
+        if (multiLanguage.value !== undefined) body.enableMultiLanguage = multiLanguage.value;
+        if (dynamicSize.value !== undefined) body.enableDynamicSize = dynamicSize.value;
         if (opts.singleItemCardTemplateId !== undefined)
           body.singleItemCardTemplateId = opts.singleItemCardTemplateId;
         if (opts.variables) {
@@ -1050,6 +1157,14 @@ Notes:
             body.variables = JSON.parse(opts.variables);
           } catch {
             process.exitCode = refuse("--variables must be valid JSON.");
+            return;
+          }
+        }
+        if (opts.templateGroup) {
+          try {
+            body.templateGroup = JSON.parse(opts.templateGroup);
+          } catch {
+            process.exitCode = refuse("--template-group must be valid JSON.");
             return;
           }
         }
@@ -1096,8 +1211,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment template detach dep-123 HX456
-  $ nexus deployment template detach dep-123 HX456 --yes
+  $ nexus deployment template detach 11111111-1111-4111-8111-111111111111 HX456
+  $ nexus deployment template detach 11111111-1111-4111-8111-111111111111 HX456 --yes
 
 Notes:
   THE TEMPLATE ITSELF IS NOT DELETED. This unwires it from this deployment
@@ -1139,8 +1254,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus deployment template settings dep-123
-  $ nexus deployment template settings dep-123 --allow-dynamic-templates true
+  $ nexus deployment template settings 11111111-1111-4111-8111-111111111111
+  $ nexus deployment template settings 11111111-1111-4111-8111-111111111111 --allow-dynamic-templates true
 
 Notes:
   WITHOUT THE FLAG THIS DOES NOT SHOW THE SETTING. It prints how many

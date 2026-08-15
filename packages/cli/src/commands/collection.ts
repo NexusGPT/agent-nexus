@@ -4,9 +4,17 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printRecord, printSuccess, printTable } from "../output";
+import {
+  isJsonMode,
+  printList,
+  printPaginationMeta,
+  printRecord,
+  printSuccess,
+  printTable
+} from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { parseIdList, parseRequiredIdList } from "../util/ids";
 import { parseFilterPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
@@ -46,9 +54,11 @@ Three facts decide whether a call does what you think:
   • "attach-documents" SILENTLY DROPS FOLDER DOCUMENTS. A website folder, an
     imported Google Sheet folder or a plain folder is filtered out server-side
     and the call still reports success. Attach the child documents instead.
-  • Attaching and removing are not visible to retrieval at the same moment. The
-    document list this collection retrieves from is cached, so "query" can lag a
-    write by minutes while "collection documents" is accurate immediately.`
+  • Attaching and removing reach retrieval at DIFFERENT moments, and only one of
+    them lags. Removing is immediate — it clears the cached document list every
+    query is filtered by. Attaching is not, because the document still has to
+    finish indexing, so "query" can lag an attach by minutes while
+    "collection documents" is accurate immediately.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
@@ -57,33 +67,46 @@ Three facts decide whether a call does what you think:
     .description("List knowledge collections")
     .option("--search <query>", "Search by name")
     .option("--limit <number>", "Max results", parseInt)
+    .option("--offset <number>", "Skip this many results", parseInt)
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus collection list
   $ nexus collection list --search "product" --limit 10
+  $ nexus collection list --limit 20 --offset 20
   $ nexus collection list --json
 
 Notes:
-  DOCS IS A STORED COUNTER, NOT A LIVE COUNT. It is rewritten when documents are
-  attached and is NOT rewritten by "collection remove-document", so it reads high
-  after a removal. "nexus collection stats <id>" counts the links themselves.
+  DOCS IS A STORED COUNTER, NOT A LIVE COUNT. Attaching and removing documents
+  both rewrite it, but DELETING a document does not, so it reads high after
+  "nexus document delete" until the next attach or remove. "nexus collection
+  stats <id>" counts the links themselves.
 
   --search matches name, display name and description, case-insensitively.
   --limit DEFAULTS TO 20 AND IS CAPPED AT 100. Over 100 is a 400, not a clamp.
-  There is no --page on this command, so --limit is the only control.
-  --json IS A BARE ARRAY ([] when empty), with no envelope and no meta. Two
-  siblings in this same namespace answer differently — "collection documents" is
-  {data, meta} and "collection query" is {results} — so one jq expression cannot
-  read all three.`
+
+  PAGE WITH --offset, NOT WITH --page. The route counts from an offset rather
+  than numbering pages, so page two of a 20-row page is "--limit 20 --offset 20".
+  --offset DEFAULTS TO 0 and its floor is 0; a negative value is a 400.
+
+  THE TOTAL PRINTS UNDER THE TABLE, AND IS HOW YOU KNOW WHEN TO STOP. Page until
+  the "more available" mark is gone; do not stop on a short page, because a page
+  can be short for other reasons.
+  --json IS A BARE ARRAY ([] when empty), with no envelope and no meta — so the
+  total is NOT in it, and a script that pages has to count what it has received
+  against a total read some other way. Two siblings in this same namespace answer
+  differently — "collection documents" is {data, meta} and "collection query" is
+  {results} — so one jq expression cannot read all three.`
     )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
+        const offset = typeof opts.offset === "number" ? opts.offset : 0;
         const result = await client.skills.listCollections({
           search: opts.search,
-          limit: opts.limit
+          limit: opts.limit,
+          offset: opts.offset
         });
 
         const items = result.items ?? [];
@@ -93,6 +116,15 @@ Notes:
           { key: "displayName", label: "DISPLAY NAME", width: 25 },
           { key: "documentCount", label: "DOCS", width: 6 }
         ]);
+        // TABLE MODE ONLY — `printPaginationMeta` returns early under --json, and
+        // that is the point: this command's documented JSON shape is a BARE ARRAY,
+        // so adding a total to it would be a breaking change for every script
+        // already reading it. Without the total an operator paging by --offset has
+        // no way to know when to stop, which would make --offset half a feature.
+        printPaginationMeta({
+          total: result.total,
+          hasMore: offset + items.length < (result.total ?? 0)
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -107,8 +139,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus collection get col-123
-  $ nexus collection get col-123 --json
+  $ nexus collection get 11111111-1111-4111-8111-111111111111
+  $ nexus collection get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Reranker "none" means NO RERANKER IS SET, and retrieval then returns the raw
@@ -216,9 +248,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus collection update col-123 --display-name "Updated FAQ"
-  $ nexus collection update col-123 --k 20 --reranker zerank-1
-  $ nexus collection update col-123 --body '{"displayName":"Updated"}'
+  $ nexus collection update 11111111-1111-4111-8111-111111111111 --display-name "Updated FAQ"
+  $ nexus collection update 11111111-1111-4111-8111-111111111111 --k 20 --reranker zerank-1
+  $ nexus collection update 11111111-1111-4111-8111-111111111111 --body '{"displayName":"Updated"}'
 
 Notes:
   --reranker takes a reranking MODEL NAME, passed through to the retrieval
@@ -260,8 +292,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus collection delete col-123
-  $ nexus collection delete col-123 --yes
+  $ nexus collection delete 11111111-1111-4111-8111-111111111111
+  $ nexus collection delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   THE DOCUMENTS SURVIVE. This deletes the collection and its document links.
@@ -292,6 +324,7 @@ Notes:
     .argument("<id>", "Collection ID")
     .requiredOption("--query <query>", "Substring to match against document names")
     .option("--limit <number>", "Max results", parseInt)
+    .option("--include-metadata", "Include each document's stored search metadata")
     .addHelpText(
       "after",
       `
@@ -299,8 +332,9 @@ Matches document NAMES only (case-insensitive substring). To search document
 CONTENT (the semantic retrieval your agents use), use "nexus collection query".
 
 Examples:
-  $ nexus collection search col-123 --query "invoice"
-  $ nexus collection search col-123 --query "pricing" --limit 5 --json
+  $ nexus collection search 11111111-1111-4111-8111-111111111111 --query "invoice"
+  $ nexus collection search 11111111-1111-4111-8111-111111111111 --query "pricing" --limit 5 --json
+  $ nexus collection search 11111111-1111-4111-8111-111111111111 --query "invoice" --include-metadata
 
 Notes:
   EVERY HIT SCORES 1.000. This endpoint does not rank — the score column is a
@@ -317,8 +351,15 @@ Notes:
   built from a website crawl therefore looks empty here while answering
   "collection query" perfectly. Search CONTENT for crawled material.
 
-  METADATA COMES BACK null and no flag on this command changes that. The
-  --include-metadata flag belongs to "collection query".
+  metadata IS A LITERAL null WITHOUT --include-metadata. With the flag it is the
+  DOCUMENT's own attribute bag — the same one "nexus document get --json" prints
+  under this same name — so it still reads null for a document that carries
+  none. The flag on "collection query" fills the same field from a DIFFERENT
+  source: the snippet's retrieval-provider payload, not the document's column.
+  So a null here never means "you forgot the flag".
+
+  READ IT UNDER --json. The table output is score and name only, so
+  --include-metadata on its own changes nothing you can see.
 
   Only documents linked DIRECTLY to the collection are searched.`
     )
@@ -327,7 +368,8 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.skills.searchCollection(id, {
           query: opts.query,
-          limit: opts.limit
+          limit: opts.limit,
+          includeMetadata: opts.includeMetadata
         });
 
         if (isJsonMode()) {
@@ -372,10 +414,10 @@ Use this (not "search") to verify a collection actually answers a question.
 of several values: --filter region=eu --filter region=us (region in [eu, us]).
 
 Examples:
-  $ nexus collection query col-123 --query "how do I reset my PIN?"
-  $ nexus collection query col-123 --query "carte SIM" --limit 5 --json
-  $ nexus collection query col-123 --query "réinitialiser le PIN" --filter language=fr
-  $ nexus collection query col-123 --query "roaming" --filter region=eu --filter region=us
+  $ nexus collection query 11111111-1111-4111-8111-111111111111 --query "how do I reset my PIN?"
+  $ nexus collection query 11111111-1111-4111-8111-111111111111 --query "carte SIM" --limit 5 --json
+  $ nexus collection query 11111111-1111-4111-8111-111111111111 --query "réinitialiser le PIN" --filter language=fr
+  $ nexus collection query 11111111-1111-4111-8111-111111111111 --query "roaming" --filter region=eu --filter region=us
 
 Notes:
   EMPTY RESULTS STRAIGHT AFTER ATTACHING USUALLY MEAN INDEXING, NOT AN EMPTY
@@ -465,11 +507,11 @@ Examples:
 Notes:
   EVERY HIT SCORES 1.000 here too — this endpoint does not rank.
 
-  METADATA IS ALWAYS null, HERE AND ON "collection search". Both name-matching
-  commands return the field present and empty, and neither takes a flag that
-  fills it. --include-metadata lives on "nexus collection query" — the CONTENT
-  retrieval command — so reaching metadata means changing which search you run,
-  not adding a flag to this one.
+  METADATA IS ALWAYS null HERE, and this is the only collection read where that
+  is a property of the ROUTE rather than of your arguments: the multi-collection
+  search schema carries no includeMetadata field and the server hardcodes the
+  null. "collection search" and "collection query" both take --include-metadata,
+  so reaching metadata means running one of those per collection.
 
   The results do not say which collection each hit came from. Search the
   collections one at a time when that matters.`
@@ -477,7 +519,7 @@ Notes:
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const collectionIds = opts.collectionIds.split(",").map((id: string) => id.trim());
+        const collectionIds = parseIdList(String(opts.collectionIds));
         const result = await client.skills.searchMultipleCollections({
           query: opts.query,
           collectionIds,
@@ -513,8 +555,8 @@ Notes:
         "after",
         `
 Examples:
-  $ nexus collection documents col-123
-  $ nexus collection documents col-123 --limit 20 --json
+  $ nexus collection documents 11111111-1111-4111-8111-111111111111
+  $ nexus collection documents 11111111-1111-4111-8111-111111111111 --limit 20 --json
 
 Notes:
   DIRECT LINKS ONLY. Children of a linked document are not listed here even
@@ -559,14 +601,23 @@ Notes:
     .command("attach-documents")
     .description("Attach documents to a collection")
     .argument("<id>", "Collection ID")
-    .requiredOption("--document-ids <ids>", "Comma-separated document IDs")
+    .requiredOption("--document-ids <ids>", "Comma-separated document IDs", (raw: string) =>
+      parseRequiredIdList(raw, "--document-ids")
+    )
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus collection attach-documents col-123 --document-ids doc-1,doc-2,doc-3
+  $ nexus collection attach-documents 11111111-1111-4111-8111-111111111111 --document-ids 22222222-2222-4222-8222-222222222222,33333333-3333-4333-8333-333333333333
 
 Notes:
+  A DOCUMENT ID IS A UUID, AND THIS ROUTE IS THE ONE THAT DOES NOT SAY SO.
+  AttachCollectionDocumentsBodySchema types documentIds as a plain string array,
+  while "collection remove-document" types the same id as a UUID and refuses
+  anything else with a 400. So a malformed id reaches the database here instead
+  of being named at the edge — it lands in the all-or-nothing 404 below, which
+  names no id.
+
   SILENTLY DROPS FOLDER DOCUMENTS. Any id naming a folder — FOLDER, a website
   folder from "document add-website", the folder an imported Google Sheet or a
   Google Drive import produces — is filtered out server-side, and the call still
@@ -579,7 +630,14 @@ Notes:
   The only proof is the read: "nexus collection documents <id>".
 
   ALL OR NOTHING ON EXISTENCE. If any id is unknown, deleted, or owned by
-  another organization the whole call is a 404 and nothing is attached.
+  another organization the whole call is a 404 and nothing is attached. The
+  refusal NAMES the ids it could not resolve, each in quotes, and carries them
+  again under error.details.missingDocumentIds for --json.
+
+  WHITESPACE AND REPEATS ARE YOURS TO SPEND. This flag trims around every comma
+  and drops the empty entries, so "doc-1, doc-2," sends two ids. A REPEATED id
+  is one attachment, not a 404 — the route de-duplicates before it resolves.
+  A list that is empty once trimmed is refused here, by name, with no request.
 
   ATTACH DOCUMENTS THAT ARE READY. A PENDING or PROCESSING document links
   without error and contributes nothing to retrieval until it finishes; an ERROR
@@ -595,7 +653,10 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
         await client.skills.attachDocumentsToCollection(id, {
-          documentIds: opts.documentIds.split(",")
+          // Already an array: the option's own parser split, trimmed and dropped
+          // the empty entries, so the refusal for `--document-ids " , "` lands
+          // before a request is built rather than as a 400 naming no flag.
+          documentIds: opts.documentIds as string[]
         });
         printSuccess("Documents attached to collection.", { id });
       } catch (err) {
@@ -613,7 +674,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus collection remove-document col-123 doc-456
+  $ nexus collection remove-document 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
 
 Notes:
   REMOVES THE LINK, NOT THE DOCUMENT. The document stays in the knowledge base,
@@ -624,12 +685,10 @@ Notes:
   that was never in the collection reports removed just the same. Only
   "nexus collection documents <id>" answers whether the link is gone.
 
-  RETRIEVAL KEEPS ANSWERING FROM THE REMOVED DOCUMENT FOR A WHILE. The
-  collection's membership is cached; this route clears the link in the database
-  but not that cache, so "collection query" and any agent reading this
-  collection can keep returning the document until the entry expires — up to 15
-  minutes. There is no flag to force it. Removing a document from an agent's
-  reach IMMEDIATELY means deleting the document, not unlinking it.
+  RETRIEVAL STOPS AT THE NEXT QUERY. This route clears the link AND the cached
+  membership that "collection query" and any agent reading this collection are
+  filtered by, so the document is out of reach on the next query rather than
+  minutes later. No flag is needed.
 
   Removing every document leaves an empty collection, not a deleted one.`
     )
@@ -652,8 +711,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus collection stats col-123
-  $ nexus collection stats col-123 --json
+  $ nexus collection stats 11111111-1111-4111-8111-111111111111
+  $ nexus collection stats 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Counted live from the current links, so this is accurate the instant an attach

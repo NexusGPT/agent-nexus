@@ -490,8 +490,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus channel whatsapp-sender create --connection-id abc --phone-number-id def --sender-name "My Business"
-  $ nexus channel whatsapp-sender create --connection-id abc --phone-number-id def --sender-name "EU Support" --json
+  $ nexus channel whatsapp-sender create --connection-id 11111111-1111-4111-8111-111111111111 --phone-number-id 22222222-2222-4222-8222-222222222222 --sender-name "My Business"
+  $ nexus channel whatsapp-sender create --connection-id 11111111-1111-4111-8111-111111111111 --phone-number-id 22222222-2222-4222-8222-222222222222 --sender-name "EU Support" --json
 
 Notes:
   THE SENDER STARTS OFFLINE AND ONLY META CAN MAKE IT ONLINE. A 201 here means
@@ -600,7 +600,7 @@ and 2m and tell you to check "approvals".`
       `
 Examples:
   $ nexus channel whatsapp-template list
-  $ nexus channel whatsapp-template list --connection-id abc --json
+  $ nexus channel whatsapp-template list --connection-id 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   SAYS NOTHING ABOUT META APPROVAL. Every template in the Twilio account is
@@ -685,9 +685,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus channel whatsapp-template create --connection-id abc --friendly-name welcome --language en --body "Hello {{1}}, welcome!"
-  $ nexus channel whatsapp-template create --connection-id abc --friendly-name promo --language en --body-file template.json
-  $ nexus channel whatsapp-template create --connection-id abc --friendly-name order --language en --body "Order {{1}} confirmed" --submit --category UTILITY
+  $ nexus channel whatsapp-template create --connection-id 11111111-1111-4111-8111-111111111111 --friendly-name welcome --language en --body "Hello {{1}}, welcome!"
+  $ nexus channel whatsapp-template create --connection-id 11111111-1111-4111-8111-111111111111 --friendly-name promo --language en --body-file template.json
+  $ nexus channel whatsapp-template create --connection-id 11111111-1111-4111-8111-111111111111 --friendly-name order --language en --body "Order {{1}} confirmed" --submit --category UTILITY
 
 Notes:
   CREATING IS NOT SUBMITTING AND SUBMITTING IS NOT APPROVAL. Without --submit
@@ -987,8 +987,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus channel whatsapp-template submit-approval --connection-id abc --template-id HX123 --name welcome --category UTILITY
-  $ nexus channel whatsapp-template submit-approval --connection-id abc --template-id HX123 --name promo --category MARKETING --wait
+  $ nexus channel whatsapp-template submit-approval --connection-id 11111111-1111-4111-8111-111111111111 --template-id HX123 --name welcome --category UTILITY
+  $ nexus channel whatsapp-template submit-approval --connection-id 11111111-1111-4111-8111-111111111111 --template-id HX123 --name promo --category MARKETING --wait
 
 Notes:
   A 200 MEANS FILED, NOT APPROVED. The template still cannot be sent. Only
@@ -1118,8 +1118,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus channel whatsapp-template test-send --connection-id abc --template-id HX123 --to +1234567890
-  $ nexus channel whatsapp-template test-send --connection-id abc --template-id HX123 --to +1234567890 --variables '{"1": "Sneakers"}' --wait
+  $ nexus channel whatsapp-template test-send --connection-id 11111111-1111-4111-8111-111111111111 --template-id HX123 --to +1234567890
+  $ nexus channel whatsapp-template test-send --connection-id 11111111-1111-4111-8111-111111111111 --template-id HX123 --to +1234567890 --variables '{"1": "Sneakers"}' --wait
 
 Notes:
   THIS SENDS A REAL WHATSAPP MESSAGE TO A REAL PHONE THROUGH TWILIO AND META,

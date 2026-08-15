@@ -67,8 +67,18 @@ or attribute you wrote can be missing from the result without an error.`
       `
 Examples:
   $ nexus html-template list
-  $ nexus html-template list --deployment-id dep-123
-  $ nexus html-template list --search "order" --limit 10 --json`
+  $ nexus html-template list --deployment-id 11111111-1111-4111-8111-111111111111
+  $ nexus html-template list --search "order" --limit 10 --json
+
+Notes:
+  THE HTML ITSELF IS NOT IN THIS LISTING. The columns are id, name, deployment,
+  description and creation time; read the markup with "html-template get <id>".
+  --deployment-id FILTERS, it does not scope. Omit it and you see every template
+  in the organization across all deployments, which is why the DEPLOYMENT column
+  is shown untruncated.
+  Only an EMBED deployment id is meaningful here — these templates render in the
+  web widget.
+  --search matches the name only, not the description and not the markup.`
     )
     .action(async (opts) => {
       try {
@@ -99,8 +109,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus html-template get tpl-123
-  $ nexus html-template get tpl-123 --json
+  $ nexus html-template get 22222222-2222-4222-8222-222222222222
+  $ nexus html-template get 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THE TABLE OMITS inputSchema — use --json for it. It is the only read that
@@ -140,7 +150,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus html-template create --deployment-id dep-123 --name "Order card" --html '<div>Hi {{user.name}}</div>'
+  $ nexus html-template create --deployment-id 11111111-1111-4111-8111-111111111111 --name "Order card" --html '<div>Hi {{user.name}}</div>'
   $ nexus html-template create --body ./template.json
 
 Notes:
@@ -198,9 +208,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus html-template update tpl-123 --name "Order card v2"
-  $ nexus html-template update tpl-123 --html '<div>Hi {{name}}, order {{orderId}}</div>'
-  $ nexus html-template update tpl-123 --body '{"inputSchema":{"name":{"type":"string","handler":"prompt"}}}'
+  $ nexus html-template update 22222222-2222-4222-8222-222222222222 --name "Order card v2"
+  $ nexus html-template update 22222222-2222-4222-8222-222222222222 --html '<div>Hi {{name}}, order {{orderId}}</div>'
+  $ nexus html-template update 22222222-2222-4222-8222-222222222222 --body '{"inputSchema":{"name":{"type":"string","handler":"prompt"}}}'
 
 Notes:
   THIS IS A PATCH AND IT PRESERVES WHAT IT DOES NOT NAME. Renaming with --name
@@ -245,8 +255,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus html-template delete tpl-123
-  $ nexus html-template delete tpl-123 --yes
+  $ nexus html-template delete 22222222-2222-4222-8222-222222222222
+  $ nexus html-template delete 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   IT TAKES A TOOL AWAY FROM THE AGENT. The deployment's agent advertises one
@@ -283,7 +293,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus html-template render tpl-123 --data '{"user":{"name":"Ada"}}'
+  $ nexus html-template render 22222222-2222-4222-8222-222222222222 --data '{"user":{"name":"Ada"}}'
 
 Notes:
   RENDER RUNS NO MODEL AND COSTS NOTHING. It substitutes the data you hand it,
@@ -318,7 +328,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus html-template fill tpl-123 --context "Order #42 for Ada, 2 items shipped today"
+  $ nexus html-template fill 22222222-2222-4222-8222-222222222222 --context "Order #42 for Ada, 2 items shipped today"
 
 Notes:
   THIS CALLS A MODEL AND IS BILLED. "html-template render" is the free path when

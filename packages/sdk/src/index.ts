@@ -56,10 +56,18 @@ export type {
   ListPromptAssistantThreadsParams,
   PromptAssistantChatBody,
   PromptAssistantChatResponse,
+  PromptAssistantTerminalStatus,
   PromptAssistantThreadMessage,
   PromptAssistantThreadResponse,
   PromptAssistantThreadSummary,
-  PromptResult
+  PromptAssistantWaitUntil,
+  PromptResult,
+  WaitForThreadOptions,
+  WaitForThreadResult
+} from "./resources/prompt-assistant";
+export {
+  isPromptAssistantTerminalStatus,
+  PROMPT_ASSISTANT_TERMINAL_STATUSES
 } from "./resources/prompt-assistant";
 /**
  * Every public type, re-exported wholesale.

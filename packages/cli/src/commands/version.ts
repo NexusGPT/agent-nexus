@@ -51,9 +51,9 @@ deleted and published — the type is a label about origin, not a protection.`
         "after",
         `
 Examples:
-  $ nexus version list agt-123
-  $ nexus version list agt-123 --type CHECKPOINT
-  $ nexus version list agt-123 --limit 5 --json
+  $ nexus version list 11111111-1111-4111-8111-111111111111
+  $ nexus version list 11111111-1111-4111-8111-111111111111 --type CHECKPOINT
+  $ nexus version list 11111111-1111-4111-8111-111111111111 --limit 5 --json
 
 Notes:
   PROD=yes MARKS THE VERSION THE AGENT ACTUALLY RUNS. No row saying yes means
@@ -106,8 +106,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version get agt-123 ver-456
-  $ nexus version get agt-123 ver-456 --json
+  $ nexus version get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus version get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THIS IS THE ONLY WAY TO READ AN OLD VERSION'S PROMPT — "version list" omits it
@@ -154,11 +154,11 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version create agt-123
-  $ nexus version create agt-123 --name "v1.0" --description "Initial release"
-  $ nexus version create agt-123 --body '{"name":"v1.0"}'
-  $ nexus version create agt-123 --body '{"name":"v2","prompt":"You are..."}'
-  $ nexus version create agt-123 --body '{"name":"v2","autoPublish":false}'
+  $ nexus version create 11111111-1111-4111-8111-111111111111
+  $ nexus version create 11111111-1111-4111-8111-111111111111 --name "v1.0" --description "Initial release"
+  $ nexus version create 11111111-1111-4111-8111-111111111111 --body '{"name":"v1.0"}'
+  $ nexus version create 11111111-1111-4111-8111-111111111111 --body '{"name":"v2","prompt":"You are..."}'
+  $ nexus version create 11111111-1111-4111-8111-111111111111 --body '{"name":"v2","autoPublish":false}'
 
 Notes:
   THE FIRST CHECKPOINT ON AN AGENT THAT HAS NEVER PUBLISHED GOES STRAIGHT TO
@@ -166,6 +166,11 @@ Notes:
   afterwards, so the same command is a quiet deploy the first time and a
   private snapshot every time after. Send {"autoPublish": false} in --body to
   stop it, or {"autoPublish": true} to publish deliberately.
+  THAT DEFAULT IS THIS COMMAND'S, NOT THE PLATFORM'S. "nexus agent update
+  --prompt" writes a checkpoint too and defaults autoPublish to TRUE every
+  time, including the tenth — so the rule above does not carry across, and
+  reading it as a platform-wide draft rule is how a prompt edit reaches live
+  customer conversations. On that command, pass --no-publish.
   IT SNAPSHOTS THE AGENT'S CURRENT DRAFT. With no prompt of its own it copies
   the draft as it stands — so update the agent first, then checkpoint it.
   AN EMPTY DRAFT CHECKPOINTS AND PUBLISHES ANYWAY. On a fresh agent whose prompt
@@ -222,8 +227,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version update agt-123 ver-456 --name "v1.1"
-  $ nexus version update agt-123 ver-456 --body '{"name":"v1.1"}'
+  $ nexus version update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --name "v1.1"
+  $ nexus version update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --body '{"name":"v1.1"}'
 
 Notes:
   METADATA ONLY. Name and description are the only editable fields; a version's
@@ -262,8 +267,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version delete agt-123 ver-456
-  $ nexus version delete agt-123 ver-456 --yes
+  $ nexus version delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus version delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   YOU CANNOT DELETE THE PRODUCTION VERSION, AND THE REFUSAL LOOKS LIKE AN
@@ -275,9 +280,9 @@ Notes:
   there is no "deleted" field to assert on, so a 200 IS the confirmation.
   TO DELETE THE PRODUCTION VERSION, PUBLISH ANOTHER ONE FIRST. Three commands,
   in this order — the delete then succeeds:
-    $ nexus version list <agent-id>            # find the PROD=yes row
-    $ nexus version publish <agent-id> <other-version-id>
-    $ nexus version delete <agent-id> <old-version-id>
+    $ nexus version list 11111111-1111-4111-8111-111111111111            # find the PROD=yes row
+    $ nexus version publish 11111111-1111-4111-8111-111111111111 <other-version-id>
+    $ nexus version delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
   and exits non-zero rather than acting.`
     )
@@ -303,8 +308,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version restore agt-123 ver-456
-  $ nexus version restore agt-123 ver-456 --yes
+  $ nexus version restore 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus version restore 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   THIS DOES NOT PUBLISH, AND ON A PUBLISHED AGENT IT CHANGES NOTHING AT
@@ -350,7 +355,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus version publish agt-123 ver-456
+  $ nexus version publish 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
 
 Notes:
   PUBLISHING UN-MARKS WHICHEVER VERSION WAS PRODUCTION BEFORE. Exactly one

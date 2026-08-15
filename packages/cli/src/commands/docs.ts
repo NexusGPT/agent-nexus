@@ -201,7 +201,17 @@ Examples:
   $ nexus docs search "how to deploy to WhatsApp"
   $ nexus docs search "creating agents" --limit 10
   $ nexus docs search "webhook" --section api-reference
-  $ nexus docs search "RAG" --json`
+  $ nexus docs search "RAG" --json
+
+Notes:
+  THE PRINTED SNIPPET IS TRUNCATED AT 200 CHARACTERS and the trailing "..." is
+  added by this CLI, not returned by the route. --json carries the whole snippet,
+  so read that when the answer is cut off mid-sentence.
+  A row is title, url and snippet. There is no score and no section in the
+  output, so --section narrows the search and cannot be confirmed from a result.
+  NO MATCH IS NOT AN ERROR. An empty result set prints one dim line and exits 0,
+  which is deliberately indistinguishable from a successful search that found
+  nothing — check the exit code for reachability, never the presence of rows.`
     )
     .action(async (query: string, opts: { limit?: string; section?: string }) => {
       const client = createClient(program.optsWithGlobals());

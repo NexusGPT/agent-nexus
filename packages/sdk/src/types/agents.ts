@@ -48,7 +48,12 @@ export interface AgentDetail extends AgentSummary {
   modelProvider: string | null;
   /** First message displayed when opening the agent playground. */
   playgroundFirstMessage: string | null;
-  /** The agent's system prompt in markdown format (read-only). Use `client.agents.versions.createCheckpoint()` to modify. */
+  /**
+   * The agent's system prompt in markdown format — the DRAFT, which is not
+   * necessarily what the agent serves. A published agent serves its production
+   * version until a new one is published. Write it with `prompt` on
+   * `client.agents.update()`, or with `client.agents.versions.createCheckpoint()`.
+   */
   prompt: string | null;
 }
 
@@ -82,6 +87,11 @@ export interface CreateAgentBody {
   modelProvider?: string;
   /** First message displayed when opening the agent playground. Set to `null` to clear. */
   playgroundFirstMessage?: string | null;
+  /**
+   * Initial system prompt (markdown). Creates and publishes a CHECKPOINT version
+   * for the new agent. Omit to start with an empty prompt.
+   */
+  prompt?: string;
 }
 
 /** Request body for `client.agents.update()`. All fields are optional — only provided fields are updated. */
@@ -110,6 +120,18 @@ export interface UpdateAgentBody {
   modelProvider?: string;
   /** First message displayed when opening the agent playground. Set to `null` to clear. */
   playgroundFirstMessage?: string | null;
+  /**
+   * System prompt (markdown). OVERWRITES the agent's draft, snapshots the
+   * previous draft as an AUTO version, and creates a CHECKPOINT version.
+   * Whether that checkpoint becomes what the agent SERVES is `autoPublish`.
+   */
+  prompt?: string;
+  /**
+   * Publish the checkpoint `prompt` creates, making it live on every deployment.
+   * Defaults to `true`. Send `false` to edit the draft and leave the currently
+   * published version serving traffic. Ignored when `prompt` is absent.
+   */
+  autoPublish?: boolean;
 }
 
 // ============================================================================

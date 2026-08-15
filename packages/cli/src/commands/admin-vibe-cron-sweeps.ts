@@ -51,7 +51,7 @@ Examples:
   $ nexus admin vibe-rollback-sweep trigger
   $ nexus admin vibe-rollback-sweep trigger --json
 
-Why this exists:
+Notes:
   The rollback sweep runs every 5 minutes under normal operation. QA
   often needs the loop to close FASTER — e.g. "I just SUSPENDED an org
   via vibe-cost-safety set, sweep right now so I can see the rollback
@@ -110,7 +110,7 @@ Examples:
   $ nexus admin vibe-build-job-timeout-sweep trigger
   $ nexus admin vibe-build-job-timeout-sweep trigger --json
 
-Why this exists:
+Notes:
   The timeout sweep runs every 5 minutes under normal operation. A build
   job whose executor webhook never fires sits RUNNING forever (the
   build-runner tick only finds PENDING jobs, so it never re-encounters a

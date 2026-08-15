@@ -186,6 +186,20 @@ export interface ExternalToolDetail {
 }
 
 /**
+ * How hard the server-side ship gate applies to an app's deploys. Mirrors
+ * `VibeShipGateModeSchema` in
+ * packages/types/src/shared/domain/vibe/ship-gate-mode.ts.
+ *
+ * THREE STATES, AND THE MIDDLE ONE IS THE REASON THIS TYPE EXISTS. `OFF` and
+ * `ENFORCE` are what the older boolean `requireVerification` called `false` and
+ * `true`. `WARN` is the on-ramp: the gate reads the repository, records what it
+ * found, and the deploy ships anyway. It is the state an operator rolling gates
+ * out across a fleet actually wants, and no boolean can express it — which is
+ * why every CLI surface reads this field and not the boolean beside it.
+ */
+export type VibeShipGateMode = "OFF" | "WARN" | "ENFORCE";
+
+/**
  * A Vibe app, mirroring `VibeAppSchema` in
  * packages/types/src/api/domains/vibe/schemas/core.ts. Keep in lockstep
  * (the CLI ships standalone — `@nexus/types` is not a runtime dep).
@@ -196,7 +210,19 @@ export interface VibeAppDto {
   name: string;
   description: string | null;
   requireApprovals: boolean;
+  /**
+   * `shipGateMode === "ENFORCE"`, projected by the server for clients that
+   * predate the mode. LOSSY BY CONSTRUCTION: `WARN` projects to `false`, so this
+   * field cannot tell a warning app from an ungated one. Read `shipGateMode`.
+   */
   requireVerification: boolean;
+  /**
+   * OPTIONAL because a backend one release behind this binary omits the key
+   * entirely, and this CLI never runs the Zod schema that would default it. An
+   * absent value is UNREPORTED, never `OFF` — printing the default here would
+   * reproduce, one layer down, the exact defect that made this field render.
+   */
+  shipGateMode?: VibeShipGateMode;
   deployBranch: string;
   resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
   healthCheckConfig: Record<string, unknown>;

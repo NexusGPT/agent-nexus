@@ -102,10 +102,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task get task-123
-  $ nexus task get task-123 --json
-  $ nexus task get task-123 --json | jq -r '.prompt'
-  $ nexus task get task-123 --json | jq '.jsonOutputSchema'
+  $ nexus task get 11111111-1111-4111-8111-111111111111
+  $ nexus task get 11111111-1111-4111-8111-111111111111 --json
+  $ nexus task get 11111111-1111-4111-8111-111111111111 --json | jq -r '.prompt'
+  $ nexus task get 11111111-1111-4111-8111-111111111111 --json | jq '.jsonOutputSchema'
 
 Notes:
   EVERYTHING IS AT THE TOP LEVEL. prompt, jsonInputSchema, jsonOutputSchema,
@@ -308,11 +308,11 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task update task-123 --prompt "Summarize the following email:"
-  $ cat task-prompt.md | nexus task update task-123 --prompt -
-  $ nexus task update task-123 --body '{"prompt":"New prompt text"}'
-  $ nexus task update task-123 --model-name gpt-4o --model-provider OPEN_AI
-  $ nexus task update task-123 --body '{"outputFormat":"json","jsonOutputSchema":{"city":{"type":"string"}}}'
+  $ nexus task update 11111111-1111-4111-8111-111111111111 --prompt "Summarize the following email:"
+  $ cat task-prompt.md | nexus task update 11111111-1111-4111-8111-111111111111 --prompt -
+  $ nexus task update 11111111-1111-4111-8111-111111111111 --body '{"prompt":"New prompt text"}'
+  $ nexus task update 11111111-1111-4111-8111-111111111111 --model-name gpt-4o --model-provider OPEN_AI
+  $ nexus task update 11111111-1111-4111-8111-111111111111 --body '{"outputFormat":"json","jsonOutputSchema":{"city":{"type":"string"}}}'
 
 Notes:
   SEND outputFormat LOWERCASE, AT THE BODY ROOT. "task get" returns "JSON";
@@ -402,8 +402,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task delete task-123
-  $ nexus task delete task-123 --yes
+  $ nexus task delete 11111111-1111-4111-8111-111111111111
+  $ nexus task delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   Fails with 409 if the task is still attached to an agent skill or a
@@ -442,10 +442,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus task execute task-123 --input "Summarize this email..."
-  $ cat document.txt | nexus task execute task-123 --input -
-  $ nexus task execute task-123 --input "Hello world" --json
-  $ nexus task execute task-123 --body '{"input":"Hello world"}'
+  $ nexus task execute 11111111-1111-4111-8111-111111111111 --input "Summarize this email..."
+  $ cat document.txt | nexus task execute 11111111-1111-4111-8111-111111111111 --input -
+  $ nexus task execute 11111111-1111-4111-8111-111111111111 --input "Hello world" --json
+  $ nexus task execute 11111111-1111-4111-8111-111111111111 --body '{"input":"Hello world"}'
 
 Notes:
   --input accepts literal text, a file path (auto-detected), or '-' for stdin.

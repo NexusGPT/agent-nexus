@@ -44,6 +44,18 @@ export interface TicketSummary {
 export interface TicketDetail extends TicketSummary {
   description: string | null;
   context: TicketContext | null;
+  /**
+   * When the ticket was archived, or `null` while it is live.
+   *
+   * An archived ticket is READ-ONLY: `update`, `addComment` and
+   * `uploadAttachment` answer 409 on it. Read this before offering any of the
+   * three, because the ticket is otherwise indistinguishable from a live one.
+   *
+   * Detail only, and that is a fact about the data rather than an omission:
+   * archiving a ticket hides it from `list`, so a summary field would be
+   * permanently null.
+   */
+  archivedAt: string | null;
 }
 
 export interface TicketComment {

@@ -302,7 +302,12 @@ Notes:
           { key: "url", label: "URL" },
           { key: "description", label: "Description" },
           { key: "createdAt", label: "Created" },
-          { key: "updatedAt", label: "Updated" }
+          { key: "updatedAt", label: "Updated" },
+          // Printed because it is the answer to a question the next command
+          // asks: an archived ticket is read-only, so `ticket comment` and
+          // `ticket attach` on it answer 409. Without this row the refusal
+          // arrives with nothing on the read to explain it.
+          { key: "archivedAt", label: "Archived" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -328,9 +333,7 @@ Examples:
   $ nexus ticket create --title "Add dark mode" --type FEATURE_REQUEST --priority MEDIUM
   $ nexus ticket create --title "Bug report" --type BUG --description "Steps to reproduce..."
   $ nexus ticket create --data '{"title":"Bug","type":"BUG"}'
-  $ nexus ticket create --title "500 on upload" --data '{"context":{
-      "endpoint":"/documents","method":"POST","statusCode":500,
-      "requestBody":"{\\"name\\":\\"x\\"}","reproductionSteps":"1. ..."}}'
+  $ nexus ticket create --title "500 on upload" --data '{"context":{"endpoint":"/documents","method":"POST","statusCode":500}}'
 
 Notes:
   Uses --data (not --body) for JSON input — this differs from other commands.

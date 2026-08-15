@@ -97,14 +97,30 @@ const CLAIMS: readonly HelpClaim[] = [
     ]
   },
   {
-    what: "collection remove-document names the idempotence and the retrieval lag",
+    what: "collection remove-document names the idempotence and when retrieval catches up",
     register: registerCollectionCommands,
     namespace: "collection",
     path: ["remove-document"],
     phrases: [
       "REMOVES THE LINK, NOT THE DOCUMENT",
       "SUCCESS IS NOT EVIDENCE ANYTHING WAS REMOVED",
-      "RETRIEVAL KEEPS ANSWERING FROM THE REMOVED DOCUMENT FOR A WHILE"
+      "RETRIEVAL STOPS AT THE NEXT QUERY"
+    ]
+  },
+  {
+    // The DOCS note names WHICH verb leaves the counter stale, and that half is
+    // the half that keeps going wrong. It used to blame `remove-document`,
+    // which now recounts; the surviving cause is a document DELETE, which
+    // detaches every link without recounting. Asserting only "STORED COUNTER"
+    // would survive either version and pin nothing that matters.
+    what: "collection list blames the stale DOCS counter on delete, not on remove-document",
+    register: registerCollectionCommands,
+    namespace: "collection",
+    path: ["list"],
+    phrases: [
+      "DOCS IS A STORED COUNTER, NOT A LIVE COUNT",
+      "Attaching and removing documents both rewrite it",
+      'it reads high after "nexus document delete"'
     ]
   },
   {
@@ -338,16 +354,73 @@ describe("knowledge & content --help carries the behavioural facts", () => {
   /**
    * A warning on the wrong sibling is the failure mode this guards. Both pairs
    * below read as interchangeable from the command list and are not: only
-   * ATTACHING drops folders, and only REMOVING lags retrieval.
+   * ATTACHING drops folders, and the two verbs lag retrieval in OPPOSITE
+   * directions.
+   *
+   * Removing is immediate — it clears the cached membership every query is
+   * filtered by. Attaching is not, and for an unrelated reason: the document
+   * still has to finish indexing, which the sibling "ATTACH DOCUMENTS THAT ARE
+   * READY" note covers. Putting either sentence on the other command would be
+   * exactly backwards.
    */
   it("puts the folder-drop warning on attach-documents, not on remove-document", () => {
     const remove = helpFor(registerCollectionCommands, "collection", "remove-document");
     expect(remove).not.toContain("SILENTLY DROPS FOLDER DOCUMENTS");
   });
 
-  it("puts the retrieval-lag warning on remove-document, not on attach-documents", () => {
+  it("says removal is immediate on remove-document and nowhere else", () => {
+    const remove = helpFor(registerCollectionCommands, "collection", "remove-document");
     const attach = helpFor(registerCollectionCommands, "collection", "attach-documents");
-    expect(attach).not.toContain("RETRIEVAL KEEPS ANSWERING FROM THE REMOVED DOCUMENT");
+
+    expect(remove).toContain("RETRIEVAL STOPS AT THE NEXT QUERY");
+    expect(attach).not.toContain("RETRIEVAL STOPS AT THE NEXT QUERY");
+  });
+
+  it("keeps the indexing lag on attach-documents and nowhere else", () => {
+    const attach = helpFor(registerCollectionCommands, "collection", "attach-documents");
+    const remove = helpFor(registerCollectionCommands, "collection", "remove-document");
+
+    expect(attach).toContain("can lag by minutes behind the attach");
+    expect(remove).not.toContain("can lag by minutes");
+  });
+
+  /**
+   * The retired claim, pinned as GONE.
+   *
+   * `collection remove-document` used to bypass `CollectionsService` and delete
+   * the junction row alone, so the cached membership survived and retrieval kept
+   * answering from the unlinked document. That is fixed, which makes the old
+   * sentence a confident warning about behaviour the tree no longer has — worse
+   * than no note, because an operator reads it and deletes a document they only
+   * meant to unlink. A `not.toContain` on a string nobody would retype is weak;
+   * this one guards a sentence that was in the tree for months.
+   */
+  it("no longer tells anyone that retrieval keeps answering after a removal", () => {
+    for (const leaf of ["remove-document", "attach-documents", "list"]) {
+      const help = helpFor(registerCollectionCommands, "collection", leaf);
+      expect(help, `collection ${leaf} --help`).not.toContain(
+        "RETRIEVAL KEEPS ANSWERING FROM THE REMOVED DOCUMENT"
+      );
+    }
+  });
+
+  /**
+   * The SAME claim lives a third time on the namespace root, and it was the copy
+   * nothing asserted and nothing pointed at — the two notes above are on leaves,
+   * so a reader fixing them has no reason to look up one level. It said both
+   * verbs lag retrieval; only attaching does now.
+   *
+   * A leaf assertion cannot reach this text, which is the whole reason it gets
+   * its own case rather than another entry in the leaf claims above.
+   */
+  it("states the attach/remove asymmetry on the collection namespace root", () => {
+    const root = helpFor(registerCollectionCommands, "collection");
+
+    expect(root).toContain("only one of them lags");
+    expect(root).toContain("Removing is immediate");
+    expect(root).toContain("can lag an attach by minutes");
+    // The superseded sentence, which said removal lags too.
+    expect(root).not.toContain("not visible to retrieval at the same moment");
   });
 
   /**

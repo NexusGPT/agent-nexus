@@ -1290,7 +1290,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
       "the exact client-side timeout the CLI applies, so an abort is distinguishable from a slow server.",
     state: "placed",
     leaf: "prompt-assistant chat",
-    probe: "TWO DIFFERENT WAITS CAN END THIS COMMAND"
+    probe: "THREE DIFFERENT WAITS CAN END THIS COMMAND"
   },
   {
     id: "prompt-assistant-05",

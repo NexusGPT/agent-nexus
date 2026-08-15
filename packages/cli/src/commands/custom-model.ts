@@ -87,8 +87,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus custom-model get cm-123
-  $ nexus custom-model get cm-123 --json
+  $ nexus custom-model get 11111111-1111-4111-8111-111111111111
+  $ nexus custom-model get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THE apiKey IS WRITE-ONLY AND NEVER COMES BACK. It is encrypted on write and
@@ -248,9 +248,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus custom-model update cm-123 --display-name "Renamed Model"
-  $ nexus custom-model update cm-123 --enabled false
-  $ nexus custom-model update cm-123 --endpoint-key sk-newkey
+  $ nexus custom-model update 11111111-1111-4111-8111-111111111111 --display-name "Renamed Model"
+  $ nexus custom-model update 11111111-1111-4111-8111-111111111111 --enabled false
+  $ nexus custom-model update 11111111-1111-4111-8111-111111111111 --endpoint-key sk-newkey
 
 Notes:
   --endpoint-url AND --endpoint-key DESCRIBE THE MODEL PROVIDER, NOT NEXUS. The
@@ -286,8 +286,18 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus custom-model delete cm-123
-  $ nexus custom-model delete cm-123 --yes`
+  $ nexus custom-model delete 11111111-1111-4111-8111-111111111111
+  $ nexus custom-model delete 11111111-1111-4111-8111-111111111111 --yes
+
+Notes:
+  IT PROMPTS, AND OFF A TERMINAL THAT PROMPT IS A REFUSAL. --yes is required in
+  CI or in a pipe; without it and without a TTY the command declines rather than
+  proceeding on a default.
+  NOTHING HERE TELLS YOU WHAT IS USING THE ENDPOINT. An agent or an AI task
+  selecting this model by --custom-model-id is not listed, and this command does
+  not look. Check before deleting, not after.
+  The argument is the row's own UUID from "custom-model list" — not the modelId
+  and not the display name, neither of which selects a row.`
     )
     .action(async (id: string, opts) => {
       try {

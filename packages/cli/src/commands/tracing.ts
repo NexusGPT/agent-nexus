@@ -107,16 +107,18 @@ Notes:
   Same for DURATION.
   --start-date / --end-date are ISO 8601 and filter on when the trace STARTED,
   so a run that began before the window and finished inside it is excluded.
-  --agent-id and --workflow-id match the trace's recorded context. A trace with
-  no context — a bare API call — matches neither and is only reachable
-  unfiltered.
+  --agent-id MATCHES THE TRACE'S AGENT COLUMN FIRST AND ITS RECORDED CONTEXT
+  SECOND, so it returns the same traces "tracing cost-breakdown --group-by
+  agent" charges to that agent. --workflow-id matches the recorded context
+  only, so a trace with no context — a bare API call — matches it and is only
+  reachable unfiltered.
   --status, --source, --sort-by and --order are validated LOCALLY against the
   contract, so a bad value is refused here and never becomes a 400. --sort-by
   defaults to startedAt and --order to desc; both defaults live on the SERVER,
   so unset the CLI sends neither.
   --source NAMES THE SURFACE THAT PRODUCED THE TRACE, and it matches on a key
   the trace recorded in its context — so a trace with no context matches no
-  --source at all and is only reachable unfiltered, exactly like --agent-id.
+  --source at all and is only reachable unfiltered, exactly like --workflow-id.
   agent-creation and ai-task-creation are two separate values on purpose:
   historic AI-task rows recorded their thread under the agent-creation key, so
   the older value still answers for them.
@@ -622,9 +624,11 @@ Notes:
   workflowExecution LABELS THE WORKFLOW, NOT THE RUN, so two runs of one
   workflow carry the same LABEL and are told apart only by KEY.
   THE ROWS DO NOT ADD UP TO YOUR BILL. Grouped by agent or workflow, only
-  generations whose recorded context names one is counted — anything run
-  outside an agent or a workflow is in no row at all, so the column total is
-  a lower bound on spend, never the whole of it.
+  generations that name one are counted — anything run outside an agent or a
+  workflow is in no row at all, so the column total is a lower bound on spend,
+  never the whole of it. The agent is read from the agent column first and the
+  recorded context second, which is the same resolution "tracing traces
+  --agent-id" filters on.
   TRACES is DISTINCT traces touching that group, so summing the TRACES column
   double-counts any trace that used two models.
   UNPRICED > 0 MEANS THAT ROW'S COST ($) IS LOW BY AN UNKNOWN AMOUNT. Those

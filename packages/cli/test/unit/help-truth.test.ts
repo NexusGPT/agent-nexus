@@ -117,6 +117,28 @@ test("CONTROL: the rule that reports zero was proved to have run", () => {
   );
 });
 
+test("CONTROL: R4 was proved to have JUDGED, not merely to have run", () => {
+  // The same shape as the R5b counter above, aimed at the rule that decides
+  // whether a namespace is clean.
+  //
+  // R4 declines to judge a path operand on three grounds — a placeholder value,
+  // a `name or` argument the CLI resolves client-side, and a route whose
+  // PathVars arity does not match. All three produce NO violation, which is
+  // byte-for-byte what "asked and found nothing" produces. Measured 2026-08-15,
+  // before this counter existed: across the tree R4 skipped 146 operands and the
+  // whole gate was green, with `agent-eval` certified clean on 0 judged / 32
+  // skipped and `conversation` on 1 / 28.
+  //
+  // 462 judged against 97 skipped when this landed, tree-wide. The floor is 150
+  // so ordinary movement does not redden it and only a broken loop can cross it.
+  const judged = Object.values(report.pathOperandsJudged).reduce((a, b) => a + b, 0);
+  assert.ok(
+    judged > 150,
+    `R4 judged only ${judged} path operands — it is not running, or every example ` +
+      `stopped naming an id. Skipped: ${Object.values(report.pathOperandsSkipped).reduce((a, b) => a + b, 0)}`
+  );
+});
+
 test("CONTROL: the examples, the contracts and the SDK routes were all read", () => {
   assert.ok(report.examplesChecked > 800, `only ${report.examplesChecked} examples parsed`);
   assert.ok(report.descriptorCount > 300, `only ${report.descriptorCount} v1 descriptors read`);
@@ -350,6 +372,7 @@ test("PROGRESS 3: every namespace recorded as clean still exists", () => {
   );
 
   // The ratio itself, printed so a CI log carries the answer rather than only
+  // (see PROGRESS 4 below for the arm that makes each name in it mean something)
   // the verdict. A gate that proves the number and never shows it makes the
   // reader go and derive it again. Printed HERE, from the last of the three
   // arms, so the number is only ever emitted once all three have held.
@@ -360,6 +383,124 @@ test("PROGRESS 3: every namespace recorded as clean still exists", () => {
       `${report.violations.length} violations across ${observedLedger().size} commands, ` +
       `${report.leafCount} leaves`
   );
+});
+
+test("PROGRESS 4: a namespace declared clean was MEASURED, not abstained on", () => {
+  // The fourth side, and the one that makes CLEAN a result rather than a
+  // silence. LEDGER 6 and PROGRESS 2 and 3 all reason about the ABSENCE of a
+  // ledger entry. Absence is produced by two completely different events — R4
+  // asked its question and the answer was fine, or R4 never asked — and none of
+  // the other three arms can tell them apart.
+  //
+  // So: a namespace that ships path operands in format-constrained slots must
+  // have had at least one of them actually put to the route's schema. A
+  // namespace with no such operand at all (`model`, `upgrade`, `docs`) is
+  // exempt by construction, because there is nothing there to judge and
+  // demanding a judgement would be a rule that cannot be satisfied.
+  const abstained = CLEAN_NAMESPACES.filter((ns) => {
+    const judged = report.pathOperandsJudged[ns] ?? 0;
+    const skipped = report.pathOperandsSkipped[ns] ?? 0;
+    return judged === 0 && skipped > 0;
+  }).sort();
+
+  assert.deepEqual(
+    abstained,
+    [],
+    `\n\n${abstained.length} namespace(s) are recorded CLEAN and R4 never judged one of their\n` +
+      `path ids — every operand they ship was waved through:\n` +
+      abstained
+        .map((ns) => `  ${ns}: 0 judged, ${report.pathOperandsSkipped[ns] ?? 0} skipped`)
+        .join("\n") +
+      `\n\nThat is a clean result worn by an instrument that read nothing, which is the\n` +
+      `failure this whole ledger exists to prevent. Give at least one example per\n` +
+      `namespace a real id — then the clean verdict is about the help, not about the\n` +
+      `scan declining to look at it.`
+  );
+
+  // ⚠️ THE EXEMPTION IS NOT A CLEAN BILL, SO IT IS PRINTED RATHER THAN ASSUMED.
+  // A namespace at 0 judged AND 0 skipped had no path id put to a schema, and for
+  // those names CLEAN means "R0/R1 found nothing", never "the ids were checked".
+  //
+  // 🚨 THIS USED TO BE ONE LIST AND ONE NUMBER, AND THAT WAS THE DEFECT. Four
+  // unrelated causes produce the identical 0/0 state, and printing their union
+  // made a reporting artefact read as a contract-coverage programme: the line
+  // said "16 blind" when ten of the sixteen were correct and permanent and no
+  // work would ever move them. A reader had to subtract ten from a number nobody
+  // printed. The old line also derived blindness from the counters alone, while
+  // the scan had recorded the REASON for every unresolved command all along —
+  // it simply never consulted it.
+  //
+  // So the permanent causes are reported as SATISFIED and never counted in a gap
+  // total. Only `SDK-BYPASS` and `NO-DESCRIPTOR` are work, and each names what
+  // would actually close it.
+  const blind = CLEAN_NAMESPACES.filter(
+    (ns) =>
+      (report.pathOperandsJudged[ns] ?? 0) === 0 && (report.pathOperandsSkipped[ns] ?? 0) === 0
+  ).sort();
+
+  const of = (kind: string): string[] =>
+    blind.filter((ns) => report.namespaceBlindness[ns] === kind);
+  const noRoute = of("NO-ROUTE");
+  const unreached = of("UNREACHED");
+  const bypass = of("SDK-BYPASS");
+  const noDescriptor = of("NO-DESCRIPTOR");
+  const permanent = [...noRoute, ...unreached].sort();
+  const addressable = [...bypass, ...noDescriptor].sort();
+
+  // Every blind namespace must land in exactly one bucket. An unclassified one
+  // would silently vanish from both totals, which is the failure this replaces.
+  const unclassified = blind.filter((ns) => report.namespaceBlindness[ns] === undefined);
+  assert.deepEqual(
+    unclassified,
+    [],
+    `\n\n${unclassified.length} blind namespace(s) got no classification, so they are in ` +
+      `neither total:\n  ${unclassified.join(", ")}\n\n` +
+      `Every 0-judged/0-skipped namespace has a cause. A missing one means the ` +
+      `classifier stopped covering a shape the tree still contains.`
+  );
+
+  // THE POINT OF THE SPLIT, ASSERTED RATHER THAN LEFT TO THE SHAPE OF THE CODE.
+  // A permanently blind namespace counted in a gap total is the exact defect this
+  // replaces, and two arrays built next to each other is not a guarantee — one
+  // careless concat restores it silently and the log still looks organised.
+  // CONTROL: the SDK-BYPASS detector RAN. Without this, a regex that stops
+  // matching empties the gap bucket and every namespace it held is reported as
+  // correct and permanent — the gap total reads 0 and looks like finished work.
+  // 6 resolved when this landed; the floor is 1 because it is proving the arm is
+  // alive, not pinning a number that moves whenever a command is rewired.
+  assert.ok(
+    report.transportRoutesResolved > 0,
+    `the raw-transport scan resolved no v1 route at all, so SDK-BYPASS cannot be ` +
+      `detected and its namespaces are being reported as permanently blind`
+  );
+
+  const leaked = permanent.filter((ns) => addressable.includes(ns));
+  assert.deepEqual(
+    leaked,
+    [],
+    `\n\n${leaked.length} namespace(s) are counted as BOTH permanent and a gap:\n` +
+      `  ${leaked.join(", ")}\n\nA namespace with no route, or with routes that carry no ` +
+      `id, cannot be "fixed". Counting it as work is what made 16 blind read as 16 to do.`
+  );
+
+  if (permanent.length > 0) {
+    console.log(
+      `    NO PATH ID TO CHECK — correct and permanent (${permanent.length}): ${permanent.join(", ")}`
+    );
+    if (noRoute.length > 0)
+      console.log(`      NO-ROUTE  reaches no v1 route: ${noRoute.join(", ")}`);
+    if (unreached.length > 0)
+      console.log(`      UNREACHED routes resolve, no id in the path: ${unreached.join(", ")}`);
+  }
+  if (addressable.length === 0) {
+    console.log(`    CONTRACT GAP: none — every blind namespace is blind by construction`);
+    return;
+  }
+  console.log(`    CONTRACT GAP (${addressable.length}) — these could be checked and are not:`);
+  if (bypass.length > 0)
+    console.log(`      SDK-BYPASS    contract exists, CLI skips the SDK: ${bypass.join(", ")}`);
+  if (noDescriptor.length > 0)
+    console.log(`      NO-DESCRIPTOR an SDK route the contract omits: ${noDescriptor.join(", ")}`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -51,6 +51,7 @@ join a CRM row to the conversations it had, and only "customer get" and
       .command("list")
       .description("List customers")
       .option("--search <query>", "Search by name, email, or phone")
+      .option("--tag <tag>", "Keep only customers carrying this tag")
       .addOption(enumOption("--sort-by <field>", "Sort by field", CUSTOMER_LIST__PARAMS_SORT_BY))
       .addOption(
         enumOption("--sort-order <dir>", "Sort direction", CUSTOMER_LIST__PARAMS_SORT_ORDER)
@@ -68,11 +69,21 @@ join a CRM row to the conversations it had, and only "customer get" and
 Examples:
   $ nexus customer list
   $ nexus customer list --search "john@example.com" --json
+  $ nexus customer list --tag vip --limit 50
   $ nexus customer list --channel WHATSAPP --sort-by totalMessages --sort-order desc
 
 Notes:
+  --tag IS THE READ SIDE OF "customer update". Tags are WRITTEN with
+  "nexus customer update <id> --body '{"tags":["vip"]}'" and read back here.
+  Before this flag existed a tag could be written and never filtered by.
+  ONE TAG, MATCHED EXACTLY. There is no multi-tag form, no OR, and no partial
+  match: the filter asks whether the customer's tag array CONTAINS this exact
+  string, so "vip" does not match "VIP" and does not match "vip-eu".
+
   --sort-by, --sort-order and --channel are validated LOCALLY against the
-  contract, so a bad value is refused here and never becomes a 400.
+  contract, so a bad value is refused here and never becomes a 400. --tag is
+  NOT — any string is accepted, and a tag nobody carries is an empty list rather
+  than an error.
   --sort-by defaults to lastSeenAt and --sort-order to desc. Both defaults live
   on the SERVER, so unset the CLI sends neither.
   --channel MATCHES A CUSTOMER'S IDENTITIES, not their messages: it keeps a
@@ -85,6 +96,7 @@ Notes:
       const { data, meta } = await client.customers.list({
         ...getPaginationParams(opts),
         search: opts.search,
+        tag: opts.tag,
         sortBy: opts.sortBy,
         sortOrder: opts.sortOrder,
         channel: opts.channel
@@ -161,8 +173,8 @@ Notes:
   organization can hold a given external user id. A blank or whitespace-only key
   is a 400 rather than a miss.
   IT PRINTS EVERY FIELD, where "customer get" prints seven labelled ones —
-  identities[] included. recentSessions[] is NOT populated on this route
-  whatever the customer's history: read session history with "customer get".
+  identities[] and recentSessions[] included. Both arrays carry the same content
+  "customer get" returns, and recentSessions[] holds the 20 most recent.
   Set the id at create time with --external-user-id. "customer update" reaches
   it only through --body.`
     )

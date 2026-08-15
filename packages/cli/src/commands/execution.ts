@@ -84,10 +84,10 @@ like it means. The TYPE column names each row (run / loop_iteration / node_test)
 
 Examples:
   $ nexus execution list
-  $ nexus execution list --workflow-id wf-123 --limit 5
+  $ nexus execution list --workflow-id 22222222-2222-4222-8222-222222222222 --limit 5
   $ nexus execution list --status COMPLETED --json
-  $ nexus execution list --workflow-id wf-123 --include-child-executions
-  $ nexus execution list --workflow-id wf-123 --include-test-runs --limit 1 --json
+  $ nexus execution list --workflow-id 22222222-2222-4222-8222-222222222222 --include-child-executions
+  $ nexus execution list --workflow-id 22222222-2222-4222-8222-222222222222 --include-test-runs --limit 1 --json
 
 Notes:
   --status, --sort-by and --order are validated LOCALLY against the contract, so
@@ -145,8 +145,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution get exec-123
-  $ nexus execution get exec-123 --json
+  $ nexus execution get 11111111-1111-4111-8111-111111111111
+  $ nexus execution get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   A 404 here usually means the id is not an execution id at all — a node test's
@@ -190,9 +190,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution diagnose exec-123
-  $ nexus execution diagnose exec-123 --verbose
-  $ nexus execution diagnose exec-123 --json
+  $ nexus execution diagnose 11111111-1111-4111-8111-111111111111
+  $ nexus execution diagnose 11111111-1111-4111-8111-111111111111 --verbose
+  $ nexus execution diagnose 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   START HERE when a run went wrong: one call gives the execution's status, its
@@ -284,10 +284,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution poll exec-123
+  $ nexus execution poll 11111111-1111-4111-8111-111111111111
   $ nexus execution poll --token tok-abc
-  $ nexus execution poll exec-123 --watch
-  $ nexus execution poll exec-123 --watch --interval 5000
+  $ nexus execution poll 11111111-1111-4111-8111-111111111111 --watch
+  $ nexus execution poll 11111111-1111-4111-8111-111111111111 --watch --interval 5000
 
 Notes:
   The lightest read there is: {executionId, status, outputData, createdAt,
@@ -388,9 +388,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution follow exec-123
-  $ nexus execution follow exec-123 --interval 3000
-  $ nexus execution follow exec-123 --json   # NDJSON of per-node state changes
+  $ nexus execution follow 11111111-1111-4111-8111-111111111111
+  $ nexus execution follow 11111111-1111-4111-8111-111111111111 --interval 3000
+  $ nexus execution follow 11111111-1111-4111-8111-111111111111 --json   # NDJSON of per-node state changes
 
 Notes:
   Prints each node as its state changes and exits at a terminal status, so it is
@@ -452,8 +452,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution output exec-123
-  $ nexus execution output exec-123 --json
+  $ nexus execution output 11111111-1111-4111-8111-111111111111
+  $ nexus execution output 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   The workflow's FINAL output — what its outputNode produced — as {output}, not
@@ -495,8 +495,8 @@ Cancels a PENDING, RUNNING or FAILED execution. Loop fan-outs run as child
 executions, so every iteration the run spawned is cancelled with it.
 
 Examples:
-  $ nexus execution cancel exec-123
-  $ nexus execution cancel exec-123 --json
+  $ nexus execution cancel 11111111-1111-4111-8111-111111111111
+  $ nexus execution cancel 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   IT STOPS THE EXECUTOR, NOT JUST THE ROW. The in-memory run is halted and every
@@ -529,7 +529,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution retry exec-123 node-456
+  $ nexus execution retry 11111111-1111-4111-8111-111111111111 node-456
 
 Notes:
   IT NEEDS THE RUN TO STILL BE RUNNING, AND THAT IS THE USUAL REFUSAL. The retry
@@ -576,8 +576,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution export exec-123
-  $ nexus execution export exec-123 --json
+  $ nexus execution export 11111111-1111-4111-8111-111111111111
+  $ nexus execution export 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   IT PRINTS A DOWNLOAD LINK, NOT THE EXPORT. The answer is {url, expiresAt} and
@@ -611,8 +611,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus execution node-result exec-123 node-456
-  $ nexus execution node-result exec-123 node-456 --json
+  $ nexus execution node-result 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus execution node-result 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   <node-id> is the GRAPH node id (from "nexus workflow get"), not a per-execution

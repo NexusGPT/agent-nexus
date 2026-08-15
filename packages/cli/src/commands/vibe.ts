@@ -92,7 +92,8 @@ import {
   type VibeEdgeTokenDto,
   type VibeEnvVarScope,
   type VibeGitCredentialsDto,
-  type VibeGitProjectAliasDto
+  type VibeGitProjectAliasDto,
+  type VibeShipGateMode
 } from "../vibe-wire-types";
 import { VIBE_REGISTER_APP_AS_TOOL_CONTRACT } from "./vibe.contract.generated";
 import {
@@ -226,6 +227,7 @@ function registerClusterCommands(vibe: Command, program: Command): void {
     .addHelpText(
       "after",
       `
+Notes:
 No cluster is not an error: apps still build and deploy on shared
 infrastructure, and a git project created with --git-url needs no cluster
 at all. A cluster is what lets Nexus HOST your code (the tenant git host)
@@ -259,6 +261,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 The region is IMMUTABLE for the cluster's lifetime — relocating means a
 full teardown and re-provision — so it is required rather than defaulted.
 Pick for data residency first; all choices are EU (RGPD).
@@ -381,6 +384,26 @@ function registerDeploymentsCommands(vibe: Command, program: Command): void {
   deployments
     .command("list <appId>")
     .description("List an app's deployments, newest-first")
+    .addHelpText(
+      "after",
+      `
+Notes:
+The Id column is never truncated, because "vibe deployments get <appId>
+<deploymentId>" takes it — this listing is where that second id comes from.
+
+Commit is shortened to seven characters for the table. The full trigger sha is
+in --json.
+
+Version counts up per app, so v1 is that app's first deployment and the newest
+row carries the highest number.
+
+An app with no deployments prints one dim line rather than an empty table.
+
+Examples:
+  $ nexus vibe deployments list 11111111-2222-4333-8444-555555555555
+  $ nexus vibe deployments list 11111111-2222-4333-8444-555555555555 --json
+`
+    )
     .action(async (appId: string) => {
       try {
         const opts = resolveTenantOpts(program);
@@ -397,6 +420,31 @@ function registerDeploymentsCommands(vibe: Command, program: Command): void {
   deployments
     .command("get <appId> <deploymentId>")
     .description("Show one deployment with its build job")
+    .addHelpText(
+      "after",
+      `
+Notes:
+TWO RECORDS, NOT ONE. The deployment prints first and its build job second, and
+the build job is where Logs, Builder and Duration live. A deployment that never
+reached a build prints "No build job." instead of a second record.
+
+THIS IS THE BUILD LOG, and "vibe app logs" is the APPLICATION log. If you are
+looking for what the container printed after it started, that is the other
+command.
+
+Detected port answers the question that usually brings you here. It reads "not
+detected — using <default>" rather than a dash, because a dash would say
+"nothing to show" when the real fact is that the build observed no port and a
+default therefore applies.
+
+A deployment built with --force-rebuild says so, which is what explains the -v
+suffix on its image tag.
+
+Examples:
+  $ nexus vibe deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
+  $ nexus vibe deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --json
+`
+    )
     .action(async (appId: string, deploymentId: string) => {
       try {
         const opts = resolveTenantOpts(program);
@@ -533,6 +581,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Removal is by env-var id, not name — list first to get the id. Scoped to
 your org + the named app; a wrong id returns 404.
 
@@ -570,6 +619,7 @@ function registerApprovalsCommands(vibe: Command, program: Command): void {
     .addHelpText(
       "after",
       `
+Notes:
 The reviewer queue — every deployment waiting on an approval gate, across
 all apps in your org. Decide one with \`nexus vibe approvals decide\`.
 
@@ -597,6 +647,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Returns 404 when the deployment is ungated (no approval gate) or not in
 your org.
 
@@ -626,6 +677,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Pass exactly one of --approve / --reject. You cannot decide your own
 deployment (403); a duplicate or already-decided/expired request is 409.
 
@@ -807,6 +859,7 @@ function registerDeployCommand(vibe: Command, program: Command): void {
     .addHelpText(
       "after",
       `
+Notes:
 Triggers one push→build→deploy attempt: the deployment lands in BUILDING
 and its sibling build job in PENDING; the build + deploy runners carry it
 forward asynchronously. If the app has approvals enabled, the deploy waits
@@ -1112,6 +1165,7 @@ function registerRollbackCommand(vibe: Command, program: Command): void {
     .addHelpText(
       "after",
       `
+Notes:
 Without --to this is NON-DESTRUCTIVE and deletes nothing: the server
 re-activates the app's previous SUPERSEDED deployment and its retained
 image in one atomic transaction, onto the slot opposite the current one.
@@ -1231,6 +1285,27 @@ function registerAppCommands(vibe: Command, program: Command): void {
   app
     .command("list")
     .description("List the org's Vibe apps, newest-first")
+    .addHelpText(
+      "after",
+      `
+Notes:
+THIS IS WHERE THE APP ID COMES FROM, which is why the Id column is never
+truncated: every other "vibe" verb takes that id as an argument.
+
+The Source column earns its place by separating the two apps that look
+identical in every other column — the app nobody has pushed to yet, and the app
+that has no source to push to at all. "vibe app get" has room for the fix.
+
+Approvals reads "required" or "off" and is the gate "vibe approvals" works on.
+An app with no deployments yet still lists here.
+
+An org with no apps prints one dim line; --json returns the payload either way.
+
+Examples:
+  $ nexus vibe app list
+  $ nexus vibe app list --json
+`
+    )
     .action(async () => {
       try {
         const opts = resolveTenantOpts(program);
@@ -1264,17 +1339,20 @@ Notes:
     gitProject     A NESTED OBJECT {id, name, status}, or null. THERE IS NO
                    gitProjectId SCALAR on this response: parsing for one returns
                    null on a correctly attached app and reads as "no repo".
-  THE "Ship gate" ROW IS A TWO-STATE PROJECTION OF A THREE-STATE FIELD. It
-  renders the derived boolean requireVerification, and WARN projects to false —
-  so an app whose gate runs in WARN prints "Ship gate: off" here while every
-  deploy still records a verification finding. Read .shipGateMode in --json to
-  tell WARN from OFF; see "nexus vibe app update".
+  THE "Ship gate" ROW PRINTS shipGateMode ITSELF — off, warn or enforce. warn
+  means the gate reads the repository and ships the deploy anyway, so it is NOT
+  off: those deploys write DEPLOYMENT_VERIFICATION_WARNED. The boolean
+  requireVerification also rides the wire and is a LOSSY projection of the same
+  field (warn reads false there) — do not parse it to decide whether a gate is
+  running. "Ship gate: not reported by this server" means the backend predates
+  the field, never that the gate is off.
   "Edge: not checked yet" IS THE COMMON CASE AND IS NOT A FAULT.
   edgeReachability stays null until the probe has seen a healthy, settled
   deployment, and edgeReachabilityAt / edgeReachabilityDetail are null with it.
   A null is never reachability.
   --json CARRIES MORE THAN THE TABLE: organizationId, createdByUserId,
-  healthCheckConfig and shipGateMode ride the wire and no table row shows them.
+  requireVerification and healthCheckConfig ride the wire and no table row
+  shows them.
   The two joins are merged in at the TOP level rather than nested.`
     )
     .action(async (appId: string) => {
@@ -1318,6 +1396,7 @@ Notes:
     .addHelpText(
       "after",
       `
+Notes:
 Reads what the DEPLOYED app printed — application output, not build output. For
 a build log, use \`nexus vibe deployments get <appId> <deploymentId>\`.
 
@@ -1373,8 +1452,12 @@ Examples:
     .option("--description <text>", "Set the app description.")
     .option("--require-approvals <bool>", "Gate prod deploys behind approval. One of: true, false.")
     .option(
+      "--ship-gate <mode>",
+      "How hard the ship gate applies. One of: off, warn, enforce. warn checks the artifacts and ships anyway."
+    )
+    .option(
       "--require-verification <bool>",
-      "Refuse deploys whose declared verification artifacts are missing or red. One of: true, false."
+      "Refuse deploys whose declared verification artifacts are missing or red. One of: true, false. Two-state: cannot reach warn — use --ship-gate."
     )
     .option(
       "--resource-quotas <json>",
@@ -1395,22 +1478,27 @@ fully validates the new shape, so pass every field.
 Examples:
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --require-approvals true
+  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --ship-gate warn
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
 
 Notes:
-  --require-verification IS A TWO-STATE FLAG OVER A THREE-STATE FIELD. The app
-  stores shipGateMode: OFF, WARN or ENFORCE. true maps to ENFORCE and false to
-  OFF, so this flag cannot reach WARN — the on-ramp state where the gate reads
-  the repository, records what it found, and ships the deploy anyway. Send
-  shipGateMode in the request body to reach it.
-  THE TELL IS AN APP THAT READS "Ship gate: off" AND STILL RECORDS GATE
-  FINDINGS. "vibe app get" prints the derived boolean, and WARN reads false
-  there, so a WARN app is indistinguishable from OFF in the table while every
-  deploy writes DEPLOYMENT_VERIFICATION_WARNED. Read .shipGateMode in --json,
-  or "nexus vibe audit list --type DEPLOYMENT_VERIFICATION_WARNED".
-  SENDING BOTH IS A CONTRADICTION AND shipGateMode WINS. Deliberately: the
-  boolean cannot express WARN, so honouring it instead would put WARN out of
-  reach of any client that sends both.
+  --ship-gate IS THE FLAG THAT REACHES ALL THREE STATES. The app stores
+  shipGateMode: OFF, WARN or ENFORCE, and this flag takes off, warn or enforce
+  (any case).
+    off      the gate never reads the repository.
+    warn     the gate reads it, records what it found, and ships the deploy
+             anyway. This is the on-ramp: turn it on across a fleet, then read
+             "nexus vibe audit list --type DEPLOYMENT_VERIFICATION_WARNED" to
+             see how often ENFORCE would have refused before you enforce.
+    enforce  a missing or red artifact refuses the deploy.
+  --require-verification IS A TWO-STATE FLAG OVER A THREE-STATE FIELD, kept for
+  scripts written before --ship-gate existed. true maps to ENFORCE and false to
+  OFF, so it cannot reach WARN at all.
+  PASSING BOTH IS REFUSED HERE, BEFORE THE REQUEST. The API resolves the
+  contradiction in favour of shipGateMode — deliberately, since the boolean
+  cannot express WARN — but a person who typed both flags on one command line
+  made a mistake in that line, and silently discarding one of them is how the
+  gate ends up in a state nobody chose. Pass --ship-gate alone.
 `
     )
     .action(
@@ -1420,6 +1508,13 @@ Notes:
           deployBranch?: string;
           description?: string;
           requireApprovals?: string;
+          // Both gate writers, and `requireVerification` was missing here while
+          // `buildAppUpdateBody` read it — harmless only because every field is
+          // optional, so the narrower object still satisfied the wider one and
+          // the flag kept working. A field the action does not declare is a
+          // field the next reader believes is unhandled.
+          shipGate?: string;
+          requireVerification?: string;
           resourceQuotas?: string;
           healthCheck?: string;
         }
@@ -1521,6 +1616,7 @@ Notes:
     .addHelpText(
       "after",
       `
+Notes:
 private requires an identity on every request: an agent tool call carries
 the app's edge token automatically, and a person is sent to sign in with
 Nexus and admitted if the app's access list allows them. An API client with
@@ -1669,6 +1765,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 The app is soft-deleted: it drops out of "app list" and out of the console at
 once, and its access grants are removed so they cannot outlive it. The name is
 released, so you can create a new app with the same name afterwards.
@@ -1723,6 +1820,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 A private app admits a request only when it carries this token in the
 X-Vibe-App-Token header. The platform injects it automatically on agent tool
 calls; this command is how everything else gets it — a partner system, a CI job,
@@ -1770,6 +1868,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Rotation is immediate and there is no grace period: the moment it returns, every
 caller still sending the previous token is refused at the edge. Rotate when a
 token has leaked, or on whatever schedule you keep — but hand the new one out
@@ -1820,6 +1919,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 DEPLOY FIRST. This is the last step of the flow, not a way to set one up: an app
 with no healthy deployment is refused with a 409 saying exactly that, and it is
 the first thing most people hit. Run "nexus vibe deploy <appId>" and confirm
@@ -1882,6 +1982,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Creates a git project (the standalone code store) in PENDING and attaches
 the app to it; the project takes the app's name and deploy branch. The
 build executor clones --git-url at the pushed sha. The git URL is optional
@@ -1924,6 +2025,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 The counterpart to "provision-repo", which MINTS a new project named after
 the app. Once a project already holds your code, that is the wrong verb —
 this one points the app at the project you already have.
@@ -1964,6 +2066,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 A git project whose in-cluster materialization FAILED is otherwise a dead
 end — the provision path 409s on the already-attached guard. This re-arms
 the FAILED project back to PENDING so the agent re-materializes it on its
@@ -2001,6 +2104,7 @@ function registerGitProjectCommands(vibe: Command, program: Command): void {
     .addHelpText(
       "after",
       `
+Notes:
 A git project is the git primitive: an org-scoped code store materialized as
 a repository on your tenant's git host. It stands on its own — a project with
 no app attached is a pure code store. Push to it and its refs advance; nothing
@@ -2036,6 +2140,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 The name is org-unique and becomes the repository name on the git host, so it
 must be a lowercase slug: start with a letter, then letters / digits / hyphens,
 ≤ 63 characters. It is stamped at creation and stable for the project's life.
@@ -2089,6 +2194,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Lists every project in your org — standalone code stores and the ones apps
 are attached to alike, in every lifecycle status.
 
@@ -2116,6 +2222,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Shows the project's lifecycle status and its build source. A PENDING project
 has not been materialized on the git host yet; READY is serving. FAILED means
 materialization failed — retry it with "git-project reprovision".
@@ -2147,6 +2254,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Resolves the project, fetches your org's git credential, and runs a real
 "git clone" against your tenant's git host. The directory defaults to the
 project's name.
@@ -2230,6 +2338,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 Runs "git pull --ff-only" in an existing clone, supplying a freshly-fetched
 credential so the pull keeps working after your push token rotates (the clone
 deliberately stores no token). The directory defaults to the current one.
@@ -2276,6 +2385,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 A project whose materialization FAILED is otherwise a dead end — its name is
 taken, so you cannot simply create it again. This re-arms it back to PENDING
 and your tenant re-materializes it on its next pass; nothing else changes
@@ -2307,6 +2417,7 @@ Examples:
     .addHelpText(
       "after",
       `
+Notes:
 The project is soft-deleted and its name is released, so a later project — or an
 app provisioning its own repo — can take that name again.
 
@@ -2571,10 +2682,11 @@ function printRegisteredTool(tool: ExternalToolDetail): void {
  * partial-update contract). Refuses an empty change set client-side so the
  * user gets a clear message instead of the backend's 400.
  */
-function buildAppUpdateBody(cmdOpts: {
+export function buildAppUpdateBody(cmdOpts: {
   deployBranch?: string;
   description?: string;
   requireApprovals?: string;
+  shipGate?: string;
   requireVerification?: string;
   resourceQuotas?: string;
   healthCheck?: string;
@@ -2584,6 +2696,19 @@ function buildAppUpdateBody(cmdOpts: {
   if (cmdOpts.description !== undefined) body.description = cmdOpts.description;
   if (cmdOpts.requireApprovals !== undefined) {
     body.requireApprovals = parseBoolFlag(cmdOpts.requireApprovals, "--require-approvals");
+  }
+  // Refused HERE rather than sent for the server to resolve. The API's rule is
+  // that `shipGateMode` wins, which is right for a client sending a new field
+  // beside an old one it still populates — but a person typed these two flags,
+  // and honouring one while dropping the other leaves the gate in a state they
+  // did not choose, with a success message on top.
+  if (cmdOpts.shipGate !== undefined && cmdOpts.requireVerification !== undefined) {
+    throw new Error(
+      "--ship-gate and --require-verification both set the same field and contradict each other. Pass --ship-gate alone (off, warn or enforce); --require-verification cannot reach warn."
+    );
+  }
+  if (cmdOpts.shipGate !== undefined) {
+    body.shipGateMode = parseShipGateFlag(cmdOpts.shipGate);
   }
   if (cmdOpts.requireVerification !== undefined) {
     body.requireVerification = parseBoolFlag(cmdOpts.requireVerification, "--require-verification");
@@ -2596,10 +2721,29 @@ function buildAppUpdateBody(cmdOpts: {
   }
   if (Object.keys(body).length === 0) {
     throw new Error(
-      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --require-verification, --resource-quotas, --health-check."
+      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --ship-gate, --require-verification, --resource-quotas, --health-check."
     );
   }
   return body;
+}
+
+/**
+ * `off` / `warn` / `enforce` -> the wire's `OFF` / `WARN` / `ENFORCE`.
+ *
+ * REFUSES anything else rather than coercing, which is the rule `parseBoolFlag`
+ * below already keeps for this file's booleans: a value quietly read as `OFF`
+ * would switch a gate off and print a success line. Case and surrounding
+ * whitespace are forgiven — a shell that hands over `Warn ` has not expressed a
+ * different intention — and nothing else is.
+ */
+function parseShipGateFlag(raw: string): VibeShipGateMode {
+  const normalised = raw.trim().toUpperCase();
+  if (normalised === "OFF" || normalised === "WARN" || normalised === "ENFORCE") {
+    return normalised;
+  }
+  throw new Error(
+    `Invalid --ship-gate "${raw}". Expected "off", "warn" or "enforce". warn checks the artifacts and ships the deploy anyway; enforce refuses it.`
+  );
 }
 
 function parseBoolFlag(raw: string, flag: string): boolean {
@@ -3095,7 +3239,50 @@ export function formatDeployability(
   return color.dim("not reported by this server");
 }
 
-function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
+/**
+ * The `Ship gate` line, one per mode.
+ *
+ * A `Record` KEYED BY THE UNION, never an if-chain: the field has three states
+ * and the row used to render a boolean projection of it, so `WARN` — the state
+ * the boolean cannot express — printed as `off` on an app whose every deploy was
+ * recording a finding. An if-chain over an enum makes a fourth state fall
+ * through to whatever the last branch is, which is the same defect with a new
+ * value in it. A missing entry here is a compile error.
+ *
+ * Each label says what the gate DOES, not what it is called. "off" alone was
+ * ambiguous in the other direction too — it says nothing about the repository's
+ * artifacts, which may well be green.
+ */
+const SHIP_GATE_MODE_LINES: Record<VibeShipGateMode, string> = {
+  OFF: "off",
+  WARN: color.yellow("warn") + color.dim(" — artifacts are checked and a finding does not block"),
+  ENFORCE: "enforce" + color.dim(" — artifacts must be green or the deploy is refused")
+};
+
+/**
+ * Render a ship-gate mode, including the two cases the union cannot describe.
+ *
+ * ⚠️ THE `Record` ABOVE IS A COMPILE-TIME GUARANTEE AND THIS BINARY OUTLIVES IT.
+ * The CLI ships standalone to npm and is routinely pointed at a backend NEWER
+ * than itself, so a mode added upstream arrives at an installed binary whose
+ * union has never heard of it. It is echoed rather than mapped — an unrecognised
+ * mode printed as one of the three known ones is exactly the lie this function
+ * exists to end. Same reflex as `formatDeployability`'s fallback next door,
+ * except that one gives up the compile-time check to get the runtime one; the
+ * lookup here keeps both.
+ *
+ * `undefined` is the OPPOSITE skew — a backend one release BEHIND omits the key
+ * — and it is never `off`. The gate may be running; this server did not say.
+ */
+export function formatShipGateMode(mode: VibeShipGateMode | undefined): string {
+  if (mode === undefined) return color.dim("not reported by this server");
+  if (!Object.prototype.hasOwnProperty.call(SHIP_GATE_MODE_LINES, mode)) {
+    return color.yellow(String(mode)) + color.dim(" — a mode this CLI version does not know");
+  }
+  return SHIP_GATE_MODE_LINES[mode];
+}
+
+export function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
   if (isJsonMode()) {
     // Merged rather than nested: this command has always printed the app at the
     // top level, so `{ ...app }` keeps every existing key exactly where a script
@@ -3142,11 +3329,17 @@ function printVibeApp(app: VibeAppDto, extras?: VibeAppEnvelopeExtras): void {
       format: (v) => (v === true ? "required" : "off")
     },
     {
-      key: "requireVerification",
+      // `shipGateMode`, NEVER the `requireVerification` boolean beside it. That
+      // boolean is the server's compatibility projection of this same field and
+      // it is lossy in one direction: `WARN` projects to `false`, so this row
+      // printed `off` on an app that was reading its repository on every deploy
+      // and writing DEPLOYMENT_VERIFICATION_WARNED. The table and the audit feed
+      // disagreed and nothing said which was right.
+      key: "shipGateMode",
       label: "Ship gate",
-      // "off" rather than "not required": the gate being off is the default and
-      // says nothing about the repo's artifacts, which may well be green.
-      format: (v) => (v === true ? "artifacts must be green" : "off")
+      // Read off `app` rather than the untyped `val` the printer hands in, so
+      // the union — and the absent case — reach `formatShipGateMode` typed.
+      format: () => formatShipGateMode(app.shipGateMode)
     },
     { key: "description", label: "Description", format: (v) => (v === null ? "—" : String(v)) },
     { key: "publicUrl", label: "Public URL", format: (v) => (v === null ? "—" : String(v)) },

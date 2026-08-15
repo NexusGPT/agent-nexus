@@ -35,9 +35,10 @@ Three facts that decide whether a write does what you meant:
   • objective, tone, explanation and behaviour are REMOVED fields. Sending any
     of them — as a flag or inside --body — is a 400 DEPRECATED_FIELDS. Every
     behavioural rule now belongs in the system prompt, set with --prompt.
-  • THE PROMPT IS NOT A COLUMN. --prompt creates and publishes a CHECKPOINT
-    version, and create/update print only the id — read the prompt back with
-    "nexus agent get", which carries it at top-level .prompt.
+  • THE PROMPT IS NOT A COLUMN, AND --prompt PUBLISHES. It creates a CHECKPOINT
+    version and makes it live on every deployment — on update too, every time,
+    not only the first. "agent update --no-publish" writes the draft instead.
+    Read the prompt back with "nexus agent get", at top-level .prompt.
   • model READS "DEFAULT", NOT null, ON AN AGENT THAT WAS NEVER GIVEN ONE, so a
     "model === null" test never fires. It is the legacy enum, and the model
     actually used is modelConfig.modelName, which create defaults to
@@ -107,8 +108,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent get abc-123
-  $ nexus agent get abc-123 --json
+  $ nexus agent get 11111111-1111-4111-8111-111111111111
+  $ nexus agent get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   The system prompt is at top-level .prompt, and is null until a version has
@@ -297,28 +298,42 @@ Notes:
       "Attach a custom model (BYOM) — needs --model-name and --model-provider too"
     )
     .option("--prompt <file-or-->", "System prompt (file path, or '-' for stdin)")
+    .option(
+      "--no-publish",
+      "With --prompt: write the draft WITHOUT publishing it, so the live version keeps serving"
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus agent update abc-123 --role "Senior Assistant"
-  $ echo "You are helpful" | nexus agent update abc-123 --prompt -
-  $ nexus agent update abc-123 --model-name gpt-4o --model-provider OPEN_AI
-  $ nexus agent update abc-123 --body '{"shortBio":"Handles refunds"}'
+  $ nexus agent update 11111111-1111-4111-8111-111111111111 --role "Senior Assistant"
+  $ echo "You are helpful" | nexus agent update 11111111-1111-4111-8111-111111111111 --prompt -
+  $ nexus agent update 11111111-1111-4111-8111-111111111111 --prompt ./prompt.md --no-publish
+  $ nexus agent update 11111111-1111-4111-8111-111111111111 --model-name gpt-4o --model-provider OPEN_AI
+  $ nexus agent update 11111111-1111-4111-8111-111111111111 --body '{"shortBio":"Handles refunds"}'
 
 Notes:
   objective, tone, explanation and behaviour are REMOVED fields — sending any of
   them is a 400 DEPRECATED_FIELDS. Behavioural rules go in the prompt.
-  --prompt publishes a NEW CHECKPOINT version; there is no mutable prompt field.
+  --prompt PUBLISHES BY DEFAULT, SO THE EDIT IS LIVE THE MOMENT THIS RETURNS.
+  There is no mutable prompt field: --prompt creates a CHECKPOINT version and
+  makes it the production version, on every deployment the agent is wired to,
+  with no confirmation step. Pass --no-publish to write the draft and leave the
+  published version serving traffic — that is the safe way to stage an edit on a
+  live agent. The verdict line says which of the two happened.
+  --no-publish DOES NOTHING ON AN AGENT THAT NEVER PUBLISHED. Until a version is
+  published, the DRAFT is what the agent serves, so writing the draft changes
+  behaviour whatever this flag says. Check with "nexus version list <agent-id>":
+  no row in the PROD column means the flag cannot protect you here.
   This command prints only the id, so confirm the write with
   "nexus agent get <id>" → .prompt. Over 1,000,000 characters is a 400.
   ON AN AGENT THAT ALREADY HAS A PROMPT, ONE --prompt WRITES TWO VERSION ROWS:
   an AUTO snapshot of the prompt it is about to overwrite, then the CHECKPOINT
-  carrying the new text, which it publishes. "version list" therefore grows by
-  two per write, not one. That AUTO row is the undo — it holds the prompt you
-  just replaced, so rolling back means publishing IT, not the CHECKPOINT above
-  it. The first --prompt on an agent that never had one writes a single row.
+  carrying the new text. "version list" therefore grows by two per write, not
+  one. That AUTO row is the undo — it holds the prompt you just replaced, so
+  rolling back means publishing IT, not the CHECKPOINT above it. The first
+  --prompt on an agent that never had one writes a single row.
   ONE MODEL FLAG MERGES, BOTH REPLACE. --model-name or --model-provider alone is
   merged into the stored modelConfig, keeping temperature and thinking level;
   sending both replaces the whole config and DROPS those settings. To change the
@@ -326,7 +341,7 @@ Notes:
   A CUSTOM MODEL IS ATTACHED BY ID, NEVER BY --model-provider: the
   "CUSTOM_<PROTOCOL>" string "nexus model list" prints on the row is not one of
   that flag's values.
-    $ nexus agent update abc-123 --custom-model-id <id> \\
+    $ nexus agent update 11111111-1111-4111-8111-111111111111 --custom-model-id <id> \\
         --model-name gpt-4o --model-provider OPEN_AI
   --custom-model-id needs both model flags because it travels inside modelConfig,
   and sending that object replaces the stored one — the pair is the fallback,
@@ -387,11 +402,33 @@ Notes:
           flags.modelProvider = opts.modelProvider;
         }
         if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
+        // ONLY when the operator TYPED --no-publish. Commander gives `publish`
+        // the default `true`, and there is no `--publish` to distinguish "the
+        // default" from "asked for". Setting the field unconditionally would
+        // therefore let the default override an explicit
+        // --body '{"autoPublish":false}', which is the trap this whole change
+        // exists to close, re-introduced one layer up.
+        if (opts.publish === false) flags.autoPublish = false;
 
         const body = mergeBodyWithFlags(base, flags);
 
         const agent = await client.agents.update(id, asRequestBody<UpdateAgentBody>(body));
-        printSuccess("Agent updated.", { id: agent.id });
+
+        // THE VERDICT NAMES THE PUBLISH, because the write is silent otherwise.
+        // A prompt edit reaching live customer conversations with the operator
+        // believing it was staged is the failure this command shipped with; a
+        // 200 and a bare id cannot tell the two outcomes apart. Read off the
+        // merged body, never off `opts` — --body carries both fields too.
+        const sentPrompt = body.prompt !== undefined;
+        const published = body.autoPublish !== false;
+        printSuccess(
+          sentPrompt
+            ? published
+              ? "Agent updated. Prompt PUBLISHED — live on every deployment."
+              : "Agent updated. Prompt written to the draft, NOT published."
+            : "Agent updated.",
+          { id: agent.id, ...(sentPrompt && { promptPublished: published }) }
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -406,9 +443,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent delete abc-123
-  $ nexus agent delete abc-123 --yes
-  $ nexus agent delete abc-123 --dry-run
+  $ nexus agent delete 11111111-1111-4111-8111-111111111111
+  $ nexus agent delete 11111111-1111-4111-8111-111111111111 --yes
+  $ nexus agent delete 11111111-1111-4111-8111-111111111111 --dry-run
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
@@ -447,8 +484,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent duplicate abc-123
-  $ nexus agent duplicate abc-123 --json
+  $ nexus agent duplicate 11111111-1111-4111-8111-111111111111
+  $ nexus agent duplicate 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THE COPY IS AS CAPABLE AS THE ORIGINAL. It carries the prompt and a fresh row
@@ -497,7 +534,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent upload-profile-picture abc-123 --file ./avatar.png
+  $ nexus agent upload-profile-picture 11111111-1111-4111-8111-111111111111 --file ./avatar.png
 
 Notes:
   The file is read locally first, so a missing path fails before any request.
@@ -536,8 +573,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent generate-profile-picture abc-123
-  $ nexus agent generate-profile-picture abc-123 --prompt "flat vector, teal background"
+  $ nexus agent generate-profile-picture 11111111-1111-4111-8111-111111111111
+  $ nexus agent generate-profile-picture 11111111-1111-4111-8111-111111111111 --prompt "flat vector, teal background"
 
 Notes:
   The image is generated from the agent's OWN name and role. --prompt only

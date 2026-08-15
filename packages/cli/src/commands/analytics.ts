@@ -137,7 +137,7 @@ no view, no metric and no group-by.`
 Examples:
   $ nexus analytics overview
   $ nexus analytics overview --time-period last_30_days
-  $ nexus analytics overview --deployment-id dep-123 --json
+  $ nexus analytics overview --deployment-id 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   EIGHT SCALARS AND FIVE NESTED FIELDS. The scalars are totalConversations,
@@ -244,7 +244,7 @@ Notes:
 Examples:
   $ nexus analytics export
   $ nexus analytics export --time-period 30d > analytics.csv
-  $ nexus analytics export --deployment-id dep-123
+  $ nexus analytics export --deployment-id 11111111-1111-4111-8111-111111111111
 
 Notes:
   Outputs CSV to stdout. Redirect to file: nexus analytics export > report.csv

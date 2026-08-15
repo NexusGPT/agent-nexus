@@ -249,10 +249,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation get <conversation-id>
-  $ nexus conversation get <conversation-id> --json
-  $ nexus conversation get <conversation-id> --satisfaction latest --json
-  $ nexus conversation get <conversation-id> --satisfaction summary --json
+  $ nexus conversation get 11111111-1111-4111-8111-111111111111
+  $ nexus conversation get 11111111-1111-4111-8111-111111111111 --json
+  $ nexus conversation get 11111111-1111-4111-8111-111111111111 --satisfaction latest --json
+  $ nexus conversation get 11111111-1111-4111-8111-111111111111 --satisfaction summary --json
 
 Notes:
   Carries no messages — "conversation messages <id>" is a separate read.
@@ -323,9 +323,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation messages <conversation-id>
-  $ nexus conversation messages <conversation-id> --visible-only
-  $ nexus conversation messages <conversation-id> --limit 10 --json
+  $ nexus conversation messages 11111111-1111-4111-8111-111111111111
+  $ nexus conversation messages 11111111-1111-4111-8111-111111111111 --visible-only
+  $ nexus conversation messages 11111111-1111-4111-8111-111111111111 --limit 10 --json
 
 Notes:
   ROUGHLY HALF THE AGENT ROWS WERE NEVER DELIVERED. A tool-using conversation
@@ -408,7 +408,7 @@ Notes:
       `
 Examples:
   $ nexus conversation search --query "refund"
-  $ nexus conversation search --query "login issue" --deployment-id <id> --json
+  $ nexus conversation search --query "login issue" --deployment-id 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   CAPPED AT 50 RESULTS WITH NO WAY TO PAGE PAST THEM. There is no --limit and
@@ -470,9 +470,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation update-status <id> --status ARCHIVED
-  $ nexus conversation update-status <id> --ticket-status RESOLVED
-  $ nexus conversation update-status <id> --response-handling MANUAL
+  $ nexus conversation update-status 11111111-1111-4111-8111-111111111111 --status ARCHIVED
+  $ nexus conversation update-status 11111111-1111-4111-8111-111111111111 --ticket-status RESOLVED
+  $ nexus conversation update-status 11111111-1111-4111-8111-111111111111 --response-handling MANUAL
 
 Notes:
   --response-handling DECIDES WHETHER THE AGENT STILL ANSWERS THIS CUSTOMER.
@@ -520,7 +520,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation update-topic <id> --topic "Billing escalation"
+  $ nexus conversation update-topic 11111111-1111-4111-8111-111111111111 --topic "Billing escalation"
   $ nexus conversation update-topic 4M7O9_BS76Q --topic "VIP renewal"
 
 Notes:
@@ -556,8 +556,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation get-metadata <id>
-  $ nexus conversation get-metadata <id> --json
+  $ nexus conversation get-metadata 11111111-1111-4111-8111-111111111111
+  $ nexus conversation get-metadata 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Read this before "update-metadata": the merge is per key, so you need to
@@ -589,10 +589,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation update-metadata <id> --set priority=high externalId=CRM-123
-  $ nexus conversation update-metadata <id> --set 'flags={"vip":true}'
-  $ nexus conversation update-metadata <id> --unset legacyField
-  $ nexus conversation update-metadata <id> --body '{"priority":"high","old":null}'
+  $ nexus conversation update-metadata 11111111-1111-4111-8111-111111111111 --set priority=high externalId=CRM-123
+  $ nexus conversation update-metadata 11111111-1111-4111-8111-111111111111 --set 'flags={"vip":true}'
+  $ nexus conversation update-metadata 11111111-1111-4111-8111-111111111111 --unset legacyField
+  $ nexus conversation update-metadata 11111111-1111-4111-8111-111111111111 --body '{"priority":"high","old":null}'
 
 Notes:
   THE MERGE IS ONE LEVEL DEEP. A non-null value REPLACES that key outright, a
@@ -659,8 +659,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation assign <id> --user-ids user-1 user-2
-  $ nexus conversation assign <id> --clear
+  $ nexus conversation assign 11111111-1111-4111-8111-111111111111 --user-ids user-1 user-2
+  $ nexus conversation assign 11111111-1111-4111-8111-111111111111 --clear
 
 Notes:
   THIS REPLACES THE ASSIGNEE LIST, IT DOES NOT ADD TO IT. Anyone already
@@ -728,8 +728,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation comment <id> --body "Escalated to tier 2"
-  $ echo "Detailed note" | nexus conversation comment <id> --body -
+  $ nexus conversation comment 11111111-1111-4111-8111-111111111111 --body "Escalated to tier 2"
+  $ echo "Detailed note" | nexus conversation comment 11111111-1111-4111-8111-111111111111 --body -
 
 Notes:
   INTERNAL ONLY — the customer never sees this, and it is not sent anywhere.
@@ -759,8 +759,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation comments <id>
-  $ nexus conversation comments <id> --json
+  $ nexus conversation comments 11111111-1111-4111-8111-111111111111
+  $ nexus conversation comments 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Internal notes only — none of this was seen by the customer. The customer
@@ -801,8 +801,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation send-message <id> --body "Your issue has been resolved."
-  $ echo "Long reply" | nexus conversation send-message <id> --body -
+  $ nexus conversation send-message 11111111-1111-4111-8111-111111111111 --body "Your issue has been resolved."
+  $ echo "Long reply" | nexus conversation send-message 11111111-1111-4111-8111-111111111111 --body -
 
 Notes:
   THE CUSTOMER RECEIVES THIS ON THEIR REAL CHANNEL — WhatsApp, email, the web
@@ -837,7 +837,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation send-template <id> --body '{"template":{"id":"HX...","language":"en","types":{"twilio/text":{"body":"Hello {{1}}"}}},"templateData":{"1":"John"}}'
+  $ nexus conversation send-template 11111111-1111-4111-8111-111111111111 --body '{"template":{"id":"HX...","language":"en","types":{"twilio/text":{"body":"Hello {{1}}"}}},"templateData":{"1":"John"}}'
 
 Notes:
   THIS DELIVERS TO THE REAL CUSTOMER AND BILLS. WhatsApp only; no draft, no
@@ -875,8 +875,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation assigned-users <id>
-  $ nexus conversation assigned-users <id> --json
+  $ nexus conversation assigned-users 11111111-1111-4111-8111-111111111111
+  $ nexus conversation assigned-users 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Read this before "conversation assign", which REPLACES the whole list rather
@@ -903,7 +903,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation mark-as-read <id>
+  $ nexus conversation mark-as-read 11111111-1111-4111-8111-111111111111
 
 Notes:
   Clears the inbox unread flag on the conversation and nothing else — no
@@ -930,7 +930,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus conversation close <id>
+  $ nexus conversation close 11111111-1111-4111-8111-111111111111
 
 Notes:
   THERE IS NO REOPEN. This sets a DELETED status that "conversation

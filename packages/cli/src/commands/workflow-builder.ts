@@ -54,12 +54,16 @@ export function registerWorkflowBuilderCommands(workflow: Command, program: Comm
       "after",
       `
 Examples:
-  $ nexus workflow node create wf-123 --type aiTask
-  $ nexus workflow node create wf-123 --type branching --body '{"data":{"label":"Route by tier"}}'
-  $ nexus workflow node create wf-123 --type aiTask --body '{"parentId":"<loop-node-id>"}'
-  $ nexus workflow node create wf-123 --type aiTask --body payload.json
+  $ nexus workflow node create 11111111-1111-4111-8111-111111111111 --type aiTask
+  $ nexus workflow node create 11111111-1111-4111-8111-111111111111 --type branching --body '{"data":{"label":"Route by tier"}}'
+  $ nexus workflow node create 11111111-1111-4111-8111-111111111111 --type aiTask --body '{"parentId":"<loop-node-id>"}'
 
 Notes:
+  --body TAKES THREE FORMS: inline JSON, a path ending in .json, or "-" to read
+  stdin. THIS COMMAND READS THE FILE BEFORE THE ACTION RUNS, because --type is a
+  required flag and the pre-action check has to know which fields --body already
+  supplies. So a missing .json file fails at parse time here, where on a command
+  whose only required flag IS --body it fails in the action instead.
   --type must be a REGISTERED type — read them with "nexus workflow node-types".
   An unknown one is 400 NODE_TYPE_INVALID naming that endpoint.
   parentId (in --body) IS THE ONLY WAY TO PUT A NODE INSIDE A LOOP. It takes the
@@ -113,8 +117,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow node get wf-123 node-456
-  $ nexus workflow node get wf-123 node-456 --json
+  $ nexus workflow node get 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node get 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   THE VERIFICATION READ for every node write, and the required step between the
@@ -146,11 +150,11 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow node update wf-123 node-456 --body '{"data":{"label":"Summarize"}}'
-  $ nexus workflow node update wf-123 node-456 --body '{"parentId":"<loop-node-id>"}'
-  $ nexus workflow node update wf-123 node-456 --body '{"parentId":null}'
-  $ nexus workflow node update wf-123 node-456 --body config.json
-  $ echo '{"data":{"key":"val"}}' | nexus workflow node update wf-123 node-456 --body -
+  $ nexus workflow node update 11111111-1111-4111-8111-111111111111 node-456 --body '{"data":{"label":"Summarize"}}'
+  $ nexus workflow node update 11111111-1111-4111-8111-111111111111 node-456 --body '{"parentId":"<loop-node-id>"}'
+  $ nexus workflow node update 11111111-1111-4111-8111-111111111111 node-456 --body '{"parentId":null}'
+  $ nexus workflow node update 11111111-1111-4111-8111-111111111111 node-456 --body config.json
+  $ echo '{"data":{"key":"val"}}' | nexus workflow node update 11111111-1111-4111-8111-111111111111 node-456 --body -
 
 Notes:
   ONLY data AND parentId ARE WRITABLE, AND THE BODY MUST CARRY ONE OF THEM. A
@@ -193,8 +197,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow node delete wf-123 node-456
-  $ nexus workflow node delete wf-123 node-456 --yes
+  $ nexus workflow node delete 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node delete 11111111-1111-4111-8111-111111111111 node-456 --yes
 
 Notes:
   DELETING A LOOP OR doWhile DELETES EVERY NODE INSIDE IT. The whole body goes,
@@ -239,37 +243,33 @@ Notes:
     .addHelpText(
       "after",
       `
-Mock data is nested under "input" and keyed by upstream node ID OR the input
-variable name (e.g. a customScript input's variableName). Each value becomes
-the mocked output of that upstream node. Unknown keys are rejected with 400.
-
-THIS RUNS THE NODE FOR REAL against live systems — there is no dry mode.
-
-Without mocks, each {{upstream.field}} resolves from that upstream node's LAST
-TEST RESULT, so an untested upstream contributes nothing and a green result
-proves only that the node did not crash. Mocking is how you make the input
-deterministic.
-
-It WRITES BACK this node's testExecutionId and inferred outputFormat — that is
-what lets downstream nodes see this node's shape, and it overwrites the previous
-test's pointer. Mock data itself is never persisted.
-
-runOutput IS NOT KEPT ON MOST NODES, AND A null THERE IS NOT A FAILED TEST. The
-test result is stored only for an agentInputTrigger, a humanInput or a
-newsMonitorTrigger; on every other node type — customScript, aiTask, plugin —
-the snapshot is stripped before the graph is saved, so "workflow get" shows
-runOutput null right after a green test. testExecutionId is the pointer that
-survives; read the actual output from this command's own response.
-
-A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
-The returned executionId is a per-node test id, so "nexus execution get" on it
-fails — the output is already in this response.
-
 Examples:
-  $ nexus workflow node test wf-123 node-456
-  $ nexus workflow node test wf-123 node-456 --body '{"input":{"human-node-id":{"rasp_note":"X"}}}'
-  $ nexus workflow node test wf-123 node-456 --body '{"input":{"human":{"decision":"CANCEL"}}}'
-  $ nexus workflow node test wf-123 node-456 --body '{"input":{"name":"Acme","website":"acme.com"}}'`
+  $ nexus workflow node test 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node test 11111111-1111-4111-8111-111111111111 node-456 --body '{"input":{"human-node-id":{"rasp_note":"X"}}}'
+  $ nexus workflow node test 11111111-1111-4111-8111-111111111111 node-456 --body '{"input":{"human":{"decision":"CANCEL"}}}'
+  $ nexus workflow node test 11111111-1111-4111-8111-111111111111 node-456 --body '{"input":{"name":"Acme","website":"acme.com"}}'
+
+Notes:
+  THIS RUNS THE NODE FOR REAL against live systems — there is no dry mode.
+  Mock data is nested under "input" and keyed by upstream node ID OR the input
+  variable name (e.g. a customScript input's variableName). Each value becomes
+  the mocked output of that upstream node. Unknown keys are rejected with 400.
+  Without mocks, each {{upstream.field}} resolves from that upstream node's LAST
+  TEST RESULT, so an untested upstream contributes nothing and a green result
+  proves only that the node did not crash. Mocking is how you make the input
+  deterministic.
+  It WRITES BACK this node's testExecutionId and inferred outputFormat — that is
+  what lets downstream nodes see this node's shape, and it overwrites the previous
+  test's pointer. Mock data itself is never persisted.
+  runOutput IS NOT KEPT ON MOST NODES, AND A null THERE IS NOT A FAILED TEST. The
+  test result is stored only for an agentInputTrigger, a humanInput or a
+  newsMonitorTrigger; on every other node type — customScript, aiTask, plugin —
+  the snapshot is stripped before the graph is saved, so "workflow get" shows
+  runOutput null right after a green test. testExecutionId is the pointer that
+  survives; read the actual output from this command's own response.
+  A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
+  The returned executionId is a per-node test id, so "nexus execution get" on it
+  fails — the output is already in this response.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -301,8 +301,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow node variables wf-123 node-456
-  $ nexus workflow node variables wf-123 node-456 --json
+  $ nexus workflow node variables 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node variables 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   This is the list of {{…}} references this node may legally use: every node
@@ -333,8 +333,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow node output-format wf-123 node-456
-  $ nexus workflow node output-format wf-123 node-456 --json
+  $ nexus workflow node output-format 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node output-format 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   Answers {schema, source}, and SOURCE IS THE FIELD THAT MATTERS.
@@ -364,13 +364,16 @@ Notes:
     .addHelpText(
       "after",
       `
-Returns the test + production webhook URLs (available pre-publish) and the last
-payload a test event delivered. Fire a test event at the testWebhookUrl, then
-run this again to read it back.
-
 Examples:
-  $ nexus workflow node test-payload wf-123 node-456
-  $ nexus workflow node test-payload wf-123 node-456 --json`
+  $ nexus workflow node test-payload 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow node test-payload 11111111-1111-4111-8111-111111111111 node-456 --json
+
+Notes:
+  Returns the test + production webhook URLs (available pre-publish) and the last
+  payload a test event delivered. Fire a test event at the testWebhookUrl, then
+  run this again to read it back.
+  The node id must be a webhookTrigger. Read it from "nexus workflow overview" or
+  "nexus workflow get" — the same two URLs also appear under "node get".`
     )
     .action(async (wfId: string, nodeId: string) => {
       try {
@@ -393,8 +396,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow node reload-props wf-123 node-456 --body '{"configuredProps":{"account":"acc-1"}}'
-  $ nexus workflow node reload-props wf-123 node-456 --body props.json
+  $ nexus workflow node reload-props 11111111-1111-4111-8111-111111111111 node-456 --body '{"configuredProps":{"account":"acc-1"}}'
+  $ nexus workflow node reload-props 11111111-1111-4111-8111-111111111111 node-456 --body props.json
 
 Notes:
   For Pipedream plugin nodes only. Some props only exist once an earlier prop is
@@ -438,9 +441,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow edge create wf-123 --source node-1 --target node-2
-  $ nexus workflow edge create wf-123 --source node-1 --target node-2 --source-handle br-001
-  $ nexus workflow edge create wf-123 --source node-2 --target node-1 --body '{"type":"rewind"}'
+  $ nexus workflow edge create 11111111-1111-4111-8111-111111111111 --source node-1 --target node-2
+  $ nexus workflow edge create 11111111-1111-4111-8111-111111111111 --source node-1 --target node-2 --source-handle br-001
+  $ nexus workflow edge create 11111111-1111-4111-8111-111111111111 --source node-2 --target node-1 --body '{"type":"rewind"}'
 
 Notes:
   type is "main" (the default) or "rewind", the edge that sends a doWhile body
@@ -492,8 +495,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow edge delete wf-123 edge-789
-  $ nexus workflow edge delete wf-123 edge-789 --yes
+  $ nexus workflow edge delete 11111111-1111-4111-8111-111111111111 edge-789
+  $ nexus workflow edge delete 11111111-1111-4111-8111-111111111111 edge-789 --yes
 
 Notes:
   <edge-id> is NOT a UUID by rule — edges drawn on the canvas carry ids like
@@ -536,8 +539,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow branch list wf-123 node-456
-  $ nexus workflow branch list wf-123 node-456 --json
+  $ nexus workflow branch list 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow branch list 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   Branch operations only work on a "branching" node — anything else is 400
@@ -581,8 +584,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow branch create wf-123 node-456 --name "Has email"
-  $ nexus workflow branch create wf-123 node-456 --name "VIP" --body '{"description":"Tier is vip"}'
+  $ nexus workflow branch create 11111111-1111-4111-8111-111111111111 node-456 --name "Has email"
+  $ nexus workflow branch create 11111111-1111-4111-8111-111111111111 node-456 --name "VIP" --body '{"description":"Tier is vip"}'
 
 Notes:
   ONLY name AND description ARE ACCEPTED. A "conditions" array in --body is
@@ -641,8 +644,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow branch update wf-123 node-456 br-001 --body '{"name":"Renamed"}'
-  $ nexus workflow branch update wf-123 node-456 br-001 --body branch.json
+  $ nexus workflow branch update 11111111-1111-4111-8111-111111111111 node-456 br-001 --body '{"name":"Renamed"}'
+  $ nexus workflow branch update 11111111-1111-4111-8111-111111111111 node-456 br-001 --body branch.json
 
 Notes:
   RENAMES ONLY. name and description are the whole writable surface; a "conditions"
@@ -681,8 +684,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow branch delete wf-123 node-456 br-001
-  $ nexus workflow branch delete wf-123 node-456 br-001 --yes
+  $ nexus workflow branch delete 11111111-1111-4111-8111-111111111111 node-456 br-001
+  $ nexus workflow branch delete 11111111-1111-4111-8111-111111111111 node-456 br-001 --yes
 
 Notes:
   IT TAKES THREE THINGS, NOT ONE: the branch, its logic entry (the conditions), and
@@ -784,14 +787,22 @@ Notes:
     .addHelpText(
       "after",
       `
-Each entry carries an event key, label, category, description, and a
-samplePayload showing what the workflow receives when the event fires.
-Use the event key as 'platformEventType' on a platformListenerTrigger node.
-
 Examples:
   $ nexus workflow platform-listener-events
   $ nexus workflow platform-listener-events --json
-  $ nexus workflow platform-listener-events --json | jq '.events[] | select(.eventType=="conversation.idle")'`
+  $ nexus workflow platform-listener-events --json | jq '.events[] | select(.eventType=="conversation.idle")'
+
+Notes:
+  Use the eventType as 'platformEventType' on a platformListenerTrigger node.
+  THE TABLE PRINTS 3 OF THE 6 FIELDS A ROW CARRIES. eventType, category and label
+  are the columns; description, filterFields and samplePayload are --json only,
+  and they are the three you actually need to author a subscription.
+  filterFields enumerates the valid keys and operators for the trigger's
+  filters.conditions[], so a filtered subscription needs no source reading.
+  samplePayload mirrors what the workflow receives at fire time.
+  THIS LISTING IS ALREADY FILTERED. Events marked comingSoon are dropped
+  server-side and never appear, because subscribing to one that emits nothing
+  would fail silently at run time rather than at subscribe time.`
     )
     .action(async () => {
       try {
@@ -816,8 +827,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus workflow overview wf-123
-  $ nexus workflow overview wf-123 --json
+  $ nexus workflow overview 11111111-1111-4111-8111-111111111111
+  $ nexus workflow overview 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   A SHAPE REPORT, NOT A READINESS REPORT. configStatus "complete" means the node's
@@ -849,7 +860,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow layout wf-123
+  $ nexus workflow layout 11111111-1111-4111-8111-111111111111
 
 Notes:
   Cosmetic only — it rewrites node positions and touches nothing else.
@@ -883,9 +894,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow trigger wf-123 --type webhookTrigger
-  $ nexus workflow trigger wf-123 --type scheduleTrigger
-  $ nexus workflow trigger wf-123 --type platformListenerTrigger
+  $ nexus workflow trigger 11111111-1111-4111-8111-111111111111 --type webhookTrigger
+  $ nexus workflow trigger 11111111-1111-4111-8111-111111111111 --type scheduleTrigger
+  $ nexus workflow trigger 11111111-1111-4111-8111-111111111111 --type platformListenerTrigger
 
 Notes:
   THIS COMMAND IS TYPE-ONLY, IN TWO STEPS. It replaces the trigger node and takes

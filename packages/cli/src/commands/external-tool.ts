@@ -92,8 +92,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus external-tool get ext-123
-  $ nexus external-tool get ext-123 --json
+  $ nexus external-tool get 11111111-1111-4111-8111-111111111111
+  $ nexus external-tool get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THE STORED openApiSpec IS NOT RETURNED — not here and not by the REST route.
@@ -205,8 +205,18 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus external-tool upload-icon ext-123 --file ./logo.png
-  $ nexus external-tool upload-icon ext-123 --file ./icon.svg`
+  $ nexus external-tool upload-icon 11111111-1111-4111-8111-111111111111 --file ./logo.png
+  $ nexus external-tool upload-icon 11111111-1111-4111-8111-111111111111 --file ./icon.svg
+
+Notes:
+  THE FILE IS CHECKED BEFORE ANYTHING IS SENT. A path that does not exist is
+  refused locally, with the resolved absolute path in the message — so a typo
+  costs no round trip and the tool's current icon is untouched.
+  --file resolves relative to the CURRENT DIRECTORY, or takes an absolute path.
+  The file's BASENAME is what gets stored as the uploaded name, so name the file
+  what you want recorded.
+  PNG, JPG and SVG. The icon is cosmetic — it changes how the tool renders in the
+  dashboard and nothing about what it can do.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -245,12 +255,19 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus external-tool initiate-oauth ext-123
-  $ nexus external-tool initiate-oauth ext-123 --name "Production token"
+  $ nexus external-tool initiate-oauth 11111111-1111-4111-8111-111111111111
+  $ nexus external-tool initiate-oauth 11111111-1111-4111-8111-111111111111 --name "Production token"
 
+Notes:
 This directly fetches a token from the OAuth token endpoint using
 client_credentials grant (machine-to-machine). No browser redirect needed.
-The tool's auth must be configured with type "oauth" and grant_type "client_credentials".`
+The tool's auth must be configured with type "oauth" and grant_type "client_credentials".
+  THERE IS NO INTERACTIVE FLOW HERE. If the tool's auth is a user-consent OAuth,
+  this is the wrong verb and the call fails — it never opens a browser and never
+  waits for a redirect.
+  It answers with a credentialId, which is the handle every other verb takes.
+  --name is optional and labels the credential; omitting it does not stop the
+  token being fetched.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -278,8 +295,8 @@ The tool's auth must be configured with type "oauth" and grant_type "client_cred
       "after",
       `
 Examples:
-  $ nexus external-tool update-auth ext-123 --body '{"type":"oauth","grant_type":"client_credentials","client_id":"...","client_secret":"...","client_url":"...","audience":"..."}'
-  $ nexus external-tool update-auth ext-123 --body auth-config.json
+  $ nexus external-tool update-auth 11111111-1111-4111-8111-111111111111 --body '{"type":"oauth","grant_type":"client_credentials","client_id":"...","client_secret":"...","client_url":"...","audience":"..."}'
+  $ nexus external-tool update-auth 11111111-1111-4111-8111-111111111111 --body auth-config.json
 
 Notes:
   🚨 A BODY OF {"type":"keys"} SUCCEEDS WITH NO KEY MATERIAL AND LEAVES THE TOOL
@@ -312,7 +329,7 @@ Notes:
     .command("test-auth")
     .description("Test auth credentials for an external tool by calling an operation")
     .argument("<id>", "External tool ID")
-    .option("--operation-id <op>", "Operation ID to test with")
+    .requiredOption("--operation-id <op>", "Operation ID to test with")
     .option(
       "--input <json>",
       "Input parameters as JSON, a file path, or '-' for stdin (default: {})"
@@ -321,19 +338,27 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus external-tool test-auth ext-123 --operation-id listItems
-  $ nexus external-tool test-auth ext-123 --operation-id searchVehicles --input '{"pageSize":1}'
+  $ nexus external-tool test-auth 11111111-1111-4111-8111-111111111111 --operation-id listItems
+  $ nexus external-tool test-auth 11111111-1111-4111-8111-111111111111 --operation-id searchVehicles --input '{"pageSize":1}'
 
+Notes:
 Tests that the stored credentials work by executing an operation. If the token is
-expired, the platform will attempt to refresh it automatically before calling the API.`
+expired, the platform will attempt to refresh it automatically before calling the API.
+  --operation-id IS REQUIRED, and it is declared so: commander refuses a call
+  without it and prints usage. There is no safe default to pick, because the
+  operation you name is the one that actually runs.
+  🚨 THIS IS A REAL CALL AGAINST THE REAL API, not a dry check. Name a read
+  operation — a write one will write.
+  --input defaults to {} and also takes a file path or "-" for stdin.
+  A pass proves the credential works for THAT operation. A scope-limited token
+  can pass here and still be refused by another.`
     )
     .action(async (id: string, opts) => {
       try {
+        // `--operation-id` is a requiredOption: the operation named is the one
+        // that really runs against the live API, so there is no safe default to
+        // pick. Commander refuses before this action, with a usage message.
         const client = createClient(program.optsWithGlobals());
-        if (!opts.operationId) {
-          process.exitCode = refuse("--operation-id is required");
-          return;
-        }
         const input = (opts.input ? await resolveInputJson(opts.input) : {}) as Record<
           string,
           unknown
@@ -385,11 +410,11 @@ expired, the platform will attempt to refresh it automatically before calling th
       "after",
       `
 Examples:
-  $ nexus external-tool execute <toolId> --action google_sheets-create-spreadsheet --input '{"title":"My Sheet"}'
-  $ nexus external-tool execute <toolId> --action send_email --input '{"to":"a@b.com"}' --credential cred-123
-  $ nexus external-tool execute <toolId> --body '{"action":"send_email","input":{"to":"a@b.com"}}'
-  $ nexus external-tool execute <toolId> --action send_email --input /tmp/input.json
-  $ cat params.json | nexus external-tool execute <toolId> --action send_email --input -
+  $ nexus external-tool execute 11111111-1111-4111-8111-111111111111 --action google_sheets-create-spreadsheet --input '{"title":"My Sheet"}'
+  $ nexus external-tool execute 11111111-1111-4111-8111-111111111111 --action send_email --input '{"to":"a@b.com"}' --credential cred-123
+  $ nexus external-tool execute 11111111-1111-4111-8111-111111111111 --body '{"action":"send_email","input":{"to":"a@b.com"}}'
+  $ nexus external-tool execute 11111111-1111-4111-8111-111111111111 --action send_email --input /tmp/input.json
+  $ cat params.json | nexus external-tool execute 11111111-1111-4111-8111-111111111111 --action send_email --input -
 
 Notes:
   CLASSIFY THE ACTION BEFORE YOU FIRE. This one command both lists records and
@@ -455,9 +480,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus external-tool test ext-123 --operation-id getWeather --input '{"city":"London"}'
-  $ nexus external-tool test ext-123 --body '{"operationId":"getWeather","input":{"city":"London"}}'
-  $ nexus external-tool test ext-123 --operation-id listItems --input '{}' --json
+  $ nexus external-tool test 11111111-1111-4111-8111-111111111111 --operation-id getWeather --input '{"city":"London"}'
+  $ nexus external-tool test 11111111-1111-4111-8111-111111111111 --body '{"operationId":"getWeather","input":{"city":"London"}}'
+  $ nexus external-tool test 11111111-1111-4111-8111-111111111111 --operation-id listItems --input '{}' --json
 
 Notes:
   --input IS EFFECTIVELY REQUIRED, EVEN FOR AN OPERATION THAT TAKES NOTHING.
@@ -517,12 +542,12 @@ Notes:
 PATCH path on the Public API: /skills/external-tools/{id}
 
 Examples:
-  $ nexus external-tool update ext-123 --name "Renamed Tool"
-  $ nexus external-tool update ext-123 --body update.json
-  $ nexus external-tool update ext-123 --body update.json --description "New description"
+  $ nexus external-tool update 11111111-1111-4111-8111-111111111111 --name "Renamed Tool"
+  $ nexus external-tool update 11111111-1111-4111-8111-111111111111 --body update.json
+  $ nexus external-tool update 11111111-1111-4111-8111-111111111111 --body update.json --description "New description"
 
 To refresh just the OpenAPI spec from a file, prefer:
-  $ nexus external-tool update-spec ext-123 --file openapi.yaml
+  $ nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --file openapi.yaml
 
 Notes:
   A KEY THE UPDATE DOES NOT RECOGNISE IS DROPPED IN SILENCE, and the call still
@@ -583,11 +608,11 @@ If the refresh would drop or rename an action key still bound by a workflow node
 or agent tool config, it is rejected — re-run with --force to override.
 
 Examples:
-  $ nexus external-tool update-spec ext-123 --file openapi.yaml
-  $ nexus external-tool update-spec ext-123 --file openapi.json --json
-  $ nexus external-tool update-spec ext-123 --body '{"openApiSpec":"openapi: 3.0.0\\n..."}'
-  $ nexus external-tool update-spec ext-123 --file openapi.yaml --force
-  $ cat openapi.yaml | nexus external-tool update-spec ext-123 --file -
+  $ nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --file openapi.yaml
+  $ nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --file openapi.json --json
+  $ nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --body '{"openApiSpec":"openapi: 3.0.0\\n..."}'
+  $ nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --file openapi.yaml --force
+  $ cat openapi.yaml | nexus external-tool update-spec 11111111-1111-4111-8111-111111111111 --file -
 
 Notes:
   THIS OVERWRITES THE ONLY STORED COPY OF THE SPEC, and "external-tool get"
@@ -652,8 +677,8 @@ tool — the error lists up to 10 references plus the remaining count. Re-run
 with --force to cascade-delete the references along with the tool.
 
 Examples:
-  $ nexus external-tool delete ext-123
-  $ nexus external-tool delete ext-123 --force
+  $ nexus external-tool delete 11111111-1111-4111-8111-111111111111
+  $ nexus external-tool delete 11111111-1111-4111-8111-111111111111 --force
 
 Notes:
   THERE IS NO CONFIRMATION PROMPT AND NO --yes FLAG, on a TTY or anywhere else.

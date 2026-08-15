@@ -178,7 +178,17 @@ skills. No network calls, no API key required.`
       `
 Examples:
   $ nexus skills list
-  $ nexus skills list --json`
+  $ nexus skills list --json
+
+Notes:
+  THE NAME IN THE TABLE IS NOT THE NAME THE INSTALLER TAKES. This listing prints
+  each slug with its "nexus-" prefix stripped, so a row reads "workflow-builder"
+  while the slug is "nexus-workflow-builder". "nexus skills update" matches the
+  SLUG exactly and refuses anything else, printing the full available list — so
+  copying a name out of this table is refused rather than silently ignored.
+  --json carries the unstripped slug on every row, so it is the form to read a
+  name FROM. It also wraps the rows in cliVersion and skillsSha, which the table
+  does not show at all — "nexus skills version" prints those two on their own.`
     )
     .action(() => {
       if (isJsonMode()) {
@@ -224,8 +234,13 @@ Examples:
   $ nexus skills version
   $ nexus skills version --json
 
-Skills are baked into the CLI binary, so the skills version moves with the CLI
-version. To pull newer skills: "nexus upgrade" then "nexus skills update".`
+Notes:
+  Skills are baked into the CLI binary, so the skills version moves with the CLI
+  version. To pull newer skills: "nexus upgrade" then "nexus skills update".
+  THE SKILLS COMMIT IS THE ONE THAT ANSWERS "am I running what I think I am".
+  cliVersion is this binary; skillsSha is the commit its bundled skills were cut
+  from. Upgrading moves both together, so a stale skillsSha means the upgrade did
+  not land, never that the skills drifted from the binary.`
     )
     .action(() => {
       const v = skillsVersion();
@@ -259,7 +274,17 @@ version. To pull newer skills: "nexus upgrade" then "nexus skills update".`
 Examples:
   $ nexus skills where
   $ nexus skills where --json
-  $ nexus skills where --global`
+  $ nexus skills where --global
+
+Notes:
+  A DRY READ. This resolves the target and writes nothing, so it is the safe way
+  to check where "skills update" would land before running it.
+  It reports FIVE destinations, not one — skills, CLAUDE.md, settings.json, hooks
+  and agents each have their own path, and "skills update" writes all five.
+  --json adds projectRoot, which the printed form does not show, and returns the
+  reason as its raw value where the text renders it as a sentence.
+  The same --dir / --global / --here flags select the target here as they do on
+  "skills update", so resolve with the flags you intend to install with.`
     )
     .action((opts: SkillsInstallOpts) => {
       const target = resolveClaudeTarget(opts);

@@ -43,9 +43,17 @@ Examples:
   $ nexus claude-code list
   $ nexus claude-code list --json
 
-Skills are version-locked to the CLI binary — \`nexus skills update\`
-writes the same set this command lists. Run \`nexus --version\` to see the
-CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@latest\`.`
+Notes:
+  THE NAME IN THE TABLE IS NOT THE NAME THE INSTALLER TAKES. This listing prints
+  each slug with its "nexus-" prefix stripped, so a row reads "workflow-builder"
+  while the slug is "nexus-workflow-builder". "nexus skills update" matches the
+  SLUG exactly and refuses anything else, printing the full available list — so
+  copying a name out of this table is refused rather than silently ignored.
+  --json carries the unstripped slug, plus each skill's description and its file
+  count.
+  Skills are version-locked to the CLI binary — \`nexus skills update\`
+  writes the same set this command lists. Run \`nexus --version\` to see the
+  CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@latest\`.`
     )
     .action(() => {
       if (isJsonMode()) {

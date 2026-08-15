@@ -34,7 +34,7 @@ Examples:
   $ nexus admin vibe-consumption-cap get org_abc123
   $ nexus admin vibe-consumption-cap get org_abc123 --json
 
-Output fields:
+Notes:
   computeMinCap / buildMinCap / egressMbCap   Raw override. null = no
                                               override → falls back to the
                                               platform default for that

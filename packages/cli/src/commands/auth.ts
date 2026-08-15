@@ -550,7 +550,21 @@ Notes:
       `
 Examples:
   $ nexus auth switch work
-  $ nexus auth switch personal`
+  $ nexus auth switch personal
+
+Notes:
+  SWITCHING IS NOT THE SAME AS WINNING. This changes which profile "active"
+  resolves to, and three things outrank active and PERSIST across processes:
+  NEXUS_API_KEY, NEXUS_PROFILE, and a .nexusrc pin in the working directory. Any
+  of them still decides what the NEXT command uses.
+  So this command predicts what the next process will resolve to and REFUSES to
+  be silent about a mismatch: it warns and EXITS NON-ZERO, which is what stops
+  "nexus auth switch org-b && nexus workspace mount" running the second half
+  against the wrong organization.
+  The prediction deliberately ignores --api-key and --profile given on THIS
+  invocation, because those are ephemeral and do not carry into the next process.
+  Clear a .nexusrc pin with "nexus auth unpin"; the two environment variables are
+  yours to unset.`
     )
     .action((name: string) => {
       try {
@@ -608,7 +622,19 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus auth list`
+  $ nexus auth list
+  $ nexus auth list --json
+
+Notes:
+  The ▸ marker is the ACTIVE profile, which is not necessarily the credential the
+  next command uses — NEXUS_API_KEY, NEXUS_PROFILE and a .nexusrc pin all outrank
+  it. "nexus auth whoami" resolves the one that actually wins.
+  A row shows the profile name, its organization and its base URL. A profile with
+  no stored baseUrl is listed against the default, https://api.nexusgpt.io, so
+  that column is never blank and never proves the value was set explicitly.
+  EMPTY ANSWERS DIFFERENTLY IN THE TWO MODES. With no profiles saved, --json is
+  \`[]\` and the plain form is a human sentence pointing at "nexus auth login" —
+  so parse the JSON, never the prose.`
     )
     .action(() => {
       const { profiles, activeProfile } = listProfiles();
@@ -694,7 +720,16 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus auth unpin`
+  $ nexus auth unpin
+
+Notes:
+  THE CURRENT DIRECTORY ONLY. This removes ./.nexusrc and walks nowhere — a pin
+  in a parent directory is untouched and keeps applying. Run it where the pin is.
+  It EXITS NON-ZERO when there is no .nexusrc here, so "no pin to remove" and
+  "pin removed" are distinguishable in a script rather than both reading as
+  success.
+  A pin outranks the active profile, so removing it changes which credential the
+  next command resolves to. "nexus auth whoami" confirms what wins afterwards.`
     )
     .action(() => {
       if (!removeNexusRc(process.cwd())) {

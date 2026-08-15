@@ -92,8 +92,16 @@ with only :write cannot clean up after itself.`
       "after",
       `
 Examples:
-  $ nexus agent-skill list abc-123
-  $ nexus agent-skill list abc-123 --json`
+  $ nexus agent-skill list 11111111-1111-4111-8111-111111111111
+  $ nexus agent-skill list 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THE TWO TOTALS ARE ABOUT THE AGENT, NOT THE PAGE. totalCount and
+  totalSizeBytes come back beside the rows and describe everything attached to
+  this agent, so they are the figures to read when you care how much this agent
+  is carrying rather than what one skill weighs.
+  A row is id, name, fileCount, sizeBytes and description. The ID column is what
+  every other agent-skill verb takes — the NAME is display only.`
     )
     .action(async (agentId: string) => {
       try {
@@ -125,8 +133,8 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus agent-skill get abc-123 skl-456
-  $ nexus agent-skill get abc-123 skl-456 --json
+  $ nexus agent-skill get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus agent-skill get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THIS IS METADATA ONLY — the same fields the 'list' row already carries. It
@@ -165,9 +173,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill create abc-123 --name invoice-parser --dir ./skills/invoice-parser
-  $ nexus agent-skill create abc-123 --name invoice-parser --file ./invoice-parser.zip
-  $ nexus agent-skill create abc-123 --name invoice-parser --description "Parse supplier invoices"
+  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --dir ./skills/invoice-parser
+  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --file ./invoice-parser.zip
+  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --description "Parse supplier invoices"
 
 Notes:
   Omit --file/--dir to create the skill with a scaffolded SKILL.md you can fill in
@@ -227,8 +235,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill upload abc-123 skill-456 --dir ./skills/invoice-parser
-  $ nexus agent-skill upload abc-123 skill-456 --file ./invoice-parser.zip
+  $ nexus agent-skill upload 11111111-1111-4111-8111-111111111111 33333333-3333-4333-8333-333333333333 --dir ./skills/invoice-parser
+  $ nexus agent-skill upload 11111111-1111-4111-8111-111111111111 33333333-3333-4333-8333-333333333333 --file ./invoice-parser.zip
 
 Notes:
   The upload REPLACES the skill's contents; files not in the new bundle are removed.`
@@ -268,8 +276,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill update abc-123 skl-456 --name invoice-parser-v2
-  $ nexus agent-skill update abc-123 skl-456 --description "Parse supplier invoices"
+  $ nexus agent-skill update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --name invoice-parser-v2
+  $ nexus agent-skill update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --description "Parse supplier invoices"
 
 Notes:
   THIS TOUCHES METADATA ONLY. The bundle is not re-read and SKILL.md is not
@@ -310,8 +318,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill delete abc-123 skl-456
-  $ nexus agent-skill delete abc-123 skl-456 --yes
+  $ nexus agent-skill delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus agent-skill delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   THE FILES GO WITH IT. There is no archive and no undo — re-attach means
@@ -353,9 +361,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill download abc-123 skl-456
-  $ nexus agent-skill download abc-123 skl-456 --output ./bundle.zip
-  $ nexus agent-skill download abc-123 skl-456 --url-only
+  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --output ./bundle.zip
+  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --url-only
 
 Notes:
   THE PRESIGNED URL EXPIRES AFTER 15 MINUTES. --url-only prints it and downloads
@@ -418,6 +426,25 @@ Notes:
   skill
     .command("presets")
     .description("List the baseline skills 'add-preset' can install")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus agent-skill presets
+  $ nexus agent-skill presets --json
+
+Notes:
+  THESE ARE NOT BUNDLED WITH THIS CLI. They are Anthropic's skills, fetched from
+  their GitHub repository on demand, so this listing describes what "add-preset"
+  would go and get rather than what this binary already holds. That is the
+  opposite of "nexus claude-code list", which lists skills baked into the binary.
+  IT PRINTS TWO KINDS OF NAME AND add-preset TAKES EITHER. The first block is
+  individual presets; the second is GROUPS, each expanding to the members listed
+  beside it — "nexus agent-skill add-preset <agent-id> office" installs a whole
+  group in one call.
+  --json returns the source repo alongside both sets, which the printed form
+  shows only in its header line.`
+    )
     .action(() => {
       if (isJsonMode()) {
         console.log(
@@ -467,11 +494,11 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-skill add-preset abc-123 skill-creator
-  $ nexus agent-skill add-preset abc-123 office              # docx, pdf, pptx, xlsx
-  $ nexus agent-skill add-preset abc-123 pptx xlsx --replace
-  $ nexus agent-skill add-preset abc-123 all --ref v1.2.0
-  $ nexus agent-skill add-preset abc-123 pdf --from-dir ~/src/anthropics-skills
+  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 skill-creator
+  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 office              # docx, pdf, pptx, xlsx
+  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 pptx xlsx --replace
+  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 all --ref v1.2.0
+  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 pdf --from-dir ~/src/anthropics-skills
 
 Notes:
   The bundles are Anthropic's, fetched from github.com/${DEFAULT_PRESET_REPO} at run time

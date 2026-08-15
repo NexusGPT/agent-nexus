@@ -25,7 +25,9 @@ export const CUSTOMER_LIST__PARAMS_SORT_BY = {
     "totalMessages",
     "createdAt",
     "displayName",
-    "totalSessions"
+    "totalSessions",
+    "primaryEmail",
+    "firstSeenAt"
   ]
 } as const satisfies ContractEnum;
 
@@ -122,15 +124,12 @@ export const CUSTOMER_LIST_CONTRACT = {
   route: "/public/v1/customers",
   fields: [
     { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["lastSeenAt", "totalMessages", "createdAt", "displayName", "totalSessions"] },
+    { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["lastSeenAt", "totalMessages", "createdAt", "displayName", "totalSessions", "primaryEmail", "firstSeenAt"] },
     { path: "Params.sortOrder", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] },
     { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.channel", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["GMAIL", "OUTLOOK", "IMAP", "SMTP", "SLACK", "TEAMS", "TELEGRAM", "FB_MESSENGER", "INSTAGRAM", "WHATSAPP", "TWILIO_SMS", "TWILIO_VOICE", "GOOGLE_SHEETS", "EXCEL_ADDIN", "OUTLOOK_ADDIN", "POWERPOINT_ADDIN", "WORD_ADDIN", "AIRTABLE", "GOOGLE_MEET", "ZOOM", "EMBED", "API"] },
-    { path: "Params.tag", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.filters", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.sorts", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.groupBy", slot: "Params", type: "string", required: false, depth: 0 }
+    { path: "Params.tag", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

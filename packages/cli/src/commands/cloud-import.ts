@@ -11,6 +11,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { type Column, isJsonMode, printList } from "../output";
+import { parseRequiredIdList } from "../util/ids";
 import {
   CLOUD_IMPORT_BROWSE_CONTRACT,
   CLOUD_IMPORT_ITEMS_CONTRACT,
@@ -51,16 +52,7 @@ function assertProvider(provider: string): CloudImportProviderSlug {
  * the same way instead of sending one and having the API answer for it.
  */
 function parseItemIds(value: string): string[] {
-  const ids = value
-    .split(",")
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0);
-
-  if (ids.length === 0) {
-    throw new Error("--item-ids needs at least one ID");
-  }
-
-  return ids;
+  return parseRequiredIdList(value, "--item-ids");
 }
 
 function printImportResult(result: ImportResult): void {
@@ -184,9 +176,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus cloud-import browse google-drive --connection-id conn-1 --folder-id root
-  $ nexus cloud-import browse sharepoint --connection-id conn-2 --site-id site-1 --folder-id root
-  $ nexus cloud-import browse notion --connection-id conn-3 --folder-id db-123
+  $ nexus cloud-import browse google-drive --connection-id 11111111-1111-4111-8111-111111111111 --folder-id root
+  $ nexus cloud-import browse sharepoint --connection-id 22222222-2222-4222-8222-222222222222 --site-id site-1 --folder-id root
+  $ nexus cloud-import browse notion --connection-id 33333333-3333-4333-8333-333333333333 --folder-id db-123
 
 Notes:
   THIS IS WHERE ITEM IDS COME FROM. They are the provider's ids, not Nexus ones,
@@ -233,9 +225,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus cloud-import search google-drive --connection-id conn-1 --query "invoice"
-  $ nexus cloud-import search notion --connection-id conn-3 --query "roadmap"
-  $ nexus cloud-import search sharepoint --connection-id conn-2 --site-id site-1 --query "T1-2026"
+  $ nexus cloud-import search google-drive --connection-id 11111111-1111-4111-8111-111111111111 --query "invoice"
+  $ nexus cloud-import search notion --connection-id 33333333-3333-4333-8333-333333333333 --query "roadmap"
+  $ nexus cloud-import search sharepoint --connection-id 22222222-2222-4222-8222-222222222222 --site-id site-1 --query "T1-2026"
 
 Notes:
   MATCHES FILE NAMES ONLY, not file contents. A document whose text mentions the
@@ -290,9 +282,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus cloud-import import google-drive --connection-id conn-1 --item-ids file-a,file-b
-  $ nexus cloud-import import sharepoint --connection-id conn-2 --site-id site-1 --item-ids file-c
-  $ nexus cloud-import import notion --connection-id conn-3 --item-ids page-a --parent-id folder-9
+  $ nexus cloud-import import google-drive --connection-id 11111111-1111-4111-8111-111111111111 --item-ids file-a,file-b
+  $ nexus cloud-import import sharepoint --connection-id 22222222-2222-4222-8222-222222222222 --site-id site-1 --item-ids file-c
+  $ nexus cloud-import import notion --connection-id 33333333-3333-4333-8333-333333333333 --item-ids page-a --parent-id 44444444-4444-4444-8444-444444444444
 
 Notes:
   IMPORT IS ASYNCHRONOUS. The response lists the documents that were CREATED,
@@ -363,8 +355,8 @@ Notes:
 Prefer "nexus cloud-import browse google-drive", which this now calls.
 
 Examples:
-  $ nexus cloud-import google-drive list-files --connection-id conn-1
-  $ nexus cloud-import google-drive list-files --connection-id conn-1 --folder-id folder-x
+  $ nexus cloud-import google-drive list-files --connection-id 11111111-1111-4111-8111-111111111111
+  $ nexus cloud-import google-drive list-files --connection-id 11111111-1111-4111-8111-111111111111 --folder-id folder-x
 
 Notes:
   --access-token IS NO LONGER ACCEPTED. The endpoint it addressed always
@@ -427,7 +419,7 @@ Identical to "nexus cloud-import import google-drive" — see that command's
 Notes for the full behaviour.
 
 Examples:
-  $ nexus cloud-import google-drive import --connection-id conn-1 --item-ids file-a,file-b
+  $ nexus cloud-import google-drive import --connection-id 11111111-1111-4111-8111-111111111111 --item-ids file-a,file-b
 
 Notes:
   IMPORT IS ASYNCHRONOUS, and an unreadable item is SKIPPED WITHOUT AN ERROR.
@@ -466,7 +458,7 @@ Notes:
 Prefer "nexus cloud-import browse sharepoint", which this now calls.
 
 Examples:
-  $ nexus cloud-import sharepoint list-files --connection-id conn-2 --site-id site-1
+  $ nexus cloud-import sharepoint list-files --connection-id 22222222-2222-4222-8222-222222222222 --site-id site-1
 
 Notes:
   --site-id is REQUIRED — a SharePoint item is only addressable within its site.
@@ -502,7 +494,7 @@ Identical to "nexus cloud-import import sharepoint" — see that command's Notes
 for the asynchronous behaviour and the silently skipped items.
 
 Examples:
-  $ nexus cloud-import sharepoint import --connection-id conn-2 --site-id site-1 --item-ids file-c
+  $ nexus cloud-import sharepoint import --connection-id 22222222-2222-4222-8222-222222222222 --site-id site-1 --item-ids file-c
 
 Notes:
   --site-id is REQUIRED for SharePoint on every command, because a SharePoint
@@ -537,7 +529,7 @@ Notes:
 Prefer "nexus cloud-import search notion", which this now calls.
 
 Examples:
-  $ nexus cloud-import notion search --connection-id conn-3 --query "roadmap"
+  $ nexus cloud-import notion search --connection-id 33333333-3333-4333-8333-333333333333 --query "roadmap"
 
 Notes:
   SEARCH IS HOW YOU FIND NOTION ITEMS — there is no folder tree to browse.
@@ -573,7 +565,7 @@ Identical to "nexus cloud-import import notion" — see that command's Notes for
 the asynchronous behaviour and the silently skipped items.
 
 Examples:
-  $ nexus cloud-import notion import --connection-id conn-3 --item-ids page-a,db-b
+  $ nexus cloud-import notion import --connection-id 33333333-3333-4333-8333-333333333333 --item-ids page-a,db-b
 
 Notes:
   PAGE IDS AND DATABASE IDS BOTH GO IN --item-ids. They are indistinguishable by

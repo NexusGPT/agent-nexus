@@ -68,6 +68,25 @@ Notes:
     .description("BUILDING → AWAITING_APPROVAL")
     .argument("<id>", "Deployment UUID")
     .requiredOption("--org <orgId>", "Owning organization id")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-deployment await-approval 11111111-1111-4111-8111-… \\
+      --org org_abc
+
+Notes:
+  BUILDING → AWAITING_APPROVAL, forced.
+  PREFER "build-succeeded" TO THIS. That verb reads the approval-request row and
+  picks AWAITING_APPROVAL or DEPLOYING for itself, and it stamps imageRef on the
+  way through. This one parks the deployment without an image, so a reviewer
+  opening it sees no image to approve.
+  Reach for it when the build's outcome has to be recorded separately from the
+  image it produced — QA, or a row that needs holding while something else is
+  worked out.
+  Takes no image ref, so nothing about the artifact is recorded here.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string }) => {
       try {
         const opts = resolveAdminOpts(program, admin);
@@ -88,6 +107,24 @@ Notes:
     .argument("<id>", "Deployment UUID")
     .requiredOption("--org <orgId>", "Owning organization id")
     .requiredOption("--image-ref <ref>", "ECR image ref the build runner produced")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-deployment begin-deploy 11111111-1111-4111-8111-… \\
+      --org org_abc --image-ref ecr/vibe/app:sha-abc123
+
+Notes:
+  BUILDING | AWAITING_APPROVAL → DEPLOYING. It accepts BOTH source states, which
+  is what makes it the manual override: driving it from AWAITING_APPROVAL puts
+  the deployment past the approval gate without a reviewer acting.
+  --image-ref is required and is recorded on the row, so this verb decides which
+  artifact ships. It is not read back from the build — supply the ref the build
+  runner actually produced.
+  The rollout itself is not performed here. This records the state the deployer
+  acts on; "mark-healthy" is what records that it landed.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string; imageRef: string }) => {
       try {
         const opts = resolveAdminOpts(program, admin);
@@ -107,6 +144,23 @@ Notes:
     .description("DEPLOYING → HEALTHY. ALB swap completed + health checks passed.")
     .argument("<id>", "Deployment UUID")
     .requiredOption("--org <orgId>", "Owning organization id")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-deployment mark-healthy 11111111-1111-4111-8111-… \\
+      --org org_abc
+
+Notes:
+  DEPLOYING → HEALTHY. This RECORDS an outcome; it does not perform or re-check
+  one. The ALB swap and the health checks are what the state claims already
+  happened, so run it after observing them, never to trigger them.
+  It is the verb that ends a deployment successfully, and the row's Color and
+  Version columns are what identify which slot is now live.
+  Takes no reason and no image ref — a healthy deployment records nothing beyond
+  the transition.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string }) => {
       try {
         const opts = resolveAdminOpts(program, admin);
@@ -127,6 +181,24 @@ Notes:
     .argument("<id>", "Deployment UUID")
     .requiredOption("--org <orgId>", "Owning organization id")
     .requiredOption("--error-reason <text>", "Customer-visible failure rationale (1-2000 chars)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-deployment mark-failed 11111111-1111-4111-8111-… \\
+      --org org_abc --error-reason "health checks never passed after ALB swap"
+
+Notes:
+  TERMINAL, and reachable from three states — BUILDING, AWAITING_APPROVAL and
+  DEPLOYING. It is the one verb that ends a deployment from anywhere before
+  HEALTHY, which also makes it the wrong verb for a deployment that DID serve
+  traffic: use "mark-rolled-back" for that.
+  🚨 --error-reason IS CUSTOMER-VISIBLE. Stored verbatim, 1-2000 characters, and
+  required — keep internal hostnames and stack traces out of it.
+  It records no image ref, so whatever imageRef the row already carries is what
+  the failure is attributed to.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string; errorReason: string }) => {
       try {
         const opts = resolveAdminOpts(program, admin);
@@ -149,6 +221,25 @@ Notes:
     .argument("<id>", "Deployment UUID")
     .requiredOption("--org <orgId>", "Owning organization id")
     .requiredOption("--error-reason <text>", "Customer-visible rollback rationale (1-2000 chars)")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-deployment mark-rolled-back 11111111-1111-4111-8111-… \\
+      --org org_abc --error-reason "5xx rate spiked after the flip"
+
+Notes:
+  DEPLOYING | HEALTHY → ROLLED_BACK, and HEALTHY is the state that separates this
+  from "mark-failed": a deployment that reached HEALTHY served traffic, so its
+  ending is a rollback, not a failure.
+  THIS IS THE DEPLOYER'S PATH, NOT THE COST-SAFETY ONE. The automatic rollback
+  driven by cost safety is a different mechanism with its own sweep
+  ("nexus admin vibe-rollback-sweep trigger"); recording one by hand here does
+  not run it, and it does not stop it either.
+  🚨 --error-reason IS CUSTOMER-VISIBLE. Stored verbatim, 1-2000 characters, and
+  required.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string; errorReason: string }) => {
       try {
         const opts = resolveAdminOpts(program, admin);

@@ -420,9 +420,33 @@ export function sdkRouteIndex(): Map<string, { method: string; path: string }> {
     }
   }
 
+  // A resource can own SUB-RESOURCES, and they are not declared in `client.ts`.
+  // `this.versions = new VersionsResource(http)` lives inside
+  // `resources/agents.ts`, so the `client.ts` pass above cannot see it and
+  // `client.agents.versions.list` resolves to nothing. Four namespaces read as
+  // contract-blind for exactly this reason while their descriptors existed.
+  const nestedOf = new Map<string, Map<string, string>>();
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+    const text = readFileSync(path.join(dir, file), "utf8");
+    for (const [cls, bodyText] of classBodies(text)) {
+      const subs = nestedOf.get(cls) ?? new Map<string, string>();
+      for (const [, prop, sub] of bodyText.matchAll(
+        /this\.([A-Za-z][\w]*)\s*=\s*new\s+([A-Za-z][\w]*Resource)\s*\(/g
+      )) {
+        subs.set(prop!, sub!);
+      }
+      nestedOf.set(cls, subs);
+    }
+  }
+
   const out = new Map<string, { method: string; path: string }>();
   for (const [prop, cls] of classOf) {
     for (const [name, route] of routes.get(cls) ?? []) out.set(`${prop}.${name}`, route);
+    for (const [subProp, subCls] of nestedOf.get(cls) ?? []) {
+      for (const [name, route] of routes.get(subCls) ?? [])
+        out.set(`${prop}.${subProp}.${name}`, route);
+    }
   }
   if (out.size === 0) throw new Error("the SDK route scan resolved no `client.x.y` calls");
   return out;
@@ -506,11 +530,56 @@ export function descriptorFor(
 export function sdkCallsIn(slice: string): string[] {
   return [
     ...new Set(
-      [...slice.matchAll(/\bclient\.([A-Za-z][\w]*)\.([A-Za-z][\w]*)\s*\(/g)].map(
-        (m) => `${m[1]}.${m[2]}`
-      )
+      [
+        ...slice.matchAll(/\bclient\.([A-Za-z][\w]*)\.([A-Za-z][\w]*)(?:\.([A-Za-z][\w]*))?\s*\(/g)
+      ].map((m) => (m[3] ? `${m[1]}.${m[2]}.${m[3]}` : `${m[1]}.${m[2]}`))
     )
   ];
+}
+
+/**
+ * EVERY raw transport call a command's own source slice performs, in the two
+ * spellings the CLI actually uses.
+ *
+ * This is the DELIBERATE COMPLEMENT to {@link sdkCallsIn}: it finds the commands
+ * that reach the API without going through an SDK resource at all. Both spellings
+ * are real and neither is a hypothetical —
+ *
+ *   http().request("DELETE", `/agent-evals/runs/${id}`)   // positional
+ *   { method: "GET", path: "/api/vibe/cluster" }          // object literal
+ *
+ * — and the DIFFERENCE between them is the whole reason this exists. A route
+ * found here that RESOLVES to a v1 descriptor means the contract is present and
+ * the CLI is bypassing its own SDK, which is fixable. A route that resolves to
+ * nothing means the command talks to a surface the v1 contract does not describe,
+ * which is correct and permanent. Without this function both look identical to
+ * `sdkCallsIn` — it finds no `client.x.y(` either way — and a namespace with a
+ * fully specified contract reads exactly like one with no API at all.
+ */
+export function transportCallsIn(slice: string): { method: string; path: string }[] {
+  const out: { method: string; path: string }[] = [];
+  const seen = new Set<string>();
+  const push = (method: string, path: string): void => {
+    const key = `${method} ${path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ method, path });
+  };
+
+  for (const m of slice.matchAll(
+    /\.request\w*(?:<[\s\S]*?>)?\s*\(\s*"([A-Z]+)"\s*,\s*[`"]([^`"]*)[`"]/g
+  )) {
+    push(m[1]!, m[2]!);
+  }
+  // The object form names its two keys in either order, so both are matched
+  // rather than assuming the one this codebase happens to write today.
+  for (const m of slice.matchAll(/method:\s*"([A-Z]+)"\s*,\s*path:\s*[`"]([^`"]*)[`"]/g)) {
+    push(m[1]!, m[2]!);
+  }
+  for (const m of slice.matchAll(/path:\s*[`"]([^`"]*)[`"]\s*,\s*method:\s*"([A-Z]+)"/g)) {
+    push(m[2]!, m[1]!);
+  }
+  return out;
 }
 
 /** The `:pathVar` names a descriptor path declares, in order. */

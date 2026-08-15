@@ -86,7 +86,7 @@ Notes:
       `
 Examples:
   $ nexus folder create --name "Customer Support"
-  $ nexus folder create --name "Sub Team" --parent-id abc-123
+  $ nexus folder create --name "Sub Team" --parent-id 11111111-1111-4111-8111-111111111111
   $ nexus folder create --body '{"name":"Support"}'
 
 Notes:
@@ -137,9 +137,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus folder update abc-123 --name "Renamed Folder"
-  $ nexus folder update abc-123 --parent-id null
-  $ nexus folder update abc-123 --body '{"name":"Renamed"}'
+  $ nexus folder update 11111111-1111-4111-8111-111111111111 --name "Renamed Folder"
+  $ nexus folder update 11111111-1111-4111-8111-111111111111 --parent-id null
+  $ nexus folder update 11111111-1111-4111-8111-111111111111 --body '{"name":"Renamed"}'
 
 Notes:
   --parent-id null MOVES THE FOLDER TO ROOT. "null" is the literal token this
@@ -180,8 +180,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus folder delete abc-123
-  $ nexus folder delete abc-123 --yes
+  $ nexus folder delete 11111111-1111-4111-8111-111111111111
+  $ nexus folder delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   UNASSIGNS, DOES NOT DELETE. The agents in this folder survive and become
@@ -222,9 +222,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus folder assign --agent-id agt-123 --folder-id fld-456
-  $ nexus folder assign --agent-id agt-123 --folder-id null
-  $ nexus folder assign --body '{"agentId":"agt-123","folderId":"fld-456"}'
+  $ nexus folder assign --agent-id 22222222-2222-4222-8222-222222222222 --folder-id 33333333-3333-4333-8333-333333333333
+  $ nexus folder assign --agent-id 22222222-2222-4222-8222-222222222222 --folder-id null
+  $ nexus folder assign --body '{"agentId":"22222222-2222-4222-8222-222222222222","folderId":"33333333-3333-4333-8333-333333333333"}'
 
 Notes:
   AN AGENT SITS IN ONE FOLDER, SO THIS IS A MOVE. Assigning again takes the

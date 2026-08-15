@@ -245,25 +245,37 @@ type SameLiteral<Label extends string, Cli, Wire> = [Cli] extends [Wire]
 type WireApp = VibeData<"GetApp">["app"];
 
 /**
- * `icon` and `shipGateMode` are console-facing and have no CLI rendering: the
- * icon is an image the terminal cannot draw, and the ship gate is applied
- * server-side, so printing the mode would invite a reader to treat the CLI as
- * the place it is decided. `linkedToolId` is reachable as the whole tool via
+ * `icon` is console-facing and has no CLI rendering: it is an image the terminal
+ * cannot draw. `linkedToolId` is reachable as the whole tool via
  * `app register-as-tool`, which prints the tool itself rather than its id.
+ *
+ * `shipGateMode` IS MIRRORED, and the argument for omitting it was wrong in a
+ * way worth stating once: "the gate is applied server-side, so printing the mode
+ * would invite a reader to treat the CLI as the place it is decided". The CLI
+ * was already printing a `Ship gate` row off `requireVerification` — the mode's
+ * LOSSY boolean projection — so the omission did not keep the gate off this
+ * surface. It only made the surface wrong: `WARN` projects to `false`, so a
+ * guarded app printed `Ship gate: off` while every one of its deploys recorded a
+ * finding. A field that a table already renders a projection of is not omitted;
+ * it is misread.
  */
-const _app: Mirrors<"VibeAppDto", VibeAppDto, WireApp, "icon" | "shipGateMode" | "linkedToolId"> =
-  AGREES;
+const _app: Mirrors<"VibeAppDto", VibeAppDto, WireApp, "icon" | "linkedToolId"> = AGREES;
 
 /**
  * The list read carries two deployment summaries the CLI does not render — see
  * `VibeAppListItemDto`, which documents why `vibe deployments list` is the
  * command that answers "is it serving".
+ *
+ * `shipGateMode` is NOT omitted here, because `VibeAppListItemDto` is
+ * `VibeAppDto & VibeAppEnvelopeExtras` and inherits it. The list table still
+ * prints no gate column — mirroring a field is not rendering it — but the
+ * omission line had to go, and this gate is what said so rather than a reader.
  */
 const _appListItem: Mirrors<
   "VibeAppListItemDto",
   ListVibeAppsResponse["apps"][number],
   VibeData<"ListApps">["apps"][number],
-  "icon" | "shipGateMode" | "linkedToolId" | "latestDeployment" | "servingDeployment"
+  "icon" | "linkedToolId" | "latestDeployment" | "servingDeployment"
 > = AGREES;
 
 const _getApp: Mirrors<"GetVibeAppResponse", GetVibeAppResponse, VibeData<"GetApp">> = AGREES;

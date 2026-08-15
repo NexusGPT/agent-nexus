@@ -1118,6 +1118,23 @@ export interface UpdateRoleBody {
 export interface RoleUpdatedResponse {
   /** The Role after the write. */
   role: Role;
+  /**
+   * The fields this request actually changed.
+   *
+   * 🚨 READ THIS TO TELL "APPLIED" FROM "DISCARDED". This route accepts a key it
+   * does not know, strips it before the write, and still answers success — so
+   * `update(id, { name: "x", currency: "EUR" })` resolves with `applied:
+   * ["name"]` and a Role whose currency never changed. Nothing else in the
+   * response separates the two, and re-reading the Role shows the name change
+   * while hiding the loss.
+   *
+   * Only `name`, `jobDescription` and `ownerUserId` exist here. A Role's
+   * currency, its data-retention window, its paused state and its access card
+   * are real product concepts with no field on this route.
+   *
+   * Never empty: a body that changes nothing is a 400.
+   */
+  applied: ("name" | "jobDescription" | "ownerUserId")[];
 }
 
 /** A filed request to DELETE an existing Role, awaiting an admin's verdict. */

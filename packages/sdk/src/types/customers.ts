@@ -55,6 +55,21 @@ export interface ListCustomersParams {
    * kept whatever channel they last spoke on.
    */
   channel?: DeploymentType;
+  /**
+   * Keep only customers whose `tags` array CONTAINS this exact string.
+   *
+   * One tag, matched exactly — there is no multi-tag form, no OR and no partial
+   * match, so `"vip"` matches neither `"VIP"` nor `"vip-eu"`. Tags are written
+   * through `update()`.
+   *
+   * The route has always accepted this and this interface did not declare it,
+   * so the filter was unreachable through the SDK and through the CLI built on
+   * it. `ListCustomersQuerySchema` also declares `filters`, `sorts` and
+   * `groupBy`; those are deliberately ABSENT here, because the public v1 handler
+   * destructures all three away and never passes them on — declaring them would
+   * make a silently-discarded parameter look reachable. See NEX-3914.
+   */
+  tag?: string;
 }
 
 export interface CreateCustomerBody {

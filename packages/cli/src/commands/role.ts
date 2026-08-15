@@ -594,7 +594,7 @@ Notes:
       `
 Examples:
   $ nexus role get "Support agent"
-  $ nexus role get 11111111-1111-1111-1111-111111111111
+  $ nexus role get 11111111-1111-4111-8111-111111111111
 
 Notes:
   The systems are a separate read (nexus role systems) under a separate scope,
@@ -1228,7 +1228,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role attach "Support agent" --type agent --id 1111...
+  $ nexus role attach "Support agent" --type agent --id 11111111-1111-4111-8111-111111111111
 
 Notes:
   THIS IS A MOVE, NOT AN ADD. A system belongs to exactly ONE Role, so this
@@ -1314,7 +1314,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role detach agent 1111...
+  $ nexus role detach agent 11111111-1111-4111-8111-111111111111
 
 Notes:
   NAMES NO ROLE, and that is not an omission: a system belongs to exactly one
@@ -1473,7 +1473,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role grant-collection "Support agent" 2222...
+  $ nexus role grant-collection "Support agent" 22222222-2222-4222-8222-222222222222
 
 Notes:
   Idempotent — re-granting an already-granted pair returns the existing row.
@@ -1505,7 +1505,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role revoke-collection "Support agent" 3333...
+  $ nexus role revoke-collection "Support agent" 33333333-3333-4333-8333-333333333333
 
 Notes:
   Takes the GRANT id, which "nexus role collection-grants" prints in the first
@@ -1541,7 +1541,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role grant-workspace "Support agent" 4444...
+  $ nexus role grant-workspace "Support agent" 44444444-4444-4444-8444-444444444444
 
 Notes:
   Idempotent, and the same many-to-many exception as a collection grant.`
@@ -1568,7 +1568,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role revoke-workspace "Support agent" 5555...
+  $ nexus role revoke-workspace "Support agent" 55555555-5555-4555-8555-555555555555
 
 Notes:
   Takes the GRANT id, which "nexus role workspace-grants" prints first.
@@ -1698,7 +1698,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role update-permission-set "Support" 2222... --surfaces inbox
+  $ nexus role update-permission-set "Support" 22222222-2222-4222-8222-222222222222 --surfaces inbox
 
 Notes:
   --capabilities and --surfaces REPLACE their lists rather than merging, so
@@ -1744,7 +1744,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role delete-permission-set "Support" 2222...
+  $ nexus role delete-permission-set "Support" 22222222-2222-4222-8222-222222222222
 
 Notes:
   A SYSTEM set cannot be deleted — the product seeds both templates and refuses
@@ -1777,7 +1777,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role add-permission-set-member "Support agent" 2222... user_abc
+  $ nexus role add-permission-set-member "Support agent" 22222222-2222-4222-8222-222222222222 user_abc
 
 Notes:
   THE USER MUST ALREADY BE IN THE ROLE — its owner, or seated by
@@ -1823,7 +1823,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role remove-permission-set-member "Support agent" 2222... user_abc
+  $ nexus role remove-permission-set-member "Support agent" 22222222-2222-4222-8222-222222222222 user_abc
 
 Notes:
   THIS IS THE NARROW REVOCATION. "nexus role delete-permission-set" is NOT a
@@ -1875,7 +1875,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role request-access "Support" --type agent --id 1111... --note "on call"
+  $ nexus role request-access "Support" --type agent --id 11111111-1111-4111-8111-111111111111 --note "on call"
 
 Notes:
   Files a PENDING request. Someone with the review permission then decides it
@@ -1918,7 +1918,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role review-access "Support" 3333... --status APPROVED
+  $ nexus role review-access "Support" 33333333-3333-4333-8333-333333333333 --status APPROVED
 
 Notes:
   PENDING is the starting state and never a target, so only the two verdicts are
@@ -2043,7 +2043,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role creation-request 4444...
+  $ nexus role creation-request 44444444-4444-4444-8444-444444444444
 
 Notes:
   CREATED ROLE is null until the request is approved, and holds the new Role's
@@ -2087,7 +2087,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role review-creation-request 4444... --status APPROVED
+  $ nexus role review-creation-request 44444444-4444-4444-8444-444444444444 --status APPROVED
 
 Notes:
   APPROVING IS WHAT CREATES THE ROLE. This is the write itself, not bookkeeping
@@ -2160,7 +2160,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role deletion-request 5555...
+  $ nexus role deletion-request 55555555-5555-4555-8555-555555555555
 
 Notes:
   PENDING MEANS THE ROLE IS STILL THERE. A filed request is not a deletion —
@@ -2206,7 +2206,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role review-deletion-request 5555... --status APPROVED
+  $ nexus role review-deletion-request 55555555-5555-4555-8555-555555555555 --status APPROVED
 
 Notes:
   APPROVING IS WHAT DELETES THE ROLE, and it ORPHANS every system the Role held
@@ -2297,7 +2297,7 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
       "after",
       `
 Examples:
-  $ nexus role update-job-type 6666... --body ./support-agent.json
+  $ nexus role update-job-type 66666666-6666-4666-8666-666666666666 --body ./support-agent.json
 
 Notes:
   A PUT OF THE WHOLE OBJECT. An omitted field is a validation error, not "leave
@@ -2345,7 +2345,7 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
       "after",
       `
 Examples:
-  $ nexus role delete-job-type 6666...
+  $ nexus role delete-job-type 66666666-6666-4666-8666-666666666666
 
 Notes:
   ORG-WIDE. A job type is shared across every Role, so this removes it from
@@ -2857,7 +2857,7 @@ Notes:
       `
 Examples:
   $ nexus role responsibilities "Support" --json      # read the ids first
-  $ nexus role remove-responsibility "Support" 3f2b...
+  $ nexus role remove-responsibility "Support" 3f2b1a09-8f7e-4d6c-9b4a-39281706f5e4
 
 Notes:
   IT ALSO UNTICKS THE DUTY FROM EVERY TASK THAT TICKED IT. The link rows go
@@ -3015,7 +3015,7 @@ Notes:
       `
 Examples:
   $ nexus role tasks "Support" --json            # read the task ids
-  $ nexus role task-duties "Support" 3f2b...
+  $ nexus role task-duties "Support" 3f2b1a09-8f7e-4d6c-9b4a-39281706f5e4
 
 Notes:
   IDS ONLY, NEVER THE DUTY TEXT. The text has one home and a different scope:
@@ -3051,8 +3051,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus role set-task-duties "Support" 3f2b... --body '{"responsibilityIds":["a1b2..."]}'
-  $ nexus role set-task-duties "Support" 3f2b... --body '{"responsibilityIds":[]}'
+  $ nexus role set-task-duties "Support" 3f2b1a09-8f7e-4d6c-9b4a-39281706f5e4 --body '{"responsibilityIds":["a1b2..."]}'
+  $ nexus role set-task-duties "Support" 3f2b1a09-8f7e-4d6c-9b4a-39281706f5e4 --body '{"responsibilityIds":[]}'
 
 Notes:
   THIS REPLACES THE WHOLE SET. An empty array unticks every duty and answers

@@ -14,7 +14,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   SKILLS_CREATE_DOCUMENT_TEMPLATE_CONTRACT,
@@ -118,9 +118,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus template get tmpl-123
-  $ nexus template get tmpl-123 --json
-  $ nexus template get tmpl-123 --json | jq '.inputFormat'
+  $ nexus template get 11111111-1111-4111-8111-111111111111
+  $ nexus template get 11111111-1111-4111-8111-111111111111 --json
+  $ nexus template get 11111111-1111-4111-8111-111111111111 --json | jq '.inputFormat'
 
 Notes:
   inputFormat READS null FOR EVERY TEMPLATE THIS API CAN BUILD, and that is not
@@ -223,8 +223,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus template upload tmpl-123 --file ./invoice.docx
-  $ nexus template upload tmpl-123 --file ./deck.pptx
+  $ nexus template upload 11111111-1111-4111-8111-111111111111 --file ./invoice.docx
+  $ nexus template upload 11111111-1111-4111-8111-111111111111 --file ./deck.pptx
 
 Notes:
   THIS STEP STORES THE FILE AND READS NOTHING OUT OF IT. It uploads the file to
@@ -281,14 +281,14 @@ Notes:
     .command("generate")
     .description("Generate a document from a template")
     .argument("<id>", "Template ID")
-    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .requiredOption("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus template generate tmpl-123 --body '{"variables":{"name":"Acme Corp","date":"2026-01-01"}}'
-  $ nexus template generate tmpl-123 --body variables.json
-  $ nexus template generate tmpl-123 --body '{"variables":{"amount":100}}' --json
+  $ nexus template generate 11111111-1111-4111-8111-111111111111 --body '{"variables":{"name":"Acme Corp","date":"2026-01-01"}}'
+  $ nexus template generate 11111111-1111-4111-8111-111111111111 --body variables.json
+  $ nexus template generate 11111111-1111-4111-8111-111111111111 --body '{"variables":{"amount":100}}' --json
 
 Notes:
   THE VARIABLE NAMES MUST BE THE TEMPLATE'S OWN, AND ONLY THE FILE HAS THEM.
@@ -316,21 +316,20 @@ Notes:
   EVERY RUN PRODUCES A NEW FILE. Generating twice leaves two downloadable
   documents; there is no command here that deletes either of them.
 
-  --body is REQUIRED and must carry a "variables" object — the CLI refuses
-  locally rather than sending a request that could only 400.`
+  --body is REQUIRED and must carry a "variables" object. It is declared
+  required, so commander refuses a call without it before any request is built —
+  the refusal names the flag and prints usage.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
         // `GenerateDocumentTemplateBody.variables` is required, so there is no
         // usable default: omitting `--body` could only ever produce a server
-        // 400. Refuse locally rather than substitute `{}`, which would send a
-        // request that cannot succeed.
-        const body = await resolveBody(opts.body);
-        if (body === undefined) {
-          process.exitCode = refuse("--body is required.");
-          return;
-        }
+        // 400. That is why `--body` is a requiredOption above — commander
+        // refuses before this action runs, with a usage message, rather than the
+        // action hand-rolling a refusal a caller could not see coming from
+        // `--help`.
+        const body = await resolveRequiredBody(opts.body);
 
         const result = await client.skills.generateDocumentTemplate(
           id,
@@ -394,7 +393,7 @@ Notes:
       `
 Examples:
   $ nexus template folder create --name "Contracts"
-  $ nexus template folder create --name "2026" --parent-id fld-123
+  $ nexus template folder create --name "2026" --parent-id 22222222-2222-4222-8222-222222222222
 
 Notes:
   Creating a folder does not put anything in it. Use
@@ -428,8 +427,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus template folder update fld-123 --name "Contracts"
-  $ nexus template folder update fld-123 --parent-id null
+  $ nexus template folder update 22222222-2222-4222-8222-222222222222 --name "Contracts"
+  $ nexus template folder update 22222222-2222-4222-8222-222222222222 --parent-id null
 
 Notes:
   --parent-id null MOVES THE FOLDER TO THE ROOT. The literal string "null" is
@@ -465,8 +464,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus template folder delete fld-123
-  $ nexus template folder delete fld-123 --yes
+  $ nexus template folder delete 22222222-2222-4222-8222-222222222222
+  $ nexus template folder delete 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
@@ -493,8 +492,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus template folder assign --template-id tmpl-123 --folder-id fld-456
-  $ nexus template folder assign --template-id tmpl-123 --folder-id null
+  $ nexus template folder assign --template-id 11111111-1111-4111-8111-111111111111 --folder-id 33333333-3333-4333-8333-333333333333
+  $ nexus template folder assign --template-id 11111111-1111-4111-8111-111111111111 --folder-id null
 
 Notes:
   THIS IS A MOVE, NOT AN ADD. A template sits in at most ONE folder, so

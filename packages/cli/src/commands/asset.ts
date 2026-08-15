@@ -57,7 +57,15 @@ agent must READ goes through "nexus document upload" instead.
 Examples:
   $ nexus asset list
   $ nexus asset list --search "logo" --limit 10
-  $ nexus asset list --json`
+  $ nexus asset list --json
+
+Notes:
+  THIS LISTING DOES NOT SHOW THE URL, which is the one thing an asset exists for.
+  The columns are id, name, content type and size; read the URL with
+  "nexus asset get <id>" or take it from --json.
+  --search matches the NAME only. Two assets may share a name — the ID column is
+  what every other asset verb takes.
+  Size is in bytes, unformatted, so it sorts and greps predictably.`
       )
   ).action(async (opts) => {
     try {
@@ -86,8 +94,17 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus asset get asset-123
-  $ nexus asset get asset-123 --json`
+  $ nexus asset get 11111111-1111-4111-8111-111111111111
+  $ nexus asset get 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THIS IS WHERE THE URL COMES FROM — "asset list" does not print it.
+  That URL is public, unsigned and permanent: anyone holding it can fetch the
+  file with no credential and it never expires. Read it as something you are
+  publishing, not something you are looking up.
+  The record carries id, name, url, content type, size in bytes and the creation
+  time. There is no reference list, so nothing here tells you what is USING the
+  asset — that matters before a delete.`
     )
     .action(async (id: string) => {
       try {
@@ -178,8 +195,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus asset delete asset-123
-  $ nexus asset delete asset-123 --yes
+  $ nexus asset delete 11111111-1111-4111-8111-111111111111
+  $ nexus asset delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   THIS IS TWO OPERATIONS AND THE SECOND ONE IS ALLOWED TO FAIL. The record is

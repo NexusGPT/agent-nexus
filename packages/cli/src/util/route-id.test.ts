@@ -52,6 +52,22 @@ function declaredRegistrars(): { symbol: string; module: string }[] {
 let program: Command;
 let registrarCount = 0;
 
+/**
+ * 🚨 THE EXPLICIT TIMEOUT IS LOAD-BEARING, NOT DEFENSIVE.
+ *
+ * This hook imports and registers EVERY command module — 45+ namespaces, all
+ * transitively pulling the SDK — and measured 9.2–9.8 s against vitest's 10 s
+ * default. That is a coin flip, not a gate: the suite went red on an untouched
+ * checkout roughly one run in three, and a red that lands on whichever change
+ * happened to be in the tree teaches the wrong lesson about that change.
+ *
+ * The ceiling is generous rather than snug for the same reason: it is a
+ * runaway-import backstop, and nothing here asserts on how long registration
+ * takes. If registration ever genuinely needs a minute, that is a finding worth
+ * its own investigation — it is not this file's assertion.
+ */
+const REGISTRATION_TIMEOUT_MS = 60_000;
+
 beforeAll(async () => {
   program = new Command().name("nexus");
   const registrars = declaredRegistrars();
@@ -64,7 +80,7 @@ beforeAll(async () => {
     const loaded = (await import(specifier)) as Record<string, (p: Command) => void>;
     loaded[symbol](program);
   }
-});
+}, REGISTRATION_TIMEOUT_MS);
 
 describe("the population this file asserts over", () => {
   /**

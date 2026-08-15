@@ -133,8 +133,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow get wf-123
-  $ nexus workflow get wf-123 --json
+  $ nexus workflow get 11111111-1111-4111-8111-111111111111
+  $ nexus workflow get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   --json carries the whole graph: nodes, edges, publishedNodes, publishedEdges,
@@ -230,9 +230,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow update wf-123 --name "Renamed Workflow"
-  $ nexus workflow update wf-123 --description "Updated description"
-  $ nexus workflow update wf-123 --body '{"name":"Renamed"}'
+  $ nexus workflow update 11111111-1111-4111-8111-111111111111 --name "Renamed Workflow"
+  $ nexus workflow update 11111111-1111-4111-8111-111111111111 --description "Updated description"
+  $ nexus workflow update 11111111-1111-4111-8111-111111111111 --body '{"name":"Renamed"}'
 
 Notes:
   ONLY name AND description ARE WRITABLE HERE, and the body is STRICT: nodes,
@@ -267,9 +267,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow delete wf-123
-  $ nexus workflow delete wf-123 --yes
-  $ nexus workflow delete wf-123 --dry-run
+  $ nexus workflow delete 11111111-1111-4111-8111-111111111111
+  $ nexus workflow delete 11111111-1111-4111-8111-111111111111 --yes
+  $ nexus workflow delete 11111111-1111-4111-8111-111111111111 --dry-run
 
 Notes:
   IT ARCHIVES, IT DOES NOT DESTROY. The workflow's status becomes ARCHIVED and
@@ -320,7 +320,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow duplicate wf-123
+  $ nexus workflow duplicate 11111111-1111-4111-8111-111111111111
 
 Notes:
   EVERY NODE AND EDGE ID IS REGENERATED. The copy is a different graph with the
@@ -353,7 +353,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow publish wf-123
+  $ nexus workflow publish 11111111-1111-4111-8111-111111111111
 
 Notes:
   Workflows must be PUBLISHED before they can be attached to agents as tools.
@@ -387,7 +387,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow unpublish wf-123
+  $ nexus workflow unpublish 11111111-1111-4111-8111-111111111111
 
 Notes:
   Back to DRAFT, and THE PRODUCTION TRIGGERS ARE DEACTIVATED — a live webhook or
@@ -415,8 +415,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow validate wf-123
-  $ nexus workflow validate wf-123 --json
+  $ nexus workflow validate 11111111-1111-4111-8111-111111111111
+  $ nexus workflow validate 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Answers isValid, readyToTest, readyToPublish, hasCriticalErrors, errors[] with a
@@ -473,12 +473,12 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow test wf-123 --input '{"message": "hello"}'
-  $ nexus workflow test wf-123 --body '{"message": "hello"}'
-  $ nexus workflow test wf-123 --follow
-  $ nexus workflow test wf-123 --sample 5 --sample-node loop-abc --follow
-  $ nexus workflow test wf-123 --limit-array loop-abc=5 --limit-array rows=10
-  $ nexus workflow test wf-123 --json
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --input '{"message": "hello"}'
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --body '{"message": "hello"}'
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --follow
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --sample 5 --sample-node loop-abc --follow
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --limit-array loop-abc=5 --limit-array rows=10
+  $ nexus workflow test 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   A SUCCESSFUL TEST RUN IS A REAL RUN. Every node executes against live systems —
@@ -590,10 +590,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow test-node wf-123 node-456
-  $ nexus workflow test-node wf-123 node-456 --input '{"upstream-node-id":{"rows":[]}}'
-  $ nexus workflow test-node wf-123 node-456 --body input.json
-  $ nexus workflow test-node wf-123 node-456 --json
+  $ nexus workflow test-node 11111111-1111-4111-8111-111111111111 node-456
+  $ nexus workflow test-node 11111111-1111-4111-8111-111111111111 node-456 --input '{"upstream-node-id":{"rows":[]}}'
+  $ nexus workflow test-node 11111111-1111-4111-8111-111111111111 node-456 --body input.json
+  $ nexus workflow test-node 11111111-1111-4111-8111-111111111111 node-456 --json
 
 Notes:
   THE SAME ENDPOINT AS "nexus workflow node test", which documents the mock shape
@@ -636,11 +636,11 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow batch wf-123 --body '{"nodes":[{"ref":"summarize","type":"aiTask"}],"edges":[{"source":"@trigger","target":"@summarize"}]}'
-  $ nexus workflow batch wf-123 --body '{"nodes":[{"ref":"rows","type":"loop"},{"ref":"score","type":"aiTask","parentId":"@rows"}],"edges":[{"source":"@rowsStart","target":"@score"}]}'
-  $ nexus workflow batch wf-123 --body batch.json
-  $ cat batch.json | nexus workflow batch wf-123 --body -
-  $ nexus workflow batch wf-123 --body - --json
+  $ nexus workflow batch 11111111-1111-4111-8111-111111111111 --body '{"nodes":[{"ref":"summarize","type":"aiTask"}],"edges":[{"source":"@trigger","target":"@summarize"}]}'
+  $ nexus workflow batch 11111111-1111-4111-8111-111111111111 --body '{"nodes":[{"ref":"rows","type":"loop"},{"ref":"score","type":"aiTask","parentId":"@rows"}],"edges":[{"source":"@rowsStart","target":"@score"}]}'
+  $ nexus workflow batch 11111111-1111-4111-8111-111111111111 --body batch.json
+  $ cat batch.json | nexus workflow batch 11111111-1111-4111-8111-111111111111 --body -
+  $ nexus workflow batch 11111111-1111-4111-8111-111111111111 --body - --json
 
 Notes:
   DECLARE A ref BARE, REFERENCE IT WITH @. {"ref":"summarize"} is declared, and
@@ -702,8 +702,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus workflow upload-icon wf-123 --file ./icon.png
-  $ nexus workflow upload-icon wf-123 --file ./logo.svg
+  $ nexus workflow upload-icon 11111111-1111-4111-8111-111111111111 --file ./icon.png
+  $ nexus workflow upload-icon 11111111-1111-4111-8111-111111111111 --file ./logo.svg
 
 Notes:
   The file is read locally first, so a missing path fails before any request.

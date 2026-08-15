@@ -263,6 +263,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.playgroundFirstMessage", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 }
+    { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.autoPublish", slot: "Body", type: "boolean", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

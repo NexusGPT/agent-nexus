@@ -23,6 +23,7 @@ import {
   sdkRouteIndex,
   sourceSlices,
   tokenize,
+  transportCallsIn,
   walkTree
 } from "./help-truth-scan";
 
@@ -67,7 +68,8 @@ export type RuleId =
   | "R2-body-field-refused"
   | "R3-flag-id-refused"
   | "R4-path-id-refused"
-  | "R5b-required-option-unexampled";
+  | "R5b-required-option-unexampled"
+  | "R6-path-placeholder-unrunnable";
 
 export interface ScanReport {
   readonly violations: readonly Violation[];
@@ -90,7 +92,60 @@ export interface ScanReport {
   readonly locatedNodes: number;
   /** How many required options R5b actually looked at. A floor, not a result. */
   readonly requiredOptionsExamined: number;
+  /**
+   * Per namespace: path operands R4 actually put to a route's `PathVars`.
+   *
+   * ⚠️ THE COUNTERPART OF {@link requiredOptionsExamined}, FOR THE RULE THAT
+   * CERTIFIES A NAMESPACE CLEAN. R4 declines to judge an operand on three
+   * separate grounds, and a namespace where it declined EVERY time produces the
+   * same empty violation list as one where it asked every time and found
+   * nothing. Only one of those is protection. Measured 2026-08-15 before this
+   * counter existed: `agent-eval` was recorded clean on 0 judged / 32 skipped,
+   * and `conversation` on 1 / 28.
+   */
+  readonly pathOperandsJudged: Readonly<Record<string, number>>;
+  /** Per namespace: operands in a format-constrained slot that R4 waved through. */
+  readonly pathOperandsSkipped: Readonly<Record<string, number>>;
+  /**
+   * Per BLIND namespace: WHY no path id in it was checkable.
+   *
+   * A namespace is blind when it judged nothing and skipped nothing. That one
+   * state has four separate causes, and folding them into a single count is what
+   * made a reporting artefact read as a contract-coverage programme:
+   *
+   *   `NO-ROUTE`      no command reaches a v1 route at all. CORRECT, PERMANENT.
+   *   `UNREACHED`     routes resolve; none constrains a path operand. CORRECT,
+   *                   PERMANENT — `GET /public/v1/models` has no id to check.
+   *   `SDK-BYPASS`    the contract EXISTS and the CLI reaches it without the
+   *                   SDK, so the arm that reads `client.x.y(` finds nothing.
+   *                   Addressable, and not by writing a descriptor.
+   *   `NO-DESCRIPTOR` an SDK call whose route the v1 contract does not declare.
+   *                   The only one of the four that wants a new descriptor.
+   *
+   * Ten of the twelve blind namespaces measured on 2026-08-15 were the first two,
+   * i.e. correct forever. A total that counts them as a gap overstates the work
+   * by ten and cannot be read without subtracting a number nobody prints.
+   */
+  readonly namespaceBlindness: Readonly<Record<string, NamespaceBlindness>>;
+  /**
+   * How many raw transport routes resolved to a v1 descriptor, tree-wide.
+   *
+   * ⚠️ A FLOOR, NOT A RESULT — the same shape as {@link requiredOptionsExamined}.
+   * `SDK-BYPASS` is the one blindness cause detected by a SECOND scan rather than
+   * by the counters, so a regex that stops matching makes that bucket empty and
+   * moves its namespaces into "correct and permanent". The gap total then reads
+   * ZERO, which is indistinguishable from the work being finished. Proven by
+   * mutation: deleting one of the two patterns in `transportCallsIn` printed
+   * `CONTRACT GAP: none` with every other number unchanged.
+   */
+  readonly transportRoutesResolved: number;
 }
+
+/** Why a namespace had no checkable path id. Two are permanent, two are work. */
+export type NamespaceBlindness = "NO-ROUTE" | "UNREACHED" | "SDK-BYPASS" | "NO-DESCRIPTOR";
+
+/** The two that no amount of work will ever change. */
+export const PERMANENT_BLINDNESS: readonly NamespaceBlindness[] = ["NO-ROUTE", "UNREACHED"];
 
 /** Flags that carry a request body rather than a single field value. */
 const BODY_FLAGS = new Set(["body", "data"]);
@@ -126,6 +181,8 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
   let unresolvedNoSdkCall = 0;
   let unresolvedNoDescriptor = 0;
   let requiredOptionsExamined = 0;
+  const pathOperandsJudged = new Map<string, number>();
+  const pathOperandsSkipped = new Map<string, number>();
 
   // Resolve each node's route ONCE — the slice and the SDK scan do not vary per
   // example, and re-resolving per example would make the arm 1000x its cost.
@@ -307,11 +364,53 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
       if (outcome.selected !== undefined && outcome.selected !== label) continue;
       for (let i = 0; i < outcome.operands.length; i++) {
         const supplied = outcome.operands[i]!;
-        if (isPlaceholder(supplied)) continue;
+
+        // Does any resolved route actually CONSTRAIN this slot? Computed before
+        // either skip, because it is what separates "R4 asked and the answer was
+        // fine" from "R4 never asked" — and those two produce the identical
+        // silence. `pathOperandsJudged` counts the first; `pathOperandsSkipped`
+        // counts the second, per namespace.
+        const constrained = routes.some((d) => {
+          const vars = pathVarsOf(d);
+          return d.PathVars !== undefined && vars.length === outcome.operands.length;
+        });
+        const namespace = node.path[0] ?? label;
+
         // An argument the CLI resolves client-side declares itself:
         // `.argument("<role>", "Role name or UUID")`. The route still wants a
         // UUID, and the help is still correct, because a lookup runs first.
-        if (/\bname or\b/i.test(outcome.argumentDescriptions[i] ?? "")) continue;
+        const resolvedClientSide = /\bname or\b/i.test(outcome.argumentDescriptions[i] ?? "");
+
+        if (isPlaceholder(supplied) || resolvedClientSide) {
+          if (constrained) bump(pathOperandsSkipped, namespace);
+
+          // ── R6 — a placeholder standing in a slot whose FORMAT is fixed ────
+          // The reader cannot run `nexus x get <thing-id>` any more than they can
+          // run `nexus x get thing-123`: the shell eats the angle brackets and
+          // the route refuses the literal. R4 skipped both, so a namespace could
+          // be certified clean having had every path id it ships waved through.
+          // A `name or` argument is EXEMPT here as it is in R4 — a client-side
+          // lookup means the human-readable form is genuinely correct.
+          if (!resolvedClientSide) {
+            for (const issue of agreed((d) => {
+              const vars = pathVarsOf(d);
+              if (!d.PathVars || vars.length !== outcome.operands.length) return [];
+              return fieldIssues(d.PathVars, vars[i]!, supplied).filter(isIdFormatIssue);
+            })) {
+              violations.push({
+                command: label,
+                rule: "R6-path-placeholder-unrunnable",
+                key: `R6 arg${i}=${supplied}`,
+                detail:
+                  `${example}\n      -> ${label2} PathVars refuses ${issue.text}\n` +
+                  `      the slot's format is fixed, so this placeholder is not runnable either`
+              });
+            }
+          }
+          continue;
+        }
+
+        if (constrained) bump(pathOperandsJudged, namespace);
         for (const issue of agreed((d) => {
           const vars = pathVarsOf(d);
           if (!d.PathVars || vars.length !== outcome.operands.length) return [];
@@ -345,6 +444,70 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     }
   }
 
+  // ── why each BLIND namespace is blind ────────────────────────────────────────
+  // Computed here rather than in the gate, because it needs the source slices and
+  // the descriptor index the scan already holds. The gate only prints it.
+  const namespaceBlindness = new Map<string, NamespaceBlindness>();
+  const namespacesSeen = new Set<string>();
+  for (const node of leafNodes) namespacesSeen.add(node.path[0] ?? "");
+
+  // Counted over EVERY leaf, not only the blind ones, so the floor stays a
+  // property of the detector rather than of whichever namespaces are blind today.
+  let transportRoutesResolved = 0;
+  for (const node of leafNodes) {
+    const slice = slices.get(node);
+    if (slice === undefined) continue;
+    for (const route of transportCallsIn(slice)) {
+      if (descriptorFor(descriptors, route) !== undefined) transportRoutesResolved++;
+    }
+  }
+
+  for (const namespace of namespacesSeen) {
+    if (namespace === "") continue;
+    if ((pathOperandsJudged.get(namespace) ?? 0) > 0) continue;
+    if ((pathOperandsSkipped.get(namespace) ?? 0) > 0) continue;
+
+    const own = leafNodes.filter((n) => (n.path[0] ?? "") === namespace);
+    const reasons = unresolvedCommands
+      .filter((u) => (u.command.split(" ")[0] ?? "") === namespace)
+      .map((u) => u.reason);
+
+    // An SDK call naming a route the contract does not declare is the only cause
+    // that a new descriptor fixes, so it wins over everything else.
+    if (reasons.some((r) => r !== "no client.<resource>.<method> call")) {
+      namespaceBlindness.set(namespace, "NO-DESCRIPTOR");
+      continue;
+    }
+
+    // Does any command reach a v1 route WITHOUT the SDK? Resolving the raw
+    // transport path against the same index the SDK arm uses is what separates
+    // "the contract is there and we walked around it" from "there is no contract".
+    const bypasses = own.some((node) => {
+      const slice = slices.get(node);
+      if (slice === undefined) return false;
+      return transportCallsIn(slice).some(
+        (route) => descriptorFor(descriptors, route) !== undefined
+      );
+    });
+    if (bypasses) {
+      namespaceBlindness.set(namespace, "SDK-BYPASS");
+      continue;
+    }
+
+    // A namespace is MIXED more often than not: `docs` is a leaf that reaches
+    // nothing sitting beside `docs search`, which resolves a route perfectly well.
+    // Classifying on "did any command fail to resolve" labelled the whole
+    // namespace by its least informative member and called that NO-ROUTE, which
+    // is wrong in the direction that hides a real contract.
+    //
+    // So the question is whether ANY command here reaches a v1 route. If one
+    // does, a contract exists and the reason nothing was checked is that the
+    // route carries no id — UNREACHED. Only a namespace where nothing resolves
+    // at all is genuinely routeless.
+    const resolvesSomething = own.some((node) => routeOf.has(node.path.join(" ")));
+    namespaceBlindness.set(namespace, resolvesSomething ? "UNREACHED" : "NO-ROUTE");
+  }
+
   return {
     violations: dedupe(violations),
     nodeCount: nodes.length,
@@ -362,16 +525,35 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     descriptorCount: descriptors.size,
     sdkRouteCount: sdkRoutes.size,
     locatedNodes: nodes.filter((n) => n.file !== undefined).length,
-    requiredOptionsExamined
+    requiredOptionsExamined,
+    pathOperandsJudged: Object.fromEntries(pathOperandsJudged),
+    pathOperandsSkipped: Object.fromEntries(pathOperandsSkipped),
+    namespaceBlindness: Object.fromEntries(namespaceBlindness),
+    transportRoutesResolved
   };
 }
 
-/** Two examples on one command can break identically; the ledger wants one row. */
+/** One counter per namespace, created on first use. */
+function bump(counter: Map<string, number>, namespace: string): void {
+  counter.set(namespace, (counter.get(namespace) ?? 0) + 1);
+}
+
+/**
+ * Two examples on one command can break identically; the ledger wants one row.
+ *
+ * 🚨 THE SEPARATOR IS WRITTEN AS A BACKSLASH-u ESCAPE AND MUST STAY AN ESCAPE. It used to be a
+ * RAW NUL byte, which is the same code unit at runtime and a different FILE:
+ * `file(1)` reported this source as `data` rather than text, `grep` classified
+ * it as binary, and a `grep` wrapper that suppresses binary matches then printed
+ * NOTHING for every pattern — including controls like `the` and `export`. A
+ * silent empty result on the gate's own source, with no error and no exit code
+ * to notice. Pasting a literal NUL back in restores that.
+ */
 function dedupe(list: readonly Violation[]): Violation[] {
   const seen = new Set<string>();
   const out: Violation[] = [];
   for (const v of list) {
-    const id = `${v.command} ${v.key}`;
+    const id = `${v.command}\u0000${v.key}`;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(v);

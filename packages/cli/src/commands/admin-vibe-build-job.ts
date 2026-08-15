@@ -36,6 +36,14 @@ export function registerVibeBuildJobCommands(admin: Command, program: Command): 
 Examples:
   $ nexus admin vibe-build-job claim 11111111-1111-4111-8111-… \\
       --org org_abc --logs-ref s3://vibe-logs/2026-05-27/build-abc.log
+
+Notes:
+  PENDING → RUNNING. This is the transition the build runner normally drives
+  through DI; the verb exists for QA and for recovering a job that is wedged.
+  --logs-ref is the LIVE stream key, and it is required and non-empty. The
+  archived key is a different value and goes in later, on "succeed" or "fail".
+  --org is the tenant scope and is sent in the body, not inferred from the id.
+  Answers with the whole job row, status included, so no read-back is needed.
 `
     )
     .action(async (id: string, cmdOpts: { org: string; logsRef: string }) => {
@@ -58,6 +66,25 @@ Examples:
     .requiredOption("--org <orgId>", "Owning organization id")
     .requiredOption("--duration-ms <n>", "Wallclock build time in milliseconds (non-negative int)")
     .option("--logs-ref <s3Key>", "Override the live-stream key with the archived final key")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-build-job succeed 11111111-1111-4111-8111-… \\
+      --org org_abc --duration-ms 84213
+  $ nexus admin vibe-build-job succeed 11111111-1111-4111-8111-… \\
+      --org org_abc --duration-ms 84213 --logs-ref s3://vibe-logs/archive/build-abc.log
+
+Notes:
+  RUNNING → SUCCEEDED. Only a claimed job can succeed.
+  --duration-ms IS CHECKED BEFORE ANYTHING IS SENT. It must be a non-negative
+  integer; anything else is refused locally, so a typo costs no round trip and
+  leaves the job untouched.
+  --logs-ref is optional here and REPLACES the live key recorded at claim time.
+  Omit it and the row keeps pointing at the live stream, which is correct only
+  while that stream still exists.
+`
+    )
     .action(async (id: string, cmdOpts: { org: string; durationMs: string; logsRef?: string }) => {
       try {
         const durationMs = parseDurationMs(cmdOpts.durationMs);
@@ -85,6 +112,23 @@ Examples:
     .requiredOption("--duration-ms <n>", "Wallclock at failure (non-negative int)")
     .requiredOption("--error-reason <text>", "Customer-visible failure rationale (1-2000 chars)")
     .option("--logs-ref <s3Key>", "Override the live-stream key with the archived final key")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-build-job fail 11111111-1111-4111-8111-… \\
+      --org org_abc --duration-ms 12044 --error-reason "pnpm install exited 1"
+
+Notes:
+  RUNNING → FAILED.
+  🚨 --error-reason IS CUSTOMER-VISIBLE. It is stored verbatim and surfaced, so
+  write what the customer needs to act on and keep internal hostnames, stack
+  traces and ticket numbers out of it. It is required, 1-2000 characters.
+  --duration-ms is the wallclock AT FAILURE, not the budget, and it is refused
+  locally unless it is a non-negative integer.
+  --logs-ref is optional and replaces the live key with the archived one.
+`
+    )
     .action(
       async (
         id: string,
@@ -124,6 +168,26 @@ Examples:
     .option(
       "--error-reason <text>",
       'Override the canned "wallclock exceeded" surface (e.g. "Nomad allocation evicted").'
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus admin vibe-build-job time-out 11111111-1111-4111-8111-… \\
+      --org org_abc --duration-ms 900000
+  $ nexus admin vibe-build-job time-out 11111111-1111-4111-8111-… \\
+      --org org_abc --duration-ms 900000 --error-reason "Nomad allocation evicted"
+
+Notes:
+  RUNNING → TIMED_OUT. The supervisor's escape hatch for a runner that went
+  silent — use it when nothing is going to report, not when a build failed.
+  "fail" is the verb for a build that ran and lost.
+  --error-reason is OPTIONAL here and that is the difference from "fail": leave
+  it out and the customer sees the canned wallclock message. Supply it only to
+  name a truer cause, and remember it is customer-visible either way.
+  --duration-ms is the wallclock at timeout and is refused locally unless it is
+  a non-negative integer.
+`
     )
     .action(
       async (id: string, cmdOpts: { org: string; durationMs: string; errorReason?: string }) => {

@@ -162,8 +162,8 @@ The nearest thing that does exist is scoped to roles rather than to grants:
       "after",
       `
 Examples:
-  $ nexus permissions access agent 11111111-1111-1111-1111-111111111111
-  $ nexus permissions access workflow 2222... --json
+  $ nexus permissions access agent 11111111-1111-4111-8111-111111111111
+  $ nexus permissions access workflow 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   AN EMPTY LIST IS NOT AN ANSWER ON ITS OWN — READ THE "Reach:" LINE UNDER IT.

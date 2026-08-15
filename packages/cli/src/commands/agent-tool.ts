@@ -51,8 +51,8 @@ Two facts decide whether a config does anything at run time:
       "after",
       `
 Examples:
-  $ nexus agent-tool list agt-123
-  $ nexus agent-tool list agt-123 --json
+  $ nexus agent-tool list 11111111-1111-4111-8111-111111111111
+  $ nexus agent-tool list 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Unpaginated — the payload is a bare array of every tool config on the agent,
@@ -88,8 +88,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-tool get agt-123 tool-456
-  $ nexus agent-tool get agt-123 tool-456 --json
+  $ nexus agent-tool get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus agent-tool get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
 
 Notes:
   THIS IS THE VERIFICATION PATH for create and update, which print only the id.
@@ -133,10 +133,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-tool create agt-123 --label "Order lookup" --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}' --body '{"agentInputSchema":{"order_id":{"type":"string"}}}'
-  $ nexus agent-tool create agt-123 --label "Send email" --type PLUGIN --config '{"toolId":"6d5c4b3a-2918-4f7e-8d6c-5b4a39281706","action":"gmail-send-email","toolCredentialId":"1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"}' --body '{"agentInputSchema":{}}'
-  $ nexus agent-tool create agt-123 --body '{"label":"FAQ search","type":"COLLECTION","config":{"collectionId":"3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4"},"agentInputSchema":{}}'
-  $ nexus agent-tool create agt-123 --label "Nightly sync" --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}' --body '{"agentInputSchema":{}}' --fire-and-forget
+  $ nexus agent-tool create 11111111-1111-4111-8111-111111111111 --label "Order lookup" --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}' --body '{"agentInputSchema":{"order_id":{"type":"string"}}}'
+  $ nexus agent-tool create 11111111-1111-4111-8111-111111111111 --label "Send email" --type PLUGIN --config '{"toolId":"6d5c4b3a-2918-4f7e-8d6c-5b4a39281706","action":"gmail-send-email","toolCredentialId":"1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"}' --body '{"agentInputSchema":{}}'
+  $ nexus agent-tool create 11111111-1111-4111-8111-111111111111 --body '{"label":"FAQ search","type":"COLLECTION","config":{"collectionId":"3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4"},"agentInputSchema":{}}'
+  $ nexus agent-tool create 11111111-1111-4111-8111-111111111111 --label "Nightly sync" --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}' --body '{"agentInputSchema":{}}' --fire-and-forget
 
 Notes:
   THERE IS NO WEBHOOK TYPE; reach a webhook through a WORKFLOW that has one. The
@@ -231,10 +231,10 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-tool update agt-123 tool-456 --label "Renamed Tool"
-  $ nexus agent-tool update agt-123 tool-456 --no-fire-and-forget
-  $ nexus agent-tool update agt-123 tool-456 --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}'
-  $ nexus agent-tool update agt-123 tool-456 --body '{"type":"WORKFLOW","config":{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}}'
+  $ nexus agent-tool update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --label "Renamed Tool"
+  $ nexus agent-tool update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --no-fire-and-forget
+  $ nexus agent-tool update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --type WORKFLOW --config '{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}'
+  $ nexus agent-tool update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --body '{"type":"WORKFLOW","config":{"workflowId":"8f1c2d3e-4a5b-4c7d-8e9f-0a1b2c3d4e5f"}}'
 
 Notes:
   SEND --type WHENEVER YOU SEND --config. Omitting it is a 400 — "Must include
@@ -242,9 +242,9 @@ Notes:
   the type it belongs to.
   --config REPLACES THE STORED CONFIG WHOLESALE. Keys you leave out are gone, so
   read the current config and send it back complete:
-    $ cfg=$(nexus agent-tool get agt-123 tool-456 --json | jq -c '.config')
+    $ cfg=$(nexus agent-tool get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json | jq -c '.config')
     # edit $cfg, then:
-    $ nexus agent-tool update agt-123 tool-456 --type WORKFLOW --config "$cfg"
+    $ nexus agent-tool update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --type WORKFLOW --config "$cfg"
   NEVER SEND agentInputSchema: null HERE. Send {} to fall back to the schema
   derived from config.parameters, or send the schema whole — those are the two
   supported ways to change it. The same flat-vs-wrapped rule as create applies.
@@ -282,8 +282,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-tool delete agt-123 tool-456
-  $ nexus agent-tool delete agt-123 tool-456 --yes
+  $ nexus agent-tool delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
+  $ nexus agent-tool delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
@@ -326,9 +326,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-tool attach-collection agt-123 --collection-id 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4
-  $ nexus agent-tool attach-collection agt-123 --collection-id 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4 --label "FAQ Search"
-  $ nexus agent-tool attach-collection agt-123 --body '{"collectionId":"3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4","instructions":"Search this before answering pricing questions."}'
+  $ nexus agent-tool attach-collection 11111111-1111-4111-8111-111111111111 --collection-id 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4
+  $ nexus agent-tool attach-collection 11111111-1111-4111-8111-111111111111 --collection-id 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4 --label "FAQ Search"
+  $ nexus agent-tool attach-collection 11111111-1111-4111-8111-111111111111 --body '{"collectionId":"3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4","instructions":"Search this before answering pricing questions."}'
 
 Notes:
   THE SHORTCUT FOR --type COLLECTION. It writes the config, a single "query"

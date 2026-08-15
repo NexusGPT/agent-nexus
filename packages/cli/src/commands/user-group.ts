@@ -35,7 +35,16 @@ export function registerUserGroupCommands(program: Command): void {
       `
 Examples:
   $ nexus user-group list
-  $ nexus user-group list --json`
+  $ nexus user-group list --json
+
+Notes:
+  MEMBERS IS A COUNT, NOT A LIST. This table shows how many users a group holds
+  and never which ones. The member ids come back from "add-member",
+  "remove-member" and "user-group get".
+  The ID column is a UUID and is what every other user-group verb takes. A group
+  NAME is not unique and selects nothing.
+  Members are Clerk user ids (user_…), which are a different id space from this
+  group's UUID — do not pass one where the other belongs.`
     )
     .action(async () => {
       try {
@@ -105,8 +114,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus user-group update 1111... --name "Support EMEA"
-  $ nexus user-group update 1111... --name "Support" --user-ids user_abc
+  $ nexus user-group update 11111111-1111-4111-8111-111111111111 --name "Support EMEA"
+  $ nexus user-group update 11111111-1111-4111-8111-111111111111 --name "Support" --user-ids user_abc
 
 Notes:
   --user-ids REPLACES the membership. Passing an empty value empties the
@@ -116,7 +125,7 @@ Notes:
   name you guessed RENAMES the group as a side effect. Read the current name
   with "nexus user-group get <id>" and pass it back unchanged:
 
-    $ nexus user-group update 1111... --name "$(nexus user-group get 1111... --json | jq -r .name)" --user-ids user_abc
+    $ nexus user-group update 11111111-1111-4111-8111-111111111111 --name "$(nexus user-group get 11111111-1111-4111-8111-111111111111 --json | jq -r .name)" --user-ids user_abc
 
   A USER WHO IS NOT IN THIS ORGANIZATION IS REFUSED, and the refusal counts the
   bad ids without naming them. Passing ten ids to find the one that fails means
@@ -155,7 +164,16 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus user-group add-member 1111... --user-id user_abc`
+  $ nexus user-group add-member 11111111-1111-4111-8111-111111111111 --user-id user_abc
+
+Notes:
+  ONE USER PER CALL. There is no comma-separated form here — "user-group create"
+  takes --user-ids to seed a membership, this verb does not.
+  TWO ID SPACES, AND MIXING THEM IS THE COMMON MISTAKE. The argument is the
+  group's UUID; --user-id is a Clerk user id and starts with "user_".
+  It answers with the WHOLE group — id, name, member count and every member id —
+  so the result is the read-back and no separate get is needed.
+  --user-id may instead be supplied inside --body as "userId".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -188,7 +206,16 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus user-group remove-member 1111... --user-id user_abc`
+  $ nexus user-group remove-member 11111111-1111-4111-8111-111111111111 --user-id user_abc
+
+Notes:
+  THIS REMOVES A MEMBERSHIP, NOT A USER. The person keeps their account and every
+  other group; only this group's grants stop applying to them.
+  ONE USER PER CALL, and the argument is the group's UUID while --user-id is a
+  Clerk user id starting with "user_".
+  It answers with the WHOLE group — id, name, member count and every remaining
+  member id — so the result is the read-back.
+  --user-id may instead be supplied inside --body as "userId".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -218,7 +245,7 @@ Examples:
       "after",
       `
 Examples:
-  $ nexus user-group delete 1111... --yes
+  $ nexus user-group delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   The reported revoked count is how you tell a delete that cleaned up its

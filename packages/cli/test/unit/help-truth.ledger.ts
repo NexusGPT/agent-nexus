@@ -48,271 +48,17 @@
  *   R2 body.<field>    a key inside `--body '{…}'` the route's schema refuses.
  *   R3 --flag=<value>  an id-shaped flag value the route's schema refuses.
  *   R4 arg<n>=<value>  a literal id in a path slot whose format the route sets.
+ *   R6 arg<n>=<token>  a PLACEHOLDER (`<thing-id>`, `1111...`) in a path slot
+ *                      whose format the route fixes. The shell eats the angle
+ *                      brackets and the route refuses the literal, so it is no
+ *                      more runnable than R4's slug — R4 simply skipped it.
  *
  * A key names the CAUSE — never a line number, never a message — so reflowing
  * prose cannot rot the ledger.
  */
 
 /** Command path -> the violation keys it produces, sorted. */
-export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
-  "access-card create": ["R1 threw access-card create --credential-id abc-123 --nam"],
-  "admin vibe-build-job claim": ["R0-no-notes"],
-  "admin vibe-build-job fail": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-build-job succeed": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-build-job time-out": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-build-job-timeout-sweep trigger": ["R0-no-notes"],
-  "admin vibe-build-runner tick": ["R0-no-notes"],
-  "admin vibe-consumption-cap get": ["R0-no-notes"],
-  "admin vibe-cost-safety get": ["R0-no-notes"],
-  "admin vibe-deployment await-approval": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-deployment begin-deploy": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-deployment mark-failed": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-deployment mark-healthy": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-deployment mark-rolled-back": ["R0-no-example", "R0-no-notes"],
-  "admin vibe-deployment-runner tick": ["R0-no-notes"],
-  "admin vibe-rollback-sweep trigger": ["R0-no-notes"],
-  "agent delete": ["R4 arg0=abc-123"],
-  "agent duplicate": ["R4 arg0=abc-123"],
-  "agent generate-profile-picture": ["R4 arg0=abc-123"],
-  "agent get": ["R4 arg0=abc-123"],
-  "agent update": ["R4 arg0=abc-123"],
-  "agent upload-profile-picture": ["R4 arg0=abc-123"],
-  "agent-collection list": ["R4 arg0=agt-123"],
-  "agent-skill list": ["R0-no-notes"],
-  "agent-skill presets": ["R0-no-example", "R0-no-notes"],
-  "analytics export": ["R3 --deployment-id=dep-123"],
-  "analytics overview": ["R3 --deployment-id=dep-123"],
-  "asset delete": ["R4 arg0=asset-123"],
-  "asset get": ["R0-no-notes", "R4 arg0=asset-123"],
-  "asset list": ["R0-no-notes"],
-  "auth list": ["R0-no-notes"],
-  "auth switch": ["R0-no-notes"],
-  "auth unpin": ["R0-no-notes"],
-  "channel whatsapp-sender create": ["R3 --connection-id=abc", "R3 --phone-number-id=def"],
-  "channel whatsapp-template create": ["R3 --connection-id=abc"],
-  "channel whatsapp-template list": ["R3 --connection-id=abc"],
-  "channel whatsapp-template submit-approval": ["R3 --connection-id=abc"],
-  "channel whatsapp-template test-send": ["R3 --connection-id=abc"],
-  "claude-code list": ["R0-no-notes"],
-  "cloud-import browse": [
-    "R3 --connection-id=conn-1",
-    "R3 --connection-id=conn-2",
-    "R3 --connection-id=conn-3"
-  ],
-  "cloud-import google-drive import": ["R3 --connection-id=conn-1"],
-  "cloud-import google-drive list-files": ["R3 --connection-id=conn-1"],
-  "cloud-import import": [
-    "R3 --connection-id=conn-1",
-    "R3 --connection-id=conn-2",
-    "R3 --connection-id=conn-3",
-    "R3 --parent-id=folder-9"
-  ],
-  "cloud-import notion import": ["R3 --connection-id=conn-3"],
-  "cloud-import notion search": ["R3 --connection-id=conn-3"],
-  "cloud-import search": [
-    "R3 --connection-id=conn-1",
-    "R3 --connection-id=conn-2",
-    "R3 --connection-id=conn-3"
-  ],
-  "cloud-import sharepoint import": ["R3 --connection-id=conn-2"],
-  "cloud-import sharepoint list-files": ["R3 --connection-id=conn-2"],
-  "collection attach-documents": ["R4 arg0=col-123"],
-  "collection delete": ["R4 arg0=col-123"],
-  "collection documents": ["R4 arg0=col-123"],
-  "collection get": ["R4 arg0=col-123"],
-  "collection query": ["R4 arg0=col-123"],
-  "collection remove-document": ["R4 arg0=col-123", "R4 arg1=doc-456"],
-  "collection search": ["R4 arg0=col-123"],
-  "collection stats": ["R4 arg0=col-123"],
-  "collection update": ["R4 arg0=col-123"],
-  "credential delete": ["R4 arg0=abc-123"],
-  "credential get": ["R4 arg0=abc-123"],
-  "credential update": ["R4 arg0=abc-123"],
-  "custom-model delete": ["R0-no-notes", "R4 arg0=cm-123"],
-  "custom-model get": ["R4 arg0=cm-123"],
-  "custom-model update": ["R4 arg0=cm-123"],
-  "deployment create": ["R3 --agent-id=agt-123", "R3 --agent-id=agt-456"],
-  "deployment delete": ["R4 arg0=dep-123"],
-  "deployment embed-config": ["R4 arg0=dep-123"],
-  "deployment embed-config-update": ["R4 arg0=dep-123"],
-  "deployment folder assign": ["R3 --deployment-id=dep-123", "R3 --folder-id=fld-456"],
-  "deployment folder create": ["R2 body.parentId"],
-  "deployment folder delete": ["R4 arg0=fld-123"],
-  "deployment folder update": ["R4 arg0=fld-123"],
-  "deployment get": ["R4 arg0=dep-123"],
-  "deployment stats": ["R4 arg0=dep-123"],
-  "deployment template attach": ["R4 arg0=dep-123"],
-  "deployment template detach": ["R4 arg0=dep-123"],
-  "deployment template list": ["R4 arg0=dep-123"],
-  "deployment template settings": ["R4 arg0=dep-123"],
-  "deployment template update": ["R4 arg0=dep-123"],
-  "deployment update": ["R3 --agent-id=agt-456", "R4 arg0=dep-123"],
-  "docs search": ["R0-no-notes"],
-  "document children": ["R4 arg0=doc-123"],
-  "document create-folder": ["R3 --parent-id=folder-123"],
-  "document delete": ["R4 arg0=doc-123"],
-  "document download": ["R4 arg0=doc-123"],
-  "document get": ["R4 arg0=doc-123"],
-  "document preview": ["R4 arg0=doc-123"],
-  "document reprocess": ["R4 arg0=doc-123"],
-  "document update": ["R4 arg0=doc-123"],
-  "emulator scenario delete": ["R4 arg0=scn-123"],
-  "emulator scenario get": ["R4 arg0=scn-123"],
-  "emulator scenario list": ["R3 --deployment-id=dep-123"],
-  "emulator scenario replay": [
-    "R2 body.deploymentId",
-    "R3 --deployment-id=dep-456",
-    "R4 arg0=scn-123"
-  ],
-  "emulator scenario save": [
-    "R2 body.deploymentId",
-    "R2 body.sessionId",
-    "R3 --deployment-id=dep-456",
-    "R3 --session-id=sess-123"
-  ],
-  "emulator send": ["R4 arg0=dep-123", "R4 arg1=sess-456"],
-  "emulator session create": ["R4 arg0=dep-123"],
-  "emulator session delete": ["R4 arg0=dep-123", "R4 arg1=sess-456"],
-  "emulator session get": ["R4 arg0=dep-123", "R4 arg1=sess-456"],
-  "emulator session list": ["R4 arg0=dep-123"],
-  "execution cancel": ["R4 arg0=exec-123"],
-  "execution diagnose": ["R4 arg0=exec-123"],
-  "execution export": ["R4 arg0=exec-123"],
-  "execution follow": ["R4 arg0=exec-123"],
-  "execution get": ["R4 arg0=exec-123"],
-  "execution list": ["R3 --workflow-id=wf-123"],
-  "execution node-result": ["R4 arg0=exec-123"],
-  "execution output": ["R4 arg0=exec-123"],
-  "execution retry": ["R4 arg0=exec-123"],
-  "external-tool delete": ["R4 arg0=ext-123"],
-  "external-tool get": ["R4 arg0=ext-123"],
-  "external-tool initiate-oauth": ["R0-no-notes"],
-  "external-tool test": ["R4 arg0=ext-123"],
-  "external-tool test-auth": ["R0-no-notes", "R4 arg0=ext-123"],
-  "external-tool update": ["R4 arg0=ext-123"],
-  "external-tool update-auth": ["R4 arg0=ext-123"],
-  "external-tool update-spec": ["R4 arg0=ext-123"],
-  "external-tool upload-icon": ["R0-no-notes", "R4 arg0=ext-123"],
-  "folder assign": [
-    "R2 body.agentId",
-    "R2 body.folderId",
-    "R3 --agent-id=agt-123",
-    "R3 --folder-id=fld-456"
-  ],
-  "folder create": ["R3 --parent-id=abc-123"],
-  "folder delete": ["R4 arg0=abc-123"],
-  "folder update": ["R4 arg0=abc-123"],
-  "html-template create": ["R3 --deployment-id=dep-123"],
-  "html-template delete": ["R4 arg0=tpl-123"],
-  "html-template fill": ["R4 arg0=tpl-123"],
-  "html-template get": ["R4 arg0=tpl-123"],
-  "html-template list": ["R0-no-notes", "R3 --deployment-id=dep-123"],
-  "html-template render": ["R4 arg0=tpl-123"],
-  "html-template update": ["R4 arg0=tpl-123"],
-  "permissions access": ["R4 arg1=11111111-1111-1111-1111-111111111111"],
-  "phone-number get": ["R4 arg0=abc-123"],
-  "phone-number release": ["R4 arg0=abc-123"],
-  "skill-folder create": ["R0-no-example", "R0-no-notes"],
-  "skill-folder delete": ["R0-no-example", "R0-no-notes"],
-  "skill-folder update": ["R0-no-example", "R0-no-notes"],
-  "skills list": ["R0-no-notes"],
-  "skills version": ["R0-no-notes"],
-  "skills where": ["R0-no-notes"],
-  "task delete": ["R4 arg0=task-123"],
-  "task execute": ["R4 arg0=task-123"],
-  "task get": ["R4 arg0=task-123"],
-  "task update": ["R4 arg0=task-123"],
-  "task-eval dataset add": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval dataset list": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval execute": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval formats": ["R0-no-notes"],
-  "task-eval judge": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval judges": ["R0-no-notes"],
-  "task-eval results": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval session create": ["R0-no-notes", "R4 arg0=task-123"],
-  "task-eval session delete": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval session get": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval session list": ["R0-no-notes", "R4 arg0=task-123"],
-  "template folder assign": ["R3 --folder-id=fld-456", "R3 --template-id=tmpl-123"],
-  "template folder create": ["R3 --parent-id=fld-123"],
-  "template folder delete": ["R4 arg0=fld-123"],
-  "template folder update": ["R4 arg0=fld-123"],
-  "template generate": ["R4 arg0=tmpl-123"],
-  "template get": ["R4 arg0=tmpl-123"],
-  "template upload": ["R4 arg0=tmpl-123"],
-  "ticket create": ["R1 threw --body"],
-  "tool connect": ["R4 arg0=tool-123"],
-  "tool create-credential": ["R0-no-notes", "R4 arg0=tool-123"],
-  "tool credentials": ["R0-no-notes", "R4 arg0=tool-123"],
-  "tool delete-credential": ["R4 arg0=tool-123", "R4 arg1=cred-456"],
-  "tool execute": ["R4 arg0=tool-123"],
-  "tool get": ["R4 arg0=tool-123"],
-  "tool resolve-options": ["R0-no-notes", "R4 arg0=tool-123"],
-  "tool test": ["R0-no-notes", "R4 arg0=agt-123", "R4 arg1=tool-cfg-456"],
-  "user-group add-member": ["R0-no-notes"],
-  "user-group list": ["R0-no-notes"],
-  "user-group remove-member": ["R0-no-notes"],
-  "vibe app attach-repo": ["R0-no-notes"],
-  "vibe app delete": ["R0-no-notes"],
-  "vibe app edge-token": ["R0-no-notes"],
-  "vibe app list": ["R0-no-example", "R0-no-notes"],
-  "vibe app logs": ["R0-no-notes"],
-  "vibe app provision-repo": ["R0-no-notes"],
-  "vibe app register-as-tool": ["R0-no-notes"],
-  "vibe app reprovision-repo": ["R0-no-notes"],
-  "vibe app rotate-edge-token": ["R0-no-notes"],
-  "vibe app visibility": ["R0-no-notes"],
-  "vibe approvals decide": ["R0-no-notes"],
-  "vibe approvals get": ["R0-no-notes"],
-  "vibe approvals pending": ["R0-no-notes"],
-  "vibe cluster provision": ["R0-no-notes"],
-  "vibe cluster status": ["R0-no-notes"],
-  "vibe deploy": ["R0-no-notes"],
-  "vibe deployments get": ["R0-no-example", "R0-no-notes"],
-  "vibe deployments list": ["R0-no-example", "R0-no-notes"],
-  "vibe env rm": ["R0-no-notes"],
-  "vibe git-project clone": ["R0-no-notes"],
-  "vibe git-project create": ["R0-no-notes"],
-  "vibe git-project delete": ["R0-no-notes"],
-  "vibe git-project get": ["R0-no-notes"],
-  "vibe git-project list": ["R0-no-notes"],
-  "vibe git-project pull": ["R0-no-notes"],
-  "vibe git-project reprovision": ["R0-no-notes"],
-  "vibe rollback": ["R0-no-notes"],
-  "workflow batch": ["R4 arg0=wf-123"],
-  "workflow branch create": ["R4 arg0=wf-123"],
-  "workflow branch delete": ["R4 arg0=wf-123"],
-  "workflow branch list": ["R4 arg0=wf-123"],
-  "workflow branch update": ["R4 arg0=wf-123"],
-  "workflow delete": ["R4 arg0=wf-123"],
-  "workflow duplicate": ["R4 arg0=wf-123"],
-  "workflow edge create": ["R4 arg0=wf-123"],
-  "workflow edge delete": ["R4 arg0=wf-123"],
-  "workflow get": ["R4 arg0=wf-123"],
-  "workflow layout": ["R4 arg0=wf-123"],
-  "workflow node create": [
-    "R1 threw workflow node create wf-123 --type aiTask --body",
-    "R4 arg0=wf-123"
-  ],
-  "workflow node delete": ["R4 arg0=wf-123"],
-  "workflow node get": ["R4 arg0=wf-123"],
-  "workflow node output-format": ["R4 arg0=wf-123"],
-  "workflow node reload-props": ["R4 arg0=wf-123"],
-  "workflow node test": ["R0-no-notes", "R4 arg0=wf-123"],
-  "workflow node test-payload": ["R0-no-notes", "R4 arg0=wf-123"],
-  "workflow node update": ["R4 arg0=wf-123"],
-  "workflow node variables": ["R4 arg0=wf-123"],
-  "workflow overview": ["R4 arg0=wf-123"],
-  "workflow platform-listener-events": ["R0-no-notes"],
-  "workflow publish": ["R4 arg0=wf-123"],
-  "workflow test": ["R4 arg0=wf-123"],
-  "workflow test-node": ["R4 arg0=wf-123"],
-  "workflow trigger": ["R4 arg0=wf-123"],
-  "workflow unpublish": ["R4 arg0=wf-123"],
-  "workflow update": ["R4 arg0=wf-123"],
-  "workflow upload-icon": ["R4 arg0=wf-123"],
-  "workflow validate": ["R4 arg0=wf-123"]
-};
+export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {};
 
 /**
  * The number of VIOLATIONS the scan produces, as measured. A ceiling, never a
@@ -326,7 +72,7 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
  * The gate refuses a scan that produces more. Lowering it as defects are fixed
  * is the ratchet; raising it is the visible cost of writing a new defect down.
  */
-export const LEDGER_CEILING = 291;
+export const LEDGER_CEILING = 0;
 
 /**
  * The DENOMINATOR: how many namespaces the CLI registers, as measured.
@@ -386,11 +132,100 @@ export const NAMESPACE_TOTAL = 47;
  * `PROGRESS 3` and it reads high.
  */
 export const CLEAN_NAMESPACES: readonly string[] = [
+  // ⚠️ `conversation`, `permissions` and `role` LEFT this list when R6 landed and
+  // are BACK in it now, and the two events are not each other's undo. R6 made
+  // their abstentions visible; this batch gave them real coverage. Measured, not
+  // estimated: `conversation` went 1 operand judged / 28 skipped -> 29 / 0, and
+  // `role` 3 / 57 -> 20 / 40. Nothing was measured LESS to restore a name.
+  //
+  // `role`'s residual 40 skips are the CORRECT kind and will not go to zero. Its
+  // first argument is `.argument("<role>", "Role name or UUID")` — the CLI
+  // resolves a name client-side before the route sees a UUID — so R4 and R6 both
+  // exempt it by design. A namespace can be fully judged on the operands that
+  // carry a format and still report skips; that is the exemption working, not a
+  // gap. `analytics` is the opposite shape: it reports 0 / 0 and shows up as
+  // CONTRACT-BLIND, because its only defect was an R3 FLAG value and it ships no
+  // path operand for R4 to judge at all.
+  //
+  // The nine namespaces this batch closed were ONE defect wearing three rule ids.
+  // R4 is a slug in a path slot, R6 a placeholder in a path slot, R3 a slug in a
+  // flag value; all three are "a literal the route's own schema refuses", and the
+  // id is spelled `11111111-1111-4111-8111-111111111111` everywhere now.
+  //
+  // ⚠️ R0 CLOSED SIX MORE, AND IT TURNED OUT TO BE TWO DIFFERENT DEFECTS WEARING
+  // ONE KEY. On `claude-code list`, `skills version` and `docs search` the caveat
+  // was ALREADY WRITTEN and simply sat outside a `Notes:` heading — a layout
+  // defect, fixed by relocating the text verbatim. On `auth list`, `auth unpin`,
+  // `skills list`, `skills where` and `agent-skill presets` there was no prose at
+  // all, and what went in is a fact the CODE carries and the help did not: the
+  // installer matches the unstripped slug and refuses the name the table prints;
+  // a `.nexusrc` pin and two environment variables outrank the active profile;
+  // `auth list` answers `[]` under --json and a human sentence without it.
+  //
+  // `admin` and `vibe` are the other two R0 namespaces and are deliberately NOT
+  // here: 42 of their leaves carry no `addHelpText` at all, so they need facts
+  // written from the route rather than prose moved, and that is a different pass.
+  // ⚠️ `admin` CLOSED WITHOUT A LINE OF RELOCATED PROSE, WHICH IS THE OPPOSITE
+  // OF THE SIX ABOVE. Nine of its fifteen leaves carried no `addHelpText` at
+  // all, so every sentence there is read off the route the verb calls: the
+  // transition it drives, whether `--duration-ms` is refused locally before any
+  // request, and which inputs are customer-visible. The other six already held
+  // real prose under a `Why this exists:` or `Output fields:` heading and were
+  // relocated verbatim by renaming the heading — the probe test matches against
+  // the WHOLE help text, so a rename preserves every substring.
+  // ⚠️ THE CRITERION CHANGED FOR THE SEVEN BELOW, AND SAYING SO IS THE POINT.
+  // Every earlier batch was picked as the largest single defect class. That
+  // stopped mapping to progress: R4 alone is 70 of the 117 violations this batch
+  // started from, and NO namespace is pure-id-class any more — every one left
+  // also carries R0-no-notes or R2 — so fixing 76% of the ledger would have
+  // closed nothing. The criterion is now namespaces-closed-per-unit-work.
+  //
+  // `access-card` and `ticket` are one violation each: an example the parser
+  // genuinely refuses. `ticket create` spread a --data payload across three
+  // lines, which no tokenizer reassembles, and `access-card create` named a
+  // .json file that does not exist — and that one fails at PARSE time, because
+  // the command declares other required flags so --data is resolved before the
+  // action runs.
+  // ⚠️ `access-card`, `agent-skill`, `agent-tool` and `version` LEFT this list
+  // when the nested-resource blind spot closed, and are back now on their own
+  // merit. Each had been certified on path ids no rule had ever put to a schema,
+  // because `sdkCallsIn` matched two path segments and their SDK calls have
+  // three — `client.agents.versions.list(…)`, `client.credentials.cards.get(…)`.
+  // Once the detector could read them, 39 of their examples turned out to name
+  // an id the route refuses. Those are fixed, so this list is 47/47 again and
+  // the second 47/47 is the stronger claim: four namespaces are now MEASURED
+  // rather than exempt by blindness.
+  "access-card",
+  "admin",
+  "agent",
+  "agent-collection",
   "agent-eval",
+  "agent-skill",
   "agent-tool",
+  "analytics",
   "api",
+  "asset",
+  "auth",
+  "channel",
+  "claude-code",
+  "cloud-import",
+  // `collection remove-document` types its documentId as a UUID while
+  // `attach-documents` types the SAME id as a plain string, so a malformed id is
+  // named at the edge on one route and reaches the database on the other. The
+  // attach help now says so, because no schema will.
+  "collection",
   "conversation",
+  "credential",
+  "custom-model",
   "customer",
+  "deployment",
+  "docs",
+  "document",
+  "emulator",
+  "execution",
+  "external-tool",
+  "folder",
+  "html-template",
   "known-issues",
   // `model list` was the namespace's only entry and its only leaf. It gained a
   // Notes block explaining that the listing carries TWO kinds of row — a
@@ -398,10 +233,47 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // own endpoint, selected by the row's `id` through `--custom-model-id` and by
   // neither of the strings it displays (NEX-3858). That closed `R0-no-notes`.
   "model",
+  // `permissions access` spelled its resource id
+  // `11111111-1111-1111-1111-111111111111`, which zod's `.uuid()` REFUSES: the
+  // variant nibble must be one of 8/9/a/b and that string carries a 1. So the
+  // literal this repository had been reaching for as "obviously a placeholder
+  // UUID" is not a UUID, and the route said so.
+  "permissions",
+  "phone-number",
   "prompt-assistant",
   "role",
+  "skill-folder",
+  "skills",
+  "task",
+  "task-eval",
+  "template",
+  "ticket",
+  "tool",
   "tracing",
   "upgrade",
+  "user-group",
   "version",
+  // Every leaf spelled its workflow id `wf-123`, and `Workflow.id` is a
+  // `@db.Uuid`, so all 29 examples that named one were a 400 the reader could
+  // not tell from a typo. `node test`, `node test-payload` and
+  // `platform-listener-events` each carried real prose ABOVE their examples with
+  // no `Notes:` heading — the content was there, in the one place a reader of
+  // any other command does not look.
+  //
+  // ⚠️ `vibe` IS THE MIRROR OF `admin`, AND THE PAIR IS THE FINDING. `admin` had
+  // NINE of fifteen leaves with no `addHelpText` at all, so its help had to be
+  // written from the route. `vibe` had THREE of twenty-seven: twenty-four leaves
+  // already carried the caveat a reader needs and R0 could not see it, because
+  // the text sat under no heading. Those twenty-four are a `Notes:` line
+  // inserted above prose that is otherwise byte-identical — 24 insertions, zero
+  // deletions, every added line the literal `Notes:`.
+  //
+  // The three bare ones — `app list`, `deployments list`, `deployments get` —
+  // were read one at a time rather than assumed, and all three turned out
+  // legible: the untruncated Id column is deliberate because it is where the id
+  // every other verb takes comes from, and `deployments get` prints TWO records
+  // where the second is the build job.
+  "vibe",
+  "workflow",
   "workspace"
 ];

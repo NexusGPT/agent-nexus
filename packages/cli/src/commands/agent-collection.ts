@@ -6,6 +6,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { parseIdList } from "../util/ids";
 import { AGENT_COLLECTION_LIST_CONTRACT } from "./agent-collection.contract.generated";
 
 export function registerAgentCollectionCommands(program: Command): void {
@@ -38,8 +39,8 @@ empty "agent-tool list" is not evidence the agent has no knowledge.`
       "after",
       `
 Examples:
-  $ nexus agent-collection list agt-123
-  $ nexus agent-collection list agt-123 --json
+  $ nexus agent-collection list 11111111-1111-4111-8111-111111111111
+  $ nexus agent-collection list 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   Unpaginated, and --json is a BARE ARRAY with no envelope and no meta.
@@ -123,9 +124,9 @@ function registerAttachOrDetach(
       "after",
       `
 Examples:
-  $ nexus agent-collection ${verb} agt-123 --collection-ids 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4
-  $ nexus agent-collection ${verb} agt-123 --collection-ids id-one,id-two
-  $ nexus agent-collection ${verb} agt-123 --body '{"collectionIds":["id-one","id-two"]}'
+  $ nexus agent-collection ${verb} 11111111-1111-4111-8111-111111111111 --collection-ids 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4
+  $ nexus agent-collection ${verb} 11111111-1111-4111-8111-111111111111 --collection-ids 3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4,22222222-2222-4222-8222-222222222222
+  $ nexus agent-collection ${verb} 11111111-1111-4111-8111-111111111111 --body '{"collectionIds":["3c2b1a09-8f7e-4d6c-9b4a-39281706f5e4","22222222-2222-4222-8222-222222222222"]}'
 
 Notes:
   THE BATCH IS ALL-OR-NOTHING. One id the organization does not hold, or that
@@ -167,8 +168,12 @@ Notes:
  *
  * Returning `undefined` is what hands the field back to `mergeBodyWithFlags`,
  * which skips `undefined` and lets the body's own array through untouched.
+ *
+ * The split itself is {@link parseIdList} — one parser for every comma-separated
+ * `--…-ids` flag in this package, so a trailing comma cannot mean one thing here
+ * and another on the flag next to it.
  */
 function splitIds(value: unknown): string[] | undefined {
   if (typeof value !== "string") return undefined;
-  return value.split(",").map((id) => id.trim());
+  return parseIdList(value);
 }

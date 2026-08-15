@@ -142,8 +142,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document get doc-123
-  $ nexus document get doc-123 --json
+  $ nexus document get 11111111-1111-4111-8111-111111111111
+  $ nexus document get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THIS IS THE POLL TARGET for every asynchronous import. Status READY is
@@ -426,8 +426,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document preview doc-123
-  $ nexus document preview doc-123 --json
+  $ nexus document preview 11111111-1111-4111-8111-111111111111
+  $ nexus document preview 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THE URL IS SIGNED AND EXPIRES — expiresIn says when, currently 3600 seconds.
@@ -460,8 +460,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document delete doc-123
-  $ nexus document delete doc-123 --yes
+  $ nexus document delete 11111111-1111-4111-8111-111111111111
+  $ nexus document delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   THIS REMOVES THE DOCUMENT FROM EVERY COLLECTION HOLDING IT, not just the one
@@ -478,7 +478,7 @@ Notes:
   the error. Do not treat it as a failed call and do not delete the children by
   hand. Re-run the same command with a longer budget until it returns:
 
-    $ nexus document delete <folder-id> --yes --timeout 180
+    $ nexus document delete 22222222-2222-4222-8222-222222222222 --yes --timeout 180
 
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
   and exits non-zero rather than acting.`
@@ -514,9 +514,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document update doc-123 --name "Updated Report"
-  $ nexus document update doc-123 --metadata language=fr
-  $ nexus document update doc-123 --body '{"description":"Q4 report"}'
+  $ nexus document update 11111111-1111-4111-8111-111111111111 --name "Updated Report"
+  $ nexus document update 11111111-1111-4111-8111-111111111111 --metadata language=fr
+  $ nexus document update 11111111-1111-4111-8111-111111111111 --body '{"description":"Q4 report"}'
 
 Notes:
   METADATA CHANGES DO NOT REACH SEARCH UNTIL YOU REPROCESS. This writes the
@@ -569,8 +569,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document download doc-123
-  $ nexus document download doc-123 --json
+  $ nexus document download 11111111-1111-4111-8111-111111111111
+  $ nexus document download 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   THE URL IS SIGNED AND EXPIRES — expiresIn says when, currently 3600 seconds.
@@ -609,8 +609,8 @@ Notes:
         "after",
         `
 Examples:
-  $ nexus document children doc-123
-  $ nexus document children doc-123 --limit 20 --json
+  $ nexus document children 11111111-1111-4111-8111-111111111111
+  $ nexus document children 11111111-1111-4111-8111-111111111111 --limit 20 --json
 
 Notes:
   THIS IS THE LIST YOU ATTACH TO A COLLECTION. The folder id itself is silently
@@ -661,8 +661,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus document reprocess doc-123
-  $ nexus document reprocess doc-123 --json
+  $ nexus document reprocess 11111111-1111-4111-8111-111111111111
+  $ nexus document reprocess 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   RUN THIS AFTER EVERY METADATA EDIT. "document update --metadata" writes the
@@ -703,7 +703,7 @@ Notes:
       `
 Examples:
   $ nexus document create-folder --name "Reports"
-  $ nexus document create-folder --name "Q4" --parent-id folder-123
+  $ nexus document create-folder --name "Q4" --parent-id 22222222-2222-4222-8222-222222222222
 
 Notes:
   A FOLDER IS A DOCUMENT WITH NO CONTENT. It organizes the knowledge base and

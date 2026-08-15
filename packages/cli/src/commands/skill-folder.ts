@@ -81,6 +81,23 @@ Notes:
     .requiredOption("--name <name>", "Folder name")
     .option("--parent-id <id>", "Parent folder ID")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus skill-folder create --name "Onboarding"
+  $ nexus skill-folder create --name "Q3" --parent-id 11111111-1111-4111-8111-111111111111
+  $ nexus skill-folder create --body '{"name":"Onboarding"}'
+
+Notes:
+  --parent-id IS WHAT MAKES A FOLDER NESTED, and omitting it creates the folder
+  at the root rather than under whatever you last touched. There is no "current
+  folder" in this CLI.
+  --name is required as a flag OR inside --body; the two are merged, and --body
+  alone is enough when it carries a name.
+  Answers with the new folder's id and name. The ID is what "skill-folder assign"
+  and "skill-folder update" take — the name is display only and is not unique.`
+    )
     .action(async (opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -106,6 +123,24 @@ Notes:
     .option("--name <name>", "Folder name")
     .option("--parent-id <id>", "Parent folder ID (use 'null' for root)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus skill-folder update 11111111-1111-4111-8111-111111111111 --name "Renamed"
+  $ nexus skill-folder update 11111111-1111-4111-8111-111111111111 --parent-id null
+  $ nexus skill-folder update 11111111-1111-4111-8111-111111111111 --body '{"name":"Renamed"}'
+
+Notes:
+  MOVING A FOLDER TO THE ROOT IS THE LITERAL STRING null. --parent-id null is
+  translated to a real JSON null before the request, and it is the only way to
+  un-nest a folder; omitting the flag leaves the parent untouched rather than
+  clearing it.
+  Every field is optional, so omitting a flag LEAVES IT ALONE. This is a patch,
+  not a replace — sending only --name cannot blank the parent.
+  Answers with the id alone. Read the folder back if you need to confirm the
+  new shape.`
+    )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
@@ -126,6 +161,22 @@ Notes:
   const remove = confirmable(skillFolder.command("delete"))
     .description("Delete a skill folder")
     .argument("<id>", "Folder ID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus skill-folder delete 11111111-1111-4111-8111-111111111111
+  $ nexus skill-folder delete 11111111-1111-4111-8111-111111111111 --yes
+
+Notes:
+  IT PROMPTS, AND OFF A TERMINAL THAT PROMPT IS A REFUSAL. --yes is required in
+  CI or in a pipe; without it and without a TTY the command declines rather than
+  proceeding on a default.
+  WHAT BECOMES OF THE SKILLS INSIDE IS NOT STATED BY THIS ROUTE, so do not assume
+  either way. If you need them somewhere specific, move them FIRST with
+  "nexus skill-folder assign --skill-id <id> --folder-id <id>", or to no folder
+  at all with --folder-id null, then delete the empty folder.`
+    )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());

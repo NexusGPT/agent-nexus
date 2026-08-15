@@ -299,8 +299,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus phone-number get abc-123
-  $ nexus phone-number get abc-123 --json
+  $ nexus phone-number get 11111111-1111-4111-8111-111111111111
+  $ nexus phone-number get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
   A RELEASED NUMBER IS A 404 HERE, not a record with a released status. This
@@ -341,8 +341,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus phone-number release abc-123
-  $ nexus phone-number release abc-123 --yes
+  $ nexus phone-number release 11111111-1111-4111-8111-111111111111
+  $ nexus phone-number release 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   THE NUMBER GOES BACK TO THE CARRIER POOL AND CANNOT BE RECLAIMED. Somebody

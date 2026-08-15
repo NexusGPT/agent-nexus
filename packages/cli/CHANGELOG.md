@@ -1,5 +1,706 @@
 # @agent-nexus/cli
 
+## 0.26.0
+### Minor Changes
+
+- fc25f8b: `analytics feedback --score` no longer truncates a fractional score to zero, and
+  the `analytics` namespace carries the instruction its five commands were missing.
+  
+  `--score` was bound to bare `parseInt` while the route filters on
+  `z.coerce.number().min(0).max(1)`. Those two agree on `0` and `1` and on nothing
+  else, and the disagreement was silent in the direction that returns rows:
+  `--score 0.5` and `--score 0.7` both reached the server as `0`, so the caller
+  asked for one score and got the rows of another with no error anywhere. The flag
+  now parses a real number and refuses anything outside `[0, 1]` at parse time,
+  naming the value it rejected — the shipped example asked for `--score 5`, which
+  the route has always answered with a 400.
+  
+  `--help` gains blocks on all five leaves and on the namespace itself:
+  
+  - `analytics` says which of the three read surfaces takes a question you wrote,
+    and that `metrics` checks a column against the view's catalog where raw SQL
+    answers with a database error.
+  - `analytics metrics` says how to discover a view's columns at all — nothing
+    lists them — and that `--show-sql` writes to STDERR, so `--show-sql --json >
+    out.json` leaves the file clean rather than mixing SQL into it.
+  - `analytics query` and `analytics metrics` now cross-reference: the same eight
+    views, `traces` on one and `analytics_traces` on the other, each refusing the
+    other's spelling.
+  - `analytics overview` names its eight scalars and five nested fields, states
+    that every `*Change` is a percentage against the preceding window, and that
+    `label` repeats `entityId` on `byChannel` and `byModel`.
+  - `analytics feedback` states that `meta` carries five fields here and three
+    everywhere else in this CLI, and that `total` is probed rather than counted —
+    on every page but the last it means "one more than you have seen".
+  - `analytics export` describes the CSV as the three stacked sections it is,
+    rather than a row per conversation, and says the per-model and per-source cost
+    breakdowns are computed and never written to the file.
+  
+  The interpolated view lists are folded to the width of the prose around them.
+  `addHelpText` output is emitted verbatim, so the physical view names had been
+  rendering a 220-column line inside a block wrapped at 78.
+- c85c7b4: `nexus tracing traces --help` claimed "any other value is refused" and refused nothing. It does
+  now, along with the last four descriptors that had a contract enum no flag could reach.
+  
+  Six flags in this release already existed and validated nothing — they printed a hand-typed list
+  in their description while accepting anything. That is worse than an absent flag, because the
+  list reads as a contract:
+  
+  ```
+  $ nexus tracing traces --sort-by __TOTAL_JUNK__
+  Error: No profiles configured.          # parsed clean, reached the network
+  
+  $ nexus tracing traces --sort-by __TOTAL_JUNK__     # now
+  error: option '--sort-by <field>' argument '__TOTAL_JUNK__' is invalid.
+    Allowed choices are startedAt, totalCostUsd, totalDurationMs.
+  ```
+  
+  **The breaking part is that a value the server would have rejected now fails one step earlier,
+  with a different exit path** — the same shape as the previous release. A script feeding an
+  invalid enum already failed; it now fails without a network call and with the allowed list on
+  stderr. `customer list --sort-by` is the exception worth reading twice: the adapter behind that
+  route keeps its own allowlist and falls back to `lastSeenAt` on a miss, so a bad value did not
+  even 400. It returned a differently-ordered page and said nothing. A script relying on that
+  silence now gets an error instead of quietly wrong output.
+  
+  Five flags are new, and each one unblocked a descriptor whose other enums were already ready —
+  the binding is all-or-nothing per endpoint, so one missing flag held back every enum beside it:
+  
+  - `tracing traces --source` — filter by the surface that produced the trace, which also let
+    `--status`, `--sort-by` and `--order` bind.
+  - `tracing cost-breakdown --bucket` — split each group into a time series. Rejected by the
+    server for `model`, `agent` and `workflow` groupings; only the attribution dimensions support
+    it, and `--help` says so.
+  - `customer list --sort-by`, `--sort-order`, `--channel`.
+  - `execution list --sort-by`, `--order` — which let `--status` bind on both of its routes.
+  
+  Every parameter was traced from the controller to the query before a flag was written for it.
+  
+  **`DeploymentType` in the SDK was wrong in both directions and is corrected.** It declared `SMS`,
+  which is not a member of the database enum and is refused by the server, and it omitted
+  `INSTAGRAM`, which is a real member. One hand-maintained copy of an enum, offering a value
+  nothing accepts while hiding a value that works. Code annotated with `"SMS"` stops typechecking;
+  it was already failing at runtime. `INSTAGRAM` becomes reachable for the first time.
+  
+  `ListTracesParams` gains `source`, `ListCustomersParams` gains `channel` and narrows `sortBy`
+  from `string` to the five fields the endpoint accepts.
+  
+  With these bound, every descriptor the CLI calls either validates its enums or is blocked for a
+  structural reason — three project no fields at all, two are alternate routes of a command bound
+  through its twin. No endpoint is left that a flag could reach and does not.
+- 7499165: Two v1 response fields were published and could never be filled — they are removed
+  
+  `ExecutionNodeResult.logs` and `ExecutionOutput.outputType` were declared in the
+  public v1 contract and answered `null` on every request, from the day each
+  shipped. Not sometimes. Not on unfinished runs. On every request, for every
+  organization, for the whole life of both fields.
+  
+  Neither had a source anywhere in the platform. `logs` and `outputType` are field
+  names on **zero** of the 224 models in `schema.prisma`, and no writer exists for
+  either. The backend filled both with a literal `null`.
+  
+  ## 🔴 BREAKING — this is a removal from the public v1 surface
+  
+  Stated plainly, because a removal is a removal even when the value was always
+  `null`:
+  
+  - **The JSON responses lose a key.** `GET /public/v1/workflows/executions/:executionId/nodes/:nodeId`
+    no longer carries `logs`. `GET /public/v1/workflows/executions/:executionId/output`
+    no longer carries `outputType`. A JavaScript consumer reading `result.logs` now
+    gets `undefined` where it previously got `null`. Those are different values:
+    `result.logs === null` was `true` and is now `false`, and `"logs" in result` was
+    `true` and is now `false`.
+  - **TypeScript consumers get a compile error**, which is the good direction — the
+    break is at build time rather than in production. `ExecutionNodeResult.logs` and
+    `ExecutionOutput.outputType` are gone from `@agent-nexus/sdk`.
+  - **The CLI's `--json` output loses the same two keys.** `nexus execution
+  node-result` and `nexus execution output` print the response verbatim, so a
+    script doing `jq .logs` now gets `null` from `jq` rather than the JSON `null`
+    the API sent. A script that BRANCHED on the value is unaffected — every branch
+    it could have taken, it already took.
+  - **`workflow_executions_get_output` is an MCP tool**, so its result shape changes
+    for an agent using it too.
+  
+  **No caller can be relying on a value, because there has never been one.** That is
+  the whole argument for removing rather than keeping, and it is worth stating in
+  those terms: the risk here is entirely in the SHAPE of the response, never in the
+  data, because there was no data.
+  
+  ## What to read instead
+  
+  - **Node logs → `output`.** A node that captures console output (Browserbase, the
+    sandbox nodes) folds those lines into its own result payload, which the same
+    endpoint already serves as `output`. That is where node logs have always been.
+  - **`outputType` → nothing, and the name is the trap.** The outputNode's
+    `data.outputType` (`previous` | `custom` | `text`) is a real, writable node
+    setting read through `nexus workflow node get`. It is a property of the graph,
+    not of a run's output, and the two sharing a name is why the CLI help conflated
+    them. A workflow's output is an untyped `Json` column; nothing records the shape
+    it was meant to be.
+  
+  ## Why removal rather than a note
+  
+  Three sibling fields on the same endpoint — `duration`, `startedAt`,
+  `completedAt` — were the same defect and were REPAIRED by reading the columns
+  that do exist. These two had no column to read.
+  
+  That leaves exactly two honest endings, and the third one is what both fields
+  wore for months: declared, permanently `null`, with a comment underneath
+  explaining that the value would never arrive. A published field teaches every
+  consumer to handle a value, write a branch for it, and wait for it. The comment
+  is read by whoever maintains the contract; the field is read by everyone else.
+  
+  ## The gate
+  
+  `Pick<PrismaModel, …>` on a mapper parameter already made a read of a column that
+  does not exist a compile error in both directions — and it is the right
+  instrument, and it did not catch these two, because **a literal reads nothing.**
+  `logs: null` sat underneath that green gate for months.
+  
+  `apps/backend/src/__governance__/v1-unfillable-response-fields.spec.ts` closes the
+  escape. It reports a response key that is a bare `null` on **every path** of the
+  method that builds it, which is the discriminator that keeps it usable: a `null`
+  in one arm of a function that produces a real value in another is ordinary and
+  correct, and both surviving sites in this tree are exactly that shape.
+
+### Patch Changes
+
+- 0144613: `role coverage` enumerates its THIRD reason vocabulary, `role set-variables` stops calling
+  two nullable fields "required strings", and `nexus api` says which surface it cannot reach.
+  
+  Three help defects, each of the same shape: a screen that is accurate as far as it goes and
+  sends a reader somewhere wrong at the point it stops.
+  
+  - **`role coverage` named two of three closed reason vocabularies.** `coverage.reason` and
+    `money.reason` were enumerated; `savingsProjection.reason` was not, and it is the arm a
+    caller meets LAST. Only one of its seven values (`NO_WORKLOAD_HOURS`) implies the
+    percentage is also absent — the ratio is hours over hours and reads neither a cost nor a
+    currency, and `RoleWorkload.costFormula` is nullable where `formula` is not. So a Role
+    with an authored workload and no cost model answers a real percentage beside an
+    unavailable projection, and neither of the two documented reasons says why. The list is
+    read off `CoverageSavingsProjectionUnavailableReason` through a `Record<…, true>`, so an
+    arm added to the SDK is a compile error rather than a value no surface names.
+  
+  - **`role set-variables` said `label`, `description` and `unit` were "required strings".**
+    `RoleVariableInput` types two of the three `string | null`. Required is a property of the
+    KEY; `null` is a legal VALUE for three of the five, and it is how a caller says "none".
+    A reader who believed the sentence invented a description for every variable that has
+    none. The five fields are now an aligned block gated by `Record<keyof RoleVariableInput,
+    string>`, beside a copyable body that states a `null`.
+  
+  - **`nexus api` never said it reaches `/api/public/v1` and nothing else.** `HttpClient`
+    prepends that prefix to every path and no flag removes it, so the routes the dashboard
+    calls cannot be addressed by this command at any spelling. The scope footer on every
+    `--help` screen offered exactly this command as the way to disprove an absence — naming
+    routes it cannot reach and then sending the reader to a probe that answers nothing. Both
+    surfaces now say so: a silent probe means "not on public/v1", never "not on the
+    platform".
+- 121cd8d: Fix a required field supplied in `--body`/`--data` as a number or a boolean being dropped from the request. `nexus access-card create --data '{"credentialId":12345,"name":"N"}'` sent `POST /credentials/undefined/cards` instead of `POST /credentials/12345/cards`, and answered 0 because the CLI exits 0 on any 2xx — so it read as success.
+  
+  A required flag can be satisfied from the JSON body, and the value is then backfilled so the command reads it exactly as if it had been typed as a flag. That backfill tested `typeof value === "string"`, so a body spelling an id as a number — what a JSON author writes for something that looks numeric — satisfied the requirement and backfilled nothing, leaving the value `undefined` wherever the command interpolates it into the URL. Strings, numbers and booleans now all backfill. Arrays and objects deliberately do not: they have no flag spelling, and coercing one would put an array where a command expects a comma-separated string.
+- 6fdd61a: `agent-tool delete` now names BOTH ids in its confirmation prompt.
+  
+  It asked `Remove tool <tool-id> from agent?` — the tool, and the word "agent"
+  with no id after it. The route is `agents/<agent-id>/tools/<tool-id>` and the
+  agent is what decides which tool the server may touch, so a prompt echoing only
+  the tool could not show a wrong pairing back to the operator. It now reads
+  `Remove tool <tool-id> from agent <agent-id>?`.
+  
+  This is the surface half of NEX-3855, where the server was discarding the
+  `agentId` it made every caller supply, and the prompt was the last place a
+  mismatch was catchable by a human before the write.
+- 4721b36: `assets.delete()` returns whether the public URL actually stopped serving, and `nexus asset
+  delete` says so.
+  
+  An asset is stored `public-read` and its `url` is the direct, unsigned object URL, so **the
+  stored object is what serves that URL** — nothing in a browser's request path consults the
+  row. Deleting one is therefore two operations: soft-delete the record, then reclaim the
+  object. The second is allowed to fail without failing the request, and the server has always
+  reported it as `objectRemoved`.
+  
+  Nothing could read it. This route was typed as the shared `DeleteResponse`, which declares
+  `{ id, deleted }` and nothing else, so `objectRemoved` was unreachable from typed code — and
+  the CLI discarded the whole response under a `--help` note promising in capitals that the URL
+  stops serving.
+  
+  **`assets.delete()` now returns `AssetDeleteResult`, not `DeleteResponse`.** A caller reading
+  `.id` or `.deleted` is unaffected; the new fields are `objectRemoved` and `url`.
+  
+  ```ts
+  const result = await client.assets.delete(assetId);
+  if (!result.objectRemoved) {
+    // the record is gone; the bytes are not
+    console.warn(`still public: ${result.url}`);
+  }
+  ```
+  
+  `objectRemoved: false` means a real storage failure — refused credentials, an outage,
+  throttling — because deleting an absent key counts as success at the storage layer. It never
+  means "the key had already gone".
+  
+  **A retry is not available, and the obvious one lies.** The record is already soft-deleted, so
+  a second `delete()` answers 404 `Asset not found` — which reads like confirmation the asset is
+  gone. `url` is returned for exactly this reason: it is read from the record the delete just
+  stamped, every later read filters it out, and on the failure branch it is the only thing left
+  that names what is still reachable.
+  
+  `nexus asset delete` prints both fields, so `--json` carries them, and writes a warning to
+  STDERR naming the URL when the object survived. The exit code stays 0: the request succeeded
+  and the record really is deleted, and `nexus --help` binds exit 1 to a failure carrying an
+  error document, which this is not.
+  
+  Also in the SDK: the contract-mirror gate now covers `Asset`, `AssetDeleteResult` and the
+  `GET /models` response. A resource method's declared return type is checked against nothing —
+  `request<T>` takes `T` from the call site — which is the mechanism that let this ship at all.
+  Those three pairs are now a compile error when they drift.
+- 8efa158: `permissions access` answers for a resource nobody has been granted anything on, and its
+  empty list now says who reaches the resource anyway.
+  
+  **Two observable changes, and the second is additive.**
+  
+  `nexus permissions access <type> <id>` used to answer `403 Access denied: 'viewer'
+  relation required` for any resource in your own organization that carried no grant row —
+  which, under the default OPEN visibility, is most of them. A CLI or SDK caller is always
+  on that branch: an API key resolves as its own subject with `isOrgAdmin: false`
+  unconditionally, so being an organization admin never helped. The same call now returns
+  the access list. Three states that used to render as one refusal are now distinct:
+  
+  - the resource is not in your organization → `404` (the same 404 as an id that exists
+    nowhere, so it discloses nothing about another tenant)
+  - the resource is closed to you → `403`, unchanged
+  - anything else → `200`
+  
+  **`ListResourceAccessResponse` gains a required `unlistedReach` field.** A grant row names
+  a resource, and two things reach a resource without naming it: an open resource type,
+  which reaches it through no row at all, and a wildcard grant, whose row names the resource
+  TYPE. Both leave `permissions` empty, so an empty array on its own is not an answer to
+  "who can reach this?" — and that question is the whole reason the endpoint exists.
+  
+  ```ts
+  const { permissions, unlistedReach } = await client.permissions.listResourceAccess("agent", id);
+  // "organization"    — no grant names it and the type is open: EVERY member reaches it
+  // "type_wide_grant" — a grant on this type's wildcard reaches it; that row is not listed
+  // "nobody"          — only the listed grants reach it
+  ```
+  
+  It is required rather than optional because an absent key reads as "nothing else reaches
+  it", which is the exact wrong answer the field exists to prevent. A consumer that ignores
+  it behaves as before; one that reads `permissions.length === 0` as "unshared" was already
+  wrong and can now stop being.
+  
+  The CLI prints the reach as a `Reach:` line under the table, and under `--json` emits the
+  whole response as ONE document rather than the rows alone.
+- df48912: `channel setup --json` carries the ready verdict, in its one document.
+  
+  **This changes the shape of that command's `--json` output.** It was a bare ARRAY of
+  steps. It is now an object — `{ type, ready, steps }` — so a caller reading the top level
+  as a list reads the steps from `.steps` instead. The recipe published in
+  `channel setup --help` changes with it, from a filter over the steps to `jq -e '.ready'`.
+  
+  The action printed the steps through one printer and then the verdict through another:
+  
+  ```ts
+  printTable(data.steps, …);                                   // a bare array
+  if (data.ready) printSuccess("All prerequisites met. …");     // a second document
+  ```
+  
+  Two printers is two JSON documents, and the `--help` note published a `jq` filter over
+  that stdout which indexes `.[]`. On the second document `.[]` yields a boolean,
+  `select(.label != …)` indexes it, and jq aborts with `Cannot index boolean with "label"`
+  and exit 5. **The documented automation gate failed exactly when the answer was "yes,
+  proceed"**, and a caller reading a jq error on the success path reads it as "not ready" —
+  the one reading that is backwards.
+  
+  `emitDocument`'s first-wins rule already closed the parse half: the steps keep stdout and
+  the verdict is diverted to stderr, so the stream parses again. That is the right fix for
+  the pair and the wrong outcome for this command. Nothing errors, nothing is unparseable,
+  and the single fact this command exists to answer now lands on the channel a script does
+  not read — a `--json` caller still cannot tell ready from not ready.
+  
+  `ready` was on the response all along; only the printer dropped it. So JSON mode emits the
+  response — the steps and the verdict together, one document — and the human rendering
+  keeps the table plus the sentence that says the same thing.
+  
+  The help note said "there is no `ready` key to gate automation on". That was true of the
+  CLI's output and never of the API. It now names the shape it actually prints, and keeps
+  the warning that matters: for a `--type` with no real prerequisite checks, `ready` reads
+  true because nothing was checked.
+- 4832103: `nexus customer`, `nexus tracing` and `nexus collection --help` now answer
+  fourteen things a caller previously had to discover by running the command, and
+  one shipped note that was false is replaced.
+  
+  `customer` had `--help` on ONE of its seven leaves. The other six now carry an
+  example and a Notes block:
+  
+  - `customer create` says that `--email` and `--phone` each create a CHANNEL
+    IDENTITY — GMAIL and WHATSAPP respectively, both `isPrimary`, both
+    `verifiedAt` null — that the identity is unique per organization AND service,
+    and that a collision fails the whole create with 409 leaving no partial row.
+    It also says `customer update` never revisits those identities, so an address
+    changed later leaves the identity pointing at the old one.
+  - `customer update` says `tags` and `customFields` are REPLACED WHOLE, so
+    sending one custom field deletes the rest, and that notes are never at risk
+    from this command.
+  - `customer note` says a note is write-only through this API: nothing reads it
+    back, there is no notes-list verb, and the CLI discards the note the write
+    returns — so the note id never reaches the caller on either channel.
+  - `customer delete` says the conversations survive and the CRM row, its
+    identities and its group-participant rows do not, and that the confirmation
+    is gated on stdout being a TTY, so a pipe deletes with no question asked.
+  - `customer get` names the two arrays no list carries, `identities[]` and
+    `recentSessions[]`.
+  - `customer get-by-external-id` says a miss is a 200 on the wire and an exit 1
+    here, with an error document on stderr and stdout left empty.
+  - `nexus customer --help` prints the FOUR different `--json` envelopes this one
+    namespace answers with, so a caller stops assuming one jq expression reads all
+    of them.
+  
+  `tracing` gains the shapes and bounds its list and export commands never stated:
+  
+  - `export-bulk` under `--format json` is a BARE ARRAY with no `data`/`meta`
+    envelope, and `--json` changes nothing on that path.
+  - `export` is a bare OBJECT, so the single and the bulk export need different
+    parsers. Its generations are uncapped, where `tracing trace <id>` stops at
+    100, and this route is NOT under the five-calls-a-minute throttle that
+    `export-bulk` documents — the previous sentence implied it was.
+  - `generations` shows 6 columns and answers 26 keys under `--json`; the twenty
+    that are invisible in the table are now listed.
+  - `traces` and `generations` state the page contract: `--limit` is 1-100 with a
+    default of 20 and over 100 is a 400 rather than a clamp, which is NOT
+    `export-bulk`'s 1-500 default 100.
+  - `timeline` says the DATE column is cut: the bucket key is a 24-character ISO
+    instant rendered into a column 22 wide, so a chart must key off `--json`.
+  
+  Two corrections in the same pass, both measured against the code rather than
+  against the help:
+  
+  - **`tracing cost-breakdown`'s LABEL note was wrong.** It said grouping by agent
+    leaves LABEL empty while workflow and deployment fill it. Agent resolves its
+    label by exactly the same lookup as those two. What is true is that every
+    dimension except `model` blanks when its referent is deleted or belongs to
+    another organization — and that `workflowExecution` labels the WORKFLOW, so
+    two runs of one workflow are told apart only by KEY.
+  - **`collection list --limit` does not default to 50.** The v1 route parses with
+    a schema whose default is 20 and whose maximum is 100; the 50 lives in a
+    service the public route never reaches with an unset limit. Over 100 is a 400.
+  
+  `collection` also gains: the `k` bounds (integer >= 1, no maximum, forwarded to
+  the retrieval provider verbatim), the fact that `reranker` is `--body`-only on
+  create while `update` has a flag for it, that the create response echoes none of
+  the settings it stored, that a `query` result carries no document name while
+  `search` does, and that the three read commands in this namespace answer with
+  three different JSON shapes.
+  
+  Every example that named a path id in `tracing` used `abc-123` or `gen-123`,
+  which the route's own `z.string().uuid()` refuses — so each was a guaranteed 400
+  rather than a working command. They now carry real UUIDs, which retires six
+  entries from the help-truth ledger.
+  
+  A patch: help text, ledger bookkeeping and one pinned-phrase spec. No executable
+  change.
+- 1020300: Answer the seven remaining authored `--help` suggestions on the `deployment` namespace, including the wrapper key that made a correct `--body` read as an empty one.
+  
+  `deployment create` listed the five EMBED settings objects by name without ever showing that they nest under a top-level `settings` key. The create body declares `settings` and nothing else for them, and a Zod object strips what it does not declare — so a body spelled `{"embedSettings":{…},"securitySettings":{…}}` parses clean, loses every one of those keys, and reaches the route as a create carrying no settings, which answers the same 400 an empty body gets. The help now shows the wrapper and the full shape. A second note points at `deployment embed-config-update --print-contract` for the enum-valued leaves, since `settings` is opaque on the create route and the contract stops at the wrapper there, and states `securitySettings.visibility` outright — required, `public|private` — because no command prints it.
+  
+  `deployment update` now says the 50-key / 50KB cap applies to it as well and measures the PATCH rather than the result: the merge runs after validation and never re-measures, so thirty keys patched onto forty stored keys is seventy keys and a 200. `deployment delete` says `--dry-run` ignores `--json` and writes prose, so a piped `jq` gets a parse error — and names `agent-skill sync` and `claude-code`, which do branch on `--json`, so the habit is known not to transfer. `deployment stats` documents the `sessions` array the two counters are computed from, which makes the 500-session cut checkable instead of taken on trust. `deployment get` says `null` on `connectionStatus` or `inboundWebhook` means the channel binds none rather than signalling a fault, and separates that from `NOT_CONFIGURED`.
+  
+  `deployment folder list`, `channel connection list`, `channel whatsapp-template list` and `phone-number search` each say their `--json` is a bare array rather than `{data,meta}`. A `jq '.data[]'` carried over from the sibling list command selects nothing and does not error, so the miss reads as an empty result.
+- 52bf22d: A generated docs page no longer names the CLI version, so the projection stops depending on a field the release writes.
+  
+  The live `nexus <cmd> --help` is unchanged and still names the client that is talking —
+  `THIS IS ONE CLIENT (@agent-nexus/cli 0.21.9), NOT THE PLATFORM` — because knowing which
+  version is speaking is the whole reason that footer exists. Only a DERIVED capture drops
+  the number, and the published pages under `content/docs/cli/commands/` are derived.
+  
+  `packages/cli/package.json`'s `version` is written by the changesets release, which lands
+  on `main` and never on `staging`. A staging-to-main promotion is tested as the MERGE, so
+  that tree holds main's version beside staging's committed pages. `cli-docs-are-generated`
+  compares each page byte-for-byte against a fresh projection, so all 45 generated pages
+  reported stale on a tree where nobody had touched a CLI file. Measured on the promotion
+  with main at 0.25.0 and staging at 0.21.9, and reproduced on staging by editing that one
+  field and nothing else: 0 stale at 0.21.9, 45 stale at 0.25.0. After this change the same
+  experiment is 0 stale at both.
+  
+  A concrete version in a committed page was also false for its whole life. The page can
+  only ever name the version it was generated from, and npm had shipped four minor versions
+  past the number the pages carried.
+  
+  `captureHelp` is the single funnel every derived capture goes through — the docs model,
+  the pages, and the gate that compares them — so the two facts that are true of the running
+  process rather than of the tree are now removed in one place: the staleness notice read
+  from `~/.nexus-mcp/version-check.json`, and the version. Two gates hold it: one pins the
+  mechanism, with the live render at two versions as its control, and one pins the result
+  over the whole tree, with the footer's continued presence on 44+ pages as its anti-vacuity.
+- d5aa06e: Record a known-defective `--help` placement instead of counting it as clean.
+  
+  `channel setup`'s `--json` note ships a `jq` recipe that aborts, because the
+  command prints a second JSON document once every prerequisite is met. The row is
+  now `placed` — the note IS in the tree — and carries a `defect` pointer to the
+  ticket, counted beside the placement total rather than folded into it.
+- d2ea87d: Six `--help` notes, and a ledger that proves they are still there.
+  
+  `ticket create` now names `ticket get` as the read-back that shows what the
+  server kept; `ticket attachments` names the row shape and that `contentType`
+  and `size` are nullable because an attachment need not be a file this CLI sent.
+  `agent create` states its exact `--json` envelope and that the model chosen
+  there decides whether `nexus agent-skill` works at all; `agent list` names its
+  five columns and says a truncated cell is marked.
+  
+  `help-suggestions.ledger.ts` carries all 237 suggestions from the `--help`
+  truth audit. A row marked `placed` names its leaf and a probe, and the spec
+  re-reads that probe out of the real `--help` on every run — so a note that gets
+  reworded away fails by id instead of leaving a progress figure unchanged.
+- 563fa5e: `--json` now prints ONE JSON document, and the printer makes the largest half of that
+  impossible rather than merely correct.
+  
+  `nexus --help` has promised "`--json` prints ONE JSON document on STDOUT and nothing else"
+  since the output contract landed. Nothing enforced it. `printRecord(sender)` followed by
+  `printSuccess("Sender created.")` is the whole defect: each call writes one complete
+  document, the caller receives them concatenated, and `JSON.parse` refuses the pair — or a
+  hand-rolled reader takes the first and never learns there was a second. Every printer was
+  individually right and nothing was collectively right.
+  
+  **The printer now holds the invariant.** All four printers and the error document go
+  through one funnel that keeps a per-run flag: the FIRST document is the payload and goes
+  to stdout, anything after it goes to stderr, where the profile banner and every warning
+  already live. First rather than last is a decision — in every observed pair the first
+  document is the resource and the second is a sentence about it, and a script wants the
+  resource. A call site written tomorrow cannot reintroduce the defect. It reaches only the
+  printers: a command that builds its own document with a bare `console.log` is outside it,
+  and a gate covers that half instead.
+  
+  **A `--dry-run` verdict is a document.** `agent delete`, `deployment delete` and `workflow
+  delete` printed a yellow sentence and returned — unparseable, at exit 0, on the one flag
+  whose purpose is to let a script check before it destroys something. The envelope carries
+  `dryRun: true` and deliberately no `success`, because nothing succeeded.
+  
+  **`auth status` answers a record.** It printed seven lines of prose, and it is the first
+  command an agent runs: the caller could tell neither which profile was loaded nor that
+  anything was wrong. It now reports profile, source, token type, org, user, base URL, the
+  masked key, and whether the identity was ever cached — `auth status` makes no network call,
+  so an absent org means "never resolved", not "no organization".
+  
+  Also: `auth list` and `auth orgs` answer `[]` on an empty account instead of a hint
+  sentence; `auth pin`, `auth orgs`, `auth use-org`, `channel connect-waba` and `deployment
+  template settings` no longer put prose beside their document; and `external-tool test-auth`
+  emits its payload before its verdict.
+  
+  **Three `--wait` commands changed ORDER, not just guards.** `channel whatsapp-template
+  create --submit`, `... submit-approval --wait` and `... test-send --wait` each produce
+  several terminal results and printed all of them. The human channel keeps its running
+  commentary; a script now gets one document assembled after the poll, carrying the status
+  `--wait` exists to obtain rather than the pre-poll one.
+  
+  **A failure is a document too, and that clause had no funnel at all.** The same
+  `--help` promises "under `--json` an error is a JSON document on STDOUT". Driving
+  every command showed 93 failures of 152 answering with a sentence on stderr and an
+  empty stdout — a non-zero exit with nothing to parse. Two classes: 41 were commander
+  refusing the invocation from inside the parser, where nothing in the CLI ever saw the
+  failure; 52 were commands refusing their own input with `console.error` and an exit
+  code. The first is closed by walking the finished command tree once and routing every
+  refusal through the standard error handler, with `CLI_INVALID_ARGUMENTS` on the wire
+  and a hint naming the exact `--help` to run. The second is closed by a `refuse` verb
+  at 53 call sites — two of which are shared sinks covering 29 commands between them:
+  one function behind nine admin commands, and one action behind `upgrade` and its
+  eighteen hidden aliases.
+  
+  `--help` and `--version` are untouched: they reach the same exit path with code 0, and
+  turning those into errors would make `nexus --help` print an error document and exit 1.
+  
+  **A partial failure is a terminal result, and its document says so.** Assembling one
+  document at the end is right for a command that succeeds and wrong for one that
+  creates something and then fails: `channel whatsapp-template create --submit` lost the
+  created template's id entirely if the submit threw. The acquired resource is now
+  emitted with `incomplete: true`, the stage that failed and the reason, before the error
+  goes out — so the caller can always name what exists.
+  
+  **The document's `code` says what actually happened, and the wrong one is now
+  unrepresentable.** A document exists so a machine can branch on it, so a `code` reading
+  "the invocation was rejected before anything was sent" on a connectivity failure is worse
+  than the prose it replaced — a caller stops retrying something retryable. The refusal
+  helper no longer takes a code at all; everything that failed after the invocation was
+  accepted goes through a second verb whose cause is a required closed union. Thirty of the
+  73 refusal sites were reclassified against what actually failed: a registry that could not
+  be reached, a validation request that answered 500, an install that failed, a config write
+  that threw. Three codes join the CLI family — `CLI_NOT_AUTHENTICATED`, `CLI_REMOTE_ERROR`
+  and `CLI_LOCAL_FAILED` — each answering a different "what do I do next": re-authenticate,
+  do not retry, retry, fix the machine.
+  
+  **Nine failures the gate structurally could not reach are closed too.** Driving every command
+  under a stub is the worst case for the one-document clause and the BEST case for the failure
+  clause: the branches that leave stdout empty are exactly the ones a stub never enters — an
+  equality on a payload field (`external-tool test-auth`'s failed arm), a confirmation that
+  refuses without a terminal (`workspace delete`, and the shared helper behind every other
+  destructive verb), a removed-flag refusal (`cloud-import google-drive list-files
+  --access-token`), and a `catch` the stub resolves instead of throwing (`docs search`). Vibe
+  carries its own confirmation that names `--json` explicitly and still wrote only to stderr, so
+  `vibe app delete`, `vibe app rotate-edge-token` and `vibe git-project delete` refused into an empty
+  pipe as well.
+  Each now emits the error document its exit code has always implied, with the cause it actually
+  had: `external-tool test-auth` reports `CLI_REMOTE_ERROR`, because the platform answered and
+  the answer is a failure — the caller's next move is the credentials, not the command line.
+  
+  Three of the nine were named by no census and by no report. `external-tool delete`, `update`
+  and `update-spec` each hand a rich refusal to a HELPER that writes the whole binding list with
+  `console.error`, and set the exit code at the call site — so the prose and the exit sit in
+  different functions and neither reads as a defect on its own. They were found by a static walk
+  over the source, which is now a gate: it reads the pairing (prose to stderr, then a non-zero
+  exit, no document between) in a branch nobody can drive exactly as in one everybody drives.
+  Both refusals now carry their list INSIDE the error document, so a script learns which
+  references block the delete and which actions the new spec would break.
+  
+  **The gate drives every command.** Its population is derived from the command tree, so a
+  new command joins it by being registered, and it drives a `--dry-run` arm separately. It
+  reports five outcomes rather than two: a run it could not drive is counted as UNCHECKED,
+  never as clean, and that count is ratcheted alongside the violation ledger. Two shapes are
+  exempt, written out and bounded: streaming commands (`vibe app logs`, `execution follow`)
+  legitimately emit many values, and `analytics export` / `tracing export` /
+  `tracing export-bulk` print the server's payload in the format the caller asked for —
+  `tracing export --help` says outright that `--json` does not apply there.
+- f0ffed8: `nexus role --help` now answers the six things a caller previously had to
+  discover by running the command, and the namespace page indexes its own verbs.
+  
+  - `role automation-settings` says that the whole object can be ABSENT — exit 0,
+    a literal `null` under `--json`, no error — and that this one absence is why
+    `coverage.reason` answers `NO_WORKING_TIME_MODEL` for every Role in the
+    organization at once.
+  - `role create` names where a user id comes from. There is no user-listing verb
+    in this CLI, and `nexus auth whoami` prints the EMAIL and never the id, so the
+    obvious move produces a 404 that reads as the user not existing. The help now
+    gives `nexus api GET /me | jq -r .data.userId`.
+  - `role attach` and `role detach` separate `--type` from the `--resource-type`
+    of `permissions grant`. The two lists share exactly three spellings, a value
+    from one is refused by the other, and they are different acts: attaching is
+    exclusive ownership, a grant is a relation many principals may hold.
+  - `role delete` says it does not prompt and has no `--yes`, unlike the three
+    sibling deletes that do.
+  - `role coverage` already carried its three-rows note; it is now recorded as
+    such rather than being rewritten.
+  - `nexus role --help` prints a grouped index of every verb, in five areas. The
+    grouping is checked against the live command tree by
+    `role-namespace-index.test.ts`, in both directions, so a new verb reds a spec
+    instead of quietly going missing from the index.
+  
+  Two stale sentences are corrected in the same pass. `external_tool` stopped
+  being a Role resource type when it moved to its own grant table, and the CLI
+  still advertised "tools" in `role systems`' description and in `role delete`'s
+  orphan warning — both now name the five kinds a Role actually holds.
+  
+  A patch: help text and one new spec, no executable change.
+- 432b8b4: `skill-folder assign` says which of its two writes it performed, and gains help text.
+  
+  **This changes observable output.** `--folder-id null` printed `Skill assigned.` — the
+  opposite of what it did. It now prints `Skill unassigned.`, and a script reading stdout
+  for the old string on that branch will stop matching.
+  
+  `--folder-id null` is not "assign to no folder". It takes a different branch on the
+  server: the assignment row is deleted and the response carries `"assigned": false`. The
+  command sent that request, received that answer, threw it away, and printed one fixed
+  sentence for both branches. So the one field that distinguishes the two writes never
+  reached the operator by any channel.
+  
+  `--json` now emits the untouched response — `{skillId, folderId, assigned}` — instead of
+  the flags the caller already knew. That matters beyond tidiness: `--body` can carry a
+  `folderId` the flags never saw, so the argument is not a reliable stand-in for what was
+  sent, and the response is the only place the outcome is stated. `printSuccess`
+  short-circuits under `--json` to its own document, so the early return is what carries
+  the extra field; `skill-folder list` already had the same shape.
+  
+  The command had no `addHelpText` at all. It now documents the `null` branch, and the one
+  thing a script hits immediately: the two commands that list assignable skills answer in
+  different shapes — `workflow list --json` is `{"data":[...],"meta":{...}}` and
+  `task list --json` is a bare array — so a single jq path over both silently yields an
+  empty id list rather than an error.
+  
+  The help also records that the id is now checked server-side: a well-formed uuid naming
+  no workflow and no AI task in the caller's organization answers 404, where it previously
+  succeeded and filed an assignment row pointing at nothing.
+- 9f9ba4d: Correct two help surfaces that asserted behaviour the code does not have, and make
+  `custom-model create --enabled` real.
+  
+  `template upload --help` said the step reads a template's variables out of the
+  placeholders in the uploaded file. It does not: the upload stores the file and
+  links `fileUrl`, and it never runs the placeholder parser. `inputFormat` is
+  unwritable through the Public API v1 at all — create takes name, description and
+  type, and there is no update route — so it reads null for every template built
+  this way, and the variable names have to come from the file itself. Generation is
+  unaffected, because it never consults the stored list. `template get`,
+  `template list`, `template create` and the namespace overview asserted the same
+  thing in different words and are corrected with the mechanism stated, along with
+  three facts none of them carried: generating before an upload fails with a server
+  error, a generated document is not a `nexus document` and no database row is
+  written for it, and re-uploading deletes the previous file.
+  
+  `custom-model create` gains `--enabled <bool>`, using the same parser the update
+  command already uses, so a model can be created disabled without hand-writing a
+  body. The field it mirrors was advertised by the body schema, by the SDK type and
+  by this command's own `--print-contract` block, and the write discarded it — a
+  create asking for a disabled model returned 201 with an enabled one. Its help now
+  also states that a 201 means stored and never that the endpoint works: nothing
+  contacts the provider at create time, so an unreachable URL and a dead key both
+  create cleanly and fail later at inference.
+- 6b91ca0: `getTestSendStatus` takes the message SID alone. The template id left both the method and
+  the route, because nothing could ever check it.
+  
+  **This is a breaking change to the public v1 surface and to the SDK signature.**
+  
+  - Route: `GET /channels/whatsapp-templates/:templateId/test-send/:messageSid/status`
+    becomes `GET /channels/whatsapp-templates/test-send/:messageSid/status`. Drop one path
+    segment; the `connectionId` query parameter and the message SID are unchanged, and so is
+    the response.
+  - SDK: `getTestSendStatus(templateId, messageSid, params)` becomes
+    `getTestSendStatus(messageSid, params)`. Drop the first argument. The old three-argument
+    call is a type error rather than a silent misroute — `messageSid` would have landed in
+    the `messageSid` slot's place only by accident, so this had to be a compile break.
+  
+  A test-send status is addressed by `(Twilio account, message SID)` and by nothing else. The
+  Twilio account comes from `connectionId`, which also carries the organization tie. The
+  template id was a third coordinate the server never used: the handler resolved the status
+  from the connection and the message SID, and dropped the segment.
+  
+  It could not have done otherwise. Twilio's `Message` resource exposes no content SID — in
+  twilio 5.7.0 `contentSid` is a parameter of message CREATION and appears on no fetched
+  instance — and Nexus stores no row linking a template to the message it produced. So no
+  code path, present or future without new persistence, could verify the template↔message
+  pairing the URL asserted. Two different template ids over one message SID answered
+  identically, with no status code ever revealing the difference.
+  
+  Validating that the template merely EXISTS was rejected rather than overlooked. It would
+  have left the pairing exactly as unchecked while adding one Twilio Content API fetch per
+  organization connection on every poll, and the CLI's `--wait` polls twenty-four times. A
+  check that cannot answer the question the URL asks is the same defect with a cost attached.
+  
+  `nexus channel whatsapp-template test-send --wait` is unaffected: it already holds the
+  message SID it polls, and `--template-id` is still required for the send itself, which does
+  use it.
+- dca186f: Capture the docs help fence from the real root program.
+  
+  `deriveCommandModules()` runs each registrar against its own throwaway
+  `Command`, and `buildNode()` captured the node's help from that program. The
+  root installs `applyKnownIssuesHelpLine` and `registerHelpScopeFooter` on the
+  FINISHED tree, so a throwaway carries neither — and the real root sorts its
+  subcommands while a throwaway does not. Every generated page therefore differed
+  from `nexus <cmd> --help`, on all 565 documented paths.
+  
+  `CommandNode.help` now resolves against the real root by path, and
+  `CommandNode.helpSource` makes a path the root does not contain VISIBLE instead
+  of silently falling back to a locally captured string.
+  
+  `captureHelp` also suppresses the update notice, which the scope footer reads
+  from `~/.nexus-mcp/version-check.json` while rendering. Without it a docs page
+  would freeze one machine's cached version number into 45 committed pages.
+- 8f912ac: Correct `--help` on three commands whose notes described a response the server no longer serves, or never did.
+  
+  - `credential update` said "ONLY name AND description ARE WRITABLE", which is true of `api_key_connection` alone. It now names what each source can store, states the new `400 CREDENTIAL_FIELD_NOT_WRITABLE` refusal, and says that re-sending a value already set is still accepted.
+  - `credential get` now explains the `source` field it prints. It was documented only under `credential list --help`.
+  - `execution node-result` said `logs`, `duration`, `startedAt` and `completedAt` all come back null on a healthy completed node. Three of the four are now derived from the node's own timestamps; the note names `logs` as the one that is structurally null and says why.
+  - `execution output` said `outputType` "defaults to previous". That is the outputNode's SETTING; the field in this response has always been null and is now documented as such, with a pointer to `workflow node get` for the setting.
+- 284b1e6: Answer eight authored `--help` suggestions on the `vibe` namespace, and correct two things the existing help got wrong.
+  
+  `vibe app get` shipped with no Notes and no Examples; it now documents the two joins only that read resolves, and states that `gitProject` is a nested object with no `gitProjectId` scalar. `vibe app update` and `vibe app get` both name the gap between the two-state `--require-verification` flag and the three-state `shipGateMode`, where `WARN` renders as `off`. `vibe env set` REPLACES a sentence that told the reader the scope precedence was unknowable — it is defined: ALL union PROD, PROD wins on a name collision, and STAGING reaches no deployment. `vibe app create` says its collision warning goes to stderr, `vibe env list` explains the Card and Scope columns, `vibe git-credentials` says "Org" is the git host's path segment rather than the Nexus organization, `vibe deploy-state` pairs each of its five outcomes with its own fix, and `vibe audit list` names the cost-safety and verification event families.
+  
+  The namespace flow no longer tells a reader to run `vibe git-project commit` or `vibe git-project push`; neither verb exists.
+
 ## 0.25.0
 ### Minor Changes
 

@@ -1,5 +1,268 @@
 # @agent-nexus/sdk
 
+## 0.18.0
+### Minor Changes
+
+- 1713f2b: `RoleCoverageContribution` gains `formula` — the authored saved-work model behind that row's
+  `personHours`, so a caller can check the figure and an editor can put the operands back.
+  
+  `RoleCoverage.workload` has always carried the authored DENOMINATOR, and the read contract's own
+  header gives the reason: a reader shown _"18.29%"_ needs _"12 people × 35 h/week × 46 weeks"_ under
+  it or the number is an assertion. A per-system `personHours` is the same claim one level down, and it
+  shipped with no operands under it — so a client could render what a system saves and had no way to
+  show, or re-edit, what that figure was computed from.
+  
+  `formula` is `CoverageFormula | null`, typed exactly as `workload` is. `null` means the stored JSON
+  did not pass validation, with the reason in `integrity.warnings`; it never means _"no model"_, because
+  a `RoleSystemImpact` row exists only because somebody authored one. A readable model always ships
+  both the model and the figure, so a `null` formula beside a real `personHours` is a state the server
+  does not emit.
+  
+  What this does NOT add is the raw stored row. Repairing a model that will not parse needs the
+  unvalidated JSON, and that belongs to the authoring read rather than to the read for someone looking
+  at a percentage.
+- c85c7b4: `nexus tracing traces --help` claimed "any other value is refused" and refused nothing. It does
+  now, along with the last four descriptors that had a contract enum no flag could reach.
+  
+  Six flags in this release already existed and validated nothing — they printed a hand-typed list
+  in their description while accepting anything. That is worse than an absent flag, because the
+  list reads as a contract:
+  
+  ```
+  $ nexus tracing traces --sort-by __TOTAL_JUNK__
+  Error: No profiles configured.          # parsed clean, reached the network
+  
+  $ nexus tracing traces --sort-by __TOTAL_JUNK__     # now
+  error: option '--sort-by <field>' argument '__TOTAL_JUNK__' is invalid.
+    Allowed choices are startedAt, totalCostUsd, totalDurationMs.
+  ```
+  
+  **The breaking part is that a value the server would have rejected now fails one step earlier,
+  with a different exit path** — the same shape as the previous release. A script feeding an
+  invalid enum already failed; it now fails without a network call and with the allowed list on
+  stderr. `customer list --sort-by` is the exception worth reading twice: the adapter behind that
+  route keeps its own allowlist and falls back to `lastSeenAt` on a miss, so a bad value did not
+  even 400. It returned a differently-ordered page and said nothing. A script relying on that
+  silence now gets an error instead of quietly wrong output.
+  
+  Five flags are new, and each one unblocked a descriptor whose other enums were already ready —
+  the binding is all-or-nothing per endpoint, so one missing flag held back every enum beside it:
+  
+  - `tracing traces --source` — filter by the surface that produced the trace, which also let
+    `--status`, `--sort-by` and `--order` bind.
+  - `tracing cost-breakdown --bucket` — split each group into a time series. Rejected by the
+    server for `model`, `agent` and `workflow` groupings; only the attribution dimensions support
+    it, and `--help` says so.
+  - `customer list --sort-by`, `--sort-order`, `--channel`.
+  - `execution list --sort-by`, `--order` — which let `--status` bind on both of its routes.
+  
+  Every parameter was traced from the controller to the query before a flag was written for it.
+  
+  **`DeploymentType` in the SDK was wrong in both directions and is corrected.** It declared `SMS`,
+  which is not a member of the database enum and is refused by the server, and it omitted
+  `INSTAGRAM`, which is a real member. One hand-maintained copy of an enum, offering a value
+  nothing accepts while hiding a value that works. Code annotated with `"SMS"` stops typechecking;
+  it was already failing at runtime. `INSTAGRAM` becomes reachable for the first time.
+  
+  `ListTracesParams` gains `source`, `ListCustomersParams` gains `channel` and narrows `sortBy`
+  from `string` to the five fields the endpoint accepts.
+  
+  With these bound, every descriptor the CLI calls either validates its enums or is blocked for a
+  structural reason — three project no fields at all, two are alternate routes of a command bound
+  through its twin. No endpoint is left that a flag could reach and does not.
+- 6b91ca0: `getTestSendStatus` takes the message SID alone. The template id left both the method and
+  the route, because nothing could ever check it.
+  
+  **This is a breaking change to the public v1 surface and to the SDK signature.**
+  
+  - Route: `GET /channels/whatsapp-templates/:templateId/test-send/:messageSid/status`
+    becomes `GET /channels/whatsapp-templates/test-send/:messageSid/status`. Drop one path
+    segment; the `connectionId` query parameter and the message SID are unchanged, and so is
+    the response.
+  - SDK: `getTestSendStatus(templateId, messageSid, params)` becomes
+    `getTestSendStatus(messageSid, params)`. Drop the first argument. The old three-argument
+    call is a type error rather than a silent misroute — `messageSid` would have landed in
+    the `messageSid` slot's place only by accident, so this had to be a compile break.
+  
+  A test-send status is addressed by `(Twilio account, message SID)` and by nothing else. The
+  Twilio account comes from `connectionId`, which also carries the organization tie. The
+  template id was a third coordinate the server never used: the handler resolved the status
+  from the connection and the message SID, and dropped the segment.
+  
+  It could not have done otherwise. Twilio's `Message` resource exposes no content SID — in
+  twilio 5.7.0 `contentSid` is a parameter of message CREATION and appears on no fetched
+  instance — and Nexus stores no row linking a template to the message it produced. So no
+  code path, present or future without new persistence, could verify the template↔message
+  pairing the URL asserted. Two different template ids over one message SID answered
+  identically, with no status code ever revealing the difference.
+  
+  Validating that the template merely EXISTS was rejected rather than overlooked. It would
+  have left the pairing exactly as unchecked while adding one Twilio Content API fetch per
+  organization connection on every poll, and the CLI's `--wait` polls twenty-four times. A
+  check that cannot answer the question the URL asks is the same defect with a cost attached.
+  
+  `nexus channel whatsapp-template test-send --wait` is unaffected: it already holds the
+  message SID it polls, and `--template-id` is still required for the send itself, which does
+  use it.
+- 7499165: Two v1 response fields were published and could never be filled — they are removed
+  
+  `ExecutionNodeResult.logs` and `ExecutionOutput.outputType` were declared in the
+  public v1 contract and answered `null` on every request, from the day each
+  shipped. Not sometimes. Not on unfinished runs. On every request, for every
+  organization, for the whole life of both fields.
+  
+  Neither had a source anywhere in the platform. `logs` and `outputType` are field
+  names on **zero** of the 224 models in `schema.prisma`, and no writer exists for
+  either. The backend filled both with a literal `null`.
+  
+  ## 🔴 BREAKING — this is a removal from the public v1 surface
+  
+  Stated plainly, because a removal is a removal even when the value was always
+  `null`:
+  
+  - **The JSON responses lose a key.** `GET /public/v1/workflows/executions/:executionId/nodes/:nodeId`
+    no longer carries `logs`. `GET /public/v1/workflows/executions/:executionId/output`
+    no longer carries `outputType`. A JavaScript consumer reading `result.logs` now
+    gets `undefined` where it previously got `null`. Those are different values:
+    `result.logs === null` was `true` and is now `false`, and `"logs" in result` was
+    `true` and is now `false`.
+  - **TypeScript consumers get a compile error**, which is the good direction — the
+    break is at build time rather than in production. `ExecutionNodeResult.logs` and
+    `ExecutionOutput.outputType` are gone from `@agent-nexus/sdk`.
+  - **The CLI's `--json` output loses the same two keys.** `nexus execution
+  node-result` and `nexus execution output` print the response verbatim, so a
+    script doing `jq .logs` now gets `null` from `jq` rather than the JSON `null`
+    the API sent. A script that BRANCHED on the value is unaffected — every branch
+    it could have taken, it already took.
+  - **`workflow_executions_get_output` is an MCP tool**, so its result shape changes
+    for an agent using it too.
+  
+  **No caller can be relying on a value, because there has never been one.** That is
+  the whole argument for removing rather than keeping, and it is worth stating in
+  those terms: the risk here is entirely in the SHAPE of the response, never in the
+  data, because there was no data.
+  
+  ## What to read instead
+  
+  - **Node logs → `output`.** A node that captures console output (Browserbase, the
+    sandbox nodes) folds those lines into its own result payload, which the same
+    endpoint already serves as `output`. That is where node logs have always been.
+  - **`outputType` → nothing, and the name is the trap.** The outputNode's
+    `data.outputType` (`previous` | `custom` | `text`) is a real, writable node
+    setting read through `nexus workflow node get`. It is a property of the graph,
+    not of a run's output, and the two sharing a name is why the CLI help conflated
+    them. A workflow's output is an untyped `Json` column; nothing records the shape
+    it was meant to be.
+  
+  ## Why removal rather than a note
+  
+  Three sibling fields on the same endpoint — `duration`, `startedAt`,
+  `completedAt` — were the same defect and were REPAIRED by reading the columns
+  that do exist. These two had no column to read.
+  
+  That leaves exactly two honest endings, and the third one is what both fields
+  wore for months: declared, permanently `null`, with a comment underneath
+  explaining that the value would never arrive. A published field teaches every
+  consumer to handle a value, write a branch for it, and wait for it. The comment
+  is read by whoever maintains the contract; the field is read by everyone else.
+  
+  ## The gate
+  
+  `Pick<PrismaModel, …>` on a mapper parameter already made a read of a column that
+  does not exist a compile error in both directions — and it is the right
+  instrument, and it did not catch these two, because **a literal reads nothing.**
+  `logs: null` sat underneath that green gate for months.
+  
+  `apps/backend/src/__governance__/v1-unfillable-response-fields.spec.ts` closes the
+  escape. It reports a response key that is a bare `null` on **every path** of the
+  method that builds it, which is the discriminator that keeps it usable: a `null`
+  in one arm of a function that produces a real value in another is ordinary and
+  correct, and both surviving sites in this tree are exactly that shape.
+
+### Patch Changes
+
+- 4721b36: `assets.delete()` returns whether the public URL actually stopped serving, and `nexus asset
+  delete` says so.
+  
+  An asset is stored `public-read` and its `url` is the direct, unsigned object URL, so **the
+  stored object is what serves that URL** — nothing in a browser's request path consults the
+  row. Deleting one is therefore two operations: soft-delete the record, then reclaim the
+  object. The second is allowed to fail without failing the request, and the server has always
+  reported it as `objectRemoved`.
+  
+  Nothing could read it. This route was typed as the shared `DeleteResponse`, which declares
+  `{ id, deleted }` and nothing else, so `objectRemoved` was unreachable from typed code — and
+  the CLI discarded the whole response under a `--help` note promising in capitals that the URL
+  stops serving.
+  
+  **`assets.delete()` now returns `AssetDeleteResult`, not `DeleteResponse`.** A caller reading
+  `.id` or `.deleted` is unaffected; the new fields are `objectRemoved` and `url`.
+  
+  ```ts
+  const result = await client.assets.delete(assetId);
+  if (!result.objectRemoved) {
+    // the record is gone; the bytes are not
+    console.warn(`still public: ${result.url}`);
+  }
+  ```
+  
+  `objectRemoved: false` means a real storage failure — refused credentials, an outage,
+  throttling — because deleting an absent key counts as success at the storage layer. It never
+  means "the key had already gone".
+  
+  **A retry is not available, and the obvious one lies.** The record is already soft-deleted, so
+  a second `delete()` answers 404 `Asset not found` — which reads like confirmation the asset is
+  gone. `url` is returned for exactly this reason: it is read from the record the delete just
+  stamped, every later read filters it out, and on the failure branch it is the only thing left
+  that names what is still reachable.
+  
+  `nexus asset delete` prints both fields, so `--json` carries them, and writes a warning to
+  STDERR naming the URL when the object survived. The exit code stays 0: the request succeeded
+  and the record really is deleted, and `nexus --help` binds exit 1 to a failure carrying an
+  error document, which this is not.
+  
+  Also in the SDK: the contract-mirror gate now covers `Asset`, `AssetDeleteResult` and the
+  `GET /models` response. A resource method's declared return type is checked against nothing —
+  `request<T>` takes `T` from the call site — which is the mechanism that let this ship at all.
+  Those three pairs are now a compile error when they drift.
+- 8efa158: `permissions access` answers for a resource nobody has been granted anything on, and its
+  empty list now says who reaches the resource anyway.
+  
+  **Two observable changes, and the second is additive.**
+  
+  `nexus permissions access <type> <id>` used to answer `403 Access denied: 'viewer'
+  relation required` for any resource in your own organization that carried no grant row —
+  which, under the default OPEN visibility, is most of them. A CLI or SDK caller is always
+  on that branch: an API key resolves as its own subject with `isOrgAdmin: false`
+  unconditionally, so being an organization admin never helped. The same call now returns
+  the access list. Three states that used to render as one refusal are now distinct:
+  
+  - the resource is not in your organization → `404` (the same 404 as an id that exists
+    nowhere, so it discloses nothing about another tenant)
+  - the resource is closed to you → `403`, unchanged
+  - anything else → `200`
+  
+  **`ListResourceAccessResponse` gains a required `unlistedReach` field.** A grant row names
+  a resource, and two things reach a resource without naming it: an open resource type,
+  which reaches it through no row at all, and a wildcard grant, whose row names the resource
+  TYPE. Both leave `permissions` empty, so an empty array on its own is not an answer to
+  "who can reach this?" — and that question is the whole reason the endpoint exists.
+  
+  ```ts
+  const { permissions, unlistedReach } = await client.permissions.listResourceAccess("agent", id);
+  // "organization"    — no grant names it and the type is open: EVERY member reaches it
+  // "type_wide_grant" — a grant on this type's wildcard reaches it; that row is not listed
+  // "nobody"          — only the listed grants reach it
+  ```
+  
+  It is required rather than optional because an absent key reads as "nothing else reaches
+  it", which is the exact wrong answer the field exists to prevent. A consumer that ignores
+  it behaves as before; one that reads `permissions.length === 0` as "unshared" was already
+  wrong and can now stop being.
+  
+  The CLI prints the reach as a `Reach:` line under the table, and under `--json` emits the
+  whole response as ONE document rather than the rows alone.
+
 ## 0.17.0
 ### Minor Changes
 

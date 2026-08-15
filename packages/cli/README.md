@@ -143,9 +143,15 @@ nexus auth login --profile personal --api-key nxs_xyz789
 #### Switch between profiles
 
 ```bash
-nexus auth switch work
-nexus auth switch personal
+nexus auth switch work                          # THIS MACHINE — every process reads it
+nexus auth switch work --here                   # this DIRECTORY (writes .nexusrc)
+eval "$(nexus auth switch work --session)"      # this SHELL (sets NEXUS_PROFILE)
 ```
+
+A plain `switch` rewrites one value in `~/.nexus-mcp/config.json` that every process on the
+machine reads, so it repoints other terminals and agent sessions that have no binding of their
+own — silently, mid-task. Use `--here` or `--session` to work on two organizations at once;
+both outrank the machine-wide value and neither can be moved by another session's `switch`.
 
 #### List all profiles
 
@@ -162,7 +168,7 @@ Create a `.nexusrc` file in your project directory so the CLI automatically uses
 
 ```bash
 cd ~/projects/acme
-nexus auth pin work
+nexus auth pin work            # same file as: nexus auth switch work --here
 # Creates .nexusrc with { "profile": "work" }
 
 cd ~/projects/startup
@@ -180,14 +186,15 @@ nexus auth status
 
 When determining which profile to use, the CLI checks (first match wins):
 
-| Priority | Source                                  | Example                                    |
-| -------- | --------------------------------------- | ------------------------------------------ |
-| 1        | `--api-key` flag or `NEXUS_API_KEY` env | Bypasses profiles entirely                 |
-| 2        | `--profile` flag                        | `nexus agent list --profile work`          |
-| 3        | `NEXUS_PROFILE` env var                 | `export NEXUS_PROFILE=work`                |
-| 4        | `.nexusrc` file                         | Walks up directory tree to find `.nexusrc` |
-| 5        | Active profile                          | Set by `nexus auth switch`                 |
-| 6        | `"default"` profile                     | Fallback                                   |
+| Priority | Source                  | Example                                                      |
+| -------- | ----------------------- | ------------------------------------------------------------ |
+| 1        | `--api-key` flag        | Bypasses profiles entirely                                   |
+| 2        | `--profile` flag        | `nexus agent list --profile work` — beats the env vars below |
+| 3        | `NEXUS_API_KEY` env var | this shell — bypasses profiles entirely                      |
+| 4        | `NEXUS_PROFILE` env var | this shell — `auth switch <n> --session`                     |
+| 5        | `.nexusrc` file         | this directory — `auth switch <n> --here`                    |
+| 6        | Active profile          | this machine — `auth switch <n>`                             |
+| 7        | `"default"` profile     | Fallback                                                     |
 
 #### Remove profiles
 
@@ -268,14 +275,15 @@ These flags are available on every command:
 
 ### Environment Variables
 
-| Variable               | Description                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `NEXUS_API_KEY`        | API key (used when `--api-key` flag and config file are absent)                            |
-| `NEXUS_BASE_URL`       | API base URL override                                                                      |
-| `NEXUS_ENV`            | Environment name: `production` (default) or `dev`                                          |
-| `NEXUS_PROFILE`        | Profile name override (same as `--profile` flag)                                           |
-| `NEXUS_NO_AUTO_UPDATE` | Disable automatic self-updates (same as `--no-auto-update`; also implied when `CI` is set) |
-| `NO_COLOR`             | Disable all color output ([no-color.org](https://no-color.org))                            |
+| Variable                | Description                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `NEXUS_API_KEY`         | API key (used when `--api-key` flag and config file are absent)                             |
+| `NEXUS_BASE_URL`        | API base URL override                                                                       |
+| `NEXUS_ENV`             | Environment name: `production` (default) or `dev`                                           |
+| `NEXUS_PROFILE`         | Profile name override for this shell only (same as `--profile` flag)                        |
+| `NEXUS_ORGANIZATION_ID` | Organization a cross-org token acts on, for this shell only; outranks the profile's `orgId` |
+| `NEXUS_NO_AUTO_UPDATE`  | Disable automatic self-updates (same as `--no-auto-update`; also implied when `CI` is set)  |
+| `NO_COLOR`              | Disable all color output ([no-color.org](https://no-color.org))                             |
 
 ---
 

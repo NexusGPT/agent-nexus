@@ -1979,3 +1979,137 @@ export interface RoleTaskDutiesBody {
   /** Every duty this task should tick afterwards. The same id twice is refused. */
   responsibilityIds: string[];
 }
+
+// ============================================================================
+// BOARDS — the Overview lanes, and where each card sits
+// ============================================================================
+
+/**
+ * The kinds of card that have somewhere to store a placement.
+ *
+ * ⚠️ LOWERCASE, unlike the SCREAMING_CASE resource types elsewhere on this API.
+ * The Overview screen paints six more node kinds that have nowhere to store a
+ * placement; naming one of those is a 400.
+ */
+export type RoleBoardCardType =
+  | "agent"
+  | "workflow"
+  | "deployment"
+  | "ai_task"
+  | "document_template"
+  | "collection"
+  | "workspace"
+  | "external_tool";
+
+/**
+ * The palette a lane can be painted in.
+ *
+ * ⚠️ A STORED ROW MAY HOLD A TOKEN THAT IS NO LONGER IN THIS UNION. The palette
+ * grows and shrinks by editing an array rather than a database enum, and the
+ * column's CHECK is looser than the write schema — so a board created under an
+ * accent that was later retired still reads back with it. Do not switch
+ * exhaustively on this without a fallback branch.
+ */
+export type RoleBoardAccent =
+  | "slate"
+  | "indigo"
+  | "violet"
+  | "sky"
+  | "teal"
+  | "emerald"
+  | "amber"
+  | "rose"
+  | "surface_base"
+  | "surface_secondary"
+  | "surface_contrast";
+
+/** One lane on a Role's Overview screen. */
+export interface RoleBoard {
+  /** Board UUID. */
+  id: string;
+  /** The Role this lane belongs to. */
+  roleId: string;
+  name: string;
+  /** A palette key, not a CSS colour. */
+  accent: RoleBoardAccent;
+  /**
+   * 0-based, and ordered by `(position, createdAt, id)` — a TOTAL order, which is
+   * why `position` carries no unique constraint. A duplicate position is untidy,
+   * never ambiguous.
+   */
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One card, and where it sits.
+ *
+ * 🚨 `boardId: null` IS THE UNGROUPED LANE, not a missing value. Everything a
+ * Role holds starts there.
+ *
+ * PLACEMENT ONLY — no name, no status, no icon, and no position WITHIN the lane.
+ * The screen already holds that metadata from the reads that populate the Role's
+ * tabs, and re-serving it here would be a second source of truth that drifts the
+ * first time either side gains a field.
+ */
+export interface RoleBoardCard {
+  cardType: RoleBoardCardType;
+  /**
+   * The card's own id. A uuid for most kinds — but `RoleResource.resourceId` is
+   * a loose TEXT column whose legacy rows may hold any string, so do not assume
+   * a uuid when parsing.
+   */
+  cardId: string;
+  /** The lane it sits in, or `null` for Ungrouped. */
+  boardId: string | null;
+}
+
+/** Every lane, and every card's placement. */
+export interface RoleBoardsView {
+  boards: RoleBoard[];
+  cards: RoleBoardCard[];
+}
+
+/** Create a lane. `position` is deliberately not accepted — a new board is appended. */
+export interface RoleBoardCreateBody {
+  name: string;
+  /**
+   * A palette key. Defaults server-side when omitted.
+   *
+   * The CLOSED union on the way IN, unlike the same field on {@link RoleBoard},
+   * and the asymmetry is the contract rather than an oversight: the write schema
+   * refuses any token outside today's palette, while a row written before a token
+   * was retired still READS BACK with it. Loose on the read, exact on the write.
+   */
+  accent?: RoleBoardAccent;
+}
+
+/** Rename, recolour, or both. An empty body is a no-op rather than an error. */
+export interface RoleBoardUpdateBody {
+  name?: string;
+  /** Closed on the way in — see {@link RoleBoardCreateBody.accent}. */
+  accent?: RoleBoardAccent;
+}
+
+/**
+ * The WHOLE list, in the order you want.
+ *
+ * Must equal the Role's current board set or the write is a 409. A repeated id
+ * is a 400.
+ */
+export interface RoleBoardReorderBody {
+  boardIds: string[];
+}
+
+/** `null` moves the card to Ungrouped — a destination, not an omission. */
+export interface RoleBoardCardMoveBody {
+  boardId: string | null;
+}
+
+/** What a board delete answers. */
+export interface RoleBoardDeleted {
+  deleted: true;
+  /** How many cards fell back to the Ungrouped lane. */
+  cardsUnplaced: number;
+}

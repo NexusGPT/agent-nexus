@@ -45,6 +45,15 @@ Examples:
 Notes:
   --credential-id IS REQUIRED. Cards are scoped to one credential; there is no
   org-wide listing on this command.
+  IT TAKES THE UNIFIED ID, FROM "nexus credential list". The ID column of
+  "nexus tool credentials <tool-id>" is a DIFFERENT id space — tool-scoped, and
+  only "tool delete-credential" accepts it. Both are UUIDs, so the wrong one is
+  well-formed and reaches the server.
+  AN ID THAT NAMES NO CREDENTIAL IS REFUSED, not answered with an empty list.
+  That is what makes zero rows a fact about the credential rather than about
+  your paste. If the id you passed is the tool-scoped one for a real account,
+  the refusal names the unified id to use instead — so a refusal here is not
+  evidence the credential is gone.
   THE MASTER CARD IS CREATED WITH THE CREDENTIAL, BY THE PLATFORM. You never
   make it and there is no command that would. So a brand-new credential already
   lists exactly one card — one row is the baseline here, not zero.

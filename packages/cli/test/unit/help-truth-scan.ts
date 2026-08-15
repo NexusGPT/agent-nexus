@@ -496,6 +496,16 @@ const CONTRACT_PREFIX = "/public/v1";
  * a `:var` are both read as "one variable segment". EXACT, deliberately: an
  * earlier prefix-tolerant version matched three commands onto a sibling route's
  * descriptor and judged their examples against the wrong schema.
+ *
+ * ⚠️ A SEGMENT CAN CARRY A TRAILING INTERPOLATION THAT IS NOT PART OF THE PATH.
+ * `skills.ts` sends `` `/tools/${id}/initiate-client-credentials${query}` ``, so
+ * the last segment reads `initiate-client-credentials${query}` — not a variable
+ * (it does not START with `${`) and not equal to the contract's literal either.
+ * The match failed and the command was reported as having NO DESCRIPTOR, when
+ * `/public/v1/tools/:toolId/initiate-client-credentials` had existed all along.
+ * {@link pathLiteral} takes the part before the first `${`, which is the real
+ * segment. A segment that IS a slot is untouched, so `${id}${query}` still reads
+ * as one variable and still matches a `:var`.
  */
 export function descriptorFor(
   index: Map<string, Descriptor>,
@@ -512,11 +522,22 @@ export function descriptorFor(
       const g = got[i]!;
       const wVar = w.startsWith("${") || w.startsWith(":");
       const gVar = g.startsWith(":");
-      ok = wVar || gVar ? wVar && gVar : w === g;
+      ok = wVar || gVar ? wVar && gVar : pathLiteral(w) === g;
     }
     if (ok) return d;
   }
   return undefined;
+}
+
+/**
+ * The literal part of a path segment, dropping a trailing `${…}` interpolation.
+ *
+ * Only reached for a segment that is NOT itself a slot, so this cannot turn a
+ * variable into a literal — `descriptorFor` has already decided that above.
+ */
+function pathLiteral(segment: string): string {
+  const at = segment.indexOf("${");
+  return at === -1 ? segment : segment.slice(0, at);
 }
 
 /**

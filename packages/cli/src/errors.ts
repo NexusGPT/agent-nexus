@@ -35,6 +35,27 @@ const NEXT_STEPS_BY_CODE: Record<string, string> = {
     "",
     "Or host the code yourself — no cluster needed, the build clones your remote:",
     "  nexus vibe app provision-repo <appId> --git-url https://github.com/acme/svc.git"
+  ].join("\n"),
+
+  // The id names a real connected account under its OTHER name. Two commands
+  // print an `ID` column for one account — "tool credentials" the tool-scoped
+  // `ToolCredentials.id`, "credential list" the unified `Credential.id` — both
+  // UUIDs, and neither namespace accepts the other's. The API's message already
+  // names the unified id; what belongs here is the reason the two exist and
+  // which command prints which, because a bare 404 on the pre-delete check
+  // "credential delete --help" mandates otherwise reads as "already deleted".
+  // Continuation lines carry their own two spaces: `printCliError` indents the
+  // FIRST line of a hint and no others, so a multi-line block that does not
+  // indent itself renders ragged against the message above it.
+  CREDENTIAL_ID_IS_TOOL_SCOPED: [
+    'That id is the one "nexus tool credentials <tool-id>" prints. It is TOOL-SCOPED,',
+    '  and only "nexus tool delete-credential" takes it.',
+    "",
+    "  A refusal here is NOT proof the credential is gone — the same account is",
+    "  alive under the unified id the message above names.",
+    "",
+    '  "credential" and "access-card" take that unified id. List them with:',
+    "    nexus credential list"
   ].join("\n")
 };
 
@@ -358,7 +379,11 @@ export function handleError(err: unknown): number {
     if (err.status === 404) {
       printCliError(
         `Not found: ${err.message}`,
-        'Run "nexus <resource> list" to see available resources.',
+        // A 404 the API can explain gets the explanation. The generic line is
+        // the fallback it always was — it names no real command, so a code that
+        // CAN name one must outrank it: a "not found" that is really "wrong id
+        // space" sends the reader to re-list the resource they already listed.
+        nextStepsFor(err) ?? 'Run "nexus <resource> list" to see available resources.',
         err.code
       );
     } else if (err.status === 422 || err.code === "VALIDATION_ERROR") {

@@ -227,6 +227,13 @@ Notes:
   remove, and every Vibe app grant those cards carry.
   Run "nexus access-card list --credential-id <id>" FIRST.
 
+  THAT CHECK IS ONLY EVIDENCE IF IT ANSWERED. It REFUSES an id naming no
+  credential rather than printing an empty list, so "no rows" is a fact about
+  the credential and not about your paste. Read a refusal as "wrong id", never
+  as "nothing to lose" — and never as "already deleted": the same 404 answers
+  the TOOL-SCOPED id from "nexus tool credentials", which names a live account
+  in the other id space, and says so when it can.
+
   NOTHING REPOINTS WHAT NAMES IT. Agent tool configs, workflow nodes and
   deployments store the credential id as plain data with no foreign key, so they
   keep the dead id and fail at call time. Nothing here reports them.

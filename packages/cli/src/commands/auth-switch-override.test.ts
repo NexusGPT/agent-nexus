@@ -4,17 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedProfile } from "../config";
 
 // ── Mock the config module ────────────────────────────────────────────────
-// switch's action only calls setActiveProfile, getProfile, and resolveProfile;
-// the rest are referenced by other (unexercised) auth subcommands, so leaving
-// them undefined is harmless here.
+// The machine-wide switch calls setActiveProfile, getProfile, resolveProfile and
+// listProfiles (to decide whether there is a second profile to clobber); the
+// rest are referenced by other (unexercised) auth subcommands, so leaving them
+// undefined is harmless here.
 const mockSetActiveProfile = vi.fn();
 const mockGetProfile = vi.fn();
 const mockResolveProfile = vi.fn();
+const mockListProfiles = vi.fn();
 
 vi.mock("../config", () => ({
   setActiveProfile: (...a: unknown[]) => mockSetActiveProfile(...a),
   getProfile: (...a: unknown[]) => mockGetProfile(...a),
   resolveProfile: (...a: unknown[]) => mockResolveProfile(...a),
+  listProfiles: (...a: unknown[]) => mockListProfiles(...a),
   resolveBaseUrl: () => "https://api.nexusgpt.io"
 }));
 
@@ -70,6 +73,10 @@ describe("NEX-2361: auth switch warns when an override makes it a no-op", () => 
     vi.clearAllMocks();
     process.exitCode = undefined;
     mockGetProfile.mockReturnValue({ apiKey: "nxs_b", orgName: "Org B" });
+    mockListProfiles.mockReturnValue({
+      profiles: { "org-a": { apiKey: "nxs_a" }, "org-b": { apiKey: "nxs_b" } },
+      activeProfile: "org-b"
+    });
     delete process.env.NEXUS_API_KEY;
     delete process.env.NEXUS_PROFILE;
   });

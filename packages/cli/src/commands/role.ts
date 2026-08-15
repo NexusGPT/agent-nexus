@@ -1,4 +1,6 @@
 import type {
+  RoleBoardAccent,
+  RoleBoardCardType,
   AttachRoleSystemBody,
   CreateRoleBody,
   CreateRolePermissionSetBody,
@@ -53,6 +55,15 @@ import {
   ROLE_JOB_TYPES_UPDATE_CONTRACT,
   ROLES_ATTACH_RESOURCE__BODY_RESOURCE_TYPE,
   ROLES_ATTACH_RESOURCE_CONTRACT,
+  ROLES_CREATE_BOARD__BODY_ACCENT,
+  ROLES_CREATE_BOARD_CONTRACT,
+  ROLES_DELETE_BOARD_CONTRACT,
+  ROLES_LIST_BOARDS_CONTRACT,
+  ROLES_MOVE_BOARD_CARD__PATH_VARS_CARD_TYPE,
+  ROLES_MOVE_BOARD_CARD_CONTRACT,
+  ROLES_REORDER_BOARDS_CONTRACT,
+  ROLES_UPDATE_BOARD__BODY_ACCENT,
+  ROLES_UPDATE_BOARD_CONTRACT,
   ROLES_CREATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
   ROLES_CREATE_PERMISSION_SET__BODY_RESOURCE_RELATION,
   ROLES_CREATE_PERMISSION_SET_CONTRACT,
@@ -3199,6 +3210,275 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
       }
     });
 
+  // ── boards ────────────────────────────────────────────────────────────────
+  //
+  // A Role's boards are how its systems are ORGANISED. Everything the Role holds
+  // lands in Ungrouped until something places it, so a Role built entirely from
+  // the terminal read as one undifferentiated pile until these verbs existed.
+  const BOARDS_ARE_A_CANVAS = `
+  A BOARD CARRIES NO PERMISSION AND NO EXECUTION MEANING. Moving a card changes
+  where it is DRAWN on the Overview screen and changes nothing about what the
+  Role can reach or what runs. Use "nexus role attach"/"detach" for holdings and
+  the permission-set verbs for authority.
+  Needs role_boards:read to look and role_boards:write to change, plus the
+  Role's own board.view / board.manage capability — a scope alone is not enough.`;
+
+  const boards = role
+    .command("boards")
+    .description("List a Role's Overview lanes and where each card sits")
+    .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role boards "Support agent"
+  $ nexus role boards "Support agent" --json
+
+Notes:
+  A CARD IN NO LANE IS THE UNGROUPED LANE, and comes back with boardId null
+  rather than being left out — a card missing from this payload does not exist,
+  which is a different fact from a card nobody has placed.
+  PLACEMENT ONLY. No names, statuses or icons: read those with "nexus role
+  systems" and join on the id.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const view = await client.roles.listBoards(await resolveRoleId(client, ref));
+
+        if (isJsonMode()) {
+          printRecord(view);
+          return;
+        }
+
+        printList(view.boards, undefined, [
+          { key: "id", label: "ID", width: 36 },
+          { key: "name", label: "NAME", width: 24 },
+          { key: "accent", label: "ACCENT", width: 18 },
+          { key: "position", label: "POS", width: 4 }
+        ]);
+        printList(view.cards, undefined, [
+          { key: "cardType", label: "KIND", width: 18 },
+          { key: "cardId", label: "CARD", width: 36 },
+          {
+            key: "boardId",
+            label: "LANE",
+            width: 36,
+            format: (v) => (v === null ? "Ungrouped" : String(v))
+          }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  const addBoard = role
+    .command("add-board")
+    .description("Append a lane to a Role's Overview")
+    .argument("<role>", "Role name or UUID")
+    .requiredOption("--name <name>", "The lane's name")
+    .addOption(
+      enumOption(
+        "--accent <accent>",
+        "A palette token; the server picks one when omitted",
+        ROLES_CREATE_BOARD__BODY_ACCENT
+      )
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role add-board "Support agent" --name "Automation"
+  $ nexus role add-board "Support agent" --name "Billing" --accent teal
+
+Notes:
+  APPENDED, ALWAYS. There is no --position: ordering is asserted over the whole
+  list by "nexus role reorder-boards", and a create that named its own position
+  would be a second way to order that cannot renumber its neighbours.
+  --accent IS A PALETTE TOKEN, not a CSS colour: slate, indigo, violet, sky,
+  teal, emerald, amber, rose, surface_base, surface_secondary, surface_contrast.
+  Anything else is a 400.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const board = await client.roles.createBoard(await resolveRoleId(client, ref), {
+          name: String(opts.name),
+          ...(opts.accent === undefined ? {} : { accent: opts.accent as RoleBoardAccent })
+        });
+
+        printSuccess("Board created.", { id: board.id, name: board.name, accent: board.accent });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  const reorderBoards = role
+    .command("reorder-boards")
+    .description("Set the order of every one of a Role's lanes")
+    .argument("<role>", "Role name or UUID")
+    .requiredOption("--board-ids <ids>", "EVERY board id, comma-separated, in the order you want")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role reorder-boards "Support agent" --board-ids 3b1f8e42-5c7a-4d19-9e60-2a4b6c8d0e13,7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44
+
+Notes:
+  THE LIST IS AN ASSERTION ABOUT ALL OF THEM, so send every board id, not the
+  ones you moved. A set that is not exactly the Role's current boards is a 409:
+  refetch with "nexus role boards" and retry. That refusal is the point — silently
+  renumbering a stale list would leave a board somebody else just created at a
+  position nobody chose, and report success.
+  A REPEATED ID IS A 400, not a 409, because no refetch fixes it.
+  Whitespace around the commas is trimmed and empty entries are dropped.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const view = await client.roles.reorderBoards(await resolveRoleId(client, ref), {
+          boardIds: parseIdList(String(opts.boardIds))
+        });
+
+        printSuccess("Boards reordered.", { boards: view.boards.length });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  const updateBoard = role
+    .command("update-board")
+    .description("Rename a lane, recolour it, or both")
+    .argument("<role>", "Role name or UUID")
+    .argument("<board-id>", "Board UUID")
+    .option("--name <name>", "New name")
+    .addOption(
+      enumOption("--accent <accent>", "New palette token", ROLES_UPDATE_BOARD__BODY_ACCENT)
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role update-board "Support agent" 3b1f8e42-5c7a-4d19-9e60-2a4b6c8d0e13 --name "Automation"
+  $ nexus role update-board "Support agent" 3b1f8e42-5c7a-4d19-9e60-2a4b6c8d0e13 --accent rose
+
+Notes:
+  BOTH FLAGS ARE OPTIONAL and sending neither is a no-op rather than an error —
+  this is a PATCH, so it changes what you named and leaves the rest.
+  --accent takes the same palette tokens "add-board" lists.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string, boardId: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const board = await client.roles.updateBoard(await resolveRoleId(client, ref), boardId, {
+          ...(opts.name === undefined ? {} : { name: String(opts.name) }),
+          ...(opts.accent === undefined ? {} : { accent: opts.accent as RoleBoardAccent })
+        });
+
+        printSuccess("Board updated.", { id: board.id, name: board.name, accent: board.accent });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  const removeBoard = role
+    .command("remove-board")
+    .description("Delete a lane; its cards fall back to Ungrouped")
+    .argument("<role>", "Role name or UUID")
+    .argument("<board-id>", "Board UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role remove-board "Support agent" 3b1f8e42-5c7a-4d19-9e60-2a4b6c8d0e13
+
+Notes:
+  DELETES THE LANE, NEVER THE CARDS. Every card on it moves to Ungrouped and
+  nothing the Role holds is removed or stopped. cardsUnplaced counts how many
+  moved, so an empty lane and a lane holding nine systems do not answer alike.
+  THE PLACEMENTS ARE GONE THOUGH. Recreating the board does not put the cards
+  back — that is "nexus role move-card", one card at a time.
+  A card placed on it while the delete runs is a 409 and nothing changes.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string, boardId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.roles.deleteBoard(await resolveRoleId(client, ref), boardId);
+
+        printSuccess("Board deleted.", { cardsUnplaced: result.cardsUnplaced });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  const moveCard = role
+    .command("move-card")
+    .description("Move one card into a lane, or out of every lane")
+    .argument("<role>", "Role name or UUID")
+    .addArgument(
+      enumArgument(
+        "<card-type>",
+        "The kind of card — LOWERCASE, e.g. agent, workflow, collection",
+        ROLES_MOVE_BOARD_CARD__PATH_VARS_CARD_TYPE
+      )
+    )
+    .argument("<card-id>", "The card's own id")
+    .option("--board-id <id>", "Destination lane")
+    .option("--unplace", "Move it to Ungrouped instead")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role move-card "Support agent" agent 7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44 --board-id 3b1f8e42-5c7a-4d19-9e60-2a4b6c8d0e13
+  $ nexus role move-card "Support agent" agent 7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44 --unplace
+
+Notes:
+  EXACTLY ONE OF --board-id OR --unplace. Ungrouped is a real destination rather
+  than a missing value, so there is no "send nothing to unplace it" — that would
+  make a forgotten flag look like a deliberate move.
+  <card-type> IS LOWERCASE, unlike the SCREAMING_CASE resource types everywhere
+  else on this API: agent, workflow, deployment, ai_task, document_template,
+  collection, workspace, external_tool. The Overview screen paints six more kinds
+  that have nowhere to store a placement, and naming one is a 400 rather than a
+  success for a move that did not persist.
+  <card-id> is a UUID for most kinds but NOT all — a legacy owned-resource id may
+  be any string, so this command does not check its shape.
+${BOARDS_ARE_A_CANVAS}`
+    )
+    .action(async (ref: string, cardType: string, cardId: string, opts) => {
+      try {
+        const boardId = opts.boardId === undefined ? undefined : String(opts.boardId);
+        const unplace = opts.unplace === true;
+        if (boardId === undefined && !unplace) {
+          throw new Error("Send --board-id <id>, or --unplace to move it to Ungrouped");
+        }
+        if (boardId !== undefined && unplace) {
+          throw new Error("--board-id and --unplace ask for different destinations; send one");
+        }
+
+        const client = createClient(program.optsWithGlobals());
+        const card = await client.roles.moveBoardCard(
+          await resolveRoleId(client, ref),
+          cardType as RoleBoardCardType,
+          cardId,
+          { boardId: unplace ? null : (boardId as string) }
+        );
+
+        printSuccess("Card moved.", {
+          cardType: card.cardType,
+          cardId: card.cardId,
+          boardId: card.boardId ?? absent("Ungrouped")
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // Bound LAST, after every option exists.
   //
   // `create-job-type` and `update-job-type` take the WHOLE job type as one JSON
@@ -3225,6 +3505,12 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
   bindCommand(reviewCreation, ROLE_CREATION_REQUESTS_REVIEW_CONTRACT);
   bindCommand(deletionRequests, ROLE_DELETION_REQUESTS_LIST_CONTRACT);
   bindCommand(reviewDeletion, ROLE_DELETION_REQUESTS_REVIEW_CONTRACT);
+  bindCommand(boards, ROLES_LIST_BOARDS_CONTRACT);
+  bindCommand(addBoard, ROLES_CREATE_BOARD_CONTRACT);
+  bindCommand(reorderBoards, ROLES_REORDER_BOARDS_CONTRACT);
+  bindCommand(updateBoard, ROLES_UPDATE_BOARD_CONTRACT);
+  bindCommand(removeBoard, ROLES_DELETE_BOARD_CONTRACT);
+  bindCommand(moveCard, ROLES_MOVE_BOARD_CARD_CONTRACT);
   bindCommand(createJobType, ROLE_JOB_TYPES_CREATE_CONTRACT, JOB_TYPE_BODY_ONLY);
   bindCommand(updateJobType, ROLE_JOB_TYPES_UPDATE_CONTRACT, JOB_TYPE_BODY_ONLY);
 }

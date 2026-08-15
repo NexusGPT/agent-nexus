@@ -1,7 +1,12 @@
 import { NexusClient } from "@agent-nexus/sdk";
 import { InvalidArgumentError } from "commander";
 
-import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "./config";
+import {
+  resolveBaseUrl,
+  type ResolvedProfile,
+  resolveOrganization,
+  resolveProfile
+} from "./config";
 
 /**
  * A number that has been STATED to be in seconds.
@@ -130,7 +135,9 @@ export function createClient(opts?: {
 
   // Personal (cross-org) tokens act on the profile's selected org via the
   // organization-id header. An explicit NEXUS_ORGANIZATION_ID env wins (headless),
-  // then the profile's orgId. See NEX-2474.
+  // then the profile's orgId. See NEX-2474. The precedence itself lives in
+  // `resolveOrganization` so `auth status` reports the org this header will
+  // actually carry rather than a second opinion about it (NEX-2525).
   //
   // For an ORG-SCOPED key this header is accepted only while it names that key's
   // own org — which is the ordinary case, since `auth login` stores orgId from the
@@ -138,7 +145,7 @@ export function createClient(opts?: {
   // ORG_SCOPED_KEY_ORG_MISMATCH rather than answered from the key's own org, so
   // setting NEXUS_ORGANIZATION_ID to another tenant fails loudly instead of
   // returning the wrong tenant's rows (NEX-3175).
-  const organizationId = process.env.NEXUS_ORGANIZATION_ID || resolved.profile.orgId;
+  const { organizationId } = resolveOrganization(resolved.profile);
 
   return new NexusClient({
     apiKey: opts?.apiKey ?? resolved.profile.apiKey,

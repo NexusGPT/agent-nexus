@@ -1,3 +1,17 @@
+/**
+ * Every PUBLIC resource, and nothing else.
+ *
+ * `../index.ts` re-exports this barrel wholesale, so a class listed here is part
+ * of the package's public surface and a class absent from here is not. That is
+ * the whole mechanism: membership is decided once, in this file.
+ *
+ * 🚨 `BaseResource` is deliberately NOT here. It is the abstract base every
+ * resource extends, and every one of them imports it from `./base-resource`
+ * directly — no file in this package has ever imported it from this barrel. It
+ * used to be listed here and omitted from the root, which made "withheld" and
+ * "forgotten" look identical; withholding it by leaving it out of the barrel
+ * says which one it is, and cannot be undone by someone tidying a list.
+ */
 export { AccessCardsResource } from "./access-cards";
 export { AgentCollectionsResource } from "./agent-collections";
 export { AgentSkillsResource } from "./agent-skills";
@@ -6,7 +20,6 @@ export { AgentsResource } from "./agents";
 export { AnalyticsResource } from "./analytics";
 export { ApiKeyConnectionsResource } from "./api-key-connections";
 export { AssetsResource } from "./assets";
-export { BaseResource } from "./base-resource";
 export { ChannelsResource } from "./channels";
 export { CloudImportsResource } from "./cloud-imports";
 export { ConversationsResource } from "./conversations";

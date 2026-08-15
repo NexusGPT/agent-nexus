@@ -12,40 +12,24 @@ export {
 } from "./errors";
 
 // Resources
-export {
-  AccessCardsResource,
-  AgentCollectionsResource,
-  AgentSkillsResource,
-  AgentsResource,
-  AgentToolsResource,
-  AnalyticsResource,
-  ApiKeyConnectionsResource,
-  AssetsResource,
-  CloudImportsResource,
-  ConversationsResource,
-  CredentialsResource,
-  DeploymentFoldersResource,
-  DeploymentsResource,
-  DocumentsResource,
-  DocumentTemplateFoldersResource,
-  EmulatorResource,
-  EvaluationsResource,
-  FoldersResource,
-  HtmlMessageTemplatesResource,
-  ModelsResource,
-  PermissionsResource,
-  PromptAssistantResource,
-  RolesResource,
-  SkillsResource,
-  TicketsResource,
-  ToolConnectionResource,
-  ToolDiscoveryResource,
-  UserGroupsResource,
-  VersionsResource,
-  WorkflowExecutionsResource,
-  WorkflowsResource,
-  WorkspacesResource
-} from "./resources";
+/**
+ * DERIVED, never restated.
+ *
+ * This was a hand-maintained list of 32 names against the 40 the resources
+ * barrel declares, and the 8 it omitted were not private — `CustomersResource`,
+ * `MeResource` and six others were reachable through `client.customers` and
+ * unnameable by anyone wanting to construct one over a custom transport, write a
+ * typed double against it, or `instanceof` it.
+ *
+ * `export *` cannot drift. It is the same fix, and the same reasoning, as the
+ * `export type * from "./types"` at the foot of this file — that one replaced a
+ * list of 208 names against 329.
+ *
+ * What decides membership is now `./resources` itself: a class it exports is
+ * public, a class it does not is not. `BaseResource` is the one deliberate
+ * exclusion and its header says so.
+ */
+export * from "./resources";
 
 // HTTP client (for advanced usage)
 export type { HttpClientOptions, RequestOptions } from "./http-client";

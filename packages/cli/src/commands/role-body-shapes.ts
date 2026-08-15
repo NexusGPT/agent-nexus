@@ -449,6 +449,10 @@ export const ROLE_NAMESPACE_AREAS: ReadonlyArray<{
     ]
   },
   {
+    label: "THE OVERVIEW",
+    verbs: ["boards", "add-board", "reorder-boards", "update-board", "remove-board", "move-card"]
+  },
+  {
     label: "REQUESTS",
     verbs: [
       "governance",

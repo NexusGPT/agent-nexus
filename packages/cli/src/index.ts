@@ -291,6 +291,31 @@ export function buildRootProgram(version: string = VERSION): Command {
     "nexus auth use-org <orgId>"; an org-scoped key reaches exactly one org by
     construction, so switch profile instead.
 
+  WHICH PROFILE A COMMAND USES, AND WHY IT CAN CHANGE UNDER YOU
+    Resolution, highest first — each level is checked only when the ones above it
+    are absent:
+      1  --api-key <key>            this invocation only; uses no profile at all
+      2  --profile <name>           this invocation only
+      3  NEXUS_API_KEY              this shell; uses no profile at all
+      4  NEXUS_PROFILE              this shell     — nexus auth switch <n> --session
+      5  .nexusrc                   this directory — nexus auth switch <n> --here
+      6  active profile             THIS MACHINE   — nexus auth switch <n>
+      7  the profile named "default"
+    AN EXPLICIT --profile OUTRANKS AN EXPORTED NEXUS_API_KEY, which is why it is
+    the reliable per-command escape hatch: 2 beats 3, so the named profile's key
+    is used even in a shell that exported one. Nothing else outranks NEXUS_API_KEY
+    — with it set, levels 4-7 are not consulted at all.
+    LEVEL 6 IS SHARED BY EVERY PROCESS ON THE MACHINE. A plain "auth switch" in
+    one terminal repoints every other session that has no binding of its own,
+    mid-task and without printing anything there — reads answer from the other
+    organization, and writes LAND in it. Working two organizations at once means
+    binding each session at level 4 or 5, which are per-shell and per-directory
+    and cannot collide.
+    The organization is a SECOND resolution and does not follow the profile: on a
+    cross-org token it is NEXUS_ORGANIZATION_ID (this shell), else the orgId saved
+    on the profile by "auth use-org" (every session on the machine).
+    "nexus auth status" names the level in force, and the org with it.
+
   Tip: Run "nexus docs" for full documentation, gotchas, and recipes.
        Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).
   `

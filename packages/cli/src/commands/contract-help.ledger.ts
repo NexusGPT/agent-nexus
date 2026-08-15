@@ -226,8 +226,14 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "RoleJobTypesUpdate",
       "RolesAttachResource",
       "RolesDetachResource",
+      "RolesCreateBoard",
       "RolesCreatePermissionSet",
+      "RolesDeleteBoard",
       "RolesListAccessRequests",
+      "RolesListBoards",
+      "RolesMoveBoardCard",
+      "RolesReorderBoards",
+      "RolesUpdateBoard",
       "RolesUpdatePermissionSet",
       "RolesUpsertMember"
     ]

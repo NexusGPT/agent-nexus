@@ -62,6 +62,46 @@ describe("handleError next steps", () => {
     expect(output).toContain("name is already taken");
     expect(output).not.toContain("nexus vibe cluster provision");
   });
+
+  /**
+   * NEX-3715 — the 404 branch reads the table too.
+   *
+   * `access-card list --credential-id` is the pre-delete check `credential
+   * delete --help` mandates, and the id a caller predictably pastes into it is
+   * the TOOL-SCOPED one `nexus tool credentials` prints. Both ids are UUIDs and
+   * both columns are headed `ID`. The route refuses that paste 404, correctly —
+   * and the generic 404 line, "Run nexus <resource> list", sends the reader to
+   * re-list the resource they already listed, so the refusal reads as "this
+   * credential is gone" for an account that is alive under its other id.
+   */
+  it("explains a 404 whose real cause is the OTHER credential id space", () => {
+    const { exitCode, output } = capture(
+      new NexusApiError(
+        "CREDENTIAL_ID_IS_TOOL_SCOPED",
+        "Credential not found. '9f1b6a52-5f7e-4a2b-8d3c-1e4f7a90b2d5' is a tool-scoped credential id (the id \"tool credentials\" lists), not a unified credential id. The unified id for the same connected account is '0b7f1f4c-2c3a-4f2e-9a1d-6c9f0d5b8e21' — access cards are addressed by that one.",
+        404
+      )
+    );
+
+    expect(exitCode).toBe(1);
+    // The API's sentence still leads, and it is the half that names the id.
+    expect(output).toContain("0b7f1f4c-2c3a-4f2e-9a1d-6c9f0d5b8e21");
+    // What the terminal adds: which command prints which id.
+    expect(output).toContain("nexus credential list");
+    // And the conclusion this 404 must NOT be allowed to support.
+    expect(output).toContain("NOT proof the credential is gone");
+    // The generic line is displaced, not printed beside it.
+    expect(output).not.toContain("nexus <resource> list");
+  });
+
+  it("leaves every other 404 on the generic line", () => {
+    // The next-step table outranks the generic hint; it must not replace it for
+    // the 404s that have no entry.
+    const { output } = capture(new NexusApiError("AGENT_NOT_FOUND", "gone", 404));
+
+    expect(output).toContain("nexus <resource> list");
+    expect(output).not.toContain("nexus credential list");
+  });
 });
 
 describe("NEX-2760: client-side timeout vs unreachable API", () => {

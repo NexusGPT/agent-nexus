@@ -18,6 +18,15 @@ import type {
   RoleAccessRequestsResponse,
   RoleAutomationSettings,
   RoleAutomationSettingsBody,
+  RoleBoard,
+  RoleBoardCard,
+  RoleBoardCardMoveBody,
+  RoleBoardCardType,
+  RoleBoardCreateBody,
+  RoleBoardDeleted,
+  RoleBoardReorderBody,
+  RoleBoardsView,
+  RoleBoardUpdateBody,
   RoleCollectionGrantResponse,
   RoleCollectionGrantsResponse,
   RoleCoverage,
@@ -1172,6 +1181,132 @@ export class RolesResource extends BaseResource {
     return this.http.request<RoleTaskDutiesResponse>(
       "PUT",
       `/roles/${roleId}/tasks/${taskId}/duties`,
+      { body }
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // BOARDS — the Overview lanes, and where each card sits
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * The Role's lanes, in order, and where every card sits.
+   *
+   * A card in NO lane is the Ungrouped lane and comes back with `boardId: null`
+   * rather than being omitted — a card missing from this payload does not exist,
+   * which is a different fact from a card nobody has placed. Everything a Role
+   * holds lands in Ungrouped until something places it.
+   *
+   * `role_boards:read`, plus the `board.view` capability on the Role.
+   *
+   * @param roleId - Role UUID.
+   * @returns Every board, and every card's placement.
+   */
+  async listBoards(roleId: string): Promise<RoleBoardsView> {
+    return this.http.request<RoleBoardsView>("GET", `/roles/${roleId}/boards`);
+  }
+
+  /**
+   * Append a lane.
+   *
+   * `position` is NOT accepted: a new board goes at the end, and ordering is
+   * asserted over the whole list by {@link RolesResource.reorderBoards}. Two ways
+   * to order, one of which cannot renumber its neighbours, is what that refuses.
+   * `accent` is optional and defaults server-side.
+   *
+   * @param roleId - Role UUID.
+   * @param body - The lane's name, and optionally its accent.
+   * @returns The created board.
+   */
+  async createBoard(roleId: string, body: RoleBoardCreateBody): Promise<RoleBoard> {
+    return this.http.request<RoleBoard>("POST", `/roles/${roleId}/boards`, { body });
+  }
+
+  /**
+   * Set the order of every lane.
+   *
+   * 🚨 THE BODY ASSERTS THE WHOLE LIST, which is why it is a PUT on the
+   * collection. The set you send must EQUAL the Role's current boards or the
+   * write is refused **409** — silently renumbering a stale list would leave a
+   * board somebody else just created at a position nobody chose, and report
+   * success. Refetch and retry on a 409.
+   *
+   * A repeated id is a **400** instead: no refetch fixes it, so it is a caller
+   * bug rather than a race. The server renumbers from 0 in ONE statement, so the
+   * result is always exactly one of the orders submitted.
+   *
+   * @param roleId - Role UUID.
+   * @param body - Every board id, in the order you want.
+   * @returns The lanes in their new order, and the cards.
+   */
+  async reorderBoards(roleId: string, body: RoleBoardReorderBody): Promise<RoleBoardsView> {
+    return this.http.request<RoleBoardsView>("PUT", `/roles/${roleId}/boards`, { body });
+  }
+
+  /**
+   * Rename a lane, recolour it, or both.
+   *
+   * Both fields are optional and an empty body is a no-op rather than an error —
+   * PATCH means "change what I named".
+   *
+   * @param roleId - Role UUID.
+   * @param boardId - Board UUID.
+   * @param body - The fields to change.
+   * @returns The updated board.
+   */
+  async updateBoard(
+    roleId: string,
+    boardId: string,
+    body: RoleBoardUpdateBody
+  ): Promise<RoleBoard> {
+    return this.http.request<RoleBoard>("PATCH", `/roles/${roleId}/boards/${boardId}`, { body });
+  }
+
+  /**
+   * Delete a lane. Its cards fall back to Ungrouped.
+   *
+   * 🚨 DELETES THE LANE, NEVER THE CARDS. `cardsUnplaced` counts what fell, so an
+   * empty board and a board holding nine systems do not answer alike. A card
+   * placed on it mid-delete is a **409** and nothing changes.
+   *
+   * @param roleId - Role UUID.
+   * @param boardId - Board UUID.
+   * @returns `cardsUnplaced` — how many cards went to Ungrouped.
+   */
+  async deleteBoard(roleId: string, boardId: string): Promise<RoleBoardDeleted> {
+    return this.http.request<RoleBoardDeleted>("DELETE", `/roles/${roleId}/boards/${boardId}`);
+  }
+
+  /**
+   * Move one card into a lane, or out of every lane.
+   *
+   * `boardId: null` is a legal destination — the Ungrouped lane — so the field is
+   * REQUIRED and nullable rather than optional: `{}` must not silently unplace a
+   * card.
+   *
+   * ⚠️ `cardType` VALUES ARE LOWERCASE (`"agent"`, `"workflow"`, `"collection"`,
+   * `"workspace"`, `"external_tool"`, …), unlike the SCREAMING_CASE resource
+   * types elsewhere on this API. Only the eight kinds that have somewhere to
+   * store a placement are accepted; the Overview screen paints six more that do
+   * not, and naming one of those is a **400** rather than a 200 for a move that
+   * did not persist.
+   *
+   * @param roleId - Role UUID.
+   * @param cardType - The kind of card. Lowercase.
+   * @param cardId - The card's own id. A uuid for most kinds, but NOT all — a
+   *   legacy owned-resource id may be any string.
+   * @param body - `{ boardId }`, or `{ boardId: null }` to unplace.
+   * @returns The card and its new placement.
+   */
+  async moveBoardCard(
+    roleId: string,
+    cardType: RoleBoardCardType,
+    cardId: string,
+    body: RoleBoardCardMoveBody
+  ): Promise<RoleBoardCard> {
+    return this.http.request<RoleBoardCard>(
+      "PATCH",
+      `/roles/${roleId}/cards/${cardType}/${cardId}`,
       { body }
     );
   }

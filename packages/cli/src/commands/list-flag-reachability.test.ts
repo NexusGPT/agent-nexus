@@ -18,37 +18,39 @@
  * `collection list` runs the REAL `SkillsResource` over a fake transport, so
  * these cases read the query string the SDK actually builds.
  *
- * `customer list` cannot: `CustomersResource` is exported from
- * `packages/sdk/src/resources/index.ts` and is NOT re-exported from the package
- * root, so it is unreachable from a consumer — the same missing-declaration
- * shape this file is about, one layer up, and nine resources wide. Widening the
- * SDK's public surface is its own decision, so these cases use a plain double,
- * exactly as `customer-delete-confirmation.test.ts` beside them does.
+ * `customer list` now does the same. `CustomersResource` was exported from
+ * `packages/sdk/src/resources/index.ts` and missing from the package root, so it
+ * was unreachable from a consumer and these cases had to assert against a plain
+ * double — what the ACTION passed, rather than what reached the wire. NEX-3923
+ * closed that: the root derives from the barrel with `export *`, the class is
+ * nameable, and the double is gone.
  *
- * ⚠️ STATE WHAT THAT COSTS. The customer cases assert what the ACTION passes,
- * not what reaches the wire. That is a real gap and it is covered elsewhere
- * rather than pretended away: `CustomersResource.list` forwards its params
- * object to `query` verbatim, and the link that was actually broken — the
- * hand-written `ListCustomersParams`, which omitted `tag` — is a TYPE, so
- * `pnpm typecheck` is the gate for it. A runtime test could not have caught it
- * and a green one here would have implied otherwise.
+ * ⚠️ ONE LINK IS STILL NOT COVERED HERE, AND A GREEN RUN MUST NOT IMPLY IT IS.
+ * `CustomersResource.list` casts its params straight into `query`, so a field
+ * MISSING from the hand-written `ListCustomersParams` — which is what was
+ * actually broken for `tag` — is a TYPE error at the action that passes it, not
+ * a runtime difference here. `pnpm typecheck` is the only gate on that link. The
+ * cases below prove the value reaches the wire; they cannot prove the parameter
+ * is declarable.
  */
 
-import { SkillsResource } from "@agent-nexus/sdk";
+import { CustomersResource, SkillsResource } from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setJsonMode } from "../output";
 
-const { request, listCustomers } = vi.hoisted(() => ({
+const { request, requestPage } = vi.hoisted(() => ({
   request: vi.fn(),
-  listCustomers: vi.fn()
+  requestPage: vi.fn()
 }));
 
+// Both resources are the REAL classes over a fake transport. `list` on
+// customers goes through `requestPage`, not `request`, so the fake carries both.
 vi.mock("../client", () => ({
   createClient: () => ({
     skills: new SkillsResource({ request } as never),
-    customers: { list: listCustomers }
+    customers: new CustomersResource({ requestPage } as never)
   })
 }));
 
@@ -87,10 +89,14 @@ function sentQuery(): Record<string, unknown> {
   return options.query;
 }
 
-/** The params object the customer ACTION handed the resource. See the header. */
-function sentParams(): Record<string, unknown> {
-  const [params] = listCustomers.mock.calls[0] as [Record<string, unknown>];
-  return params;
+/** The query object the customers resource handed the transport. */
+function sentCustomerQuery(): Record<string, unknown> {
+  const [, , options] = requestPage.mock.calls[0] as [
+    string,
+    string,
+    { query: Record<string, unknown> }
+  ];
+  return options.query;
 }
 
 describe("collection list — --offset reaches the route's pagination", () => {
@@ -175,20 +181,20 @@ describe("collection list — the total prints in TABLE mode only", () => {
 
 describe("customer list — --tag reaches the route's tag filter", () => {
   beforeEach(() => {
-    listCustomers.mockReset();
-    listCustomers.mockResolvedValue({ data: [], meta: { total: 0, page: 1, hasMore: false } });
+    requestPage.mockReset();
+    requestPage.mockResolvedValue({ data: [], meta: { total: 0, page: 1, hasMore: false } });
   });
 
   it("sends the tag when the flag is given", async () => {
     await run(registerCustomerCommands, ["customer", "list", "--tag", "vip"]);
 
-    expect(sentParams()).toMatchObject({ tag: "vip" });
+    expect(sentCustomerQuery()).toMatchObject({ tag: "vip" });
   });
 
   it("sends NO tag when the flag is absent", async () => {
     await run(registerCustomerCommands, ["customer", "list"]);
 
-    expect(sentParams().tag).toBeUndefined();
+    expect(sentCustomerQuery().tag).toBeUndefined();
   });
 
   it("passes the tag through verbatim — the match is exact and case-sensitive", async () => {
@@ -197,7 +203,7 @@ describe("customer list — --tag reaches the route's tag filter", () => {
     // No lowercasing, no trimming, no splitting on a comma. The route asks
     // whether the stored array CONTAINS this string, so any normalisation here
     // would silently change which customers come back.
-    expect(sentParams().tag).toBe("VIP-eu");
+    expect(sentCustomerQuery().tag).toBe("VIP-eu");
   });
 
   it("still sends the flags it already reached, so --tag is additive", async () => {
@@ -212,7 +218,7 @@ describe("customer list — --tag reaches the route's tag filter", () => {
       "50"
     ]);
 
-    expect(sentParams()).toMatchObject({
+    expect(sentCustomerQuery()).toMatchObject({
       tag: "vip",
       channel: "WHATSAPP",
       limit: 50

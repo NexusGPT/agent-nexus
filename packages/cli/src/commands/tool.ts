@@ -171,6 +171,11 @@ Notes:
   THE ID COLUMN IS THE CREDENTIAL, NOT THE TOOL. The argument is the tool's id;
   every row's ID is a credential id, and that is what "tool execute" and
   "tool delete-credential" take.
+  THAT CREDENTIAL ID IS TOOL-SCOPED, AND IT IS NOT THE ONE "credential" AND
+  "access-card" TAKE. Those take the UNIFIED id for the same connected account,
+  and it comes from "nexus credential list". Both are UUIDs, so pasting this one
+  into "access-card list --credential-id" is well-formed and still wrong — it is
+  refused, and the refusal names the unified id to use instead.
   TYPE says how the credential was obtained — it is what tells a Pipedream OAuth
   account apart from a key entered by hand, which matters because only one of
   them can be re-minted without a person.

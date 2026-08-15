@@ -130,6 +130,23 @@ export const ROLES_ATTACH_RESOURCE__BODY_RESOURCE_TYPE = {
   ]
 } as const satisfies ContractEnum;
 
+export const ROLES_CREATE_BOARD__BODY_ACCENT = {
+  path: "RolesCreateBoard.Body.accent",
+  contractValues: [
+    "slate",
+    "indigo",
+    "violet",
+    "sky",
+    "teal",
+    "emerald",
+    "amber",
+    "rose",
+    "surface_base",
+    "surface_secondary",
+    "surface_contrast"
+  ]
+} as const satisfies ContractEnum;
+
 export const ROLES_CREATE_PERMISSION_SET__BODY_RESOURCE_RELATION = {
   path: "RolesCreatePermissionSet.Body.resourceRelation",
   contractValues: [
@@ -185,6 +202,37 @@ export const ROLES_LIST_ACCESS_REQUESTS__PARAMS_STATUS = {
     "PENDING",
     "APPROVED",
     "REJECTED"
+  ]
+} as const satisfies ContractEnum;
+
+export const ROLES_MOVE_BOARD_CARD__PATH_VARS_CARD_TYPE = {
+  path: "RolesMoveBoardCard.PathVars.cardType",
+  contractValues: [
+    "agent",
+    "workflow",
+    "deployment",
+    "ai_task",
+    "document_template",
+    "collection",
+    "workspace",
+    "external_tool"
+  ]
+} as const satisfies ContractEnum;
+
+export const ROLES_UPDATE_BOARD__BODY_ACCENT = {
+  path: "RolesUpdateBoard.Body.accent",
+  contractValues: [
+    "slate",
+    "indigo",
+    "violet",
+    "sky",
+    "teal",
+    "emerald",
+    "amber",
+    "rose",
+    "surface_base",
+    "surface_secondary",
+    "surface_contrast"
   ]
 } as const satisfies ContractEnum;
 
@@ -353,6 +401,17 @@ export const ROLES_ATTACH_RESOURCE_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const ROLES_CREATE_BOARD_CONTRACT = {
+  name: "RolesCreateBoard",
+  method: "POST",
+  route: "/public/v1/roles/:roleId/boards",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.accent", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["slate", "indigo", "violet", "sky", "teal", "emerald", "amber", "rose", "surface_base", "surface_secondary", "surface_contrast"] }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const ROLES_CREATE_PERMISSION_SET_CONTRACT = {
   name: "RolesCreatePermissionSet",
   method: "POST",
@@ -364,6 +423,16 @@ export const ROLES_CREATE_PERMISSION_SET_CONTRACT = {
     { path: "Body.capabilities", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
     { path: "Body.surfaces", slot: "Body", type: "array", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_DELETE_BOARD_CONTRACT = {
+  name: "RolesDeleteBoard",
+  method: "DELETE",
+  route: "/public/v1/roles/:roleId/boards/:boardId",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "PathVars.boardId", slot: "PathVars", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 
@@ -384,6 +453,49 @@ export const ROLES_LIST_ACCESS_REQUESTS_CONTRACT = {
   fields: [
     { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PENDING", "APPROVED", "REJECTED"] }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_LIST_BOARDS_CONTRACT = {
+  name: "RolesListBoards",
+  method: "GET",
+  route: "/public/v1/roles/:roleId/boards",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_MOVE_BOARD_CARD_CONTRACT = {
+  name: "RolesMoveBoardCard",
+  method: "PATCH",
+  route: "/public/v1/roles/:roleId/cards/:cardType/:cardId",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "PathVars.cardType", slot: "PathVars", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "deployment", "ai_task", "document_template", "collection", "workspace", "external_tool"] },
+    { path: "PathVars.cardId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.boardId", slot: "Body", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_REORDER_BOARDS_CONTRACT = {
+  name: "RolesReorderBoards",
+  method: "PUT",
+  route: "/public/v1/roles/:roleId/boards",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.boardIds", slot: "Body", type: "array", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_UPDATE_BOARD_CONTRACT = {
+  name: "RolesUpdateBoard",
+  method: "PATCH",
+  route: "/public/v1/roles/:roleId/boards/:boardId",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "PathVars.boardId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.accent", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["slate", "indigo", "violet", "sky", "teal", "emerald", "amber", "rose", "surface_base", "surface_secondary", "surface_contrast"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

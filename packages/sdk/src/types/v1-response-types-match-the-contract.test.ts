@@ -1107,6 +1107,22 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["roles"]["listAccessRequests"]>
     >
   >,
+  // RolesListBoards  GET /public/v1/roles/:roleId/boards  ->  client.roles.listBoards()
+  Expect<Equals<ResponseOf<"RolesListBoards">, MethodResult<NexusClient["roles"]["listBoards"]>>>,
+  // RolesCreateBoard  POST /public/v1/roles/:roleId/boards  ->  client.roles.createBoard()
+  Expect<Equals<ResponseOf<"RolesCreateBoard">, MethodResult<NexusClient["roles"]["createBoard"]>>>,
+  // RolesReorderBoards  PUT /public/v1/roles/:roleId/boards  ->  client.roles.reorderBoards()
+  Expect<
+    Equals<ResponseOf<"RolesReorderBoards">, MethodResult<NexusClient["roles"]["reorderBoards"]>>
+  >,
+  // RolesUpdateBoard  PATCH /public/v1/roles/:roleId/boards/:boardId  ->  client.roles.updateBoard()
+  Expect<Equals<ResponseOf<"RolesUpdateBoard">, MethodResult<NexusClient["roles"]["updateBoard"]>>>,
+  // RolesDeleteBoard  DELETE /public/v1/roles/:roleId/boards/:boardId  ->  client.roles.deleteBoard()
+  Expect<Equals<ResponseOf<"RolesDeleteBoard">, MethodResult<NexusClient["roles"]["deleteBoard"]>>>,
+  // RolesMoveBoardCard  PATCH /public/v1/roles/:roleId/cards/:cardType/:cardId  ->  client.roles.moveBoardCard()
+  Expect<
+    Equals<ResponseOf<"RolesMoveBoardCard">, MethodResult<NexusClient["roles"]["moveBoardCard"]>>
+  >,
   // RolesGetCoverage  GET /public/v1/roles/:roleId/coverage  ->  client.roles.getCoverage()
   Expect<Equals<ResponseOf<"RolesGetCoverage">, MethodResult<NexusClient["roles"]["getCoverage"]>>>,
   // RoleJobTypesList  GET /public/v1/role-job-types  ->  client.roles.listJobTypes()
@@ -1581,6 +1597,12 @@ const GATED_ROUTES = [
   "RolesListCollectionGrants",
   "RolesListWorkspaceGrants",
   "RolesListAccessRequests",
+  "RolesListBoards",
+  "RolesCreateBoard",
+  "RolesReorderBoards",
+  "RolesUpdateBoard",
+  "RolesDeleteBoard",
+  "RolesMoveBoardCard",
   "RolesGetCoverage",
   "RoleJobTypesList",
   "RolesCreateCollectionGrant",

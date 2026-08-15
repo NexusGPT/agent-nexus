@@ -470,7 +470,15 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role grant-workspace": "registration-only",
   "role job-types": "registration-only",
   "role list": "registration-only",
+  "role add-board": "registration-only",
+  // Every board verb needs a Role argument, so none can be swept. The reads are
+  // no exception: `role boards` takes one too.
+  "role boards": "registration-only",
   "role members": "registration-only",
+  "role move-card": "registration-only",
+  "role remove-board": "registration-only",
+  "role reorder-boards": "registration-only",
+  "role update-board": "registration-only",
   "role permission-sets": "registration-only",
   "role remove-member": "registration-only",
   "role remove-permission-set-member": "registration-only",

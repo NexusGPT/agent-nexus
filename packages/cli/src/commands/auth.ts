@@ -13,6 +13,7 @@ import {
   removeProfile,
   resolveBaseUrl,
   type ResolvedProfile,
+  resolveOrganization,
   resolveProfile,
   saveProfile,
   setActiveProfile,
@@ -543,16 +544,41 @@ Notes:
   // ── switch ────────────────────────────────────────────────────────────
   auth
     .command("switch")
-    .description("Switch the active profile")
+    .description("Switch the active profile — machine-wide, or scoped to this folder or shell")
     .argument("<name>", "Profile name to activate")
+    .option(
+      "--here",
+      "Scope the switch to THIS DIRECTORY (writes .nexusrc); the machine-wide active profile is left alone"
+    )
+    .option(
+      "--session",
+      "Scope the switch to THIS SHELL: print the export line to eval; writes nothing at all"
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus auth switch work
-  $ nexus auth switch personal
+  $ nexus auth switch work --here
+  $ eval "$(nexus auth switch work --session)"
 
 Notes:
+  THE DEFAULT SWITCH IS MACHINE-WIDE, NOT PER-TERMINAL. It rewrites one value in
+  ~/.nexus-mcp/config.json that EVERY process on this machine reads, so it also
+  repoints every other shell, editor and agent session that has no binding of its
+  own — including long-running ones already mid-task. Two sessions working on two
+  organizations cannot both use it: the last switch wins for both, and the loser
+  gets no signal, so its next write lands in the other organization (NEX-2525).
+  --here and --session are the per-folder and per-shell scopes that CAN be held
+  concurrently:
+    --here     writes {"profile":"<name>"} to ./.nexusrc — this directory and its
+               subdirectories, in every shell, until "nexus auth unpin". Same file
+               as "nexus auth pin", and re-running it MOVES an existing pin.
+    --session  writes NOTHING. It prints one line, "export NEXUS_PROFILE=<name>",
+               for you to eval; the binding then lives in that shell's environment
+               and dies with it. Not eval'd, it does nothing — the printed line is
+               the whole effect. POSIX syntax; in fish use "set -gx NEXUS_PROFILE
+               <name>", and --json carries the raw name for any other shell.
   SWITCHING IS NOT THE SAME AS WINNING. This changes which profile "active"
   resolves to, and three things outrank active and PERSIST across processes:
   NEXUS_API_KEY, NEXUS_PROFILE, and a .nexusrc pin in the working directory. Any
@@ -564,9 +590,33 @@ Notes:
   The prediction deliberately ignores --api-key and --profile given on THIS
   invocation, because those are ephemeral and do not carry into the next process.
   Clear a .nexusrc pin with "nexus auth unpin"; the two environment variables are
-  yours to unset.`
+  yours to unset.
+  Full precedence, highest first: --api-key > --profile > NEXUS_API_KEY >
+  NEXUS_PROFILE (--session) > .nexusrc (--here) > active profile (plain switch) >
+  the profile named "default". An explicit --profile outranks an exported
+  NEXUS_API_KEY; nothing else does.`
     )
-    .action((name: string) => {
+    .action((name: string, opts: { here?: boolean; session?: boolean }) => {
+      // Two scopes, and the whole point of them is that they are DIFFERENT
+      // places. Silently applying one would leave the other unwritten under a
+      // command line that asked for it.
+      if (opts.here && opts.session) {
+        process.exitCode = refuse(
+          "--here and --session are two different scopes; pass one.",
+          "--here writes ./.nexusrc; --session prints an export line for this shell."
+        );
+        return;
+      }
+
+      if (opts.here) {
+        switchHere(name);
+        return;
+      }
+      if (opts.session) {
+        switchSession(name);
+        return;
+      }
+
       try {
         setActiveProfile(name);
       } catch (err) {
@@ -578,40 +628,21 @@ Notes:
       const orgPart = profile?.orgName ? ` (${profile.orgName})` : "";
       printSuccess(`Switched to "${name}"${orgPart}.`);
 
-      // Wrong-org guard (NEX-2361): switching the active profile only changes
-      // what `active` resolution picks. A higher-precedence selector that
-      // PERSISTS across processes — NEXUS_API_KEY (override), NEXUS_PROFILE, or
-      // a .nexusrc pin — still wins, so a subsequent command keeps using THAT
-      // credential, not the one just switched to. Left silent,
-      // `auth switch org-b && workspace mount` would operate on the override's
-      // org while the user believes they're on org B. Detect the mismatch, warn
-      // loudly, and exit non-zero so the dangerous `&&` chain halts.
-      //
-      // Resolve with NO opts: we're predicting what the NEXT process resolves
-      // to, and the ephemeral --api-key / --profile flags on THIS invocation do
-      // not carry over to it. Forwarding them would falsely flag
-      // `nexus --api-key X auth switch org-b && nexus workspace mount`, whose
-      // second (flag-less) command correctly resolves to org-b.
-      let effective: ReturnType<typeof resolveProfile> | undefined;
-      try {
-        effective = resolveProfile();
-      } catch {
-        // No resolvable profile (shouldn't happen right after a successful
-        // switch) — nothing to compare against, so skip the guard.
-        effective = undefined;
+      // Say out loud that this reached every other session. The command reads as
+      // "switch MY profile" and is not: with more than one profile saved there is
+      // something to clobber, and the sessions it clobbers print nothing at all.
+      if (!isJsonMode() && Object.keys(listProfiles().profiles).length > 1) {
+        console.log(
+          color.dim(
+            "\n  Machine-wide: every other shell without its own binding now resolves to " +
+              `"${name}" too.` +
+              `\n  Scope it instead: nexus auth switch ${name} --here (this folder) · ` +
+              `--session (this shell)`
+          )
+        );
       }
 
-      // An "override" source means the NEXUS_API_KEY env credential wins; its
-      // name is the literal sentinel "override", NOT a real profile identity,
-      // so we must warn even when the just-switched profile is itself named
-      // "override" (a legal profile name) — the env key still shadows it. For
-      // NEXUS_PROFILE / .nexusrc the name IS a real profile, so a true match
-      // means the switch is effective and no warning is needed.
-      const shadowed = effective && (effective.source === "override" || effective.name !== name);
-      if (shadowed && effective) {
-        warnSwitchIneffective(name, effective);
-        process.exitCode = 1;
-      }
+      if (switchIsShadowed(name)) process.exitCode = 1;
     });
 
   // ── list ──────────────────────────────────────────────────────────────
@@ -677,6 +708,9 @@ Examples:
 Notes:
   IT WRITES ./.nexusrc IN THE CURRENT DIRECTORY, holding {"profile":"<name>"}
   and nothing else. It names a profile; it stores no key.
+  "nexus auth switch <name> --here" writes the SAME file — one behaviour, two
+  spellings, so the verb that changes organization can also scope the change to
+  this folder instead of the whole machine.
 
   ⚠️ IN A REPOSITORY THAT FILE IS COMMITTABLE, AND COMMITTING IT REPOINTS YOUR
   TEAMMATES' CLI. A colleague who has a profile of the same name silently starts
@@ -955,6 +989,15 @@ Notes:
   Shows profile resolution: --profile flag > NEXUS_PROFILE env > .nexusrc > active > "default".
   Use "nexus auth pin <profile>" to pin a directory to a profile via .nexusrc.
 
+  THE ORG LINE IS A SECOND, SEPARATE RESOLUTION and it does not follow the
+  profile. A cross-org token acts on whichever organization the
+  organization-id header names: NEXUS_ORGANIZATION_ID if this shell exports one,
+  otherwise the orgId stored on the profile. --json reports which as "orgSource"
+  (env | profile | token); the human line marks the env case in place. Under the
+  env case the stored organization NAME is withheld rather than shown, because it
+  belongs to the profile's organization, not the one selected — a name beside the
+  wrong id is worse than no name.
+
   A SIXTH SOURCE SITS ABOVE ALL FIVE: an explicit --api-key flag or a
   NEXUS_API_KEY environment variable. Either one overrides the resolved
   profile's key entirely and writes no profile of its own — this command reports
@@ -984,6 +1027,20 @@ Notes:
         const isCrossOrg =
           resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey);
         const isOperator = resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX);
+
+        // The organization the NEXT request will name, not the one the profile
+        // happens to store: NEXUS_ORGANIZATION_ID is the per-shell org selector
+        // and every command already obeys it. Reporting `profile.orgId` here
+        // while the client sent the env's value made this command — the one
+        // asked "which org am I in" — the only place that answered wrongly
+        // (NEX-2525).
+        const org = resolveOrganization(resolved.profile);
+        // A stored orgName describes the PROFILE's organization. When the env
+        // selects a DIFFERENT one, that name belongs to another tenant, and
+        // printing it beside this id names the wrong customer — the same trap
+        // `setProfileOrganization` documents. No name is better than a wrong one.
+        const orgName =
+          org.organizationId === resolved.profile.orgId ? resolved.profile.orgName : undefined;
         // Never the key itself, on either channel — the same eight-and-four
         // masking the human line has always used.
         const maskedKey = `${resolved.profile.apiKey.slice(0, 8)}...${resolved.profile.apiKey.slice(-4)}`;
@@ -1006,8 +1063,12 @@ Notes:
                 ? "platform-operator"
                 : "personal"
               : "organization-scoped",
-            orgName: resolved.profile.orgName ?? null,
-            orgId: resolved.profile.orgId ?? null,
+            orgName: orgName ?? null,
+            orgId: org.organizationId ?? null,
+            // Which selector chose that org: "env" (NEXUS_ORGANIZATION_ID, this
+            // shell only), "profile" (stored, shared by every session on this
+            // machine), or "token" (nothing selected — the key's own org).
+            orgSource: org.source,
             userEmail: resolved.profile.userEmail ?? null,
             apiKey: maskedKey,
             baseUrl: resolved.profile.baseUrl ?? resolveBaseUrl(),
@@ -1018,7 +1079,7 @@ Notes:
           return;
         }
 
-        const orgPart = resolved.profile.orgName ? ` (${resolved.profile.orgName})` : "";
+        const orgPart = orgName ? ` (${orgName})` : "";
         console.log(
           `Using profile ${color.cyan(`"${resolved.name}"`)}${orgPart} — ${color.dim(sourceExplanation[resolved.source])}`
         );
@@ -1038,8 +1099,10 @@ Notes:
             } — ${color.dim('switch org with "nexus auth use-org <orgId>"')}`
           );
         }
-        if (resolved.profile.orgId) {
-          console.log(`  ${color.dim("org id:")} ${resolved.profile.orgId}`);
+        if (org.organizationId) {
+          const via =
+            org.source === "env" ? color.dim(" (from NEXUS_ORGANIZATION_ID, this shell only)") : "";
+          console.log(`  ${color.dim("org id:")} ${org.organizationId}${via}`);
         }
         if (resolved.profile.userEmail) {
           console.log(`  ${color.dim("user:")} ${resolved.profile.userEmail}`);
@@ -1229,6 +1292,184 @@ function setOrClear(
 }
 
 /**
+ * Refuse a scoped switch to a profile that does not exist, naming the ones that
+ * do. The machine-wide path gets the same refusal from `setActiveProfile`; the
+ * scoped paths need it BEFORE they write a `.nexusrc` or print an export line,
+ * because either one would otherwise bind the session to a name that resolves to
+ * nothing and fails on the next command instead of this one.
+ */
+function refuseUnknownProfile(name: string): number {
+  const available = Object.keys(listProfiles().profiles).join(", ");
+  return reportFailure(
+    "not-found",
+    `Profile "${name}" not found.`,
+    available ? `Available: ${available}. Run: nexus auth list` : "Run: nexus auth login"
+  );
+}
+
+/**
+ * `auth switch <name> --here` — bind THIS DIRECTORY, leaving the machine-wide
+ * active profile untouched.
+ *
+ * This is the same `.nexusrc` `auth pin` writes, reached from the verb people
+ * actually use to change organizations. That matters more than it sounds: a
+ * reader who knows only `switch` has no way to discover that the isolating form
+ * exists, and the machine-wide switch they do know silently repoints every other
+ * session (NEX-2525).
+ */
+function switchHere(name: string): void {
+  const profile = getProfile(name);
+  if (!profile) {
+    process.exitCode = refuseUnknownProfile(name);
+    return;
+  }
+
+  try {
+    writeNexusRc(process.cwd(), name);
+  } catch (err) {
+    process.exitCode = reportFailure("local-failed", (err as Error).message);
+    return;
+  }
+
+  const orgPart = profile.orgName ? ` (${profile.orgName})` : "";
+  printSuccess(`This directory now resolves to "${name}"${orgPart}.`, {
+    profile: name,
+    scope: "directory",
+    file: ".nexusrc"
+  });
+  if (!isJsonMode()) {
+    console.log(
+      color.dim(
+        "\n  Applies here and below, in every shell; other directories and sessions are unchanged." +
+          "\n  Remove it with: nexus auth unpin · Consider adding .nexusrc to your .gitignore"
+      )
+    );
+  }
+
+  if (switchIsShadowed(name)) process.exitCode = 1;
+}
+
+/**
+ * `auth switch <name> --session` — bind THIS SHELL, writing nothing anywhere.
+ *
+ * A process cannot set a variable in the shell that spawned it, so the binding
+ * is DELIVERED rather than applied: one `export` line on stdout, meant for
+ * `eval "$(...)"`. Everything else — the confirmation, any warning — goes to
+ * stderr, because a single stray byte on stdout is evaluated as shell code.
+ */
+function switchSession(name: string): void {
+  const profile = getProfile(name);
+  if (!profile) {
+    process.exitCode = refuseUnknownProfile(name);
+    return;
+  }
+
+  // The output of this one command is EXECUTED by the caller's shell, so the
+  // name is re-validated against the same pattern `auth login` enforces before
+  // it is interpolated. A profile name only reaches this branch by being in
+  // config.json, which is a file a human can hand-edit — and shell-quoting a
+  // value is a weaker guarantee than refusing to emit a name that never had to
+  // be quoted in the first place.
+  const invalid = validateProfileName(name);
+  if (invalid) {
+    process.exitCode = refuse(
+      invalid,
+      "This name cannot be emitted as shell code. Rename the profile, or use --here / --profile."
+    );
+    return;
+  }
+
+  const exportLine = `export NEXUS_PROFILE="${name}"`;
+  const orgPart = profile.orgName ? ` (${profile.orgName})` : "";
+
+  // NEXUS_PROFILE is the only selector this binding sets, and NEXUS_API_KEY
+  // outranks it — an exported key would keep winning in the very shell the user
+  // just bound. `switchIsShadowed` cannot see this: it resolves the CURRENT
+  // environment, which does not have NEXUS_PROFILE set yet.
+  //
+  // Before the line rather than after it, and the line is still printed: the
+  // user may be one `unset` away from meaning it, and a refusal that prints
+  // nothing would cost them the command as well as the binding.
+  if (process.env.NEXUS_API_KEY) {
+    printWarning(
+      "NEXUS_API_KEY is set in this shell — it outranks NEXUS_PROFILE, so this binding will NOT take effect.",
+      "Unset it (unset NEXUS_API_KEY) in this shell, then eval the line again.",
+      "Commands keep using the NEXUS_API_KEY credential until then."
+    );
+    process.exitCode = 1;
+  }
+
+  if (isJsonMode()) {
+    printSuccess(`Eval the export line to bind this shell to "${name}"${orgPart}.`, {
+      profile: name,
+      scope: "session",
+      variable: "NEXUS_PROFILE",
+      value: name,
+      exportLine
+    });
+  } else {
+    // stdout: the line, alone. Anything else here lands inside the caller's eval.
+    console.log(exportLine);
+    process.stderr.write(
+      color.dim(
+        `  This shell → "${name}"${orgPart} once eval'd; nothing was written to disk.\n` +
+          `  Run: eval "$(nexus auth switch ${name} --session)"\n`
+      )
+    );
+  }
+}
+
+/**
+ * Wrong-org guard (NEX-2361): switching a profile only changes what ONE level of
+ * the resolution chain picks. A higher-precedence selector that PERSISTS across
+ * processes — NEXUS_API_KEY (override), NEXUS_PROFILE, or a `.nexusrc` pin —
+ * still wins, so a subsequent command keeps using THAT credential, not the one
+ * just switched to. Left silent, `auth switch org-b && workspace mount` would
+ * operate on the override's org while the user believes they're on org B. Detect
+ * the mismatch, warn loudly, and exit non-zero so the dangerous `&&` chain halts.
+ *
+ * Resolve with NO opts: we're predicting what the NEXT process resolves to, and
+ * the ephemeral --api-key / --profile flags on THIS invocation do not carry over
+ * to it. Forwarding them would falsely flag `nexus --api-key X auth switch org-b
+ * && nexus workspace mount`, whose second (flag-less) command correctly resolves
+ * to org-b.
+ *
+ * Shared by the machine-wide switch and `--here`: both change what a later
+ * process resolves to, and both can be shadowed by the same three selectors. It
+ * does NOT serve `--session`, whose binding is not in this process's environment
+ * yet and so cannot be predicted by resolving it.
+ *
+ * It WARNS but does not exit: the caller sets `process.exitCode`, in the scope
+ * that already put the success document on stdout. Setting it here instead puts
+ * a prose-only refusal in a scope with no document, which is the shape
+ * `json-error-document.static-scan` reports — and it would be right to, because
+ * from inside this function nothing can tell that stdout was already served.
+ */
+function switchIsShadowed(name: string): boolean {
+  let effective: ResolvedProfile | undefined;
+  try {
+    effective = resolveProfile();
+  } catch {
+    // No resolvable profile (shouldn't happen right after a successful switch) —
+    // nothing to compare against, so skip the guard.
+    effective = undefined;
+  }
+  if (!effective) return false;
+
+  // An "override" source means the NEXUS_API_KEY env credential wins; its name
+  // is the literal sentinel "override", NOT a real profile identity, so we must
+  // warn even when the just-switched profile is itself named "override" (a legal
+  // profile name) — the env key still shadows it. For NEXUS_PROFILE / .nexusrc
+  // the name IS a real profile, so a true match means the switch is effective and
+  // no warning is needed.
+  if (effective.source === "override" || effective.name !== name) {
+    warnSwitchIneffective(name, effective);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Warn that a just-completed `auth switch` will NOT take effect because a
  * higher-precedence selector resolves to a different credential. The message is
  * tailored to the winning source so the user knows exactly what to unset.
@@ -1248,7 +1489,8 @@ function warnSwitchIneffective(switchedTo: string, effective: ResolvedProfile): 
   if (effective.source === "env") {
     printWarning(
       `NEXUS_PROFILE="${effective.name}" overrides the active profile — the switch will NOT take effect.`,
-      `Unset it (unset NEXUS_PROFILE), or pass --profile ${switchedTo} per command.`,
+      `Rebind this shell: eval "$(nexus auth switch ${switchedTo} --session)"`,
+      `Or unset it (unset NEXUS_PROFILE), or pass --profile ${switchedTo} per command.`,
       `Commands keep using profile "${effective.name}" until then.`
     );
     return;
@@ -1257,7 +1499,8 @@ function warnSwitchIneffective(switchedTo: string, effective: ResolvedProfile): 
   if (effective.source === "directory") {
     printWarning(
       `This directory is pinned to "${effective.name}" via .nexusrc — the switch will NOT take effect here.`,
-      `Run "nexus auth unpin", or pass --profile ${switchedTo} per command.`,
+      `Move the pin: nexus auth switch ${switchedTo} --here`,
+      `Or run "nexus auth unpin", or pass --profile ${switchedTo} per command.`,
       `Commands in this directory keep using profile "${effective.name}" until then.`
     );
     return;

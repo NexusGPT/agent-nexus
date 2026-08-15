@@ -1,5 +1,920 @@
 # @agent-nexus/cli
 
+## 0.28.0
+### Minor Changes
+
+- 56b8694: A prompt edit can now decline to publish, and it says which one it did
+  
+  `agent update --prompt` made the new prompt the agent's PRODUCTION version in the
+  same call. Every live deployment served it the moment the command returned. There
+  was no flag to decline, no confirmation, and the output was a success line and an
+  id — so the write and a deploy to real customer traffic were indistinguishable.
+  
+  An operator staged an edit they believed was private and it answered live WhatsApp
+  conversations for about two and a half hours.
+  
+  ## `autoPublish` on the update, and `--no-publish` on the CLI
+  
+  `PATCH /v1/agents/:agentId` accepts `autoPublish` beside `prompt`. It defaults to
+  `true`, which is exactly what this route already did, so nothing written against
+  it changes. `false` writes the draft and leaves the published version serving.
+  
+  ```
+  nexus agent update <agent-id> --prompt ./prompt.md --no-publish
+  ```
+  
+  **The flag was reachable-looking and unreachable before this.** `autoPublish` was
+  a hardcoded `true` in the use case, and the update schema did not declare the
+  field — so `--body '{"prompt":"…","autoPublish":false}'`, which is the spelling
+  `version create --help` teaches, was stripped by Zod and published anyway. That
+  is the shape that made this expensive: the caller did the right thing and got the
+  wrong outcome with no error.
+  
+  ## The default is unchanged, deliberately
+  
+  `version create` resolves the same field differently — it publishes only while
+  the agent has never published — and inheriting that rule here would turn every
+  scripted `agent update --prompt` into a silent no-op deploy. That is the same
+  damage pointing the other way, so this route keeps publishing by default and the
+  choice is now the caller's to make.
+  
+  ## The verdict names the publish
+  
+  ```
+  ✓ Agent updated. Prompt PUBLISHED — live on every deployment.
+  ✓ Agent updated. Prompt written to the draft, NOT published.
+  ```
+  
+  Under `--json` the same fact is a `promptPublished` boolean, present only when a
+  prompt was sent. The line is read off the merged request body, so `--body` and
+  the flag are reported the same way.
+  
+  ## `--no-publish` cannot protect an agent that has never published
+  
+  Until a version is published, the DRAFT is what the agent serves, so writing it
+  changes behaviour whatever the flag says. `agent update --help` says this, and
+  `nexus version list <agent-id>` is the check — an empty PROD column means the
+  flag has nothing to hold back.
+  
+  ## Help and SDK types
+  
+  `version create --help` scoped its `autoPublish` paragraph to itself: the rule it
+  states is that command's, not the platform's, and reading it as platform-wide is
+  what sent a prompt live. `agent --help` and `agent update --help` now lead with
+  the publish rather than mentioning it in passing.
+  
+  The SDK's `UpdateAgentBody` and `CreateAgentBody` were missing `prompt`
+  altogether, and `AgentDetail.prompt` called itself read-only — three surfaces
+  describing a prompt write that has existed for as long as the route has. All
+  three now match the contract, and `UpdateAgentBody` carries `autoPublish`.
+- 7b2f0d3: A standard WhatsApp template can now carry its per-language map
+  
+  `deployment template attach` and `deployment template update` both accept
+  **`--template-group <json>`**. It is the STANDARD-template sibling of
+  `--carousel-template-group`, which those two commands already exposed.
+  
+  ## The half-wire it closes
+  
+  Both body schemas have always declared `templateGroup`, and the route has always
+  honoured it: the controller copies it onto the template object, the use case
+  pushes that object into `whatsappTemplateMessages`, the repository merges it into
+  `Deployment.deploymentSettings`, and the send-time resolver reads
+  `templateGroup.availableLanguages` to pick a template for the requested language.
+  
+  Neither command declared a flag for it, and neither carries `--body`. So the
+  field was **unreachable from the CLI** — with no error anywhere, because a field
+  the CLI never sends produces none.
+  
+  The consequence was not cosmetic. `--enable-multi-language` turned the setting ON
+  for a standard template while the per-language map that setting reads could not
+  be supplied through the same command. The switch was expressible and the thing it
+  switches on was not.
+  
+  ## Shape
+  
+  ```bash
+  nexus deployment template attach dep-123 \
+    --template-id HX456 --name welcome --description "Welcome message" \
+    --enable-multi-language \
+    --template-group '{"baseName":"welcome","availableLanguages":[{"language":"en","templateId":"HX456"},{"language":"fr","templateId":"HX789"}],"defaultLanguage":"en"}'
+  ```
+  
+  - `baseName` and `availableLanguages` are required; `defaultLanguage` is optional.
+  - Invalid JSON is refused before the request, exactly as `--carousel-template-group`
+    is.
+  - `--template-group` and `--carousel-template-group` are **mutually exclusive** at
+    the route — naming both is a 400. One is for standard templates, the other for
+    carousels.
+  - On `update`, the flag REPLACES the whole group rather than merging one language
+    into it, the same way `--variables` replaces the whole variable map.
+  - Naming neither flag sends no `templateGroup` key at all, so an update that only
+    renames a template still leaves the stored group alone.
+  
+  ## Why no gate caught it
+  
+  This is a MISSING `.option(...)` declaration, and every scanner in this package
+  that reads flag declarations is structurally blind to one — there is no call to
+  read. `flag-defaults-never-overwrite-body.test.ts` could not have seen it, and
+  the contract-help reachability gate covers enum fields only, so an object field
+  like this one was outside its population.
+  
+  The replacement is behavioural:
+  `packages/cli/src/commands/deployment-template-group.test.ts` drives both real
+  commands and asserts the REQUEST BODY as the SDK serialises it, with the
+  flag present and with the flag absent. Asserting the exit code would have passed
+  against the bug.
+- 870bef6: A WARN ship gate reads as `warn`, and `--ship-gate` can set it
+  
+  An app's ship gate has three states — `OFF`, `WARN` and `ENFORCE`. The CLI knew
+  two of them, in both directions.
+  
+  ### `vibe app get` told you a running gate was off
+  
+  The `Ship gate` row rendered `requireVerification`, the server's compatibility
+  boolean. That boolean is `shipGateMode === "ENFORCE"`, so `WARN` projects to
+  `false` — and an app whose every deploy was reading its repository and writing
+  `DEPLOYMENT_VERIFICATION_WARNED` printed `Ship gate: off`. The table and the
+  audit feed disagreed and nothing said which was right.
+  
+  The row now prints `shipGateMode` itself:
+  
+  ```
+  Ship gate  warn — artifacts are checked and a finding does not block
+  ```
+  
+  A backend too old to send the field prints `not reported by this server`, never
+  `off`. `requireVerification` still rides `--json` and is still lossy — read
+  `.shipGateMode` to decide whether a gate is running.
+  
+  ### `vibe app update` could not reach WARN
+  
+  `--require-verification` is a boolean: `true` is `ENFORCE`, `false` is `OFF`.
+  There was no flag for the on-ramp state, so the only ways to set it were the
+  console or a raw `PATCH`.
+  
+  ```bash
+  nexus vibe app update <app-id> --ship-gate warn
+  ```
+  
+  `--ship-gate` takes `off`, `warn` or `enforce` in any case, and refuses anything
+  else rather than reading it as `off`. `--require-verification` keeps working on
+  its own; passing both is refused, because they write the same field and only one
+  of them can express `warn`.
+- 7abfa0e: An archived ticket is readable again, says it is archived, and refuses writes with 409 instead of a provider error.
+  
+  `TicketDetail` gains `archivedAt`, and `nexus ticket get` prints it as `Archived`:
+  
+  ```ts
+  const ticket = await client.tickets.get("NEX-3464");
+  if (ticket.archivedAt) {
+    // read-only from here: update / comment / attach all answer 409
+  }
+  ```
+  
+  **What used to happen.** `POST /tickets/:id/comments` answered `500 INTERNAL_ERROR` on an
+  archived ticket. The provider refuses `commentCreate` and `attachmentCreate` on an archived
+  issue with `Entity not found: Issue — Could not find referenced Issue.`, and nothing on this
+  route caught it. Four production requests hit exactly that on 2026-08-06, every one of them
+  against a ticket archived 72 minutes earlier, and every one of them addressing it by uuid —
+  so the id form was never the cause.
+  
+  **The sentence the provider offers is the one thing this must not repeat.** "Could not find
+  referenced Issue" contradicts the `200` that `GET /tickets/:id` returns for the same id one
+  call earlier. The refusal now names the real reason and the date:
+  
+  ```
+  409  Ticket NEX-3464 was archived on 2026-08-06T19:42:31.569Z and is read-only.
+       It no longer accepts comments.
+  ```
+  
+  **Your own archived tickets stopped being readable, and that is fixed here too.** Ownership
+  is a join to your organization, and archiving a ticket archives that join with it — so an
+  archived ticket answered `404` on every route, including the read, for the organization that
+  filed it. The ownership question now includes archived rows. It widens what counts as
+  _evidence_ of ownership, never what counts as a grant: no join, no access, exactly as before.
+  
+  **Three routes now answer 409 where they answered 500, 400 or 200.** `POST
+  /tickets/:id/comments` and `POST /tickets/:id/attachments` were already failing — this makes
+  the failure legible and cheap (the attachment is refused before it is uploaded). `PATCH
+  /tickets/:id` is the behaviour change to check: it used to succeed against an archived
+  ticket, writing an edit into a ticket nobody will look at again. A caller that edits tickets
+  in bulk should read `archivedAt` and skip, or handle 409.
+  
+  **Nothing changes for a live ticket.** `archivedAt` is `null`, and every route behaves
+  exactly as it did.
+- 02db0d9: `nexus auth switch` can bind a folder or a shell, so two sessions can hold two organizations.
+  
+  **The switch was machine-wide and nothing said so.** It writes one value — `activeProfile`
+  in `~/.nexus-mcp/config.json` — that EVERY process on the machine reads. Two sessions on
+  two organizations therefore shared one selection: the later switch won for both, and the
+  session that lost was told nothing, mid-task. The reported incident is not a wrong list —
+  a bug ticket and a Vibe app were CREATED in the other organization while the session
+  believed it was elsewhere, and `credential list` returning the other tenant's rows nearly
+  filed a spurious "credentials are vanishing" bug.
+  
+  Two scopes now sit on the verb that changes organizations:
+  
+  ```bash
+  nexus auth switch work --here                 # this DIRECTORY (writes .nexusrc)
+  eval "$(nexus auth switch work --session)"    # this SHELL (writes nothing)
+  nexus auth switch work                        # THIS MACHINE — unchanged
+  ```
+  
+  `--here` writes the same `.nexusrc` as `auth pin`, and re-running it MOVES an existing pin.
+  `--session` writes nothing anywhere: a process cannot set a variable in the shell that
+  spawned it, so the binding is DELIVERED — one `export NEXUS_PROFILE="<name>"` line on
+  stdout, **alone**, because a stray byte there is executed by the caller's `eval`, with the
+  confirmation and any warning on stderr. Unevaluated it does nothing; the printed line is
+  the whole effect. It refuses a profile name that is not a plain name rather than
+  shell-quoting it, and under `--json` it is one document carrying the raw name, for shells
+  that are not POSIX.
+  
+  Neither level is new — `NEXUS_PROFILE` and `.nexusrc` have always outranked the active
+  profile. What was missing is that nothing reached them from `switch`, so the only
+  discoverable way to change organization was the one that reaches every other session.
+  
+  **The machine-wide form now names what it repoints.** With more than one profile saved it
+  says so and names the two scopes that would not have. The existing wrong-org guard (which
+  warns and exits non-zero when a higher-precedence selector shadows the switch) is shared
+  with `--here`, and its remedies now name the new forms: `--here` moves a pin, `--session`
+  rebinds a shell.
+  
+  **`auth status` was reporting an organization the commands were not using.** Every command
+  sends `NEXUS_ORGANIZATION_ID` when it is set, falling back to the profile's `orgId`;
+  `status` printed the profile's value unconditionally. The one command asked "which
+  organization am I in" was the only one that answered with the organization you were not
+  in — in exactly the per-shell setup this release is about. The precedence now has a single
+  definition read by both, `--json` gains `orgSource` (`env` | `profile` | `token`), and
+  under the env selection the stored organization NAME is withheld rather than printed: it
+  describes the profile's organization, and beside another id it names the wrong customer.
+  
+  **The documented precedence was wrong, in two places.** The README and the authentication
+  page both ranked `--api-key`/`NEXUS_API_KEY` together at the top, while an explicit
+  `--profile` has outranked an exported `NEXUS_API_KEY` since it was fixed — which is what
+  makes `--profile` the reliable per-command escape hatch. The real order, now stated in
+  `--help` and both pages: `--api-key` > `--profile` > `NEXUS_API_KEY` > `NEXUS_PROFILE`
+  (`--session`) > `.nexusrc` (`--here`) > active profile (plain `switch`) > `default`.
+  
+  Still shared, and left for a follow-up: `auth use-org` writes the acting organization onto
+  the profile, so two sessions holding ONE cross-org token collide there the same way.
+  `NEXUS_ORGANIZATION_ID` is the per-shell way out today.
+- a12ca27: `collection list` pages with `--offset`, and `customer list` filters by `--tag`
+  
+  Two list commands accepted fewer parameters than their routes did. Same
+  mechanism both times, and it is the one no scanner catches: a **missing
+  `.option()` call**. A flag that is declared and mis-parsed leaves a trace; a flag
+  that was never declared leaves none — `--help` shows what the command has, the
+  contract block under it shows what the ROUTE takes, and nothing compares the two.
+  
+  ## `nexus collection list --offset <n>`
+  
+  The route has always paginated by offset — `offset` is in its query schema with a
+  floor of 0, and the service applies it as `skip`. The CLI declared `--search` and
+  `--limit` only, so **there was no way to see past the first page**, and `--limit`
+  is capped at 100.
+  
+  ```bash
+  nexus collection list --limit 20 --offset 20    # page two
+  ```
+  
+  **The total now prints under the table**, because `--offset` without it is half a
+  feature — an operator paging with no total has no way to know when to stop:
+  
+  ```
+  57 total · more available
+  ```
+  
+  ⚠️ **`--json` is unchanged and still a BARE ARRAY**, with no total in it. That
+  shape is documented and scripts already read it, so adding a field would have
+  been a breaking change. A script that pages has to count what it has received
+  against a total read some other way.
+  
+  The help said *"There is no `--page` on this command, so `--limit` is the only
+  control."* That presented a CLI gap as a property of the route. It is replaced
+  rather than deleted — it now says how to page, that `--offset` counts from 0, and
+  that the total under the table is the signal to stop.
+  
+  ## `nexus customer list --tag <tag>`
+  
+  `customer update --body '{"tags":["vip"]}'` is the documented way to SET a tag,
+  and the list route has always accepted a `tag` filter — so **a tag could be
+  written and never filtered by**.
+  
+  ```bash
+  nexus customer list --tag vip --limit 50
+  ```
+  
+  **One tag, matched exactly.** No multi-tag form, no OR, no partial match: the
+  filter asks whether the customer's tag array CONTAINS this exact string, so
+  `vip` matches neither `VIP` nor `vip-eu`. Unlike `--sort-by`, `--sort-order` and
+  `--channel`, it is not validated locally — any string is accepted, and a tag
+  nobody carries is an empty list rather than an error.
+  
+  ## `@agent-nexus/sdk`
+  
+  `ListCustomersParams` gains **`tag?: string`**. The route has always accepted it
+  and this hand-written interface did not declare it, so the filter was unreachable
+  through the SDK and through the CLI built on it. Additive, and a compile error
+  for nothing.
+  
+  🚨 **`filters`, `sorts` and `groupBy` are deliberately still absent** from both
+  the SDK type and the CLI, even though the route's query schema declares all
+  three. The public v1 handler destructures them away and never passes them on, so
+  a flag for any of them would be accepted by the client and silently discarded by
+  the server — an advertised, *reachable*, silently-ignored parameter, which is
+  worse than the gap this release closes. A test pins their absence.
+- d2dc04a: Two places where the data existed and the command could not reach it.
+  
+  ## `collection search` gains `--include-metadata`
+  
+  The route has accepted `includeMetadata` since NEX-3228 — the body schema
+  declares it, the controller destructures it, and the search returns the
+  document's `searchMetadata` column when it is true. The CLI declared no flag and
+  sent no field, so `metadata` came back a literal `null` on every hit, at 200,
+  with nothing to indicate a flag had been missed.
+  
+  The `--help` said the null was the route's doing:
+  
+  > METADATA COMES BACK null and no flag on this command changes that.
+  
+  It now names what the flag fills, and says it is a DIFFERENT source from the
+  identically-named flag on `collection query`. This one returns the DOCUMENT's own
+  attribute bag — the same one `nexus document get` prints. That one returns the
+  retrieval provider's SNIPPET payload. So a `null` with the flag on means "this
+  document carries no attributes", on either command, and never "you forgot the
+  flag".
+  
+  `collection search-multiple` still has no such flag, and its warning is unchanged
+  because it is still true there: the multi-collection schema declares no
+  `includeMetadata` field and the server hardcodes `metadata: null`. Reaching
+  metadata across several collections means one `collection search` or
+  `collection query` per collection.
+  
+  ## `tracing cost-breakdown` keeps the label of a deleted agent or deployment
+  
+  Spend attributed to anything deleted rendered as a bare UUID with a blank
+  AGENT or DEPLOYMENT column, so a row you could not name looked identical to a row
+  nothing could be attributed to.
+  
+  The data was never lost. `LLMTrace`'s attribution columns deliberately carry no
+  foreign key — an attribution has to stay valid after its referent is gone — and
+  the schema states what an id resolves against: the live table UNION its
+  tombstone. A hard delete writes `DeletedAgent` / `DeletedDeployment` in the same
+  transaction that drops the row, precisely to keep the name. Only the live half
+  was ever read.
+  
+  Agent was blank in a second way as well: the label lookup filtered `deletedAt:
+  null`, so an agent merely SOFT-deleted — whose row is still there and still
+  restorable — lost its label too. The deployment lookup beside it had never done
+  that, and the asymmetry was the defect.
+  
+  **No number moves.** Which rows exist, what each is charged, the trace and
+  generation counts and the unpriced disclosure are all computed from the trace
+  aggregate and are untouched. This restores a NAME on a row that already existed.
+  
+  - `--group-by agent` and `--group-by deployment` both gain the labels, on the
+    single-dimension and the multi-dimension (`--group-by a,b`) paths alike.
+  - An id that resolves in neither table still reads null. `customer`,
+    `workflowExecution` and `workflow` have no tombstone table at all, so a
+    hard-deleted referent on those three is unrecoverable as a label and correctly
+    stays null.
+  - Every label read stays scoped to the caller's organization, tombstones
+    included.
+- 42e251c: `nexus role` organises a Role's Overview lanes
+  
+  A Role's boards are how its systems are organised, and everything a Role holds
+  lands in `Ungrouped` until something places it. Six new verbs, so a Role built
+  from the terminal can be finished from the terminal instead of arriving as one
+  undifferentiated pile that only a browser could tidy.
+  
+  ```bash
+  nexus role boards "Support agent"
+  nexus role add-board "Support agent" --name "Automation" --accent teal
+  nexus role move-card "Support agent" agent 7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44 --board-id <lane>
+  ```
+  
+  | verb | |
+  |---|---|
+  | `role boards <role>` | every lane, and where each card sits |
+  | `role add-board <role> --name [--accent]` | append a lane |
+  | `role reorder-boards <role> --board-ids` | set the order of every lane |
+  | `role update-board <role> <board-id>` | rename, recolour, or both |
+  | `role remove-board <role> <board-id>` | delete a lane; its cards fall to Ungrouped |
+  | `role move-card <role> <card-type> <card-id>` | move one card, or unplace it |
+  
+  Needs `role_boards:read` to look and `role_boards:write` to change, plus the
+  Role's own `board.view` / `board.manage` capability — the scope alone is not
+  enough.
+  
+  ## Four things the help says, and this repeats because they cost a call each
+  
+  ⚠️ **`<card-type>` IS LOWERCASE** — `agent`, `workflow`, `deployment`, `ai_task`,
+  `document_template`, `collection`, `workspace`, `external_tool` — unlike the
+  SCREAMING_CASE resource types everywhere else on this API. It is validated
+  locally against the contract, so a wrong value is refused with the valid list
+  rather than becoming a 400 that names nothing.
+  
+  ⚠️ **`move-card` needs exactly one of `--board-id` or `--unplace`.** Ungrouped is
+  a real destination rather than a missing value, so there is no "send nothing to
+  unplace it" — that would make a forgotten flag look like a deliberate move.
+  
+  ⚠️ **`reorder-boards --board-ids` asserts the WHOLE list.** Send every board id,
+  not the ones you moved. A set that is not exactly the Role's current boards is a
+  409 — refetch with `role boards` and retry. That refusal is the point: silently
+  renumbering a stale list would leave a board somebody else just created at a
+  position nobody chose, and report success. A repeated id is a 400 instead,
+  because no refetch fixes it.
+  
+  ⚠️ **`remove-board` deletes the LANE, never the cards.** They move to Ungrouped
+  and nothing the Role holds is removed or stopped; `cardsUnplaced` counts how many
+  moved. The PLACEMENTS are gone though — recreating the board does not put the
+  cards back.
+  
+  **A board carries no permission and no execution meaning.** Moving a card changes
+  where it is drawn on the Overview screen and changes nothing about what the Role
+  can reach or what runs. Use `role attach` / `role detach` for holdings and the
+  permission-set verbs for authority.
+  
+  Under `--json`, an unplaced card's `boardId` is `null` rather than the word
+  "Ungrouped" — the terminal shows the sentence, scripts read the null.
+- 76eaf12: `deployment template update` can turn a setting OFF instead of accepting the flag and doing nothing
+  
+  `nexus deployment template update` declares four flags for two settings:
+  
+  - `--enable-multi-language` / `--no-multi-language`
+  - `--enable-dynamic-size` / `--no-dynamic-size`
+  
+  The two negative flags parsed, were accepted, contributed **nothing** to the
+  request body, and the command printed `Deployment template updated.` over an
+  unchanged setting. Turning multi-language off was not expressible through this
+  command at all — the only signal an operator got was a success verdict.
+  
+  ## Why it happened, because the cause is a naming rule and not a branch
+  
+  Commander derives an option key from that option's **own** long name. So
+  `--enable-multi-language` writes `opts.enableMultiLanguage` and
+  `--no-multi-language` writes `opts.multiLanguage`: one setting, two flags, two
+  keys that never meet. The action read only the `enable*` keys, so the value the
+  operator typed was written to a key nothing read.
+  
+  The endpoint was never the problem. `UpdateDeploymentTemplateBodySchema`
+  declares `enableMultiLanguage: z.boolean().optional()` and the use case merges
+  the parsed body over the stored template, so `false` has always been accepted
+  and applied. Only the CLI never sent it.
+  
+  ## What changes
+  
+  - **`--no-multi-language` sends `enableMultiLanguage: false`**, and
+    `--no-dynamic-size` sends `enableDynamicSize: false`.
+  - **Naming neither flag still sends no key at all**, so a `--name`-only update
+    leaves both settings exactly as stored. This is load-bearing rather than
+    incidental: a `--no-x` flag declared with no positive twin on its own key
+    carries commander's implicit default `true`, so forwarding the value
+    unconditionally would have written `enableMultiLanguage: true` into every body
+    that never mentioned it — the same silent write, in the opposite direction.
+  - **Naming BOTH spellings of one setting is now refused** with exit 1 and the
+    usual `{"error":{"message","hint","code"}}` body, before any request is sent.
+    The two flags sit on separate commander keys, so no ordering between them is
+    recorded and there is no last-one-wins to read; picking a winner would guess
+    at what the operator meant. `--help` states this.
+  
+  ⚠️ **A caller that passes both spellings today is refused instead of silently
+  getting the ENABLE behaviour.** That combination has no defensible meaning and
+  the refusal names both flags; send one of the two.
+  
+  ## Why the existing gate did not catch this, and what pins it now
+  
+  `flag-defaults-never-overwrite-body.test.ts` is the gate for exactly this defect
+  class and it is structurally blind to the whole `--no-*` family: it reads the
+  literal default argument of an `.option(...)` call, and a `--no-x` flag declares
+  none — commander implies its `true`. It stayed green through the entire life of
+  this bug and nothing about it changed here.
+  
+  The fix is pinned instead by a behavioural test asserting the **request body**
+  for every case — flag absent, `--enable-*`, `--no-*`, both — because every one of
+  those spellings exited 0 before the fix and exits 0 after it. A test asserting
+  that the command succeeded passes against the bug.
+- 3735ca0: The prompt assistant can be WAITED ON — the prompt arrives without polling for it
+  
+  `prompt-assistant chat` already polled. It stopped at the wrong line: the moment
+  the thread left `in_progress`.
+  
+  `generating` is not "done". It means the assistant has stopped talking and a
+  SECOND background job is writing the prompt, which is where the minutes go. So
+  the command returned `status: generating`, no `promptResult`, and exit 0 — and
+  the only way to learn the prompt existed was to poll `get-thread` by hand. Two
+  production threads took 13.0 and 25.7 minutes end to end, and both were reported
+  idle by their caller while still generating.
+  
+  ## SDK — `waitForThread`
+  
+  ```ts
+  const before = await client.promptAssistant.getThread(threadId);
+  await client.promptAssistant.chat({ message, mode: "agent", threadId });
+  
+  const { thread, outcome } = await client.promptAssistant.waitForThread(threadId, {
+    afterMessageCount: before.messages.length
+  });
+  
+  if (outcome === "terminal" && thread.status === "completed") {
+    console.log(thread.promptResult?.prompt);
+  }
+  ```
+  
+  It waits THROUGH `generating`, and it ends on a follow-up question rather than
+  blocking on a thread that is waiting for the user — the assistant usually asks
+  something before it can generate, and `in_progress` is not a state waiting ever
+  leaves.
+  
+  **A TIMEOUT IS AN OUTCOME, NOT AN EXCEPTION.** The work continues server-side, so
+  it comes back as `outcome: "timed-out"` carrying the last observed thread, and
+  the caller resumes by calling again with the same id. Throwing would force the
+  one payload the caller needs into an error's properties.
+  
+  Transient failures are absorbed — a 500 or a dropped connection mid-wait is
+  retried until the deadline, since a half-hour poll that dies on one bad response
+  is the thing this removes. 400/401/403/404 are rethrown at once. Polling backs
+  off 2s → 15s, because a thread response carries every message and a fixed 2s poll
+  over 26 minutes is ~780 full-transcript downloads.
+  
+  ## CLI — `--wait` on both verbs
+  
+  ```bash
+  nexus prompt-assistant chat --message "Create a support agent" --mode agent --wait
+  nexus prompt-assistant get-thread <thread-id> --wait --wait-timeout 3600
+  ```
+  
+  `--wait-timeout <seconds>` defaults to 1800 — above the 25.7 minutes observed,
+  because a default under the observed maximum times out on the exact case the flag
+  exists for.
+  
+  **BOTH EXIT NON-ZERO ON A TIMEOUT OR A FAILED/CANCELLED THREAD.** Exiting 0 with
+  a `generating` status is the original defect one layer down: the caller reads
+  "the command returned" as "the prompt is ready".
+  
+  Without the flag, the shorter pre-existing poll is unchanged, so nothing that
+  already scripts `chat` inherits a thirty-minute block.
+  
+  ## `status` now spells `cancelled`
+  
+  `PromptAssistantThreadResponse["status"]` was a four-value union against a
+  five-member database enum. A caller deriving "which statuses are final" from that
+  type — as a wait loop must — got a terminal set missing one of its three members,
+  and waited out its whole deadline on a thread that had already stopped.
+  
+  ## A terminal status can belong to the PREVIOUS turn
+  
+  The server never resets `status` when a new user message arrives, so a second
+  turn on a `completed` thread starts life reading `completed` and carrying turn
+  one's `promptResult`. `afterMessageCount` is what makes the wait survive it: a
+  terminal status counts as this turn's verdict only once the wait has seen the
+  thread pass through `generating`, or seen the status move at all.
+
+### Patch Changes
+
+- 8b30ed4: `access-card list --credential-id` no longer answers "Credential not found" for an id that
+  names a credential you hold — under its other name — and `credential delete --help` now says
+  what an answer from the check it mandates is worth.
+  
+  `credential delete --help` tells you to run `nexus access-card list --credential-id <id>`
+  FIRST, because deleting a credential deletes every access card on it and repoints nothing.
+  That check already stopped answering an empty list for an id naming no credential; it now
+  refuses. So the remaining way to be reassured wrongly is the id you actually hold and paste:
+  `nexus tool credentials <tool-id>` prints `ToolCredentials.id` under a column headed `ID`,
+  `nexus credential list` prints `Credential.id` under a column headed `ID`, both are UUIDs,
+  and they name the same connected account. Neither namespace accepts the other's.
+  
+  Pasting the tool-scoped one therefore passed validation and came back 404 `Credential not
+  found` — which, immediately before an irreversible delete, reads as *this credential is
+  already gone*. That is the original defect's conclusion reached one step later.
+  
+  The refusal now resolves the other id space and names the unified id when it can, under the
+  code `CREDENTIAL_ID_IS_TOOL_SCOPED` with both ids in `details`. The CLI's 404 branch reads
+  the next-step table it previously only consulted for a 409, so a terminal reader is told
+  which command prints which id instead of being sent to re-list what they already listed. An
+  id that names nothing in either space is refused exactly as before, and the second lookup
+  runs only on the refusal path.
+  
+  `--help` gains the facts behind it:
+  
+  - `access-card list` states that `--credential-id` is the unified id from `credential list`,
+    that the `tool credentials` id is a different space, and that an unknown id is refused
+    rather than answered with an empty list — so a refusal is not evidence the credential is
+    gone.
+  - `credential delete` states that the pre-delete check is only evidence if it ANSWERED, and
+    that a refusal means "wrong id", never "nothing to lose" and never "already deleted".
+  - `tool credentials` gains a `Notes:` block at all: its `ID` column is tool-scoped, only
+    `tool delete-credential` takes it, and a tool holds many rows rather than one.
+- af4a0f8: `nexus admin vibe-build-job` and `nexus admin vibe-deployment` now say what each
+  verb does to the row it touches.
+  
+  These commands drive two state machines by hand, one verb per transition, and
+  most of them shipped with no `--help` body at all — so the operator reaching for
+  one during a wedged build had the verb name and nothing else. Each now states the
+  transition it performs, which flags are validated before any request is sent, and
+  which of its inputs are shown to the customer rather than kept internal.
+  
+  Nothing here is new behaviour. Every sentence is read off the route the command
+  calls, and the verbs whose behaviour was not legible from that route were left
+  alone.
+- 8d97fed: `collection attach-documents` names the ids it could not resolve, and stops refusing a repeat
+  
+  `nexus collection attach-documents <id> --document-ids "doc-1, doc-2"` came back
+  as a **404 naming a document id the operator could not find in what they typed**.
+  The flag split on the comma and sent every entry verbatim, so the space after it
+  travelled as part of the id. `nexus collection search-multiple`, one command
+  away in the same namespace, trimmed — so the two disagreed about the same
+  comma-separated form.
+  
+  A REPEAT produced the same opaque 404. The route resolves the ids with one
+  `findMany` and compares its row count against the length of the list it was
+  handed, so `doc-1,doc-1` read as one-of-two-missing and refused a request that
+  is semantically fine — and that the write itself already treats as idempotent.
+  
+  ## `--document-ids` and every `--…-ids` flag now parse the same way
+  
+  One parser serves `collection attach-documents`, `collection search-multiple`,
+  `agent-collection attach|detach` and `cloud-import`:
+  
+  - **whitespace around a comma is trimmed**, so `"doc-1, doc-2,"` sends two ids;
+  - **empty entries are dropped**, so a trailing comma is not an empty id;
+  - **a list that is empty once trimmed is refused locally, by flag name**
+    (`--document-ids needs at least one ID`), with no request sent — instead of a
+    400 that names the field but not which of the command's flags produced it.
+  
+  De-duplication is deliberately NOT done here. It belongs to the route, which is
+  the layer every client reaches.
+  
+  ## The refusal names its cause
+  
+  A document id that does not resolve is still a 404 and the call is still
+  all-or-nothing — nothing is attached. What changed is that the refusal says
+  WHICH ids:
+  
+  ```
+  Documents not found or not accessible: " doc-2", "doc-9"
+  ```
+  
+  Each id is quoted, so a leading or trailing space is visible rather than
+  invisible. `--json` carries the same list under
+  `error.details.missingDocumentIds`, and the error code is `DOCUMENTS_NOT_FOUND`
+  — distinct from `Collection <id> not found`, which is the collection itself
+  being absent, deleted, or another tenant's. The two causes can no longer absorb
+  each other.
+  
+  This reveals nothing new: every id in the list came from the caller, and sending
+  one on its own already answered the same question.
+  
+  ## A repeated id is one attachment, not a 404
+  
+  The route de-duplicates before it resolves, so `doc-1,doc-1` links `doc-1` once
+  and succeeds. The response's `N document(s) attached` counts the distinct ids.
+  
+  ⚠️ That count is still what was REQUESTED, not what was LINKED. Folder ids are
+  dropped server-side and are not counted out, so a call naming only folders still
+  reports a number and attaches nothing. `nexus collection documents <id>` remains
+  the only proof.
+- d3550d8: `collection --help` no longer tells you to delete a document you meant to unlink
+  
+  `collection remove-document` used to clear the link in the database and leave the
+  cached membership alone, so retrieval kept answering from a document somebody had
+  deliberately unlinked. The help said so, in three places, and the last sentence of
+  the note drew the conclusion: *"Removing a document from an agent's reach
+  IMMEDIATELY means deleting the document, not unlinking it."*
+  
+  That route now clears the cached membership too, and that cache is what retrieval
+  is filtered by — so the document is out of reach on the NEXT query. Following the
+  old advice deletes a document when unlinking was enough.
+  
+  Three notes change:
+  
+  - **`collection remove-document`** — the retrieval-lag warning is replaced by
+    `RETRIEVAL STOPS AT THE NEXT QUERY`.
+  - **`collection list`** — the `DOCS` note is NARROWED, not removed. Attaching and
+    removing both rewrite the stored counter now; DELETING a document still does
+    not, so the column reads high after `nexus document delete` until the next
+    attach or remove. The note now names that verb instead of `remove-document`.
+  - **the `collection` namespace root** — said attaching and removing both lag
+    retrieval, with one reason for both. Only attaching lags, and for its own
+    reason: the document still has to finish indexing.
+  
+  `nexus collection --help` and the three subcommands are the only user-visible
+  change; no flag, argument, output shape or exit code moves.
+- 796d865: `customer get-by-external-id` now returns the customer's recent sessions
+  
+  `recentSessions[]` came back EMPTY on this lookup for every customer, whatever
+  their history. The route serialized the customer detail shape but its query
+  loaded the channel identities alone, so the array was structurally `[]` and
+  nothing anywhere reported an error. A script reading it concluded the customer
+  had never had a session.
+  
+  The array now carries the 20 most recent sessions, newest first — the same
+  content, and the same bound, that `nexus customer get <id>` returns.
+  
+  ⚠️ This is a behaviour change on a response you may already be parsing. Nothing
+  is removed and no field changes type; a field that was always empty now holds
+  data. If you branched on `recentSessions.length === 0` to mean "we have no
+  history for this person", that branch was reading a defect and will now take the
+  other path.
+  
+  The `--help` note stating the field is not populated on this route is deleted.
+- de60b82: `customer list` stops advertising three parameters the API discards
+  
+  `nexus customer list --print-contract` and `--help` listed `filters`, `sorts` and
+  `groupBy` as parameters of `GET /public/v1/customers`. All three were inert:
+  
+  - **`filters` and `sorts`** are destructured out and dropped by the public
+    handler, so a filtered request returned an UNFILTERED list at HTTP 200 with a
+    full, correct-looking `total`. There was no error, no empty result and no wrong
+    count — an integrator reading the descriptor had no signal at all that the
+    parameter was ignored.
+  - **`groupBy`** was never implemented on any route, public or internal. It has
+    been deleted rather than hidden: no route had anything to hide.
+  
+  The v1 contract now narrows its `Params` with `.omit()`, so the generated
+  descriptor no longer names them. Nothing else about the command changes — `tag`,
+  `search`, `channel`, `sortBy`, `sortOrder`, `page` and `limit` all work exactly as
+  before, and `--tag` in particular is honoured end to end.
+  
+  ⚠️ **The route still ACCEPTS `filters` and `sorts` and still discards them.** This
+  release fixes what the CLI ADVERTISES, not what the API does with a hand-rolled
+  request. Whether the public route should implement structured filtering is a
+  product decision about committing those field and operator sets to the v1
+  contract; the parser it would adopt now exists and refuses malformed input.
+  
+  The same narrowing removes the three parameters from the `customers_list` **MCP
+  tool** schema, which is generated from the same contract slot.
+- 965f2c3: Four commands declared a flag as optional and then refused to run without it.
+  The flag is now declared required, so the refusal comes from the parser instead
+  of from inside the command.
+  
+  - `nexus external-tool test-auth` — `--operation-id`
+  - `nexus tool resolve-options` — `--body`
+  - `nexus task-eval dataset add` — `--body`
+  - `nexus template generate` — `--body`
+  
+  ⚠️ **The message changes; nothing else does.** Omitting one of these used to
+  print `--body is required.` It now prints
+  `error: required option '--body <json>' not specified`, and the call is rejected
+  before any request is built. Measured on the real CLI: the exit code is still 1
+  and the structured error code is still `CLI_INVALID_ARGUMENTS`, so a script
+  reading either is unaffected — only one matching the message text needs updating.
+  
+  `--help` now shows these flags in the required position, which is the point: the
+  declaration and the behaviour agreed with each other only by accident before, and
+  `--help` sided with the declaration.
+- dc1d5ed: `agent-skill`, `agent-tool`, `access-card` and `version` now show example ids
+  their routes accept.
+  
+  Their examples spelled ids as `agt-123`, `abc-123`, `skl-456`, `tool-456`,
+  `ver-456`, `xyz-456` and `<agent-id>` while the routes behind them require a
+  UUID, so an example copied out of `--help` came back as a validation error
+  against an id the help itself supplied.
+  
+  These four looked clean until now only because the checker could not read them:
+  it followed a command to its SDK call by matching the final path segment, and a
+  nested resource or a query string defeated the match. With that fixed, every
+  example they ship became checkable — and 39 of them were wrong.
+- db94197: Nine `--help` namespaces now show example ids the routes actually accept:
+  `analytics`, `channel`, `cloud-import`, `conversation`, `document`, `execution`,
+  `permissions`, `role` and `template`.
+  
+  Copying an example straight out of `--help` used to fail. The ids in them were
+  written as `doc-123`, `exec-123`, `tmpl-123`, `conn-1`, `<id>` and `1111...`,
+  while the routes behind those commands require a UUID — so
+  `nexus document get doc-123` came back as a validation error against an id the
+  help itself had supplied, and nothing distinguished that from a typo. Every
+  example now carries a real UUID, and where an example names two different ids it
+  carries two different UUIDs.
+  
+  `collection attach-documents` also states, for the first time, that a document id
+  is a UUID even though this one route does not check the format: the sibling
+  `collection remove-document` refuses a malformed id at the edge, while attach
+  passes it through to the database, where it lands in an all-or-nothing 404 that
+  names no id.
+- a9fb4b9: `--help` caveats that were already written now sit under a `Notes:` heading,
+  where a reader of any other command looks for them.
+  
+  Several commands carried real warnings — what a delete takes with it, which of
+  two ids a column shows, what a flag does not do — as loose paragraphs above the
+  examples, with no heading. The text was there and in the one place nobody scans.
+  Nothing in this change invents a caveat: each block is the command's own existing
+  prose relocated verbatim, plus, in a few places, a field the response schema
+  genuinely carries that the prose had omitted.
+  
+  Commands with no such prose and no schema fact to state are left alone rather
+  than given filler.
+- ba64df9: Seven more `--help` namespaces now show ids the routes accept and state what
+  their listings hide: `access-card`, `asset`, `custom-model`, `folder`,
+  `html-template`, `ticket` and `user-group`.
+  
+  The ids in their examples were written as `abc-123`, `tpl-123`, `cm-123`,
+  `asset-123`, `fld-456` and `1111...` while the routes behind them require a
+  UUID — so an example copied out of `--help` came back as a validation error
+  against an id the help itself had supplied. Every example now carries a real one,
+  and where an example names two different ids it carries two different UUIDs.
+  
+  Two examples could not be run at all because they named a file that does not
+  exist; they now show the inline form and say where the file form applies.
+- 050fae4: Six `--help` namespaces stop spelling a slug where the route demands a UUID:
+  `agent`, `agent-collection`, `collection`, `credential`, `phone-number`, `task`.
+  
+  Every one of the 26 defects was the same shape. `abc-123`, `agt-123`, `col-123`,
+  `task-123` and `doc-456` sat in a path slot whose `PathVars` is
+  `z.string().uuid()` — `AgentIdParamSchema`, `CollectionIdParamSchema`,
+  `TaskIdParamSchema`, `CollectionIdDocumentIdParamSchema` and their siblings — so
+  every example that named an id was a 400 a reader could not tell from a typo.
+  They now use `11111111-1111-4111-8111-111111111111`, with
+  `22222222-2222-4222-8222-222222222222` where a second, different id is needed.
+  
+  `agent-collection attach` and `detach` share one help template and do NOT share a
+  schema: attach types `collectionIds` as `z.array(z.string().uuid())` while detach
+  types it as `z.array(z.string())`. The template's `id-one,id-two` was therefore
+  wrong for attach and right for detach, and the gate abstains on exactly that
+  disagreement because it requires every resolved route to refuse before it reports.
+  Both examples now carry real UUIDs, which are valid for both verbs.
+  
+  `collection attach-documents` gains the asymmetry it never stated.
+  `AttachCollectionDocumentsBodySchema` types `documentIds` as a plain string array
+  while `collection remove-document` types the same id as a UUID and refuses
+  anything else with a 400. So a malformed document id is named at the edge on one
+  route and reaches the database on the other, where it lands in the
+  all-or-nothing 404 that names no id. Its example carries real UUIDs now, and the
+  note says why the schema will not tell you.
+- 9a90ee2: The last five `--help` namespaces now show ids their routes accept and state what
+  their listings leave out: `deployment`, `emulator`, `external-tool`, `task-eval`
+  and `tool`.
+  
+  Their examples spelled ids as `dep-123`, `scn-123`, `task-123`, `tool-123`,
+  `ext-123` and `<toolId>` while the routes behind them require a UUID, so an
+  example copied out of `--help` came back as a validation error against an id the
+  help itself supplied. That includes the ids inside `--body` payloads, which reach
+  the API exactly as written.
+  
+  Every example now carries a real UUID, and an example naming several different
+  ids carries a different UUID for each, so the ones meant to differ still do.
+- 8e6298a: `tracing traces --agent-id` now returns the AI-task traces that
+  `tracing cost-breakdown --group-by agent` already charges to that agent.
+  
+  **Expect a LARGER result set for the same command.** Any agent that runs AI tasks
+  was being charged for traces this filter did not list, so a spend figure and an
+  inspection of the traces behind it disagreed — and the list was the half that was
+  wrong. `tracing generations --agent-id` and `tracing export-bulk --agent-id` were
+  short in the same way and return the same widened set now.
+  
+  The `AGENT` column stops reading `-` on those rows, and the `agentId` column of a
+  CSV export stops being blank for them.
+  
+  A trace whose agent was recorded one way and later re-attributed to a different
+  agent belongs to the agent it is currently attributed to, and to that one only —
+  it is not returned for both.
+  
+  `--workflow-id` is unchanged and still matches only the workflow recorded on the
+  trace, so it can still be short against `cost-breakdown --group-by workflow`.
+- 3d87a8e: `nexus vibe …` caveats now sit under a `Notes:` heading.
+  
+  Almost every `vibe` command already carried the warning a reader needs — what a
+  delete takes with it, which id a column shows, when a route answers 404 — as a
+  loose paragraph with no heading. The text was there and in the one place a reader
+  of any other command does not look for it.
+  
+  Nothing is reworded. Each block gets a heading and keeps its wording exactly,
+  which is also why every existing help probe still matches.
+- 86be876: Every `nexus workflow …` example now carries an id the route accepts, and the
+  three leaves that hid their caveats above their examples put them under `Notes:`.
+  
+  `Workflow.id` is a `@db.Uuid` and `WorkflowIdParamSchema` is `z.string().uuid()`,
+  so the `wf-123` that all 29 id-taking `workflow` examples spelled was a 400 the
+  reader could not tell from a typo. The examples now use a real UUID.
+  
+  The placeholder that replaced it is not the one this repository has been reaching
+  for. `11111111-1111-1111-1111-111111111111` is REFUSED by `z.string().uuid()` —
+  the variant nibble has to be one of `8/9/a/b` and that string carries a `1` — so
+  the literal used as "obviously a placeholder UUID" is not a UUID at all. The
+  route said so on `nexus permissions access`, which shipped it and was recorded as
+  a violation. Both `permissions access` and `role get` now spell it
+  `11111111-1111-4111-8111-111111111111`: the same string at a glance, version 4,
+  variant 8, and accepted.
+  
+  `workflow node test`, `workflow node test-payload` and
+  `workflow platform-listener-events` each carried real prose ABOVE their examples
+  with no `Notes:` heading — the content existed, in the one place a reader of any
+  other command does not look. It now sits under `Notes:` like every sibling.
+  
+  `workflow platform-listener-events` also gains what it never said: the table
+  prints 3 of the 6 fields a row carries, and `description`, `filterFields` and
+  `samplePayload` — the three needed to author a subscription — are `--json` only.
+  `filterFields` enumerates the valid keys and operators for the trigger's
+  `filters.conditions[]`. Events marked `comingSoon` are dropped server-side and
+  never appear here.
+  
+  `workflow node create` drops its `--body payload.json` example and states the
+  rule instead: `--body` takes inline JSON, a `.json` path, or `-` for stdin, and
+  THIS command resolves the file before the action runs, because `--type` is also
+  required and the pre-action check has to know which fields `--body` supplies.
+  That is why a missing file fails at parse time here and in the action on a
+  command whose only required flag is `--body`.
+
 ## 0.27.0
 ### Minor Changes
 

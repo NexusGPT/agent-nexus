@@ -1,5 +1,406 @@
 # @agent-nexus/sdk
 
+## 0.20.0
+### Minor Changes
+
+- 56b8694: A prompt edit can now decline to publish, and it says which one it did
+  
+  `agent update --prompt` made the new prompt the agent's PRODUCTION version in the
+  same call. Every live deployment served it the moment the command returned. There
+  was no flag to decline, no confirmation, and the output was a success line and an
+  id — so the write and a deploy to real customer traffic were indistinguishable.
+  
+  An operator staged an edit they believed was private and it answered live WhatsApp
+  conversations for about two and a half hours.
+  
+  ## `autoPublish` on the update, and `--no-publish` on the CLI
+  
+  `PATCH /v1/agents/:agentId` accepts `autoPublish` beside `prompt`. It defaults to
+  `true`, which is exactly what this route already did, so nothing written against
+  it changes. `false` writes the draft and leaves the published version serving.
+  
+  ```
+  nexus agent update <agent-id> --prompt ./prompt.md --no-publish
+  ```
+  
+  **The flag was reachable-looking and unreachable before this.** `autoPublish` was
+  a hardcoded `true` in the use case, and the update schema did not declare the
+  field — so `--body '{"prompt":"…","autoPublish":false}'`, which is the spelling
+  `version create --help` teaches, was stripped by Zod and published anyway. That
+  is the shape that made this expensive: the caller did the right thing and got the
+  wrong outcome with no error.
+  
+  ## The default is unchanged, deliberately
+  
+  `version create` resolves the same field differently — it publishes only while
+  the agent has never published — and inheriting that rule here would turn every
+  scripted `agent update --prompt` into a silent no-op deploy. That is the same
+  damage pointing the other way, so this route keeps publishing by default and the
+  choice is now the caller's to make.
+  
+  ## The verdict names the publish
+  
+  ```
+  ✓ Agent updated. Prompt PUBLISHED — live on every deployment.
+  ✓ Agent updated. Prompt written to the draft, NOT published.
+  ```
+  
+  Under `--json` the same fact is a `promptPublished` boolean, present only when a
+  prompt was sent. The line is read off the merged request body, so `--body` and
+  the flag are reported the same way.
+  
+  ## `--no-publish` cannot protect an agent that has never published
+  
+  Until a version is published, the DRAFT is what the agent serves, so writing it
+  changes behaviour whatever the flag says. `agent update --help` says this, and
+  `nexus version list <agent-id>` is the check — an empty PROD column means the
+  flag has nothing to hold back.
+  
+  ## Help and SDK types
+  
+  `version create --help` scoped its `autoPublish` paragraph to itself: the rule it
+  states is that command's, not the platform's, and reading it as platform-wide is
+  what sent a prompt live. `agent --help` and `agent update --help` now lead with
+  the publish rather than mentioning it in passing.
+  
+  The SDK's `UpdateAgentBody` and `CreateAgentBody` were missing `prompt`
+  altogether, and `AgentDetail.prompt` called itself read-only — three surfaces
+  describing a prompt write that has existed for as long as the route has. All
+  three now match the contract, and `UpdateAgentBody` carries `autoPublish`.
+- 7abfa0e: An archived ticket is readable again, says it is archived, and refuses writes with 409 instead of a provider error.
+  
+  `TicketDetail` gains `archivedAt`, and `nexus ticket get` prints it as `Archived`:
+  
+  ```ts
+  const ticket = await client.tickets.get("NEX-3464");
+  if (ticket.archivedAt) {
+    // read-only from here: update / comment / attach all answer 409
+  }
+  ```
+  
+  **What used to happen.** `POST /tickets/:id/comments` answered `500 INTERNAL_ERROR` on an
+  archived ticket. The provider refuses `commentCreate` and `attachmentCreate` on an archived
+  issue with `Entity not found: Issue — Could not find referenced Issue.`, and nothing on this
+  route caught it. Four production requests hit exactly that on 2026-08-06, every one of them
+  against a ticket archived 72 minutes earlier, and every one of them addressing it by uuid —
+  so the id form was never the cause.
+  
+  **The sentence the provider offers is the one thing this must not repeat.** "Could not find
+  referenced Issue" contradicts the `200` that `GET /tickets/:id` returns for the same id one
+  call earlier. The refusal now names the real reason and the date:
+  
+  ```
+  409  Ticket NEX-3464 was archived on 2026-08-06T19:42:31.569Z and is read-only.
+       It no longer accepts comments.
+  ```
+  
+  **Your own archived tickets stopped being readable, and that is fixed here too.** Ownership
+  is a join to your organization, and archiving a ticket archives that join with it — so an
+  archived ticket answered `404` on every route, including the read, for the organization that
+  filed it. The ownership question now includes archived rows. It widens what counts as
+  _evidence_ of ownership, never what counts as a grant: no join, no access, exactly as before.
+  
+  **Three routes now answer 409 where they answered 500, 400 or 200.** `POST
+  /tickets/:id/comments` and `POST /tickets/:id/attachments` were already failing — this makes
+  the failure legible and cheap (the attachment is refused before it is uploaded). `PATCH
+  /tickets/:id` is the behaviour change to check: it used to succeed against an archived
+  ticket, writing an edit into a ticket nobody will look at again. A caller that edits tickets
+  in bulk should read `archivedAt` and skip, or handle 409.
+  
+  **Nothing changes for a live ticket.** `archivedAt` is `null`, and every route behaves
+  exactly as it did.
+- d1b1dba: Every resource class is nameable from the package root
+  
+  Eight resource classes were exported from the internal resources barrel and
+  missing from the package root, so no consumer could name them:
+  
+  `ChannelsResource` · `CustomModelsResource` · `CustomersResource` ·
+  `DocsResource` · `KnownIssuesResource` · `MeResource` · `PhoneNumbersResource` ·
+  `SkillFoldersResource`
+  
+  Nothing was broken at runtime — `NexusClient` constructs every resource
+  internally, so `client.customers.list()` always worked. What was impossible was
+  NAMING the class: constructing one over a custom transport, writing a typed
+  double against it in a test, or an `instanceof` check.
+  
+  ## The root export is now derived, not restated
+  
+  The list was hand-maintained, which is why it drifted. `src/index.ts` now does
+  `export * from "./resources"`, so membership is decided once — in the resources
+  barrel — and the two cannot disagree again. This is the same fix as the
+  `export type * from "./types"` already in that file, which replaced a hand list
+  of 208 names against 329.
+  
+  ## `BaseResource` stays internal
+  
+  It is the abstract base every resource extends, and it is now withheld by being
+  absent from the barrel rather than by being omitted from a list at the root.
+  Every resource imports it from its own module directly, so nothing changes for
+  this package — but "withheld" and "forgotten" no longer look identical, and
+  publishing it would take a deliberate edit to the barrel.
+  
+  ## Additive
+  
+  Nothing is removed and no signature changes. Existing imports keep working.
+- a12ca27: `collection list` pages with `--offset`, and `customer list` filters by `--tag`
+  
+  Two list commands accepted fewer parameters than their routes did. Same
+  mechanism both times, and it is the one no scanner catches: a **missing
+  `.option()` call**. A flag that is declared and mis-parsed leaves a trace; a flag
+  that was never declared leaves none — `--help` shows what the command has, the
+  contract block under it shows what the ROUTE takes, and nothing compares the two.
+  
+  ## `nexus collection list --offset <n>`
+  
+  The route has always paginated by offset — `offset` is in its query schema with a
+  floor of 0, and the service applies it as `skip`. The CLI declared `--search` and
+  `--limit` only, so **there was no way to see past the first page**, and `--limit`
+  is capped at 100.
+  
+  ```bash
+  nexus collection list --limit 20 --offset 20    # page two
+  ```
+  
+  **The total now prints under the table**, because `--offset` without it is half a
+  feature — an operator paging with no total has no way to know when to stop:
+  
+  ```
+  57 total · more available
+  ```
+  
+  ⚠️ **`--json` is unchanged and still a BARE ARRAY**, with no total in it. That
+  shape is documented and scripts already read it, so adding a field would have
+  been a breaking change. A script that pages has to count what it has received
+  against a total read some other way.
+  
+  The help said *"There is no `--page` on this command, so `--limit` is the only
+  control."* That presented a CLI gap as a property of the route. It is replaced
+  rather than deleted — it now says how to page, that `--offset` counts from 0, and
+  that the total under the table is the signal to stop.
+  
+  ## `nexus customer list --tag <tag>`
+  
+  `customer update --body '{"tags":["vip"]}'` is the documented way to SET a tag,
+  and the list route has always accepted a `tag` filter — so **a tag could be
+  written and never filtered by**.
+  
+  ```bash
+  nexus customer list --tag vip --limit 50
+  ```
+  
+  **One tag, matched exactly.** No multi-tag form, no OR, no partial match: the
+  filter asks whether the customer's tag array CONTAINS this exact string, so
+  `vip` matches neither `VIP` nor `vip-eu`. Unlike `--sort-by`, `--sort-order` and
+  `--channel`, it is not validated locally — any string is accepted, and a tag
+  nobody carries is an empty list rather than an error.
+  
+  ## `@agent-nexus/sdk`
+  
+  `ListCustomersParams` gains **`tag?: string`**. The route has always accepted it
+  and this hand-written interface did not declare it, so the filter was unreachable
+  through the SDK and through the CLI built on it. Additive, and a compile error
+  for nothing.
+  
+  🚨 **`filters`, `sorts` and `groupBy` are deliberately still absent** from both
+  the SDK type and the CLI, even though the route's query schema declares all
+  three. The public v1 handler destructures them away and never passes them on, so
+  a flag for any of them would be accepted by the client and silently discarded by
+  the server — an advertised, *reachable*, silently-ignored parameter, which is
+  worse than the gap this release closes. A test pins their absence.
+- 6c6e4b0: `roles.update()` now reports which fields it actually changed.
+  
+  `RoleUpdatedResponse` gains `applied` — the field names the write really touched:
+  
+  ```ts
+  const { role, applied } = await client.roles.update(roleId, {
+    name: "Refunds and disputes",
+    currency: "EUR"
+  });
+  // applied === ["name"]   ← currency was never a field here
+  ```
+  
+  **Read it to tell "applied" from "discarded".** `PATCH /api/public/v1/roles/:roleId`
+  accepts a key it does not know, strips it before the write, and still answers success. So
+  the call above resolves with a Role whose name changed and whose currency never did — and
+  until now nothing in the response separated the two. Re-reading the Role afterwards shows
+  the name change and hides the loss, which is what made the failure so quiet: every
+  observation a caller could make agreed with the request having worked.
+  
+  Only `name`, `jobDescription` and `ownerUserId` exist on this route. A Role's currency, its
+  data-retention window, its paused state and its access card are all real product concepts
+  with no field here, so reaching for one is the natural mistake rather than a careless one.
+  
+  **`applied` is derived from the PARSED body, never from the request.** That distinction is
+  the whole value: reading the request back would report `currency` as applied and make the
+  response lie in a new way rather than stop it lying. A field is listed when the schema
+  accepted it, and `ownerUserId: null` counts — null CLEARS the owner, so it is a change,
+  while an absent key is not.
+  
+  **Nothing that works today starts failing.** This is additive: the unknown key is still
+  accepted and still discarded, and no request that succeeded before now returns an error.
+  Refusing an unknown key outright would be a consumer-visible change — an ordinary client
+  that GETs a Role, mutates one field and PATCHes the whole object back would break on its
+  first request — so it is held separately, behind a traffic count that no request log
+  currently retains.
+  
+  `applied` is never empty: a body that changes nothing is already a 400.
+- 3735ca0: The prompt assistant can be WAITED ON — the prompt arrives without polling for it
+  
+  `prompt-assistant chat` already polled. It stopped at the wrong line: the moment
+  the thread left `in_progress`.
+  
+  `generating` is not "done". It means the assistant has stopped talking and a
+  SECOND background job is writing the prompt, which is where the minutes go. So
+  the command returned `status: generating`, no `promptResult`, and exit 0 — and
+  the only way to learn the prompt existed was to poll `get-thread` by hand. Two
+  production threads took 13.0 and 25.7 minutes end to end, and both were reported
+  idle by their caller while still generating.
+  
+  ## SDK — `waitForThread`
+  
+  ```ts
+  const before = await client.promptAssistant.getThread(threadId);
+  await client.promptAssistant.chat({ message, mode: "agent", threadId });
+  
+  const { thread, outcome } = await client.promptAssistant.waitForThread(threadId, {
+    afterMessageCount: before.messages.length
+  });
+  
+  if (outcome === "terminal" && thread.status === "completed") {
+    console.log(thread.promptResult?.prompt);
+  }
+  ```
+  
+  It waits THROUGH `generating`, and it ends on a follow-up question rather than
+  blocking on a thread that is waiting for the user — the assistant usually asks
+  something before it can generate, and `in_progress` is not a state waiting ever
+  leaves.
+  
+  **A TIMEOUT IS AN OUTCOME, NOT AN EXCEPTION.** The work continues server-side, so
+  it comes back as `outcome: "timed-out"` carrying the last observed thread, and
+  the caller resumes by calling again with the same id. Throwing would force the
+  one payload the caller needs into an error's properties.
+  
+  Transient failures are absorbed — a 500 or a dropped connection mid-wait is
+  retried until the deadline, since a half-hour poll that dies on one bad response
+  is the thing this removes. 400/401/403/404 are rethrown at once. Polling backs
+  off 2s → 15s, because a thread response carries every message and a fixed 2s poll
+  over 26 minutes is ~780 full-transcript downloads.
+  
+  ## CLI — `--wait` on both verbs
+  
+  ```bash
+  nexus prompt-assistant chat --message "Create a support agent" --mode agent --wait
+  nexus prompt-assistant get-thread <thread-id> --wait --wait-timeout 3600
+  ```
+  
+  `--wait-timeout <seconds>` defaults to 1800 — above the 25.7 minutes observed,
+  because a default under the observed maximum times out on the exact case the flag
+  exists for.
+  
+  **BOTH EXIT NON-ZERO ON A TIMEOUT OR A FAILED/CANCELLED THREAD.** Exiting 0 with
+  a `generating` status is the original defect one layer down: the caller reads
+  "the command returned" as "the prompt is ready".
+  
+  Without the flag, the shorter pre-existing poll is unchanged, so nothing that
+  already scripts `chat` inherits a thirty-minute block.
+  
+  ## `status` now spells `cancelled`
+  
+  `PromptAssistantThreadResponse["status"]` was a four-value union against a
+  five-member database enum. A caller deriving "which statuses are final" from that
+  type — as a wait loop must — got a terminal set missing one of its three members,
+  and waited out its whole deadline on a thread that had already stopped.
+  
+  ## A terminal status can belong to the PREVIOUS turn
+  
+  The server never resets `status` when a new user message arrives, so a second
+  turn on a `completed` thread starts life reading `completed` and carrying turn
+  one's `promptResult`. `afterMessageCount` is what makes the wait survive it: a
+  terminal status counts as this turn's verdict only once the wait has seen the
+  thread pass through `generating`, or seen the status move at all.
+- 42e251c: The SDK reaches a Role's Overview lanes
+  
+  A Role's boards are how its systems are organised, and everything a Role holds
+  lands in `Ungrouped` until something places it. Six routes now exist on public
+  v1, and `client.roles` reaches all of them — so a Role provisioned through the
+  API can be finished through the API instead of arriving as one undifferentiated
+  pile that only a human with a browser could tidy.
+  
+  ```ts
+  const { boards, cards } = await client.roles.listBoards(roleId);
+  
+  const board = await client.roles.createBoard(roleId, { name: "Automation" });
+  await client.roles.moveBoardCard(roleId, "agent", agentId, { boardId: board.id });
+  ```
+  
+  | method | |
+  |---|---|
+  | `listBoards(roleId)` | every lane, and where each card sits |
+  | `createBoard(roleId, body)` | append a lane |
+  | `reorderBoards(roleId, body)` | set the order of every lane |
+  | `updateBoard(roleId, boardId, body)` | rename, recolour, or both |
+  | `deleteBoard(roleId, boardId)` | delete a lane; its cards fall to Ungrouped |
+  | `moveBoardCard(roleId, cardType, cardId, body)` | move one card, or unplace it |
+  
+  Scopes are `role_boards:read` and `role_boards:write` — a resource of their own,
+  never `roles:*`, which would hand every board to everyone who can rename a Role.
+  A scope gets a caller to the route and no further: the Role's own `board.view` /
+  `board.manage` capability is evaluated against the API key's OWNER, so a key
+  whose owner does not hold it is refused.
+  
+  ## Four things worth knowing before you call these
+  
+  ⚠️ **`boardId: null` is the Ungrouped lane, not a missing value.** It is a legal
+  destination, so `moveBoardCard`'s body is required and nullable — `{}` will not
+  silently unplace a card. Cards in no lane come back from `listBoards` with
+  `boardId: null` rather than being omitted; a card absent from that payload does
+  not exist, which is a different fact.
+  
+  ⚠️ **`cardType` values are lowercase** — `"agent"`, `"workflow"`, `"collection"`,
+  `"workspace"`, `"external_tool"`, … — unlike the SCREAMING_CASE resource types
+  elsewhere on this API. Only the eight kinds that have somewhere to store a
+  placement are accepted; naming one of the six that do not is a `400` rather than
+  a `200` for a move that did not persist.
+  
+  ⚠️ **`reorderBoards` asserts the WHOLE list.** The set you send must equal the
+  Role's current boards or the write is refused `409` — silently renumbering a
+  stale list would leave a board somebody else just created at a position nobody
+  chose, and report success. A repeated id is a `400` instead: no refetch fixes it.
+  
+  ⚠️ **`deleteBoard` deletes the LANE, never the cards.** They fall back to
+  Ungrouped, and `cardsUnplaced` counts how many did — so an empty board and a
+  board holding nine systems do not answer alike.
+  
+  ## Types
+  
+  `RoleBoard`, `RoleBoardCard`, `RoleBoardsView`, `RoleBoardAccent`,
+  `RoleBoardCardType`, `RoleBoardDeleted`, and the four bodies.
+  
+  `RoleBoardCard` carries **placement only** — no name, no status, no icon, and no
+  position within its lane. The screen already holds that metadata from the reads
+  that populate a Role's tabs; re-serving it would be a second source of truth.
+  
+  ⚠️ **A stored `accent` may hold a token that is no longer in the
+  `RoleBoardAccent` union.** The palette grows and shrinks by editing an array
+  rather than a database enum, and the column's CHECK is looser than the write
+  schema — so a board created under an accent that was later retired still reads
+  back with it. Do not switch exhaustively on it without a fallback branch.
+  
+  ⚠️ **`cardId` is a uuid for most kinds but NOT all.** Whether it is depends on the
+  `cardType` beside it: a legacy owned-resource id lives in a loose TEXT column and
+  may be any string. Do not assume a uuid when parsing one.
+  
+  Every one of these return types is now pinned against the v1 contract schema by
+  `v1-response-types-match-the-contract.test.ts`. That pin is the durable half: it
+  caught this changeset's own first draft inventing a `position` field on
+  `RoleBoardCard` that the route has never sent.
+  
+  **Task graduation is deliberately absent** and has no SDK method.
+  `POST /roles/:id/tasks/:taskId/graduate` sends the `CoverageFormula` tree grammar
+  and moves a Role's published cost figure, which is the same reason v1 already
+  refuses the workload and impacts writes.
+
 ## 0.19.0
 ### Minor Changes
 

@@ -1,5 +1,179 @@
 # @agent-nexus/sdk
 
+## 0.19.0
+### Minor Changes
+
+- e549e24: A CODE workspace is mounted read-only instead of read-write-then-refused
+  
+  `nexus workspace mount` on a CODE workspace succeeded, `nexus workspace status`
+  printed `Mode rw`, and the first save came back as a bare **"Permission
+  denied"** naming no workspace and no reason.
+  
+  Under the rclone engine that was worse than a refusal. `--vfs-cache-mode writes`
+  buffers the write locally and only fails on flush, so the editor reported a
+  **successful save** and the bytes were dropped.
+  
+  ## Why it happened, because the cause is a type and not a branch
+  
+  A CODE workspace is a read-only projection of a git project. The server has
+  always known: it classifies the kind and refuses every mutating verb against
+  one, on the REST API and on the WebDAV mount alike. And `kind` has always been
+  on the wire — the v1 contract declares it and the handler sends it.
+  
+  **Two hand-written type declarations dropped it**, so no compiler between the
+  server and the user could see that the mount was deciding writability without
+  ever asking:
+  
+  - `@agent-nexus/sdk`'s `Workspace` interface omitted `kind` **and**
+    `vibeGitProjectId`;
+  - the CLI's mount-target resolver annotated the list rows
+    `{ id, slug, isShared }[]`.
+  
+  The mount mode was therefore the `--read-only` flag alone, and `workspace
+  status` replayed that flag back out of the local mount registry — which is why
+  it reported `Mode rw` over a drive that refused every write.
+  
+  ## `@agent-nexus/sdk`
+  
+  `Workspace` now carries the two fields the API has been sending:
+  
+  - **`kind: WorkspaceKind`** — `"DRIVE" | "CODE"`. `CODE` is read-only.
+  - **`vibeGitProjectId: string | null`** — non-null exactly when `kind` is
+    `"CODE"`.
+  
+  `WorkspaceKind` is exported.
+  
+  ⚠️ **This is additive on the wire and a compile error for one shape of
+  consumer.** Anything that only READS a `Workspace` is unaffected — the fields
+  were already arriving at runtime and were merely unnameable. Anything that
+  CONSTRUCTS a `Workspace` or `WorkspaceSummary` object literal (a test fixture, a
+  mock, a hand-rolled double) now fails to compile until it supplies both. That is
+  the good direction: the break is at build time, and the alternative was a type
+  that lied about a live response.
+  
+  `WorkspaceSummary` is now pinned against the v1 contract schema by
+  `types-match-the-v1-contract.test.ts`, so this pair cannot separate again. The
+  pin is the durable half of this change — a hand-written client type that
+  silently drops a field the wire carries is invisible to typecheck, to lint and
+  to every suite.
+  
+  ## `@agent-nexus/cli`
+  
+  - **`workspace mount` reads the storage kind and mounts a CODE workspace
+    read-only.** `--read-only` can only ADD read-only, never waive it: asking for
+    read-write on a projection asks for something the server has already decided
+    to refuse. The command says so on the mount, names the kind, and points at the
+    git project as the way to change the files.
+  - **`workspace status` prints `Mode ro` for it.** The registry now records the
+    EFFECTIVE mode rather than the flag that was passed.
+  - **`workspace mount --json` gains two keys.** `storageKind` is `"DRIVE"` /
+    `"CODE"` / `null`, and `readOnlyReason` is `"kind"` / `"requested"` / `null`.
+    🚨 Note that this command's long-standing `kind` key is OWNERSHIP
+    (`org-owned` / `admin-shared`) and keeps that meaning — the storage kind is
+    deliberately a differently-named key rather than a redefinition of an
+    existing one.
+  - On a slug that names both an org-owned and an admin-shared workspace, the kind
+    read is the CHOSEN copy's, not the first match's.
+  
+  ⚠️ **A mount made before this release keeps whatever mode it was created with.**
+  The registry row is what `status` reports, and nothing rewrites an existing row.
+  Re-mount a CODE workspace to pick up the read-only mode.
+  
+  ⚠️ **When the workspace list cannot be fetched, the kind is UNKNOWN and the
+  mount falls back to read-write.** Unknown is not writable — the server still
+  refuses every write; what is lost is the warning, not the protection.
+  
+  ## Also
+  
+  The WebDAV gateway's refusal now names the workspace, the kind, the verb and the
+  way out, instead of answering a bare `Forbidden` that a mounted drive can only
+  render as "Permission denied". That body is safe because of where the check sits
+  — role-grant narrowing runs first and answers `404`, byte-identical to a slug
+  that does not exist, so a caller reaching the read-only check has already been
+  proven to hold the workspace.
+- f55ef2b: `ModelConfig.thinkingLevel` accepts all eight Anthropic thinking levels, and `ModelConfig` gains
+  `thinkingDisplay`. Both were already what the platform stores and what the server puts on the wire;
+  only the published contract disagreed.
+  
+  `thinkingLevel` offered the three LEGACY values (`fast`, `detailed`, `extended`) and refused the five
+  ADAPTIVE ones Claude 4.7+ uses (`low`, `medium`, `high`, `xhigh`, `max`). So `agents.create` and
+  `agents.update` answered 400 on a level the dashboard writes — and `AgentDetail.modelConfig` could not
+  describe an agent already set to one. Measured on production: 14 agents store an adaptive level today,
+  and none of them could be read or written back through v1.
+  
+  `thinkingDisplay` (`summarized` | `omitted`) was undeclared while the handler emitted it. On the
+  request side the key was not refused, it was silently DROPPED — the body schema strips an unknown key —
+  and the agent update replaces the stored config with the parsed body, so a caller that read an agent
+  and wrote it back ERASED the field it had just been handed. 15 agents carry a value.
+  
+  Both changes are additive on the wire: every request that was accepted is still accepted, and no
+  response field was removed or renamed. The published TYPES move, which is why this is a minor rather
+  than a patch — a consumer narrowing `thinkingLevel` exhaustively will now see the five extra members
+  at compile time. That consumer was already being handed those values at runtime.
+  
+  `nexus agent create --body` and `nexus agent update --body` take `modelConfig.thinkingDisplay`
+  alongside the existing tuning fields, and both commands' `--help` list it.
+- fe32f04: Public v1 can now ATTACH a custom model, not only create and list one
+  
+  v1 already had `custom-model create`, and `model list` reported the row back. The
+  verb that puts a custom model to work was the half that was missing, so a model
+  an organization owned could be created through the public API and then only
+  attached from the dashboard.
+  
+  `customModelId` is now accepted on the agent and AI task model configuration, on
+  create and on update, and is read back on task detail and in the agent's
+  `modelConfig`.
+  
+  ## The id is the selector — the provider enum is unchanged
+  
+  A custom model is selected by ITS ID and by nothing else. `modelProvider` still
+  admits the four platform values only. `model list` reports `CUSTOM_<PROTOCOL>` on
+  a custom row to say where that row came from; it is not a value to send back, and
+  this change deliberately does not widen the enum to make it look like one.
+  
+  `modelName` and `modelProvider` stay REQUIRED beside `customModelId` and are not
+  redundant — they are the platform fallback, and a stored configuration missing
+  either is discarded whole at inference, taking the custom model with it.
+  
+  Sending `modelName` or `modelProvider` WITHOUT `customModelId` detaches the id
+  already stored. That is how an agent or a task is put back on a platform model.
+  
+  ## Two refusals, both at the write
+  
+  - **An id belonging to another organization is a 404**, never a 403. Ownership is
+    asserted before anything is stored, so a probe cannot distinguish "not yours"
+    from "does not exist".
+  - **A custom model whose protocol is not `openai` is a 400 when attached to an AI
+    task**, naming the protocol, and it never reaches storage. AI tasks run through
+    the OpenAI-protocol path only.
+  
+  The AI task executor KEEPS its own refusal, and that is not redundant with the
+  one above. `PATCH /custom-models/:id` can change a protocol long after a task is
+  attached, and tasks reach the executor from places v1 never sees — so the write
+  fails fast and the executor is the backstop. Both call ONE predicate and emit ONE
+  message, so they cannot drift apart, and the predicate is total over the protocol
+  set: a fourth protocol fails to compile until someone decides what it means here.
+  
+  ## CLI
+  
+  `agent create`, `agent update`, `task create` and `task update` gain
+  `--custom-model-id <id>`, taking the id printed by `nexus custom-model list`.
+  
+  On the agent commands the flag must travel with `--model-name` and
+  `--model-provider`, because it lives INSIDE `modelConfig` and has no top-level
+  mirror; sending it alone is refused with the `--body` spelling that would work.
+  `agent create --help` now states that an id is how a custom model is reached, so
+  the path is discoverable without reading the schema.
+- 16e19f3: Expose an access card's `constraint` on both surfaces that carry it.
+  
+  `CardVariableConstraint` (`pattern` / `enum` / `maxLength` / `format`) is the
+  card's statement of what a consumer's value is allowed to be. It was absent from
+  this package entirely — on `CardVariable` AND on `ParameterPolicy` — so the
+  server stored and returned it while no typed consumer could read it, and the SDK
+  could not send it either.
+  
+  Additive and optional on both interfaces, so no existing call breaks.
+
 ## 0.18.0
 ### Minor Changes
 

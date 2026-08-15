@@ -1,5 +1,381 @@
 # @agent-nexus/cli
 
+## 0.27.0
+### Minor Changes
+
+- e549e24: A CODE workspace is mounted read-only instead of read-write-then-refused
+  
+  `nexus workspace mount` on a CODE workspace succeeded, `nexus workspace status`
+  printed `Mode rw`, and the first save came back as a bare **"Permission
+  denied"** naming no workspace and no reason.
+  
+  Under the rclone engine that was worse than a refusal. `--vfs-cache-mode writes`
+  buffers the write locally and only fails on flush, so the editor reported a
+  **successful save** and the bytes were dropped.
+  
+  ## Why it happened, because the cause is a type and not a branch
+  
+  A CODE workspace is a read-only projection of a git project. The server has
+  always known: it classifies the kind and refuses every mutating verb against
+  one, on the REST API and on the WebDAV mount alike. And `kind` has always been
+  on the wire — the v1 contract declares it and the handler sends it.
+  
+  **Two hand-written type declarations dropped it**, so no compiler between the
+  server and the user could see that the mount was deciding writability without
+  ever asking:
+  
+  - `@agent-nexus/sdk`'s `Workspace` interface omitted `kind` **and**
+    `vibeGitProjectId`;
+  - the CLI's mount-target resolver annotated the list rows
+    `{ id, slug, isShared }[]`.
+  
+  The mount mode was therefore the `--read-only` flag alone, and `workspace
+  status` replayed that flag back out of the local mount registry — which is why
+  it reported `Mode rw` over a drive that refused every write.
+  
+  ## `@agent-nexus/sdk`
+  
+  `Workspace` now carries the two fields the API has been sending:
+  
+  - **`kind: WorkspaceKind`** — `"DRIVE" | "CODE"`. `CODE` is read-only.
+  - **`vibeGitProjectId: string | null`** — non-null exactly when `kind` is
+    `"CODE"`.
+  
+  `WorkspaceKind` is exported.
+  
+  ⚠️ **This is additive on the wire and a compile error for one shape of
+  consumer.** Anything that only READS a `Workspace` is unaffected — the fields
+  were already arriving at runtime and were merely unnameable. Anything that
+  CONSTRUCTS a `Workspace` or `WorkspaceSummary` object literal (a test fixture, a
+  mock, a hand-rolled double) now fails to compile until it supplies both. That is
+  the good direction: the break is at build time, and the alternative was a type
+  that lied about a live response.
+  
+  `WorkspaceSummary` is now pinned against the v1 contract schema by
+  `types-match-the-v1-contract.test.ts`, so this pair cannot separate again. The
+  pin is the durable half of this change — a hand-written client type that
+  silently drops a field the wire carries is invisible to typecheck, to lint and
+  to every suite.
+  
+  ## `@agent-nexus/cli`
+  
+  - **`workspace mount` reads the storage kind and mounts a CODE workspace
+    read-only.** `--read-only` can only ADD read-only, never waive it: asking for
+    read-write on a projection asks for something the server has already decided
+    to refuse. The command says so on the mount, names the kind, and points at the
+    git project as the way to change the files.
+  - **`workspace status` prints `Mode ro` for it.** The registry now records the
+    EFFECTIVE mode rather than the flag that was passed.
+  - **`workspace mount --json` gains two keys.** `storageKind` is `"DRIVE"` /
+    `"CODE"` / `null`, and `readOnlyReason` is `"kind"` / `"requested"` / `null`.
+    🚨 Note that this command's long-standing `kind` key is OWNERSHIP
+    (`org-owned` / `admin-shared`) and keeps that meaning — the storage kind is
+    deliberately a differently-named key rather than a redefinition of an
+    existing one.
+  - On a slug that names both an org-owned and an admin-shared workspace, the kind
+    read is the CHOSEN copy's, not the first match's.
+  
+  ⚠️ **A mount made before this release keeps whatever mode it was created with.**
+  The registry row is what `status` reports, and nothing rewrites an existing row.
+  Re-mount a CODE workspace to pick up the read-only mode.
+  
+  ⚠️ **When the workspace list cannot be fetched, the kind is UNKNOWN and the
+  mount falls back to read-write.** Unknown is not writable — the server still
+  refuses every write; what is lost is the warning, not the protection.
+  
+  ## Also
+  
+  The WebDAV gateway's refusal now names the workspace, the kind, the verb and the
+  way out, instead of answering a bare `Forbidden` that a mounted drive can only
+  render as "Permission denied". That body is safe because of where the check sits
+  — role-grant narrowing runs first and answers `404`, byte-identical to a slug
+  that does not exist, so a caller reaching the read-only check has already been
+  proven to hold the workspace.
+- 4037c65: Twenty-eight destructive commands gated their confirmation on `process.stdout.isTTY` and then
+  read the answer from `process.stdin`. One mistake, two failures in opposite directions.
+  
+  **Piped, they destroyed without asking.** `nexus customer delete <id> | tee log` — stdout is not
+  a terminal, so the question was skipped and the row went. Anything under `--json` was in that
+  state as a matter of course, which is every scripted and every agent-driven call. The customer
+  delete unlinks every deployment session, cascades the identities and the `SessionParticipant`
+  rows, and takes the `metadata` column — notes, tags, `customFields` — with it. There is no dry
+  run, no export and no undo.
+  
+  **With stdin closed and stdout a terminal, they hung.** `nexus customer delete <id> < /dev/null`,
+  or the same command under a supervisor: the gate said "ask", so the question was issued against a
+  stream that had already ended and nothing could settle the promise. The prompt printed and the
+  process sat there.
+  
+  Both close on one word. Whether a person can answer is a property of the stream the answer
+  arrives on, so every one of these now asks through `confirmDestructive`, which reads **stdin**.
+  
+  **BREAKING FOR SCRIPTS THAT RELIED ON THE SILENCE.** With no terminal and no `--yes`, these
+  commands now REFUSE: nothing is destroyed, an error document goes to stdout under `--json`, and
+  the exit code is non-zero. A script that deleted without passing `--yes` was being carried by the
+  defect and stops working — add `--yes`, which is what the flag has always been for. Refusing
+  costs one retry; proceeding cost the data, and the environment with no terminal is precisely the
+  one where nobody is watching.
+  
+  The commands: `agent delete`, `agent-skill delete`, `agent-tool delete`, `asset delete`,
+  `channel whatsapp-template delete`, `collection delete`, `credential delete`, `customer delete`,
+  `deployment delete`, `deployment folder delete`, `deployment template detach`, `document delete`,
+  `emulator scenario delete`, `emulator session delete`, `folder delete`, `html-template delete`,
+  `skill-folder delete`, `task delete`, `task-eval session delete`, `template folder delete`,
+  `tool delete-credential`, `user-group delete`, `version delete`, `version restore`,
+  `workflow delete`, `workflow branch delete`, `workflow edge delete`, `workflow node delete`.
+  
+  Two of them — `channel whatsapp-template delete` and `deployment template detach` — already read
+  stdin and so never hung; they proceeded silently, which is the same data loss by the other route.
+  
+  The same confusion ran the safe way in `vibe`, where a confirmation tested stdout and therefore
+  REFUSED `nexus vibe app delete <id> > log` typed at an operator's own keyboard. Those read stdin
+  now too.
+  
+  Each command's `--help` said the old behaviour out loud and now states the new one, in one
+  wording: `--yes` is required in a script, and with no terminal to answer on the command refuses
+  rather than acting.
+  
+  **A prompt now goes to stderr, not stdout.** That is the other half of reading stdin. Deciding on
+  stdin makes `nexus <destructive> > log` from a real keyboard ask — correctly, the operator is
+  there — and writing the question on stdout then sent it into the log file, leaving the terminal
+  blank while the process waited for a keystroke. Measured on the built binary, that is what
+  happened. The whole conversation moves with it: a confirmation's preamble and its `Aborted.`
+  acknowledgement follow the question, so a spend gate can no longer ask you to accept a cost on
+  one stream and print the figures on another. A RESULT still goes to stdout, because a caller
+  parses it. stdout is used for a prompt only where stderr is not a terminal and stdout is.
+  
+  A script capturing `Aborted.` from stdout must read stderr instead. It is an acknowledgement of an
+  answer a person gave, not a result — and a script that reached it either passed `--yes` (in which
+  case nothing is printed) or was refused before the question.
+- 9fabcce: `agent-eval`'s six destructive verbs declared `--yes` and had **no prompt behind it**. The flag's
+  own help said so — "accepted for symmetry, there is no prompt to skip" — which made it the honest
+  spelling of a dishonest shape: a reader who sees `--yes` on a delete reads a confirmation being
+  bypassed, and there was none to bypass. The delete happened the moment you pressed enter, at an
+  operator's own keyboard exactly as in CI, piped or not.
+  
+  They were the last commands in the CLI with no confirmation in any environment. The commands:
+  `agent-eval run delete`, `agent-eval schedule delete`, `agent-eval template delete`,
+  `agent-eval template detach`, `agent-eval trigger delete`, `agent-eval webhook delete`.
+  
+  All six now ask through the same `confirmDestructive` path as every other destructive verb: with a
+  terminal they ASK, and with no terminal and no `--yes` they REFUSE.
+  
+  **BREAKING, IN BOTH DIRECTIONS.**
+  
+  - **Interactive.** A command that deleted silently now stops and asks `[y/N]`. A bare Enter
+    aborts. Anyone who typed one of these six from muscle memory gets a question where they used to
+    get a result.
+  - **Scripts.** With no terminal and no `--yes`, these now refuse: nothing is deleted, an error
+    document goes to stdout under `--json`, and the exit code is non-zero. A script that deleted
+    without `--yes` was being carried by the missing prompt and stops working. Add `--yes`, which is
+    what the flag was always documented to be for. Refusing costs one retry; proceeding cost the
+    data, and an environment with no terminal is precisely the one where nobody is watching.
+  
+  Each verb's `--help` now states what the delete takes with it, which none of them said before: a
+  run carries its transcript, every judge verdict and its summary; a schedule carries the whole
+  `runConfig` recipe; a template carries its rubric and prompts and is removed from every agent
+  sharing the row; a detach stops that agent being evaluated; a trigger stops automatic evaluation
+  silently, with conversations still arriving unscored; a webhook carries its signing secret, which
+  is redacted everywhere and cannot be read back.
+- f55ef2b: `ModelConfig.thinkingLevel` accepts all eight Anthropic thinking levels, and `ModelConfig` gains
+  `thinkingDisplay`. Both were already what the platform stores and what the server puts on the wire;
+  only the published contract disagreed.
+  
+  `thinkingLevel` offered the three LEGACY values (`fast`, `detailed`, `extended`) and refused the five
+  ADAPTIVE ones Claude 4.7+ uses (`low`, `medium`, `high`, `xhigh`, `max`). So `agents.create` and
+  `agents.update` answered 400 on a level the dashboard writes — and `AgentDetail.modelConfig` could not
+  describe an agent already set to one. Measured on production: 14 agents store an adaptive level today,
+  and none of them could be read or written back through v1.
+  
+  `thinkingDisplay` (`summarized` | `omitted`) was undeclared while the handler emitted it. On the
+  request side the key was not refused, it was silently DROPPED — the body schema strips an unknown key —
+  and the agent update replaces the stored config with the parsed body, so a caller that read an agent
+  and wrote it back ERASED the field it had just been handed. 15 agents carry a value.
+  
+  Both changes are additive on the wire: every request that was accepted is still accepted, and no
+  response field was removed or renamed. The published TYPES move, which is why this is a minor rather
+  than a patch — a consumer narrowing `thinkingLevel` exhaustively will now see the five extra members
+  at compile time. That consumer was already being handed those values at runtime.
+  
+  `nexus agent create --body` and `nexus agent update --body` take `modelConfig.thinkingDisplay`
+  alongside the existing tuning fields, and both commands' `--help` list it.
+- 9840138: Renaming an OAuth or tool credential works instead of returning 400
+  
+  `nexus credential update --name` answered `400 CREDENTIAL_FIELD_NOT_WRITABLE` on
+  an `oauth_connection` credential, and refused `--description` on a
+  `tool_credential`. That refusal was the honest answer: those tables had no column
+  to write. They do now, so the write lands and the help says so.
+  
+  ### What changed for a caller
+  
+  - `--name` and `--description` are accepted on **all three** credential sources.
+    The refusal machinery is still there and still refuses a field a source cannot
+    store — it is simply the case that no source refuses either field today.
+  - **On an OAuth credential, `--name` sets YOUR label and does not touch the
+    account name.** Those are two different values and the distinction is the point:
+    the account name comes from the provider and is refreshed on every reconnect, so
+    it is what still identifies WHICH account this is after you rename the
+    credential. `credential get` keeps showing it as the account identifier.
+  - **`name` cannot be cleared; `description` can.** On the wire `name` is a
+    non-empty string, so `'"name": null'` and `'"name": ""'` are both refused — a
+    label can be replaced but not removed. `'"description": null'` does clear the
+    description. A credential you never named reports the provider's account name
+    as its name.
+  - Search reaches the new columns, so a credential you just renamed is findable by
+    the name you chose.
+  
+  Nothing regresses for an existing credential: every OAuth connection that
+  predates the columns has a null label, so it reports exactly what it reported
+  before.
+- fe32f04: Public v1 can now ATTACH a custom model, not only create and list one
+  
+  v1 already had `custom-model create`, and `model list` reported the row back. The
+  verb that puts a custom model to work was the half that was missing, so a model
+  an organization owned could be created through the public API and then only
+  attached from the dashboard.
+  
+  `customModelId` is now accepted on the agent and AI task model configuration, on
+  create and on update, and is read back on task detail and in the agent's
+  `modelConfig`.
+  
+  ## The id is the selector — the provider enum is unchanged
+  
+  A custom model is selected by ITS ID and by nothing else. `modelProvider` still
+  admits the four platform values only. `model list` reports `CUSTOM_<PROTOCOL>` on
+  a custom row to say where that row came from; it is not a value to send back, and
+  this change deliberately does not widen the enum to make it look like one.
+  
+  `modelName` and `modelProvider` stay REQUIRED beside `customModelId` and are not
+  redundant — they are the platform fallback, and a stored configuration missing
+  either is discarded whole at inference, taking the custom model with it.
+  
+  Sending `modelName` or `modelProvider` WITHOUT `customModelId` detaches the id
+  already stored. That is how an agent or a task is put back on a platform model.
+  
+  ## Two refusals, both at the write
+  
+  - **An id belonging to another organization is a 404**, never a 403. Ownership is
+    asserted before anything is stored, so a probe cannot distinguish "not yours"
+    from "does not exist".
+  - **A custom model whose protocol is not `openai` is a 400 when attached to an AI
+    task**, naming the protocol, and it never reaches storage. AI tasks run through
+    the OpenAI-protocol path only.
+  
+  The AI task executor KEEPS its own refusal, and that is not redundant with the
+  one above. `PATCH /custom-models/:id` can change a protocol long after a task is
+  attached, and tasks reach the executor from places v1 never sees — so the write
+  fails fast and the executor is the backstop. Both call ONE predicate and emit ONE
+  message, so they cannot drift apart, and the predicate is total over the protocol
+  set: a fourth protocol fails to compile until someone decides what it means here.
+  
+  ## CLI
+  
+  `agent create`, `agent update`, `task create` and `task update` gain
+  `--custom-model-id <id>`, taking the id printed by `nexus custom-model list`.
+  
+  On the agent commands the flag must travel with `--model-name` and
+  `--model-provider`, because it lives INSIDE `modelConfig` and has no top-level
+  mirror; sending it alone is refused with the `--body` spelling that would work.
+  `agent create --help` now states that an id is how a custom model is reached, so
+  the path is discoverable without reading the schema.
+
+### Patch Changes
+
+- 22d7e1c: Answer eight `--help` questions on `custom-model` and `task-eval`, each verified
+  against the route rather than against the audit's prose.
+  
+  `custom-model list` gains a Notes block: it is the only listing that shows a
+  DISABLED endpoint (`nexus model list` filters on `enabled`), it returns the whole
+  organization newest-first with no filter and no pagination, its table shows 5 of
+  the 8 fields a row carries, and its `ID` column is what makes a model selectable
+  through `--custom-model-id`. That last paragraph replaces the audit's premise,
+  which was a false negative: a custom model IS merged into `nexus model list`, and
+  grepping that table for `modelName` finds nothing because the table has no
+  `modelName` column.
+  
+  `custom-model get` now states that the `apiKey` is write-only — encrypted on
+  write, selected by no read — so the way to recover from a wrong key is to rotate
+  it, never to check it.
+  
+  `task-eval judge` states that `--body` is optional and that a bodiless judge
+  still scores (`gpt-4o`, else the first registered judge; the ACCURACY template),
+  how `judgeModel` resolves (exact model name or display name, case-insensitive,
+  plus an unambiguous prefix; anything else is `INVALID_JUDGE_MODEL`), and that
+  resolution happens before the session moves.
+  
+  `task-eval results` states that the table shows 5 of 11 fields and hides the one
+  that explains a blank score: `status` is execution, `judgeStatus` is scoring, and
+  they move independently.
+  
+  `task-eval session get` states that `session list` returns a strictly smaller
+  shape — `averageScore`, `judgedRows`, `judgeFailedRows`, `judgeModel` and
+  `judgePrompt` are absent from a list row rather than null — and that
+  `judgeFailedRows` must be read before `averageScore`, which averages only the
+  rows the judge completed.
+  
+  `task-eval dataset add` gains the row shape: `input` is the only required field,
+  and `input` and `expectedOutput` each accept a string or an object.
+- f93853c: `nexus upgrade` verifies the install instead of claiming it worked.
+  
+  **This adds a third exit code.** `2` means the install SUCCEEDED and your shell still
+  resolves a different copy. `1` keeps its documented meaning — nothing changed, retrying is
+  reasonable — and `0` now means the upgrade was read back, not assumed. A caller doing
+  `nexus upgrade || handle` is unaffected; one branching on `== 1` was previously told
+  "nothing changed" about a machine that had changed.
+  
+  The whole body after the version check was three statements:
+  
+  ```ts
+  const installCmd = getGlobalInstallCommand(PACKAGE_NAME);
+  execSync(installCmd, { stdio: "inherit" });
+  printSuccess(`Successfully upgraded to ${latest}.`, { from: currentVersion, to: latest });
+  ```
+  
+  **Success was claimed whenever the install command exited 0.** Nothing re-resolved the
+  binary and nothing re-read a version. So an install that genuinely succeeded INTO A PREFIX
+  THE SHELL DOES NOT SEARCH FIRST reported a clean upgrade, and the next run was still the
+  old build — every time, with no error anywhere. A user sat in that loop for days, on 0.22,
+  upgrading repeatedly and being congratulated each time.
+  
+  The command's own `--help` already described this exact case ("this installs a SEPARATE
+  global copy rather than replacing the one you invoked"). That is what made it a
+  certification bug rather than a missing feature: the behaviour was documented and then
+  contradicted by the success message, and nobody reads help text when the tool says it
+  worked.
+  
+  After the install it now resolves `nexus` the way a shell does — every `$PATH` entry, left
+  to right, first executable wins — and asks that binary its version. Only a match prints
+  `Upgraded`. The three ways it can disagree each get their own message and exit 2:
+  
+  - **the resolved binary is OLDER** — something on PATH shadows the install;
+  - **it will not start** — a shim left pointing into a directory the package manager has
+    since collected, which is `MODULE_NOT_FOUND` on every invocation;
+  - **nothing named `nexus` is on PATH at all** — npx, a vendored copy, a project
+    dependency. Previously reported as a successful upgrade.
+  
+  **Every failure prints the FULL resolution list, not the winner.** `which nexus` shows the
+  first hit, which is the entry that is not the problem; the shadowing entry and the new
+  install are rows two and three, and the diagnosis is invisible without them. The list is
+  printed in search order with the entry the shell runs marked, and the message names
+  `which -a nexus` so the reader can reproduce it.
+  
+  Under `--json` this stays ONE document. The resolution list rides in the existing
+  `hint` field of the three-key error envelope every other failure in this CLI shares,
+  under a new code `CLI_UPGRADE_NOT_RESOLVED` — deliberately not `CLI_LOCAL_FAILED`, because
+  nothing failed and the remedy is a PATH edit rather than a retry.
+  
+  **`detectPackageManager` was also inferring yarn wrong, and it fails the same silent way.**
+  It tested `realpathSync(argv[1])` alone, and `realpath` destroys the segment that
+  identifies yarn. Measured on yarn 1.22.22: `yarn global bin` is `~/.yarn/bin` and
+  `yarn global dir` is `~/.config/yarn/global`, so resolving the shim yields a path with no
+  `/.yarn/` in it. Every yarn-global install therefore fell through to `npm install -g`,
+  wrote into npm's prefix, and left the yarn shim resolving the old CLI — an install that
+  succeeds and changes nothing the user runs. Both the invoked path and the resolved path
+  are now read, so the shim identifies the manager even when its target does not.
+  
+  All nineteen entry points are covered — `upgrade` plus its eighteen hidden aliases — and
+  each one is driven through the command in the test suite rather than asserted structurally.
+
 ## 0.26.0
 ### Minor Changes
 

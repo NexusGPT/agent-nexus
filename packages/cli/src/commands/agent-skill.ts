@@ -5,7 +5,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import {
   DEFAULT_PRESET_REPO,
@@ -186,8 +186,7 @@ Notes:
       ) => {
         try {
           if (opts.file && opts.dir) {
-            console.error(color.red("Error:") + " Pass --file or --dir, not both.");
-            process.exitCode = 1;
+            process.exitCode = refuse("Pass --file or --dir, not both.");
             return;
           }
 
@@ -236,8 +235,7 @@ Notes:
     .action(async (agentId: string, skillId: string, opts: { file?: string; dir?: string }) => {
       try {
         if (Boolean(opts.file) === Boolean(opts.dir)) {
-          console.error(color.red("Error:") + " Pass exactly one of --file or --dir.");
-          process.exitCode = 1;
+          process.exitCode = refuse("Pass exactly one of --file or --dir.");
           return;
         }
 
@@ -287,8 +285,7 @@ Notes:
       async (agentId: string, skillId: string, opts: { name?: string; description?: string }) => {
         try {
           if (opts.name === undefined && opts.description === undefined) {
-            console.error(color.red("Error:") + " Provide --name and/or --description.");
-            process.exitCode = 1;
+            process.exitCode = refuse("Provide --name and/or --description.");
             return;
           }
           const client = createClient(program.optsWithGlobals());
@@ -393,11 +390,30 @@ Notes:
 
           const skillMeta = await client.agents.skills.get(agentId, skillId);
           const target = path.resolve(opts.output ?? `${skillMeta.name}.zip`);
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error(
-              `Download failed — ${response.status} ${response.statusText}. The presigned URL expires after 15 minutes.`
+          // 🚨 A RAW `fetch` THROWS A PLAIN `Error`, AND `handleError` CANNOT
+          // TELL WHAT IT WAS. It is not a `NexusConnectionError` — the SDK never
+          // saw it — so both a dead network and a 403 from S3 fell through to
+          // `CLI_UNKNOWN_ERROR`, and a script could not tell "retry this" from
+          // "your presigned url expired". Found by the code gate, not by reading.
+          let response: Response;
+          try {
+            response = await fetch(url);
+          } catch (networkError) {
+            process.exitCode = reportFailure(
+              "connection-failed",
+              `Could not reach the download URL: ${
+                networkError instanceof Error ? networkError.message : String(networkError)
+              }`
             );
+            return;
+          }
+          if (!response.ok) {
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Download failed — ${response.status} ${response.statusText}.`,
+              "The presigned URL expires after 15 minutes; re-run to get a fresh one."
+            );
+            return;
           }
           fs.writeFileSync(target, Buffer.from(await response.arrayBuffer()));
           printSuccess(`Skill downloaded to ${target}`, { id: skillId, name: skillMeta.name });

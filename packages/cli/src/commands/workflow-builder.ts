@@ -615,7 +615,15 @@ Notes:
   matches nothing, and the 200 looks identical to a configured one.
   Set the conditions afterwards on the NODE:
   "nexus workflow node update <wf> <node> --body '{"data":{"logic":[…]}}'",
-  using the logic entry this command created for the branch.
+  using the logic entry this command created for the branch. That entry is
+  {branchId, id, operator: "and" | "or", conditions: []}, and a condition is:
+
+    {"id":"<any>","operator":"equals","value":"vip",
+     "field":{"id":"<upstream-node>.tier","label":"Tier","type":"text"}}
+
+  🚨 field IS AN OBJECT, NEVER A STRING, and a bare string is ACCEPTED here and
+  fails only at execution — the branch then matches nothing, at run time, with
+  nothing having refused the write.
   Answers the new branch, including the br-NNN id an edge's --source-handle needs.
   The branch reaches nothing until an edge leaves it, and an unreached branch is a
   silent dead end at run time.
@@ -925,6 +933,11 @@ Notes:
   "nexus workflow node update <wf-id> <trigger-node-id> --body '{"data":{…}}'".
   REPLACE IS HOW YOU DELETE A TRIGGER — "node delete" refuses one with a 403.
   A response still showing type "selectTrigger" means nothing was installed.
+  THE NEW TRIGGER'S ID IS AT .node.id, NOT AT THE TOP LEVEL. The response is
+  {node, reconnectedEdges} — node is the whole node record, and reconnectedEdges
+  is every edge re-pointed at the new trigger, always present and often empty.
+  Step two below needs .node.id, so take it from here rather than going back to
+  "workflow get".
   FOR AN agentInputTrigger, STEP TWO IS data.parameters AND IT IS LOAD-BEARING
   THREE TIMES OVER:
     $ nexus workflow node update <wf-id> <trigger-node-id> \\

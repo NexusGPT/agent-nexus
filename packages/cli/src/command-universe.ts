@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Command, type Option } from "commander";
 
+import { asDerivedCapture } from "./util/version-check";
+
 /**
  * THE COMMAND UNIVERSE — every leaf `nexus` can run, derived from the tree.
  *
@@ -842,12 +844,38 @@ export interface CommandNode {
   /** `true` for a `{ hidden: true }` registration, which no `--help` renders. */
   readonly hidden: boolean;
   /**
-   * The rendered `--help`, INCLUDING every `addHelpText` block.
+   * The rendered `--help` of the REAL root program's command at this path —
+   * byte-for-byte what a terminal receives, `addHelpText` blocks included.
    *
-   * Lazy and memoized. Capturing it eagerly for all ~500 nodes would put the
+   * 🚨 IT IS CAPTURED FROM `buildRootProgram()`, NEVER FROM THE THROWAWAY
+   * PROGRAM THE REGISTRAR RAN AGAINST, and that distinction is the whole of this
+   * field. `index.ts` installs two help blocks on the FINISHED tree, after every
+   * registrar has run — the known-issues pointer and the help-scope footer — so a
+   * per-registrar program cannot carry either by construction. Capturing there
+   * dropped both lines from all 565 documented paths while the text still read
+   * as real `--help` output, and the docblock that used to sit here promised the
+   * `addHelpText` blocks were included.
+   *
+   * {@link helpSource} says which program a given node's text came from. Do not
+   * re-apply the root decorations to a throwaway program instead: that is a
+   * second list of root-level help registrations to keep in step with
+   * `buildRootProgram`, and the next one anyone adds diverges in silence.
+   *
+   * Lazy and memoized. Capturing it eagerly for all ~582 nodes would put the
    * cost on the classification gate, which never reads it.
    */
   readonly help: string;
+  /**
+   * Which program {@link help} was captured from.
+   *
+   * `registrar-fallback` is a REPORTABLE fact, not a graceful degradation: it
+   * means the real root program has no command at this path, so the registrar
+   * that produced the node is defined and never wired. Its help would read
+   * exactly like a real one, which is why the discriminator exists rather than a
+   * silent fallback. `docs-help-matches-the-real-cli.test.ts` fails on any node
+   * carrying it.
+   */
+  readonly helpSource: "root-program" | "registrar-fallback";
   readonly options: readonly CommandOption[];
   readonly children: readonly CommandNode[];
   readonly isLeaf: boolean;
@@ -902,8 +930,24 @@ export interface CommandNamespace extends CommandNode {
  * live `_outputConfiguration` object and `configureOutput(x)` `Object.assign`s
  * into that same object — so keeping the reference and passing it back restores
  * nothing, because the reference already holds the overrides.
+ *
+ * EXPORTED for the byte-identity gate, which captures the real root program's
+ * command at each documented path and compares. One copy of this save/restore
+ * dance, deliberately: a second one in the test could restore differently and
+ * make the two sides differ for a reason that has nothing to do with the tree.
+ *
+ * 🚨 A CAPTURE IS A FUNCTION OF THE TREE ALONE, AND THIS IS THE ONLY PLACE
+ * THAT DECIDES IT. `helpScopeFooter` renders two facts that are true of the
+ * running PROCESS rather than of the tree: the staleness notice, read from
+ * `~/.nexus-mcp/version-check.json` at RENDER time, and the CLI version, read
+ * from a `package.json` field the release writes on `main` and never on
+ * `staging`. An unwrapped capture bakes both in. See {@link asDerivedCapture}
+ * for the measurement behind each. Putting it here rather than at each call
+ * site is the point: this function is the one funnel every derived capture goes
+ * through — the docs model, the pages, and the gate that compares them — so
+ * none of the three can drift from the others.
  */
-function captureHelp(command: Command): string {
+export function captureHelp(command: Command): string {
   let buffer = "";
   const previous = { ...command.configureOutput() };
   command.configureOutput({
@@ -913,7 +957,7 @@ function captureHelp(command: Command): string {
     writeErr: () => {}
   });
   try {
-    command.outputHelp();
+    asDerivedCapture(() => command.outputHelp());
   } finally {
     command.configureOutput(previous);
   }
@@ -930,17 +974,70 @@ function readOption(option: Option): CommandOption {
 }
 
 /**
+ * Every command the REAL root program registers, keyed by its space-joined path.
+ *
+ * ⚠️ THIS IS A HELP SOURCE, NEVER A POPULATION SOURCE. The tree is still the
+ * union of the per-registrar walks, because only those can attribute a namespace
+ * to the module that produced it. This map answers one question: for a path that
+ * tree already found, WHICH live `Command` object does the shipped binary parse
+ * with — so `--help` can be captured from that one instead of from a throwaway.
+ *
+ * 🚨 IT CAPTURES NO HELP. Building the index is a walk of `command.commands` and
+ * nothing else, so it stays off the classification gate's bill; the capture
+ * happens inside {@link CommandNode.help}'s getter, on the node that is asked.
+ *
+ * The import is DYNAMIC to route around a real cycle — `index.ts` imports the
+ * registrars, the registrars reach this module, and this module now needs
+ * `index.ts` back. `root-program.ts` is the sanctioned door and `index.ts`'s
+ * side effect sits behind an entry-point guard, so importing it builds the tree
+ * without running the CLI.
+ *
+ * Memoized: the tree is deterministic within a process, and four exported
+ * functions each rebuild the module walks.
+ */
+let rootProgramIndex: Promise<ReadonlyMap<string, Command>> | undefined;
+
+async function indexRootProgram(): Promise<ReadonlyMap<string, Command>> {
+  const { buildRootProgram, VERSION } = await import("./root-program");
+  const index = new Map<string, Command>();
+
+  const visit = (command: Command, prefix: readonly string[]): void => {
+    const path = [...prefix, command.name()];
+    index.set(path.join(" "), command);
+    for (const child of command.commands) {
+      if (child.name() !== "help") visit(child, path);
+    }
+  };
+
+  for (const root of buildRootProgram(VERSION).commands) {
+    if (root.name() !== "help") visit(root, []);
+  }
+
+  return index;
+}
+
+/**
  * THE ONE WALK. Everything else in this module is a projection of it.
  *
  * Depth-first over `command.commands`, never over rendered text: a rendering
  * omits hidden commands by construction, and the CLI has 18 of them.
+ *
+ * The walked `command` supplies every STRUCTURAL fact — path, options, children,
+ * hiddenness. `rootProgram` supplies the rendered HELP, because that text is
+ * decorated after every registrar has run. See {@link CommandNode.help}.
  */
-function buildNode(command: Command, prefix: readonly string[], sourceModule: string): CommandNode {
+function buildNode(
+  command: Command,
+  prefix: readonly string[],
+  sourceModule: string,
+  rootProgram: ReadonlyMap<string, Command>
+): CommandNode {
   const path = [...prefix, command.name()];
   const children = command.commands
     .filter((child) => child.name() !== "help")
-    .map((child) => buildNode(child, path, sourceModule));
+    .map((child) => buildNode(child, path, sourceModule, rootProgram));
 
+  const live = rootProgram.get(path.join(" "));
   let cachedHelp: string | undefined;
   return {
     path: path.join(" "),
@@ -952,8 +1049,9 @@ function buildNode(command: Command, prefix: readonly string[], sourceModule: st
     children,
     isLeaf: children.length === 0,
     sourceModule,
+    helpSource: live === undefined ? "registrar-fallback" : "root-program",
     get help(): string {
-      cachedHelp ??= captureHelp(command);
+      cachedHelp ??= captureHelp(live ?? command);
       return cachedHelp;
     }
   };
@@ -978,6 +1076,10 @@ export function flattenCommands(node: CommandNode): CommandNode[] {
  */
 export async function deriveCommandModules(): Promise<CommandModule[]> {
   const modules: CommandModule[] = [];
+  // Resolved ONCE, here, and threaded down. Every node's `help` getter closes
+  // over it and stays lazy and synchronous.
+  rootProgramIndex ??= indexRootProgram();
+  const rootProgram = await rootProgramIndex;
 
   for (const registrar of await discoverRootRegistrars()) {
     const program = new Command();
@@ -990,7 +1092,7 @@ export async function deriveCommandModules(): Promise<CommandModule[]> {
       registrar: registrar.name,
       roots: program.commands
         .filter((child) => child.name() !== "help")
-        .map((child) => buildNode(child, [], registrar.module))
+        .map((child) => buildNode(child, [], registrar.module, rootProgram))
     });
   }
 
@@ -1000,25 +1102,36 @@ export async function deriveCommandModules(): Promise<CommandModule[]> {
 /**
  * THE AUTHORITATIVE TREE — the per-module walks, unioned.
  *
- * ⚠️ IT IS NOT BUILT FROM `src/index.ts`, and the reason is not stylistic:
- * `index.ts` ends in `program.help()` and `program.parseAsync(process.argv)`, so
- * IMPORTING it runs the CLI against whatever argv the caller happens to have.
- * Every consumer of this tree therefore rebuilds it from the registrars, and
- * this module is that rebuild, done once.
+ * ⚠️ THE POPULATION IS NOT BUILT FROM `src/index.ts`, and the reason is
+ * attribution rather than safety: only a registrar run against its own program
+ * can say WHICH module produced a namespace and which hidden siblings sit beside
+ * it. A shared program answers what exists and never who registered it. (The old
+ * reason — that importing `index.ts` would parse `process.argv` — has stopped
+ * being true: its side effect sits behind an entry-point guard, which is what
+ * makes `root-program.ts` importable at all.)
  *
- * Verified equal to a single shared program: 500 leaves either way, empty diff
- * in both directions. The per-module form is preferred only because it also
- * carries attribution.
+ * 🔴 THIS DOCBLOCK USED TO CERTIFY THE UNION "VERIFIED EQUAL TO A SINGLE SHARED
+ * PROGRAM: 500 LEAVES EITHER WAY, EMPTY DIFF IN BOTH DIRECTIONS". That
+ * measurement was true and it compared command PATHS — the one axis that never
+ * diverged. Content was never compared, and it differed on 565 of 565 nodes:
+ * `index.ts` decorates the
+ * finished tree with the known-issues pointer and the help-scope footer, and no
+ * throwaway program carries either. A certification that names its axis is worth
+ * something; one that reads as "verified equal" stops the next reader looking.
  *
- * 🚨 WHAT THIS SHAPE CANNOT REACH: the PROGRAM-LEVEL options. `--json`,
+ * So the union still supplies the POPULATION and the attribution, and
+ * {@link CommandNode.help} is captured from the real root program instead —
+ * see {@link indexRootProgram}. `docs-help-matches-the-real-cli.test.ts` asserts
+ * the two are byte-identical on every documented path, which is the check this
+ * docblock only claimed to have run.
+ *
+ * 🚨 WHAT THE UNION STILL CANNOT REACH: the PROGRAM-LEVEL options. `--json`,
  * `--profile`, `--timeout` and `--dashboard-url` are applied to the root object
- * `index.ts` builds and immediately consumes, so no namespace registrar can see
- * them and neither can this. That is a real gap with a real cost — a
- * command-level `.option()` colliding with a global never receives its value,
- * because the root parses its own options across the whole of argv first — and
- * closing it needs `index.ts` to expose its root program without parsing it.
- * When a `buildRootProgram()` exists, this function becomes a call to it and
- * `deriveCommandModules()` stays exactly as it is, for attribution.
+ * itself, so no namespace registrar can see them and neither does any node here
+ * — the index above deliberately keys the root's CHILDREN, not the root. That is
+ * a real gap with a real cost: a command-level `.option()` colliding with a
+ * global never receives its value, because the root parses its own options
+ * across the whole of argv first.
  */
 
 /** Every node in the CLI, depth-first, sorted by path, de-duplicated. */
@@ -1057,6 +1170,7 @@ export async function deriveCommandNamespaces(): Promise<CommandNamespace[]> {
         children: root.children,
         isLeaf: root.isLeaf,
         sourceModule: root.sourceModule,
+        helpSource: root.helpSource,
         get help(): string {
           return root.help;
         },

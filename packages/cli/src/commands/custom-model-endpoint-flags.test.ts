@@ -191,6 +191,51 @@ describe("custom-model create", () => {
 
     expect(created[0]).toMatchObject({ baseUrl: "from-flag" });
   });
+
+  /**
+   * `enabled` was advertised by the body schema, by the SDK type and by this
+   * command's own `--print-contract` block, and the write discarded it — a create
+   * asking for a disabled model returned 201 with an enabled one (NEX-3858).
+   *
+   * `false` is the whole point of the first case. It is the value a truthy guard
+   * (`opts.enabled && { enabled: opts.enabled }`) silently drops, which would
+   * reproduce the original defect through the flag that was added to fix it.
+   */
+  it("sends enabled: false rather than dropping a falsy flag", async () => {
+    await run([
+      "custom-model",
+      "create",
+      "--display-name",
+      "M",
+      "--model-name",
+      "llama",
+      "--endpoint-url",
+      "https://provider.example/v1",
+      "--endpoint-key",
+      ["unit", "test", "placeholder"].join("-"),
+      "--enabled",
+      "false"
+    ]);
+
+    expect(created[0]).toMatchObject({ enabled: false });
+  });
+
+  it("omits enabled entirely when the flag is absent, so the column default decides", async () => {
+    await run([
+      "custom-model",
+      "create",
+      "--display-name",
+      "M",
+      "--model-name",
+      "llama",
+      "--endpoint-url",
+      "https://provider.example/v1",
+      "--endpoint-key",
+      ["unit", "test", "placeholder"].join("-")
+    ]);
+
+    expect(created[0]).not.toHaveProperty("enabled");
+  });
 });
 
 describe("custom-model update", () => {

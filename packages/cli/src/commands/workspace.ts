@@ -8,7 +8,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "../config";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import {
   color,
   type Column,
@@ -698,7 +698,14 @@ Notes:
   --query path=<dir>" before believing an absence.
   scanned (STDERR, or --json) is how many files were actually opened, not how
   many exist.
-  No mount needed, and no local files are read — this runs server-side.`
+  No mount needed, and no local files are read — this runs server-side.
+  --json IS THE RAW SERVER OBJECT, NOT A {data, meta} ENVELOPE:
+  {results, scanned, truncated}. Each hit is {path, size, modifiedAt, snippet,
+  frontmatter, matchedIn}. snippet and frontmatter are null rather than absent
+  when there is none, and matchedIn is an ARRAY — one hit can carry
+  ["frontmatter","content"] at once, so a script comparing it to a single
+  string misses every multi-axis hit. The MATCHED column above is that array
+  joined with ", ".`
     )
     .action(
       async (
@@ -773,6 +780,7 @@ Notes:
 Examples:
   $ nexus workspace create "Support Docs"
   $ nexus workspace create "Support Docs" --json
+  $ nexus workspace create -- "-launch-notes"
 
 Notes:
   THE SLUG IS DERIVED AND THEN IMMUTABLE. "Support Docs" becomes support-docs,
@@ -780,6 +788,10 @@ Notes:
   one every mount, search and grant will use for the life of the workspace.
   Read it from the output; do not assume the slugification rule.
   A NAME WITH NO ALPHANUMERICS IS REFUSED — it would slugify to nothing.
+  A NAME STARTING WITH A HYPHEN NEVER REACHES THAT REFUSAL. Commander reads it
+  as a flag first, so "workspace create ---" answers "error: unknown option
+  '---'" and exits before any name is sent. Put "--" ahead of the name and the
+  parser stops looking, which is where the refusal above actually applies.
   SLUGS ARE UNIQUE PER ORGANIZATION, so a second "Support Docs" is a conflict,
   not a second workspace. Note that an ADMIN-SHARED workspace may already carry
   the slug you want; that does not block creation, and you then have two rows
@@ -878,8 +890,23 @@ Notes:
       try {
         if (!opts.yes) {
           if (!process.stdin.isTTY) {
-            console.error("Error: use --yes to confirm deletion in non-interactive mode");
-            process.exitCode = 1;
+            // A refusal owes a document: `console.error` + exit 1 left stdout
+            // empty under --json, which is the one combination a script cannot
+            // work around — non-zero status and nothing to parse.
+            //
+            // ⚠️ `hint` IS THE NEXT STEP FOR *THIS* FAILURE, NEVER A SECOND
+            // PLACE FOR THE COMMAND'S NOTES. This one carried
+            // "Needs workspaces:delete, which workspaces:write does not imply"
+            // — true, already in `--help`, and about a permission failure that
+            // did not happen here. Nothing was refused for scope; it was
+            // refused for a missing confirmation, so a script following the
+            // hint would go and widen a token that was never the problem. A
+            // wrong `hint` is the `code` defect in prose: a field a caller
+            // trusts, carrying an answer to a question nobody asked.
+            process.exitCode = refuse(
+              `Refusing to delete workspace "${slug}" without a terminal to ask.`,
+              "Pass --yes to confirm deletion in a script."
+            );
             return;
           }
           const readline = await import("node:readline/promises");
@@ -917,6 +944,11 @@ Examples:
   $ nexus workspace restore support-docs reports/q3.pdf
   $ nexus workspace restore support-docs reports      # restore a whole folder
 
+  The whole round trip. The delete has no verb here — it happens on a mount:
+  $ rm ~/nexus/support-docs/notes/probe.md
+  $ nexus workspace search support-docs --query probe
+  $ nexus workspace restore support-docs notes/probe.md
+
 Notes:
   IT RESTORES FILES INTO A LIVE WORKSPACE. It cannot bring back a workspace
   deleted with "workspace delete" — that purges storage, so there is nothing
@@ -932,7 +964,11 @@ Notes:
   THE PATH IS THE ONE THAT WAS DELETED, workspace-relative and with no leading
   slash. Given a folder, everything currently deleted at or under it comes
   back.
-  Read the restored count and the paths it prints; --json carries both.`
+  Read the restored count and the paths it prints; --json carries both.
+  THIS IS THE UNDO FOR AN OPERATION THIS NAMESPACE CANNOT PERFORM. Nothing
+  under "nexus workspace" deletes a FILE — "workspace delete" destroys the
+  whole workspace — so whatever you are undoing happened on a mount or over
+  WebDAV. "nexus workspace --help" carries both of those routes.`
     )
     .action(async (slug: string, filePath: string) => {
       try {
@@ -1036,7 +1072,18 @@ Notes:
   the mount stays up; it survives until "nexus workspace unmount", a reboot, or
   the process being killed. Its log is under the CLI's log directory.
   The drive is LIVE and SHARED: teammates and agents see your changes within
-  seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.`
+  seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.
+  A CODE WORKSPACE MOUNTS READ-WRITE AND THEN REFUSES EVERY WRITE. Nothing on
+  this path reads the storage kind, so the mount succeeds, "workspace status"
+  prints Mode rw, and the gateway answers 403 to every PUT, DELETE and MOVE —
+  which surfaces through the drive as a bare "Permission denied" naming no
+  workspace. The tell is the kind: in "workspace list --json" the key called
+  kind is the STORAGE type, and CODE is a read-only projection of a git
+  project. Push to that project instead.
+  MOUNTING TO ANSWER "IS THAT FILE THERE" IS THE EXPENSIVE WAY.
+  "nexus workspace search <slug> --query <text>" runs server-side, needs no
+  mount, no rclone and no FUSE, and answers in one call. Mount when you need
+  the BYTES; search when you need to know what exists.`
     )
     .action(
       async (

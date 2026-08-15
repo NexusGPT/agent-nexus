@@ -105,21 +105,38 @@ import { registerWorkspaceCommands } from "./workspace";
  * `.choices()` on options only; the sentence was never measured, it is false, and
  * it cost four descriptors their binding while reading exactly like a fact.
  *
- * ONE reason genuinely blocks a descriptor today:
+ * NO REASON BLOCKS A DESCRIPTOR FOR WANT OF A FLAG ANY MORE. `no-flag-and-no-body`
+ * holds zero records:
  *
  *   · `no-flag-and-no-body` — the enum is a QUERY PARAMETER the CLI never sends,
- *     and there is no `--body` to reach it through. `customer list` sends no
- *     sortBy, sortOrder or channel; `tracing traces` sends no source; `tracing
- *     cost-breakdown` sends no bucket; `execution list` sends no sortBy or
- *     order. Binding one means ADDING A FLAG — a change to what the CLI can DO,
- *     not to what it says, and therefore a product decision rather than rollout.
+ *     and there is no `--body` to reach it through. Binding one means ADDING A
+ *     FLAG — a change to what the CLI can DO, not to what it says, and therefore
+ *     a product decision rather than rollout.
  *
- *     `tracing generations` WAS on that list and came off it by taking the
- *     decision rather than deferring it: `--sort-by` and `--order` were added,
- *     which unblocked the descriptor and let `--provider` and `--status` bind.
- *     Until then `--provider` printed a hand-typed three-value list while the
- *     server accepted four, so a KIMI generation was unfilterable by anyone
- *     reading --help.
+ *     Every descriptor that ever carried this reason took the decision instead
+ *     of deferring it, and each one paid for itself:
+ *
+ *       - `tracing generations` — `--sort-by` and `--order` added. Until then
+ *         `--provider` printed a hand-typed three-value list while the server
+ *         accepted four, so a KIMI generation was unfilterable by anyone
+ *         reading --help.
+ *       - `tracing traces` — `--source` added, which let `--status`, `--sort-by`
+ *         and `--order` bind. All three had hand-typed their values in
+ *         DESCRIPTIONS and validated nothing, under a Notes block that claimed
+ *         "any other value is refused". Driven, `--sort-by __junk__` reached the
+ *         network. A help text asserting a refusal nothing performs is worse
+ *         than one saying nothing at all.
+ *       - `tracing cost-breakdown` — `--bucket` added.
+ *       - `customer list` — `--sort-by`, `--sort-order` and `--channel` added.
+ *         The adapter behind that route keeps its own sort allowlist and falls
+ *         back silently on a miss, so an unvalidated `--sort-by` did not even
+ *         400: it returned a differently-ordered page and said nothing.
+ *       - `execution list` — `--sort-by` and `--order` added, unblocking
+ *         `--status` on both of its routes.
+ *
+ *     The reason stays in the union because the SHAPE is real and the next
+ *     query parameter somebody adds will wear it. It describes nothing today.
+ *     Count it, never quote it.
  *
  *     ⚠️ A BODY FIELD WITH NO FLAG IS A DIFFERENT SHAPE AND IS NOT BLOCKED. A
  *     command carrying `--body` genuinely reaches it, so `bodyOnly` states the
@@ -147,10 +164,11 @@ import { registerWorkspaceCommands } from "./workspace";
  *     `.argParser()` trap that silently disables `.choices()` is identical on
  *     both. There is no reason for this shape because there is nothing to refuse.
  *   · ONE LEAF SERVING TWO DESCRIPTORS -> `route-twin-bound-elsewhere`. `ticket
- *     list --all-orgs` and `channel setup --auto` switch route on a flag while
- *     `bindCommand` takes one shape. A DECISION already taken and argued at the
- *     call site — the default branch is bound because the two descriptors' enums
- *     are identical. Do not reopen it.
+ *     list --all-orgs`, `channel setup --auto` and `execution list
+ *     --workflow-id` switch route on a flag while `bindCommand` takes one shape.
+ *     A DECISION already taken and argued at the call site — the default branch
+ *     is bound because the two descriptors' enums are identical. Do not reopen
+ *     it.
  *   · A NESTED OR ARRAY-OF-OBJECT BODY ENUM -> `reachable-not-yet-bound`. This
  *     was the largest remaining group and it is now EMPTY: `judgeConfigs[]
  *     .provider` and `filters[].op` were bound with their namespaces, and
@@ -243,39 +261,14 @@ export interface BlockedDescriptor {
  */
 export const BLOCKED_DESCRIPTORS: readonly BlockedDescriptor[] = [
   {
-    descriptor: "CustomerList",
-    reason: "no-flag-and-no-body",
-    leaf: "customer list",
-    unreachable: ["Params.sortBy", "Params.sortOrder", "Params.channel"]
-  },
-  {
-    descriptor: "WorkflowExecutionList",
-    reason: "no-flag-and-no-body",
-    leaf: "execution list",
-    unreachable: ["Params.sortBy", "Params.order"]
-  },
-  {
+    // `execution list --workflow-id` switches this leaf to the path-scoped
+    // route. Both routes carry the SAME three enums — status, sortBy, order —
+    // and differ only in where the workflow id travels, so the default branch
+    // binds and this is the `channel setup` shape, not a wall.
     descriptor: "WorkflowExecutionListForWorkflow",
-    reason: "no-flag-and-no-body",
+    reason: "route-twin-bound-elsewhere",
     leaf: "execution list --workflow-id",
-    unreachable: ["Params.sortBy", "Params.order"]
-  },
-  {
-    // ONE field of four blocks this descriptor, and that is the shape worth
-    // seeing: `--status`, `--sort-by` and `--order` all exist on this leaf and
-    // hand-type lists that match the contract exactly. Only `source` has no
-    // flag, and the gate is all-or-nothing per descriptor, so three ready enums
-    // wait on one absent one.
-    descriptor: "TracingListTraces",
-    reason: "no-flag-and-no-body",
-    leaf: "tracing traces",
-    unreachable: ["Params.source"]
-  },
-  {
-    descriptor: "TracingAnalyticsCostBreakdown",
-    reason: "no-flag-and-no-body",
-    leaf: "tracing cost-breakdown",
-    unreachable: ["Params.bucket"]
+    unreachable: []
   },
   {
     descriptor: "ModelList",

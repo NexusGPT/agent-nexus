@@ -6,8 +6,8 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { resolveDashboardUrl } from "../config";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
-import { color, printRecord, printSuccess, printTable } from "../output";
+import { handleError, refuse } from "../errors";
+import { color, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import {
   CHANNEL_CONNECTION_CREATE__BODY_REGION,
   CHANNEL_CONNECTION_CREATE_CONTRACT,
@@ -84,6 +84,57 @@ function openUrl(url: string): void {
   exec(`${cmd} ${JSON.stringify(url)}`);
 }
 
+/**
+ * One row of `listTemplateApprovals`, as the printers and the polls read it.
+ *
+ * The SDK types this list loosely, and three call sites reached into it through
+ * `(a: any)` — so a renamed field would have compiled, printed an empty column
+ * and matched nothing, in silence. Naming the shape once puts the read under the
+ * compiler at every one of them.
+ */
+interface TemplateApprovalRow {
+  sid?: string;
+  approvalRequests?: {
+    name?: string;
+    category?: string;
+    status?: string;
+    rejection_reason?: string;
+  };
+}
+
+/**
+ * Emit the document for a resource that was ALREADY CREATED, then re-throw.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 DEFERRING STDOUT TO ASSEMBLE ONE DOCUMENT MAKES A LATER FAILURE DESTROY AN
+ *    EARLIER SUCCESS.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `create --submit` and the two `--wait` verbs each do a real, billed,
+ * irreversible thing and THEN keep going. Assembling one document at the end is
+ * right for the happy path and wrong for every other: if the submit or the poll
+ * throws, the outer handler emits an error document and the id of the template
+ * that WAS created never reaches stdout at all. The caller is told the command
+ * failed, is not told what it created, and creates it again.
+ *
+ * So the acquired resource is emitted FIRST, carrying an explicit failure
+ * marker, and the error still goes out and still exits 1 — on stderr, because
+ * `emitDocument` gives stdout to the first document. One parseable document that
+ * names the resource AND says the follow-up failed; a non-zero exit; nothing
+ * lost.
+ */
+function emitPartialThenRethrow(acquired: object, stage: string, error: unknown): never {
+  if (isJsonMode()) {
+    printRecord({
+      ...acquired,
+      incomplete: true,
+      failedStage: stage,
+      failedReason: error instanceof Error ? error.message : String(error)
+    });
+  }
+  throw error;
+}
+
 export function registerChannelCommands(program: Command): void {
   const channel = program
     .command("channel")
@@ -148,13 +199,14 @@ Notes:
   green. When every step ABOVE it is completed, the table prints "All
   prerequisites met", and that is the signal to create the deployment.
 
-  🚨 --json DOES NOT CARRY THAT VERDICT. It emits the steps and a bare success
-  flag; there is no "ready" key to gate automation on, so a script testing
-  .ready reads undefined and can never proceed. Derive it from the steps
-  instead — every step except the last must read completed:
+  --json CARRIES THAT VERDICT, as one document: { type, ready, steps }. "ready"
+  is the same fact the table prints as "All prerequisites met", so gate
+  automation on it directly rather than re-deriving it from the steps:
 
-    $ nexus channel setup --type WHATSAPP --json \\
-        | jq '[.[] | select(.label != "Deployment") | .status] | all(. == "completed")'
+    $ nexus channel setup --type WHATSAPP --json | jq -e '.ready'
+
+  "ready" IS NOT ALWAYS A CHECK. For a --type with no real prerequisite checks
+  it reads true because nothing was checked — see two paragraphs down.
 
   THIS STOPS AT THE FIRST GAP. The first step that reads action_needed blocks
   the rest, and every step after it reads "pending" whatever its real state
@@ -189,14 +241,31 @@ Notes:
           result = await client.channels.getSetupStatus(opts.type);
         }
         const data = result;
-        printTable(data.steps, [
-          { key: "step", label: "#", width: 3 },
-          { key: "label", label: "STEP", width: 25 },
-          { key: "status", label: "STATUS", width: 16 },
-          { key: "description", label: "DESCRIPTION", width: 45 }
-        ]);
-        if (data.ready) {
-          printSuccess("All prerequisites met. Ready to create deployment.");
+        if (isJsonMode()) {
+          // ONE document, and it carries the VERDICT — not only the steps.
+          //
+          // 🚨 A PRINTER PAIR LOSES THE HALF THAT MATTERS, AND STILL LOOKS RIGHT.
+          // `printTable(data.steps)` then `printSuccess(...)` writes the steps
+          // and then the verdict, and `emitDocument`'s first-wins rule gives
+          // stdout to the steps and sends the verdict to STDERR. Nothing is
+          // unparseable and nothing errors; a script simply never sees `ready`,
+          // and the one fact this command exists to answer is on the channel
+          // scripts do not read.
+          //
+          // The response has carried `ready` all along — this printer dropped
+          // it. So JSON mode emits the response, and the human mode below keeps
+          // the table plus the sentence that says the same thing.
+          printRecord({ type: data.type, ready: data.ready, steps: data.steps });
+        } else {
+          printTable(data.steps, [
+            { key: "step", label: "#", width: 3 },
+            { key: "label", label: "STEP", width: 25 },
+            { key: "status", label: "STATUS", width: 16 },
+            { key: "description", label: "DESCRIPTION", width: 45 }
+          ]);
+          if (data.ready) {
+            printSuccess("All prerequisites met. Ready to create deployment.");
+          }
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -230,10 +299,21 @@ Notes:
       try {
         const dashboardUrl = resolveDashboardUrl(program.optsWithGlobals().dashboardUrl);
         const url = `${dashboardUrl}/app/connect-waba`;
-        console.log(`Opening ${color.cyan(url)} ...`);
-        console.log("");
-        console.log('Complete the "Connect with Meta" flow in your browser, then verify:');
-        console.log(`  ${color.dim("nexus channel setup --type WHATSAPP")}`);
+        // The url is the only thing worth having here, and it was reachable ONLY
+        // by reading four lines of prose off stdout. On a machine with no
+        // browser — which the Notes above say is the normal case — that made the
+        // one usable output unparseable.
+        if (isJsonMode()) {
+          printSuccess("Opened the Connect-with-Meta flow. Finish it in a browser.", {
+            url,
+            verifyWith: "nexus channel setup --type WHATSAPP"
+          });
+        } else {
+          console.log(`Opening ${color.cyan(url)} ...`);
+          console.log("");
+          console.log('Complete the "Connect with Meta" flow in your browser, then verify:');
+          console.log(`  ${color.dim("nexus channel setup --type WHATSAPP")}`);
+        }
         openUrl(url);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -276,7 +356,10 @@ Notes:
   Credentials are redacted server-side and never appear here.
   STATUS describes the Twilio account, not WhatsApp. Whether Meta is linked
   shows up as a wabaId on the connection — read it with --json, or use
-  "nexus channel setup --type WHATSAPP".`
+  "nexus channel setup --type WHATSAPP".
+
+  --json HERE IS A BARE ARRAY, not {data,meta}. jq '.data[]' selects nothing
+  and does not error, so the miss reads as "no connection". Use jq '.[]'.`
     )
     .action(async () => {
       try {
@@ -523,7 +606,11 @@ Notes:
   listed, approved or not, and a row here is not permission to send. Read
   "nexus channel whatsapp-template approvals" for the verdict.
   This is the Twilio-side inventory; "nexus deployment template list <depId>"
-  is what a given deployment has attached. The two differ routinely.`
+  is what a given deployment has attached. The two differ routinely.
+
+  --json HERE IS A BARE ARRAY, not {data,meta} — same for "approvals". jq
+  '.data[]' selects nothing and does not error, so the miss reads as an empty
+  inventory. Use jq '.[]'.`
     )
     .action(async (opts) => {
       try {
@@ -626,18 +713,15 @@ Notes:
       try {
         // Validate: --body or --body-file required, not both
         if (!opts.body && !opts.bodyFile) {
-          console.error("Error: Either --body or --body-file is required.");
-          process.exitCode = 1;
+          process.exitCode = refuse("Either --body or --body-file is required.");
           return;
         }
         if (opts.body && opts.bodyFile) {
-          console.error("Error: Cannot use both --body and --body-file.");
-          process.exitCode = 1;
+          process.exitCode = refuse("Cannot use both --body and --body-file.");
           return;
         }
         if (opts.submit && !opts.category) {
-          console.error("Error: --category is required when using --submit.");
-          process.exitCode = 1;
+          process.exitCode = refuse("--category is required when using --submit.");
           return;
         }
 
@@ -648,10 +732,9 @@ Notes:
             const content = readFileSync(opts.bodyFile, "utf-8");
             types = JSON.parse(content);
           } catch (e) {
-            console.error(
-              `Error reading --body-file: ${e instanceof Error ? e.message : String(e)}`
+            process.exitCode = refuse(
+              `Could not read --body-file: ${e instanceof Error ? e.message : String(e)}`
             );
-            process.exitCode = 1;
             return;
           }
         } else {
@@ -664,8 +747,7 @@ Notes:
           try {
             variables = JSON.parse(opts.variables);
           } catch {
-            console.error("Error: --variables must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--variables must be valid JSON.");
             return;
           }
         }
@@ -682,75 +764,118 @@ Notes:
           variables
         });
         const data = result;
-        printRecord(data, [
-          { key: "id", label: "ID" },
-          { key: "friendly_name", label: "Friendly Name" },
-          { key: "language", label: "Language" },
-          { key: "created_at", label: "Created At" }
-        ]);
-        printSuccess("WhatsApp template created.");
+        // --submit turns ONE command into three terminal results — created,
+        // submitted, and the poll's verdict — and each printed its own document
+        // and its own prose. Under --json they concatenated into something no
+        // parser accepts, on the flag that exists precisely so a script can do
+        // the whole thing in one call. The human channel keeps its running
+        // commentary; the script gets one document, assembled at the end.
+        if (!isJsonMode()) {
+          printRecord(data, [
+            { key: "id", label: "ID" },
+            { key: "friendly_name", label: "Friendly Name" },
+            { key: "language", label: "Language" },
+            { key: "created_at", label: "Created At" }
+          ]);
+          printSuccess("WhatsApp template created.");
+        }
+
+        let approvalRecord: Record<string, unknown> | undefined;
+        let approvalStatus: string | undefined;
+        let approvalRejectionReason: string | undefined;
 
         // Auto-submit for approval if --submit
         if (opts.submit) {
-          console.log("");
-          console.log("Submitting for Meta approval...");
-          const approval = await client.channels.submitTemplateApproval({
-            connectionId: opts.connectionId,
-            templateId: data.id,
-            name: opts.friendlyName,
-            category: opts.category
-          });
-          const approvalData = approval;
-          printRecord(approvalData, [
-            { key: "sid", label: "Approval SID" },
-            { key: "status", label: "Status" }
-          ]);
-          printSuccess("Template submitted for Meta approval.");
-
-          // Brief poll to catch immediate Meta rejections (up to 30s)
-          const pollMaxMs = 30_000;
-          const pollIntervalMs = 5_000;
-          const pollStart = Date.now();
-          let resolved = false;
-
-          console.log("Checking approval status...");
-
-          while (Date.now() - pollStart < pollMaxMs) {
-            await new Promise((r) => setTimeout(r, pollIntervalMs));
-            try {
-              const approvals = await client.channels.listTemplateApprovals({
-                connectionId: opts.connectionId
-              });
-              const approvalsArr = approvals;
-              const items = Array.isArray(approvalsArr) ? approvalsArr : [approvalsArr];
-              const match = items.find((a: any) => a.sid === data.id);
-
-              if (match?.approvalRequests?.status) {
-                const status = match.approvalRequests.status;
-                if (status === "rejected") {
-                  console.log(color.red(`✗ Template rejected by Meta: ${status}`));
-                  if (match.approvalRequests.rejection_reason) {
-                    console.log(`  Reason: ${match.approvalRequests.rejection_reason}`);
-                  }
-                  resolved = true;
-                  process.exitCode = 1;
-                  break;
-                } else if (status === "approved") {
-                  console.log(color.green(`✓ Template approved by Meta.`));
-                  resolved = true;
-                  break;
-                }
-              }
-            } catch {
-              // Ignore polling errors — best effort
+          try {
+            if (!isJsonMode()) {
+              console.log("");
+              console.log("Submitting for Meta approval...");
             }
-          }
+            const approval = await client.channels.submitTemplateApproval({
+              connectionId: opts.connectionId,
+              templateId: data.id,
+              name: opts.friendlyName,
+              category: opts.category
+            });
+            const approvalData = approval;
+            approvalRecord = { ...approvalData };
+            if (!isJsonMode()) {
+              printRecord(approvalData, [
+                { key: "sid", label: "Approval SID" },
+                { key: "status", label: "Status" }
+              ]);
+              printSuccess("Template submitted for Meta approval.");
+            }
 
-          if (!resolved) {
-            console.log(
-              `Status still pending. Check later: ${color.dim("nexus channel whatsapp-template approvals")}`
-            );
+            // Brief poll to catch immediate Meta rejections (up to 30s)
+            const pollMaxMs = 30_000;
+            const pollIntervalMs = 5_000;
+            const pollStart = Date.now();
+            let resolved = false;
+
+            if (!isJsonMode()) console.log("Checking approval status...");
+
+            while (Date.now() - pollStart < pollMaxMs) {
+              await new Promise((r) => setTimeout(r, pollIntervalMs));
+              try {
+                const approvals = await client.channels.listTemplateApprovals({
+                  connectionId: opts.connectionId
+                });
+                const approvalsArr = approvals;
+                const items = Array.isArray(approvalsArr) ? approvalsArr : [approvalsArr];
+                const match = items.find((a: TemplateApprovalRow) => a.sid === data.id);
+
+                if (match?.approvalRequests?.status) {
+                  const status = match.approvalRequests.status;
+                  approvalStatus = status;
+                  if (status === "rejected") {
+                    approvalRejectionReason = match.approvalRequests.rejection_reason;
+                    if (!isJsonMode()) {
+                      console.log(color.red(`✗ Template rejected by Meta: ${status}`));
+                      if (approvalRejectionReason) {
+                        console.log(`  Reason: ${approvalRejectionReason}`);
+                      }
+                    }
+                    resolved = true;
+                    process.exitCode = 1;
+                    break;
+                  } else if (status === "approved") {
+                    if (!isJsonMode()) console.log(color.green(`✓ Template approved by Meta.`));
+                    resolved = true;
+                    break;
+                  }
+                }
+              } catch {
+                // Ignore polling errors — best effort
+              }
+            }
+
+            if (!resolved && !isJsonMode()) {
+              console.log(
+                `Status still pending. Check later: ${color.dim("nexus channel whatsapp-template approvals")}`
+              );
+            }
+          } catch (submitError) {
+            // The template EXISTS. Say so, with its id, before the failure.
+            emitPartialThenRethrow(data, "submit-approval", submitError);
           }
+        }
+
+        if (isJsonMode()) {
+          printRecord({
+            ...data,
+            ...(approvalRecord === undefined
+              ? {}
+              : {
+                  approval: {
+                    ...approvalRecord,
+                    ...(approvalStatus === undefined ? {} : { status: approvalStatus }),
+                    ...(approvalRejectionReason === undefined
+                      ? {}
+                      : { rejectionReason: approvalRejectionReason })
+                  }
+                })
+          });
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -838,7 +963,7 @@ Notes:
         const items = Array.isArray(data) ? data : [data];
 
         // Flatten approvalRequests for table display
-        const rows = items.map((item: any) => ({
+        const rows = items.map((item: TemplateApprovalRow) => ({
           sid: item.sid,
           name: item.approvalRequests?.name ?? "",
           category: item.approvalRequests?.category ?? "",
@@ -903,47 +1028,88 @@ Notes:
           category: opts.category
         });
         const data = result;
-        printRecord(data, [
-          { key: "sid", label: "Approval SID" },
-          { key: "status", label: "Status" }
-        ]);
-        printSuccess("Template submitted for Meta approval.");
+        // ── ORDER, and it is the whole of this branch ──────────────────
+        //
+        // The human channel wants the submission acknowledged NOW and the poll
+        // narrated as it happens. A script wants ONE document, and it wants the
+        // status the poll ARRIVED at — the pre-poll one is the value `--wait`
+        // exists to replace. Printing the record first served the human and gave
+        // the script a stale document with a prose trailer stuck to it, which
+        // `JSON.parse` refuses outright.
+        if (!isJsonMode()) {
+          printRecord(data, [
+            { key: "sid", label: "Approval SID" },
+            { key: "status", label: "Status" }
+          ]);
+          printSuccess("Template submitted for Meta approval.");
+        }
+
+        let polledStatus: string | undefined;
+        let rejectionReason: string | undefined;
 
         // Poll if --wait
         if (opts.wait) {
-          const maxWaitMs = 120_000;
-          const intervalMs = 5_000;
-          const startTime = Date.now();
-          let finalStatus = data.status;
+          try {
+            const maxWaitMs = 120_000;
+            const intervalMs = 5_000;
+            const startTime = Date.now();
+            let finalStatus = data.status;
 
-          console.log("Waiting for approval...");
+            if (!isJsonMode()) console.log("Waiting for approval...");
 
-          while (Date.now() - startTime < maxWaitMs) {
-            await new Promise((r) => setTimeout(r, intervalMs));
-            const approvals = await client.channels.listTemplateApprovals({
-              connectionId: opts.connectionId
-            });
-            const approvalsData = approvals;
-            const items = Array.isArray(approvalsData) ? approvalsData : [approvalsData];
-            const match = items.find((a: any) => a.sid === opts.templateId);
+            while (Date.now() - startTime < maxWaitMs) {
+              await new Promise((r) => setTimeout(r, intervalMs));
+              const approvals = await client.channels.listTemplateApprovals({
+                connectionId: opts.connectionId
+              });
+              const approvalsData = approvals;
+              const items = Array.isArray(approvalsData) ? approvalsData : [approvalsData];
+              const match = items.find((a: TemplateApprovalRow) => a.sid === opts.templateId);
 
-            if (match?.approvalRequests?.status) {
-              finalStatus = match.approvalRequests.status;
-              if (finalStatus !== "pending" && finalStatus !== "unsubmitted") {
-                console.log(`Approval resolved: ${color.cyan(finalStatus)}`);
-                if (finalStatus === "rejected" && match.approvalRequests.rejection_reason) {
-                  console.log(`Reason: ${match.approvalRequests.rejection_reason}`);
+              if (match?.approvalRequests?.status) {
+                finalStatus = match.approvalRequests.status;
+                if (finalStatus !== "pending" && finalStatus !== "unsubmitted") {
+                  rejectionReason =
+                    finalStatus === "rejected"
+                      ? match.approvalRequests.rejection_reason
+                      : undefined;
+                  if (!isJsonMode()) {
+                    console.log(`Approval resolved: ${color.cyan(finalStatus)}`);
+                    if (rejectionReason) console.log(`Reason: ${rejectionReason}`);
+                  }
+                  break;
                 }
-                break;
               }
             }
-          }
 
-          if (finalStatus === "pending" || finalStatus === "unsubmitted") {
-            console.log(
-              `Still ${finalStatus} after 2m. Check again: ${color.dim("nexus channel whatsapp-template approvals")}`
-            );
+            polledStatus = finalStatus;
+
+            if (finalStatus === "pending" || finalStatus === "unsubmitted") {
+              // A timeout, not a verdict — the Notes above say so, and the
+              // document says so too rather than leaving a caller to infer it from
+              // a status that never moved.
+              if (!isJsonMode()) {
+                console.log(
+                  `Still ${finalStatus} after 2m. Check again: ${color.dim("nexus channel whatsapp-template approvals")}`
+                );
+              }
+            }
+          } catch (pollError) {
+            // The approval WAS submitted. Its sid must not die with the poll.
+            emitPartialThenRethrow(data, "approval-poll", pollError);
           }
+        }
+
+        if (isJsonMode()) {
+          printRecord({
+            ...data,
+            ...(polledStatus === undefined ? {} : { status: polledStatus }),
+            ...(rejectionReason === undefined ? {} : { rejectionReason }),
+            waited: opts.wait === true,
+            timedOut:
+              opts.wait === true && (polledStatus === "pending" || polledStatus === "unsubmitted")
+          });
+          return;
         }
 
         console.log(
@@ -997,8 +1163,10 @@ Notes:
           try {
             variables = JSON.parse(opts.variables);
           } catch {
-            console.error('Invalid JSON for --variables. Example: \'{"1": "Hello"}\'');
-            process.exitCode = 1;
+            process.exitCode = refuse(
+              "Invalid JSON for --variables.",
+              'Example: --variables \'{"1": "Hello"}\''
+            );
             return;
           }
         }
@@ -1010,59 +1178,91 @@ Notes:
         });
         const data = result;
 
-        printRecord(data, [
-          { key: "messageSid", label: "Message SID" },
-          { key: "status", label: "Status" },
-          { key: "to", label: "To" },
-          { key: "from", label: "From" },
-          { key: "sentAt", label: "Sent At" }
-        ]);
-        printSuccess("Template test-send initiated.");
+        // Same shape as `create --submit`: the send and the delivery verdict are
+        // two terminal results, and --wait exists so a script can have the
+        // second. Emitting the first document before the poll gave a script the
+        // status the flag was meant to replace, with prose stuck to it.
+        if (!isJsonMode()) {
+          printRecord(data, [
+            { key: "messageSid", label: "Message SID" },
+            { key: "status", label: "Status" },
+            { key: "to", label: "To" },
+            { key: "from", label: "From" },
+            { key: "sentAt", label: "Sent At" }
+          ]);
+          printSuccess("Template test-send initiated.");
+        }
+
+        let deliveredStatus: string | undefined;
+        let deliveryErrorCode: unknown;
+        let deliveryErrorMessage: unknown;
 
         // Poll delivery status if --wait
         if (opts.wait) {
-          const maxWaitMs = 120_000;
-          const intervalMs = 5_000;
-          const startTime = Date.now();
-          let lastStatus = data.status;
+          try {
+            const maxWaitMs = 120_000;
+            const intervalMs = 5_000;
+            const startTime = Date.now();
+            let lastStatus = data.status;
 
-          console.log("Polling delivery status...");
+            if (!isJsonMode()) console.log("Polling delivery status...");
 
-          while (Date.now() - startTime < maxWaitMs) {
-            await new Promise((r) => setTimeout(r, intervalMs));
-            try {
-              const statusResult = await client.channels.getTestSendStatus(
-                opts.templateId,
-                data.messageSid,
-                { connectionId: opts.connectionId }
-              );
-              const statusData = statusResult;
-              lastStatus = statusData.status;
+            while (Date.now() - startTime < maxWaitMs) {
+              await new Promise((r) => setTimeout(r, intervalMs));
+              try {
+                const statusResult = await client.channels.getTestSendStatus(data.messageSid, {
+                  connectionId: opts.connectionId
+                });
+                const statusData = statusResult;
+                lastStatus = statusData.status;
 
-              // Terminal statuses
-              if (["delivered", "read"].includes(lastStatus)) {
-                console.log(color.green(`\u2713 Message ${lastStatus}.`));
-                break;
-              } else if (["failed", "undelivered"].includes(lastStatus)) {
-                console.log(color.red(`\u2717 Message ${lastStatus}.`));
-                if (statusData.errorCode) {
-                  console.log(
-                    `  Error ${statusData.errorCode}: ${statusData.errorMessage ?? "Unknown error"}`
-                  );
+                // Terminal statuses
+                if (["delivered", "read"].includes(lastStatus)) {
+                  if (!isJsonMode()) console.log(color.green(`\u2713 Message ${lastStatus}.`));
+                  break;
+                } else if (["failed", "undelivered"].includes(lastStatus)) {
+                  deliveryErrorCode = statusData.errorCode;
+                  deliveryErrorMessage = statusData.errorMessage;
+                  if (!isJsonMode()) {
+                    console.log(color.red(`\u2717 Message ${lastStatus}.`));
+                    if (statusData.errorCode) {
+                      console.log(
+                        `  Error ${statusData.errorCode}: ${statusData.errorMessage ?? "Unknown error"}`
+                      );
+                    }
+                  }
+                  process.exitCode = 1;
+                  break;
                 }
-                process.exitCode = 1;
-                break;
+              } catch {
+                // Ignore transient polling errors
               }
-            } catch {
-              // Ignore transient polling errors
             }
-          }
 
-          if (!["delivered", "read", "failed", "undelivered"].includes(lastStatus)) {
-            console.log(
-              `Status still '${lastStatus}' after 2m. The message may still be in transit.`
-            );
+            deliveredStatus = lastStatus;
+
+            if (
+              !["delivered", "read", "failed", "undelivered"].includes(lastStatus) &&
+              !isJsonMode()
+            ) {
+              console.log(
+                `Status still '${lastStatus}' after 2m. The message may still be in transit.`
+              );
+            }
+          } catch (pollError) {
+            // The message WAS sent, and it was billed. Its sid survives the poll.
+            emitPartialThenRethrow(data, "delivery-poll", pollError);
           }
+        }
+
+        if (isJsonMode()) {
+          printRecord({
+            ...data,
+            ...(deliveredStatus === undefined ? {} : { status: deliveredStatus }),
+            ...(deliveryErrorCode === undefined ? {} : { errorCode: deliveryErrorCode }),
+            ...(deliveryErrorMessage === undefined ? {} : { errorMessage: deliveryErrorMessage }),
+            waited: opts.wait === true
+          });
         }
       } catch (err) {
         process.exitCode = handleError(err);

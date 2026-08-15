@@ -15,7 +15,35 @@
 // `execution.ts` and printed in --help. The contract has already been the
 // wrong one: it lists a deployment type the server 500s on.
 
+import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
+
+export const WORKFLOW_EXECUTION_LIST__PARAMS_STATUS = {
+  path: "WorkflowExecutionList.Params.status",
+  contractValues: [
+    "PENDING",
+    "RUNNING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED"
+  ]
+} as const satisfies ContractEnum;
+
+export const WORKFLOW_EXECUTION_LIST__PARAMS_SORT_BY = {
+  path: "WorkflowExecutionList.Params.sortBy",
+  contractValues: [
+    "createdAt",
+    "status"
+  ]
+} as const satisfies ContractEnum;
+
+export const WORKFLOW_EXECUTION_LIST__PARAMS_ORDER = {
+  path: "WorkflowExecutionList.Params.order",
+  contractValues: [
+    "asc",
+    "desc"
+  ]
+} as const satisfies ContractEnum;
 
 export const WORKFLOW_EXECUTION_CANCEL_CONTRACT = {
   name: "WorkflowExecutionCancel",
@@ -70,6 +98,24 @@ export const WORKFLOW_EXECUTION_GET_OUTPUT_CONTRACT = {
   route: "/public/v1/workflows/executions/:executionId/output",
   fields: [
     { path: "PathVars.executionId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const WORKFLOW_EXECUTION_LIST_CONTRACT = {
+  name: "WorkflowExecutionList",
+  method: "GET",
+  route: "/public/v1/workflows/executions",
+  fields: [
+    { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.workflowId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"] },
+    { path: "Params.startDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.endDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["createdAt", "status"] },
+    { path: "Params.order", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] },
+    { path: "Params.includeChildExecutions", slot: "Params", type: "unknown", required: false, depth: 0 },
+    { path: "Params.includeTestRuns", slot: "Params", type: "unknown", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

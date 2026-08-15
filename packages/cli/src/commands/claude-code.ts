@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { Command } from "commander";
 
-import { handleError } from "../errors";
+import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
 import { SKILL_LIST, SKILLS } from "../skills-content.generated";
 import { confirmable } from "../util/confirm";
@@ -214,16 +214,14 @@ export async function runSkillsInstallToTarget(
     if (skillArgs.length > 0) {
       const unknown = skillArgs.filter((s) => !availableSlugs.has(s));
       if (unknown.length > 0) {
-        console.error(
-          color.red("Error:") +
-            ` Unknown skill${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.\n\n` +
+        process.exitCode = refuse(
+          `Unknown skill${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.\n\n` +
             `Available skills in this CLI bundle:\n` +
             [...availableSlugs]
               .sort()
               .map((s) => `  ${s}`)
               .join("\n")
         );
-        process.exitCode = 1;
         return;
       }
       const requested = new Set(skillArgs);
@@ -494,13 +492,13 @@ export async function runSkillsInstallToTarget(
       // skills dir and the project-root CLAUDE.md, so a hard-coded skills-dir
       // path would mislead when CLAUDE.md is the culprit.
       const failedPath = errno.path ?? target.skillsDir;
-      console.error(
-        color.red("Error:") +
-          ` Permission denied. Cannot write to ${failedPath}.\n` +
-          `Check permissions, install skills elsewhere with --dir, or skip the ` +
+      // A local write that failed. Nothing about the caller's flags is wrong.
+      process.exitCode = reportFailure(
+        "local-failed",
+        `Permission denied. Cannot write to ${failedPath}.`,
+        `Check permissions, install skills elsewhere with --dir, or skip the ` +
           `project-root CLAUDE.md with --no-claude-md.`
       );
-      process.exitCode = 1;
     } else {
       process.exitCode = handleError(err);
     }

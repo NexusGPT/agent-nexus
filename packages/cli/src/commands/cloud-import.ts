@@ -9,8 +9,8 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
-import { type Column, isJsonMode, printList, printWarning } from "../output";
+import { handleError, refuse } from "../errors";
+import { type Column, isJsonMode, printList } from "../output";
 import {
   CLOUD_IMPORT_BROWSE_CONTRACT,
   CLOUD_IMPORT_ITEMS_CONTRACT,
@@ -377,21 +377,25 @@ Notes:
     .action(async (opts) => {
       try {
         if (opts.accessToken) {
-          printWarning(
+          // `printWarning` writes to stderr by design — right for a warning,
+          // wrong for a REFUSAL, which is what this is: it exits 1. Paired with
+          // the exit it left stdout empty, exactly like the --connection-id arm
+          // below before it moved to `refuse`. The two arms sit in one action
+          // and only one was fixed.
+          process.exitCode = refuse(
             "--access-token is no longer accepted.",
-            "The endpoint it addressed always answered with no files, and it put a credential in the URL.",
-            "Connect Google Drive in the app and pass --connection-id instead."
+            "The endpoint it addressed always answered with no files, and it put a credential in the URL. Connect Google Drive in the app and pass --connection-id instead."
           );
-          process.exitCode = 1;
           return;
         }
 
         if (!opts.connectionId) {
-          printWarning(
+          // `printWarning` writes to stderr by design, which is right for a
+          // warning and wrong for a REFUSAL: it left stdout empty at exit 1.
+          process.exitCode = refuse(
             "--connection-id is required.",
             "Find it in the app under the connected Google Drive account."
           );
-          process.exitCode = 1;
           return;
         }
 

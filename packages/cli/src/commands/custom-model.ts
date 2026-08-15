@@ -129,6 +129,7 @@ Examples:
         CUSTOM_MODEL_CREATE__BODY_PROTOCOL
       )
     )
+    .option("--enabled <bool>", "Create it disabled — true or false", booleanFlag)
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
@@ -136,6 +137,8 @@ Examples:
 Examples:
   $ nexus custom-model create --display-name "My LLaMA" --model-name llama-3-70b \\
       --endpoint-url https://api.example.com/v1 --endpoint-key sk-xxx
+  $ nexus custom-model create --display-name "Staging LLaMA" --model-name llama-3-70b \\
+      --endpoint-url https://api.example.com/v1 --endpoint-key sk-xxx --enabled false
   $ nexus custom-model create --body '{"displayName":"My Model","modelName":"gpt-4","baseUrl":"https://api.example.com/v1","apiKey":"sk-xxx"}'
 
 Notes:
@@ -143,7 +146,14 @@ Notes:
   fill the body's baseUrl and apiKey. The global --base-url and --api-key point
   the CLI at a Nexus environment and are a different thing entirely; passing the
   provider's values there sends this CLI's own authenticated request to the
-  provider's host, carrying the provider key as the Nexus key.`
+  provider's host, carrying the provider key as the Nexus key.
+
+  A 201 MEANS STORED, NEVER "WORKS". Nothing contacts the endpoint while the
+  model is created — no reachability probe, no auth check, no test completion.
+  An unreachable baseUrl and a dead apiKey both create cleanly and surface only
+  when an agent or a task first runs on the model, as an inference failure far
+  from this command. Prove it yourself before pointing anything at it, and use
+  --enabled false to keep it out of reach until you have.`
     )
     .action(async (opts) => {
       try {
@@ -153,7 +163,8 @@ Notes:
           ...(opts.modelName !== undefined && { modelName: opts.modelName }),
           ...(opts.endpointUrl !== undefined && { baseUrl: opts.endpointUrl }),
           ...(opts.endpointKey !== undefined && { apiKey: opts.endpointKey }),
-          ...(opts.protocol !== undefined && { protocol: opts.protocol })
+          ...(opts.protocol !== undefined && { protocol: opts.protocol }),
+          ...(opts.enabled !== undefined && { enabled: opts.enabled })
         });
 
         const client = createClient(program.optsWithGlobals());

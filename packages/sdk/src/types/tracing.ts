@@ -240,6 +240,8 @@ export interface ListTracesParams {
   endDate?: string;
   sortBy?: "startedAt" | "totalCostUsd" | "totalDurationMs";
   order?: "asc" | "desc";
+  /** Filter by the surface that produced the trace. See {@link TraceSource}. */
+  source?: TraceSource;
 }
 
 export interface ListGenerationsParams {

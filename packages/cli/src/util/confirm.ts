@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { color } from "../output";
+import { refuse } from "../errors";
 
 /**
  * ONE ANSWER TO "NO TERMINAL, NO --yes": REFUSE.
@@ -101,11 +101,15 @@ export async function confirmDestructive(
   if (opts.yes || opts.force) return true;
 
   if (!process.stdin.isTTY) {
-    console.error(
-      `${color.red("Error:")} ${question} — refusing without a terminal to ask. ` +
-        `Pass --yes to confirm in a script.`
+    // A REFUSAL, so it owes the caller a document. `console.error` + exit 1 left
+    // stdout empty under --json, and this helper is shared — so the one defect
+    // reached every destructive verb that routes through it, none of which the
+    // driven scan can see (the argv synthesizer passes `--yes`, which is the
+    // arm that returns early above).
+    process.exitCode = refuse(
+      `${question} — refusing without a terminal to ask.`,
+      "Pass --yes to confirm in a script."
     );
-    process.exitCode = 1;
     return false;
   }
 

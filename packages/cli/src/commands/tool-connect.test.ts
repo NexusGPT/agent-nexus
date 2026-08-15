@@ -1,6 +1,6 @@
 import { ToolConnectionResource } from "@agent-nexus/sdk";
 import { Command } from "commander";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setJsonMode } from "../output";
 
@@ -45,6 +45,38 @@ async function run(argv: string[]): Promise<void> {
   await program.parseAsync(["node", "nexus", ...argv]);
 }
 
+/**
+ * The JSON document a refusal puts on STDOUT, under `--json`.
+ *
+ * These three cases used to read `console.error`, because a local refusal wrote
+ * prose to stderr and left stdout empty — which is the defect the error-document
+ * clause closed. `refuse()` now emits the standard
+ * `{"error":{"message","hint","code"}}` envelope, so the assertion moves to the
+ * channel a caller actually parses and gets stricter: the shape is checked, not
+ * only the words.
+ */
+async function refusalDocument(argv: string[]): Promise<{
+  message: string;
+  hint: string | null;
+  code: string;
+}> {
+  const lines: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+    lines.push(a.map(String).join(" "));
+  });
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await run(argv);
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+  const parsed = JSON.parse(lines.join("\n")) as {
+    error: { message: string; hint: string | null; code: string };
+  };
+  return parsed.error;
+}
+
 /** The body of the single request the command made, or null if it made none. */
 function sentBody(): unknown {
   if (request.mock.calls.length === 0) return null;
@@ -53,6 +85,13 @@ function sentBody(): unknown {
 }
 
 describe("nexus tool connect", () => {
+  // The file drives every case in JSON mode and several set a failing exit
+  // code. Neither was ever put back, so both leaked into whatever ran next.
+  afterEach(() => {
+    setJsonMode(false);
+    process.exitCode = undefined;
+  });
+
   beforeEach(() => {
     request.mockReset();
     request.mockResolvedValue({
@@ -69,12 +108,14 @@ describe("nexus tool connect", () => {
   });
 
   it("refuses locally when OAuth has no service, instead of sending a request that cannot validate", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await run(["tool", "connect", TOOL_ID]);
+    const doc = await refusalDocument(["tool", "connect", TOOL_ID]);
     expect(request).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
-    expect(error.mock.calls.flat().join(" ")).toContain("--service");
-    error.mockRestore();
+    expect(doc.message).toContain("--service");
+    // The example belongs in the hint, where a caller reads it, rather than
+    // glued onto the message a script surfaces.
+    expect(doc.hint).toContain("--service <service>");
+    expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
   });
 
   it("keeps the authType the operator put in --body", async () => {
@@ -140,20 +181,26 @@ describe("nexus tool connect", () => {
   });
 
   it("refuses an auth type the server's union does not declare", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await run(["tool", "connect", TOOL_ID, "--auth-type", "basic", "--service", "GMAIL"]);
+    const doc = await refusalDocument([
+      "tool",
+      "connect",
+      TOOL_ID,
+      "--auth-type",
+      "basic",
+      "--service",
+      "GMAIL"
+    ]);
     expect(request).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
-    expect(error.mock.calls.flat().join(" ")).toContain("oauth, http");
-    error.mockRestore();
+    expect(doc.message).toContain("oauth, http");
+    expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
   });
 
   it("refuses HTTP with no api key", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await run(["tool", "connect", TOOL_ID, "--auth-type", "http"]);
+    const doc = await refusalDocument(["tool", "connect", TOOL_ID, "--auth-type", "http"]);
     expect(request).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
-    expect(error.mock.calls.flat().join(" ")).toContain("--api-key-value");
-    error.mockRestore();
+    expect(doc.message).toContain("--api-key-value");
+    expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
   });
 });

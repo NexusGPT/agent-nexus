@@ -201,10 +201,12 @@ export const GENERATED_NAMESPACE_LEDGER = [
   {
     namespace: "tracing",
     descriptors: [
+      "TracingAnalyticsCostBreakdown",
       "TracingAnalyticsTimeline",
       "TracingExportBulk",
       "TracingExportTrace",
-      "TracingListGenerations"
+      "TracingListGenerations",
+      "TracingListTraces"
     ]
   },
   {
@@ -367,18 +369,26 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "CustomerDelete",
       "CustomerGet",
       "CustomerGetByExternalId",
+      "CustomerList",
       "CustomerUpdate"
     ]
   },
   {
-    // `execution list` is NOT here, on both of its routes — see
-    // BLOCKED_DESCRIPTORS. `--status` reaches `Params.status` already; `sortBy`
-    // and `order` have no flag and the leaf is a GET with no `--body`.
-    //
-    // `WorkflowExecutionPollByToken` is not here either, and that is the
+    // `WorkflowExecutionPollByToken` is not here, and that is the
     // one-leaf-two-descriptors decision taken at the call site: `execution poll`
     // switches route on `--token`, `bindCommand` takes one shape, and the two
     // descriptors differ only in which id they take. The default branch binds.
+    //
+    // `execution list` IS here now. `--sort-by` and `--order` were added rather
+    // than deferred: unbound, the leaf's `--status` hand-typed its five values
+    // in a description and refused nothing, and one absent flag was holding
+    // back three ready enums.
+    //
+    // `WorkflowExecutionListForWorkflow` is the same leaf's OTHER route —
+    // `--workflow-id` switches it — so it takes the `channel setup` treatment
+    // rather than a second ledger entry: one leaf, one shape, the twin recorded
+    // in BLOCKED_DESCRIPTORS. Both routes carry the same three enums, so the
+    // bound branch offers exactly what the twin would.
     namespace: "execution",
     descriptors: [
       "WorkflowExecutionCancel",
@@ -387,6 +397,7 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "WorkflowExecutionGet",
       "WorkflowExecutionGetNodeResult",
       "WorkflowExecutionGetOutput",
+      "WorkflowExecutionList",
       "WorkflowExecutionPoll",
       "WorkflowExecutionRetryNode"
     ]

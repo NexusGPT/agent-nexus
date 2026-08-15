@@ -11,7 +11,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
 import {
@@ -61,11 +61,28 @@ Examples:
   $ nexus tool search --query "slack" --json
 
 Notes:
-  THERE IS NO SECOND PAGE, AND A TRUNCATED RESULT LOOKS COMPLETE. This command
-  takes no --offset and no --page, and the response carries no total, so a query
-  matching more tools than --limit allows returns a full page with nothing
-  saying more exist. Narrow with --query or --category rather than paging;
-  a short result is the only evidence you have seen everything.`
+  THERE IS NO SECOND PAGE HERE, AND A TRUNCATED RESULT LOOKS COMPLETE. This
+  command exposes no --offset and no --page, and it prints the rows ALONE —
+  --json is a bare array, not an envelope. Narrow with --query or --category
+  rather than paging; a short result is the only evidence you have seen
+  everything.
+
+  THE SERVER DOES SEND total AND facets; THIS COMMAND DISCARDS THEM. The route
+  answers {tools, facets, total} and takes an offset, so the ceiling is this
+  client's, not the API's. Reach the whole answer with
+  "nexus api GET /tools/search" when you need to page or to count.
+
+  --query IS OPTIONAL, AND OMITTING IT BROWSES. It defaults to the empty string
+  rather than being required, so "nexus tool search --limit 20" walks the
+  catalogue and "--type WORKFLOW" alone filters it. There is no separate list
+  command in this namespace; this is it.
+
+  --category IS FREE TEXT AND VALIDATES NOTHING, unlike --type beside it.
+  Tool.categories is a string array with no closed set, so a misspelled category
+  is not refused — it returns an empty result that reads exactly like "no tools
+  in that category". The real values come back as facets on the same response:
+  "nexus api GET /tools/search" shows every category with its count. Read one
+  from there before you filter on it.`
     )
     .action(async (opts) => {
       try {
@@ -99,7 +116,27 @@ Notes:
       `
 Examples:
   $ nexus tool get tool-123
-  $ nexus tool get tool-123 --json`
+  $ nexus tool get tool-123 --json
+
+Notes:
+  THIS IS THE AUTHORITATIVE ACTION LIST FOR A MARKETPLACE TOOL, and it is what
+  you need before "nexus tool execute --action". --json carries actions[], each
+  {key, name, description, parameters[]}, and each parameter
+  {name, type, label, description, required, default, remoteOptions}. key is
+  what --action takes. An array or object parameter on a custom-manifest tool
+  also carries schema, holding the nested shape the flat name/type pair cannot
+  express.
+  This is the opposite of "external-tool get", which returns actionsCount and no
+  action list at all — there you read the operation ids out of your own spec.
+
+  ACTIONS ARE PAGED SERVER-SIDE AND THIS COMMAND CANNOT REACH THE PAGES. The
+  route takes actionsLimit (200 at most), actionsOffset and actionsSearch; none
+  is exposed here. On a tool with a large action set, use
+  "nexus api GET /tools/<id>?actionsOffset=..." rather than assuming what came
+  back is all of it.
+
+  remoteOptions true means the values are NOT in this response — fetch them with
+  "nexus tool resolve-options <id>".`
     )
     .action(async (id: string) => {
       try {
@@ -183,7 +220,22 @@ Notes:
   A tool holds many, so a second key for the same tool is a second row and both
   keep working — a re-run to "try another key" leaves you with two, not one.
   List them with "nexus tool credentials <id>" and remove the one you no longer
-  want with "nexus tool delete-credential".`
+  want with "nexus tool delete-credential".
+
+  THE TWO BRANCHES ANSWER TWO DIFFERENT SHAPES, and the message tells you which:
+    "OAuth flow initiated."     {authorizationUrl, handshakeId, expiresAt}
+    "Tool connected via HTTP."  {id, name, type, status, createdAt}
+  On the OAuth branch nothing is connected yet — open authorizationUrl, then
+  pass handshakeId to "nexus tool connection-status <handshake-id>". That is the
+  only place that id is used, and it expires at expiresAt.
+
+  THE http BRANCH'S id IS TOOL-SCOPED, NOT THE INVENTORY ID. It is the id
+  "nexus tool credentials <tool-id>" and "nexus tool delete-credential" take.
+  The "nexus credential" and "nexus access-card" commands take the UNIFIED id
+  for the same connected account, and that one comes from
+  "nexus credential list". Two ids, one account, and neither namespace accepts
+  the other's — "nexus external-tool execute --credential" is the one place that
+  takes either.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -208,10 +260,9 @@ Notes:
         // that `--body` can also supply makes the flag always win.
         const rawAuthType = readStringField(opts.authType, base, "authType") ?? "oauth";
         if (!isConnectAuthType(rawAuthType)) {
-          console.error(
-            `Error: --auth-type must be one of: ${CONNECT_AUTH_TYPES.join(", ")} (got "${rawAuthType}").`
+          process.exitCode = refuse(
+            `--auth-type must be one of: ${CONNECT_AUTH_TYPES.join(", ")} (got "${rawAuthType}").`
           );
-          process.exitCode = 1;
           return;
         }
 
@@ -220,12 +271,11 @@ Notes:
           if (apiKey === undefined) {
             // The body key is apiKey, NOT apiKeyValue — the flag and the field
             // do not share a name here, so the message has to say which.
-            console.error(
-              'Error: --api-key-value is required for HTTP auth. Pass it as a flag, or as "apiKey" inside --body (the flag wins if you supply both).\n' +
-                "  nexus tool connect <id> --auth-type http --api-key-value <key>\n" +
+            process.exitCode = refuse(
+              '--api-key-value is required for HTTP auth. Pass it as a flag, or as "apiKey" inside --body (the flag wins if you supply both).',
+              "nexus tool connect <id> --auth-type http --api-key-value <key>\n" +
                 '  nexus tool connect <id> --body \'{"authType":"http","apiKey":"<key>"}\''
             );
-            process.exitCode = 1;
             return;
           }
           const name = readStringField(opts.name, base, "name");
@@ -241,13 +291,12 @@ Notes:
 
         const service = readStringField(opts.service, base, "service");
         if (service === undefined) {
-          console.error(
-            'Error: --service is required for OAuth. Pass it as a flag, or as "service" inside --body (the flag wins if you supply both).\n' +
-              "  nexus tool connect <id> --service <service>\n" +
+          process.exitCode = refuse(
+            '--service is required for OAuth. Pass it as a flag, or as "service" inside --body (the flag wins if you supply both).',
+            "nexus tool connect <id> --service <service>\n" +
               '  nexus tool connect <id> --body \'{"authType":"oauth","service":"GOOGLE_SHEETS"}\'\n' +
               "  e.g. --service GOOGLE_SHEETS (built-in OAuth) or --service google_sheets (Pipedream app slug)"
           );
-          process.exitCode = 1;
           return;
         }
         const oauthBody: ConnectToolOAuthBody = { authType: "oauth", service };
@@ -275,8 +324,7 @@ Examples:
         const client = createClient(program.optsWithGlobals());
         const body = await resolveBody(opts.body);
         if (!body) {
-          console.error("Error: --body is required.");
-          process.exitCode = 1;
+          process.exitCode = refuse("--body is required.");
           return;
         }
         const result = await client.tools.resolveOptions(
@@ -424,7 +472,27 @@ Notes:
       `
 Examples:
   $ nexus tool connection-status hs-abc-123
-  $ nexus tool connection-status hs-abc-123 --json`
+  $ nexus tool connection-status hs-abc-123 --json
+
+Notes:
+  FOUR STATES, AND ONLY ONE OF THEM MEANS KEEP POLLING:
+    PENDING    the browser flow has not finished. Poll again.
+    COMPLETED  terminal, and connectionId is now set — that is the connection.
+    FAILED     terminal. Read errorMessage, and branch on errorCode.
+    EXPIRED    terminal. The handshake outlived expiresAt; start again with
+               "nexus tool connect".
+  Anything other than PENDING is a stop condition. There is no timeout here and
+  no retry budget, so the loop is yours to bound — expiresAt, returned by
+  "tool connect" and echoed on every poll, is the deadline to bound it with.
+
+  errorCode IS THE FIELD TO BRANCH ON, NEVER errorMessage. It is
+  ORG_HAS_NO_MEMBERS, PIPEDREAM_TOOL_NOT_IN_MARKETPLACE or
+  PIPEDREAM_INVALID_ACCOUNT, and it is null on PENDING and COMPLETED — and also
+  null on a FAILED outcome nobody has classified yet, so a null errorCode beside
+  FAILED means "read errorMessage", never "no error".
+
+  connectionId IS null UNTIL COMPLETED. Do not read its absence as a failure
+  while status is still PENDING.`
     )
     .action(async (handshakeId: string) => {
       try {

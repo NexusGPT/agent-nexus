@@ -56,6 +56,17 @@ File uploads:
 Notes:
   For long-running calls, raise the global --timeout <seconds> flag (default 30 s).
 
+  🚨 THIS REACHES public/v1 AND NOTHING ELSE, SO IT CANNOT AUDIT THE PLATFORM.
+  Every request goes to {base-url}/api/public/v1{path}; the prefix is prepended
+  and there is no flag that removes it. A second family of routes is served
+  under /api/... that this command cannot ADDRESS at any spelling — it is what
+  the dashboard calls, and parts of it take a logged-in session only and answer
+  401 to a key that is perfectly valid.
+  So an empty or refused probe here says "not on public/v1", never "not on the
+  platform". A capability audit built on this command is blind to that family by
+  construction, and reporting its silence as an absent feature is the one
+  mistake this command makes easy.
+
   THE OUTPUT IS ALWAYS AN OBJECT WITH A "data" KEY. Every path through this
   command reads .data — envelope or not. What is stripped from an enveloped
   response is "success", never the "data" key itself, and a paginated route

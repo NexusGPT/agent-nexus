@@ -18,6 +18,15 @@
 import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
 
+export const TRACING_ANALYTICS_COST_BREAKDOWN__PARAMS_BUCKET = {
+  path: "TracingAnalyticsCostBreakdown.Params.bucket",
+  contractValues: [
+    "hour",
+    "day",
+    "week"
+  ]
+} as const satisfies ContractEnum;
+
 export const TRACING_ANALYTICS_TIMELINE__PARAMS_GRANULARITY = {
   path: "TracingAnalyticsTimeline.Params.granularity",
   contractValues: [
@@ -89,6 +98,57 @@ export const TRACING_LIST_GENERATIONS__PARAMS_ORDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const TRACING_LIST_TRACES__PARAMS_STATUS = {
+  path: "TracingListTraces.Params.status",
+  contractValues: [
+    "IN_PROGRESS",
+    "COMPLETED",
+    "FAILED"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACING_LIST_TRACES__PARAMS_SORT_BY = {
+  path: "TracingListTraces.Params.sortBy",
+  contractValues: [
+    "startedAt",
+    "totalCostUsd",
+    "totalDurationMs"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACING_LIST_TRACES__PARAMS_ORDER = {
+  path: "TracingListTraces.Params.order",
+  contractValues: [
+    "asc",
+    "desc"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACING_LIST_TRACES__PARAMS_SOURCE = {
+  path: "TracingListTraces.Params.source",
+  contractValues: [
+    "chatId",
+    "ultimate-cue",
+    "workflow",
+    "voice-relay",
+    "agent-creation",
+    "prompt-assistant",
+    "ai-task-creation"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACING_ANALYTICS_COST_BREAKDOWN_CONTRACT = {
+  name: "TracingAnalyticsCostBreakdown",
+  method: "GET",
+  route: "/public/v1/tracing/analytics/cost-breakdown",
+  fields: [
+    { path: "Params.startDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.endDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.groupBy", slot: "Params", type: "unknown", required: false, depth: 0 },
+    { path: "Params.bucket", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["hour", "day", "week"] }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const TRACING_ANALYTICS_TIMELINE_CONTRACT = {
   name: "TracingAnalyticsTimeline",
   method: "GET",
@@ -145,5 +205,27 @@ export const TRACING_LIST_GENERATIONS_CONTRACT = {
     { path: "Params.maxCostUsd", slot: "Params", type: "number", required: false, depth: 0 },
     { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["startedAt", "costUsd", "durationMs"] },
     { path: "Params.order", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACING_LIST_TRACES_CONTRACT = {
+  name: "TracingListTraces",
+  method: "GET",
+  route: "/public/v1/tracing/traces",
+  fields: [
+    { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["IN_PROGRESS", "COMPLETED", "FAILED"] },
+    { path: "Params.agentId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.workflowId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.conversationId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.messageContent", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.model", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.startDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.endDate", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["startedAt", "totalCostUsd", "totalDurationMs"] },
+    { path: "Params.order", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] },
+    { path: "Params.tags", slot: "Params", type: "unknown", required: false, depth: 0 },
+    { path: "Params.source", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["chatId", "ultimate-cue", "workflow", "voice-relay", "agent-creation", "prompt-assistant", "ai-task-creation"] }
   ]
 } as const satisfies ProjectedDescriptor;

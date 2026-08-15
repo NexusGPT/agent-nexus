@@ -93,10 +93,28 @@ export interface PermissionGrant {
   group: PermissionGranteeGroup | null;
 }
 
+/**
+ * Who reaches a resource beyond the grants its access list names.
+ *
+ * - `"organization"` — no grant names the resource and its type is open, so
+ *   every member of the organization reaches it.
+ * - `"type_wide_grant"` — a grant on this resource TYPE's wildcard reaches it.
+ *   Those rows name no resource, so they are not in `permissions`.
+ * - `"nobody"` — only the listed grants reach it.
+ */
+export type UnlistedReach = "organization" | "type_wide_grant" | "nobody";
+
 /** Response from `client.permissions.listResourceAccess()`. */
 export interface ListResourceAccessResponse {
   /** Every grant currently written against the resource. */
   permissions: PermissionGrant[];
+  /**
+   * 🚨 Read this BEFORE concluding anything from an empty `permissions` array.
+   * A grant row names a resource; open visibility and a type-wide wildcard both
+   * reach a resource without naming it, and both leave `permissions` empty. An
+   * empty list means "nobody" only when this reads `"nobody"`.
+   */
+  unlistedReach: UnlistedReach;
 }
 
 // ============================================================================

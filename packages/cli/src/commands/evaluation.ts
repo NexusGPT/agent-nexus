@@ -3,7 +3,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
@@ -278,8 +278,7 @@ Notes:
         // request that cannot succeed.
         const body = await resolveBody(opts.body);
         if (body === undefined) {
-          console.error("Error: --body is required.");
-          process.exitCode = 1;
+          process.exitCode = refuse("--body is required.");
           return;
         }
 

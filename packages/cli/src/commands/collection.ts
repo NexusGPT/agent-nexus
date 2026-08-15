@@ -70,7 +70,12 @@ Notes:
   after a removal. "nexus collection stats <id>" counts the links themselves.
 
   --search matches name, display name and description, case-insensitively.
-  --limit defaults to 50.`
+  --limit DEFAULTS TO 20 AND IS CAPPED AT 100. Over 100 is a 400, not a clamp.
+  There is no --page on this command, so --limit is the only control.
+  --json IS A BARE ARRAY ([] when empty), with no envelope and no meta. Two
+  siblings in this same namespace answer differently — "collection documents" is
+  {data, meta} and "collection query" is {results} — so one jq expression cannot
+  read all three.`
     )
     .action(async (opts) => {
       try {
@@ -158,9 +163,22 @@ Notes:
 
   --k defaults to 10 — the number of chunks retrieval pulls per query.
 
-  preciseResponses and includeMetadata are --body ONLY, with no flags, and both
-  default to false. Setting them at create is the only way to avoid a follow-up
-  "collection update".`
+  k IS BOUNDED BELOW ONLY: an integer >= 1 with NO maximum. --k 0 is a 400
+  reading "k: Too small: expected number to be >=1"; --k 9999 is accepted and
+  stored verbatim, and every agent query on this collection then asks the
+  retrieval provider for 9999 chunks. Nothing clamps it. A "k" inside --body
+  must be a JSON number — "20" in quotes is a 400.
+
+  reranker, preciseResponses and includeMetadata are --body ONLY here, with no
+  flags, and the two booleans default to false. Setting them at create is the
+  only way to avoid a follow-up "collection update" — which does carry a
+  --reranker flag, unlike this command.
+
+  THE CREATE RESPONSE ECHOES NOTHING YOU SET. Under --json it prints success,
+  message, id and name and stops there: the server sends the whole stored
+  collection back and this command keeps two fields of it. So a --body key that
+  never landed and one that did print identically. Confirm the stored settings
+  with "nexus collection get <id>".`
     )
     .action(async (opts) => {
       try {
@@ -387,7 +405,23 @@ Notes:
   --filter MATCHES SCALAR METADATA ONLY. An attribute stored as an ARRAY is not
   filterable, and asking for one is not an error — it returns zero results,
   which looks exactly like an empty collection or a bad query. Drop the filter
-  and re-run: if the documents come back, the attribute was an array.`
+  and re-run: if the documents come back, the attribute was an array.
+
+  THERE IS NO DOCUMENT NAME ON A RESULT. It is content, score, documentId and
+  metadata. Mapping a hit back to something readable takes a second call,
+  "nexus document get <documentId>". "collection search" does return
+  documentName, so a reader arriving from that command finds the field missing
+  here rather than renamed.
+
+  metadata IS THE SNIPPET'S, NOT THE DOCUMENT'S, and it is a literal null
+  without --include-metadata. With the flag it is the retrieval provider's own
+  snippet payload minus this pipeline's injected keys — and still null when the
+  provider attached none. So a null never means "you forgot the flag", and a
+  document whose stored metadata "document get" shows can answer null here with
+  nothing having been dropped.
+
+  Under --json this answers {results: [...]}, which is neither "collection
+  list"'s bare array nor "collection documents"'s {data, meta}.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -503,7 +537,11 @@ Notes:
   contributes to retrieval once it reads READY.
 
   Soft-deleted documents are excluded, so a document deleted elsewhere leaves
-  this list silently rather than appearing as a broken row.`
+  this list silently rather than appearing as a broken row.
+
+  --json IS {data: [...], meta: {total, page, limit, totalPages, hasMore}}, NOT
+  a bare array — and "collection list", the command beside it, IS a bare array.
+  Read meta.hasMore here rather than counting the rows you got.`
       )
   );
 

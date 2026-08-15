@@ -164,10 +164,15 @@ export interface ExecutionNodeResult {
   status: string;
   /** Input the node received. Shape is node-specific. */
   input: unknown;
-  /** Output the node produced. Shape is node-specific. */
+  /**
+   * Output the node produced. Shape is node-specific.
+   *
+   * A node that captures console output (Browserbase, the sandbox nodes) folds
+   * those lines into THIS payload. There is no separate `logs` field: one was
+   * published until NEX-3864 and answered `null` on every node ever read,
+   * because no model stores a per-node log array.
+   */
   output: unknown;
-  /** Log lines the node emitted, or `null` when none were captured. */
-  logs: string[] | null;
   /** Node duration in milliseconds, or `null` while unfinished. */
   duration: number | null;
   /** ISO 8601 start timestamp, or `null` while unstarted. */
@@ -180,10 +185,14 @@ export interface ExecutionNodeResult {
 
 /** Response from `client.workflowExecutions.getOutput()`. */
 export interface ExecutionOutput {
-  /** The execution's output payload. Shape is workflow-specific. */
+  /**
+   * The execution's output payload. Shape is workflow-specific, and nothing
+   * describes it: an `outputType` discriminator was published until NEX-3864 and
+   * answered `null` on every run, because no model records one. The outputNode's
+   * own `data.outputType` (previous|custom|text) is a different, real setting —
+   * read it with `workflow node get`, not from here.
+   */
   output: unknown;
-  /** Discriminator describing how to read `output`, or `null`. */
-  outputType: string | null;
 }
 
 /** Response from `client.workflowExecutions.retryNode()`. */

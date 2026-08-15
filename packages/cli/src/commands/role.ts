@@ -70,7 +70,9 @@ import {
   COVERAGE_REASON_VOCABULARY,
   JOB_TYPE_BODY_SHAPE,
   ROLE_NAMESPACE_GAPS,
-  SCOPE_LINES_BODY_SHAPE
+  ROLE_NAMESPACE_INDEX,
+  SCOPE_LINES_BODY_SHAPE,
+  VARIABLES_BODY_SHAPE
 } from "./role-body-shapes";
 import {
   COVERAGE_INPUTS_NOTE,
@@ -525,6 +527,7 @@ Two facts that decide whether a write does damage:
     Role's members had. The command prints which Role it came from.
   • A system in NO Role reaches nothing at runtime and reports no error. So
     "role detach", and deleting a Role, are quiet disablings — not tidy-ups.
+${ROLE_NAMESPACE_INDEX}
 ${ROLE_NAMESPACE_GAPS}`
   );
 
@@ -620,7 +623,9 @@ Notes:
   // ── systems ───────────────────────────────────────────────────────────────
   role
     .command("systems")
-    .description("List the systems a Role holds — agents, workflows, deployments, tasks, tools")
+    .description(
+      "List the systems a Role holds — agents, workflows, deployments, AI tasks, templates"
+    )
     .argument("<role>", "Role name or UUID")
     .addHelpText(
       "after",
@@ -1057,7 +1062,15 @@ Notes:
   a 0 exit and "success": true. --json carries "status": "created" with the new
   Role's "id", or "status": "pending" with a "requestId" — poll that one with
   "nexus role creation-request <requestId>", whose CREATED ROLE holds the id
-  once an admin approves it.`
+  once an admin approves it.
+
+  A USER ID COMES FROM "nexus api GET /me", AND FROM NOWHERE ELSE IN THIS CLI.
+  Nothing here lists the users in your organization, and "nexus auth whoami"
+  prints the EMAIL under "user" and never the id — so pasting what whoami shows
+  gets a 404 that reads as the user not existing. Your own id is
+  "nexus api GET /me | jq -r .data.userId", and it is the same id
+  "nexus role add-member", "nexus user-group add-member" and
+  "nexus permissions grant --subject-type user" want.`
     )
     .action(async (opts) => {
       try {
@@ -1168,9 +1181,14 @@ Examples:
   $ nexus role delete "Refunds"
 
 Notes:
+  THIS DOES NOT PROMPT AND HAS NO --yes. The first call deletes the Role, or
+  files the deletion request, with no confirmation and no dry run — unlike
+  "customer delete", "user-group delete" and "skill-folder delete", which stop
+  and ask on a terminal unless --yes is passed.
+
   THE ROLE'S SYSTEMS ARE NOT DELETED AND NOT REASSIGNED — THEY BECOME ORPHANS.
-  Every agent, workflow, deployment, task, template and tool it held stops
-  being reachable through any Role while continuing to exist and to run.
+  Every agent, workflow, deployment, AI task and document template it held
+  stops being reachable through any Role while continuing to exist and to run.
   Nothing errors and nothing reports it. Run "nexus role systems <role>" first
   and move what matters.
 
@@ -1225,7 +1243,22 @@ Notes:
   A name needs the roles:read scope. Without it the warning still prints, with
   the UUID alone.
 
-  The system must already exist in this organization, or it is a 404.`
+  The system must already exist in this organization, or it is a 404.
+
+  --type IS NOT "permissions grant --resource-type", AND THE OVERLAP IS WHAT
+  MAKES THEM READ AS ONE ENUM. Exactly three spellings are common to both —
+  agent, workflow, deployment. ai_task and document_template exist only here;
+  knowledge, credential, access_card, template, document, feature, vibe_app and
+  workspace exist only there. A value from one list is refused by the other.
+  The two are also different acts: this one is EXCLUSIVE ownership, one Role
+  per system org-wide, while a grant is a relation any number of principals may
+  hold at once.
+
+  KNOWLEDGE COLLECTIONS, FILE WORKSPACES AND EXTERNAL TOOLS ARE NOT ATTACHABLE
+  HERE, and that follows from the same rule: several Roles legitimately hold the
+  same one, which exclusive ownership cannot express. Each has its own grant
+  instead — "nexus role grant-collection" and "nexus role grant-workspace". An
+  external tool's grant has no verb in this CLI.`
     )
     .action(async (ref: string, opts: { type: string; id: string }) => {
       try {
@@ -1292,7 +1325,12 @@ Notes:
   that resolves access through a Role, reporting no error. This is a disabling,
   not a tidy-up.
 
-  Idempotent: a system already in no Role answers removed=false, not a 404.`
+  Idempotent: a system already in no Role answers removed=false, not a 404.
+
+  <type> IS THE SAME FIVE-VALUE LIST AS "role attach --type", AND IT IS NOT
+  "permissions grant --resource-type" — that one is a different eleven-value
+  list, and "nexus role attach --help" names what the two share and what they
+  do not.`
     )
     .action(async (type: string, id: string) => {
       try {
@@ -2350,7 +2388,15 @@ Examples:
 
 Notes:
   Every coverage figure in the organization rests on these three numbers, and a
-  null currency is why a coverage read can answer money "not modelled".`
+  null currency is why a coverage read can answer money "not modelled".
+
+  THE WHOLE OBJECT CAN BE ABSENT, AND ABSENCE IS A SUCCESS. An organization
+  that never stated its working time has no settings row at all: this exits 0,
+  prints "not configured", and under --json emits the literal document null —
+  not {}, not an error. That null is what makes coverage.reason answer
+  NO_WORKING_TIME_MODEL for EVERY Role in the organization at once, so read it
+  here before treating a "not modelled" coverage figure as a per-Role problem.
+  Write the row with "nexus role set-automation-settings".`
     )
     .action(async () => {
       try {
@@ -2587,15 +2633,7 @@ Examples:
 
 Notes:
   REPLACES THE WHOLE LIST, exactly like the scope lines. Keys must be unique.
-
-  EVERY ELEMENT NEEDS label, description AND unit BESIDE key AND value. All
-  three are required strings, so the smallest legal element is five fields —
-  {"key":"x","value":null} alone is a 400 naming the three that are missing.
-  The read-first example above hides this, because a Role that already HAS
-  variables gives you complete elements to edit. Writing the FIRST variable onto
-  a Role that has none means composing all five fields yourself:
-
-    {"variables":[{"key":"seats","label":"Seats","description":"Licensed seats","unit":"seat","value":10}]}
+${VARIABLES_BODY_SHAPE}
 
   value:null MEANS UNSET AND IS NOT ZERO. Sending 0 asserts a measured zero;
   sending null leaves every part referencing that key unresolved. Both are

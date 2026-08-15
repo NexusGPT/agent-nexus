@@ -13,8 +13,16 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
-import { absent, color, printList, printRecord, printSuccess, printTable } from "../output";
+import { handleError, refuse } from "../errors";
+import {
+  absent,
+  isJsonMode,
+  printDryRun,
+  printList,
+  printRecord,
+  printSuccess,
+  printTable
+} from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
 import { getPaginationParams } from "../util/pagination";
@@ -164,7 +172,15 @@ Notes:
   created; it does not distinguish "not yours" from "not there".
   connectionStatus tracks OAuth token health. For GMAIL and OUTLOOK it is
   inboundWebhook.status that decides whether mail actually arrives — anything
-  but ACTIVE means the agent is receiving nothing.`
+  but ACTIVE means the agent is receiving nothing.
+
+  null ON EITHER FIELD IS "THIS CHANNEL BINDS NONE", NEVER A FAULT.
+  connectionStatus reads the OAuth connection and falls back to the API-key
+  connection, so it is null exactly when the deployment holds neither — EMBED,
+  API, TELEGRAM and the Office add-ins all report null and work.
+  inboundWebhook is null on every type except GMAIL and OUTLOOK, the only two
+  with a push subscription; NOT_CONFIGURED is the different fact that one of
+  those two has a connection and no watch on it.`
     )
     .action(async (id: string) => {
       try {
@@ -221,6 +237,30 @@ Notes:
   field — build --body from that error. EMBED alone needs five objects
   (embedSettings, securitySettings, leadsSettings, assistantSettings,
   advancedSettings), which is why the example above passes a file.
+
+  THOSE FIVE OBJECTS NEST UNDER A TOP-LEVEL "settings" KEY. The contract
+  declares exactly one place for them, and a Zod object strips what it does
+  not declare — so --body '{"embedSettings":{...},"securitySettings":{...}}'
+  parses clean, loses every one of those keys, and reaches the route as a
+  create with no settings at all. It then answers the same 400 an empty body
+  gets. A correct body missing one level therefore reads as an empty body.
+  The shape is '{"settings":{"embedSettings":{...},"securitySettings":{...},
+  "leadsSettings":{...},"assistantSettings":{},"advancedSettings":{}}}'.
+  "--print-contract" renders it as
+  'Body.settings [optional, opaque; shape not described by the contract]' —
+  that is the contract declining to describe the inside, not a gap here.
+
+  THE ENUM-VALUED LEAVES INSIDE settings ARE PRINTABLE, JUST NOT FROM HERE.
+  Because settings is opaque on this route, "--print-contract" stops at the
+  wrapper. The embedSettings half is fully described by the sibling verb:
+  "nexus deployment embed-config-update --print-contract" renders format
+  bubble|classic, bubblePosition bottom-right|bottom-left|top-right|top-left,
+  bubbleBorderRadius none|sm|md|lg|full, bubbleSize small|medium|large,
+  uiAppearance system|light|dark, uiRadius sm|md|lg and uiContainerRadius
+  sm|md|lg|none. securitySettings is the one that bites and no command prints
+  it: visibility is REQUIRED and is exactly public|private. assistantSettings
+  and advancedSettings default every field, so {} is a valid value for both,
+  and leadsSettings is optional throughout.
 
   WHATSAPP: pass --body '{"whatsappSenderId":"<id>"}' and phoneNumberId plus
   apiKeyConnectionId are resolved from it. A number another ACTIVE WhatsApp
@@ -304,7 +344,15 @@ Notes:
   number: the number is held by every non-deleted WHATSAPP deployment, active
   or not, so the next create still 409s until this one is deleted.
   Settings are NOT re-validated on update — an update can write a shape that
-  create would have refused, and it fails at runtime instead.`
+  create would have refused, and it fails at runtime instead.
+
+  THE 50-KEY / 50KB CAP APPLIES HERE TOO, AND IT MEASURES YOUR PATCH, NOT THE
+  RESULT. Both bodies validate settings through the same bounded schema, so
+  this refuses a 51-key object exactly as create does — but it counts the keys
+  you SENT, and the merge above then writes them over what is already stored.
+  Thirty keys patched onto forty stored keys is seventy keys in the column and
+  a 200, because nothing re-measures the merged object. The cap itself is
+  documented under "nexus deployment create --help".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -350,6 +398,15 @@ Notes:
   --yes is needed — the delete simply happens. Pass --dry-run first if the id
   came from anywhere but your own eyes.
 
+  --dry-run IGNORES --json AND PRINTS PROSE. The line is
+  'DRY RUN: Would delete deployment "<name>" (<id>)' on stdout, on every
+  invocation, so a script piping this into jq gets a parse error rather than a
+  document. The habit does not transfer from elsewhere in this CLI:
+  "agent-skill sync --dry-run" and "claude-code ... --dry-run" both branch on
+  --json and emit a real document. A dry run also READS the deployment first,
+  so it needs deployments:read as well, and a 404 on that read is what it
+  reports.
+
   ITS CONNECTIONS ARE DISCONNECTED, NOT DELETED. The OAuth or API-key
   connection this deployment used is detached and survives for other
   deployments; the agent's prompt loses this channel's tab. A WhatsApp or SMS
@@ -366,7 +423,7 @@ Notes:
 
         if (opts.dryRun) {
           const dep = await client.deployments.get(id);
-          console.log(color.yellow("DRY RUN:") + ` Would delete deployment "${dep.name}" (${id})`);
+          printDryRun(`Would delete deployment "${dep.name}" (${id})`, { id });
           return;
         }
 
@@ -409,9 +466,18 @@ Notes:
   totalSessions AND totalMessages ARE CAPPED AT THE NEWEST 500 SESSIONS. They
   are computed from the returned page, not queried, so a busier deployment
   reports exactly 500 sessions and stops growing. Nothing marks the cut.
-  Emulator sessions are counted alongside real ones — a deployment you have
-  only tested reports traffic. There is no date range and no filter here;
-  use "nexus analytics" for anything time-bounded or cross-deployment.`
+  EMULATOR SESSIONS ARE NOT COUNTED, in either term. Testing a deployment
+  through "nexus emulator" leaves these figures untouched — they are what real
+  customers did. Use "nexus emulator session list" to see test traffic. There is
+  no date range and no filter here; use "nexus analytics" for anything
+  time-bounded or cross-deployment.
+
+  THE RESPONSE CARRIES A THIRD KEY THE TWO COUNTERS ARE COMPUTED FROM:
+  sessions, an array of {id, chatId, messageCount, updatedAt, createdAt},
+  newest first. totalSessions is that array's LENGTH and totalMessages is the
+  sum of its messageCount fields, so the 500 cut above is checkable rather
+  than taken on trust — count the array. chatId is the "nexus conversation"
+  id for that session, or null where the session produced no chat.`
     )
     .action(async (id: string) => {
       try {
@@ -581,7 +647,12 @@ Notes:
   to read which deployment sits in which folder from here. Fetch the route
   directly for that: "nexus api GET /deployment-folders".
   Unpaginated. Folders can nest (each carries a parentId) but this is a flat
-  list — build the tree from parentId yourself.`
+  list — build the tree from parentId yourself.
+
+  --json HERE IS A BARE ARRAY, not {data,meta}. "deployment list" is the other
+  shape, so a jq '.data[]' carried over from it selects nothing AND DOES NOT
+  ERROR — it just prints an empty result, which reads as "no folders". Use
+  jq '.[]'.`
     )
     .action(async () => {
       try {
@@ -894,8 +965,7 @@ Notes:
               JSON.parse(opts.variables)
             );
           } catch {
-            console.error("Error: --variables must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--variables must be valid JSON.");
             return;
           }
         }
@@ -907,8 +977,7 @@ Notes:
               JSON.parse(opts.carouselTemplateGroup)
             );
           } catch {
-            console.error("Error: --carousel-template-group must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--carousel-template-group must be valid JSON.");
             return;
           }
         }
@@ -920,8 +989,7 @@ Notes:
               JSON.parse(opts.singleItemCardTemplateGroup)
             );
           } catch {
-            console.error("Error: --single-item-card-template-group must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--single-item-card-template-group must be valid JSON.");
             return;
           }
         }
@@ -1005,8 +1073,7 @@ Notes:
           try {
             body.variables = JSON.parse(opts.variables);
           } catch {
-            console.error("Error: --variables must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--variables must be valid JSON.");
             return;
           }
         }
@@ -1014,8 +1081,7 @@ Notes:
           try {
             body.carouselTemplateGroup = JSON.parse(opts.carouselTemplateGroup);
           } catch {
-            console.error("Error: --carousel-template-group must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--carousel-template-group must be valid JSON.");
             return;
           }
         }
@@ -1023,8 +1089,7 @@ Notes:
           try {
             body.singleItemCardTemplateGroup = JSON.parse(opts.singleItemCardTemplateGroup);
           } catch {
-            console.error("Error: --single-item-card-template-group must be valid JSON.");
-            process.exitCode = 1;
+            process.exitCode = refuse("--single-item-card-template-group must be valid JSON.");
             return;
           }
         }
@@ -1138,10 +1203,18 @@ Notes:
           // Show current settings by listing templates
           const result = await client.deployments.listDeploymentTemplates(deploymentId);
           const data = result;
-          console.log(`Templates attached: ${Array.isArray(data) ? data.length : 0}`);
-          console.log(
-            `Tip: Use --allow-dynamic-templates true/false to toggle agent template creation.`
-          );
+          const attached = Array.isArray(data) ? data.length : 0;
+          // A count and a tip, both as prose, were the whole of stdout — so the
+          // one fact this branch produces was unreachable under --json. The
+          // count is a field now; the tip is human copy and stays human.
+          if (isJsonMode()) {
+            printRecord({ deploymentId, templatesAttached: attached });
+          } else {
+            console.log(`Templates attached: ${attached}`);
+            console.log(
+              `Tip: Use --allow-dynamic-templates true/false to toggle agent template creation.`
+            );
+          }
         }
       } catch (err) {
         process.exitCode = handleError(err);

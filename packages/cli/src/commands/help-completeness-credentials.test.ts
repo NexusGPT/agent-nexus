@@ -104,12 +104,40 @@ describe("nexus credential --help", () => {
     ]);
   });
 
-  it("states that only name and description are writable", () => {
+  it("states that only name and description are writable, and that SOURCE decides which", () => {
     const help = helpFor(registerCredentialCommands, "credential", "update");
 
-    // UpdateCredentialBodySchema is `{ name?, description? }` — a z.object, so
-    // every other key the caller sends is stripped and answered with a 200.
-    expectAllPresent(help, ["ONLY name AND description ARE WRITABLE", "CANNOT REPAIR"]);
+    expectAllPresent(help, [
+      // UpdateCredentialBodySchema is `{ name?, description? }` — a z.object, so
+      // every other key the caller sends is stripped and answered with a 200.
+      "ONLY name AND description ARE WRITABLE",
+      // …and that sentence alone was WRONG IN THE REASSURING DIRECTION: it is
+      // true of api_key_connection only. `ToolCredentials` has no `description`
+      // column and `OAuthConnection` has neither, so the two fields it named as
+      // safe were the two being dropped on 2 of the 3 sources (NEX-3854). The
+      // per-source table and the refusal are what make the first line honest.
+      "api_key_connection",
+      "tool_credential",
+      "oauth_connection",
+      "CREDENTIAL_FIELD_NOT_WRITABLE",
+      // The no-op carve-out. Without it a reader concludes any `description` on
+      // a tool credential is a 400, and the dashboard's own rename — which
+      // always sends `description: null` — looks broken.
+      "RE-SENDING A VALUE THAT IS ALREADY SET IS NOT REFUSED",
+      "CANNOT REPAIR"
+    ]);
+  });
+
+  it("explains SOURCE where `credential get` prints it, not only on `list`", () => {
+    const help = helpFor(registerCredentialCommands, "credential", "get");
+
+    // `source` is printed by `get` and decides two separate things — what
+    // `delete` tears down, and what `update` can store — and it was explained
+    // only in `credential list --help`, which a reader of `get` never opens.
+    expectAllPresent(help, [
+      "SOURCE IS THE FIELD THAT DECIDES WHAT ELSE WORKS",
+      "credential update"
+    ]);
   });
 });
 

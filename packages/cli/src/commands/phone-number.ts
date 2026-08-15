@@ -2,7 +2,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess, printTable } from "../output";
 import { getPaginationParams } from "../util/pagination";
 import {
@@ -36,8 +36,7 @@ async function confirmIrreversible(yes: boolean | undefined, question: string): 
   if (yes) return true;
 
   if (!process.stdin.isTTY) {
-    console.error("Error: use --yes to confirm in non-interactive mode");
-    process.exitCode = 1;
+    process.exitCode = refuse("use --yes to confirm in non-interactive mode");
     return false;
   }
 
@@ -130,7 +129,11 @@ Notes:
   create" because BUYING needs one; searching does not, and returns live carrier
   inventory on an organization with no messaging connection at all. So an empty
   result here means no matching numbers, never a missing prerequisite — and you
-  can price a country before setting anything up.`
+  can price a country before setting anything up.
+
+  --json HERE IS A BARE ARRAY, not {data,meta}. "phone-number list" is the
+  other shape, so a jq '.data[]' carried over from it selects nothing AND DOES
+  NOT ERROR — the miss reads as "no numbers available". Use jq '.[]'.`
     )
     .action(async (opts) => {
       try {

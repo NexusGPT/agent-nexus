@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HELP_SCOPE_HEADING } from "./help-scope";
 import { buildRootProgram } from "./root-program";
+import { asDerivedCapture } from "./util/version-check";
 
 /**
  * EVERY HELP SCREEN SAYS WHICH CLIENT IS TALKING.
@@ -129,6 +130,33 @@ describe("every help screen names the client that is talking", () => {
     expect(helpText(tasks)).toContain(`@agent-nexus/cli ${VERSION}`);
   });
 
+  it("names NO version in a derived capture, so the same tree projects the same page", () => {
+    // 🚨 THIS IS THE GATE ON A DEFECT NO CLI CHANGE CAN CAUSE AND NO
+    // REGENERATION CAN CURE. `packages/cli/package.json`'s `version` is written
+    // by the changesets release, which lands on `main` and never on `staging`.
+    // A staging->main promotion is tested on `refs/pull/<n>/merge` — main's
+    // package.json beside staging's committed pages — so while the footer named
+    // the version, EVERY generated page differed from its projection on a tree
+    // where nobody had touched a CLI file. Measured on PR #3638: main at
+    // 0.25.0, staging at 0.21.9, all 45 pages reported stale, and the same
+    // pages were green on staging alone. The next release re-opens it, so the
+    // property below is what has to hold, not the pages being fresh today.
+    withCache(null);
+    const derived = (version: string): string =>
+      asDerivedCapture(() => helpText(subcommand(buildRootProgram(version), "role", "tasks")));
+    const live = (version: string): string =>
+      helpText(subcommand(buildRootProgram(version), "role", "tasks"));
+
+    // Anti-vacuity: a footer that never named the version would satisfy the
+    // equality below while proving nothing. The live render is the control, and
+    // it is the surface that legitimately still dates itself.
+    expect(live("0.21.9")).not.toEqual(live("0.25.0"));
+
+    expect(derived("0.21.9")).toEqual(derived("0.25.0"));
+    expect(derived(VERSION)).toContain(HELP_SCOPE_HEADING);
+    expect(derived(VERSION)).not.toContain(VERSION);
+  });
+
   it("puts the footer BELOW the command's own Notes block", () => {
     // Position is the whole point: a caveat above the claim it qualifies is
     // read first and overridden by what follows it. `role tasks` is the command
@@ -169,6 +197,39 @@ describe("every help screen names the client that is talking", () => {
     expect(helpText(subcommand(buildRootProgram(VERSION), "role", "tasks"))).not.toContain(
       "Update available"
     );
+  });
+
+  it("says the fallback it offers cannot reach the routes it just named", () => {
+    // The footer's own hole. It names routes the dashboard calls and no verb
+    // here covers, then offers `nexus api` as the way to disprove an absence —
+    // and `HttpClient` prepends `/api/public/v1` to every path with no flag that
+    // removes it, so those are exactly the routes the probe cannot address. A
+    // reader who ran it, got nothing and recorded the capability as missing
+    // followed this block correctly and still reached the wrong answer.
+    withCache(null);
+    const rendered = helpText(subcommand(buildRootProgram(VERSION), "role", "tasks"));
+
+    expect(rendered).toContain("reaches public/v1 and NOTHING ELSE");
+    expect(rendered).toContain("not a capability that is absent");
+  });
+});
+
+describe("nexus api says which surface it can and cannot reach", () => {
+  it("names the prefix, and that a silent probe is not an absent capability", () => {
+    withCache(null);
+    const program = buildRootProgram(VERSION);
+    const api = program.commands.find((cmd) => cmd.name() === "api");
+    if (!api) throw new Error('no "api" command');
+    const rendered = helpText(api);
+
+    // The path is not "relative to public/v1" as a convention a caller can opt
+    // out of: the prefix is prepended in the SDK's `HttpClient` and no flag
+    // removes it. So this command is structurally unable to audit the platform,
+    // and the audit that concluded five Role capabilities were missing was built
+    // on it.
+    expect(rendered).toContain("{base-url}/api/public/v1{path}");
+    expect(rendered).toContain("CANNOT AUDIT THE PLATFORM");
+    expect(rendered).toContain("blind to that family by");
   });
 });
 

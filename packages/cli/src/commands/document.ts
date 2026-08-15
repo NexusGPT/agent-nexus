@@ -12,7 +12,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
 import { parseMetadataPairs } from "../util/metadata";
@@ -214,6 +214,12 @@ Notes:
   THE UPLOAD LANDS IN THE KNOWLEDGE BASE, NOT IN A COLLECTION. Attach it with
   "nexus collection attach-documents <collection-id> --document-ids <id>".
 
+  READ type, NEVER mimeType. This CLI sends the bytes with no content type
+  declared, so mimeType comes back as the multipart default —
+  "application/octet-stream" — on a .md, a .pdf and a .csv alike. It is not a
+  content signal and branching on it will misroute every file. The server
+  classifies the document itself and reports that as type.
+
   Metadata set here is what "collection query --filter" matches on. Adding it
   later needs a "document reprocess" to take effect, so set it now.`
     )
@@ -223,8 +229,10 @@ Notes:
         const absPath = path.resolve(filePath);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 
@@ -261,6 +269,7 @@ Examples:
   $ nexus document create-text --name "FAQ" --content "Q: How do I...\\nA: You can..."
   $ cat content.md | nexus document create-text --name "Guide" --content -
   $ nexus document create-text --name "FAQ" --content - --metadata language=fr
+  $ nexus document create-text --name "Guide" --content ./body.txt
   $ nexus document create-text --body '{"name":"FAQ","content":"..."}'
 
 Notes:
@@ -271,7 +280,13 @@ Notes:
   Indexed asynchronously like every other document: poll "nexus document get
   <id>" for READY.
 
-  --content takes literal text, a file path, or '-' for stdin. Escape sequences
+  --content takes literal text, A FILE PATH, or '-' for stdin, and there is an
+  example of each above. A path is DETECTED, never declared: a value naming a
+  readable file stores that file's contents, trimmed of leading and trailing
+  whitespace. A path that does not resolve — a typo, a permission error, a
+  directory — is stored as LITERAL TEXT with no error, so a document whose whole
+  content is "./body.txt" means the file was not readable from here.
+  Escape sequences
   in a shell string are passed through literally — pipe a file when the content
   has real newlines in it.`
     )
@@ -378,12 +393,11 @@ Notes:
           // Both paths, because both work: the check above reads --body as well
           // as the flag. Naming only the flag is what makes an operator holding a
           // correct --body conclude the body form does not exist.
-          console.error(
-            `Error: --mode is required. Pass it as a flag, or as "mode" inside --body (the flag wins if you supply both).\n` +
+          process.exitCode = refuse(
+            `--mode is required. Pass it as a flag, or as "mode" inside --body (the flag wins if you supply both).\n` +
               `  nexus document add-website --url <url> --mode <${CRAWL_MODES.join("|")}>\n` +
               `  nexus document add-website --body '{"url":"<url>","mode":"${CRAWL_MODES[0]}"}'`
           );
-          process.exitCode = 1;
           return;
         }
         const body = mergeBodyWithFlags(base, {
@@ -614,6 +628,14 @@ Notes:
 
   ONE LEVEL ONLY. A nested folder appears as a row here, not as its contents —
   recurse if the tree is deeper than one level.
+
+  THE FIRST PAGE IS 20 ROWS, AND A 100-CHILD CRAWL LOOKS COMPLETE AT 20. This
+  is paginated with the same defaults as every v1 list — page 1, limit 20, and
+  100 is the ceiling a larger --limit is refused against. Read meta before you
+  act on the rows: --json carries {total, page, limit, totalPages, hasMore}, and
+  hasMore is what separates "that is the folder" from "that is the first fifth
+  of it". Attaching what you got here without walking the pages attaches a
+  fraction of the crawl and nothing says so.
 
   THE NAME COLUMN IS BLANK FOR A CRAWLED HOME PAGE, AND THAT IS NOT AN ERROR. A
   crawled page is named after the LAST PATH SEGMENT of its URL, so

@@ -3,6 +3,7 @@ import type {
   PermissionResourceType,
   ResourceVisibility,
   RevokePermissionBody,
+  UnlistedReach,
   UpdateResourceTypeVisibilityBody
 } from "@agent-nexus/sdk";
 import { Command } from "commander";
@@ -10,7 +11,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumArgument, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseIdList } from "../util/ids";
 import {
@@ -58,6 +59,27 @@ function isPermissionResourceType(value: string): value is PermissionResourceTyp
 }
 
 /**
+ * The sentence that stops an empty table being read as "nobody".
+ *
+ * A `Record` over the union rather than a switch: a value added to
+ * `UnlistedReach` is a compile error here until it is given a sentence, where a
+ * default arm would quietly print the safest-sounding one — and the safe-sounding
+ * answer is exactly the wrong one, because it understates who can reach the
+ * resource.
+ */
+const UNLISTED_REACH_SENTENCES: Record<UnlistedReach, string> = {
+  organization:
+    "Reach: EVERY MEMBER of the organization. No grant names this resource and its type is open, so the rows above are not the whole answer.",
+  type_wide_grant:
+    "Reach: also a WILDCARD grant on this resource type, which reaches every resource of the type and names none of them. It is not listed above.",
+  nobody: "Reach: the grants listed above, and nothing else."
+};
+
+function describeUnlistedReach(reach: UnlistedReach): string {
+  return UNLISTED_REACH_SENTENCES[reach];
+}
+
+/**
  * Resolve `--visibility` into what the API expects.
  *
  * `none` is a token this CLI invents — the wire value is `null`, which removes
@@ -95,9 +117,11 @@ resource depends on YOUR OWN relation to that resource, not on your role in the
 organization. An org admin with no relation on an agent cannot list its grants
 and cannot grant on it — both answer 403.
 
-  • READING NEEDS A RELATION. "permissions access" on a resource you hold no
-    relation on is refused, so an org-wide audit of who-can-see-what is not
-    something this namespace can perform.
+  • READING NEEDS A RELATION *OR* AN OPEN RESOURCE. "permissions access" answers
+    for any resource you can already reach — including one whose type is open
+    and that nobody has been granted anything on, which used to be refused. It
+    is still refused for a resource that is closed to you, and answers 404 for
+    an id outside your organization.
   • GRANTING NEEDS A RELATION AT LEAST AS STRONG AS THE ONE YOU GIVE. You cannot
     hand out access you do not hold. The refusal names the relation you have, or
     says you have none — read that half of the message, it is the diagnosis.
@@ -106,7 +130,15 @@ and cannot grant on it — both answer 403.
 
 RESOURCE IDS ARE VERSION-4 UUIDs, checked for more than their shape. A
 hand-written 8-4-4-4-12 string with tidy digits is refused as an invalid UUID
-even though it looks right — copy the id from the resource's own list command.`
+even though it looks right — copy the id from the resource's own list command.
+
+GRANTS ARE INDEXED BY RESOURCE, AND ONLY BY RESOURCE. Every read here starts
+from a resource you already name — "permissions access <type> <id>". There is
+no subject-side read, so "what does this user, group or API key reach?" has no
+answer in this namespace and is not a command you have failed to find. Answering
+it means walking the resources yourself, one "permissions access" per id.
+The nearest thing that does exist is scoped to roles rather than to grants:
+"nexus role systems" and "nexus role coverage" read outward from a role.`
   );
 
   // ── access ────────────────────────────────────────────────────────────
@@ -134,14 +166,23 @@ Examples:
   $ nexus permissions access workflow 2222... --json
 
 Notes:
-  A FRESH RESOURCE ALREADY HAS TWO GRANTS NOBODY WROTE. Creating anything stamps
-  an organization-wide editor grant and an owner grant for its creator, both
-  dated at the resource's creation. So an empty list here is not the baseline —
-  two rows is. Compare against those two before concluding a resource was
-  shared.
+  AN EMPTY LIST IS NOT AN ANSWER ON ITS OWN — READ THE "Reach:" LINE UNDER IT.
+  A grant row names a resource, and two things reach a resource without naming
+  it: an open resource type, which reaches it through no row at all, and a
+  wildcard grant, whose row names the TYPE. Both leave the table empty. The
+  reach line is the only thing that separates them from "nobody", and under
+  --json it is the "unlistedReach" field.
 
-  IT REFUSES UNLESS YOU HOLD A RELATION ON THIS RESOURCE, org admin or not. The
-  403 names the relation it wanted. See the namespace help.`
+  A RESOURCE CREATED THROUGH THE DASHBOARD ALREADY HAS TWO GRANTS NOBODY WROTE —
+  an organization-wide editor grant and an owner grant for its creator, both
+  dated at creation. One created by an API key has NEITHER, because the key is
+  its own subject and owns nothing by default. So the baseline is two rows or
+  none depending on who created it; the reach line tells you which world you
+  are in without having to know.
+
+  IT REFUSES FOR A RESOURCE THAT IS CLOSED TO YOU, org admin or not, and the 403
+  names the relation it wanted. An id that is not in your organization answers
+  404 — the same 404 as an id that exists nowhere, so it discloses nothing.`
     )
     .action(async (resourceType: string, resourceId: string) => {
       try {
@@ -151,16 +192,25 @@ Notes:
           );
         }
         const client = createClient(program.optsWithGlobals());
-        const { permissions: grants } = await client.permissions.listResourceAccess(
-          resourceType,
-          resourceId
-        );
-        printList(grants, undefined, [
+        const result = await client.permissions.listResourceAccess(resourceType, resourceId);
+
+        // ONE document under --json. `printList` short-circuits to its own
+        // `console.log(JSON.stringify(...))`, so printing the rows and then the
+        // reach would emit two concatenated documents: `JSON.parse` throws and a
+        // script reading the stream silently keeps only the first — which is the
+        // rows without the field that says what they omit.
+        if (isJsonMode()) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+
+        printList(result.permissions, undefined, [
           { key: "subjectType", label: "SUBJECT TYPE", width: 14 },
           { key: "subjectId", label: "SUBJECT ID", width: 36 },
           { key: "relation", label: "RELATION", width: 10 },
           { key: "createdAt", label: "CREATED", width: 20 }
         ]);
+        console.log(describeUnlistedReach(result.unlistedReach));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -260,7 +310,14 @@ Examples:
 
 Notes:
   Cascade IDs are intersected with the real downstream set server-side, so
-  naming an unrelated subject removes nothing.`
+  naming an unrelated subject removes nothing.
+
+  ASSERT ON revokedCount, NOT ON success. --json prints
+  {success, message, revokedCount}, and success only reports that the request
+  was accepted. A revoke that matched no grant — a subject that never held one,
+  a cascade id the intersection above discarded — is a SUCCESS carrying
+  revokedCount 0. That is the only field that says whether anything was
+  removed, and it is the number to compare against what you meant to revoke.`
     )
     .action(async (opts) => {
       try {

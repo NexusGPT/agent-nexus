@@ -1,4 +1,5 @@
 import type { PageResponse } from "./common";
+import type { DeploymentType } from "./deployments";
 
 export interface CustomerSummary {
   id: string;
@@ -45,8 +46,15 @@ export interface ListCustomersParams {
   search?: string;
   page?: number;
   limit?: number;
-  sortBy?: string;
+  sortBy?: "lastSeenAt" | "totalMessages" | "createdAt" | "displayName" | "totalSessions";
   sortOrder?: "asc" | "desc";
+  /**
+   * Keep only customers holding an identity on this channel.
+   *
+   * Matches IDENTITIES, not messages — a customer reachable on the channel is
+   * kept whatever channel they last spoke on.
+   */
+  channel?: DeploymentType;
 }
 
 export interface CreateCustomerBody {

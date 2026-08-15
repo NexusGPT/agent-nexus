@@ -51,8 +51,9 @@
  * warnings, sequencing, precedence — stay a reader's job by construction.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, it } from "vitest";
@@ -64,6 +65,65 @@ import { buildRootProgram } from "./root-program";
 
 const CLI_DOCS = join(dirname(fileURLToPath(import.meta.url)), "../../../content/docs/cli");
 const COMMAND_DOCS = join(CLI_DOCS, "commands");
+const DOCS_ROOT = join(CLI_DOCS, "..");
+
+/**
+ * Every page `scripts/sync-docs-to-zero-entropy.ts` pushes to the customer
+ * search index, as the slug path it pushes it under.
+ *
+ * DELIBERATELY A COPY OF THAT WALK, not a shared import: the sync script lives
+ * at the repo root, outside every package, and `packages/cli` publishes
+ * standalone. What keeps the two honest is that this one is the SUPERSET rule —
+ * skip `images/`, take every `.md` and `.mdx` — so the sync narrowing its own
+ * walk can only ever make this case check pages the index will not receive,
+ * which is a harmless direction. A sync that WIDENS past this is the direction
+ * that matters, and there is nowhere left to widen to.
+ */
+function syncedDocPages(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== "images") walk(join(dir, entry.name));
+      } else if (entry.name.endsWith(".md") || entry.name.endsWith(".mdx")) {
+        found.push(relative(DOCS_ROOT, join(dir, entry.name)).replace(/\.mdx?$/, ""));
+      }
+    }
+  };
+  walk(DOCS_ROOT);
+  return found.sort();
+}
+
+/**
+ * Every slug path `docs-content.getAllDocSlugs()` produces — the tab slugs, plus
+ * every entry of every `pages` array at any nesting depth.
+ *
+ * Modelled on that function rather than on a substring test over the raw JSON.
+ * A substring test scores a page reachable because its name appears in some
+ * unrelated title, which is a false GREEN on exactly the check this is.
+ */
+function navigableSlugPaths(): Set<string> {
+  interface NavGroup {
+    pages?: string[];
+    groups?: NavGroup[];
+  }
+  const nav = JSON.parse(readFileSync(join(DOCS_ROOT, "navigation.json"), "utf8")) as {
+    tabs: { slug: string; groups: NavGroup[] }[];
+  };
+
+  const slugs = new Set<string>();
+  const extract = (groups: NavGroup[]): void => {
+    for (const group of groups) {
+      for (const page of group.pages ?? []) slugs.add(page);
+      extract(group.groups ?? []);
+    }
+  };
+  for (const tab of nav.tabs) {
+    slugs.add(tab.slug);
+    extract(tab.groups);
+  }
+  return slugs;
+}
 
 /**
  * The pages a human writes. Everything else under `commands/` is a projection.
@@ -242,6 +302,44 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     expect(drifted).toEqual([]);
   });
 
+  it("no generated page names a CLI version, so a release cannot make the tree stale", () => {
+    // 🚨 A GENERATED PAGE MUST BE A FUNCTION OF THE TREE ALONE, AND THE VERSION
+    // IS NOT IN THE TREE THIS PAGE IS COMPARED AGAINST. `packages/cli/package.json`'s
+    // `version` is written by the changesets release, which lands on `main` and
+    // never on `staging`. A staging->main promotion is tested on
+    // `refs/pull/<n>/merge` — main's package.json beside staging's committed
+    // pages — so the equality above went RED on all 45 pages with no CLI file
+    // touched, and no regeneration could hold: the next release re-opens it.
+    // Measured on PR #3638, and reproduced by editing that one field and
+    // nothing else: 0 stale at 0.21.9, 45 stale at 0.25.0.
+    //
+    // `help-scope.test.ts` pins the mechanism — a derived capture names no
+    // version. This pins the RESULT over the whole tree, so a second surface
+    // that starts printing one is caught here rather than on a promotion.
+    const VERSIONED_CLIENT = /@agent-nexus\/cli\s+\d+\.\d+\.\d+/;
+
+    const generated = pages.filter((file) =>
+      readFileSync(join(COMMAND_DOCS, file), "utf8").includes(GENERATED_MARKER)
+    );
+    const versioned = generated.filter((file) =>
+      VERSIONED_CLIENT.test(readFileSync(join(COMMAND_DOCS, file), "utf8"))
+    );
+
+    // Anti-vacuity, both halves. An empty population satisfies the assertion,
+    // and so does a tree where the scope footer stopped being projected at all —
+    // which would delete the surface this rule is about rather than fix it.
+    expect(generated.length).toBeGreaterThanOrEqual(44);
+    expect(
+      generated.filter((file) =>
+        readFileSync(join(COMMAND_DOCS, file), "utf8").includes(
+          "THIS IS ONE CLIENT (@agent-nexus/cli)"
+        )
+      ).length
+    ).toBeGreaterThanOrEqual(44);
+
+    expect(versioned).toEqual([]);
+  });
+
   it("no page marked generated has silently left the generated set", () => {
     // A generated page keeps its marker. Losing it is how a projection becomes a
     // hand-written copy again with a one-line diff and a green build.
@@ -291,22 +389,72 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     expect(broken).toEqual([]);
   });
 
-  it("every page under commands/ is reachable from navigation.json", () => {
+  it("every page the search index will receive is reachable from navigation.json", () => {
     // 🚨 THE DARK-PAGE TRAP, AND IT FAILS IN THE WORST DIRECTION.
     // `docs-content.getAllDocs()` walks `navigation.json`, NOT the filesystem —
-    // so a page absent from the nav is served by nothing: no docs route, no
-    // `llms-full.txt`, no `sitemap.xml`, no docs search.
+    // so a page absent from the nav is in no nav sidebar, no `llms-full.txt` and
+    // no `sitemap.xml`.
     //
     // But `scripts/sync-docs-to-zero-entropy.ts` DOES walk the filesystem,
     // skipping only `images/`. So an unlisted page is pushed to the CUSTOMER
-    // SEARCH INDEX with a `https://gpt.nexus/docs/...` URL that 404s. Indexed
-    // and unreachable is strictly worse than absent, and nothing else checks it.
-    const nav = readFileSync(join(CLI_DOCS, "../navigation.json"), "utf8");
-    const dark = pages
-      .map((file) => file.replace(/\.mdx$/, ""))
-      .filter((name) => !nav.includes(`"cli/commands/${name}"`));
+    // SEARCH INDEX with a `https://gpt.nexus/docs/...` URL, under a `section`
+    // taken from its first path segment. Nothing else checks it.
+    //
+    // 🚨 THE POPULATION IS THE WHOLE `content/docs` TREE, NOT `commands/`.
+    // Scoped to `commands/` this case was green while three files outside it
+    // were dark — and one of them, the docs AUTHORING GUIDE, was being pushed to
+    // the customer search index as a page named `STYLE`. It is a document about
+    // frontmatter keys and the Black Box Rule, written for whoever edits this
+    // tree. The fix was to move it OUT of the synced tree (`content/STYLE.md`)
+    // rather than to list it: a page nobody should read is not made correct by
+    // adding it to the navigation.
+    //
+    // The other two were `<tab>/index.mdx` landing pages, reachable at the TAB
+    // SLUG and not under their own name. That is not an exception carved out for
+    // them — it is what `getDocBySlug` does, and this case models the resolver
+    // instead of guessing at it.
+    const reachable = navigableSlugPaths();
+    const dark = syncedDocPages().filter(
+      (page) => !reachable.has(page) && !reachable.has(page.replace(/\/index$/, ""))
+    );
+
+    // Anti-vacuity, both halves. A walk that found nothing, and a nav parse that
+    // resolved nothing, each satisfy `dark === []` while reading exactly like a
+    // clean scan.
+    expect(syncedDocPages().length).toBeGreaterThan(200);
+    expect(reachable.size).toBeGreaterThan(200);
     expect(dark).toEqual([]);
   });
+
+  it("a --out that does not exist is refused, in both modes", () => {
+    // 🚨 THE GUARD THIS SCRIPT ADVERTISES IS ABSENT WHEN `--out` IS WRONG, AND
+    // BOTH MODES REPORT WITH TOTAL CONFIDENCE. `generate-cli-docs.ts` resolves
+    // `--out` against the working directory, and its header used to document a
+    // `pnpm --filter … exec` form that runs in `packages/cli`. The same relative
+    // path then meant `packages/cli/content/docs/cli/commands`:
+    //
+    //   · `--check` called EVERY namespace stale and exited 1 — a false red
+    //     naming 47 pages against a tree with nothing wrong with it.
+    //   · the write mode created the directory, wrote all 47 pages into it and
+    //     exited 0 reporting `0 held` — PROJECTING both deliberately-held
+    //     authored pages, because `isHeld()` tests a target that does not exist.
+    //
+    // So the absent directory is refused rather than created, and this case is
+    // what stops the refusal being deleted as ceremony.
+    const script = join(dirname(fileURLToPath(import.meta.url)), "../scripts/generate-cli-docs.ts");
+    const absent = join(CLI_DOCS, "../../../packages/cli/content/docs/cli/commands");
+    expect(existsSync(absent)).toBe(false);
+
+    for (const argv of [
+      ["--out", absent],
+      ["--check", "--out", absent]
+    ]) {
+      const run = spawnSync("npx", ["tsx", script, ...argv], { encoding: "utf8" });
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain("REFUSED");
+      expect(existsSync(absent)).toBe(false);
+    }
+  }, 120_000);
 
   it("every page that presents THE global flags presents all of them", () => {
     // 🚨 THE ROT THIS CATCHES IS DUPLICATION, NOT ABSENCE. Three authored pages

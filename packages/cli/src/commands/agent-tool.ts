@@ -301,7 +301,12 @@ Notes:
         if (!opts.yes && process.stdout.isTTY) {
           const readline = await import("node:readline/promises");
           const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Remove tool ${toolId} from agent? [y/N] `);
+          // Name BOTH ids. The route is `agents/<agentId>/tools/<toolId>` and
+          // the agent is what decides which tool the server may touch, so a
+          // prompt that echoes only the tool cannot show a mismatch back to the
+          // operator — the one place a wrong pairing is still catchable by a
+          // human before the write happens.
+          const answer = await rl.question(`Remove tool ${toolId} from agent ${agentId}? [y/N] `);
           rl.close();
           if (answer.toLowerCase() !== "y") {
             console.log("Aborted.");

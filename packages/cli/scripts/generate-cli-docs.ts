@@ -3,8 +3,29 @@
  * Project `content/docs/cli/commands/<namespace>.mdx` from the commander tree
  * and the v1 contract binding.
  *
- *   pnpm --filter @agent-nexus/cli exec tsx scripts/generate-cli-docs.ts --out <dir>
- *   pnpm --filter @agent-nexus/cli exec tsx scripts/generate-cli-docs.ts --check --out <dir>
+ * 🚨 RUN IT FROM THE REPO ROOT. `--out` is resolved against the CURRENT WORKING
+ * DIRECTORY, and `pnpm --filter <pkg> exec` runs in the PACKAGE directory:
+ *
+ *   pnpm exec tsx packages/cli/scripts/generate-cli-docs.ts --out content/docs/cli/commands
+ *   pnpm exec tsx packages/cli/scripts/generate-cli-docs.ts --check --out content/docs/cli/commands
+ *
+ * The `pnpm --filter @agent-nexus/cli exec …` spelling this header used to
+ * document sent the same relative path to `packages/cli/content/docs/cli/commands`,
+ * and both modes then reported a whole tree of nonsense with total confidence:
+ * `--check` printed STALE for EVERY namespace and exited 1 — a false red naming
+ * 47 pages against a tree with nothing wrong with it — while the write mode
+ * created the phantom directory, wrote all 47 pages into it, exited 0 and
+ * reported `0 held`. Reproduced 2026-08-14 on a clean checkout.
+ *
+ * `0 held` is the tell, and it is why the guard below is not a convenience:
+ * {@link isHeld} tests a target that DOES NOT EXIST, so the structural hold
+ * described below is not weakened by a wrong `--out` — it is absent. Both
+ * authored pages were projected.
+ *
+ * So a `--out` that does not exist is a REFUSAL, in both modes, and this script
+ * no longer creates its own output directory. `mkdir` first if you genuinely
+ * mean a new one; that makes it a deliberate act rather than a typo's blast
+ * radius.
  *
  * `--check` writes nothing and exits 1 on the first page that differs, naming it.
  * That is the freshness half of the gate in script form; the spec beside it is
@@ -38,7 +59,7 @@
  * page that EXISTS, and nothing protects a directory nobody meant to name.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { buildDocNamespaces, unattributedHiddenSiblings } from "../src/docs-page.model";
@@ -62,7 +83,19 @@ async function main(): Promise<void> {
 
   if (out === undefined) {
     console.error("REFUSED: --out <dir> is required and has no default.");
-    console.error("Pointing it at content/docs/cli/commands overwrites 39 authored pages.");
+    console.error("This guard protects an authored page that EXISTS, and nothing");
+    console.error("protects a directory nobody meant to name.");
+    process.exit(2);
+  }
+
+  // A directory that is not there is a WRONG PATH, never a directory to create.
+  // Creating it is what turned one wrong `--out` into 47 phantom pages, `0 held`
+  // and exit 0 — see the header. The same absence makes `--check` call every
+  // namespace stale, so the refusal covers both modes.
+  if (!existsSync(out)) {
+    console.error(`REFUSED: --out ${out} does not exist.`);
+    console.error(`Resolved against the working directory ${process.cwd()}.`);
+    console.error("Run this from the repo root, or mkdir the directory first.");
     process.exit(2);
   }
 
@@ -77,8 +110,6 @@ async function main(): Promise<void> {
   for (const orphan of orphans) {
     console.error(`UNRESOLVED hidden-alias attribution — ${orphan}`);
   }
-
-  if (!check) mkdirSync(out, { recursive: true });
 
   let differed = 0;
   let written = 0;

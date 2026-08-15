@@ -13,7 +13,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, printFailure, refuse, reportFailure } from "../errors";
 import type {
   ToolHasAttachmentsDetails,
   ToolSpecBreakingChangeDetails
@@ -53,7 +53,17 @@ export function registerExternalToolCommands(program: Command): void {
 Examples:
   $ nexus external-tool list
   $ nexus external-tool list --search "weather" --limit 10
-  $ nexus external-tool list --json`
+  $ nexus external-tool list --json
+
+Notes:
+  --json PRINTS {data: [...]} AND NO meta KEY. Unlike the paginated lists in
+  this CLI there is no total and no hasMore here, so a full-looking answer is
+  not evidence that you have them all.
+  THERE IS NO --page EITHER. --limit caps the answer and nothing walks past it,
+  so a --limit below your tool count hides the rest with nothing saying so.
+  THE TABLE IS ID / NAME / DESCRIPTION / CREATED. It carries no auth type, no
+  endpointUrl and no actionsCount — read those per tool with
+  "nexus external-tool get <id>".`
     )
     .action(async (opts) => {
       try {
@@ -123,7 +133,7 @@ Notes:
       `
 Examples:
   $ nexus external-tool create --body openapi-tool.json
-  $ nexus external-tool create --body '{"name":"Weather API","spec":{...}}'
+  $ nexus external-tool create --body '{"name":"Weather API","openApiSpec":"openapi: 3.0.0\\n...","endpointUrl":"https://api.example.com","auth":{"type":"none"}}'
   $ nexus external-tool create --body openapi-tool.json --image-url https://example.com/logo.png
   $ cat spec.json | nexus external-tool create --body -
 
@@ -149,7 +159,24 @@ Notes:
   then goes out bodyless, returns 200 and persists NOTHING.
 
   The endpointUrl on the tool is the base URL every action is dispatched
-  against; the spec's own servers block is not used in its place.`
+  against; the spec's own servers block is not used in its place.
+
+  A COMPLETE MINIMAL BODY IS FOUR KEYS, and the second example above is it:
+
+    {
+      "name": "Weather API",
+      "openApiSpec": "<the spec's JSON or YAML text, as a STRING>",
+      "endpointUrl": "https://api.example.com",
+      "auth": { "type": "none" }
+    }
+
+  KEEP THE SPEC FILE. "external-tool get" does not return openApiSpec and
+  neither does the REST route, so this body is the only copy you will have.
+
+  IT DOES NOT ECHO THE TOOL. --json prints exactly
+  {success, message, id, name}; id is what every other subcommand in this
+  namespace takes as its argument. Read the stored tool with
+  "nexus external-tool get <id>".`
     )
     .action(async (opts) => {
       try {
@@ -187,8 +214,10 @@ Examples:
         const absPath = path.resolve(opts.file);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 
@@ -302,8 +331,7 @@ expired, the platform will attempt to refresh it automatically before calling th
       try {
         const client = createClient(program.optsWithGlobals());
         if (!opts.operationId) {
-          console.error("Error: --operation-id is required");
-          process.exitCode = 1;
+          process.exitCode = refuse("--operation-id is required");
           return;
         }
         const input = (opts.input ? await resolveInputJson(opts.input) : {}) as Record<
@@ -315,14 +343,29 @@ expired, the platform will attempt to refresh it automatically before calling th
           input
         });
         if (result.status === "success") {
+          // The RECORD first, then the verdict. Both wrote a JSON document under
+          // --json, so the pair was two concatenated documents; the record is the
+          // payload a caller parses, so it is the one that keeps stdout.
+          printRecord(result);
           printSuccess("Auth credentials are valid. Operation executed successfully.", {
             status: result.status,
             executionTimeMs: result.executionTimeMs
           });
-          printRecord(result);
         } else {
-          console.error("Auth test failed:", result.error ?? "Unknown error");
-          process.exitCode = 1;
+          // `remote-error`, never a refusal: the invocation was ACCEPTED and the
+          // platform answered that the stored credentials do not work. The
+          // caller's next move is to fix the credentials, not the command line.
+          //
+          // This arm was `console.error` + exit 1, so under --json it produced a
+          // non-zero exit and an EMPTY stdout — the clause-2 defect. The success
+          // arm above was reordered for clause 1 and this one was left behind,
+          // which is why the driven scan never saw it: its stub cannot satisfy
+          // `status === "success"`, so it lands here and records `silent`.
+          process.exitCode = reportFailure(
+            "remote-error",
+            `Auth test failed: ${result.error ?? "Unknown error"}`,
+            "Update the stored credentials with `external-tool update-auth`, then test again."
+          );
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -386,8 +429,7 @@ Notes:
         const body = mergeBodyWithFlags(base, flags);
 
         if (!body.action) {
-          console.error("Error: --action is required (or provide it in --body)");
-          process.exitCode = 1;
+          process.exitCode = refuse("--action is required (or provide it in --body)");
           return;
         }
 
@@ -509,8 +551,7 @@ Notes:
       } catch (err) {
         const breaking = extractSpecBreakingChangeDetails(err);
         if (breaking) {
-          printSpecBreakingChangeError(breaking);
-          process.exitCode = 1;
+          process.exitCode = reportSpecBreakingChange(breaking);
           return;
         }
         process.exitCode = handleError(err);
@@ -562,16 +603,21 @@ Notes:
   200 and persists NOTHING — the refresh is where that regression is introduced.
 
   --force is not "retry harder": it refreshes anyway and leaves every downstream
-  node bound to a removed action to be repointed by hand.`
+  node bound to a removed action to be repointed by hand.
+
+  THE RESPONSE DOES NOT SAY WHAT CHANGED. It prints {id, name} — the same two
+  fields whether the refresh added twelve actions, removed one, or parsed to
+  exactly what was there before. Re-read actionsCount with
+  "nexus external-tool get <id>" and compare it against what you had; that
+  number is the only readable evidence the rebuild did anything.`
     )
     .action(async (id: string, opts) => {
       try {
         const openApiSpec = await resolveSpecString(opts);
         if (openApiSpec === null) {
-          console.error(
-            "Error: provide the spec via --file <path> or --body '{\"openApiSpec\":...}'"
+          process.exitCode = refuse(
+            "provide the spec via --file <path> or --body '{\"openApiSpec\":...}'"
           );
-          process.exitCode = 1;
           return;
         }
 
@@ -585,8 +631,7 @@ Notes:
       } catch (err) {
         const breaking = extractSpecBreakingChangeDetails(err);
         if (breaking) {
-          printSpecBreakingChangeError(breaking);
-          process.exitCode = 1;
+          process.exitCode = reportSpecBreakingChange(breaking);
           return;
         }
         process.exitCode = handleError(err);
@@ -608,7 +653,15 @@ with --force to cascade-delete the references along with the tool.
 
 Examples:
   $ nexus external-tool delete ext-123
-  $ nexus external-tool delete ext-123 --force`
+  $ nexus external-tool delete ext-123 --force
+
+Notes:
+  THERE IS NO CONFIRMATION PROMPT AND NO --yes FLAG, on a TTY or anywhere else.
+  The reference guard is the only thing standing between the command and the
+  deletion, so on an UNREFERENCED tool this deletes on the first invocation —
+  and --force removes that guard as well.
+  Answers with {id} and nothing else. There is no "deleted" field to assert on,
+  so a 200 IS the confirmation; verify with "nexus external-tool list".`
     )
     .action(async (id: string, opts) => {
       try {
@@ -621,8 +674,7 @@ Examples:
         // falls through to the generic error handler.
         const attachments = extractToolHasAttachmentsDetails(err);
         if (attachments) {
-          printToolHasAttachmentsError(attachments);
-          process.exitCode = 1;
+          process.exitCode = reportToolHasAttachments(attachments);
           return;
         }
         process.exitCode = handleError(err);
@@ -641,21 +693,58 @@ Examples:
   bindCommand(remove, SKILLS_DELETE_EXTERNAL_TOOL_CONTRACT);
 }
 
+/**
+ * The API's OWN codes for the two 409s this file special-cases.
+ *
+ * ⚠️ NAMED ONCE, BECAUSE THE EXTRACTOR AND THE REPORTER MUST AGREE. The
+ * extractor matches on the code and the reporter puts it on the wire; two
+ * literals would let a rename move one and not the other, and the document
+ * would then carry a code the CLI never actually matched.
+ */
+const TOOL_HAS_ATTACHMENTS = "TOOL_HAS_ATTACHMENTS";
+const TOOL_SPEC_BREAKING_CHANGE = "TOOL_SPEC_BREAKING_CHANGE";
+
 function extractToolHasAttachmentsDetails(err: unknown): ToolHasAttachmentsDetails | null {
   if (!(err instanceof NexusApiError)) return null;
-  if (err.status !== 409 || err.code !== "TOOL_HAS_ATTACHMENTS") return null;
+  if (err.status !== 409 || err.code !== TOOL_HAS_ATTACHMENTS) return null;
   return (err.details as ToolHasAttachmentsDetails) ?? null;
 }
 
-function printToolHasAttachmentsError({ total, sample }: ToolHasAttachmentsDetails): void {
-  console.error(`Cannot delete: ${total} agent tool config(s) reference this external tool:`);
-  for (const a of sample) {
-    console.error(`  • ${a.label}  (agent: ${a.agentName})`);
-  }
+/**
+ * The 409 from the "has attachments" guard, as ONE error document.
+ *
+ * ⚠️ THE SAMPLE LIST HAS TO RIDE INSIDE `message`, NOT BESIDE IT ON STDERR.
+ * This printed the whole list with `console.error` and left the caller to set
+ * `process.exitCode = 1`, so under `--json` the command exited non-zero with an
+ * EMPTY stdout — a caller could not tell "already deleted" from "still
+ * attached" by shape OR by status, which is the one combination no script works
+ * around.
+ *
+ * 🚨 THE CODE IS THE SERVER'S, NOT A `CLI_*` ONE. A `CLI_*` code means the
+ * request never reached the API — that is the whole provenance rule — so
+ * `reportFailure("remote-error", …)` here would stamp `CLI_REMOTE_ERROR` on a
+ * 409 the server deliberately raised, throw away the actionable
+ * `TOOL_HAS_ATTACHMENTS`, and tell a script branching on `code` that a refusal
+ * it can act on was a client-side transport failure it cannot. `handleError`'s
+ * own 409 branch has always used `err.code`; this is the same rule, kept at a
+ * call site that special-cases the SAME status for a richer message.
+ *
+ * `printFailure` is the verb for that: a document with a REQUIRED explicit code
+ * and no opinion about the exit code. The `return 1` keeps the document and the
+ * status in one statement at the call site.
+ */
+function reportToolHasAttachments({ total, sample }: ToolHasAttachmentsDetails): number {
+  const lines = sample.map((a) => `  • ${a.label}  (agent: ${a.agentName})`);
   if (total > sample.length) {
-    console.error(`  • … and ${total - sample.length} more`);
+    lines.push(`  • … and ${total - sample.length} more`);
   }
-  console.error("\nRe-run with --force to cascade-delete the references along with the tool.");
+
+  printFailure(
+    `Cannot delete: ${total} agent tool config(s) reference this external tool:\n${lines.join("\n")}`,
+    TOOL_HAS_ATTACHMENTS,
+    "Re-run with --force to cascade-delete the references along with the tool."
+  );
+  return 1;
 }
 
 /**
@@ -687,26 +776,38 @@ async function resolveSpecString(opts: { file?: string; body?: string }): Promis
 
 function extractSpecBreakingChangeDetails(err: unknown): ToolSpecBreakingChangeDetails | null {
   if (!(err instanceof NexusApiError)) return null;
-  if (err.status !== 409 || err.code !== "TOOL_SPEC_BREAKING_CHANGE") return null;
+  if (err.status !== 409 || err.code !== TOOL_SPEC_BREAKING_CHANGE) return null;
   return (err.details as ToolSpecBreakingChangeDetails) ?? null;
 }
 
-function printSpecBreakingChangeError({
+/**
+ * The spec-breaking-change refusal, as ONE error document.
+ *
+ * Same defect and same fix as {@link reportToolHasAttachments}: the binding list
+ * went to stderr and stdout stayed empty at exit 1, so `--json` promised a
+ * document and delivered nothing on the one path where the caller most needs to
+ * read WHICH actions it would break — and the code is the SERVER'S, for the
+ * reason spelled out there.
+ */
+function reportSpecBreakingChange({
   removedActions,
   total,
   bindings
-}: ToolSpecBreakingChangeDetails): void {
-  console.error(
-    `Refusing to refresh: the new spec removes ${removedActions.length} action(s) still bound downstream:`
-  );
-  console.error(`  removed action(s): ${removedActions.join(", ")}`);
-  console.error(`  bound by ${total} reference(s):`);
-  for (const b of bindings) {
-    console.error(`  • [${b.kind}] ${b.label}  → ${b.action}`);
-  }
+}: ToolSpecBreakingChangeDetails): number {
+  const lines = [
+    `  removed action(s): ${removedActions.join(", ")}`,
+    `  bound by ${total} reference(s):`,
+    ...bindings.map((b) => `  • [${b.kind}] ${b.label}  → ${b.action}`)
+  ];
   if (total > bindings.length) {
-    console.error(`  • … and ${total - bindings.length} more`);
+    lines.push(`  • … and ${total - bindings.length} more`);
   }
-  console.error("\nRe-run with --force to refresh anyway (downstream nodes binding a removed");
-  console.error("action will need to be repointed manually).");
+
+  printFailure(
+    `Refusing to refresh: the new spec removes ${removedActions.length} action(s) still bound downstream:\n` +
+      lines.join("\n"),
+    TOOL_SPEC_BREAKING_CHANGE,
+    "Re-run with --force to refresh anyway — downstream nodes binding a removed action need repointing manually."
+  );
+  return 1;
 }

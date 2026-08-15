@@ -1,11 +1,13 @@
 import type {
   CoverageMoneyNotModelledReason,
   CoverageNotModelledReason,
+  CoverageSavingsProjectionUnavailableReason,
   RoleJobTypeBasis,
   RoleJobTypeBody,
   RoleJobTypeGroup,
   RoleJobTypePart,
-  RoleScopeLineInput
+  RoleScopeLineInput,
+  RoleVariableInput
 } from "@agent-nexus/sdk";
 
 /**
@@ -154,6 +156,24 @@ const SCOPE_LINE_FIELDS: Record<keyof RoleScopeLineInput, string> = {
   scope: `string   REQUIRED. What this line covers, in words.\n${CONTINUATION}"" is legal.`
 };
 
+/**
+ * The whole of one Role variable.
+ *
+ * 🚨 REQUIRED AND NULLABLE ARE NOT THE SAME PROPERTY, and this block exists
+ * because the prose that stood here collapsed them: it said `label`,
+ * `description` and `unit` were "required strings", when `RoleVariableInput`
+ * types two of the three `string | null`. Omitting the KEY is a 400; sending
+ * `null` for the VALUE is how a caller says "none". A reader who believed the
+ * sentence had to invent a description for every variable that has none.
+ */
+const VARIABLE_FIELDS: Record<keyof RoleVariableInput, string> = {
+  key: `string   what a part's source.variable matches: "wage".\n${CONTINUATION}Lower-case start, then word characters`,
+  label: 'string   what the Assumptions tab calls it: "Hourly wage"',
+  description: "string|null   the author's own sentence. null for none",
+  unit: `string|null   how it reads: "€ / h", "%". A LABEL, and\n${CONTINUATION}nothing parses it. null for none`,
+  value: "number|null   null is UNSET and is NEVER 0 — see below"
+};
+
 /** Every reason a Role has no coverage percentage at all. */
 const COVERAGE_NOT_MODELLED_REASONS: Record<CoverageNotModelledReason, true> = {
   NO_WORKLOAD_MODEL: true,
@@ -170,6 +190,36 @@ const COVERAGE_NOT_MODELLED_REASONS: Record<CoverageNotModelledReason, true> = {
 /** Every reason a Role has no money figures at all. */
 const COVERAGE_MONEY_NOT_MODELLED_REASONS: Record<CoverageMoneyNotModelledReason, true> = {
   NO_CURRENCY: true
+};
+
+/**
+ * Every reason the saved hours cannot be re-expressed in money.
+ *
+ * 🚨 THE THIRD CLOSED VOCABULARY ON THIS ONE RESPONSE, and the help enumerated
+ * the other two and stopped. `coverage` and `money` fail together in the common
+ * case — an organization with no automation settings row answers
+ * `NO_WORKING_TIME_MODEL` and `NO_CURRENCY` — so a caller who has cleared both
+ * still meets `savingsProjection.kind: "unavailable"` on its own, over a
+ * vocabulary neither of the other two names.
+ *
+ * 🚨 ONLY `NO_WORKLOAD_HOURS` IMPLIES THE PERCENTAGE IS ALSO ABSENT. The ratio
+ * is hours over hours and reads neither a cost nor a currency, and
+ * `RoleWorkload.costFormula` is nullable where `formula` is not — so a Role with
+ * an authored workload and no cost model reports a real percentage beside an
+ * unavailable projection. The other six arms are each reachable in that state,
+ * which is why this list cannot be inferred from the two above it.
+ */
+const COVERAGE_SAVINGS_PROJECTION_UNAVAILABLE_REASONS: Record<
+  CoverageSavingsProjectionUnavailableReason,
+  true
+> = {
+  NO_CURRENCY: true,
+  NO_WORKLOAD_COST: true,
+  NEGATIVE_WORKLOAD_COST: true,
+  NO_WORKLOAD_HOURS: true,
+  RATE_NOT_FINITE: true,
+  AMOUNT_NOT_FINITE: true,
+  IMPACT_HOURS_UNAVAILABLE: true
 };
 
 /** Wrap a member list at `width`, indenting every continuation line. */
@@ -242,6 +292,26 @@ ${renderFields(SCOPE_LINE_FIELDS)}
     {"lines":[{"jobTypeId":"<uuid>","quantity":6,
                "scope":"France, Monday to Friday"}]}`;
 
+/** Appended to `nexus role set-variables`. */
+export const VARIABLES_BODY_SHAPE = `
+  THE BODY IS { "variables": [ Variable, ... ] } and a Variable is:
+
+${renderFields(VARIABLE_FIELDS)}
+
+  ALL FIVE KEYS ARE REQUIRED AND THREE OF THEM TAKE null. The schema is strict,
+  so an omitted key is a 400 naming it and an unknown key is refused by name —
+  but "required" is about the KEY, never about the value: description, unit and
+  value each accept null, and null is how you say "none". Only key and label
+  must be non-empty text.
+
+  The read-first example above hides that, because a Role that already HAS
+  variables hands you complete elements to edit. The FIRST variable on a Role
+  that has none is composed by hand.
+
+  A COMPLETE BODY THAT IS ACCEPTED, to copy:
+    {"variables":[{"key":"wage","label":"Hourly wage","description":null,
+                   "unit":"€ / h","value":23.5}]}`;
+
 /**
  * Appended to `nexus role coverage`.
  *
@@ -251,18 +321,36 @@ ${renderFields(SCOPE_LINE_FIELDS)}
  * met a bare `NO_WORKING_TIME_MODEL` with no way to learn what else could come.
  */
 export const COVERAGE_REASON_VOCABULARY = `
-  THE not-modelled ARMS CARRY A CLOSED "reason", and these are all of them.
+  THREE ARMS CARRY A CLOSED "reason", THEY NARROW SEPARATELY, and these are all
+  of them.
   coverage.reason is one of:
 ${wrapMembers(Object.keys(COVERAGE_NOT_MODELLED_REASONS), "    ", 68)}
   money.reason is one of:
 ${wrapMembers(Object.keys(COVERAGE_MONEY_NOT_MODELLED_REASONS), "    ", 68)}
+  savingsProjection.reason is one of:
+${wrapMembers(Object.keys(COVERAGE_SAVINGS_PROJECTION_UNAVAILABLE_REASONS), "    ", 68)}
 
   NO_WORKLOAD_MODEL means this Role has no workload row. NO_WORKING_TIME_MODEL
   means the ORGANIZATION has no automation settings row, and NO_CURRENCY means
   it states no currency — both are org-wide rather than per Role, so they answer
   the same for every Role until "nexus role set-automation-settings" is run.
   Every other reason names a stored model that did not evaluate; the matching
-  integrity.warnings entry carries the detail.`;
+  integrity.warnings entry carries the detail.
+
+  THE PROJECTION IS A THIRD FIGURE AND FAILS ON ITS OWN. savingsProjection is
+  the saved hours priced at ONE blended rate — the Role's labour cost divided by
+  its worked hours — so it needs a labour cost that neither of the arms above
+  reads. It answers "unavailable" with a percentage sitting beside it whenever
+  nobody has costed the Role, and neither coverage.reason nor money.reason says
+  why. Read its own reason.
+
+  Two of its arms are DELIBERATELY COARSE and the detail is elsewhere:
+  NO_WORKLOAD_COST covers "never authored" and "authored and does not evaluate"
+  alike, and NO_WORKLOAD_HOURS is every reason coverage has no denominator —
+  coverage.reason already names which. IMPACT_HOURS_UNAVAILABLE is ROW-LEVEL
+  ONLY: each contributions[] row carries its own savingsProjection over this
+  same vocabulary, and the Role-level figure sums those rows, so it can never
+  answer that one.`;
 
 /**
  * Appended to `nexus role --help`.
@@ -293,3 +381,131 @@ The workload and the impact model are the two writes that move the coverage
 figure, and their absence from the public API is a decision with a reason —
 "nexus role coverage --help" carries it. Author all five on the Role's own
 screens in the dashboard.`;
+
+/**
+ * Every `nexus role` verb, grouped by what it is FOR.
+ *
+ * Commander prints subcommands in ONE alphabetical block, so `coverage` — the
+ * cost model — lands between `collection-grants` and `create`, which are the
+ * Role's identity. Read in that order the namespace looks both larger and
+ * flatter than it is, and the audit reported exactly that.
+ *
+ * 🚨 A SECOND LIST OF VERBS DRIFTS FROM THE FIRST AS SOON AS ONE IS ADDED, AND
+ * `--help` CANNOT SAY SO — a new verb is simply absent from the index and the
+ * page still renders, correct-looking and incomplete. That is the failure mode
+ * of every hand-maintained index, so this one is not trusted:
+ * `role-namespace-index.test.ts` reads the LIVE commander tree and refuses a
+ * verb no area claims AND an area naming a verb that no longer exists. Adding a
+ * verb reds that spec by name until an area takes it.
+ *
+ * The count in the rendered text is derived from this list for the same reason —
+ * a number written by hand is the one part of an index nobody re-checks.
+ */
+export const ROLE_NAMESPACE_AREAS: ReadonlyArray<{
+  readonly label: string;
+  readonly verbs: readonly string[];
+}> = [
+  {
+    label: "THE ROLE",
+    verbs: [
+      "list",
+      "get",
+      "create",
+      "update",
+      "delete",
+      "responsibilities",
+      "add-responsibility",
+      "remove-responsibility"
+    ]
+  },
+  {
+    label: "PEOPLE",
+    verbs: [
+      "members",
+      "add-member",
+      "remove-member",
+      "permission-sets",
+      "create-permission-set",
+      "update-permission-set",
+      "delete-permission-set",
+      "add-permission-set-member",
+      "remove-permission-set-member"
+    ]
+  },
+  {
+    label: "WHAT IT REACHES",
+    verbs: [
+      "systems",
+      "attach",
+      "detach",
+      "system-policy",
+      "set-system-policy",
+      "collection-grants",
+      "grant-collection",
+      "revoke-collection",
+      "workspace-grants",
+      "grant-workspace",
+      "revoke-workspace"
+    ]
+  },
+  {
+    label: "REQUESTS",
+    verbs: [
+      "governance",
+      "access-requests",
+      "request-access",
+      "review-access",
+      "creation-requests",
+      "creation-request",
+      "review-creation-request",
+      "deletion-requests",
+      "deletion-request",
+      "review-deletion-request"
+    ]
+  },
+  {
+    label: "THE COST MODEL",
+    verbs: [
+      "coverage",
+      "automation-settings",
+      "set-automation-settings",
+      "job-types",
+      "create-job-type",
+      "update-job-type",
+      "delete-job-type",
+      "scope-lines",
+      "set-scope-lines",
+      "variables",
+      "set-variables",
+      "working-year",
+      "set-working-year",
+      "tasks",
+      "set-tasks",
+      "task-duties",
+      "set-task-duties"
+    ]
+  }
+];
+
+/** The column the verbs start in, so every area label lines up. */
+const AREA_LABEL_WIDTH = 18;
+
+function renderArea(label: string, verbs: readonly string[]): string {
+  const indent = " ".repeat(2 + AREA_LABEL_WIDTH);
+  const wrapped = wrapMembers(verbs, indent, 58);
+  return `  ${label.padEnd(AREA_LABEL_WIDTH)}${wrapped.slice(indent.length)}`;
+}
+
+const ROLE_VERB_COUNT = ROLE_NAMESPACE_AREAS.reduce((total, area) => total + area.verbs.length, 0);
+
+/** Appended to `nexus role --help`, above {@link ROLE_NAMESPACE_GAPS}. */
+export const ROLE_NAMESPACE_INDEX = `
+THAT LIST IS ALPHABETICAL, WHICH IS NOT AN ORDER ANYONE READS IT IN.
+The ${ROLE_VERB_COUNT} verbs are ${ROLE_NAMESPACE_AREAS.length} areas:
+
+${ROLE_NAMESPACE_AREAS.map((area) => renderArea(area.label, area.verbs)).join("\n\n")}
+
+Only THE COST MODEL feeds "nexus role coverage", and inside it only
+"set-automation-settings" writes anything that moves the figure —
+"nexus role coverage --help" names the three rows that do, and says where the
+other two are authored.`;

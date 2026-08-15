@@ -11,7 +11,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { color, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
@@ -368,7 +368,14 @@ Notes:
   may already exist under another one of yours. Run
   "nexus ticket list --all-orgs --search ..." first — a duplicate is the normal
   failure here, and nothing rejects it.
-  The output carries the identifier and url; keep the identifier.`
+  The output carries the identifier and url; keep the identifier.
+
+  VERIFY WITH "nexus ticket get". Every transform above is silent and this
+  response does not distinguish what the server KEPT from what you SENT — an
+  unknown context key is dropped, a long requestBody is truncated, an endpoint
+  without a method comes back with both fields gone. "ticket get" is the only
+  command that returns description and context, so it is the only read that
+  shows you what was actually stored.`
     )
     .action(async (opts) => {
       try {
@@ -660,8 +667,10 @@ Notes:
         const absPath = path.resolve(opts.file);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 
@@ -693,7 +702,17 @@ Notes:
   THIS IS THE VERIFICATION STEP FOR "ticket attach" — a 2xx on the upload is
   not proof the attachment landed on the ticket.
   Unpaginated. There is no download and no delete command: open the ticket's
-  url for the file itself.`
+  url for the file itself.
+
+  THE ROW IS {id, filename, url, contentType, size, createdAt}. The table prints
+  four of those; url and size are --json only, and url is the field you actually
+  need, because there is no download here.
+
+  contentType AND size ARE NULLABLE, and a row with both null is not a broken
+  upload. An attachment does not have to be a file this CLI sent: anything that
+  links itself to the ticket lands in the same list, and then filename is
+  whatever that system called it — a pull request title, a document name —
+  rather than a name on disk. Branch on url, never on contentType.`
     )
     .action(async (id: string) => {
       try {

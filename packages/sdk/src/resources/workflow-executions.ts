@@ -85,7 +85,11 @@ export class WorkflowExecutionsResource extends BaseResource {
   }
 
   /**
-   * Get one node's input, output and logs from an execution.
+   * Get one node's input, output, timings and error from an execution.
+   *
+   * Anything a node captured as console output is inside `output`. There is no
+   * separate `logs` field — one was published until NEX-3864 and was `null` on
+   * every node, because no model stores a per-node log array.
    *
    * @param executionId - Execution UUID.
    * @param nodeId - Graph node id — not a UUID.

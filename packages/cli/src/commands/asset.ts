@@ -5,8 +5,8 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { handleError, refuse } from "../errors";
+import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   ASSET_DELETE_CONTRACT,
@@ -32,9 +32,11 @@ agent must READ goes through "nexus document upload" instead.
     file with no credential, and it never expires — which is the whole point,
     and the reason never to upload anything private. This is the opposite of
     "document download", whose URL is signed and expires in an hour.
-  • DELETING AN ASSET BREAKS EVERY PAGE USING IT, IMMEDIATELY. The URL stops
-    serving within seconds, and nothing tells you what referenced it. Search
-    your templates and widget settings before deleting.
+  • DELETING AN ASSET USUALLY BREAKS EVERY PAGE USING IT, IMMEDIATELY, and
+    nothing tells you what referenced it. Search your templates and widget
+    settings before deleting. "Usually" is not hedging: the delete is two
+    operations and the second one may fail, leaving the URL serving. "nexus
+    asset delete" reports which happened — read its objectRemoved.
   • THE FILE'S BYTES ARE CHECKED AGAINST ITS EXTENSION. Renaming something to
     .png does not get it in: the extension picks the expected format and the
     leading bytes must agree, so a mismatch is refused as a possible spoofed
@@ -145,8 +147,10 @@ Notes:
         const absPath = path.resolve(filePath);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 
@@ -179,10 +183,33 @@ Examples:
   $ nexus asset delete asset-123 --yes
 
 Notes:
-  THE PUBLIC URL STOPS SERVING WITHIN SECONDS, AND THERE IS NO UNDO. Anything
-  already pointing at it — an embed widget's styling, an HTML message template,
-  an agent's branding — breaks at that moment, with no error on this side and
-  nothing listing what referenced the asset. Confirm the URL is unused first.
+  THIS IS TWO OPERATIONS AND THE SECOND ONE IS ALLOWED TO FAIL. The record is
+  soft-deleted, then the stored object is reclaimed. objectRemoved in the output
+  says whether the second one happened, and it is the ONLY thing that does.
+
+  objectRemoved true  — the public URL is gone and 404s from here on.
+  objectRemoved false — THE PUBLIC URL IS STILL SERVING. The object is stored
+                        public-read and the URL points straight at it, so
+                        nothing about the deleted record affects what a browser
+                        fetching it gets. url in the output is that URL.
+
+  RE-RUNNING THIS COMMAND DOES NOT RETRY THE RECLAIM. The record is already
+  deleted, so a second call answers 404 "Asset not found" — which reads like
+  confirmation that the asset is gone, and is not. A false is an escalation, not
+  a retry: the object is orphaned but tracked, so it can be reclaimed from the
+  storage side, and the url line is what identifies it.
+
+  THERE IS NO UNDO EITHER WAY. Anything already pointing at the URL — an embed
+  widget's styling, an HTML message template, an agent's branding — breaks the
+  moment the object goes, with no error on this side and nothing listing what
+  referenced the asset. Confirm the URL is unused first.
+
+  THE EXIT CODE IS 0 ON A FAILED RECLAIM, because the request succeeded and the
+  record really is deleted; per the root --help, exit 1 means the call failed and
+  carries an error document. The signal is a warning on STDERR (written even
+  under --json, which keeps stdout a clean document) plus objectRemoved in the
+  payload. A script that must not proceed on a still-serving URL has to READ
+  objectRemoved — the exit code will not tell it.
 
   THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
   in CI there is no prompt and no --yes is needed: the delete just happens. So
@@ -203,8 +230,29 @@ Notes:
           }
         }
 
-        await client.assets.delete(id);
-        printSuccess("Asset deleted.", { id });
+        const result = await client.assets.delete(id);
+
+        // `objectRemoved` is carried out rather than dropped: it is the only
+        // signal that the public URL stopped serving, and the CLI used to
+        // discard the whole response (NEX-3850).
+        printSuccess("Asset deleted.", {
+          id: result.id,
+          objectRemoved: result.objectRemoved,
+          url: result.url
+        });
+
+        if (!result.objectRemoved) {
+          // STDERR, and the exit code stays 0. The request succeeded and the
+          // record is deleted, so exit 1 would claim a failure the root --help
+          // pairs with an error document this call does not have. The warning
+          // is written even under --json for exactly this case.
+          printWarning(
+            "The record is deleted but the stored object was NOT removed — the public URL is still serving.",
+            `Still reachable: ${result.url}`,
+            "Re-running this command will NOT retry it: the record is gone, so a second call answers 404.",
+            "The object is orphaned but tracked; reclaim it from the storage side using the URL above."
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

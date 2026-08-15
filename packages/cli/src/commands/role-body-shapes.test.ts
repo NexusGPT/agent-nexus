@@ -305,6 +305,78 @@ describe("coverage enumerates its reason vocabulary", () => {
     expect(notes).toContain("org-wide rather than per Role");
     expect(notes).toContain("nexus role set-automation-settings");
   });
+
+  it("names every reason the THIRD closed union can answer", () => {
+    const notes = notesOnly(["role", "coverage"]);
+
+    // `savingsProjection` is a discriminated arm of this same response, over its
+    // own closed `CoverageSavingsProjectionUnavailableReason`. Two unions were
+    // enumerated here and this one was not, which left the arm a caller meets
+    // LAST as the only one with no vocabulary — the exact gap the two above were
+    // fixed for. Spelled out here for the reason the list above is.
+    for (const reason of [
+      "NO_WORKLOAD_COST",
+      "NEGATIVE_WORKLOAD_COST",
+      "NO_WORKLOAD_HOURS",
+      "RATE_NOT_FINITE",
+      "AMOUNT_NOT_FINITE",
+      "IMPACT_HOURS_UNAVAILABLE"
+    ]) {
+      expect(notes, `coverage --help never names the reason "${reason}"`).toContain(reason);
+    }
+  });
+
+  it("says the projection fails on its own, so a percentage is not proof it worked", () => {
+    const notes = notesOnly(["role", "coverage"]);
+
+    // The load-bearing half. `RoleWorkload.costFormula` is nullable where
+    // `formula` is not, so a Role with an authored workload and no cost model
+    // answers a real percentage beside an unavailable projection — and neither
+    // coverage.reason nor money.reason says why. A reader who takes the
+    // percentage as evidence the money side is fine reads the wrong field.
+    expect(notes).toContain("savingsProjection.reason is one of");
+    expect(notes).toContain("FAILS ON ITS OWN");
+    // Row level vs Role level: one arm cannot occur on the Role-level figure.
+    expect(notes).toContain("ROW-LEVEL");
+  });
+});
+
+describe("set-variables names every key of a variable, and which of them take null", () => {
+  it("declares all five in the aligned block", () => {
+    const fields = namedFields(notesOnly(["role", "set-variables"]));
+
+    // ANTI-VACUITY: `namedFields` reads an aligned block, so a Notes section
+    // that stopped rendering one would return [] and every `toContain` below
+    // would fail rather than pass silently.
+    expect(fields.length).toBeGreaterThanOrEqual(5);
+    for (const key of ["key", "label", "description", "unit", "value"]) {
+      expect(fields, `set-variables --help declares no "${key}" field`).toContain(key);
+    }
+  });
+
+  it("separates the KEY being required from the VALUE being non-null", () => {
+    const notes = notesOnly(["role", "set-variables"]);
+
+    // The prose this replaced called label, description and unit "required
+    // strings". `RoleVariableInput` types two of the three `string | null`, so a
+    // caller who believed it invented a description for every variable that has
+    // none. Required is about the key; null is a legal value for three of five.
+    expect(notes).toMatch(/description {2,}string\|null/);
+    expect(notes).toMatch(/unit {2,}string\|null/);
+    expect(notes).toContain("REQUIRED AND THREE OF THEM TAKE null");
+    // Wrapped across a line break in the rendered block, so the comparison is
+    // made on one line — the same normalisation `update`'s assertions use.
+    expect(notes.replace(/\s+/g, " ")).toContain("Only key and label must be non-empty text");
+  });
+
+  it("carries a body that is accepted, with a null in it", () => {
+    const notes = notesOnly(["role", "set-variables"]);
+
+    // A Role with no variables cannot be edited from a read, so the example is
+    // the only complete element a first-time caller ever sees. It states a null
+    // rather than inventing text, which is what the block above claims is legal.
+    expect(notes).toContain('"description":null');
+  });
 });
 
 describe("role --help names the capabilities that have no verb here", () => {

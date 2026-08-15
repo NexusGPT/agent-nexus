@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { createClient, timeoutSecondsToMs } from "../client";
 import { resolveBaseUrl, resolveDashboardUrl } from "../config";
 import { bindCommand } from "../contract-binding";
+import { handleError, reportFailure } from "../errors";
 import { color, isJsonMode } from "../output";
 import { DOCS_SEARCH_CONTRACT } from "./docs.contract.generated";
 
@@ -115,11 +116,11 @@ Notes:
             )
           });
           if (!res.ok) {
-            console.error(
-              color.red("Error:") + ` Failed to fetch docs: ${res.status} ${res.statusText}`
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Failed to fetch docs: ${res.status} ${res.statusText}`,
+              url
             );
-            console.error(color.dim(`  ${url}`));
-            process.exitCode = 1;
             return;
           }
           // The status is not the check. The dashboard host serves its SPA shell
@@ -127,18 +128,11 @@ Notes:
           // from "here is a web page" — and printing the shell as documentation
           // is exactly how this command looked healthy while returning nothing.
           if (!isPlainText(res)) {
-            console.error(
-              color.red("Error:") +
-                ` Expected a text/plain docs feed, got "${res.headers.get("content-type") ?? "no content-type"}".`
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Expected a text/plain docs feed, got "${res.headers.get("content-type") ?? "no content-type"}".`,
+              `${url}\n  This base URL is serving a web page, not the API. Check --base-url / NEXUS_BASE_URL.`
             );
-            console.error(
-              color.dim(`  ${url}`) +
-                "\n" +
-                color.dim(
-                  "  This base URL is serving a web page, not the API. Check --base-url / NEXUS_BASE_URL."
-                )
-            );
-            process.exitCode = 1;
             return;
           }
           const text = await res.text();
@@ -157,18 +151,17 @@ Notes:
           const timedOut = error instanceof Error && error.name === "TimeoutError";
           if (timedOut) {
             const waited = globals.timeout ?? DOCS_FEED_DEFAULT_TIMEOUT_SECONDS;
-            console.error(color.red("Error:") + ` The docs feed did not finish within ${waited}s.`);
-            console.error(
-              color.dim(`  ${url}`) +
-                "\n" +
-                color.dim("  Raise it with the global --timeout <seconds>. --full is ~2.5 MB.")
+            process.exitCode = reportFailure(
+              "timed-out",
+              `The docs feed did not finish within ${waited}s.`,
+              `${url}\n  Raise it with the global --timeout <seconds>. --full is ~2.5 MB.`
             );
           } else {
-            console.error(
-              color.red("Error:") + ` ${error instanceof Error ? error.message : String(error)}`
+            process.exitCode = reportFailure(
+              "connection-failed",
+              error instanceof Error ? error.message : String(error)
             );
           }
-          process.exitCode = 1;
         }
         return;
       }
@@ -243,11 +236,11 @@ Examples:
           console.log(`  ${r.snippet.slice(0, 200)}${r.snippet.length > 200 ? "..." : ""}`);
           console.log();
         }
-      } catch (error: unknown) {
-        console.error(
-          color.red("Error:") + ` ${error instanceof Error ? error.message : String(error)}`
-        );
-        process.exitCode = 1;
+      } catch (err) {
+        // `handleError` rather than a hand-rolled `console.error`: it classifies
+        // the throw into a real code and emits the document on stdout. The old
+        // shape exited 1 with an empty stdout under --json and labelled nothing.
+        process.exitCode = handleError(err);
       }
     });
 

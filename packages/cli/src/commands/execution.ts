@@ -8,8 +8,8 @@ import type {
 import { Command } from "commander";
 
 import { createClient } from "../client";
-import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { bindCommand, enumOption } from "../contract-binding";
+import { handleError, refuse } from "../errors";
 import {
   color,
   isJsonMode,
@@ -27,6 +27,10 @@ import {
   WORKFLOW_EXECUTION_GET_CONTRACT,
   WORKFLOW_EXECUTION_GET_NODE_RESULT_CONTRACT,
   WORKFLOW_EXECUTION_GET_OUTPUT_CONTRACT,
+  WORKFLOW_EXECUTION_LIST__PARAMS_ORDER,
+  WORKFLOW_EXECUTION_LIST__PARAMS_SORT_BY,
+  WORKFLOW_EXECUTION_LIST__PARAMS_STATUS,
+  WORKFLOW_EXECUTION_LIST_CONTRACT,
   WORKFLOW_EXECUTION_POLL_CONTRACT,
   WORKFLOW_EXECUTION_RETRY_NODE_CONTRACT
 } from "./execution.contract.generated";
@@ -53,15 +57,18 @@ Two facts that decide whether you are reading the right thing:
   );
 
   // ── list ──────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const list = addPaginationOptions(
     execution
       .command("list")
       .description("List workflow executions")
       .option("--workflow-id <id>", "Filter by workflow ID")
-      .option(
-        "--status <status>",
-        "Filter by status (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED)"
+      .addOption(
+        enumOption("--status <status>", "Filter by status", WORKFLOW_EXECUTION_LIST__PARAMS_STATUS)
       )
+      .addOption(
+        enumOption("--sort-by <field>", "Sort by field", WORKFLOW_EXECUTION_LIST__PARAMS_SORT_BY)
+      )
+      .addOption(enumOption("--order <dir>", "Sort order", WORKFLOW_EXECUTION_LIST__PARAMS_ORDER))
       .option(
         "--include-child-executions",
         "Also list loop / do-while body passes (one execution per iteration)"
@@ -83,10 +90,11 @@ Examples:
   $ nexus execution list --workflow-id wf-123 --include-test-runs --limit 1 --json
 
 Notes:
-  --status takes PENDING, RUNNING, COMPLETED, FAILED or CANCELLED — five values.
-  Anything else is a 400.
+  --status, --sort-by and --order are validated LOCALLY against the contract, so
+  a bad value is refused here and never becomes a 400.
   --page defaults to 1 and --limit to 20; above 100 is a 400, not a clamp.
-  Newest first.
+  --sort-by defaults to createdAt and --order to desc, so the default is newest
+  first. Both defaults live on the SERVER: unset, the CLI sends neither.
   THIS IS HOW YOU RECOVER A REAL EXECUTION ID after a test: the id a node test
   returns is a per-node test id that "execution get" cannot resolve. Reading the
   most recent row is the usual trick, and it is only safe while nothing else is
@@ -104,6 +112,8 @@ Notes:
       const params: ListExecutionsParams = {
         ...getPaginationParams(opts),
         status: opts.status,
+        sortBy: opts.sortBy,
+        order: opts.order,
         includeChildExecutions: opts.includeChildExecutions,
         includeTestRuns: opts.includeTestRuns
       };
@@ -311,8 +321,7 @@ Notes:
         } else if (id) {
           pollTarget = { id };
         } else {
-          console.error("Error: provide an execution ID or --token");
-          process.exitCode = 1;
+          process.exitCode = refuse("provide an execution ID or --token");
           return;
         }
 
@@ -447,14 +456,18 @@ Examples:
   $ nexus execution output exec-123 --json
 
 Notes:
-  The workflow's FINAL output — what its outputNode produced — as {output,
-  outputType}, not the per-node results. Both are null on a run that has not
-  finished, and on a workflow with no outputNode, which validate reports only as a
-  warning.
+  The workflow's FINAL output — what its outputNode produced — as {output}, not
+  the per-node results. output is null on a run that has not finished, and on a
+  workflow with no outputNode, which validate reports only as a warning.
+  THE RESPONSE CARRIES NO outputType, AND THAT IS DELIBERATE. One was published
+  until it was removed as unfillable: nothing records the shape a run's output was
+  meant to be, so it answered null on every run. To read the SETTING of the same
+  name — previous|custom|text — use "nexus workflow node get" and look at the
+  outputNode's data.outputType. That one is real and writable.
   A THIRD CASE READS THE SAME, AND IT IS THE ONE THAT WASTES AN AFTERNOON: a
   COMPLETED run whose outputNode also COMPLETED still answers null when that node
-  had nothing to render. outputType defaults to "previous", which substitutes the
-  upstream value into data.instructions — with no instructions set there is
+  had nothing to render. That SETTING defaults to "previous", which substitutes
+  the upstream value into data.instructions — with no instructions set there is
   nothing to substitute into and nothing is written. Nothing validates this:
   publish, validate and the node's own status all pass. Set the outputNode's
   data.instructions with "nexus workflow node update", then run again.
@@ -611,11 +624,18 @@ Notes:
   input, output and error are the fields that carry data here. The input is what
   the node's references actually resolved to, which is where a null usually
   shows up.
-  logs, duration, startedAt AND completedAt COME BACK null EVEN ON A HEALTHY
-  COMPLETED NODE. Four nulls on a node that plainly ran is this route's normal
-  answer, not a failed lookup and not a broken node. For per-node timings and a
-  duration use "nexus execution diagnose <id>", which derives them; there is no
-  per-node log stream in this API at all.
+  duration, startedAt AND completedAt ARE REAL NOW. They are derived from the
+  node's own createdAt/finishedAt, the same arithmetic "execution diagnose" uses,
+  so the two commands agree on a node's duration. They used to come back null on
+  every healthy completed node — read off property names no column supplies — and
+  this text used to describe that as normal.
+  THERE IS NO logs FIELD, AND LOOKING FOR ONE IS THE WASTED STEP THIS LINE SAVES.
+  One was published until it was removed as unfillable — nothing in the platform
+  stores a per-node log array. A node that captures console output (Browserbase,
+  the sandbox nodes) folds those lines into its own result, so read them from
+  output.
+  startedAt IS THE ROW'S createdAt, so a node that is queued and not yet running
+  still reports one; duration and completedAt stay null until it finishes.
   A per-node TEST also stamps its id onto the node itself, overwriting the previous
   one, so the last test wins as the node's linked result in the dashboard.`
     )
@@ -631,14 +651,7 @@ Notes:
 
   // Bound LAST, after every option and positional exists — see `bindCommand`.
   //
-  // TWO LEAVES ARE DELIBERATELY UNBOUND, for two DIFFERENT reasons:
-  //
-  //   · `list` — its `sortBy` and `order` are query parameters with no flag, and
-  //     a GET leaf has no `--body` to reach them through. `--status` already
-  //     reaches `Params.status`, so one absent flag holds back three ready
-  //     enums; the gate is all-or-nothing per descriptor. Recorded in
-  //     `BLOCKED_DESCRIPTORS` on BOTH of its routes, because `--workflow-id`
-  //     switches it to `WorkflowExecutionListForWorkflow`.
+  // ONE LEAF IS DELIBERATELY UNBOUND:
   //
   //   · `follow` — it COMPOSES two descriptors rather than choosing between
   //     them: one `WorkflowExecutionGet` for the workflow-id label, then
@@ -646,6 +659,12 @@ Notes:
   //     `bindCommand` takes one shape, so either choice would print a contract
   //     block describing half of what the command does. That is not the `poll`
   //     case below, where `--token` picks ONE of two interchangeable routes.
+  //
+  // `--workflow-id` switches `list` to `WorkflowExecutionListForWorkflow`, which
+  // carries the SAME three enums and differs only by taking the workflow id in
+  // the path. One leaf, one shape: the default route binds and the twin is
+  // recorded `route-twin-bound-elsewhere`, exactly as `channel setup` is.
+  bindCommand(list, WORKFLOW_EXECUTION_LIST_CONTRACT);
   bindCommand(get, WORKFLOW_EXECUTION_GET_CONTRACT);
   bindCommand(diagnose, WORKFLOW_EXECUTION_DIAGNOSE_CONTRACT);
   // `--token` switches this leaf to `WorkflowExecutionPollByToken`, which takes a

@@ -6,8 +6,8 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
-import { color, printList, printRecord, printSuccess } from "../output";
+import { handleError, refuse } from "../errors";
+import { printDryRun, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -67,7 +67,12 @@ Notes:
   --search matches first name, last name and role, case-insensitively.
   THE TABLE PRINTS NO MODEL COLUMN, and the --json row carries only the legacy
   "model" enum — never modelConfig. Read the model actually in use with
-  "nexus agent get <id>" → modelConfig.modelName.`
+  "nexus agent get <id>" → modelConfig.modelName.
+  THE TABLE IS ID / FIRST NAME / LAST NAME / ROLE / STATUS, and that is the
+  whole of it — no bio, no tags, no created date. FIRST NAME and LAST NAME are
+  15 characters wide and ROLE is 25; a value longer than its column is cut and
+  the cut is MARKED, so a cell without the marker is the whole value. Widths are
+  display only — --json carries every field at full length.`
       )
   );
 
@@ -196,7 +201,16 @@ Notes:
   having ignored the field, so check spelling against the list above.
   Only one flag per command may read standard input. Passing "-" to two of them
   — "--body -" alongside "--prompt -", say — is refused with an error naming
-  both, and no request is sent. Give one of them a literal value or a file path.`
+  both, and no request is sent. Give one of them a literal value or a file path.
+  THE MODEL YOU PICK HERE DECIDES WHETHER SKILLS ARE AVAILABLE AT ALL.
+  "nexus agent-skill" refuses with a 400 unless the agent's model supports the
+  code interpreter, and that is settled by this command — so choose the model
+  against what the agent will need to do, not after the 400 lands on a later
+  command. Changing it afterwards is "nexus agent update --model-name".
+  THIS DOES NOT ECHO THE AGENT. --json prints exactly
+  {success, message, id, name} — and name is "<firstName> <lastName>" joined by
+  this CLI, not a field the API returns. Nothing else you sent comes back, so
+  read the stored agent with "nexus agent get <id>" before trusting a write.`
     )
     .action(async (opts) => {
       try {
@@ -348,10 +362,7 @@ Notes:
 
         if (opts.dryRun) {
           const agent = await client.agents.get(id);
-          console.log(
-            color.yellow("DRY RUN:") +
-              ` Would delete agent "${agent.firstName} ${agent.lastName}" (${id})`
-          );
+          printDryRun(`Would delete agent "${agent.firstName} ${agent.lastName}" (${id})`, { id });
           return;
         }
 
@@ -448,8 +459,10 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const absPath = path.resolve(opts.file);
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
         const buffer = fs.readFileSync(absPath);

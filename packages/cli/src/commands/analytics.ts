@@ -8,8 +8,9 @@ import {
   enumInCompositeOption,
   enumOption
 } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, reportFailure } from "../errors";
 import { isJsonMode, printList, printRecord } from "../output";
+import { parseFeedbackScore } from "../util/feedback-score";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { parseTimePeriod, TIME_PERIOD_HELP, TIME_PERIOD_SHORTHANDS } from "../util/time-period";
 import {
@@ -29,6 +30,30 @@ import {
 } from "./analytics.contract.generated";
 
 /**
+ * A comma list folded to the width of the prose around it.
+ *
+ * `addHelpText` output is emitted VERBATIM — commander re-wraps the generated
+ * usage and options and never the blocks this file writes — so an interpolated
+ * value is the one thing in a hand-wrapped paragraph whose length nobody
+ * controls. The eight physical view names on one line rendered a 220-column
+ * row inside a block wrapped at 78, and a ninth view would have pushed it
+ * further with nothing going red. Folding keeps the width a property of the
+ * data rather than of a line break somebody typed once.
+ */
+function foldList(items: readonly string[], width: number, indent: string): string {
+  const lines: string[] = [];
+  for (const item of items) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && `${last}, ${item}`.length + indent.length <= width) {
+      lines[lines.length - 1] = `${last}, ${item}`;
+    } else {
+      lines.push(item);
+    }
+  }
+  return lines.join(`,\n${indent}`);
+}
+
+/**
  * The curated views, from the contract rather than retyped.
  *
  * This list used to be eight string literals with a comment asking whoever
@@ -42,10 +67,16 @@ import {
  * public one, and both derive from this single array so they cannot disagree
  * about which views exist.
  */
-const ANALYTICS_PUBLIC_VIEWS = ANALYTICS_QUERY_STRUCTURED__BODY_VIEW.contractValues.join(", ");
-const ANALYTICS_PHYSICAL_VIEWS = ANALYTICS_QUERY_STRUCTURED__BODY_VIEW.contractValues
-  .map((view) => `analytics_${view}`)
-  .join(", ");
+const ANALYTICS_PUBLIC_VIEWS = foldList(
+  ANALYTICS_QUERY_STRUCTURED__BODY_VIEW.contractValues,
+  76,
+  "  "
+);
+const ANALYTICS_PHYSICAL_VIEWS = foldList(
+  ANALYTICS_QUERY_STRUCTURED__BODY_VIEW.contractValues.map((view) => `analytics_${view}`),
+  76,
+  "    "
+);
 
 /**
  * `--time-period`, bound to whichever descriptor's copy of the enum applies.
@@ -73,6 +104,25 @@ function timePeriodOption(source: ContractEnum): Option {
 export function registerAnalyticsCommands(program: Command): void {
   const analytics = program.command("analytics").description("View analytics and metrics");
 
+  analytics.addHelpText(
+    "after",
+    `
+THREE READ SURFACES OVER ONE DATASET, AND ONLY ONE TAKES A QUESTION YOU WROTE.
+"overview" is a fixed KPI bundle — you choose --time-period and --deployment-id
+and nothing else. "metrics" is a structured aggregation over eight curated views
+named plainly:
+  ${ANALYTICS_PUBLIC_VIEWS}.
+"query" is read-only SQL over the SAME eight, each named analytics_<view>.
+
+REACH FOR "metrics" FIRST. It checks your columns against the view's own catalog
+and refuses a wrong one BY NAME, where a mistyped column in raw SQL comes back
+as a database error. Drop to "query" only for what the structured form cannot
+express — a join, a window function, a min()/max() over the window.
+
+"feedback" and "export" are separate reads and share neither surface: they take
+no view, no metric and no group-by.`
+  );
+
   // ── overview ──────────────────────────────────────────────────────────
   const overview = analytics
     .command("overview")
@@ -87,7 +137,22 @@ export function registerAnalyticsCommands(program: Command): void {
 Examples:
   $ nexus analytics overview
   $ nexus analytics overview --time-period last_30_days
-  $ nexus analytics overview --deployment-id dep-123 --json`
+  $ nexus analytics overview --deployment-id dep-123 --json
+
+Notes:
+  EIGHT SCALARS AND FIVE NESTED FIELDS. The scalars are totalConversations,
+  totalMessages, totalUniqueUsers and totalCostUsd, each with a *Change beside
+  it. EVERY *Change IS A PERCENTAGE against the immediately preceding window of
+  the same length, never an absolute delta.
+
+  tokenUsage IS AN OBJECT {inputTokens, outputTokens}. timeSeries IS AN OBJECT
+  of four arrays — conversationsPerDay, messagesPerDay, usersPerDay, costPerDay
+  — each element {date, value}. byChannel, byDeployment and byModel ARE ARRAYS
+  of {entityId, label, value}.
+
+  THE TABLE RENDERS EACH OF THOSE FIVE AS ONE JSON CELL, so read them with
+  --json. Only byDeployment resolves a real name into label; on byChannel and
+  byModel label REPEATS entityId, so there is no second name to read there.`
     )
     .action(async (opts) => {
       try {
@@ -109,7 +174,7 @@ Examples:
       .description("List satisfaction feedback")
       .addOption(timePeriodOption(ANALYTICS_FEEDBACK__PARAMS_TIME_PERIOD))
       .option("--deployment-id <id>", "Filter by deployment")
-      .option("--score <number>", "Filter by score", parseInt)
+      .option("--score <number>", "Filter by score — 0 to 1", parseFeedbackScore)
       .option("--search <keyword>", "Filter by keyword in the feedback comment")
   );
 
@@ -119,9 +184,26 @@ Examples:
       `
 Examples:
   $ nexus analytics feedback
-  $ nexus analytics feedback --time-period 7d --score 5
+  $ nexus analytics feedback --time-period 7d --score 1
   $ nexus analytics feedback --search "too long"
-  $ nexus analytics feedback --limit 20 --json`
+  $ nexus analytics feedback --limit 20 --json
+
+Notes:
+  --score IS A 0-TO-1 SCALE, NOT 1-5. The route validates it as a number in
+  [0, 1] and this flag refuses anything outside that range before a request is
+  built, naming the value it rejected. A fraction is legal on both sides:
+  "--score 0.5" is sent as 0.5.
+
+  THE meta HERE CARRIES FIVE FIELDS — total, page, limit, totalPages, hasMore.
+  Every other list in this CLI carries three, so a parser written against
+  tracing or conversation finds no totalPages here, and one written here finds
+  none there.
+
+  READ hasMore, NEVER total. total is PROBED, not counted: the server fetches
+  limit+1 rows and reports offset+limit+1 whenever a next page exists. So on
+  every page but the last, total means "one more than you have seen" and
+  totalPages means "exactly one page left". Both are lower bounds, and only the
+  final page reports the real figure.`
     )
     .action(async (opts) => {
       try {
@@ -165,7 +247,24 @@ Examples:
   $ nexus analytics export --deployment-id dep-123
 
 Notes:
-  Outputs CSV to stdout. Redirect to file: nexus analytics export > report.csv`
+  Outputs CSV to stdout. Redirect to file: nexus analytics export > report.csv
+
+  IT IS NOT ONE ROW PER CONVERSATION. The header is
+  Section,Metric,Value,CreatedAt,ChatId and the file is three stacked blocks
+  keyed by Section, always in this order:
+    Summary     five rows — Time Period, Total Conversations, Total Messages,
+                Total Cost (USD), Total Unique Users.
+    Deployment  one row per deployment; Metric is its name and Value is its
+                CONVERSATION count, nothing else.
+    Message     one row per message; Metric is the message type and Value is
+                the content TRUNCATED TO 200 CHARACTERS.
+  CreatedAt and ChatId are EMPTY on every Summary and Deployment row. Filter on
+  Section before you read Value as a number, or the Message block poisons the
+  column.
+
+  PER-MODEL AND PER-SOURCE COST ARE COMPUTED AND NEVER WRITTEN. The export
+  builds both breakdowns and emits neither, so no --flag here reaches them —
+  use "nexus tracing cost-breakdown" for spend by model.`
     )
     .action(async (opts) => {
       try {
@@ -200,7 +299,14 @@ Examples:
   $ nexus analytics query 'SELECT "modelName", SUM("costUsd") AS spend FROM analytics_generations GROUP BY 1 ORDER BY spend DESC' --json
 
 Notes:
-  Read-only, single statement, org-scoped. Views: ${ANALYTICS_PHYSICAL_VIEWS}.`
+  Read-only, single statement, org-scoped. Views:
+    ${ANALYTICS_PHYSICAL_VIEWS}.
+
+  THESE ARE THE SAME EIGHT VIEWS "analytics metrics" TAKES, UNDER THE PHYSICAL
+  NAME. metrics takes traces, query takes analytics_traces, and each refuses the
+  other's spelling. Run the structured form with --show-sql: the statement it
+  prints runs verbatim here, which is the shortest path from a structured query
+  to a custom one.`
     )
     .action(async (sql: string) => {
       try {
@@ -208,8 +314,13 @@ Notes:
         const result = await client.analytics.query({ query: sql });
 
         if (result.error) {
-          process.stderr.write(`query error: ${result.error}\n`);
-          process.exitCode = 1;
+          // The request COMPLETED. The server ran the query and reported that it
+          // failed, which is not the caller mistyping a flag.
+          process.exitCode = reportFailure(
+            "remote-error",
+            `Query error: ${result.error}`,
+            "The SQL is run against the curated analytics views; check the table and column names."
+          );
           return;
         }
 
@@ -281,7 +392,28 @@ Examples:
   $ nexus analytics metrics node_runs -m count -g nodeType -f status:eq:ERROR --json
   $ nexus analytics metrics generations -m sum:costUsd -g modelName --granularity day --order-by bucket
 
-Views: ${ANALYTICS_PUBLIC_VIEWS}.`
+Views:
+  ${ANALYTICS_PUBLIC_VIEWS}.
+
+Notes:
+  NOTHING HERE LISTS A VIEW'S COLUMNS, SO THE FIRST -m/-g IS A GUESS. Two ways
+  to stop guessing. Run "nexus analytics query 'SELECT * FROM analytics_traces
+  LIMIT 1' --json" — the response's "fields" array names every column of that
+  view. Or pass --show-sql on any working call: the compiled statement names the
+  physical table and each column it selected.
+
+  --show-sql GOES TO STDERR, NOT STDOUT. So "--show-sql --json > out.json"
+  leaves the SQL on your terminal and out.json a pure document. Redirect stderr
+  (2>sql.txt) when you want to keep it.
+
+  A WRONG COLUMN IS REFUSED BY NAME AND THE REFUSAL LISTS NOTHING. You get
+  "<x> is not a dimension on view <v>" for -g, "<x> is not a measure on view
+  <v>" for -m, or "<x> is not a column on view <v>" for a -f field — never the
+  accepted set. Read it out of the view with the SELECT above.
+
+  THE SAME EIGHT VIEWS ANSWER TO "analytics query" AS analytics_<view>. This
+  command takes traces; that one takes analytics_traces, and each refuses the
+  other's spelling.`
     )
     .action(
       async (
@@ -332,8 +464,11 @@ Views: ${ANALYTICS_PUBLIC_VIEWS}.`
           });
 
           if (result.error) {
-            process.stderr.write(`query error: ${result.error}\n`);
-            process.exitCode = 1;
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Query error: ${result.error}`,
+              "The SQL is run against the curated analytics views; check the table and column names."
+            );
             return;
           }
 

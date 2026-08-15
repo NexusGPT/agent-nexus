@@ -15,7 +15,55 @@
 // `customer.ts` and printed in --help. The contract has already been the
 // wrong one: it lists a deployment type the server 500s on.
 
+import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
+
+export const CUSTOMER_LIST__PARAMS_SORT_BY = {
+  path: "CustomerList.Params.sortBy",
+  contractValues: [
+    "lastSeenAt",
+    "totalMessages",
+    "createdAt",
+    "displayName",
+    "totalSessions"
+  ]
+} as const satisfies ContractEnum;
+
+export const CUSTOMER_LIST__PARAMS_SORT_ORDER = {
+  path: "CustomerList.Params.sortOrder",
+  contractValues: [
+    "asc",
+    "desc"
+  ]
+} as const satisfies ContractEnum;
+
+export const CUSTOMER_LIST__PARAMS_CHANNEL = {
+  path: "CustomerList.Params.channel",
+  contractValues: [
+    "GMAIL",
+    "OUTLOOK",
+    "IMAP",
+    "SMTP",
+    "SLACK",
+    "TEAMS",
+    "TELEGRAM",
+    "FB_MESSENGER",
+    "INSTAGRAM",
+    "WHATSAPP",
+    "TWILIO_SMS",
+    "TWILIO_VOICE",
+    "GOOGLE_SHEETS",
+    "EXCEL_ADDIN",
+    "OUTLOOK_ADDIN",
+    "POWERPOINT_ADDIN",
+    "WORD_ADDIN",
+    "AIRTABLE",
+    "GOOGLE_MEET",
+    "ZOOM",
+    "EMBED",
+    "API"
+  ]
+} as const satisfies ContractEnum;
 
 export const CUSTOMER_ADD_NOTE_CONTRACT = {
   name: "CustomerAddNote",
@@ -65,6 +113,24 @@ export const CUSTOMER_GET_BY_EXTERNAL_ID_CONTRACT = {
   route: "/public/v1/customers/by-external-id/:externalUserId",
   fields: [
     { path: "PathVars.externalUserId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const CUSTOMER_LIST_CONTRACT = {
+  name: "CustomerList",
+  method: "GET",
+  route: "/public/v1/customers",
+  fields: [
+    { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["lastSeenAt", "totalMessages", "createdAt", "displayName", "totalSessions"] },
+    { path: "Params.sortOrder", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] },
+    { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.channel", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["GMAIL", "OUTLOOK", "IMAP", "SMTP", "SLACK", "TEAMS", "TELEGRAM", "FB_MESSENGER", "INSTAGRAM", "WHATSAPP", "TWILIO_SMS", "TWILIO_VOICE", "GOOGLE_SHEETS", "EXCEL_ADDIN", "OUTLOOK_ADDIN", "POWERPOINT_ADDIN", "WORD_ADDIN", "AIRTABLE", "GOOGLE_MEET", "ZOOM", "EMBED", "API"] },
+    { path: "Params.tag", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.filters", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.sorts", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.groupBy", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

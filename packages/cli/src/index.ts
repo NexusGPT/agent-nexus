@@ -61,7 +61,7 @@ import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
 import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
 
 const { version: VERSION } = require("../package.json") as { version: string };
-import { handleError } from "./errors";
+import { handleError, installArgumentRefusalReporting } from "./errors";
 import { autoUpdate, checkForUpdate, isAutoUpdateDisabled } from "./util/version-check";
 
 export { VERSION };
@@ -374,6 +374,13 @@ export function buildRootProgram(version: string = VERSION): Command {
   // for the same reason as the line before it, and lands ABOVE the scope footer
   // so the global caveat stays last. See `probe-barrier.ts`.
   applyProbeBarrierHelpLine(program);
+
+  // An argument refusal becomes a throw, so it reaches `handleError` and emits
+  // the error document the root epilogue promises. Walks the FINISHED tree for
+  // the same reason as the two lines above, and for one more: commander copies
+  // `_exitCallback` at subcommand CREATION, so a call on the root alone would
+  // reach the root alone. See `installArgumentRefusalReporting`.
+  installArgumentRefusalReporting(program);
 
   return program;
 }

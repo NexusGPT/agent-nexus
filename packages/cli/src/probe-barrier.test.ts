@@ -37,7 +37,8 @@ import {
   PROBE_BARRIER,
   PROBE_BARRIER_HELP_PREFIX,
   type ProbeBarrierEntry,
-  probeBarrierHelpLine} from "./probe-barrier";
+  probeBarrierHelpLine
+} from "./probe-barrier";
 import { buildRootProgram } from "./root-program";
 
 /**

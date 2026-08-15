@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 
 import { Command } from "commander";
 
+import { reportFailure } from "../errors";
 import { color, printSuccess } from "../output";
 import { getGlobalInstallCommand } from "../util/package-manager";
 import { compareSemver, fetchLatestVersion } from "../util/version-check";
@@ -40,8 +41,13 @@ export function registerUpgradeCommand(program: Command): void {
     const latest = await fetchLatestVersion();
 
     if (!latest) {
-      process.stderr.write(color.red("Failed to check for updates. Please try again later.\n"));
-      process.exitCode = 1;
+      // One action, TWENTY commands: `upgrade` plus its eighteen hidden aliases,
+      // every one of which failed with an empty stdout under --json.
+      process.exitCode = reportFailure(
+        "connection-failed",
+        "Failed to check for updates.",
+        "The npm registry was unreachable. Check your network and try again."
+      );
       return;
     }
 
@@ -58,10 +64,11 @@ export function registerUpgradeCommand(program: Command): void {
       printSuccess(`Successfully upgraded to ${latest}.`, { from: currentVersion, to: latest });
     } catch {
       const fallbackCmd = getGlobalInstallCommand(PACKAGE_NAME);
-      process.stderr.write(
-        color.red(`\nUpgrade failed. Try running manually:\n  ${fallbackCmd}\n`)
+      process.exitCode = reportFailure(
+        "local-failed",
+        "Upgrade failed.",
+        `Try running manually: ${fallbackCmd}`
       );
-      process.exitCode = 1;
     }
   };
 

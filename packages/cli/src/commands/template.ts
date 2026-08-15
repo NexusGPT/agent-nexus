@@ -12,7 +12,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import {
@@ -26,19 +26,27 @@ export function registerTemplateCommands(program: Command): void {
   template.addHelpText(
     "after",
     `
-A document template is an uploaded Office file with placeholders in it, plus the
-variable names those placeholders use. Generating fills the placeholders and
-returns a link to the produced file.
+A document template is an uploaded Office file with placeholders in it.
+Generating fills the placeholders from a variables object and returns a link to
+the produced file.
 
-A usable template takes THREE calls, in order, and each one is easy to stop
-after:
+A usable template takes TWO calls, in order, and each one is easy to stop after:
   1. "template create --body '{\\"name\\":\\"...\\",\\"type\\":\\"WORD_TEMPLATE\\"}'"
      — type is REQUIRED and there is no --type flag.
-  2. "template upload <id> --file ./thing.docx" — until a file is uploaded the
-     template has no placeholders, so it has no variables and generating from it
-     produces nothing useful.
-  3. "template generate <id> --body '{\\"variables\\":{...}}'" — the variable
-     NAMES must be the template's own, read from "template get <id> --json".
+  2. "template upload <id> --file ./thing.docx" — the file IS the template.
+     Generating before it is uploaded fails with a server error.
+Then "template generate <id> --body '{\\"variables\\":{...}}'".
+
+THE VARIABLE NAMES COME FROM THE FILE, AND THIS API NEVER RECORDS THEM. The
+placeholder parser is reached only from the dashboard, which calls it separately
+and stores the result; no route here writes that list — create takes name,
+description and type only, and there is no template update. So a template
+created and uploaded with this CLI reads inputFormat null forever, and
+"template get <id> --json" cannot tell you what to send.
+
+SO READ THE NAMES OUT OF THE FILE YOU UPLOADED. Generation does not consult the
+stored list at all — the file is sent to the renderer with your variables object,
+so substitution is decided by the placeholders actually in it.
 
 INVENTED VARIABLE NAMES DO NOT ERROR. A name the template does not use is
 ignored and its placeholder is left unfilled, so the call succeeds and the
@@ -69,8 +77,9 @@ Examples:
 
 Notes:
   THE TABLE HIDES type AND status; --json carries both. Neither view carries the
-  template's VARIABLES — "nexus template get <id> --json" is the only read that
-  does, and you need them before generating.
+  template's VARIABLES, and neither does "template get" — nothing in this API
+  ever writes that list. Read the placeholder names out of the file you
+  uploaded; "nexus template get <id> --help" has the mechanism.
 
   A template with no file uploaded lists here exactly like a finished one, and
   status does not separate them — every template reachable through this API is
@@ -113,22 +122,29 @@ Examples:
   $ nexus template get tmpl-123 --json | jq '.inputFormat'
 
 Notes:
-  --json IS THE ONLY WAY TO DISCOVER A TEMPLATE'S VARIABLE NAMES, and they are
-  what "template generate" must be given. inputFormat describes the variables
-  the template expects; slidesInputFormat is the PowerPoint form, one entry per
-  slide. The table view prints neither.
+  inputFormat READS null FOR EVERY TEMPLATE THIS API CAN BUILD, and that is not
+  a sign the file has no placeholders. Nothing here writes the field: uploading
+  stores the file and links fileUrl, and it does not run the placeholder parser.
+  That parser sits behind a dashboard-only route, and the dashboard is what
+  sends the result back on create — a path with no equivalent here, since
+  "template create" takes name, description and type only and there is no
+  template update. A template authored in the dashboard has a real inputFormat;
+  one built with this CLI never will.
 
-  inputFormat READS null WHEN THERE IS NOTHING TO DESCRIBE — no file uploaded
-  yet, or an uploaded file with no placeholders. Generating from that template
-  fills nothing. Its PowerPoint sibling slidesInputFormat uses the other empty
-  shape and reads [], so test the two differently: null on one, length 0 on the
-  other.
+  So --json IS NOT A WAY TO DISCOVER VARIABLE NAMES. Read them out of the .docx
+  or .pptx you uploaded. Generation ignores this field entirely, so a null here
+  does not stop "template generate" filling the file's real placeholders.
 
-  fileUrl IS THE READINESS SIGNAL, NOT status. status is DRAFT or SAVED, and
-  nothing in this API ever writes SAVED — a template uploaded through the CLI
-  stays DRAFT with a real fileUrl, so "status === DRAFT" does not mean the
-  template is unfinished. Check fileUrl for the file and inputFormat for the
-  variables. fileUrl and previewFileUrl are null until a file is uploaded.`
+  slidesInputFormat READS [] FOR EVERY TEMPLATE, for the same reason plus one
+  more: no code anywhere writes it. Do not test the two the same way — null on
+  one, length 0 on the other — and do not read either as evidence about the
+  file.
+
+  fileUrl IS THE READINESS SIGNAL, NOT status AND NOT inputFormat. status is
+  DRAFT or SAVED, and nothing in this API ever writes SAVED — a template
+  uploaded through the CLI stays DRAFT with a real fileUrl, so "status ===
+  DRAFT" does not mean the template is unfinished. fileUrl and previewFileUrl
+  are null until a file is uploaded; a non-null fileUrl is the whole check.`
     )
     .action(async (id: string) => {
       try {
@@ -166,9 +182,11 @@ Notes:
   a create built only from --name and --description is a 400 every time. The
   accepted values are listed in the Contract block below, from the schema.
 
-  CREATING A TEMPLATE CREATES AN EMPTY SHELL. It has no file, no placeholders
-  and no variables until "nexus template upload <id> --file ..." runs. Generate
-  before that and you get a template with nothing to fill.
+  CREATING A TEMPLATE CREATES AN EMPTY SHELL. It has no file until
+  "nexus template upload <id> --file ..." runs, and generating before that
+  FAILS WITH A SERVER ERROR rather than returning an empty document — the
+  generator throws a plain error on a null fileUrl, so the caller gets a 500
+  naming nothing, not a 400 naming the missing file.
 
   EXCEL_TEMPLATE DOES NOT SUBSTITUTE VARIABLES YET. Generating from one returns
   the file essentially as uploaded — it is accepted, so nothing reports this.`
@@ -208,18 +226,27 @@ Examples:
   $ nexus template upload tmpl-123 --file ./deck.pptx
 
 Notes:
-  THIS IS THE STEP THAT GIVES A TEMPLATE ITS VARIABLES. They are read out of the
-  placeholders in the uploaded file — there is no way to declare them separately.
-  Confirm they were found with "nexus template get <id> --json"; an empty
-  inputFormat means the file carried no placeholders the parser recognised.
+  THIS STEP STORES THE FILE AND READS NOTHING OUT OF IT. It uploads the file to
+  storage and writes fileUrl on the template; it never runs the placeholder
+  parser, so inputFormat is not written here and stays null. Checking
+  "nexus template get <id> --json" afterwards proves nothing about your file —
+  the null is this route's behaviour, not a verdict on your placeholders.
+
+  THE PLACEHOLDER PARSER IS DASHBOARD-ONLY. It sits behind an internal route the
+  dashboard calls after uploading, and the dashboard is what stores the result.
+  No route in this API does either half, so there is no CLI equivalent and
+  nothing to wait for. Read the variable names out of the file itself; only the
+  dashboard can put them on the template.
 
   UPLOAD THE FILE FORMAT THE TEMPLATE'S type PROMISED. A .docx belongs to the
   WORD_* types, a .pptx to POWERPOINT_TEMPLATE, an .xlsx to EXCEL_TEMPLATE.
   Generation reads the type, not the file extension, so a mismatch surfaces at
   generate time rather than here.
 
-  Uploading again replaces the file, and with it the variable list — a generate
-  call written against the old placeholders silently stops filling them.`
+  UPLOADING AGAIN REPLACES THE FILE AND DELETES THE OLD ONE from storage. The
+  placeholders that matter change with it, silently: a generate call written
+  against the previous file's names still returns 200 and simply stops filling
+  them.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -227,8 +254,10 @@ Notes:
         const absPath = path.resolve(opts.file);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 
@@ -261,11 +290,19 @@ Examples:
   $ nexus template generate tmpl-123 --body '{"variables":{"amount":100}}' --json
 
 Notes:
-  THE VARIABLE NAMES MUST BE THE TEMPLATE'S OWN. Read them from
-  "nexus template get <id> --json" (inputFormat, or slidesInputFormat for
-  PowerPoint). A name the template does not use is IGNORED — the call succeeds,
+  THE VARIABLE NAMES MUST BE THE TEMPLATE'S OWN, AND ONLY THE FILE HAS THEM.
+  "nexus template get <id> --json" reads inputFormat null for every template
+  this API can build, so it is not the place to look — open the .docx or .pptx
+  you uploaded. A name the template does not use is IGNORED: the call succeeds,
   its placeholder stays unfilled, and the document comes back blank there.
   Nothing in the response lists which variables were used.
+
+  THE GENERATED FILE IS NOT A nexus document, AND NO ROW IS WRITTEN FOR IT. The
+  run uploads an object to storage and returns a link; it writes nothing to the
+  database, so "nexus document list" never shows it and there is no
+  "template generations" verb to find it again. THE url IN THIS RESPONSE IS THE
+  ONLY REFERENCE THAT WILL EVER EXIST — lose it and the object stays in storage,
+  billed, with no command that can name it.
 
   THE RETURNED url IS SIGNED AND EXPIRES IN ABOUT AN HOUR, the same as
   "nexus document download" and "nexus document preview". Download it in the
@@ -290,8 +327,7 @@ Notes:
         // request that cannot succeed.
         const body = await resolveBody(opts.body);
         if (body === undefined) {
-          console.error("Error: --body is required.");
-          process.exitCode = 1;
+          process.exitCode = refuse("--body is required.");
           return;
         }
 

@@ -27,7 +27,7 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import {
   color,
   isJsonMode,
@@ -154,7 +154,10 @@ End to end, once the cluster exists:
   1. vibe app create                    the app record
   2. vibe app provision-repo            a new repo — or attach-repo for one you have
   3. vibe git-credentials               your push token AND the address to push to
-  4. vibe git-project clone / commit / push
+  4. vibe git-project clone             then commit and push with plain git —
+                                        there is no "git-project commit" or
+                                        "git-project push" verb, and the remote
+                                        comes from step 3
   5. vibe deploy                        names the commit sha to build
   6. vibe deploy-state                  did the push land, is it what is live
   7. vibe app register-as-tool          only once a deployment is healthy
@@ -450,7 +453,17 @@ Examples:
   $ nexus vibe env list 11111111-2222-4333-8444-555555555555
   $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.envVars[].name'
   $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.cardBindings[] | select(.status != "ACTIVE")'
-`
+
+Notes:
+  THE Card COLUMN NAMES WHOSE AUTHORITY A CARD ROW CARRIES — the credential
+  first, because that is what its owner recognises as theirs, then the access
+  card that attenuates it. On a "variable" row it reads "—", which means the
+  column DOES NOT APPLY, never that a card is missing or unset.
+  THE Scope COLUMN IS ALL, PROD OR STAGING, and the table is sorted by it in the
+  order the deployer resolves: ALL first, then the scope that overwrites it by
+  name. A scope this CLI does not recognise sorts to the TOP rather than being
+  buried in the middle. Which scope a deployment actually reads is on
+  "nexus vibe env set".`
     )
     .action(async (appId: string) => {
       try {
@@ -477,13 +490,19 @@ overwritten. NAME must be SCREAMING_SNAKE_CASE (A-Z, 0-9, underscore).
 The value is everything after the first '=', so it may itself contain
 '=' and may be empty (NAME= sets an empty value).
 
-⚠️ THE SCOPE IS PART OF THE KEY, SO THE SAME NAME CAN EXIST TWICE AND NEITHER
-ROW OVERWRITES THE OTHER. Setting DATABASE_URL at ALL and again at PROD leaves
-two rows, both live, and "env list" shows both without saying which one the
-running app reads. Keep each NAME at exactly ONE scope: use ALL for a value that
-never varies, PROD or STAGING for one that does, never a mix for the same name.
-If you already have both, delete one with "vibe env rm" rather than reasoning
-about precedence.
+Notes:
+  ⚠️ THE SCOPE IS PART OF THE KEY, SO THE SAME NAME CAN EXIST TWICE AND NEITHER
+  ROW OVERWRITES THE OTHER. Setting DATABASE_URL at ALL and again at PROD leaves
+  two rows, both stored, and "env list" prints both without marking which one
+  wins.
+  WHAT THE RUNNING APP READS IS ALL UNION PROD, WITH PROD WINNING ON A NAME
+  COLLISION — AND STAGING REACHES NOTHING. The projection takes every ALL row,
+  lets every PROD row overwrite by name, and drops STAGING entirely, so a
+  STAGING row is set, visible in "env list", and read by no deployment. The tell
+  is a value that never takes effect while the table shows it plainly.
+  Keep each NAME at exactly ONE scope anyway: ALL for a value that never varies,
+  PROD for one that does. Two rows for one name is legal, resolvable and
+  unreadable at a glance — delete the loser with "vibe env rm".
 
 Examples:
   $ nexus vibe env set 11111111-2222-4333-8444-555555555555 LOG_LEVEL=debug
@@ -698,6 +717,16 @@ finished provisioning yet (retry shortly).
 Examples:
   $ nexus vibe git-credentials
   $ nexus vibe git-credentials --json | jq -r '.cloneUrlBase'
+
+Notes:
+  THE "Org" ROW IS NOT YOUR NEXUS ORGANIZATION. forgejoOrg is the path segment
+  every tenant repository lives under on the git host — <host>/<org>/<repo>.git
+  — and it is already baked into cloneUrlBase. Nothing addresses a Nexus org by
+  it, so substituting your organization id there builds a URL that 404s.
+  gitHostName ("Git host") is that host's DNS name alone, with no scheme and no
+  org segment. Compose a remote from cloneUrlBase; reach for gitHostName only
+  where something wants the bare hostname — a credential-helper entry, an
+  allowlist, a "git ls-remote" against one repo.
 `
     )
     .action(async () => {
@@ -1006,6 +1035,25 @@ Examples:
   $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
   $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --ref main
   $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --json
+
+Notes:
+  EACH OUTCOME NAMES A DIFFERENT FIX, AND ONLY ONE OF THEM IS ABOUT THE PUSH.
+    NO_REPOSITORY          "vibe app attach-repo <appId> <gitProjectId>", then
+                           re-run this. "vibe git-project list" finds the id.
+    RECEIVED_NOT_DEPLOYED  the push LANDED, so nothing about it needs redoing.
+                           Three causes: it went to a branch that is not the
+                           app's deploy branch ("vibe app update
+                           --deploy-branch"); no app is attached to the project
+                           it went to ("vibe app attach-repo"); or the org is
+                           suspended ("vibe audit list --type
+                           COST_SAFETY_AUTO_SUSPENDED").
+    NOT_RECEIVED           ask about the REF instead — "--ref <branch>". Ref
+                           rows record HEADS, so a commit that landed and was
+                           then pushed past reads exactly like one that never
+                           arrived.
+    REF_UNKNOWN            nothing was ever pushed to that ref. Check the
+                           spelling before checking the server.
+    DEPLOYED               nothing to fix; read the status lines under it.
 `
     )
     .action(async (appId: string, cmdOpts: { sha?: string; ref?: string }) => {
@@ -1198,6 +1246,36 @@ function registerAppCommands(vibe: Command, program: Command): void {
   app
     .command("get <appId>")
     .description("Show one Vibe app by id")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus vibe app get 11111111-2222-4333-8444-555555555555
+  $ nexus --json vibe app get 11111111-2222-4333-8444-555555555555
+
+Notes:
+  THIS READ RESOLVES TWO JOINS NO OTHER APP COMMAND DOES. "deployability" and
+  "gitProject" sit BESIDE the app, never on it, and create/update answer without
+  them — so a script reading either off "vibe app update" gets undefined rather
+  than a value.
+    deployability  DEPLOYABLE, NO_SOURCE_ATTACHED or SOURCE_NOT_READY — the
+                   one-field answer to "why does my URL do nothing".
+    gitProject     A NESTED OBJECT {id, name, status}, or null. THERE IS NO
+                   gitProjectId SCALAR on this response: parsing for one returns
+                   null on a correctly attached app and reads as "no repo".
+  THE "Ship gate" ROW IS A TWO-STATE PROJECTION OF A THREE-STATE FIELD. It
+  renders the derived boolean requireVerification, and WARN projects to false —
+  so an app whose gate runs in WARN prints "Ship gate: off" here while every
+  deploy still records a verification finding. Read .shipGateMode in --json to
+  tell WARN from OFF; see "nexus vibe app update".
+  "Edge: not checked yet" IS THE COMMON CASE AND IS NOT A FAULT.
+  edgeReachability stays null until the probe has seen a healthy, settled
+  deployment, and edgeReachabilityAt / edgeReachabilityDetail are null with it.
+  A null is never reachability.
+  --json CARRIES MORE THAN THE TABLE: organizationId, createdByUserId,
+  healthCheckConfig and shipGateMode ride the wire and no table row shows them.
+  The two joins are merged in at the TOP level rather than nested.`
+    )
     .action(async (appId: string) => {
       try {
         const opts = resolveTenantOpts(program);
@@ -1317,6 +1395,21 @@ Examples:
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --require-approvals true
   $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
+
+Notes:
+  --require-verification IS A TWO-STATE FLAG OVER A THREE-STATE FIELD. The app
+  stores shipGateMode: OFF, WARN or ENFORCE. true maps to ENFORCE and false to
+  OFF, so this flag cannot reach WARN — the on-ramp state where the gate reads
+  the repository, records what it found, and ships the deploy anyway. Send
+  shipGateMode in the request body to reach it.
+  THE TELL IS AN APP THAT READS "Ship gate: off" AND STILL RECORDS GATE
+  FINDINGS. "vibe app get" prints the derived boolean, and WARN reads false
+  there, so a WARN app is indistinguishable from OFF in the table while every
+  deploy writes DEPLOYMENT_VERIFICATION_WARNED. Read .shipGateMode in --json,
+  or "nexus vibe audit list --type DEPLOYMENT_VERIFICATION_WARNED".
+  SENDING BOTH IS A CONTRADICTION AND shipGateMode WINS. Deliberately: the
+  boolean cannot express WARN, so honouring it instead would put WARN out of
+  reach of any client that sends both.
 `
     )
     .action(
@@ -1376,6 +1469,14 @@ Examples:
   $ nexus vibe app create stripe-handler
   $ nexus vibe app create orders-api --description "Order webhook handler"
   $ nexus vibe app create landing --public
+
+Notes:
+  THAT WARNING GOES TO STDERR, AND --json DOES NOT SUPPRESS IT. stdout stays the
+  bare app object a jq consumer pipes, so the collision line rides the other
+  stream rather than corrupting it. A script capturing stdout alone loses the
+  warning in silence, and so does a "2>&1 | head" whose window the app table
+  fills first. Capture stderr on its own, or find the project again with
+  "nexus vibe git-project list".
 `
     )
     .action(async (name: string, cmdOpts: { description?: string; public?: boolean }) => {
@@ -2300,6 +2401,20 @@ Pagination:
   When nextCursor is null, you've reached the end of the visible
   window. Audit rows are append-only: re-running with no cursor
   always returns the newest first.
+
+Notes:
+  TWO MORE FAMILIES ARE WORTH A FILTER, AND NEITHER IS A DEPLOY EVENT.
+  COST_SAFETY_AUTO_SUSPENDED IS NOT A WARNING. A sweep then flips EVERY
+  non-terminal deployment in that org to ROLLED_BACK, one
+  DEPLOYMENT_ROLLED_BACK_COST_SAFETY row per app — so the org stops serving
+  shortly after this event, with no failing build and nothing in the deploy
+  family to explain it. COST_SAFETY_SOFT_LIMIT_WARNING is the one that only
+  warns.
+  DEPLOYMENT_VERIFICATION_OVERRIDDEN IS THE ONLY RECORD THAT A SHIP GATE WAS
+  BYPASSED. "vibe deploy --skip-verification" names the caller and the commit
+  here and nowhere else. Its neighbours: DEPLOYMENT_VERIFICATION_REFUSED (the
+  gate stopped the deploy) and DEPLOYMENT_VERIFICATION_WARNED (the app sits in
+  WARN, so the gate ran, recorded, and shipped anyway).
 `
     )
     .action(async (cmdOpts: { app?: string; type?: string; limit?: string; cursor?: string }) => {
@@ -2685,7 +2800,12 @@ async function confirmDestructive(
   if (yes === true) return true;
 
   if (isJsonMode() || !process.stdout.isTTY) {
-    console.error(`Refusing to proceed without confirmation. Re-run:\n  ${rerun}`);
+    // 🚨 THIS ARM NAMES `isJsonMode()` AND THEN WROTE ONLY TO STDERR, so under
+    // --json it produced the clause-2 defect on purpose-built code: every caller
+    // sets `process.exitCode = 1` on a false return, leaving a non-zero exit and
+    // an empty stdout. `refuse` emits the document; the callers' exit code is
+    // unchanged, so the refusal still reads the same to a human.
+    refuse("Refusing to proceed without confirmation.", `Re-run with --yes:  ${rerun}`);
     return false;
   }
 

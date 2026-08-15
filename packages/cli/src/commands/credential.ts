@@ -102,6 +102,14 @@ Examples:
   $ nexus credential get abc-123 --json
 
 Notes:
+  SOURCE IS THE FIELD THAT DECIDES WHAT ELSE WORKS, and it is the one printed
+  here that nothing on this screen explains. It says which record backs the row —
+  oauth_connection, api_key_connection or tool_credential — and it settles two
+  separate questions: what "credential delete" has to tear down on the way out,
+  and which of name/description "credential update" can actually store. Only
+  api_key_connection stores both; see "credential update --help".
+  A null description is normal rather than empty: two of the three sources have
+  no description column at all, so the field is null for every row backed by one.
   NO SECRET MATERIAL IS RETURNED and none ever will be — this is the inventory
   record, not the token. Use "external-tool test-auth" to find out whether the
   stored credentials still work.
@@ -148,8 +156,24 @@ Examples:
   $ nexus credential update abc-123 --data '{"name":"Staging","description":null}'
 
 Notes:
-  ONLY name AND description ARE WRITABLE. Any other key in --data is silently
-  DROPPED by the contract — a 200 comes back having applied nothing you sent.
+  ONLY name AND description ARE WRITABLE, and WHICH OF THE TWO depends on the
+  credential's SOURCE — the field "credential get" prints and "credential list
+  --source" filters on. A credential is a pointer into one of three tables and
+  only one of them has both columns:
+    api_key_connection   name AND description
+    tool_credential      name only
+    oauth_connection     NEITHER — its name is the connected account's, kept in
+                         step with the provider, and there is no description
+  A FIELD THE SOURCE CANNOT STORE IS REFUSED: 400 CREDENTIAL_FIELD_NOT_WRITABLE,
+  naming the fields, and nothing at all is changed. This used to answer 200
+  having written nothing, so a rename that never happened was indistinguishable
+  from one that did.
+  RE-SENDING A VALUE THAT IS ALREADY SET IS NOT REFUSED, on any source. It asks
+  for no change, so '"description": null' on a credential that has no
+  description is accepted — and a --name in the same request still applies where
+  the source can store it.
+  Any key other than those two is silently DROPPED by the contract — a 200 comes
+  back having applied nothing you sent.
   THIS CANNOT REPAIR A BROKEN CREDENTIAL. There is no token field here, so a
   NEEDS_REAUTH credential stays broken however it is renamed; reconnect it.
   "description": null CLEARS the description. Omitting the key leaves it as it

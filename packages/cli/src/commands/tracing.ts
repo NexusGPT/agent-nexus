@@ -6,6 +6,8 @@ import { handleError } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
+  TRACING_ANALYTICS_COST_BREAKDOWN__PARAMS_BUCKET,
+  TRACING_ANALYTICS_COST_BREAKDOWN_CONTRACT,
   TRACING_ANALYTICS_TIMELINE__PARAMS_GRANULARITY,
   TRACING_ANALYTICS_TIMELINE_CONTRACT,
   TRACING_EXPORT_BULK__BODY_FORMAT,
@@ -17,7 +19,12 @@ import {
   TRACING_LIST_GENERATIONS__PARAMS_PROVIDER,
   TRACING_LIST_GENERATIONS__PARAMS_SORT_BY,
   TRACING_LIST_GENERATIONS__PARAMS_STATUS,
-  TRACING_LIST_GENERATIONS_CONTRACT
+  TRACING_LIST_GENERATIONS_CONTRACT,
+  TRACING_LIST_TRACES__PARAMS_ORDER,
+  TRACING_LIST_TRACES__PARAMS_SORT_BY,
+  TRACING_LIST_TRACES__PARAMS_SOURCE,
+  TRACING_LIST_TRACES__PARAMS_STATUS,
+  TRACING_LIST_TRACES_CONTRACT
 } from "./tracing.contract.generated";
 
 export function registerTracingCommands(program: Command): void {
@@ -61,29 +68,36 @@ you before concluding a trace is missing.`
   );
 
   // ── traces ────────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const traces = addPaginationOptions(
     tracing
       .command("traces")
       .description("List LLM traces")
-      .option("--status <status>", "Filter by status (IN_PROGRESS, COMPLETED, FAILED)")
+      .addOption(
+        enumOption("--status <status>", "Filter by status", TRACING_LIST_TRACES__PARAMS_STATUS)
+      )
       .option("--agent-id <id>", "Filter by agent ID")
       .option("--workflow-id <id>", "Filter by workflow ID")
       .option("--model <name>", "Filter by model name (max 255 chars)")
       .option("--start-date <iso>", "Filter from date (ISO 8601, e.g. 2026-03-01)")
       .option("--end-date <iso>", "Filter to date (ISO 8601, e.g. 2026-03-01)")
-      .option(
-        "--sort-by <field>",
-        "Sort by field (startedAt, totalCostUsd, totalDurationMs)",
-        "startedAt"
+      .addOption(
+        enumOption(
+          "--source <surface>",
+          "Filter by the surface that produced the trace",
+          TRACING_LIST_TRACES__PARAMS_SOURCE
+        )
       )
-      .option("--order <dir>", "Sort order (asc, desc)", "desc")
+      .addOption(
+        enumOption("--sort-by <field>", "Sort by field", TRACING_LIST_TRACES__PARAMS_SORT_BY)
+      )
+      .addOption(enumOption("--order <dir>", "Sort order", TRACING_LIST_TRACES__PARAMS_ORDER))
       .addHelpText(
         "after",
         `
 Examples:
   $ nexus tracing traces
   $ nexus tracing traces --status FAILED --limit 10
-  $ nexus tracing traces --agent-id abc --start-date 2026-03-01 --json
+  $ nexus tracing traces --agent-id 4c6e1a82-3f7d-4b90-a512-8d0e6c9b7f34 --start-date 2026-03-01 --json
 
 Notes:
   NOTHING OLDER THAN THE RETENTION WINDOW IS HERE. An empty result for last
@@ -96,13 +110,27 @@ Notes:
   --agent-id and --workflow-id match the trace's recorded context. A trace with
   no context — a bare API call — matches neither and is only reachable
   unfiltered.
-  --sort-by takes startedAt, totalCostUsd or totalDurationMs, and nothing else;
-  any other value is refused.
+  --status, --source, --sort-by and --order are validated LOCALLY against the
+  contract, so a bad value is refused here and never becomes a 400. --sort-by
+  defaults to startedAt and --order to desc; both defaults live on the SERVER,
+  so unset the CLI sends neither.
+  --source NAMES THE SURFACE THAT PRODUCED THE TRACE, and it matches on a key
+  the trace recorded in its context — so a trace with no context matches no
+  --source at all and is only reachable unfiltered, exactly like --agent-id.
+  agent-creation and ai-task-creation are two separate values on purpose:
+  historic AI-task rows recorded their thread under the agent-creation key, so
+  the older value still answers for them.
   --model KEEPS A TRACE IF ANY OF ITS GENERATIONS MATCHES, and the match is a
   case-insensitive substring — --model gpt also keeps gpt-4o. A kept trace's
   cost still covers every model it used, not only the one you filtered on.
   GENS is the generation count for the trace. It is correct here; the same
-  field from "tracing trace <id>" is capped at 100 (see that command).`
+  field from "tracing trace <id>" is capped at 100 (see that command).
+  --limit IS 1-100 AND DEFAULTS TO 20; --page DEFAULTS TO 1. Above 100 is a 400
+  and never a clamp, so a script asking for 500 gets nothing rather than 100.
+  That is the page contract every list command here shares, and it is NOT the
+  one "tracing export-bulk" documents: that flag runs 1-500 and defaults to 100,
+  because an export is a file and this is a page. Walk a long result with
+  --page, never with a bigger --limit.`
       )
   ).action(async (opts) => {
     try {
@@ -115,6 +143,7 @@ Notes:
         model: opts.model,
         startDate: opts.startDate,
         endDate: opts.endDate,
+        source: opts.source,
         sortBy: opts.sortBy,
         order: opts.order
       });
@@ -153,8 +182,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tracing trace abc-123
-  $ nexus tracing trace abc-123 --json
+  $ nexus tracing trace 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b
+  $ nexus tracing trace 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b --json
 
 Notes:
   THE GENERATIONS LIST IS CAPPED AT 100 AND SAYS SO NOWHERE. A trace with more
@@ -228,7 +257,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tracing delete abc-123
+  $ nexus tracing delete 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b
 
 Notes:
   IT TAKES THE GENERATIONS WITH IT. Every model call recorded under this
@@ -290,7 +319,7 @@ Notes:
 Examples:
   $ nexus tracing generations
   $ nexus tracing generations --provider ANTHROPIC --status FAILED
-  $ nexus tracing generations --trace-id abc-123 --json
+  $ nexus tracing generations --trace-id 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b --json
   $ nexus tracing generations --sort-by costUsd --order desc --limit 10
 
 Notes:
@@ -318,7 +347,18 @@ Notes:
   COMPLETED-because-aborted.
   --model is a CASE-INSENSITIVE SUBSTRING match, not an exact one: --model gpt
   also returns gpt-4o and gpt-4o-mini. Use "nexus tracing models" for the exact
-  names, and pass a full one when you mean only that model.`
+  names, and pass a full one when you mean only that model.
+  THE TABLE SHOWS 6 COLUMNS AND A --json ROW CARRIES 26 KEYS. The twenty you
+  cannot see are the whole reason to pass --json:
+    provider, nodeId, taskId, taskName, metadata, startedAt, completedAt,
+      errorMessage, responseId, finishReason, temperature, isAborted;
+    inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens,
+      reasoningTokens — the token classes priced apart from one another;
+    ttftMs, streamDurationMs, thinkingDurationMs — the split behind durationMs.
+  --json here is {data, meta}, NOT the bare array "tracing export-bulk" writes.
+  --limit IS 1-100 AND DEFAULTS TO 20; --page DEFAULTS TO 1. Above 100 is a 400
+  and never a clamp, so a script asking for 500 gets nothing rather than 100.
+  Walk a long trace with --page, never with a bigger --limit.`
     );
 
   addPaginationOptions(generations).action(async (opts) => {
@@ -372,9 +412,9 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tracing generation gen-123 --json
-  $ nexus tracing generation gen-123 --json | jq -r .systemPrompt
-  $ nexus tracing generation gen-123
+  $ nexus tracing generation 2d9c8b71-6e05-4f3a-9c18-5b7a4e6d0f21 --json
+  $ nexus tracing generation 2d9c8b71-6e05-4f3a-9c18-5b7a4e6d0f21 --json | jq -r .systemPrompt
+  $ nexus tracing generation 2d9c8b71-6e05-4f3a-9c18-5b7a4e6d0f21
 
 Notes:
   USE --json OR YOU WILL NOT SEE THE PROMPT. The table view prints metadata
@@ -542,12 +582,19 @@ Notes:
     });
 
   // ── cost-breakdown ────────────────────────────────────────────────────
-  tracing
+  const costBreakdown = tracing
     .command("cost-breakdown")
     .description("Get cost breakdown by model, agent, or workflow")
     .option("--group-by <key>", "Group by one key — see Notes; not repeatable", "model")
     .option("--start-date <iso>", "Period start")
     .option("--end-date <iso>", "Period end")
+    .addOption(
+      enumOption(
+        "--bucket <g>",
+        "Also split each group into time buckets",
+        TRACING_ANALYTICS_COST_BREAKDOWN__PARAMS_BUCKET
+      )
+    )
     .addHelpText(
       "after",
       `
@@ -565,9 +612,15 @@ Notes:
   LIST, but this flag is not repeatable, so "--group-by model --group-by agent"
   returns the agent grouping alone, with nothing saying model was discarded. Ask
   for one grouping per call.
-  THE LABEL COLUMN IS EMPTY FOR SOME GROUPINGS, LEAVING A BARE UUID IN KEY.
-  Grouping by agent is the common case — resolve those with "nexus agent get".
-  Grouping by workflow or deployment does fill LABEL.
+  LABEL IS EMPTY WHENEVER THE THING IT NAMES IS GONE, LEAVING A BARE UUID IN KEY.
+  Every dimension except model resolves its label by a lookup — agent,
+  workflow, deployment and customer alike — so a deleted referent, or one in
+  another organization, renders KEY with nothing beside it. Resolve those with
+  "nexus agent get" and its siblings. Grouping by model never blanks: there the
+  key IS the name. Grouping by customer also blanks when the customer has
+  neither a display name nor a primary email.
+  workflowExecution LABELS THE WORKFLOW, NOT THE RUN, so two runs of one
+  workflow carry the same LABEL and are told apart only by KEY.
   THE ROWS DO NOT ADD UP TO YOUR BILL. Grouped by agent or workflow, only
   generations whose recorded context names one is counted — anything run
   outside an agent or a workflow is in no row at all, so the column total is
@@ -581,6 +634,11 @@ Notes:
   is a disclosure rather than a correction: COST ($) is not adjusted by it.
   Ranking by cost with a non-zero UNPRICED anywhere is ranking on an incomplete
   column — read UNPRICED before concluding which group is cheapest.
+  --bucket SPLITS EACH GROUP INTO A TIME SERIES, one row per (group key x
+  bucket) instead of one aggregate per group key, and adds a BUCKET column. IT
+  IS REJECTED WITH A 400 FOR model, agent AND workflow — only the attribution
+  dimensions (deployment, customer, workflowExecution) support it. Use "nexus
+  tracing timeline" for an org-wide series instead.
   Same retention window as everything else: this is at most the last few days
   unless you narrow it further with --start-date / --end-date.`
     )
@@ -590,12 +648,16 @@ Notes:
         const result = await client.tracing.getCostBreakdown({
           groupBy: opts.groupBy,
           startDate: opts.startDate,
-          endDate: opts.endDate
+          endDate: opts.endDate,
+          bucket: opts.bucket
         });
         const entries = result.entries ?? [];
         printList(entries, undefined, [
           { key: "groupKey", label: "KEY", width: 36 },
           { key: "groupLabel", label: "LABEL", width: 25 },
+          // Only when asked for. Unbucketed, every row's `bucket` is null, and a
+          // column of dashes reads as missing data rather than as not-requested.
+          ...(opts.bucket ? [{ key: "bucket" as const, label: "BUCKET", width: 22 }] : []),
           {
             key: "totalCostUsd",
             label: "COST ($)",
@@ -652,7 +714,13 @@ Notes:
   FLATTEN while GENS keeps climbing, which reads exactly like traffic that got
   cheaper. UNPRICED is a subset of GENS and never corrects COST ($).
   Same retention window as everything else — "--granularity week" over a
-  7-day window gives you one or two rows, not a quarter.`
+  7-day window gives you one or two rows, not a quarter.
+  THE DATE COLUMN IS CUT, AND THE BUCKET KEY IS NOT A DATE. The server sends a
+  full ISO instant — 2026-08-06T00:00:00.000Z, 24 characters — into a column 22
+  wide, so every row renders 2026-08-06T00:00:00.0… at every granularity. Key a
+  chart off the "date" field under --json, never off the table: the cut string
+  parses as a different instant, or as nothing at all. "tracing cost-breakdown
+  --bucket" cuts its own BUCKET column the same way.`
     )
     .action(async (opts) => {
       try {
@@ -700,8 +768,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus tracing export abc-123 > trace.json
-  $ nexus tracing export abc-123 --format csv > trace.csv
+  $ nexus tracing export 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b > trace.json
+  $ nexus tracing export 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b --format csv > trace.csv
 
 Notes:
   IT PRINTS THE PAYLOAD TO STDOUT AND NOTHING ELSE — redirect it to a file.
@@ -711,7 +779,15 @@ Notes:
   generation, so a trace with no generations exports headers only.
   THIS IS HOW YOU BEAT THE RETENTION WINDOW. Nothing is archived for you — an
   unexported trace is unrecoverable once it expires.
-  Exports are rate limited; a burst answers 429.`
+  UNDER --format json THE DOCUMENT IS A BARE OBJECT — one trace, its generations
+  nested in a "generations" array. No data/meta envelope and no outer array, so
+  this command and "export-bulk" need DIFFERENT parsers: export-bulk hands back
+  a LIST of exactly this object.
+  THE NESTED GENERATIONS ARE UNCAPPED HERE, where "tracing trace <id>" stops at
+  100 — and they still carry no systemPrompt, no messages and no response.
+  This route is NOT under the five-calls-a-minute throttle that "export-bulk"
+  documents; only export-bulk is. The plan's own rate limit still applies, so a
+  burst can answer 429 at a different threshold.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -758,7 +834,14 @@ Notes:
   IT PRINTS THE PAYLOAD TO STDOUT AND NOTHING ELSE — redirect it to a file.
   --format takes json or csv, default json.
   Count what you got against "nexus tracing traces --json" for the same filters
-  before treating an export as complete.`
+  before treating an export as complete.
+  UNDER --format json THE DOCUMENT IS A BARE ARRAY, with no data/meta envelope.
+  Every list command here answers {data, meta}; this one does not, because it is
+  a file and not a page — iterate the top level directly, since a ".data" read
+  finds nothing. Each element is one trace in exactly the shape
+  "tracing export <id>" writes, its generations nested inside it and UNCAPPED.
+  --json CHANGES NOTHING HERE. This command never reads it; the payload is
+  already the output, and --format decides its form.`
     )
     .action(async (opts) => {
       try {
@@ -780,17 +863,26 @@ Notes:
 
   // Bound LAST, after every option exists.
   //
-  // `traces` and `cost-breakdown` are DELIBERATELY ABSENT. Each carries a
-  // contract enum this CLI has no flag for — `source` on traces, `bucket` on
-  // cost-breakdown — and the gate is all-or-nothing per descriptor. Binding
-  // them means ADDING FLAGS, which is a change to what the CLI can do rather
-  // than to what it says, so it is left to a decision rather than taken here.
+  // `traces` and `cost-breakdown` were the last two absentees, each held back by
+  // ONE enum with no flag — `source` on traces, `bucket` on cost-breakdown —
+  // while the gate is all-or-nothing per descriptor. Both flags were added
+  // rather than deferred, which is the same decision `generations` took.
   //
-  // `generations` WAS in that set and came out of it by taking the decision:
-  // `--sort-by` and `--order` were added, so all four of its enums are now
-  // reachable and the descriptor binds. That is what `--provider` needed —
-  // unbound, its description hand-typed three providers while the server
-  // accepted four, and the missing one was invisible to anyone reading --help.
+  // What that cost on `traces` is the reason to take it: unbound, `--status`,
+  // `--sort-by` and `--order` hand-typed their values in DESCRIPTIONS and
+  // validated nothing, and the leaf's own Notes claimed "any other value is
+  // refused". Driven, `--sort-by __junk__` reached the network. A help text
+  // asserting a refusal nothing performs is worse than one saying nothing.
+  //
+  // 🚨 `--bucket` IS A GUARANTEED 400 ON THIS COMMAND'S DEFAULT. The server
+  // accepts it only when every `groupBy` dimension is an FK dimension
+  // (deployment, customer, workflowExecution) and `--group-by` defaults to
+  // `model`. That coupling is DELIBERATELY not re-implemented here: the FK
+  // subset is nowhere in the contract, so a local check would be a hand-typed
+  // second copy of a server rule — the exact drift this binding exists to kill.
+  // The server refuses by name; the Notes say so.
+  bindCommand(traces, TRACING_LIST_TRACES_CONTRACT);
+  bindCommand(costBreakdown, TRACING_ANALYTICS_COST_BREAKDOWN_CONTRACT);
   bindCommand(generations, TRACING_LIST_GENERATIONS_CONTRACT);
   bindCommand(timeline, TRACING_ANALYTICS_TIMELINE_CONTRACT);
   bindCommand(exportTrace, TRACING_EXPORT_TRACE_CONTRACT);

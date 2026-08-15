@@ -802,6 +802,14 @@ export interface RoleCoverageContribution {
   resourceId: string;
   /** Person-hours per year, or `null` when the model did not evaluate. */
   personHours: number | null;
+  /**
+   * The authored saved-work model — the operands behind `personHours`.
+   *
+   * `null` only when the stored JSON did not validate, exactly as
+   * {@link RoleCoverage.workload} is. Never `null` for a missing model: a row
+   * exists only because somebody authored one.
+   */
+  formula: CoverageFormula | null;
   /** Why it did not evaluate, or `null` when it did. */
   failure: CoverageEvaluationFailure | null;
   /** Every input key a real measurement replaced. */

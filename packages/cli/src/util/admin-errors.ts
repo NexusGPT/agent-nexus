@@ -15,6 +15,9 @@
  *   1 — fallback (network, malformed envelope, etc.)
  */
 
+import { printFailure } from "../errors";
+import { isJsonMode } from "../output";
+
 export class AdminCliError extends Error {
   readonly status: number | null;
   readonly code: string | null;
@@ -75,17 +78,45 @@ function exitCodeFor(status: number): number {
   return 1;
 }
 
-/** Print an `AdminCliError` to stderr and return its exit code. */
+/**
+ * Print an `AdminCliError` and return its exit code.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 NINE ADMIN COMMANDS FAILED WITH NOTHING ON STDOUT, FROM THIS ONE FUNCTION.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * It wrote a red `✗` line to stderr and returned. That is right for a terminal
+ * and wrong under `--json`, where the root epilogue promises the failure IS a
+ * document on stdout — so a script driving the admin tree got a non-zero exit
+ * and an empty pipe. One function, nine commands: `vibe-build-job fail`,
+ * `succeed`, `time-out`, `build-runner tick`, `deployment-runner tick`,
+ * `consumption-cap set`, `cost-safety set`, `tenant-cluster disable`,
+ * `provision`.
+ *
+ * ⚠️ THE EXIT CODE IS DELIBERATELY UNCHANGED. The admin tree documents 2/3/4/5/6
+ * for auth, permission, not-found, invalid-state and server-error, and callers
+ * branch on them. The epilogue's "every failure exits 1" is the resource tree's
+ * contract; this one predates it and is richer, so only the DOCUMENT is added.
+ * `printFailure` exists precisely so a caller can have the document without
+ * having the verdict.
+ */
+/** Provenance for an admin failure the CLI decided itself. See `errors.ts`. */
+const ADMIN_CLI_CODE = "CLI_ADMIN_ERROR";
+
 export function handleAdminError(err: unknown): number {
+  const write = (message: string, code: string, exitCode: number): number => {
+    if (isJsonMode()) {
+      printFailure(message, code);
+      return exitCode;
+    }
+    process.stderr.write(`\x1b[31m✗\x1b[0m ${message}\n`);
+    return exitCode;
+  };
+
   if (err instanceof AdminCliError) {
     const prefix = err.status ? `Admin API error (${err.status}): ` : "";
-    process.stderr.write(`\x1b[31m✗\x1b[0m ${prefix}${err.message}\n`);
-    return err.exitCode;
+    return write(`${prefix}${err.message}`, err.code ?? ADMIN_CLI_CODE, err.exitCode);
   }
-  if (err instanceof Error) {
-    process.stderr.write(`\x1b[31m✗\x1b[0m ${err.message}\n`);
-    return 1;
-  }
-  process.stderr.write(`\x1b[31m✗\x1b[0m ${String(err)}\n`);
-  return 1;
+  if (err instanceof Error) return write(err.message, ADMIN_CLI_CODE, 1);
+  return write(String(err), ADMIN_CLI_CODE, 1);
 }

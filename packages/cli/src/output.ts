@@ -4,12 +4,93 @@
 
 let _jsonMode = false;
 
+/**
+ * Has a JSON document already been written to STDOUT in this run?
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A SECOND `console.log` UNDER `--json` IS NOT A LONGER DOCUMENT. IT IS TWO,
+ *    AND `JSON.parse` REFUSES THE PAIR.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The root epilogue promises "--json prints ONE JSON document on STDOUT and
+ * nothing else", and every printer in this file honoured it INDIVIDUALLY while
+ * nothing honoured it COLLECTIVELY. `printRecord(resource)` followed by
+ * `printSuccess("Created.")` is the whole defect: each call is correct, each
+ * writes its own complete document, and the caller receives them concatenated.
+ * A script gets `SyntaxError: Unexpected non-whitespace character after JSON`,
+ * or — worse — reads only the first and never learns there was a second.
+ *
+ * Nine commands shipped that pair. Guarding the pair at each call site is a
+ * rule, not a mechanism: the tenth call site has the defect again on the day it
+ * is written, and nothing tells its author.
+ *
+ * So the invariant moves into the ONE funnel every document goes through.
+ * {@link emitDocument} keeps a per-run flag and FIRST WINS: the first document
+ * is the payload and goes to stdout; anything after it goes to STDERR, where the
+ * profile banner and every warning already live. Nothing is lost, the pipe stays
+ * parseable, and a call site cannot reintroduce the defect by being written.
+ *
+ * FIRST, not last, and that ordering is a decision rather than an accident. In
+ * every observed pair the first document is the resource and the second is a
+ * confirmation sentence about it — `printRecord(sender)` then "WhatsApp sender
+ * created." A script wants the sender.
+ *
+ * ⚠️ WHAT THIS DOES NOT REACH: a command that calls `console.log` itself. Around
+ * forty commands build their own document with a bare
+ * `console.log(JSON.stringify(...))` rather than going through a printer, and a
+ * module-level flag cannot see a write it is not asked to make. That half is
+ * covered by a gate rather than by construction —
+ * `json-one-document.test.ts` drives every leaf and parses its stdout — which is
+ * strictly weaker, and saying so here is the point: the gate reports, this makes
+ * impossible, and only the printers are in the second category.
+ */
+let _documentEmitted = false;
+
+/**
+ * Enter or leave JSON mode, and START A NEW RUN.
+ *
+ * The reset is load-bearing rather than tidy. One `nexus` process runs one
+ * command and exits, so the flag would never need clearing in production — but
+ * a test file runs dozens of commands in one process, and a flag that survived
+ * between them would divert the SECOND test's only document to stderr and read
+ * as a command printing nothing at all. The mode change IS the run boundary, in
+ * the binary and in a spec alike, so it is the only place that clears it.
+ */
 export function setJsonMode(enabled: boolean): void {
   _jsonMode = enabled;
+  _documentEmitted = false;
 }
 
 export function isJsonMode(): boolean {
   return _jsonMode;
+}
+
+/**
+ * Write one JSON document, or divert it to stderr if stdout already has one.
+ *
+ * THE ONLY WAY THIS FILE WRITES JSON TO STDOUT. `errors.ts` routes its error
+ * document through it too, so a command that printed a partial result and then
+ * failed still leaves exactly one document on stdout — and still exits 1, which
+ * is what the epilogue tells a caller to read.
+ *
+ * See {@link _documentEmitted} for why the guard lives here and what it cannot
+ * see.
+ */
+export function emitDocument(value: unknown): void {
+  const text = JSON.stringify(value, null, 2);
+
+  if (_documentEmitted) {
+    process.stderr.write(text + "\n");
+    return;
+  }
+
+  _documentEmitted = true;
+  console.log(text);
+}
+
+/** Whether {@link emitDocument} has already claimed stdout. For the gate. */
+export function jsonDocumentEmitted(): boolean {
+  return _documentEmitted;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +375,7 @@ export function printTable<T extends object>(
   columns: readonly Column<T>[]
 ): void {
   if (_jsonMode) {
-    console.log(JSON.stringify(rows, null, 2));
+    emitDocument(rows);
     return;
   }
 
@@ -334,7 +415,7 @@ export function printTable<T extends object>(
 
 export function printRecord<T extends object>(data: T, fields?: readonly RecordField<T>[]): void {
   if (_jsonMode) {
-    console.log(JSON.stringify(data, null, 2));
+    emitDocument(data);
     return;
   }
 
@@ -439,17 +520,50 @@ function jsonPayload(data: object | undefined): Record<string, unknown> {
  */
 export function printSuccess(message: string, data?: object): void {
   if (_jsonMode) {
-    console.log(JSON.stringify({ success: true, message, ...jsonPayload(data) }, null, 2));
+    emitDocument({ success: true, message, ...jsonPayload(data) });
     return;
   }
 
   console.log(color.green("✓") + " " + message);
-  if (data) {
-    for (const [key, value] of Object.entries(data)) {
-      const rendered = isAbsent(value) ? value[ABSENT_TEXT] : renderCell(value);
-      console.log(`  ${color.dim(key + ":")} ${rendered}`);
-    }
+  printHumanPayload(data);
+}
+
+/** The indented `key: value` block under a one-line verdict. Human channel only. */
+function printHumanPayload(data?: object): void {
+  if (!data) return;
+  for (const [key, value] of Object.entries(data)) {
+    const rendered = isAbsent(value) ? value[ABSENT_TEXT] : renderCell(value);
+    console.log(`  ${color.dim(key + ":")} ${rendered}`);
   }
+}
+
+/**
+ * A `--dry-run` verdict — the command did NOT act, and said what it would do.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A DRY RUN IS A TERMINAL RESULT, SO UNDER `--json` IT IS A DOCUMENT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `agent delete`, `deployment delete` and `workflow delete` each printed a
+ * yellow sentence and returned. Under `--json` that sentence WAS the whole of
+ * stdout: unparseable, at exit 0, on the one flag whose entire purpose is to let
+ * a script check before it destroys something. The script gets a `SyntaxError`
+ * where it asked for a preview, and the obvious recovery — drop `--dry-run` —
+ * is the destructive one.
+ *
+ * `success: true` is deliberately NOT in this envelope. Nothing succeeded; the
+ * command declined to act. `dryRun: true` is the discriminator, and a consumer
+ * that switches on `success` sees a shape it does not recognise rather than a
+ * shape that lies.
+ */
+export function printDryRun(message: string, data?: object): void {
+  if (_jsonMode) {
+    emitDocument({ dryRun: true, message, ...jsonPayload(data) });
+    return;
+  }
+
+  console.log(color.yellow("DRY RUN:") + " " + message);
+  printHumanPayload(data);
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +651,7 @@ export function printList<T extends object>(
   columns: readonly Column<T>[]
 ): void {
   if (_jsonMode) {
-    console.log(JSON.stringify({ data, meta }, null, 2));
+    emitDocument({ data, meta });
     return;
   }
 

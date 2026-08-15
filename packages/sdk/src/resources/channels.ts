@@ -160,14 +160,20 @@ export class ChannelsResource extends BaseResource {
     );
   }
 
+  /**
+   * Poll the delivery status of a test-sent template message.
+   *
+   * Takes no template id. A test-send status is `(connection, messageSid)`; the
+   * template id was a path segment the server never read and it was removed
+   * under NEX-3860. Callers on the previous signature drop the first argument.
+   */
   async getTestSendStatus(
-    templateId: string,
     messageSid: string,
     params: { connectionId: string }
   ): Promise<GetTestSendStatusResponse> {
     return this.http.request<GetTestSendStatusResponse>(
       "GET",
-      `/channels/whatsapp-templates/${templateId}/test-send/${messageSid}/status`,
+      `/channels/whatsapp-templates/test-send/${messageSid}/status`,
       { query: params as Record<string, string> }
     );
   }

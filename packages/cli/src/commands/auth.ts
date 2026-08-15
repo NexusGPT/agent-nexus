@@ -21,7 +21,8 @@ import {
   validateProfileName,
   writeNexusRc
 } from "../config";
-import { color, printSuccess, printTable, printWarning } from "../output";
+import { refuse, reportFailure } from "../errors";
+import { color, isJsonMode, printRecord, printSuccess, printTable, printWarning } from "../output";
 
 const SETTINGS_URL = "https://app.nexusgpt.io/app/settings/api-keys";
 
@@ -194,8 +195,10 @@ Notes:
       try {
         await runLogin();
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        // Every network call inside `runLogin` is caught at its own site, so
+        // what reaches here is local: a readline that ended before the prompts
+        // were answered, a config write, a browser spawn.
+        process.exitCode = reportFailure("local-failed", (err as Error).message);
       } finally {
         rl?.close();
       }
@@ -213,18 +216,15 @@ Notes:
         }
 
         if (!apiKey) {
-          console.error(color.red("Error:") + " No key entered. Aborting.");
-          process.exitCode = 1;
+          process.exitCode = refuse("No key entered. Aborting.");
           return;
         }
 
         if (!apiKey.startsWith("nxs_")) {
-          console.error(
-            color.red("Error:") +
-              ' Invalid key format — API keys start with "nxs_".\n' +
+          process.exitCode = refuse(
+            'Invalid key format — API keys start with "nxs_".\n' +
               "  nexus auth login --api-key nxs_YOUR_KEY"
           );
-          process.exitCode = 1;
           return;
         }
 
@@ -248,8 +248,7 @@ Notes:
           try {
             organizations = await fetchOrganizations(resolvedBaseUrl, apiKey);
           } catch (err) {
-            console.error(color.red("Error:") + " " + (err as Error).message);
-            process.exitCode = 1;
+            process.exitCode = reportFailure("connection-failed", (err as Error).message);
             return;
           }
 
@@ -273,11 +272,9 @@ Notes:
             }
             const entered = (await ask("Organization id to start on (org_...): ")).trim();
             if (!entered) {
-              console.error(
-                color.red("Error:") +
-                  " A platform-operator key must name the organization it acts on."
+              process.exitCode = refuse(
+                "A platform-operator key must name the organization it acts on."
               );
-              process.exitCode = 1;
               return;
             }
             orgId = entered;
@@ -287,10 +284,10 @@ Notes:
           // Personal tokens genuinely cannot act without a membership; the
           // platform-operator case already has its org from the block above.
           if (organizations.length === 0 && !isPlatformOperatorKey) {
-            console.error(
-              color.red("Error:") + " This token's user does not belong to any organization."
+            process.exitCode = reportFailure(
+              "not-found",
+              "This token's user does not belong to any organization."
             );
-            process.exitCode = 1;
             return;
           }
 
@@ -321,8 +318,7 @@ Notes:
               const answer = (await ask(`Select active organization [1]: `)).trim();
               const index = answer ? Number.parseInt(answer, 10) - 1 : 0;
               if (Number.isNaN(index) || index < 0 || index >= organizations.length) {
-                console.error(color.red("Error:") + " Invalid selection.");
-                process.exitCode = 1;
+                process.exitCode = refuse("Invalid selection.");
                 return;
               }
               chosen = organizations[index];
@@ -369,11 +365,10 @@ Notes:
           });
 
           if (!validateRes.ok) {
-            console.error(
-              color.red("Error:") +
-                ` Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Validation failed (HTTP ${validateRes.status}). Check your key and try again.`
             );
-            process.exitCode = 1;
             return;
           }
 
@@ -417,8 +412,7 @@ Notes:
         // Validate profile name
         const nameError = validateProfileName(profileName);
         if (nameError) {
-          console.error(color.red("Error:") + " " + nameError);
-          process.exitCode = 1;
+          process.exitCode = refuse(nameError);
           return;
         }
 
@@ -513,14 +507,20 @@ Notes:
       const target = name ?? activeProfile;
 
       if (!target) {
-        console.error(color.red("Error:") + " No active profile. Run: nexus auth login");
-        process.exitCode = 1;
+        process.exitCode = reportFailure(
+          "not-authenticated",
+          "No active profile.",
+          "Run: nexus auth login"
+        );
         return;
       }
 
       if (!removeProfile(target)) {
-        console.error(color.red("Error:") + ` Profile "${target}" not found. Run: nexus auth list`);
-        process.exitCode = 1;
+        process.exitCode = reportFailure(
+          "not-found",
+          `Profile "${target}" not found.`,
+          "Run: nexus auth list"
+        );
         return;
       }
 
@@ -556,8 +556,7 @@ Examples:
       try {
         setActiveProfile(name);
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        process.exitCode = reportFailure("local-failed", (err as Error).message);
         return;
       }
 
@@ -615,7 +614,10 @@ Examples:
       const { profiles, activeProfile } = listProfiles();
       const names = Object.keys(profiles);
 
-      if (names.length === 0) {
+      // The hint is HUMAN copy. Under --json an empty account is `[]`, which is
+      // what every other list command answers and what a script can act on; the
+      // sentence was unparseable prose and the only thing on stdout.
+      if (names.length === 0 && !isJsonMode()) {
         console.log(color.dim("No profiles. Run: nexus auth login"));
         return;
       }
@@ -665,12 +667,11 @@ Notes:
       if (!profile) {
         const { profiles } = listProfiles();
         const available = Object.keys(profiles).join(", ");
-        console.error(
-          color.red("Error:") +
-            ` Profile "${profileName}" not found.` +
-            (available ? ` Available: ${available}` : " Run: nexus auth login")
+        process.exitCode = reportFailure(
+          "not-found",
+          `Profile "${profileName}" not found.`,
+          available ? `Available: ${available}` : "Run: nexus auth login"
         );
-        process.exitCode = 1;
         return;
       }
 
@@ -680,7 +681,9 @@ Notes:
       printSuccess(`Pinned this directory to "${profileName}"${orgPart}.`, {
         file: ".nexusrc"
       });
-      console.log(color.dim("\n  Tip: Consider adding .nexusrc to your .gitignore"));
+      if (!isJsonMode()) {
+        console.log(color.dim("\n  Tip: Consider adding .nexusrc to your .gitignore"));
+      }
     });
 
   // ── unpin ─────────────────────────────────────────────────────────────
@@ -695,8 +698,7 @@ Examples:
     )
     .action(() => {
       if (!removeNexusRc(process.cwd())) {
-        console.error(color.red("Error:") + " No .nexusrc found in current directory.");
-        process.exitCode = 1;
+        process.exitCode = reportFailure("not-found", "No .nexusrc found in current directory.");
         return;
       }
       printSuccess("Removed .nexusrc from current directory.");
@@ -721,8 +723,11 @@ Notes:
       try {
         resolved = resolveProfile(program.optsWithGlobals());
       } catch {
-        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
-        process.exitCode = 1;
+        process.exitCode = reportFailure(
+          "not-authenticated",
+          "Not logged in.",
+          "Run: nexus auth login"
+        );
         return;
       }
 
@@ -731,8 +736,7 @@ Notes:
       try {
         organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        process.exitCode = reportFailure("connection-failed", (err as Error).message);
         return;
       }
 
@@ -745,7 +749,7 @@ Notes:
       const activeIsForeign =
         activeOrgId !== undefined && !organizations.some((o) => o.organizationId === activeOrgId);
 
-      if (organizations.length === 0 && !activeIsForeign) {
+      if (organizations.length === 0 && !activeIsForeign && !isJsonMode()) {
         console.log(color.dim("No organizations found for this token."));
         return;
       }
@@ -777,7 +781,9 @@ Notes:
         { key: "organizationId", label: "ORG ID" }
       ]);
 
-      if (activeIsForeign) {
+      // A prose trailer after printTable is a second thing on stdout. The row
+      // already carries `role: "platform-operator"`, so --json loses nothing.
+      if (activeIsForeign && !isJsonMode()) {
         console.log(
           color.dim(
             "\nThe active organization is outside your memberships — a platform-operator key " +
@@ -808,8 +814,11 @@ Notes:
       try {
         resolved = resolveProfile(program.optsWithGlobals());
       } catch {
-        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
-        process.exitCode = 1;
+        process.exitCode = reportFailure(
+          "not-authenticated",
+          "Not logged in.",
+          "Run: nexus auth login"
+        );
         return;
       }
 
@@ -823,23 +832,19 @@ Notes:
       });
 
       if (refusal === "org-scoped-key") {
-        console.error(
-          color.red("Error:") +
-            ` Profile "${resolved.name}" uses an organization-scoped key, which is bound to a ` +
+        process.exitCode = refuse(
+          `Profile "${resolved.name}" uses an organization-scoped key, which is bound to a ` +
             "single organization and cannot switch. Create a personal token to act across orgs: " +
             "Settings → API Keys → Personal Tokens, then `nexus auth login`."
         );
-        process.exitCode = 1;
         return;
       }
 
       if (refusal === "env-override") {
-        console.error(
-          color.red("Error:") +
-            " Cannot set an active org for an --api-key / NEXUS_API_KEY override. " +
+        process.exitCode = refuse(
+          "Cannot set an active org for an --api-key / NEXUS_API_KEY override. " +
             "Use the NEXUS_ORGANIZATION_ID env var instead."
         );
-        process.exitCode = 1;
         return;
       }
 
@@ -848,12 +853,12 @@ Notes:
       try {
         organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        process.exitCode = reportFailure("connection-failed", (err as Error).message);
         return;
       }
 
       let match = organizations.find((org) => org.organizationId === orgId);
+      let outsideMemberships = false;
       if (!match) {
         // `fetchOrganizations` lists MEMBERSHIPS. A platform-operator key
         // (NEX-3037) is defined by reaching orgs its owner is not a member of,
@@ -864,36 +869,40 @@ Notes:
         // `PublicApiKey.isPlatformOperator`, so an ordinary user typing an
         // `nxs_o_`-shaped key gains nothing from this branch.
         if (!resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX)) {
-          console.error(
-            color.red("Error:") +
-              ` You are not a member of "${orgId}", or it does not exist. ` +
-              "Run: nexus auth orgs"
+          process.exitCode = reportFailure(
+            "not-found",
+            `You are not a member of "${orgId}", or it does not exist.`,
+            "Run: nexus auth orgs"
           );
-          process.exitCode = 1;
           return;
         }
         // The name is unknown — it is not our org — so show the id and say why.
-        console.log(
-          color.dim(
-            `Platform-operator key: "${orgId}" is not one of your organizations. ` +
-              "Switching anyway; every request will be recorded in the admin audit log."
-          )
-        );
+        // Prose BEFORE the success document is still two things on stdout, so
+        // the human line stays human and the fact rides in the payload below.
+        if (!isJsonMode()) {
+          console.log(
+            color.dim(
+              `Platform-operator key: "${orgId}" is not one of your organizations. ` +
+                "Switching anyway; every request will be recorded in the admin audit log."
+            )
+          );
+        }
+        outsideMemberships = true;
         match = { organizationId: orgId, name: null, role: "org:admin" };
       }
 
       try {
         setProfileOrganization(resolved.name, match.organizationId, match.name ?? undefined);
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        process.exitCode = reportFailure("local-failed", (err as Error).message);
         return;
       }
 
       printSuccess(`Active organization set to "${match.name ?? match.organizationId}".`, {
         profile: resolved.name,
         "org id": match.organizationId,
-        role: match.role
+        role: match.role,
+        outsideMemberships
       });
     });
 
@@ -937,6 +946,43 @@ Notes:
           override: "--api-key flag or NEXUS_API_KEY env"
         };
 
+        const isCrossOrg =
+          resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey);
+        const isOperator = resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX);
+        // Never the key itself, on either channel — the same eight-and-four
+        // masking the human line has always used.
+        const maskedKey = `${resolved.profile.apiKey.slice(0, 8)}...${resolved.profile.apiKey.slice(-4)}`;
+
+        // ── The document ────────────────────────────────────────────────
+        //
+        // `auth status` is the FIRST command an agent runs, and under --json it
+        // answered with seven lines of prose: unparseable, at exit 0, so the
+        // caller could tell neither which profile was loaded nor that anything
+        // was wrong. Every fact the human lines carry is a field here, including
+        // the two the reader has to act on — whether the token reaches other
+        // organizations, and whether the org identity was ever cached.
+        if (isJsonMode()) {
+          printRecord({
+            profile: resolved.name,
+            source: resolved.source,
+            sourceDescription: sourceExplanation[resolved.source],
+            tokenType: isCrossOrg
+              ? isOperator
+                ? "platform-operator"
+                : "personal"
+              : "organization-scoped",
+            orgName: resolved.profile.orgName ?? null,
+            orgId: resolved.profile.orgId ?? null,
+            userEmail: resolved.profile.userEmail ?? null,
+            apiKey: maskedKey,
+            baseUrl: resolved.profile.baseUrl ?? resolveBaseUrl(),
+            // `auth status` reads local config and calls nothing, so an absent
+            // identity means "never resolved", not "no organization".
+            identityCached: Boolean(resolved.profile.orgName ?? resolved.profile.orgId)
+          });
+          return;
+        }
+
         const orgPart = resolved.profile.orgName ? ` (${resolved.profile.orgName})` : "";
         console.log(
           `Using profile ${color.cyan(`"${resolved.name}"`)}${orgPart} — ${color.dim(sourceExplanation[resolved.source])}`
@@ -946,12 +992,11 @@ Notes:
         // on it alone meant the cross-tenant credential went unlabelled in
         // exactly the ad-hoc invocation most likely to be a one-off against
         // someone else's tenant. `use-org` already resolves this the same way.
-        if (resolved.profile.personalToken === true || isCrossOrgToken(resolved.profile.apiKey)) {
+        if (isCrossOrg) {
           // The two org-unbound kinds are NOT interchangeable to the reader:
           // one reaches your own orgs, the other reaches every tenant on the
           // platform and audits each request. Printing both as "personal token"
           // hides which credential is loaded, which is the thing `status` is for.
-          const isOperator = resolved.profile.apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX);
           console.log(
             `  ${color.dim("type:")} ${
               isOperator ? "platform-operator key (any org, audited)" : "personal token (cross-org)"
@@ -964,9 +1009,7 @@ Notes:
         if (resolved.profile.userEmail) {
           console.log(`  ${color.dim("user:")} ${resolved.profile.userEmail}`);
         }
-        console.log(
-          `  ${color.dim("key:")} ${resolved.profile.apiKey.slice(0, 8)}...${resolved.profile.apiKey.slice(-4)}`
-        );
+        console.log(`  ${color.dim("key:")} ${maskedKey}`);
         console.log(`  ${color.dim("api:")} ${resolved.profile.baseUrl ?? resolveBaseUrl()}`);
         if (!resolved.profile.orgName && !resolved.profile.orgId) {
           console.log(
@@ -974,8 +1017,9 @@ Notes:
           );
         }
       } catch (err) {
-        console.error(color.red("Error:") + " " + (err as Error).message);
-        process.exitCode = 1;
+        // `auth status` reads local config and calls nothing, so the only thing
+        // that reaches here is `resolveProfile` refusing to find a credential.
+        process.exitCode = reportFailure("not-authenticated", (err as Error).message);
       }
     });
 
@@ -1004,8 +1048,11 @@ Notes:
       try {
         resolved = resolveProfile(program.optsWithGlobals());
       } catch {
-        console.error(color.red("Error:") + " Not logged in. Run: nexus auth login");
-        process.exitCode = 1;
+        process.exitCode = reportFailure(
+          "not-authenticated",
+          "Not logged in.",
+          "Run: nexus auth login"
+        );
         return;
       }
 
@@ -1024,10 +1071,11 @@ Notes:
       };
 
       const invalidKey = (): void => {
-        console.error(
-          color.red("Error:") + " API key is invalid or expired. Run: nexus auth login"
+        process.exitCode = reportFailure(
+          "not-authenticated",
+          "API key is invalid or expired.",
+          "Run: nexus auth login"
         );
-        process.exitCode = 1;
       };
 
       let identity:
@@ -1091,26 +1139,24 @@ Notes:
             return;
           }
           if (!probe.ok) {
-            console.error(
-              color.red("Error:") +
-                ` Could not verify credentials (HTTP ${probe.status}). Try again.`
+            process.exitCode = reportFailure(
+              "remote-error",
+              `Could not verify credentials (HTTP ${probe.status}). Try again.`
             );
-            process.exitCode = 1;
             return;
           }
         } else {
-          console.error(
-            color.red("Error:") + ` Could not verify credentials (HTTP ${res.status}). Try again.`
+          process.exitCode = reportFailure(
+            "remote-error",
+            `Could not verify credentials (HTTP ${res.status}). Try again.`
           );
-          process.exitCode = 1;
           return;
         }
       } catch {
-        console.error(
-          color.red("Error:") +
-            " Could not reach the API to verify credentials. Check your connection and try again."
+        process.exitCode = reportFailure(
+          "connection-failed",
+          "Could not reach the API to verify credentials. Check your connection and try again."
         );
-        process.exitCode = 1;
         return;
       }
 

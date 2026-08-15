@@ -15,18 +15,21 @@ import {
   resolveBodyField,
   satisfiedByBodyField
 } from "./body-satisfies-required";
+import {
+  commandPath,
+  MINIMUM_DEFERRED_COMMANDS,
+  rebuildTreeWithoutTheFix,
+  TREE_TIMEOUT_MS
+} from "./deferred-requirements.testkit";
 
 const COMMANDS_DIR = join(__dirname, "../commands");
 const INDEX_TS = join(__dirname, "../index.ts");
 
 /**
- * The real tree WITHOUT the fix, so the population can be observed at all.
- *
- * `buildRootProgram()` applies `applyBodySatisfiesRequired` as its last act, so
- * the tree it returns is already rewired and its population is empty by
- * construction — which is the right assertion for "did the fix land" and a
- * useless one for "was there anything to fix". This rebuilds the same tree from
- * the same registrars, one step earlier.
+ * The rebuild and the floors live in `deferred-requirements.testkit.ts`, so this
+ * spec and `body-scalar-reaches-the-action.test.ts` measure ONE population. Two
+ * copies of the rebuild is two things to drift, and the drift is silent — the
+ * stale copy keeps passing over a population that has quietly shrunk.
  *
  * The drift guard below is what makes "the same tree" a checked claim rather
  * than a comment: the set of one-argument `register*` exports and the set of
@@ -34,29 +37,7 @@ const INDEX_TS = join(__dirname, "../index.ts");
  * directions. A registrar that stops being wired, or one wired without being
  * discoverable here, fails that test rather than silently shrinking the
  * population every other test in this file measures.
- *
- * Two-argument registrars (`registerWorkflowBuilderCommands(workflow, program)`,
- * the `admin vibe` family) are deliberately excluded: they are reached through
- * their parent registrar, so calling them again at the root would graft phantom
- * top-level commands onto the tree. Excluding them is not a gap — it is how the
- * real tree is shaped.
  */
-async function rebuildTreeWithoutTheFix(): Promise<Command> {
-  const program = new Command().name("nexus");
-  const files = readdirSync(COMMANDS_DIR)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !f.endsWith(".conformance.ts"))
-    .sort();
-  for (const file of files) {
-    const mod = (await import(join(COMMANDS_DIR, file))) as Record<string, unknown>;
-    for (const [name, value] of Object.entries(mod)) {
-      if (name.startsWith("register") && typeof value === "function" && value.length === 1) {
-        (value as (p: Command) => void)(program);
-      }
-    }
-  }
-  return program;
-}
-
 async function discoveredRegistrars(): Promise<string[]> {
   const out: string[] = [];
   const files = readdirSync(COMMANDS_DIR)
@@ -72,24 +53,6 @@ async function discoveredRegistrars(): Promise<string[]> {
   }
   return out.sort();
 }
-
-const commandPath = (command: Command): string => {
-  const parts: string[] = [];
-  let node: Command | null = command;
-  while (node?.parent) {
-    parts.unshift(node.name());
-    node = node.parent;
-  }
-  return parts.join(" ");
-};
-
-/**
- * Importing ~90 command modules through the vitest transform takes seconds, and
- * more than that when the rest of the suite is running in parallel. The default
- * 5s timeout turns that into a RED that reads exactly like a real failure — it
- * did, in a full-suite run, on three separate files that all derive the tree.
- */
-const TREE_TIMEOUT_MS = 60_000;
 
 describe("the tree this file measures is the tree the entry point builds", () => {
   it(
@@ -115,9 +78,10 @@ describe("no command can be blocked from a body-only invocation", () => {
     async () => {
       const found = findDeferredRequirements(await rebuildTreeWithoutTheFix());
 
-      // CONTROL. A zero here would make every assertion below vacuous: an empty
-      // population and a working fix are the same empty result.
-      expect(found.length).toBeGreaterThan(0);
+      // CONTROL. A collapsed population and a working fix are the same empty
+      // result, and `toBeGreaterThan(0)` survived a collapse from dozens to one.
+      // The floor is a real minimum, and it lives beside the derivation.
+      expect(found.length).toBeGreaterThanOrEqual(MINIMUM_DEFERRED_COMMANDS);
       expect(found.map((f) => commandPath(f.command))).toContain("agent create");
     },
     TREE_TIMEOUT_MS

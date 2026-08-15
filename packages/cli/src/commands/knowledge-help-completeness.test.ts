@@ -132,14 +132,18 @@ const CLAIMS: readonly HelpClaim[] = [
     phrases: ["EMPTY RESULTS STRAIGHT AFTER ATTACHING USUALLY MEAN INDEXING"]
   },
   {
-    what: "collection create names the body-only booleans and the defaults",
+    what: "collection create names all three body-only settings and the defaults",
     register: registerCollectionCommands,
     namespace: "collection",
     path: ["create"],
     phrases: [
       "--k defaults to 10",
-      "preciseResponses and includeMetadata are --body ONLY",
-      "both default to false"
+      // `reranker` is body-only on CREATE and has a flag on UPDATE. Naming only
+      // the two booleans read as "the reranker cannot be set here", which sent
+      // a caller to a follow-up call they did not need.
+      "reranker, preciseResponses and includeMetadata are --body ONLY",
+      "the two booleans default to false",
+      "k IS BOUNDED BELOW ONLY"
     ]
   },
   {
@@ -258,11 +262,20 @@ const CLAIMS: readonly HelpClaim[] = [
     phrases: ["type IS REQUIRED AND THERE IS NO --type FLAG", "POWERPOINT_TEMPLATE"]
   },
   {
-    what: "template get is named as the only source of variable names",
+    // This claim used to pin the OPPOSITE sentence — "--json IS THE ONLY WAY TO
+    // DISCOVER A TEMPLATE'S VARIABLE NAMES" — which was false for every
+    // template this API can build (NEX-3859). No route here writes
+    // `inputFormat`: upload stores the file without parsing it, create takes
+    // name/description/type, and there is no update. Pinned in the corrected
+    // direction so a future edit cannot quietly restore the promise.
+    what: "template get says inputFormat is always null here, and is not the source of variable names",
     register: registerTemplateCommands,
     namespace: "template",
     path: ["get"],
-    phrases: ["--json IS THE ONLY WAY TO DISCOVER A TEMPLATE'S VARIABLE NAMES"]
+    phrases: [
+      "inputFormat READS null FOR EVERY TEMPLATE THIS API CAN BUILD",
+      "So --json IS NOT A WAY TO DISCOVER VARIABLE NAMES"
+    ]
   },
   {
     what: "template generate names the ignored variables and the URL's lifetime",

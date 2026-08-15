@@ -3,6 +3,8 @@ import {
   AgentModelSchema,
   ApiKeyConnectionSchema,
   ApiKeyServiceSchema,
+  AssetDeleteResultSchema,
+  AssetSchema,
   AssignAgentToFolderBodySchema,
   AssignAgentToFolderResponseSchema,
   AssignDeploymentToFolderBodySchema,
@@ -36,6 +38,7 @@ import {
   ListDocumentTemplateFoldersResponseSchema,
   ListExternalToolsResponseSchema,
   ListFoldersResponseSchema,
+  ListModelsResponseSchema,
   ListResourceAccessV1ResponseSchema,
   ListSkillFoldersResponseSchema,
   ListUserGroupsV1ResponseSchema,
@@ -92,6 +95,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
 import type { ApiKeyConnection, ApiKeyService } from "./api-key-connections";
+import type { Asset, AssetDeleteResult } from "./assets";
 import type { AgentModel, DeleteResponse, ModelProvider } from "./common";
 import type {
   AssignDeploymentToFolderBody,
@@ -287,6 +291,21 @@ export type V1ContractAssertions = [
   // ── the shared delete envelope, which four of those five families return ──
   Expect<Equals<DeleteResponse, Received<typeof DeleteDeploymentFolderResponseSchema>>>,
 
+  // ── assets ── /public/v1/assets
+  //
+  // `AssetDeleteResult` is gated FIRST because this route is where the shared
+  // envelope above was the defect: `assets.delete()` was typed `DeleteResponse`,
+  // which declares `{id, deleted}` and nothing else, so `objectRemoved` — the
+  // one field saying whether the public URL stopped serving — was unreachable
+  // from every consumer of this package, `--json` included (NEX-3850). Nothing
+  // went red, because a resource method's declared return type is checked
+  // against nothing: `request<T>` takes `T` from the call site.
+  //
+  // These two lines are that check. Widening the contract without widening the
+  // type is now a compile error on the line that names the type.
+  Expect<Equals<Asset, Received<typeof AssetSchema>>>,
+  Expect<Equals<AssetDeleteResult, Received<typeof AssetDeleteResultSchema>>>,
+
   // ── phone numbers ── /public/v1/phone-numbers
   Expect<Equals<PhoneNumber, Received<typeof PhoneNumberSummarySchema>>>,
   Expect<Equals<AvailablePhoneNumber, Received<typeof AvailablePhoneNumberItemSchema>>>,
@@ -361,6 +380,15 @@ export type V1ContractAssertions = [
   // wrong, which is worth stating plainly — "the contract is authoritative" is a
   // good default and it is not a law.
   Expect<Equals<ModelSummary, Received<typeof ModelSummarySchema>>>,
+
+  // And so was the RESPONSE, for the same reason and in the same direction:
+  // `ListModelsResponseSchema` declared `{ models: [...] }` while the handler
+  // has returned a bare array since the wrapper was dropped *for* this package's
+  // contract. Gating it is what stops the pair separating a second time — the
+  // last separation shipped `nexus model list --json` printing `{}` for 45
+  // models, because a resource method's declared return type is checked against
+  // nothing (NEX-3868).
+  Expect<Equals<ModelSummary[], Received<typeof ListModelsResponseSchema>>>,
 
   // ── the model-provider enum ──────────────────────────────────────────────
   //
@@ -522,6 +550,9 @@ const GATED_PAIRS = [
   "AssignTemplateToFolderBody ↔ AssignTemplateToFolderBodySchema",
   "AssignTemplateToFolderResponse ↔ AssignTemplateToFolderResponseSchema",
   "DeleteResponse ↔ DeleteDeploymentFolderResponseSchema",
+
+  "Asset ↔ AssetSchema",
+  "AssetDeleteResult ↔ AssetDeleteResultSchema",
   "PhoneNumber ↔ PhoneNumberSummarySchema",
   "AvailablePhoneNumber ↔ AvailablePhoneNumberItemSchema",
   "BuyPhoneNumberBody ↔ BuyPhoneNumberBodySchema",
@@ -556,6 +587,7 @@ const GATED_PAIRS = [
   "ApiKeyService ↔ ApiKeyServiceSchema",
   "ApiKeyConnection ↔ ApiKeyConnectionSchema",
   "ModelSummary ↔ ModelSummarySchema",
+  "ModelSummary[] ↔ ListModelsResponseSchema",
 
   "ModelProvider ↔ ModelProviderSchema",
   "AgentModel ↔ AgentModelSchema",
@@ -671,7 +703,7 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 /**
  * A ratchet, not a target. Raise it when pairs are added; never lower it.
  *
- * 95 pairs are covered. Most of the contract is not, and this file does not
+ * 98 pairs are covered. Most of the contract is not, and this file does not
  * pretend otherwise — see the coverage test's message.
  *
  * ## What a sweep of the WHOLE surface measured, so the gap has a denominator
@@ -692,7 +724,7 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
  * Re-run the sweep rather than trusting these numbers — they move with the
  * contract, and a figure written down is a figure that stops being measured.
  */
-const GATED_PAIR_FLOOR = 95;
+const GATED_PAIR_FLOOR = 98;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

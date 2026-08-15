@@ -57,9 +57,11 @@ A session is one conversation with a deployment's agent. Create it, send into
 it, then read it back — "session get" is where a turn that was still running
 when "emulator send" answered eventually lands.
 
-These are real DeploymentSession rows: they carry real conversations and are
-counted by "nexus deployment stats" alongside genuine customer traffic.
-Deleting one archives its conversation rather than erasing it.
+These are real DeploymentSession rows carrying real conversations, but they are
+TEST traffic and "nexus deployment stats" excludes them from both of its
+counters, so testing a deployment does not move its usage figures. What they DO
+reach is the inbox: deleting one archives its conversation rather than erasing
+it.
 
 SO DELETING EVERY SESSION DOES NOT CLEAN UP AFTER A TEST. "session list" comes
 back empty while the conversations those sessions produced are still there,
@@ -134,9 +136,10 @@ Examples:
 
 Notes:
   Emulator sessions for this deployment only, and unpaginated.
-  These are real DeploymentSession rows, so they are counted by
-  "nexus deployment stats" alongside genuine customer traffic. Delete the ones
-  you are finished with if that number has to mean something.`
+  These are real DeploymentSession rows, but "nexus deployment stats" excludes
+  them from both totalSessions and totalMessages — that endpoint reports real
+  customer traffic, and this command is where test traffic is visible. They are
+  still in the inbox: see the "emulator session" notes on archiving.`
     )
     .action(async (deploymentId: string) => {
       try {

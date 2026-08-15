@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 
-import { formatUpdateMessage, readCachedNewerVersion } from "./util/version-check";
+import {
+  formatUpdateMessage,
+  isDerivedCapture,
+  readCachedNewerVersion
+} from "./util/version-check";
 
 /**
  * THE SCOPE FOOTER — one block, on the bottom of EVERY `--help` screen.
@@ -24,6 +28,14 @@ import { formatUpdateMessage, readCachedNewerVersion } from "./util/version-chec
  *  2. THE VERB TABLE IS SMALLER THAN THE ROUTE TABLE, at every version. Routes
  *     are served that this CLI has no verb for and never had one for; the
  *     dashboard calls them.
+ *  3. AND THE FALLBACK THIS BLOCK OFFERS CANNOT SEE THAT FAMILY. `nexus api`
+ *     sends every request to `{baseUrl}/api/public/v1{path}` — the prefix is
+ *     prepended in `HttpClient` and no flag removes it — so the routes fact 2
+ *     names are precisely the ones the probe cannot address. Sending a reader to
+ *     a check that answers nothing, and calling that check the way to disprove
+ *     an absence, produced the audit this footer exists to prevent: verb absent,
+ *     probe silent, capability recorded as missing, and the product had it all
+ *     along on a screen.
  *
  * ── WHY THE STALENESS LINE CANNOT COME FROM `checkForUpdate` ─────────────────
  *
@@ -62,14 +74,26 @@ import { formatUpdateMessage, readCachedNewerVersion } from "./util/version-chec
 export function helpScopeFooter(currentVersion: string): string {
   const newer = readCachedNewerVersion(currentVersion);
 
+  // 🚨 THE VERSION IS NAMED ON A LIVE `--help` AND OMITTED FROM A DERIVED
+  // CAPTURE, and that is not a cosmetic split. A committed docs page is
+  // compared byte-for-byte against a fresh projection, and the version comes
+  // from `packages/cli/package.json` — a file the changesets release writes on
+  // `main` and never on `staging`. Naming it there made every generated page
+  // stale on every staging→main promotion merge, with no CLI file touched.
+  // `asDerivedCapture`'s docblock carries the measurement.
+  const client = isDerivedCapture() ? "@agent-nexus/cli" : `@agent-nexus/cli ${currentVersion}`;
+
   return (
-    `\nTHIS IS ONE CLIENT (@agent-nexus/cli ${currentVersion}), NOT THE PLATFORM\n` +
+    `\nTHIS IS ONE CLIENT (${client}), NOT THE PLATFORM\n` +
     `  A verb missing here is missing from THIS CLI at THIS VERSION. That is not\n` +
     `  proof the platform cannot do it. Routes are served that this CLI has no\n` +
     `  verb for at any version, and the dashboard calls them.\n` +
     `  Before you record a capability as absent: upgrade, then ask the route\n` +
     `  itself. "nexus api <METHOD> <path>" calls any public API v1 route,\n` +
     `  whether or not a verb for it exists here.\n` +
+    `  That probe reaches public/v1 and NOTHING ELSE. The routes above are\n` +
+    `  outside it and it cannot address them, so a probe finding nothing is\n` +
+    `  still not a capability that is absent. "nexus api --help" says why.\n` +
     (newer === null ? "" : formatUpdateMessage(currentVersion, newer))
   );
 }

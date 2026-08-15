@@ -6,8 +6,16 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
-import { color, formatFolder, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { handleError, refuse } from "../errors";
+import {
+  color,
+  formatFolder,
+  isJsonMode,
+  printDryRun,
+  printList,
+  printRecord,
+  printSuccess
+} from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
@@ -87,7 +95,11 @@ Notes:
   readable, but only with --status ARCHIVED.
   --folder accepts a folder id or its name, matched case-insensitively. A folder
   that matches nothing returns an empty list rather than ignoring the filter.
-  Newest-updated first.`
+  Newest-updated first.
+  --json IS {data: [...], meta: {total, page, hasMore}}, NOT A BARE ARRAY, and
+  "nexus task list" — the other list you are most likely to read beside this
+  one — IS a bare array. One parser cannot read both. Read meta.hasMore here
+  rather than counting rows.`
       )
   ).action(async (opts) => {
     try {
@@ -286,7 +298,7 @@ Notes:
 
         if (opts.dryRun) {
           const wf = await client.workflows.get(id);
-          console.log(color.yellow("DRY RUN:") + ` Would delete workflow "${wf.name}" (${id})`);
+          printDryRun(`Would delete workflow "${wf.name}" (${id})`, { id });
           return;
         }
 
@@ -716,8 +728,10 @@ Notes:
         const absPath = path.resolve(opts.file);
 
         if (!fs.existsSync(absPath)) {
-          console.error(`Error: File not found: ${absPath}`);
-          process.exitCode = 1;
+          process.exitCode = refuse(
+            `File not found: ${absPath}`,
+            "Pass a path that exists, relative to the current directory or absolute."
+          );
           return;
         }
 

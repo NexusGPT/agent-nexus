@@ -9,6 +9,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printDryRun, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 import {
@@ -127,6 +128,10 @@ Notes:
   modelConfig itself reads null whenever the stored config is missing either
   modelName or modelProvider, because half a config cannot be published — the
   top-level mirrors still answer, so read those before concluding "no model".
+  modelConfig.customModelId IS THE ONLY PLACE A CUSTOM MODEL SHOWS UP, and it is
+  --json only. Present means the agent runs that endpoint and modelName /
+  modelProvider are the fallback, so MODEL and the two mirrors all describe a
+  model this agent is not using. Absent means it runs the platform model named.
   --json also carries bio, tags, gender and playgroundFirstMessage, which the
   table omits.`
     )
@@ -166,6 +171,10 @@ Notes:
         AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER
       )
     )
+    .option(
+      "--custom-model-id <id>",
+      "Run on a custom model (BYOM) — the id from 'nexus custom-model list'"
+    )
     .option("--prompt <file-or-->", "System prompt (file path, or '-' for stdin)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -188,13 +197,26 @@ Notes:
   "--model-provider ANTHROPIC" stores an OpenAI model name under Anthropic and
   nothing reports it. Omitting both stores gpt-5.6-sol / OPEN_AI. Take the pair
   from "nexus model list" (modelId → --model-name, provider → --model-provider).
+  THAT PAIR RULE DOES NOT APPLY TO YOUR OWN MODELS, AND FOLLOWING IT ON ONE IS A
+  400. "nexus model list" also returns the endpoints you added with
+  "nexus custom-model create", as source "custom", provider "CUSTOM_<PROTOCOL>"
+  (CUSTOM_OPENAI, CUSTOM_ANTHROPIC or CUSTOM_GOOGLE) and modelId "custom:<uuid>".
+  None of those is a member of --model-provider and none is going to become one
+  — a custom model is selected BY ID:
+    --custom-model-id <the id from "nexus custom-model list">
+  Pass --model-name / --model-provider alongside it naming the PLATFORM model to
+  fall back to; they stay required, and a stored config missing either is
+  discarded whole at inference, taking the custom model with it. Omit them and
+  the fallback is gpt-5.6-sol / OPEN_AI.
+  An id that is not your organization's is a 404, never a 403.
   --prompt accepts a file path (auto-detected), literal text, or '-' for stdin.
   It publishes a CHECKPOINT version rather than writing a column; over 1,000,000
   characters is a 400. Omit it to start with no prompt at all.
   --body accepts JSON string, .json file, or '-' for stdin. Flags override --body
   fields. It also takes shortBio, bio, tags, gender, playgroundFirstMessage,
   model (the legacy enum) and modelConfig{modelName, modelProvider, thinkingLevel,
-  reasoningEffort, geminiThinkingLevel, kimiReasoningEffort, temperature}.
+  thinkingDisplay, reasoningEffort, geminiThinkingLevel, kimiReasoningEffort,
+  temperature, customModelId}.
   TAGS IS ONE STRING DESPITE THE PLURAL NAME. Sending an array is a 400 naming
   the field; put your own separator inside the string.
   AN UNKNOWN --body KEY IS SILENTLY STRIPPED, not refused. A typo returns 201
@@ -224,10 +246,17 @@ Notes:
         if (opts.bio !== undefined) flags.bio = opts.bio;
         if (opts.shortBio !== undefined) flags.shortBio = opts.shortBio;
         if (opts.model !== undefined) flags.model = opts.model;
-        if (opts.modelName !== undefined || opts.modelProvider !== undefined) {
+        if (
+          opts.modelName !== undefined ||
+          opts.modelProvider !== undefined ||
+          opts.customModelId !== undefined
+        ) {
           flags.modelConfig = {
             modelName: opts.modelName ?? "gpt-5.6-sol",
-            modelProvider: opts.modelProvider ?? "OPEN_AI"
+            modelProvider: opts.modelProvider ?? "OPEN_AI",
+            // The custom model rides INSIDE modelConfig — there is no top-level
+            // mirror for it, unlike modelName / modelProvider.
+            ...(opts.customModelId !== undefined && { customModelId: opts.customModelId })
           };
         }
         if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
@@ -263,6 +292,10 @@ Notes:
         AGENT_UPDATE__BODY_MODEL_CONFIG_MODEL_PROVIDER
       )
     )
+    .option(
+      "--custom-model-id <id>",
+      "Attach a custom model (BYOM) — needs --model-name and --model-provider too"
+    )
     .option("--prompt <file-or-->", "System prompt (file path, or '-' for stdin)")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
@@ -290,6 +323,18 @@ Notes:
   merged into the stored modelConfig, keeping temperature and thinking level;
   sending both replaces the whole config and DROPS those settings. To change the
   model and keep them, send --body '{"modelConfig":{...}}' carrying every field.
+  A CUSTOM MODEL IS ATTACHED BY ID, NEVER BY --model-provider: the
+  "CUSTOM_<PROTOCOL>" string "nexus model list" prints on the row is not one of
+  that flag's values.
+    $ nexus agent update abc-123 --custom-model-id <id> \\
+        --model-name gpt-4o --model-provider OPEN_AI
+  --custom-model-id needs both model flags because it travels inside modelConfig,
+  and sending that object replaces the stored one — the pair is the fallback,
+  not decoration. Sent alone the command refuses and sends nothing.
+  CHANGING THE MODEL DETACHES A CUSTOM ONE. Any call that writes modelConfig
+  without a customModelId clears the stored id, which is how an agent goes back
+  to a platform model. Read it back with "nexus agent get <id>" →
+  .modelConfig.customModelId.
   A PATCH whose only field is --prompt writes nothing on the agent row and still
   answers 200 — the version write is the change, not a no-op.
   Every field is optional, but the ones you do send must be non-empty:
@@ -311,10 +356,30 @@ Notes:
         if (opts.bio !== undefined) flags.bio = opts.bio;
         if (opts.shortBio !== undefined) flags.shortBio = opts.shortBio;
         if (opts.model !== undefined) flags.model = opts.model;
+        // `customModelId` lives INSIDE modelConfig and has no top-level mirror,
+        // so carrying it means sending the whole object — which REPLACES the
+        // stored one. Filling the two model fields from defaults here would
+        // silently reset the agent's model as a side effect of attaching an
+        // endpoint, so the pair is required instead of guessed.
+        if (
+          opts.customModelId !== undefined &&
+          (opts.modelName === undefined || opts.modelProvider === undefined)
+        ) {
+          process.exitCode = refuse(
+            "--custom-model-id must be sent together with --model-name and --model-provider.",
+            'A custom model is attached inside "modelConfig", and sending that object replaces ' +
+              "the stored one — so this command needs the platform model to fall back to rather " +
+              "than inventing one. Add both flags, or send the whole config yourself with " +
+              `--body '{"modelConfig":{"modelName":"…","modelProvider":"…","customModelId":"…"}}'.`
+          );
+          return;
+        }
+
         if (opts.modelName !== undefined && opts.modelProvider !== undefined) {
           flags.modelConfig = {
             modelName: opts.modelName,
-            modelProvider: opts.modelProvider
+            modelProvider: opts.modelProvider,
+            ...(opts.customModelId !== undefined && { customModelId: opts.customModelId })
           };
         } else if (opts.modelName !== undefined) {
           flags.modelName = opts.modelName;
@@ -333,11 +398,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  agent
-    .command("delete")
+  confirmable(agent.command("delete"))
     .description("Delete an agent")
     .argument("<id>", "Agent ID")
-    .option("--yes", "Skip confirmation")
     .option("--dry-run", "Preview without deleting")
     .addHelpText(
       "after",
@@ -348,8 +411,8 @@ Examples:
   $ nexus agent delete abc-123 --dry-run
 
 Notes:
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it deletes immediately.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   --dry-run previews without deleting.
   Answers 200 with {id, deleted: true} — NOT 204, and not the deleted record.
   SOFT BY DEFAULT. The organization's deletion policy decides, its seeded value
@@ -366,19 +429,7 @@ Notes:
           return;
         }
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(`Delete agent ${id}? This cannot be undone. [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete agent ${id}? This cannot be undone.`, opts))) return;
 
         await client.agents.delete(id);
         printSuccess("Agent deleted.", { id });
@@ -512,20 +563,21 @@ Notes:
 
   // Bound LAST, after every option exists.
   //
-  // The four TUNING enums under modelConfig have no flag and are declared
+  // The five TUNING enums under modelConfig have no flag and are declared
   // body-only rather than exposed. They are not interchangeable knobs: each one
-  // belongs to ONE provider family (thinkingLevel and reasoningEffort to
-  // OpenAI-shaped models, geminiThinkingLevel to Google, kimiReasoningEffort to
-  // Kimi), and three of the four are silently ignored for whatever provider you
-  // picked. Four flags whose validity depends on the value of a fifth is a worse
-  // surface than one JSON object, and --body already carries the whole
-  // modelConfig.
+  // belongs to ONE provider family (thinkingLevel and thinkingDisplay to
+  // Anthropic, reasoningEffort to OpenAI-shaped models, geminiThinkingLevel to
+  // Google, kimiReasoningEffort to Kimi), and most of them are silently ignored
+  // for whatever provider you picked. Five flags whose validity depends on the
+  // value of a sixth is a worse surface than one JSON object, and --body
+  // already carries the whole modelConfig.
   const TUNING_IS_PROVIDER_SPECIFIC =
     "set it inside --body's modelConfig — the field only applies to one provider family, " +
     "so a flag would advertise it for every model";
 
   const MODEL_CONFIG_TUNING = {
     "Body.modelConfig.thinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
+    "Body.modelConfig.thinkingDisplay": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.reasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.geminiThinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.kimiReasoningEffort": TUNING_IS_PROVIDER_SPECIFIC

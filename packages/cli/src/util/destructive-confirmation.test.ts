@@ -1,9 +1,18 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { Command } from "commander";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { COMMAND_CLASSIFICATION } from "../command-universe";
 import { booleanFlag } from "./boolean-flag";
-import { confirmable, isConfirmable, YES_FLAG_DESCRIPTION } from "./confirm";
+import {
+  confirmable,
+  isConfirmable,
+  promptLine,
+  promptStream,
+  YES_FLAG_DESCRIPTION
+} from "./confirm";
 import { buildCommandTree } from "./global-option-shadowing";
 
 /**
@@ -41,55 +50,30 @@ function everyCommand(root: Command, trail: string[] = []): Array<[string, Comma
 /**
  * Commands declaring `--yes` by hand, from before `confirmable()` existed.
  *
- * Each is one of the six behaviours the convention replaces. They are listed so
- * the count is visible and shrinking, and so a NEW hand-rolled one cannot join
- * them silently. Migrating a command means deleting its line here — the last
- * assertion refuses an entry that no longer needs one, so the list cannot rot in
- * the other direction either.
+ * They are listed so the count is visible and shrinking, and so a NEW
+ * hand-rolled one cannot join them silently. Migrating a command means deleting
+ * its line here — the last assertion refuses an entry that no longer needs one,
+ * so the list cannot rot in the other direction either.
+ *
+ * 🚨 EVERY ENTRY LEFT IS ONE THAT REFUSES, through a correct parser of its own.
+ * Both behaviours this list was opened for are gone from the tree — proceeding
+ * silently because a stream nobody answers on is not a terminal, and declaring
+ * `--yes` with no prompt behind it at all — so a hand-rolled entry rejoining it
+ * is a regression rather than a backlog item.
+ *
+ * `phone-number buy|release`, `workspace delete` and the three `vibe` verbs
+ * refuse on a non-TTY through a correct parser of their own. They are DRY debt,
+ * never a data-loss risk.
  *
  * 🔴 Most of these files belong to other owners. The gate names the work; it
  * does not do it.
  */
 const UNMIGRATED_HAND_ROLLED_YES: readonly string[] = [
-  "agent delete",
-  "agent-eval run delete",
-  "agent-eval schedule delete",
-  "agent-eval template delete",
-  "agent-eval template detach",
-  "agent-eval trigger delete",
-  "agent-eval webhook delete",
-  "agent-skill delete",
-  "agent-tool delete",
-  "asset delete",
-  "channel whatsapp-template delete",
-  "collection delete",
-  "credential delete",
-  "customer delete",
-  "deployment delete",
-  "deployment folder delete",
-  "deployment template detach",
-  "document delete",
-  "emulator scenario delete",
-  "emulator session delete",
-  "folder delete",
-  "html-template delete",
   "phone-number buy",
   "phone-number release",
-  "skill-folder delete",
-  "task delete",
-  "task-eval session delete",
-  "template folder delete",
-  "tool delete-credential",
-  "user-group delete",
-  "version delete",
-  "version restore",
   "vibe app delete",
   "vibe app rotate-edge-token",
   "vibe git-project delete",
-  "workflow branch delete",
-  "workflow delete",
-  "workflow edge delete",
-  "workflow node delete",
   "workspace delete"
 ];
 
@@ -155,6 +139,111 @@ describe("the destructive-confirmation convention", () => {
     // file from an interactive shell skips the prompt, and piping an answer in
     // makes it prompt. A confirmation reads STDIN or it is not a confirmation.
     expect(YES_FLAG_DESCRIPTION).toContain("no terminal this refuses");
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE SOURCE SCAN. The WeakSet above proves a `--yes` was DECLARED through the
+  // helper; it cannot prove the action body then ASKS through it, because which
+  // function a closure calls is invisible on the `Command`. So the one spelling
+  // that caused the incident is banned by text as well.
+  //
+  // 🚨 THIS IS A GREP AND IT IS ADMITTED AS ONE. It cannot certify a
+  // hand-rolled prompt is correct; it can only certify that no confirmation
+  // decides on the WRONG STREAM. The two assertions are complementary and
+  // neither subsumes the other.
+  // ───────────────────────────────────────────────────────────────────────────
+  const COMMAND_SOURCES = (): Array<[string, string]> => {
+    const dir = join(__dirname, "..", "commands");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .map((f) => [f, readFileSync(join(dir, f), "utf-8")] as [string, string]);
+  };
+
+  /** `!opts.yes && process.stdout.isTTY`, allowing any whitespace between. */
+  const STDOUT_GATE = /!\s*opts\.yes\s*&&\s*process\s*\.\s*stdout\s*\.\s*isTTY/;
+
+  it("CONTROL: the scan reads real command sources and the pattern matches its own shape", () => {
+    const sources = COMMAND_SOURCES();
+    expect(sources.length).toBeGreaterThan(30);
+    expect(sources.some(([, src]) => src.includes("confirmDestructive"))).toBe(true);
+    // Without this the regex could be misspelt, match nothing, and the absence
+    // assertion below would pass over a tree full of the defect.
+    expect(STDOUT_GATE.test("if (!opts.yes && process.stdout.isTTY) {")).toBe(true);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE OTHER HALF OF READING STDIN. Deciding on stdin makes
+  // `nexus <destructive> > log` ask, which is right — the operator is there. If
+  // the QUESTION then goes to stdout it lands in the log file and the terminal
+  // stays blank while the process waits for a keystroke, which is the hang this
+  // change removes, reappearing in the one case the change set out to support.
+  // ───────────────────────────────────────────────────────────────────────────
+  describe("the question goes where a person can read it", () => {
+    const stdoutWas = process.stdout.isTTY;
+    const stderrWas = process.stderr.isTTY;
+
+    const set = (stdout: boolean, stderr: boolean): void => {
+      Object.defineProperty(process.stdout, "isTTY", { value: stdout, configurable: true });
+      Object.defineProperty(process.stderr, "isTTY", { value: stderr, configurable: true });
+    };
+
+    afterEach(() => set(stdoutWas, stderrWas));
+
+    it("uses stderr when stdout is redirected and the terminal is on stderr", () => {
+      set(false, true);
+      expect(promptStream()).toBe(process.stderr);
+    });
+
+    it("uses stderr when BOTH are terminals — a prompt is interaction, not output", () => {
+      // Also what keeps a question out of a --json document by construction.
+      set(true, true);
+      expect(promptStream()).toBe(process.stderr);
+    });
+
+    it("uses stdout for the one case where only stdout is a terminal", () => {
+      set(true, false);
+      expect(promptStream()).toBe(process.stdout);
+    });
+
+    it("puts the whole conversation on that stream, not only the question", () => {
+      // A spend gate asked through promptStream() and printed the figures the
+      // question refers to with console.log. With stdout redirected the operator
+      // was asked to accept a cost and shown none of it. Splitting a dialogue
+      // across two streams is the same defect as asking on the wrong one.
+      set(false, true);
+      const written: string[] = [];
+      const real = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string) => {
+        written.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+
+      try {
+        promptLine("Cost-safety status: BLOCKED");
+      } finally {
+        process.stderr.write = real;
+      }
+
+      expect(written).toEqual(["Cost-safety status: BLOCKED\n"]);
+    });
+  });
+
+  it("no command gates a confirmation on stdout", () => {
+    const offenders = COMMAND_SOURCES()
+      .filter(([, src]) => STDOUT_GATE.test(src))
+      .map(([file]) => file)
+      .sort();
+
+    expect(
+      offenders,
+      "This file decides whether it may ask by testing stdout. Piped — `nexus " +
+        "customer delete <id> | tee log` — the answer is false, the question is " +
+        "skipped and the row is destroyed with nobody asked. stdout a terminal " +
+        "with stdin closed is the mirror image: the prompt prints against an " +
+        "ended stream and the process hangs on a promise nothing can settle. " +
+        "Ask through confirmDestructive() from src/util/confirm.ts, which reads " +
+        "stdin and REFUSES when it cannot."
+    ).toEqual([]);
   });
 });
 

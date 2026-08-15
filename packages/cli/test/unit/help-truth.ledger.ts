@@ -129,8 +129,7 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
   "credential get": ["R4 arg0=abc-123"],
   "credential update": ["R4 arg0=abc-123"],
   "custom-model delete": ["R0-no-notes", "R4 arg0=cm-123"],
-  "custom-model get": ["R0-no-notes", "R4 arg0=cm-123"],
-  "custom-model list": ["R0-no-notes"],
+  "custom-model get": ["R4 arg0=cm-123"],
   "custom-model update": ["R4 arg0=cm-123"],
   "deployment create": ["R3 --agent-id=agt-123", "R3 --agent-id=agt-456"],
   "deployment delete": ["R4 arg0=dep-123"],
@@ -210,7 +209,6 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
   "html-template list": ["R0-no-notes", "R3 --deployment-id=dep-123"],
   "html-template render": ["R4 arg0=tpl-123"],
   "html-template update": ["R4 arg0=tpl-123"],
-  "model list": ["R0-no-notes"],
   "permissions access": ["R4 arg1=11111111-1111-1111-1111-111111111111"],
   "phone-number get": ["R4 arg0=abc-123"],
   "phone-number release": ["R4 arg0=abc-123"],
@@ -228,12 +226,12 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
   "task-eval dataset list": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
   "task-eval execute": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
   "task-eval formats": ["R0-no-notes"],
-  "task-eval judge": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
+  "task-eval judge": ["R4 arg0=task-123", "R4 arg1=sess-456"],
   "task-eval judges": ["R0-no-notes"],
-  "task-eval results": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
+  "task-eval results": ["R4 arg0=task-123", "R4 arg1=sess-456"],
   "task-eval session create": ["R0-no-notes", "R4 arg0=task-123"],
   "task-eval session delete": ["R4 arg0=task-123", "R4 arg1=sess-456"],
-  "task-eval session get": ["R0-no-notes", "R4 arg0=task-123", "R4 arg1=sess-456"],
+  "task-eval session get": ["R4 arg0=task-123", "R4 arg1=sess-456"],
   "task-eval session list": ["R0-no-notes", "R4 arg0=task-123"],
   "template folder assign": ["R3 --folder-id=fld-456", "R3 --template-id=tmpl-123"],
   "template folder create": ["R3 --parent-id=fld-123"],
@@ -328,7 +326,7 @@ export const HELP_TRUTH_LEDGER: Readonly<Record<string, readonly string[]>> = {
  * The gate refuses a scan that produces more. Lowering it as defects are fixed
  * is the ratchet; raising it is the visible cost of writing a new defect down.
  */
-export const LEDGER_CEILING = 297;
+export const LEDGER_CEILING = 291;
 
 /**
  * The DENOMINATOR: how many namespaces the CLI registers, as measured.
@@ -394,6 +392,12 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "conversation",
   "customer",
   "known-issues",
+  // `model list` was the namespace's only entry and its only leaf. It gained a
+  // Notes block explaining that the listing carries TWO kinds of row — a
+  // platform model, selected by `modelId` + `provider`, and an organization's
+  // own endpoint, selected by the row's `id` through `--custom-model-id` and by
+  // neither of the strings it displays (NEX-3858). That closed `R0-no-notes`.
+  "model",
   "prompt-assistant",
   "role",
   "tracing",

@@ -29,6 +29,29 @@ export interface ActionPolicy {
 export interface ParameterPolicy {
   enabled: boolean;
   value?: string;
+  /** What a consumer's value for this parameter is allowed to be. */
+  constraint?: CardVariableConstraint;
+}
+
+/**
+ * The bound an access card puts on a value a consumer supplies.
+ *
+ * This is a SECURITY CONTROL, not a hint: it is the card's statement of what a
+ * caller may put in a variable or a policy parameter, and the server both stores
+ * and returns it. It was absent from this package entirely — on `CardVariable`
+ * AND on `ParameterPolicy` — so the constraint could be set through the CLI's
+ * `--body` path and was unreadable from every typed consumer of the SDK, in both
+ * directions (NEX-3867).
+ */
+export interface CardVariableConstraint {
+  /** Regular expression the value must match. */
+  pattern?: string;
+  /** Closed set of permitted values. */
+  enum?: string[];
+  /** Maximum length of the value. */
+  maxLength?: number;
+  /** Named format the value must parse as. */
+  format?: "uuid" | "email" | "uri" | "date-time" | "e164";
 }
 
 export interface CardVariable {
@@ -37,6 +60,8 @@ export interface CardVariable {
   type: "string" | "number" | "boolean" | "object" | "array";
   description?: string;
   required?: boolean;
+  /** What a consumer's value for this variable is allowed to be. */
+  constraint?: CardVariableConstraint;
 }
 
 // ============================================================================

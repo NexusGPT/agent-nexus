@@ -8,6 +8,7 @@ import { resolveDashboardUrl } from "../config";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { color, isJsonMode, printRecord, printSuccess, printTable } from "../output";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   CHANNEL_CONNECTION_CREATE__BODY_REGION,
   CHANNEL_CONNECTION_CREATE_CONTRACT,
@@ -882,11 +883,9 @@ Notes:
       }
     });
 
-  waTemplate
-    .command("delete")
+  confirmable(waTemplate.command("delete"))
     .description("Delete a WhatsApp template — permanent, and Meta approval dies with it")
     .argument("<templateId>", "Template ID (Twilio SID)")
-    .option("--yes", "Skip confirmation prompt")
     .addHelpText(
       "after",
       `
@@ -904,25 +903,12 @@ Notes:
   Run "nexus deployment template list <depId>" across your WhatsApp
   deployments first and detach it from each.
 
-  The prompt only appears on a TTY — piped or in CI it deletes without one.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (templateId, opts) => {
       try {
-        if (!opts.yes && process.stdin.isTTY) {
-          const readline = await import("node:readline");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await new Promise<string>((resolve) => {
-            rl.question(`Delete template ${templateId}? (y/N) `, resolve);
-          });
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Cancelled.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete template ${templateId}?`, opts))) return;
         const client = createClient(program.optsWithGlobals());
         await client.channels.deleteWhatsAppTemplate(templateId);
         printSuccess("WhatsApp template deleted.", { id: templateId });

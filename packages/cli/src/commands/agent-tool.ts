@@ -10,6 +10,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   TOOL_ATTACH_COLLECTION_CONTRACT,
   TOOL_CREATE__BODY_TYPE,
@@ -273,12 +274,10 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  const remove = agentTool
-    .command("delete")
+  const remove = confirmable(agentTool.command("delete"))
     .description("Remove a tool from an agent")
     .argument("<agent-id>", "Agent ID")
     .argument("<tool-id>", "Tool config ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -287,7 +286,8 @@ Examples:
   $ nexus agent-tool delete agt-123 tool-456 --yes
 
 Notes:
-  Prompts for confirmation in TTY. Use --yes in scripts/CI.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   Answers 200 with {id, deleted: true}, not 204.
   IT REMOVES THE CONFIG, NOT THE TARGET. The workflow, task, collection or
   credential the config pointed at survives untouched and stays attached to
@@ -298,21 +298,13 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          // Name BOTH ids. The route is `agents/<agentId>/tools/<toolId>` and
-          // the agent is what decides which tool the server may touch, so a
-          // prompt that echoes only the tool cannot show a mismatch back to the
-          // operator — the one place a wrong pairing is still catchable by a
-          // human before the write happens.
-          const answer = await rl.question(`Remove tool ${toolId} from agent ${agentId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        // Name BOTH ids. The route is `agents/<agentId>/tools/<toolId>` and
+        // the agent is what decides which tool the server may touch, so a
+        // prompt that echoes only the tool cannot show a mismatch back to the
+        // operator — the one place a wrong pairing is still catchable by a
+        // human before the write happens.
+        if (!(await confirmDestructive(`Remove tool ${toolId} from agent ${agentId}?`, opts)))
+          return;
 
         await client.agents.tools.delete(agentId, toolId);
         printSuccess("Tool removed from agent.", { id: toolId });

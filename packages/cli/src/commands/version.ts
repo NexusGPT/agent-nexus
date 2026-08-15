@@ -6,6 +6,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { absent, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { VERSION_LIST__PARAMS_TYPE, VERSION_LIST_CONTRACT } from "./version.contract.generated";
 
@@ -253,12 +254,10 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  version
-    .command("delete")
+  confirmable(version.command("delete"))
     .description("Delete a prompt version")
     .argument("<agent-id>", "Agent ID")
     .argument("<version-id>", "Version ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -279,23 +278,14 @@ Notes:
     $ nexus version list <agent-id>            # find the PROD=yes row
     $ nexus version publish <agent-id> <other-version-id>
     $ nexus version delete <agent-id> <old-version-id>
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it deletes immediately.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (agentId: string, versionId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete version ${versionId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete version ${versionId}?`, opts))) return;
 
         await client.agents.versions.delete(agentId, versionId);
         printSuccess("Version deleted.", { id: versionId });
@@ -305,12 +295,10 @@ Notes:
     });
 
   // ── restore ───────────────────────────────────────────────────────────
-  version
-    .command("restore")
+  confirmable(version.command("restore"))
     .description("Restore the agent's DRAFT prompt to a previous version — this does not publish")
     .argument("<agent-id>", "Agent ID")
     .argument("<version-id>", "Version ID to restore")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -329,26 +317,21 @@ Notes:
   current draft matters.
   IT CREATES NO VERSION ROW either, so "version list" looks identical
   afterwards. The only way to see that it ran is to read the agent's prompt.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script there is no confirmation and
-  no --yes is needed.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   Verify with "nexus agent get agt-123" and read the prompt.`
     )
     .action(async (agentId: string, versionId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(
-            `Restore agent ${agentId} to version ${versionId}? This will overwrite the current prompt. [y/N] `
-          );
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (
+          !(await confirmDestructive(
+            `Restore agent ${agentId} to version ${versionId}? This will overwrite the current prompt.`,
+            opts
+          ))
+        )
+          return;
 
         const result = await client.agents.versions.restore(agentId, versionId);
         printSuccess("Version restored.", { agentId, versionId, ...result });

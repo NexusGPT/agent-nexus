@@ -178,7 +178,7 @@ export interface HelpSuggestion {
  * number. That is the friction, and it is the feature — a figure nobody has to
  * update is a figure nobody can trust.
  */
-export const PLACED_COUNT = 169;
+export const PLACED_COUNT = 177;
 
 /**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
@@ -756,7 +756,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "custom-model-02",
     target: "custom-model list",
     summary: "List custom models",
-    state: "open"
+    state: "placed",
+    leaf: "custom-model list",
+    probe: "THIS COMMAND SEES A DISABLED MODEL"
   },
   {
     id: "custom-model-03",
@@ -770,19 +772,25 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "custom-model-04",
     target: "custom-model get",
     summary: "Say the apiKey is write-only and never returned.",
-    state: "open"
+    state: "placed",
+    leaf: "custom-model get",
+    probe: "THE apiKey IS WRITE-ONLY AND NEVER COMES BACK"
   },
   {
     id: "custom-model-05",
     target: "custom-model create",
     summary: "Say whether the endpoint is validated or contacted at create time.",
-    state: "open"
+    state: "placed",
+    leaf: "custom-model create",
+    probe: "A 201 MEANS STORED, NEVER"
   },
   {
     id: "custom-model-06",
     target: "custom-model list",
     summary: "Point at where a custom model becomes selectable once created.",
-    state: "open"
+    state: "placed",
+    leaf: "custom-model list",
+    probe: "THE ID COLUMN IS WHAT MAKES A MODEL SELECTABLE"
   },
   {
     id: "customer-01",
@@ -1453,21 +1461,27 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "task-eval judge",
     summary:
       "say the body is OPTIONAL (a bodiless judge applies a default judge and still scores), and cross-reference `task-eval judges` for the valid judgeModel…",
-    state: "open"
+    state: "placed",
+    leaf: "task-eval judge",
+    probe: "A BODILESS JUDGE STILL SCORES"
   },
   {
     id: "task-eval-03",
     target: "task-eval results",
     summary:
       "document the row shape — status (execution) vs judgeStatus (PENDING until judged), score, judgeComment, executionError, judgeError.",
-    state: "open"
+    state: "placed",
+    leaf: "task-eval results",
+    probe: "HIDES THE ONE THAT EXPLAINS A BLANK SCORE"
   },
   {
     id: "task-eval-04",
     target: "task-eval session get / list",
     summary:
       "document the summary fields (status, datasetRowCount, completedRows, failedRows, judgedRows, averageScore) and warn that `session list` does not popu…",
-    state: "open"
+    state: "placed",
+    leaf: "task-eval session get",
+    probe: "ABSENT from a list row rather than null"
   },
   {
     id: "task-eval-05",
@@ -1483,7 +1497,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "task-eval dataset add",
     summary:
       "document the accepted row fields (input, expectedOutput, metadata) and that input is mandatory.",
-    state: "open"
+    state: "placed",
+    leaf: "task-eval dataset add",
+    probe: "ONLY input IS REQUIRED"
   },
   {
     id: "template-01",
@@ -2047,11 +2063,18 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
   },
   {
     id: "workspace-08",
+    // The warning became a BEHAVIOUR (NEX-3872): the mount reads the storage
+    // kind and mounts a CODE workspace read-only instead of mounting it
+    // read-write and letting the gateway refuse each save. The old probe —
+    // "A CODE WORKSPACE MOUNTS READ-WRITE AND THEN REFUSES EVERY WRITE" —
+    // documented the defect, so it had to go when the defect did. This row
+    // stays placed because the help must still say a CODE workspace cannot be
+    // written to; only the sentence changed.
     target: "workspace mount",
-    summary: "warn that a CODE workspace is a read-only projection",
+    summary: "say that a CODE workspace is mounted read-only and cannot be written",
     state: "placed",
     leaf: "workspace mount",
-    probe: "A CODE WORKSPACE MOUNTS READ-WRITE AND THEN REFUSES EVERY WRITE"
+    probe: "A CODE WORKSPACE IS MOUNTED READ-ONLY FOR YOU"
   },
   {
     id: "workspace-09",
@@ -2079,6 +2102,7 @@ export const REVIEWED_NAMESPACES: readonly string[] = [
   "analytics",
   "collection",
   "cross-cutting",
+  "custom-model",
   "customer",
   "deployment",
   "docs",
@@ -2087,6 +2111,7 @@ export const REVIEWED_NAMESPACES: readonly string[] = [
   "folder",
   "permissions",
   "role",
+  "task-eval",
   "ticket",
   "tool",
   "tracing",

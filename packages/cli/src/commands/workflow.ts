@@ -17,6 +17,7 @@ import {
   printSuccess
 } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
 import { parseSampleConfig } from "../util/sample-config";
@@ -258,11 +259,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  workflow
-    .command("delete")
+  confirmable(workflow.command("delete"))
     .description("Delete a workflow")
     .argument("<id>", "Workflow ID")
-    .option("--yes", "Skip confirmation")
     .option("--dry-run", "Preview without deleting")
     .addHelpText(
       "after",
@@ -285,9 +284,9 @@ Notes:
   The API answers 200 with {id, status: "ARCHIVED", archivedAt}; this command
   prints only the id, so read the archive back with "workflow get" if you need
   the timestamp.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it archives immediately. --dry-run only
-  reads the workflow back and prints its name.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
+  --dry-run only reads the workflow back and prints its name.
   It frees the name: uniqueness ignores archived workflows.
   It also releases any AI task the workflow was holding: an archived workflow no
   longer counts as a dependent, so a "task delete" that 409'd now succeeds.`
@@ -302,19 +301,8 @@ Notes:
           return;
         }
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(`Delete workflow ${id}? This cannot be undone. [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete workflow ${id}? This cannot be undone.`, opts)))
+          return;
 
         await client.workflows.delete(id);
         printSuccess("Workflow deleted.", { id });

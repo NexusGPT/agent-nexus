@@ -2,6 +2,21 @@
 // Workspace (response shapes)
 // ============================================================================
 
+/**
+ * What a workspace is backed by.
+ *
+ * `DRIVE` is the ordinary read-write file drive. `CODE` is a READ-ONLY
+ * projection of a git project: the repository is the source of truth and the
+ * server refuses every mutating verb against it, on the REST API and on the
+ * WebDAV mount alike.
+ *
+ * This module is type-only (`types/index.ts` is `export type *`), so the
+ * read-only CLASSIFICATION is not here — a consumer that needs to predict the
+ * server's refusal keys its own exhaustive table on this union, and the CLI's
+ * `WORKSPACE_KIND_IS_READ_ONLY` is the worked example.
+ */
+export type WorkspaceKind = "DRIVE" | "CODE";
+
 /** A workspace — a shared, org-scoped cloud file drive. */
 export interface Workspace {
   /** Unique workspace UUID. */
@@ -15,8 +30,21 @@ export interface Workspace {
    * shared workspace and an org-owned one can share a slug; when they do, the
    * bare slug resolves to the org-owned copy — use `id` (or `nexus workspace
    * mount --shared`) to reach the shared one.
+   *
+   * 🚨 OWNERSHIP, NEVER WRITABILITY. A shared workspace is admin-managed and
+   * read+write for every org; `kind` is the read-only axis and the two are
+   * independent.
    */
   isShared: boolean;
+  /**
+   * What the workspace is backed by. `CODE` is read-only — see `WorkspaceKind`.
+   * On the wire since the field was added to `WorkspaceItemSchema`; it was
+   * absent from this interface for long enough that `nexus workspace mount`
+   * could not see it and mounted a CODE workspace read-write.
+   */
+  kind: WorkspaceKind;
+  /** The git project this workspace projects. Non-null exactly when `kind` is `CODE`. */
+  vibeGitProjectId: string | null;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   /** ISO 8601 last-updated timestamp. */

@@ -6,6 +6,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   FOLDER_ASSIGN_AGENT_CONTRACT,
   FOLDER_CREATE_CONTRACT,
@@ -172,11 +173,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  const remove = folder
-    .command("delete")
+  const remove = confirmable(folder.command("delete"))
     .description("Delete a folder — agents are unassigned, child folders are promoted to root")
     .argument("<id>", "Folder ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -193,8 +192,8 @@ Notes:
   null, so a nested tree is FLATTENED rather than removed, and nothing in the
   response or the confirmation prompt mentions them. Run "nexus folder list"
   first and read the PARENT column.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it deletes immediately.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   There is no undo. Verify with "nexus folder list": the folder is gone and its
   children now show a blank PARENT.`
     )
@@ -202,21 +201,8 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(
-            `Delete folder ${id}? Agents will be unassigned. [y/N] `
-          );
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete folder ${id}? Agents will be unassigned.`, opts)))
+          return;
 
         await client.folders.delete(id);
         printSuccess("Folder deleted.", { id });

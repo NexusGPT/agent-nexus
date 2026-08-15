@@ -7,6 +7,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   DEFAULT_PRESET_REPO,
   extractPresetFromTarball,
@@ -301,12 +302,10 @@ Notes:
     );
 
   // ── delete ──────────────────────────────────────────────────────────────
-  skill
-    .command("delete")
+  confirmable(skill.command("delete"))
     .description("Remove a skill from an agent")
     .argument("<agent-id>", "Agent ID")
     .argument("<skill-id>", "Skill ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -318,8 +317,8 @@ Notes:
   THE FILES GO WITH IT. There is no archive and no undo — re-attach means
   uploading the bundle again, so run 'nexus agent-skill download' first if the
   ZIP is not also kept somewhere else.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it deletes immediately.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   This is one of the reads-stay-open routes: it works on an agent that has since
   been moved off a code-interpreter model.`
     )
@@ -327,21 +326,13 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(
-            `Remove skill ${skillId} from agent ${agentId}? This deletes its files. [y/N] `
-          );
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (
+          !(await confirmDestructive(
+            `Remove skill ${skillId} from agent ${agentId}? This deletes its files.`,
+            opts
+          ))
+        )
+          return;
 
         await client.agents.skills.delete(agentId, skillId);
         printSuccess("Skill removed.", { id: skillId });

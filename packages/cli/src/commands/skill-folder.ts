@@ -10,6 +10,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { absent, color, isJsonMode, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   SKILL_FOLDER_ASSIGN_CONTRACT,
   SKILL_FOLDER_CREATE_CONTRACT,
@@ -122,24 +123,13 @@ Notes:
       }
     });
 
-  const remove = skillFolder
-    .command("delete")
+  const remove = confirmable(skillFolder.command("delete"))
     .description("Delete a skill folder")
     .argument("<id>", "Folder ID")
-    .option("--yes", "Skip confirmation")
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete skill folder ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete skill folder ${id}?`, opts))) return;
         await client.skillFolders.delete(id);
         printSuccess("Skill folder deleted.", { id });
       } catch (err) {

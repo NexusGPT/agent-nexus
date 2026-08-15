@@ -4,6 +4,7 @@ import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess, printTable } from "../output";
+import { promptLine, promptStream } from "../util/confirm";
 import { getPaginationParams } from "../util/pagination";
 import {
   PHONE_NUMBER_SEARCH_AVAILABLE__PARAMS_TYPE,
@@ -26,9 +27,10 @@ import {
  *
  * The shape is `workspace delete`'s, deliberately, including the part that
  * matters most: WITHOUT A TTY AND WITHOUT `--yes` THIS REFUSES rather than
- * proceeding. `deployment delete` takes the other branch — no TTY means no
- * prompt and the delete simply happens — which is survivable for a row and is
- * not survivable for a number a customer is receiving calls on.
+ * proceeding. Every destructive verb in this CLI now takes that branch; these
+ * two were among the first, and the reason is sharper here than anywhere else —
+ * an unasked delete is survivable for a row and is not survivable for a number
+ * a customer is receiving calls on.
  *
  * @returns true when the caller confirmed and the command should proceed.
  */
@@ -41,7 +43,7 @@ async function confirmIrreversible(yes: boolean | undefined, question: string): 
   }
 
   const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
   // `finally`, not a bare close after the await: an interface left open holds
   // stdin and the process never exits. The sibling confirmations in this
   // package close on the happy path only, so a stdin error there hangs the CLI
@@ -55,7 +57,7 @@ async function confirmIrreversible(yes: boolean | undefined, question: string): 
   }
 
   if (answer.toLowerCase() !== "y") {
-    console.log("Aborted.");
+    promptLine("Aborted.");
     return false;
   }
   return true;
@@ -186,9 +188,8 @@ Notes:
   answer when stdin is not a terminal, so the command refuses rather than
   proceeding: you get "use --yes to confirm in non-interactive mode" and no
   number. A pipeline that ignores the exit code carries on as though it had
-  bought one. This is the OPPOSITE of the delete commands elsewhere in this CLI,
-  which act unprompted in a script — do not carry that habit here, and do not
-  reach for --yes until you have read the --price note below.
+  bought one. Every destructive command in this CLI refuses the same way — do
+  not reach for --yes until you have read the --price note below.
 
   THE GATE READS STDIN, NOT STDOUT. Redirecting output alone still prompts;
   it is a piped or absent stdin that triggers the refusal.
@@ -368,8 +369,7 @@ Notes:
   stdin gets "use --yes to confirm in non-interactive mode" instead of a prompt,
   so a cleanup job that never checks the exit code leaves every number in place
   and still bills. The gate reads STDIN — redirecting output alone still
-  prompts. Note this is the opposite of the delete commands elsewhere in this
-  CLI, which act unprompted in a script.`
+  prompts.`
     )
     .action(async (id: string, opts) => {
       try {

@@ -25,6 +25,7 @@ import {
 } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { getPaginationParams } from "../util/pagination";
 import {
   DEPLOYMENT_CREATE__BODY_TYPE,
@@ -379,11 +380,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  deployment
-    .command("delete")
+  confirmable(deployment.command("delete"))
     .description("Delete a deployment")
     .argument("<id>", "Deployment ID")
-    .option("--yes", "Skip confirmation")
     .option("--dry-run", "Preview without deleting")
     .addHelpText(
       "after",
@@ -394,9 +393,9 @@ Examples:
   $ nexus deployment delete dep-123 --dry-run
 
 Notes:
-  THE PROMPT ONLY APPEARS ON A TTY. Piped or in CI there is no prompt and no
-  --yes is needed — the delete simply happens. Pass --dry-run first if the id
-  came from anywhere but your own eyes.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
+  Pass --dry-run first if the id came from anywhere but your own eyes.
 
   --dry-run IGNORES --json AND PRINTS PROSE. The line is
   'DRY RUN: Would delete deployment "<name>" (<id>)' on stdout, on every
@@ -427,21 +426,8 @@ Notes:
           return;
         }
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(
-            `Delete deployment ${id}? This cannot be undone. [y/N] `
-          );
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete deployment ${id}? This cannot be undone.`, opts)))
+          return;
 
         await client.deployments.delete(id);
         printSuccess("Deployment deleted.", { id });
@@ -742,11 +728,9 @@ Notes:
     });
 
   // ── folder delete ───────────────────────────────────────────────────
-  depFolder
-    .command("delete")
+  confirmable(depFolder.command("delete"))
     .description("Delete a deployment folder")
     .argument("<id>", "Folder ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -761,22 +745,14 @@ Notes:
   you need that list.
   Child folders are NOT deleted: they lose their parent and reappear at the
   top level, keeping the deployments filed in them.
-  The prompt only appears on a TTY — piped or in CI it deletes without one.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete deployment folder ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete deployment folder ${id}?`, opts))) return;
 
         await client.deploymentFolders.delete(id);
         printSuccess("Deployment folder deleted.", { id });
@@ -1112,12 +1088,10 @@ Notes:
       }
     });
 
-  depTemplate
-    .command("detach")
+  confirmable(depTemplate.command("detach"))
     .description("Detach a template from a deployment")
     .argument("<deploymentId>", "Deployment ID")
     .argument("<templateId>", "Template ID (Twilio SID)")
-    .option("--yes", "Skip confirmation prompt")
     .addHelpText(
       "after",
       `
@@ -1132,28 +1106,18 @@ Notes:
   that removes it for good.
   The agent stops being able to send it here immediately.
   Detaching a template that is not attached is a 404.
-  The prompt only appears on a TTY — piped or in CI it detaches without one.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (deploymentId: string, templateId: string, opts) => {
       try {
-        if (!opts.yes && process.stdin.isTTY) {
-          const readline = await import("node:readline");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await new Promise<string>((resolve) => {
-            rl.question(
-              `Detach template ${templateId} from deployment ${deploymentId}? (y/N) `,
-              resolve
-            );
-          });
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Cancelled.");
-            return;
-          }
-        }
+        if (
+          !(await confirmDestructive(
+            `Detach template ${templateId} from deployment ${deploymentId}?`,
+            opts
+          ))
+        )
+          return;
         const client = createClient(program.optsWithGlobals());
         await client.deployments.detachDeploymentTemplate(deploymentId, templateId);
         printSuccess("Template detached from deployment.", { templateId });

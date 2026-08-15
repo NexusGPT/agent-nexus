@@ -15,6 +15,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { parseMetadataPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
@@ -452,11 +453,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  document
-    .command("delete")
+  confirmable(document.command("delete"))
     .description("Delete a document")
     .argument("<id>", "Document ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -481,23 +480,14 @@ Notes:
 
     $ nexus document delete <folder-id> --yes --timeout 180
 
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
-  in CI there is no prompt and no --yes is needed: the delete just happens.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete document ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete document ${id}?`, opts))) return;
 
         await client.documents.delete(id);
         printSuccess("Document deleted.", { id });

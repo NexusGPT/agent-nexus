@@ -7,6 +7,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { isJsonMode, printSuccess } from "../output";
 import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   CONVERSATION_EVAL_BATCH_LIST__PARAMS_STATUS,
@@ -246,28 +247,28 @@ Notes:
       }
     });
 
-  run
-    .command("delete")
+  confirmable(run.command("delete"))
     .description("Delete a run")
     .argument("<run-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval run delete <run-uuid>
+  $ nexus agent-eval run delete <run-uuid> --yes
 
 Notes:
-  THERE IS NO CONFIRMATION PROMPT ANYWHERE IN THIS NAMESPACE. The delete happens
-  the moment you press enter, in a TTY as much as in CI, and --yes changes nothing
-  — unlike "nexus agent delete" and "nexus workflow delete", which do prompt.
-  It takes the run's transcript and scores with it. Export anything you need with
-  "run transcript" / "run results" first.
+  IT TAKES THE TRANSCRIPT AND THE SCORES WITH IT. Every turn of the conversation,
+  every judge verdict and the summary go in one call, and there is no undo and no
+  export. Run "run transcript" and "run results" first if any of it matters.
   A run used as another run's baseline should not be deleted: the comparison has
-  nothing left to read.`
+  nothing left to read.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string) => {
+    .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete run ${id}?`, opts))) return;
         await http().request("DELETE", `/agent-evals/runs/${id}`);
         printSuccess(`Deleted run ${id}`);
       } catch (err) {
@@ -718,26 +719,29 @@ Notes:
       }
     });
 
-  template
-    .command("delete")
+  confirmable(template.command("delete"))
     .description("Delete an agent template (GLOBAL → 403)")
     .argument("<template-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval template delete <template-uuid>
+  $ nexus agent-eval template delete <template-uuid> --yes
 
 Notes:
-  NO CONFIRMATION PROMPT — it deletes immediately, and --yes changes nothing.
   A GLOBAL seed cannot be deleted (403).
   IT REMOVES THE TEMPLATE FROM EVERY AGENT IT WAS ATTACHED TO, since they all share
   the one row. Detach first if you only meant to remove it from one.
-  Runs already created keep working: their config is a frozen snapshot.`
+  THE RUBRIC AND THE PROMPTS GO WITH IT and are not recoverable. "template get
+  <id> --json" is the only export.
+  Runs already created keep working: their config is a frozen snapshot.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string) => {
+    .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete template ${id}?`, opts))) return;
         await http().request("DELETE", `/agent-evals/templates/${id}`);
         printSuccess(`Deleted template ${id}`);
       } catch (err) {
@@ -804,29 +808,33 @@ Notes:
       }
     });
 
-  template
-    .command("detach")
+  confirmable(template.command("detach"))
     .description("Detach a template from an agent")
     .argument("<template-id>")
     .argument("<agent-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval template detach <template-uuid> <agent-uuid>
+  $ nexus agent-eval template detach <template-uuid> <agent-uuid> --yes
 
 Notes:
   Takes the template away from ONE agent and leaves it intact for the others —
   the opposite of "template delete".
+  THE AGENT STOPS BEING EVALUATED BY IT, and any trigger or schedule that names
+  this pair stops producing scores. Re-attach with "template attach".
   THE OWNER'S OWN LINK CANNOT BE DETACHED: that link is structural, so removing the
   owner's access means deleting the template. Refused with a message saying so.
-  No confirmation prompt; --yes changes nothing.
   A run whose config already names this template is unaffected — configs are frozen
-  at create.`
+  at create.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string, agentId: string) => {
+    .action(async (id: string, agentId: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Detach template ${id} from agent ${agentId}?`, opts)))
+          return;
         await http().request("DELETE", `/agent-evals/templates/${id}/agents/${agentId}`);
         printSuccess(`Detached template ${id} from agent ${agentId}`);
       } catch (err) {
@@ -941,25 +949,29 @@ Notes:
       }
     });
 
-  schedule
-    .command("delete")
+  confirmable(schedule.command("delete"))
     .description("Delete a schedule")
     .argument("<schedule-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval schedule delete <schedule-uuid>
+  $ nexus agent-eval schedule delete <schedule-uuid> --yes
 
 Notes:
-  NO CONFIRMATION PROMPT — it deletes immediately, and --yes changes nothing.
+  THE RECIPE GOES WITH THE TIMER. The whole runConfig — tester, judges, summary —
+  lives on the schedule row and there is no undo, so recurring evaluation stops
+  and rebuilding it means writing the config again.
   The runs it already produced SURVIVE; only the timer and its recipe go.
   If you might want the recipe back, "schedule pause" keeps it and stops the
-  spending just as effectively.`
+  spending just as effectively.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string) => {
+    .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete schedule ${id}?`, opts))) return;
         await http().request("DELETE", `/agent-evals/schedules/${id}`);
         printSuccess(`Deleted schedule ${id}`);
       } catch (err) {
@@ -1096,25 +1108,28 @@ Notes:
       }
     });
 
-  trigger
-    .command("delete")
+  confirmable(trigger.command("delete"))
     .description("Delete a trigger")
     .argument("<trigger-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval trigger delete <trigger-uuid>
+  $ nexus agent-eval trigger delete <trigger-uuid> --yes
 
 Notes:
-  NO CONFIRMATION PROMPT — it deletes immediately, and --yes changes nothing.
-  This is the hard stop for automatic evaluation. To stop it reversibly, upsert the
-  same config with enabled: false instead.
-  Runs the trigger already created survive; only the automation goes.`
+  THIS IS THE HARD STOP FOR AUTOMATIC EVALUATION, and it is silent: conversations
+  keep arriving and simply stop being scored, with nothing reporting the gap. Its
+  sampling rate and template pins go with the row.
+  To stop it reversibly, upsert the same config with enabled: false instead.
+  Runs the trigger already created survive; only the automation goes.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string) => {
+    .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete trigger ${id}?`, opts))) return;
         await http().request("DELETE", `/agent-evals/triggers/${id}`);
         printSuccess(`Deleted trigger ${id}`);
       } catch (err) {
@@ -1185,26 +1200,29 @@ Notes:
       }
     });
 
-  webhook
-    .command("delete")
+  confirmable(webhook.command("delete"))
     .description("Delete a webhook")
     .argument("<webhook-id>")
-    .option("--yes", "Accepted for symmetry — there is no prompt to skip")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus agent-eval webhook delete <webhook-uuid>
+  $ nexus agent-eval webhook delete <webhook-uuid> --yes
 
 Notes:
-  NO CONFIRMATION PROMPT — it deletes immediately, and --yes changes nothing.
   RUNS, BATCHES AND SCHEDULES STILL NAMING IT KEEP RUNNING and simply stop
   notifying, so this is a silent way to lose eval alerts. Check what points at it
   before deleting.
-  To stop delivery reversibly, upsert the same webhook with isActive: false.`
+  THE SIGNING SECRET GOES WITH THE ROW and is redacted everywhere, so recreating
+  this webhook means issuing a new secret and updating the receiver.
+  To stop delivery reversibly, upsert the same webhook with isActive: false.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
-    .action(async (id: string) => {
+    .action(async (id: string, opts) => {
       try {
+        if (!(await confirmDestructive(`Delete webhook ${id}?`, opts))) return;
         await http().request("DELETE", `/agent-evals/webhooks/${id}`);
         printSuccess(`Deleted webhook ${id}`);
       } catch (err) {

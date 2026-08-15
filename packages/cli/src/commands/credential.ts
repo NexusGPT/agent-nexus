@@ -6,6 +6,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   CREDENTIAL_LIST__PARAMS_SORT_BY,
@@ -158,20 +159,28 @@ Examples:
 Notes:
   ONLY name AND description ARE WRITABLE, and WHICH OF THE TWO depends on the
   credential's SOURCE — the field "credential get" prints and "credential list
-  --source" filters on. A credential is a pointer into one of three tables and
-  only one of them has both columns:
+  --source" filters on. A credential is a pointer into one of three tables, and
+  ALL THREE now store both fields:
     api_key_connection   name AND description
-    tool_credential      name only
-    oauth_connection     NEITHER — its name is the connected account's, kept in
-                         step with the provider, and there is no description
-  A FIELD THE SOURCE CANNOT STORE IS REFUSED: 400 CREDENTIAL_FIELD_NOT_WRITABLE,
-  naming the fields, and nothing at all is changed. This used to answer 200
-  having written nothing, so a rename that never happened was indistinguishable
-  from one that did.
+    tool_credential      name AND description
+    oauth_connection     name AND description
+  ON AN OAUTH CREDENTIAL, --name SETS YOUR OWN LABEL AND DOES NOT TOUCH THE
+  ACCOUNT NAME. Those are two different values: the account name comes from the
+  provider and is refreshed on every reconnect, so it is what still identifies
+  WHICH account this is after you rename the credential. "credential get" keeps
+  showing it as the account identifier, and a credential you never named reports
+  the account name as its name.
+  name CANNOT BE CLEARED and description CAN. name is a non-empty string on the
+  wire — '"name": null' and '"name": ""' are both refused — so a label can be
+  replaced but not removed. '"description": null' does clear the description.
+  A FIELD A SOURCE CANNOT STORE IS STILL REFUSED — 400
+  CREDENTIAL_FIELD_NOT_WRITABLE, naming the fields, nothing changed. No source
+  refuses either of these two today; the refusal is what a future source with
+  fewer columns will get. This surface used to answer 200 having written nothing,
+  so a rename that never happened was indistinguishable from one that did.
   RE-SENDING A VALUE THAT IS ALREADY SET IS NOT REFUSED, on any source. It asks
   for no change, so '"description": null' on a credential that has no
-  description is accepted — and a --name in the same request still applies where
-  the source can store it.
+  description is accepted.
   Any key other than those two is silently DROPPED by the contract — a 200 comes
   back having applied nothing you sent.
   THIS CANNOT REPAIR A BROKEN CREDENTIAL. There is no token field here, so a
@@ -202,15 +211,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  credential
-    .command("delete")
+  confirmable(credential.command("delete"))
     .description("Delete a credential")
     .argument("<id>", "Credential ID")
-    // The blast radius below is why this flag exists. Its far less destructive
-    // sibling `tool delete-credential` has always confirmed; this command fired
-    // on submit, so the one call that cascades over every access card on the
-    // credential was the one call nobody was asked about.
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -240,35 +243,20 @@ Notes:
   Pipedream refuses you get 502 and NOTHING was deleted — the credential still
   works. Retry; the retry is idempotent.
 
-  Confirmation is prompted only on a TTY. Piped or scripted, this deletes
-  immediately with or without --yes.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-          let answer: string;
-          try {
-            answer = await rl.question(
-              `Delete credential ${id}? This also deletes its access cards. [y/N] `
-            );
-          } finally {
-            // In a `finally`, because an interface left open holds stdin
-            // readable and the process then never exits — a rejected prompt
-            // would present as a hang on the one command whose whole point is
-            // to be interruptible.
-            rl.close();
-          }
-
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (
+          !(await confirmDestructive(
+            `Delete credential ${id}? This also deletes its access cards.`,
+            opts
+          ))
+        )
+          return;
 
         await client.credentials.delete(id);
         printSuccess("Credential deleted.", { id });

@@ -113,6 +113,14 @@ export interface TaskModelTuning {
   geminiThinkingLevel?: string;
   /** Kimi reasoning effort. Its value set differs from OpenAI's — not interchangeable. */
   kimiReasoningEffort?: string;
+  /**
+   * Id of the custom model (BYOM) this task runs on, when one is attached.
+   *
+   * Not provider tuning — it SELECTS the endpoint, and it is read in preference
+   * to `modelName` / `modelProvider`, which stay populated as the platform
+   * fallback. Absent when the task runs a platform model.
+   */
+  customModelId?: string;
 }
 
 /** Full AI task detail (extends summary with schemas and model tuning). */
@@ -268,6 +276,15 @@ export interface CreateTaskBody {
   modelName: string;
   /** Model provider. */
   modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  /**
+   * Id of a custom model this organization owns (BYOM). An id that is not this
+   * organization's is a 404 on this call, never a 403.
+   *
+   * `modelName` / `modelProvider` stay REQUIRED beside it and are not
+   * redundant: they are the platform fallback, and a stored config missing
+   * either is discarded whole at inference — the custom model with it.
+   */
+  customModelId?: string;
   /** Prompt template. */
   prompt?: string;
   /** Temperature (0-2, default 0.7). */
@@ -299,6 +316,12 @@ export interface UpdateTaskBody {
   description?: string;
   modelName?: string;
   modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  /**
+   * Attach a custom model (BYOM). Sending `modelName` or `modelProvider`
+   * WITHOUT this field detaches the one already stored — that is how a task is
+   * put back on a platform model.
+   */
+  customModelId?: string;
   prompt?: string;
   temperature?: number;
   inputFormat?: "text" | "json";

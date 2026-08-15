@@ -7,6 +7,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   ASSET_DELETE_CONTRACT,
@@ -170,11 +171,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  const remove = asset
-    .command("delete")
+  const remove = confirmable(asset.command("delete"))
     .description("Delete an asset")
     .argument("<id>", "Asset ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -211,24 +210,14 @@ Notes:
   payload. A script that must not proceed on a still-serving URL has to READ
   objectRemoved — the exit code will not tell it.
 
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
-  in CI there is no prompt and no --yes is needed: the delete just happens. So
-  --yes is not the guard that protects a script — reading this note is.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete asset ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete asset ${id}?`, opts))) return;
 
         const result = await client.assets.delete(id);
 

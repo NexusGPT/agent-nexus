@@ -14,6 +14,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   TOOL_DISCOVERY_SEARCH__PARAMS_TYPE,
   TOOL_DISCOVERY_SEARCH_CONTRACT,
@@ -542,12 +543,10 @@ Examples:
     });
 
   // ── delete-credential ─────────────────────────────────────────────────
-  tool
-    .command("delete-credential")
+  confirmable(tool.command("delete-credential"))
     .description("Delete a tool credential")
     .argument("<tool-id>", "Tool ID")
     .argument("<credential-id>", "Credential ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -556,12 +555,8 @@ Examples:
   $ nexus tool delete-credential tool-123 cred-456 --yes
 
 Notes:
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL, so --yes is not the guard
-  a script needs. Piped, redirected or run in CI there is no prompt and no --yes
-  is required: the delete just happens. This is NOT the convention every
-  destructive command here follows — "phone-number buy" and "phone-number
-  release" REFUSE without --yes and exit 1 instead. Read each command's own
-  help; the flag name is the same and the behaviour is opposite.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
 
   IT REVOKES AT THE PROVIDER BEFORE IT DROPS THE ROW, AND A REFUSED REVOCATION
   ABORTS THE WHOLE DELETE. For a Pipedream-backed credential the connected
@@ -579,16 +574,7 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete credential ${credentialId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete credential ${credentialId}?`, opts))) return;
 
         await client.toolConnection.deleteCredential(toolId, credentialId);
         printSuccess("Credential deleted.", { toolId, credentialId });

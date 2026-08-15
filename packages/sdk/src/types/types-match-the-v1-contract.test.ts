@@ -1,3 +1,11 @@
+// The workspace schemas are reached through the package root, not through
+// `/public-api-v1`: `public/v1/contract/workspaces.ts` imports them from
+// `api/domains/workspaces/schemas` and `public/v1/index.ts` deliberately does
+// not re-export that module — 25 identifiers would otherwise collide with their
+// internal namesakes, which `contract-layering.test.ts` pins. Same schema
+// objects either way, so the gate below is against the exact symbols the
+// handler validates with.
+import { WorkspaceSummarySchema } from "@nexus/types";
 import {
   AgentFolderSchema,
   AgentModelSchema,
@@ -42,6 +50,7 @@ import {
   ListResourceAccessV1ResponseSchema,
   ListSkillFoldersResponseSchema,
   ListUserGroupsV1ResponseSchema,
+  ModelConfigSchema,
   ModelProviderSchema,
   ModelSummarySchema,
   PhoneNumberSummarySchema,
@@ -96,7 +105,7 @@ import { describe, expect, it } from "vitest";
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
 import type { ApiKeyConnection, ApiKeyService } from "./api-key-connections";
 import type { Asset, AssetDeleteResult } from "./assets";
-import type { AgentModel, DeleteResponse, ModelProvider } from "./common";
+import type { AgentModel, DeleteResponse, ModelConfig, ModelProvider } from "./common";
 import type {
   AssignDeploymentToFolderBody,
   AssignDeploymentToFolderResponse,
@@ -190,6 +199,7 @@ import type {
   UserGroupMemberBody,
   UserGroupResponse
 } from "./user-groups";
+import type { WorkspaceSummary } from "./workspaces";
 
 /**
  * THE DRIFT GATE between this package's hand-written types and the Zod contract
@@ -405,6 +415,23 @@ export type V1ContractAssertions = [
   // written, rather than failing loudly.
   Expect<Equals<ModelProvider, Sent<typeof ModelProviderSchema>>>,
 
+  // ── the model config ─────────────────────────────────────────────────────
+  //
+  // 🚨 THE ENUM ABOVE WAS GATED AND THE OBJECT AROUND IT WAS NOT, so every
+  // tuning field inside `ModelConfig` stayed a hand-copy nothing could check.
+  // Both halves had drifted by the time anyone looked (NEX-3869): the contract
+  // offered three Anthropic thinking levels against the platform's eight, and
+  // neither side declared `thinkingDisplay` — a field the handler has been
+  // putting on the wire the whole time.
+  //
+  // `Sent<>` rather than `Received<>` because this object is reached from three
+  // slots and two of them are REQUEST bodies (`CreateAgentParams`,
+  // `UpdateAgentParams`); the third is `AgentDetail.modelConfig`. The schema
+  // carries no transform and no default, so the two directions are the same
+  // type today — and pinning the SENT one is what keeps a `.default()` added
+  // later from silently widening what a caller is told they may omit.
+  Expect<Equals<ModelConfig, Sent<typeof ModelConfigSchema>>>,
+
   // ── the agent-model enum ─────────────────────────────────────────────────
   //
   // Same shape, same cause, one file over. `AgentModel` is this package's only
@@ -513,6 +540,27 @@ export type V1ContractAssertions = [
   // would compare this package's type to the inner half of whatever the descriptor
   // eventually wraps, which is how three reads passed while the SDK typed them
   // always-present.
+  // ── workspaces ── /public/v1/workspaces
+  //
+  // Gated after the pair separated in the direction that reaches a user. The
+  // contract's `WorkspaceItemSchema` carries `kind` (DRIVE / CODE) and
+  // `vibeGitProjectId`; this package's `Workspace` carried neither, so the
+  // field that says a workspace is a READ-ONLY projection was on the wire and
+  // invisible to every SDK consumer's compiler. `nexus workspace mount` is the
+  // one that paid: it annotated the list rows `{ id, slug, isShared }`, could
+  // not see `kind`, and mounted a CODE workspace read-write — after which the
+  // gateway answered 403 to every save and the drive reported "Permission
+  // denied" naming nothing.
+  //
+  // ⚠️ THE ELEMENT ONLY, AND THE ENVELOPE IS DELIBERATELY NOT GATED.
+  // `ListWorkspacesResponseSchema` is `{ workspaces: WorkspaceSummarySchema[] }`
+  // and is not exported from `@nexus/types`' root barrel — only the item and
+  // summary schemas are — so pinning it would mean widening a shared barrel for
+  // a test. The element is where the drift happened and where a field can go
+  // missing; the envelope is one key. Say so rather than leaving the reader to
+  // read the absence as coverage.
+  Expect<Equals<WorkspaceSummary, Received<typeof WorkspaceSummarySchema>>>,
+
   Expect<Equals<UpsertRoleMemberBody, Sent<typeof ZPublicApiV1.RolesUpsertMember.Body>>>,
   Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>
 ];
@@ -590,6 +638,7 @@ const GATED_PAIRS = [
   "ModelSummary[] ↔ ListModelsResponseSchema",
 
   "ModelProvider ↔ ModelProviderSchema",
+  "ModelConfig ↔ ModelConfigSchema",
   "AgentModel ↔ AgentModelSchema",
 
   "RolesListResponse ↔ RolesListV1ResponseSchema",
@@ -627,6 +676,8 @@ const GATED_PAIRS = [
   "RoleSystemPolicyBody ↔ RoleSystemPolicyV1BodySchema",
   "RoleSystemPolicy | null ↔ ZPublicApiV1.RolesGetSystemPolicy.Response",
   "RoleSystemPolicy ↔ ZPublicApiV1.RolesUpsertSystemPolicy.Response",
+
+  "WorkspaceSummary ↔ WorkspaceSummarySchema",
 
   "UpsertRoleMemberBody ↔ ZPublicApiV1.RolesUpsertMember.Body",
   "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response"
@@ -724,7 +775,26 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
  * Re-run the sweep rather than trusting these numbers — they move with the
  * contract, and a figure written down is a figure that stops being measured.
  */
-const GATED_PAIR_FLOOR = 98;
+// 🚨 THIS LINE IS SHARED MUTABLE STATE AND TWO BRANCHES BUMPING IT BOTH WROTE
+// `99`, SO GIT AUTO-MERGED THEM AS IDENTICAL TEXT AND LOST ONE OF THE TWO.
+// `NEX-3872` and `NEX-3869` each added ONE pair off a base of 98; the merged
+// list holds 100 and the merged constant said 99. Nothing conflicted — the
+// value is the same string on both sides, and only the REASONS above it did.
+// The `toBe(GATED_PAIR_FLOOR)` assertion below is what refuses it, which is the
+// design working; the resolution is to COUNT the list, never to take either
+// side's number.
+//
+// 98 → 99: `WorkspaceSummary ↔ WorkspaceSummarySchema` (NEX-3872). The pair
+// separated in the direction that reaches a user — `kind` and `vibeGitProjectId`
+// were on the wire and absent from this package's `Workspace`, so
+// `nexus workspace mount` could not see that a CODE workspace is read-only and
+// mounted it read-write.
+//
+// 99 → 100: `ModelConfig ↔ ModelConfigSchema` (NEX-3869). The provider ENUM
+// inside that object was gated and the object around it was not, so every
+// tuning field stayed a hand-copy nothing could check — and two of them had
+// already drifted from the contract.
+const GATED_PAIR_FLOOR = 100;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

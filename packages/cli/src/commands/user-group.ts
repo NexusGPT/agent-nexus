@@ -10,6 +10,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { parseIdList } from "../util/ids";
 import {
   USER_GROUPS_ADD_MEMBER_CONTRACT,
@@ -210,11 +211,9 @@ Examples:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  const remove = userGroup
-    .command("delete")
+  const remove = confirmable(userGroup.command("delete"))
     .description("Delete a group and every permission grant that named it")
     .argument("<id>", "User group UUID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -228,16 +227,7 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete user group ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete user group ${id}?`, opts))) return;
         const result = await client.userGroups.delete(id);
         printSuccess("User group deleted.", {
           id,

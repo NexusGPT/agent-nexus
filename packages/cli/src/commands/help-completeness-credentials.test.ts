@@ -111,14 +111,21 @@ describe("nexus credential --help", () => {
       // UpdateCredentialBodySchema is `{ name?, description? }` — a z.object, so
       // every other key the caller sends is stripped and answered with a 200.
       "ONLY name AND description ARE WRITABLE",
-      // …and that sentence alone was WRONG IN THE REASSURING DIRECTION: it is
-      // true of api_key_connection only. `ToolCredentials` has no `description`
-      // column and `OAuthConnection` has neither, so the two fields it named as
-      // safe were the two being dropped on 2 of the 3 sources (NEX-3854). The
-      // per-source table and the refusal are what make the first line honest.
+      // …and that sentence alone was once WRONG IN THE REASSURING DIRECTION: it
+      // was true of api_key_connection only, so the two fields it named as safe
+      // were the two being dropped on 2 of the 3 sources (NEX-3854). All three
+      // store both fields now (NEX-3863) and the per-source table stays in the
+      // help, because a reader has to be able to see that it is uniform rather
+      // than assume it.
       "api_key_connection",
       "tool_credential",
       "oauth_connection",
+      // 🔴 THE TRAP THAT SURVIVED THE FIX. On an OAuth credential `name` is the
+      // user's LABEL and `accountName` is the PROVIDER's identity, refreshed on
+      // every reconnect. A reader who thinks renaming changes which account this
+      // is, or that the account identifier will follow their label, is wrong in
+      // a way no error will ever tell them.
+      "DOES NOT TOUCH THE",
       "CREDENTIAL_FIELD_NOT_WRITABLE",
       // The no-op carve-out. Without it a reader concludes any `description` on
       // a tool credential is a 400, and the dashboard's own rename — which
@@ -169,12 +176,15 @@ describe("nexus credential delete --yes", () => {
     expect(deleteCredential).toHaveBeenCalledWith("cred-1");
   });
 
-  it("still deletes non-interactively — the prompt is a TTY affordance, not a gate", async () => {
-    // Piped stdout has no way to answer a question. Blocking there would hang
-    // every script that ever called this command, so the guard is TTY-only and
-    // the help says so.
-    const isTTY = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+  it("REFUSES non-interactively without --yes, and deletes nothing", async () => {
+    // Non-interactive is not consent. This command cascades over every access
+    // card on the credential, and the environment with nobody watching is the
+    // one the old gate waved through: `stdout.isTTY` false meant "skip the
+    // question", so `nexus credential delete <id> | tee log` destroyed the row
+    // with nobody asked. Refusing costs one retry; proceeding cost the data.
+    const stdinWasTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    const exitCodeBefore = process.exitCode;
 
     try {
       const program = new Command();
@@ -183,9 +193,11 @@ describe("nexus credential delete --yes", () => {
 
       await program.parseAsync(["node", "nexus", "credential", "delete", "cred-2"]);
 
-      expect(deleteCredential).toHaveBeenCalledWith("cred-2");
+      expect(deleteCredential).not.toHaveBeenCalled();
+      expect(process.exitCode).not.toBe(0);
     } finally {
-      Object.defineProperty(process.stdout, "isTTY", { value: isTTY, configurable: true });
+      Object.defineProperty(process.stdin, "isTTY", { value: stdinWasTty, configurable: true });
+      process.exitCode = exitCodeBefore;
     }
   });
 });

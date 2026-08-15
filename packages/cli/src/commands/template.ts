@@ -15,6 +15,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   SKILLS_CREATE_DOCUMENT_TEMPLATE_CONTRACT,
   SKILLS_LIST_DOCUMENT_TEMPLATES_CONTRACT
@@ -457,11 +458,9 @@ Notes:
       }
     });
 
-  tplFolder
-    .command("delete")
+  confirmable(tplFolder.command("delete"))
     .description("Delete a document template folder")
     .argument("<id>", "Folder ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -470,22 +469,13 @@ Examples:
   $ nexus template folder delete fld-123 --yes
 
 Notes:
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
-  in CI there is no prompt and no --yes is needed: the delete just happens.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete template folder ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete template folder ${id}?`, opts))) return;
         await client.documentTemplateFolders.delete(id);
         printSuccess("Template folder deleted.", { id });
       } catch (err) {

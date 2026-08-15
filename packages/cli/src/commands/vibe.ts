@@ -36,6 +36,7 @@ import {
   printTable,
   type RecordField
 } from "../output";
+import { promptLine, promptStream } from "../util/confirm";
 import { type TenantHttpOptions, tenantRequest } from "../util/tenant-http";
 import {
   VIBE_AUDIT_EVENT_TYPES,
@@ -2696,22 +2697,27 @@ async function confirmOverageInteractively(
     return false;
   }
 
-  console.log(color.yellow("Spend confirmation required — nothing was deployed."));
-  console.log(`  Cost-safety status: ${data.reason.costSafetyStatus}`);
-  console.log(`  ${data.reason.message}`);
+  // THE PREAMBLE GOES WHERE THE QUESTION GOES. These three lines are the
+  // figures the y/N refers to; on `console.log` with stdout redirected the
+  // operator is asked to accept a spend and shown none of it.
+  promptLine(color.yellow("Spend confirmation required — nothing was deployed."));
+  promptLine(`  Cost-safety status: ${data.reason.costSafetyStatus}`);
+  promptLine(`  ${data.reason.message}`);
 
-  if (!process.stdout.isTTY) {
+  // STDIN, because that is the stream the answer arrives on. Testing stdout
+  // refused a `vibe deploy > log` typed at an operator's own keyboard.
+  if (!process.stdin.isTTY) {
     console.error(`\nRe-run confirmed:\n  ${rerun}`);
     return false;
   }
 
   const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
   const answer = await rl.question("Deploy anyway and accept the additional spend? [y/N] ");
   rl.close();
   if (answer.toLowerCase() !== "y") {
-    console.log("Aborted.");
-    console.log(color.dim(`Re-run confirmed:\n  ${rerun}`));
+    promptLine("Aborted.");
+    promptLine(color.dim(`Re-run confirmed:\n  ${rerun}`));
     return false;
   }
   return true;
@@ -2782,12 +2788,15 @@ async function triggerDeploymentAnsweringOverage(
  * agreed — either by passing `--yes` up front, or by answering y at the prompt.
  *
  * Non-interactive without `--yes` REFUSES: it prints the exact re-run and
- * returns false, and the caller exits non-zero. The alternative idiom found
- * elsewhere in this CLI — `if (!opts.yes && process.stdout.isTTY)` — inverts
- * this, so a piped or CI invocation skips the prompt and deletes unprompted.
- * That is the wrong direction for a gate: the environment least able to
- * reconsider is the one it waves through. Same stance as
- * `confirmOverageInteractively` above, for the same reason.
+ * returns false, and the caller exits non-zero. Refusing is the direction the
+ * whole CLI takes — see `confirmDestructive` in `src/util/confirm.ts`, which
+ * this differs from only by carrying a per-command re-run line in its hint.
+ *
+ * IT READS STDIN TO DECIDE, NEVER STDOUT. Whether a person can answer is a
+ * property of the stream the answer arrives on. Testing stdout refuses
+ * `nexus vibe app delete <id> > log` from an operator's own terminal, where the
+ * question is perfectly answerable — the safe direction of the same confusion,
+ * and still wrong.
  *
  * Bare Enter is a NO. The prompt is spelled `[y/N]`, so the capital is a promise
  * about which way the default falls, and only the literal `y` may pass.
@@ -2799,7 +2808,7 @@ async function confirmDestructive(
 ): Promise<boolean> {
   if (yes === true) return true;
 
-  if (isJsonMode() || !process.stdout.isTTY) {
+  if (isJsonMode() || !process.stdin.isTTY) {
     // 🚨 THIS ARM NAMES `isJsonMode()` AND THEN WROTE ONLY TO STDERR, so under
     // --json it produced the clause-2 defect on purpose-built code: every caller
     // sets `process.exitCode = 1` on a false return, leaving a non-zero exit and
@@ -2810,12 +2819,12 @@ async function confirmDestructive(
   }
 
   const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
   const answer = await rl.question(`${question} [y/N] `);
   rl.close();
 
   if (answer.trim().toLowerCase() !== "y") {
-    console.log("Aborted.");
+    promptLine("Aborted.");
     return false;
   }
   return true;

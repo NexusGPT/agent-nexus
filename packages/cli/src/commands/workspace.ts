@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import type { WorkspaceKind } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -18,6 +19,7 @@ import {
   printTable,
   printWarning
 } from "../output";
+import { promptLine, promptStream } from "../util/confirm";
 import {
   claimMountPoint,
   describeOwner,
@@ -256,6 +258,32 @@ function defaultMountPath(slug: string): string {
   return path.join(os.homedir(), "nexus", slug);
 }
 
+/**
+ * Which workspace kinds the server refuses every write against, keyed
+ * exhaustively on the SDK's `WorkspaceKind` so a kind added to the wire cannot
+ * silently default to writable — this table stops compiling until someone
+ * classifies it.
+ *
+ * 🚨 THE SERVER IS THE AUTHORITY AND THIS IS A PREDICTION OF IT. `KIND_IS_READ_ONLY`
+ * in the backend's `workspace.entity.ts` is what actually answers 403, on the
+ * WebDAV gateway and on every REST write. This copy exists only so the mount can
+ * be made read-only UP FRONT instead of mounting read-write and letting the user
+ * discover the refusal one failed save at a time.
+ *
+ * The two are compile-forced to be EXHAUSTIVE and are not forced to AGREE. A new
+ * kind classified writable here and read-only there reproduces exactly the defect
+ * this table removes, so classify it in both or in neither.
+ */
+const WORKSPACE_KIND_IS_READ_ONLY: Record<WorkspaceKind, boolean> = {
+  DRIVE: false,
+  CODE: true
+};
+
+/** True when the server will refuse every write against a workspace of this kind. */
+function isReadOnlyKind(kind: WorkspaceKind): boolean {
+  return WORKSPACE_KIND_IS_READ_ONLY[kind];
+}
+
 /** What `resolveMountTarget` learned about the slug we're about to mount. */
 interface MountTarget {
   /** True when an admin-shared workspace owns this slug. */
@@ -264,21 +292,46 @@ interface MountTarget {
   orgOwned: boolean;
   /** Immutable id of the copy we'll actually mount (the chosen one). */
   workspaceId?: string;
+  /**
+   * Storage kind of the copy we'll actually mount, and the reason this
+   * function reads more than ownership. A CODE workspace is a read-only
+   * projection, so mounting it read-write produces a drive that accepts a save
+   * and then answers 403 — "Permission denied", naming nothing.
+   *
+   * Absent when the list couldn't be fetched for this slug, which is NOT the
+   * same as "writable": see `resolveMountTarget`'s degradation note.
+   */
+  kind?: WorkspaceKind;
 }
 
 /**
  * Inspect the org's workspace list to learn whether `slug` is owned by an
- * org-owned workspace, an admin-shared one, or both — and pick the id of the
- * copy the mount will serve (shared when `wantShared`, else org-owned-first,
- * matching the server's bare-slug resolution). Returns null if the list can't
- * be fetched, so the caller falls back to a plain bare-slug mount.
+ * org-owned workspace, an admin-shared one, or both — pick the id of the copy
+ * the mount will serve (shared when `wantShared`, else org-owned-first,
+ * matching the server's bare-slug resolution), and read that copy's storage
+ * KIND so the caller can mount read-only when the server would refuse writes
+ * anyway.
+ *
+ * Returns null if the list can't be fetched, so the caller falls back to a
+ * plain bare-slug mount.
+ *
+ * ⚠️ `kind` IS ABSENT ON THE DEGRADED PATH, AND ABSENT IS NOT "WRITABLE".
+ * A null return and a `kind`-less target both mean the same thing — nobody
+ * asked the server — so the caller must not read either as permission to mount
+ * read-write silently. The write still fails at the gateway; all that is lost
+ * is the warning.
  */
 export async function resolveMountTarget(
   client: ReturnType<typeof createClient>,
   slug: string,
   wantShared: boolean
 ): Promise<MountTarget | null> {
-  let workspaces: { id: string; slug: string; isShared: boolean }[];
+  // `kind` is on the wire (`WorkspaceItemSchema`) and was missing from this
+  // annotation AND from the SDK's own `Workspace` interface, so no compiler
+  // anywhere could see that the mount path never read it. Both are widened
+  // together; `packages/sdk/src/types/types-match-the-v1-contract.test.ts` now
+  // pins the SDK half against the contract so it cannot narrow again.
+  let workspaces: { id: string; slug: string; isShared: boolean; kind: WorkspaceKind }[];
   try {
     ({ workspaces } = await client.workspaces.list());
   } catch {
@@ -291,7 +344,8 @@ export async function resolveMountTarget(
   return {
     shared: !!shared,
     orgOwned: !!orgOwned,
-    workspaceId: chosen?.id
+    workspaceId: chosen?.id,
+    kind: chosen?.kind
   };
 }
 
@@ -882,8 +936,8 @@ Notes:
   A PARTIAL FAILURE LEAVES THE WORKSPACE PRESENT. If the storage purge fails
   the record is kept on purpose so a retry can finish; re-run the same command.
   --yes is REQUIRED when stdin is not a TTY: without it a script exits 1
-  rather than deleting. This is the opposite of "folder delete" and
-  "version delete", which delete unprompted in a script.
+  rather than deleting. Every destructive command in this CLI refuses the
+  same way.
   Needs workspaces:delete, which workspaces:write does not imply.`
     )
     .action(async (slug: string, opts: { yes?: boolean }) => {
@@ -910,11 +964,11 @@ Notes:
             return;
           }
           const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
           const answer = await rl.question(`Delete workspace "${slug}" and all its files? [y/N] `);
           rl.close();
           if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
+            promptLine("Aborted.");
             return;
           }
         }
@@ -1000,7 +1054,10 @@ Notes:
     .description("Mount a workspace as a live drive so local Claude Code can use it")
     .argument("<slug>", "Workspace slug (see `nexus workspace list`)")
     .option("--at <path>", "Mount point (default: ~/nexus/<slug>)")
-    .option("--read-only", "Mount read-only")
+    .option(
+      "--read-only",
+      "Mount read-only (a CODE workspace is read-only regardless — this can only add it)"
+    )
     .option(
       "--shared",
       "Mount the admin-shared workspace with this slug (not the same-slug org-owned one)"
@@ -1073,13 +1130,18 @@ Notes:
   the process being killed. Its log is under the CLI's log directory.
   The drive is LIVE and SHARED: teammates and agents see your changes within
   seconds, and you see theirs. Unmount with \`nexus workspace unmount <slug>\`.
-  A CODE WORKSPACE MOUNTS READ-WRITE AND THEN REFUSES EVERY WRITE. Nothing on
-  this path reads the storage kind, so the mount succeeds, "workspace status"
-  prints Mode rw, and the gateway answers 403 to every PUT, DELETE and MOVE —
-  which surfaces through the drive as a bare "Permission denied" naming no
-  workspace. The tell is the kind: in "workspace list --json" the key called
-  kind is the STORAGE type, and CODE is a read-only projection of a git
-  project. Push to that project instead.
+  A CODE WORKSPACE IS MOUNTED READ-ONLY FOR YOU, AND --read-only CANNOT BE
+  TURNED OFF. CODE is a read-only projection of a git project, so the server
+  refuses every PUT, DELETE and MOVE against it; the mount is made read-only up
+  front, "workspace status" prints Mode ro, and the command prints why. Change
+  the files by pushing to the git project instead. --json carries storageKind
+  (DRIVE / CODE) and readOnlyReason ("kind" / "requested" / null) — note that
+  --json's OWN "kind" key is this command's OWNERSHIP field (org-owned /
+  admin-shared), a different question with the same name.
+  IF THE WORKSPACE LIST CANNOT BE FETCHED, THE KIND IS UNKNOWN AND THE MOUNT
+  FALLS BACK TO READ-WRITE. Unknown is not "writable" — the server still
+  refuses the writes, you just lose the warning. Re-mount once
+  "nexus workspace list" works again.
   MOUNTING TO ANSWER "IS THAT FILE THERE" IS THE EXPENSIVE WAY.
   "nexus workspace search <slug> --query <text>" runs server-side, needs no
   mount, no rclone and no FUSE, and answers in one call. Mount when you need
@@ -1200,6 +1262,22 @@ Notes:
 
           const useShared = !!opts.shared || (!!target?.shared && !target.orgOwned);
 
+          // A read-only KIND forces a read-only MOUNT. The server refuses every
+          // mutating verb against a CODE workspace, so a read-write mount grants
+          // nothing an rclone/mount_webdav read-only one does not — it only
+          // moves the refusal from mount time to save time, where it arrives as
+          // a bare "Permission denied" naming no workspace and no reason. Worse
+          // under rclone: `--vfs-cache-mode writes` buffers the write locally
+          // and fails on flush, so the editor reports a successful save and the
+          // bytes are dropped.
+          //
+          // `--read-only` can only ADD this, never remove it: a user asking for
+          // read-write on a projection is asking for something the server has
+          // already decided to refuse.
+          const storageKind = target?.kind;
+          const kindForcesReadOnly = storageKind !== undefined && isReadOnlyKind(storageKind);
+          const readOnly = !!opts.readOnly || kindForcesReadOnly;
+
           // Drop a stale prior row (possibly under a legacy bare-slug or
           // pre-drift key) so we don't leave a duplicate entry for this same
           // workspace + org — legacy records migrate to a scoped key here.
@@ -1223,8 +1301,8 @@ Notes:
           const url = `${baseUrl}/api/dav/${davPath}`;
           const record =
             engine === "webdav"
-              ? await mountWebdav(slug, davPath, baseUrl, apiKey, mountPath, !!opts.readOnly)
-              : await mountRclone(slug, url, baseUrl, apiKey, mountPath, !!opts.readOnly);
+              ? await mountWebdav(slug, davPath, baseUrl, apiKey, mountPath, readOnly)
+              : await mountRclone(slug, url, baseUrl, apiKey, mountPath, readOnly);
 
           // Org-scope the registry (NEX-2360): key by `<kind>:<acting-org>|<slug>`
           // and stamp the org/profile pinned at mount time, plus the ro/rw mode
@@ -1233,7 +1311,10 @@ Notes:
           mounts[mountKey(scope, slug)] = {
             ...record,
             shared: useShared,
-            readOnly: !!opts.readOnly,
+            // The EFFECTIVE mode, not the flag. `workspace status` replays this
+            // column and nothing else, so recording the flag here is what made
+            // it print `Mode rw` over a drive that refuses every write.
+            readOnly,
             ...(scope.orgId ? { orgId: scope.orgId } : {}),
             ...(scope.orgName ? { orgName: scope.orgName } : {}),
             ...(scope.profile ? { profile: scope.profile } : {}),
@@ -1243,7 +1324,7 @@ Notes:
 
           let claudeMdTarget: string | null = null;
           if (opts.claudeMd) {
-            claudeMdTarget = writeClaudeMdNote(slug, mountPath, !!opts.readOnly);
+            claudeMdTarget = writeClaudeMdNote(slug, mountPath, readOnly);
           }
 
           const kind = useShared ? "admin-shared" : "org-owned";
@@ -1264,7 +1345,17 @@ Notes:
                   workspaceId: target?.workspaceId ?? null,
                   ambiguous,
                   pid: record.pid ?? null,
-                  readOnly: !!opts.readOnly,
+                  readOnly,
+                  // Distinct keys on purpose: `readOnly` is what the mount IS,
+                  // `readOnlyReason` is WHY. A script that only reads `readOnly`
+                  // keeps working; one that wants to explain the mode to a human
+                  // has the cause without re-deriving it from `storageKind`.
+                  readOnlyReason: kindForcesReadOnly ? "kind" : opts.readOnly ? "requested" : null,
+                  // The STORAGE kind (DRIVE / CODE), null when the list could
+                  // not be fetched. NOT the `kind` key beside it, which is this
+                  // command's long-standing OWNERSHIP field (org-owned /
+                  // admin-shared) and keeps its meaning for existing scripts.
+                  storageKind: storageKind ?? null,
                   orgId: scope.orgId ?? null,
                   orgName: scope.orgName ?? null,
                   profile: scope.profile ?? null,
@@ -1279,10 +1370,20 @@ Notes:
           printSuccess(`Mounted "${slug}" at ${mountPath}`, {
             engine,
             kind,
-            mode: opts.readOnly ? "read-only" : "read-write",
+            mode: readOnly ? "read-only" : "read-write",
             ...(scope.orgName || scope.orgId ? { org: scope.orgName ?? scope.orgId } : {}),
             ...(scope.profile ? { profile: scope.profile } : {})
           });
+          if (kindForcesReadOnly) {
+            console.log(
+              color.yellow(
+                `  Mounted READ-ONLY: "${slug}" is a ${storageKind} workspace — a read-only ` +
+                  `projection of a git project, and the server refuses every write to it. ` +
+                  `Mounting read-write would accept your saves locally and lose them. ` +
+                  `Change the files by pushing to the git project instead.`
+              )
+            );
+          }
           if (ambiguous) {
             const idNote = target?.workspaceId ? ` (id ${target.workspaceId})` : "";
             const counterpart = useShared

@@ -6,6 +6,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   EVALUATION_CREATE_CONTRACT,
@@ -140,7 +141,25 @@ Examples:
       `
 Examples:
   $ nexus task-eval session get task-123 sess-456
-  $ nexus task-eval session get task-123 sess-456 --json`
+  $ nexus task-eval session get task-123 sess-456 --json
+
+Notes:
+  THIS COMMAND AND "session list" RETURN DIFFERENT SHAPES, and the difference is
+  every scoring field. A list row carries id, name, description, status, taskId,
+  datasetRowCount, completedRows, failedRows, createdAt and updatedAt. This one
+  adds averageScore, judgedRows, judgeFailedRows, judgeModel and judgePrompt.
+  Those five are ABSENT from a list row rather than null, so a scored session
+  reads a score here and nothing at all there — never poll "session list" for
+  one.
+
+  THE TABLE HERE DROPS THEM AGAIN. It prints id, name, description, status,
+  Rows and Created; averageScore, judgedRows, judgeFailedRows, completedRows and
+  failedRows exist under --json alone.
+
+  READ judgeFailedRows BEFORE YOU TRUST averageScore. The average is taken over
+  the rows the judge COMPLETED and over nothing else, so a session whose
+  judgements mostly errored still reports a confident number, computed from the
+  few that survived.`
     )
     .action(async (taskId: string, sessionId: string) => {
       try {
@@ -160,12 +179,10 @@ Examples:
     });
 
   // ── session delete ─────────────────────────────────────────────────────
-  session
-    .command("delete")
+  confirmable(session.command("delete"))
     .description("Delete an evaluation session")
     .argument("<task-id>", "Task ID")
     .argument("<session-id>", "Session ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -174,9 +191,8 @@ Examples:
   $ nexus task-eval session delete task-123 sess-456 --yes
 
 Notes:
-  --yes SKIPS THE INTERACTIVE PROMPT. THE PROMPT ONLY APPEARS ON A TTY: when
-  output is not a terminal — a script, a pipeline, CI — the command proceeds
-  without prompting whatever this flag says, so --yes changes nothing there.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   IT TAKES THE DATASET AND THE RESULTS WITH IT. The session's rows and every
   score judged against them go too, and there is no reset or re-run, so a
   deleted session means executing and judging again from a new one. Read what
@@ -186,16 +202,7 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete evaluation session ${sessionId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete evaluation session ${sessionId}?`, opts))) return;
 
         await client.evaluations.deleteSession(taskId, sessionId);
         printSuccess("Evaluation session deleted.", { sessionId });
@@ -267,7 +274,12 @@ Notes:
   "execute" — it is created, it is never evaluated, and no result row ever
   appears for it.
   Rows are numbered in the order they arrive and "dataset list" returns them
-  that way.`
+  that way.
+  A ROW IS input, expectedOutput AND metadata, AND ONLY input IS REQUIRED. A
+  body without it is a 400 naming that field. input and expectedOutput each
+  accept a STRING OR AN OBJECT, so a structured task takes the object form
+  directly with no stringify; metadata must be an object, and is the field
+  discarded above.`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -337,7 +349,23 @@ Examples:
 Examples:
   $ nexus task-eval judge task-123 sess-456
   $ nexus task-eval judge task-123 sess-456 --body '{"judgeModel":"gpt-4o","judgePrompt":"Rate accuracy"}'
-  $ nexus task-eval judge task-123 sess-456 --json`
+  $ nexus task-eval judge task-123 sess-456 --json
+
+Notes:
+  --body IS OPTIONAL AND A BODILESS JUDGE STILL SCORES. Both of its fields are
+  optional: judgeModel falls back to gpt-4o, or to the first judge registered on
+  this node when gpt-4o is not one of them, and judgePrompt falls back to the
+  built-in ACCURACY template. Sending judgePrompt switches the whole run to a
+  CUSTOM template.
+
+  judgeModel TAKES THE ID COLUMN OF "nexus task-eval judges". A displayName is
+  accepted too, case-insensitively, and so is a prefix of a model name when it
+  matches exactly one registered judge — a prefix matching two is refused rather
+  than disambiguated. Anything else is INVALID_JUDGE_MODEL, and the message
+  lists every model this node can actually run.
+
+  THE MODEL IS RESOLVED BEFORE THE SESSION MOVES, so an unknown judgeModel fails
+  the call outright instead of parking the session in JUDGING.`
     )
     .action(async (taskId: string, sessionId: string, opts) => {
       try {
@@ -373,7 +401,22 @@ Examples:
 Examples:
   $ nexus task-eval results task-123 sess-456
   $ nexus task-eval results task-123 sess-456 --limit 50
-  $ nexus task-eval results task-123 sess-456 --json`
+  $ nexus task-eval results task-123 sess-456 --json
+
+Notes:
+  THE TABLE SHOWS 5 OF 11 FIELDS AND HIDES THE ONE THAT EXPLAINS A BLANK SCORE.
+  A row carries rowId, input, expectedOutput, actualOutput, score, judgeComment,
+  executionTimeMs, status, judgeStatus, executionError and judgeError; the table
+  prints rowId, input, actualOutput, score and status.
+
+  status IS EXECUTION AND judgeStatus IS SCORING, and the two move
+  independently. A row reads status COMPLETED with score blank for as long as
+  judgeStatus is PENDING, which is every row until "nexus task-eval judge" runs.
+  Read judgeStatus before you read score.
+
+  A REAL FAILURE NAMES ITSELF, UNDER --json ONLY: executionError for the run,
+  judgeError for the scoring. Both null beside a blank score means not judged
+  yet, never failed.`
       )
   ).action(async (taskId: string, sessionId: string, opts) => {
     try {

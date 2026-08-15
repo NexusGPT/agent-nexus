@@ -9,6 +9,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   HTML_MESSAGE_TEMPLATE_CREATE_CONTRACT,
   HTML_MESSAGE_TEMPLATE_GET_CONTRACT,
@@ -237,11 +238,9 @@ Notes:
     });
 
   // ── delete ──────────────────────────────────────────────────────────────
-  tpl
-    .command("delete")
+  confirmable(tpl.command("delete"))
     .description("Delete an HTML message template")
     .argument("<id>", "Template ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -259,23 +258,14 @@ Notes:
   and unlike "nexus workflow delete", which archives. The htmlContent and the
   inputSchema go with it and there is no undo, so read them back with
   "html-template get <id> --json" first if the source matters.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed — it deletes immediately.
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.
   It frees the name on that deployment for reuse.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete HTML message template ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete HTML message template ${id}?`, opts))) return;
         await client.htmlMessageTemplates.delete(id);
         printSuccess("HTML message template deleted.", { id });
       } catch (err) {

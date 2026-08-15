@@ -15,6 +15,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   WORKFLOW_EDGE_CREATE_CONTRACT,
   WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE,
@@ -184,12 +185,10 @@ Notes:
     });
 
   // ── node delete ────────────────────────────────────────────────────────
-  node
-    .command("delete")
+  confirmable(node.command("delete"))
     .description("Delete a node from a workflow")
     .argument("<wf-id>", "Workflow ID")
     .argument("<node-id>", "Node ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -210,26 +209,15 @@ Notes:
   The API answers 204 with an empty body; this command prints its own
   {success, workflowId, nodeId} line, so --json is a CLI confirmation and never a
   server response — there is nothing from the server to parse.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(`Delete node ${nodeId} from workflow ${wfId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete node ${nodeId} from workflow ${wfId}?`, opts)))
+          return;
 
         await client.workflows.deleteNode(wfId, nodeId);
         printSuccess("Node deleted.", { workflowId: wfId, nodeId });
@@ -496,12 +484,10 @@ Notes:
     });
 
   // ── edge delete ────────────────────────────────────────────────────────
-  edge
-    .command("delete")
+  confirmable(edge.command("delete"))
     .description("Delete an edge from a workflow")
     .argument("<wf-id>", "Workflow ID")
     .argument("<edge-id>", "Edge ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -516,26 +502,15 @@ Notes:
   {success, workflowId, edgeId} line, so --json is a CLI confirmation and never a
   server response. The nodes survive; only the connection goes, so the target may
   become a DISCONNECTED_NODE in validate.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (wfId: string, edgeId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(`Delete edge ${edgeId} from workflow ${wfId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete edge ${edgeId} from workflow ${wfId}?`, opts)))
+          return;
 
         await client.workflows.deleteEdge(wfId, edgeId);
         printSuccess("Edge deleted.", { workflowId: wfId, edgeId });
@@ -697,13 +672,11 @@ Notes:
     });
 
   // ── branch delete ──────────────────────────────────────────────────────
-  branch
-    .command("delete")
+  confirmable(branch.command("delete"))
     .description("Delete a branch from a node")
     .argument("<wf-id>", "Workflow ID")
     .argument("<node-id>", "Node ID")
     .argument("<branch-id>", "Branch ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -719,26 +692,15 @@ Notes:
   The API answers 204 with an empty body; this command prints its own
   {success, workflowId, nodeId, branchId} line, so --json is a CLI confirmation
   and never a server response.
-  THE PROMPT ONLY APPEARS ON A TTY. In a script, a pipeline or CI there is no
-  confirmation and no --yes is needed.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (wfId: string, nodeId: string, branchId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-          });
-          const answer = await rl.question(`Delete branch ${branchId} from node ${nodeId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete branch ${branchId} from node ${nodeId}?`, opts)))
+          return;
 
         await client.workflows.deleteBranch(wfId, nodeId, branchId);
         printSuccess("Branch deleted.", { workflowId: wfId, nodeId, branchId });

@@ -6,6 +6,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { resolveInputValue } from "../util/stdin";
 import {
   SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER,
@@ -152,6 +153,10 @@ Notes:
       ).makeOptionMandatory()
     )
     .option("--description <text>", "Task description")
+    .option(
+      "--custom-model-id <id>",
+      "Run on a custom model (BYOM) — the id from 'nexus custom-model list'"
+    )
     .option("--prompt <file-or-->", "Task prompt (file path, or '-' for stdin)")
     .option("--expected-input <text>", "Description of expected input")
     .option("--expected-output <text>", "Description of expected output")
@@ -216,6 +221,20 @@ Notes:
   accepted at the body root for compatibility. There is no flag:
     --body '{"...":"...","generation":{"multimodal":true,"...":"..."}}'
 
+  A CUSTOM MODEL IS SELECTED BY --custom-model-id, NEVER BY --model-provider.
+  "nexus model list" reports your own endpoints with provider "CUSTOM_<PROTOCOL>"
+  and modelId "custom:<uuid>", and NEITHER of those strings is accepted here:
+  --model-provider takes the four platform values only. Pass the row's own id
+  from "nexus custom-model list" instead. An id belonging to another
+  organization is a 404 on this call, not a 403.
+  --model-name and --model-provider stay REQUIRED alongside it. They are the
+  platform fallback, and a stored config missing either is discarded whole at
+  inference — the custom model with it.
+  AI TASKS RUN "openai"-PROTOCOL CUSTOM ENDPOINTS ONLY, AND THIS COMMAND SAYS SO
+  RATHER THAN LETTING YOU FIND OUT AT EXECUTE. An anthropic- or google-protocol
+  custom model is a 400 here, naming the protocol. Agents serve all three, so
+  the same model attaches fine with "nexus agent create --custom-model-id".
+
   temperature defaults to 0.7 and is --body only. IT IS STORED AND NEVER READ
   BACK: "task get" returns no temperature field at any value, so a missing
   temperature is not a discarded write and there is no way to confirm one from
@@ -240,6 +259,7 @@ Notes:
         if (opts.description !== undefined) flags.description = opts.description;
         if (opts.modelName !== undefined) flags.modelName = opts.modelName;
         if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
+        if (opts.customModelId !== undefined) flags.customModelId = opts.customModelId;
         if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
 
         if (opts.expectedInput || opts.expectedOutput) {
@@ -277,6 +297,10 @@ Notes:
         SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER
       )
     )
+    .option(
+      "--custom-model-id <id>",
+      "Attach a custom model (BYOM) — the id from 'nexus custom-model list'"
+    )
     .option("--expected-input <text>", "Description of expected input")
     .option("--expected-output <text>", "Description of expected output")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
@@ -312,6 +336,15 @@ Notes:
   thinking level, thinking display and reasoning effort are stripped, because
   they mean nothing to the new provider. Nothing in the response says so.
 
+  --custom-model-id ATTACHES A CUSTOM ENDPOINT; CHANGING THE MODEL WITHOUT IT
+  DETACHES ONE. A PATCH carrying --model-name or --model-provider and no
+  --custom-model-id clears the stored id, so "put this task back on a platform
+  model" is exactly that call. A PATCH that touches neither leaves the
+  attachment alone. Read it back with "nexus task get <id>" → .customModelId.
+  An id belonging to another organization is a 404 here, not a 403, and an
+  anthropic- or google-protocol endpoint is a 400 naming the protocol — this
+  surface serves "openai" only and refuses at the write rather than at execute.
+
   EVERY ACCEPTED UPDATE CREATES A VERSION, INCLUDING ONE THAT CHANGES NOTHING.
   The check is whether the body named a recognized field, never whether the
   value differs, so re-sending a byte-identical prompt writes a fresh version
@@ -335,6 +368,7 @@ Notes:
         if (opts.description !== undefined) flags.description = opts.description;
         if (opts.modelName !== undefined) flags.modelName = opts.modelName;
         if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
+        if (opts.customModelId !== undefined) flags.customModelId = opts.customModelId;
         if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
 
         if (opts.expectedInput !== undefined || opts.expectedOutput !== undefined) {
@@ -361,11 +395,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  task
-    .command("delete")
+  confirmable(task.command("delete"))
     .description("Delete an AI task")
     .argument("<id>", "Task ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -383,23 +415,14 @@ Notes:
   past. Archiving is permanent, so do it because you meant to retire the
   workflow, not merely to unblock this delete.
 
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
-  in CI there is no prompt and no --yes is needed: the delete just happens.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete task ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete task ${id}?`, opts))) return;
 
         await client.skills.deleteTask(id);
         printSuccess("Task deleted.", { id });

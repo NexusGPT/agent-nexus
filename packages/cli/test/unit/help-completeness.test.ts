@@ -347,21 +347,39 @@ test("agent-eval webhook upsert --help names the event enum exactly", () => {
   }
 });
 
-test("agent-eval deletes warn that --yes prompts nothing", () => {
-  // The flag is declared on five deletes and read by none of them, so a script
-  // author reading only --help would believe there is a prompt to skip.
-  for (const path of [
+test("every agent-eval destructive verb documents the refusal contract", () => {
+  // The behaviour a script author has to know BEFORE running one of these: with
+  // no terminal and no --yes the command refuses and exits non-zero. A help page
+  // that omits it leaves the reader to discover the refusal from a failed run.
+  //
+  // Six leaves, not five: `template detach` is destructive too and was the one
+  // this check used to miss.
+  const DESTRUCTIVE = [
     ["run", "delete"],
     ["template", "delete"],
+    ["template", "detach"],
     ["schedule", "delete"],
     ["trigger", "delete"],
     ["webhook", "delete"]
-  ]) {
+  ];
+
+  for (const path of DESTRUCTIVE) {
     const help = helpFor(registerAgentEvalCommands, ["agent-eval", ...path]);
     assert.match(
       help,
-      /no (confirmation )?prompt/i,
-      `agent-eval ${path.join(" ")} does not say --yes is inert`
+      /--yes IS REQUIRED IN A SCRIPT/,
+      `agent-eval ${path.join(" ")} does not state that --yes is required in a script`
+    );
+    assert.match(
+      help,
+      /REFUSES/,
+      `agent-eval ${path.join(" ")} does not say it refuses with no terminal`
+    );
+    // The example is what a reader copies. Without a --yes line they copy the
+    // interactive form into a script and it refuses.
+    assert.ok(
+      examplesIn(help).some((example) => example.includes("--yes")),
+      `agent-eval ${path.join(" ")} has no --yes example to copy into a script`
     );
   }
 });

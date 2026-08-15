@@ -6,6 +6,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, printNotFound } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
 import {
@@ -324,11 +325,9 @@ Notes:
       }
     });
 
-  const del = customer
-    .command("delete")
+  const del = confirmable(customer.command("delete"))
     .description("Delete a customer")
     .argument("<id>", "Customer ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -347,23 +346,13 @@ Notes:
   THE NOTES, TAGS AND customFields GO WITH THE ROW. They live in the customer's
   own metadata column, nothing copies them anywhere, and there is no undo and no
   export. Run "customer get <id> --json" first if any of it matters.
-  --yes SKIPS THE PROMPT, AND SO DOES A PIPE. The confirmation appears only when
-  STDOUT is a TTY, so "nexus customer delete <id> | tee log" deletes with no
-  question asked.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete customer ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete customer ${id}?`, opts))) return;
         await client.customers.delete(id);
         printSuccess("Customer deleted.", { id });
       } catch (err) {

@@ -6,6 +6,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { isJsonMode, printList, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { parseFilterPairs } from "../util/metadata";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
@@ -252,11 +253,9 @@ Notes:
     });
 
   // ── delete ────────────────────────────────────────────────────────────
-  const remove = collection
-    .command("delete")
+  const remove = confirmable(collection.command("delete"))
     .description("Delete a collection")
     .argument("<id>", "Collection ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -270,23 +269,14 @@ Notes:
   collection, and is still listed by "nexus document list". Nothing here removes
   a document — use "nexus document delete" for that.
 
-  THE CONFIRMATION PROMPT ONLY APPEARS ON A TERMINAL. Piped, redirected or run
-  in CI there is no prompt and no --yes is needed: the delete just happens.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete collection ${id}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete collection ${id}?`, opts))) return;
 
         await client.skills.deleteCollection(id);
         printSuccess("Collection deleted.", { id });

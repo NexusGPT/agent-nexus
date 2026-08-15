@@ -106,9 +106,28 @@ const walk = (dir: string, keep: (file: string) => boolean): string[] =>
  */
 const PUBLIC_METHOD = /^ {2}(?:async )?([a-z][A-Za-z0-9]*)\s*[(<]/gm;
 
-/** Resource name (`tickets`) → its public method names. */
+/**
+ * Resource name (`tickets`) → its public method names.
+ *
+ * 🚨 `.conformance.` is excluded for the same reason `.test.` is: neither is a
+ * RESOURCE, and {@link PUBLIC_METHOD} is a regex over text rather than a parser,
+ * so any file in this directory contributes whatever happens to sit at class-body
+ * indentation. `resources/v1-route-scan.conformance.ts` has a two-space
+ * `for (const entry of …)` inside a helper, which the regex read as a public
+ * method — the gate then demanded a CLI caller for `v1RouteScan.conformance.for`,
+ * a method that does not exist.
+ *
+ * That direction is the expensive one: the remedy it prints is "add the command
+ * or ledger it", and ledgering a parser artifact would have recorded a phantom as
+ * permanent debt while teaching the gate nothing. The suffix is already the
+ * house definition of "not part of the library" —
+ * `sdk/src/wire-types-bundle.test.ts` matches exactly these two.
+ */
 function readSdkResourceMethods(): Map<string, string[]> {
-  const files = walk(SDK_RESOURCES, (file) => file.endsWith(".ts") && !file.includes(".test."));
+  const files = walk(
+    SDK_RESOURCES,
+    (file) => file.endsWith(".ts") && !file.includes(".test.") && !file.includes(".conformance.")
+  );
   const byResource = new Map<string, string[]>();
   for (const file of files) {
     const source = stripTsComments(fs.readFileSync(file, "utf-8"));
@@ -193,6 +212,27 @@ describe("every SDK resource method reaches the CLI", () => {
       "Far fewer methods than the SDK ships. The method regex is broken, and a broken scan " +
         "satisfies the assertion above vacuously."
     ).toBeGreaterThan(200);
+  });
+
+  /**
+   * The population, asserted directly. Without this the `.conformance.` exclusion
+   * is one character from being dropped again, and the symptom would arrive as a
+   * demand to expose a method nobody wrote.
+   */
+  it("CONTROL: the scan reads only RESOURCES, never a conformance helper", () => {
+    const methodsByResource = readSdkResourceMethods();
+
+    expect(
+      [...methodsByResource.keys()].filter((name) => name.toLowerCase().includes("conformance")),
+      "A .conformance.ts file entered the resource population. It is not a resource, and " +
+        "PUBLIC_METHOD is a regex, so it contributes whatever sits at class-body indentation."
+    ).toEqual([]);
+
+    expect(
+      [...methodsByResource.values()].flat(),
+      "`for` is a keyword, not a method. Its presence means a non-class file is being parsed " +
+        "as a resource."
+    ).not.toContain("for");
   });
 
   it("CONTROL: the scan finds the method this gate was written for", () => {

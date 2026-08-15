@@ -11,6 +11,7 @@ import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   EMULATOR_CREATE_SESSION_CONTRACT,
   EMULATOR_DELETE_SCENARIO_CONTRACT,
@@ -192,12 +193,10 @@ Notes:
     });
 
   // ── session delete ─────────────────────────────────────────────────────
-  const sessionDelete = session
-    .command("delete")
+  const sessionDelete = confirmable(session.command("delete"))
     .description("Delete an emulator session")
     .argument("<deployment-id>", "Deployment ID")
     .argument("<session-id>", "Session ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -214,22 +213,14 @@ Notes:
   chat it produced is set to ARCHIVED and survives, so this is not a way to
   erase what was said. A scenario saved from this session is untouched and
   stays replayable — it holds its own copy of the messages.
-  The prompt only appears on a TTY — piped or in CI it deletes without one.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (deploymentId: string, sessionId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete emulator session ${sessionId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete emulator session ${sessionId}?`, opts))) return;
 
         await client.emulator.deleteSession(deploymentId, sessionId);
         printSuccess("Session deleted.", { sessionId });
@@ -531,11 +522,9 @@ Notes:
     });
 
   // ── scenario delete ────────────────────────────────────────────────────
-  const scenarioDelete = scenario
-    .command("delete")
+  const scenarioDelete = confirmable(scenario.command("delete"))
     .description("Delete a scenario")
     .argument("<scenario-id>", "Scenario ID")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -551,22 +540,14 @@ Notes:
   Permanent: the recorded messages go with it and the session it was taken
   from cannot re-derive them once that session is gone.
   Sessions produced by past replays are NOT deleted and keep their history.
-  The prompt only appears on a TTY — piped or in CI it deletes without one.`
+  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
+  and exits non-zero rather than acting.`
     )
     .action(async (scenarioId: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
 
-        if (!opts.yes && process.stdout.isTTY) {
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-          const answer = await rl.question(`Delete scenario ${scenarioId}? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            console.log("Aborted.");
-            return;
-          }
-        }
+        if (!(await confirmDestructive(`Delete scenario ${scenarioId}?`, opts))) return;
 
         await client.emulator.deleteScenario(scenarioId);
         printSuccess("Scenario deleted.", { scenarioId });

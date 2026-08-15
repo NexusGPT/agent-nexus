@@ -32,7 +32,28 @@ export function registerCustomModelCommands(program: Command): void {
       `
 Examples:
   $ nexus custom-model list
-  $ nexus custom-model list --json`
+  $ nexus custom-model list --json
+
+Notes:
+  THIS COMMAND SEES A DISABLED MODEL AND "nexus model list" DOES NOT. The merge
+  behind that command filters on enabled, so an endpoint you switched off is
+  absent there and still here. This listing is the only complete one.
+
+  IT RETURNS EVERY ROW, NEWEST FIRST. The route reads the whole organization in
+  one array ordered by creation time — there is no filter, no --page and no
+  --limit, so slice it downstream or not at all.
+
+  THE TABLE SHOWS 5 OF 8 FIELDS. A row carries id, displayName, modelName,
+  baseUrl, protocol, enabled, createdAt and updatedAt; baseUrl and the two
+  timestamps are under --json only. No read anywhere returns the apiKey — see
+  "nexus custom-model get".
+
+  THE ID COLUMN IS WHAT MAKES A MODEL SELECTABLE, through --custom-model-id on
+  "nexus agent create", "nexus agent update", "nexus task create" and
+  "nexus task update". Searching "nexus model list" for your modelName instead
+  finds nothing and proves nothing: that table has no modelName column, and the
+  row it does print carries provider "CUSTOM_<PROTOCOL>" and modelId
+  "custom:<uuid>", neither of which any command accepts as an input.`
     )
     .action(async () => {
       try {
@@ -67,7 +88,16 @@ Examples:
       `
 Examples:
   $ nexus custom-model get cm-123
-  $ nexus custom-model get cm-123 --json`
+  $ nexus custom-model get cm-123 --json
+
+Notes:
+  THE apiKey IS WRITE-ONLY AND NEVER COMES BACK. It is encrypted on write and
+  kept in a column no read selects, so get, list, create and update all return
+  the same eight fields: id, displayName, modelName, baseUrl, protocol,
+  enabled, createdAt and updatedAt. Its absence here is the design and not a
+  dropped write — and because no read confirms which key is stored, the way to
+  recover from a wrong one is to ROTATE rather than to check:
+  "nexus custom-model update <id> --endpoint-key <key>".`
     )
     .action(async (id: string) => {
       try {
@@ -153,7 +183,25 @@ Notes:
   An unreachable baseUrl and a dead apiKey both create cleanly and surface only
   when an agent or a task first runs on the model, as an inference failure far
   from this command. Prove it yourself before pointing anything at it, and use
-  --enabled false to keep it out of reach until you have.`
+  --enabled false to keep it out of reach until you have.
+
+  CREATING IT ATTACHES IT TO NOTHING. The id this returns is what selects it,
+  through the --custom-model-id flag on "nexus agent create", "nexus agent
+  update", "nexus task create" and "nexus task update". Each of those commands
+  documents its own rules for the flag; on agent update it needs --model-name
+  and --model-provider beside it.
+  "nexus model list" also shows the row while it is ENABLED, with provider
+  "CUSTOM_<PROTOCOL>" and modelId "custom:<uuid>". Neither string is an input,
+  and a custom model is selected by this id alone. A DISABLED model is filtered
+  out of that listing and is still here, and still attachable — attaching is a
+  configuration act; the refusal for a disabled endpoint lands at inference.
+
+  --protocol DECIDES WHICH SURFACES CAN RUN IT. Agents serve openai, anthropic
+  and google. AI tasks serve "openai" only, because their providers are shared
+  singletons that would have to cache your key: "nexus task create
+  --custom-model-id" refuses the other two with a 400 naming the protocol, and
+  the executor refuses again if the protocol changes after a task is attached.
+  Pick openai if the model has to run inside a task.`
     )
     .action(async (opts) => {
       try {

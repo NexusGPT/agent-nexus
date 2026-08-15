@@ -101,8 +101,26 @@ export interface ModelConfig {
   modelName: string;
   /** Provider: "OPEN_AI", "ANTHROPIC", "GOOGLE_AI", or "KIMI". */
   modelProvider: ModelProvider;
-  /** Anthropic thinking level: "fast", "detailed", or "extended". */
-  thinkingLevel?: "fast" | "detailed" | "extended";
+  /**
+   * Anthropic thinking level.
+   *
+   * Two vocabularies, and both are accepted on every model — the platform maps
+   * a legacy value onto an adaptive model and back:
+   *
+   * - legacy (Claude 4.6 and earlier): `"fast"`, `"detailed"`, `"extended"`.
+   * - adaptive (Claude 4.7+): `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`.
+   *
+   * This type offered the legacy three only, matching a v1 contract that had
+   * drifted from the platform's own shape, so an adaptive level was a 400 on
+   * `agents.create` and `agents.update` and unrepresentable on `AgentDetail`
+   * (NEX-3869).
+   */
+  thinkingLevel?: "fast" | "detailed" | "extended" | "low" | "medium" | "high" | "xhigh" | "max";
+  /**
+   * Anthropic adaptive thinking display mode — whether the model's thinking is
+   * summarized back to you or withheld. Anthropic-only; ignored elsewhere.
+   */
+  thinkingDisplay?: "summarized" | "omitted";
   /** OpenAI reasoning effort: "low", "medium", "high", "xhigh". */
   reasoningEffort?: "low" | "medium" | "high" | "xhigh";
   /** Google AI thinking level: "dynamic", "minimal", "low", "medium", "high". */
@@ -111,6 +129,17 @@ export interface ModelConfig {
   kimiReasoningEffort?: "low" | "high" | "max";
   /** Sampling temperature (0-1). */
   temperature?: number;
+  /**
+   * Id of a custom model this organization owns (BYOM), from
+   * `client.customModels.list()`.
+   *
+   * A custom model is selected by THIS id. `modelProvider` admits the four
+   * platform values only — `client.models.list()` reports `CUSTOM_<PROTOCOL>`
+   * on a custom row to say where it came from, not as a value to send back.
+   * Keep `modelName` / `modelProvider` set to the platform model to fall back
+   * to; they are required and are what runs when no custom model is attached.
+   */
+  customModelId?: string;
 }
 
 /**

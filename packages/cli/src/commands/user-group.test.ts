@@ -162,19 +162,20 @@ describe("user-group writes", () => {
 });
 
 describe("user-group delete", () => {
-  const originalIsTTY = process.stdout.isTTY;
+  const originalIsTTY = process.stdin.isTTY;
 
   beforeEach(() => {
     request.mockReset();
     question.mockReset();
     request.mockResolvedValue({ deleted: true, revokedPermissionCount: 4 });
-    // Without a TTY the command skips the prompt entirely, so the decline path
-    // below would never be reached and the test would pass vacuously.
-    process.stdout.isTTY = true;
+    // STDIN, because that is the stream the confirmation reads. Without a TTY
+    // the command REFUSES, so the decline path below would never be reached and
+    // the test would pass vacuously.
+    process.stdin.isTTY = true;
   });
 
   afterEach(() => {
-    process.stdout.isTTY = originalIsTTY;
+    process.stdin.isTTY = originalIsTTY;
   });
 
   it("deletes on --yes without prompting", async () => {

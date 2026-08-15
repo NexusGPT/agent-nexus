@@ -1,8 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
-
-import { ZPublicApiV1 } from "@nexus/types/public-api-v1";
 import { describe, expect, it } from "vitest";
+
+import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
 
 /**
  * THE GATE between a Public API v1 route and an SDK method that can reach it.
@@ -74,10 +72,16 @@ import { describe, expect, it } from "vitest";
  * 14 executed green. The window contained no change to the route set, so it does
  * not exercise "the contract grew"; that PR class touches the contract by
  * definition and is what the gate is FOR.
+ *
+ * ## The route table and the matcher now live in `./v1-route-scan.conformance`
+ *
+ * `../types/v1-response-types-match-the-contract.test.ts` takes the REACHED set
+ * as its population — it asks whether the method that reaches a route declares
+ * the right return type — so both gates have to agree on what "reached" means.
+ * A second copy of the regex would be two spellings of one rule, and the drift
+ * would be silent in both directions. The fixtures below still live here,
+ * because they are assertions about this gate's own bound.
  */
-
-/** Source root of this package, scanned for call sites. */
-const SDK_SRC = path.resolve(__dirname, "..");
 
 /**
  * Routes with no SDK method, on purpose or pending. Each line says WHY, because
@@ -168,80 +172,6 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };
-
-/** A v1 descriptor carrying a verb and a path. */
-interface V1Route {
-  name: string;
-  method: string;
-  path: string;
-}
-
-function collectRoutes(): V1Route[] {
-  const routes: V1Route[] = [];
-  for (const [name, descriptor] of Object.entries(ZPublicApiV1 as Record<string, unknown>)) {
-    const candidate: { method?: unknown; path?: unknown } = descriptor as {
-      method?: unknown;
-      path?: unknown;
-    };
-    if (typeof candidate.method === "string" && typeof candidate.path === "string") {
-      routes.push({ name, method: candidate.method, path: candidate.path });
-    }
-  }
-  return routes;
-}
-
-/** Every non-spec source file in this package, concatenated. */
-function readSource(dir: string): string {
-  let out = "";
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out += readSource(full);
-    else if (full.endsWith(".ts") && !full.endsWith(".test.ts"))
-      out += fs.readFileSync(full, "utf8");
-  }
-  return out;
-}
-
-const SDK_SOURCE = readSource(SDK_SRC);
-
-/**
- * Does a call site name this verb at this path?
- *
- * The contract spells a path `/public/v1/agents/:agentId`; the SDK strips the
- * `/public/v1` prefix (the http client re-adds it) and writes the parameter as
- * a template expression, so the same route reads `"GET", \`/agents/${id}\``.
- * Both transforms are applied here rather than in the ledger, so the ledger
- * stays a list of names.
- *
- * ## The trailing-expression clause, and why it is narrow
- *
- * A method that takes query parameters appends them inside the same template:
- * `"DELETE", \`/skills/external-tools/${id}${query}\``. Requiring the closing
- * delimiter immediately after the rewritten path therefore reported two real,
- * CLI-reachable methods as unreached, and they were ledgered — which is worse
- * than a missing gate, because a ledgered route is a route this gate has
- * stopped watching. Deleting either method would have gone unnoticed.
- *
- * So a trailing run of `${…}` expressions is allowed. **Literal characters are
- * not**, and that is what keeps the clause from swallowing a longer route: every
- * additional path segment begins with a literal `/`, so `/agents` still cannot
- * match a call site for `/agents/${id}` or `/agents/${id}/tools`.
- *
- * The change LOOSENS the matcher — strictly more call sites count as reached.
- * Since this gate fails closed, loosening moves it toward under-reporting, so
- * the bound above is the load-bearing part rather than a nicety. The
- * prefix-collision fixture below is what holds it.
- *
- * @param source - the text to search. Defaults to this package's own source;
- * the fixtures pass a literal so they assert about the MATCHER rather than
- * about whatever the SDK happens to contain today.
- */
-function reachedBySdk(method: string, routePath: string, source: string = SDK_SOURCE): boolean {
-  const relative = routePath.replace(/^\/public\/v1/, "");
-  const escaped = relative.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const withParams = escaped.replace(/:[A-Za-z0-9_]+/g, "\\$\\{[^}]+\\}");
-  return new RegExp(`"${method}",\\s*[\`"]${withParams}(?:\\$\\{[^}]+\\})*[\`"]`).test(source);
-}
 
 describe("every Public API v1 route has an SDK method", () => {
   const routes = collectRoutes();

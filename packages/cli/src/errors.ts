@@ -126,8 +126,29 @@ const CLI_CODES = {
    * file write. Nothing about the caller's input is wrong and no retry against
    * the API will help.
    */
-  LOCAL_FAILED: "CLI_LOCAL_FAILED"
+  LOCAL_FAILED: "CLI_LOCAL_FAILED",
+  /**
+   * A global install SUCCEEDED and the shell still resolves a different copy.
+   *
+   * Deliberately not {@link CLI_CODES.LOCAL_FAILED}: nothing failed. The bytes
+   * are on disk exactly where the package manager was asked to put them, and
+   * the machine changed. What did not happen is the OUTCOME the caller wanted,
+   * and the remedy is a PATH edit rather than a retry — the opposite advice a
+   * `LOCAL_FAILED` reader would follow.
+   */
+  UPGRADE_NOT_RESOLVED: "CLI_UPGRADE_NOT_RESOLVED"
 } as const;
+
+/**
+ * The one code with no {@link FailureCause}, because it owns its own exit code.
+ *
+ * Every `FailureCause` maps through {@link reportFailure}, which returns 1 —
+ * correct for all six, and wrong for this one. `nexus upgrade` documents exit 2
+ * for "installed but not resolved" precisely so a caller can tell it apart from
+ * "nothing changed", so it goes through {@link printFailure}, which emits the
+ * same document and leaves the verdict to the caller.
+ */
+export const CLI_UPGRADE_NOT_RESOLVED = CLI_CODES.UPGRADE_NOT_RESOLVED;
 
 /**
  * WHY A FAILURE THAT HAPPENED AFTER THE SEND CANNOT USE {@link refuse}.

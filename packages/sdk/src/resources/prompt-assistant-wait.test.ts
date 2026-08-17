@@ -327,7 +327,17 @@ describe("a long wait survives a bad response but not a bad request", () => {
         threadId: "t-1",
         status: "completed",
         messages: [],
-        promptResult: { prompt: "p", name: "n", description: "" }
+        promptResult: { prompt: "p", name: "n", description: "" },
+        createdAt: "2026-08-15T11:00:00.000Z",
+        updatedAt: "2026-08-15T11:05:00.000Z",
+        progress: {
+          state: "completed",
+          isTerminal: true,
+          since: "2026-08-15T11:05:00.000Z",
+          elapsedSeconds: 1,
+          lastActivityAt: "2026-08-15T11:05:00.000Z",
+          serverTime: "2026-08-15T11:05:01.000Z"
+        }
       } as PromptAssistantThreadResponse;
     });
     const resource = new PromptAssistantResource({ request } as unknown as HttpClient);
@@ -348,5 +358,60 @@ describe("a long wait survives a bad response but not a bad request", () => {
       runWait(() => resource.waitForThread("t-1", { timeoutMs: 30 * 60 * 1000 }))
     ).rejects.toThrow("no such thread");
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * NEX-2524: the wait moved to the server, and the client has to let it happen.
+ */
+describe("awaitThread sizes its own abort around the server's hold", () => {
+  interface SentRequest {
+    method: string;
+    path: string;
+    timeoutMs: number;
+    query: Record<string, unknown>;
+  }
+
+  const call = async (opts?: {
+    timeoutSeconds?: number;
+    afterMessageCount?: number;
+  }): Promise<SentRequest> => {
+    let sent: SentRequest | undefined;
+    const request = vi.fn(
+      async (
+        method: string,
+        path: string,
+        o: { timeoutMs: number; query: Record<string, unknown> }
+      ) => {
+        sent = { method, path, timeoutMs: o.timeoutMs, query: o.query };
+        return { outcome: "timed-out", waitedMs: 55_000, thread: {} };
+      }
+    );
+    const resource = new PromptAssistantResource({ request } as unknown as HttpClient);
+    await resource.awaitThread("t-1", opts);
+    if (sent === undefined) throw new Error("awaitThread made no request");
+    return sent;
+  };
+
+  it("outlasts the 55s default hold rather than the client's 30s dial", async () => {
+    // 🚨 THE BUG THIS PINS. `HttpClient`'s timeout defaults to 30_000, so a
+    // request left to it aborts LOCALLY at 30 s — mid-hold — and throws
+    // `NexusTimeoutError`. The caller then never sees `outcome: "timed-out"`,
+    // and the resume loop this method documents reads exactly that field.
+    expect((await call()).timeoutMs).toBeGreaterThan(55_000);
+  });
+
+  it("shrinks with a shorter requested hold instead of pinning one value", async () => {
+    const { timeoutMs } = await call({ timeoutSeconds: 5 });
+
+    expect(timeoutMs).toBeGreaterThan(5_000);
+    expect(timeoutMs).toBeLessThan(55_000);
+  });
+
+  it("sends the wait parameters as query, not as a path segment", async () => {
+    const { method, path, query } = await call({ timeoutSeconds: 20, afterMessageCount: 4 });
+
+    expect({ method, path }).toEqual({ method: "GET", path: "/prompt-assistant/threads/t-1/wait" });
+    expect(query).toEqual({ timeoutSeconds: 20, afterMessageCount: 4 });
   });
 });

@@ -47,6 +47,37 @@ export interface PromptResult {
   agentFields?: Record<string, unknown>;
 }
 
+/**
+ * How long the thread has been in the state it reports, measured server-side.
+ *
+ * `status` alone cannot separate "the prompt is being written right now" from
+ * "the assistant asked a question forty minutes ago and nobody answered": both
+ * are just not-finished. Read this instead of inventing a state of your own —
+ * that is the gap a consumer filled by reporting a live generation as needing
+ * clarification (NEX-2524).
+ */
+export interface PromptAssistantThreadProgress {
+  /** The current status, restated — this object is the live view of it. */
+  state: "in_progress" | "generating" | "completed" | "failed" | "cancelled";
+  /** True when the thread will never change state again — no terminal set to re-derive. */
+  isTerminal: boolean;
+  /** ISO-8601 — when the thread entered `state`. */
+  since: string;
+  /** Whole seconds spent in `state`, as of `serverTime`. */
+  elapsedSeconds: number;
+  /**
+   * ISO-8601 — the later of the state change and the newest message. THE
+   * HEARTBEAT: a `generating` thread whose `lastActivityAt` keeps advancing is
+   * working; one whose does not is stalled.
+   */
+  lastActivityAt: string;
+  /**
+   * ISO-8601 — the server clock `elapsedSeconds` was measured against.
+   * Difference against THIS, never against a local `Date.now()`.
+   */
+  serverTime: string;
+}
+
 export interface PromptAssistantThreadResponse {
   /**
    * `cancelled` IS IN THIS UNION AND IS NOT DEAD. `AgentCreationThreadStatus`
@@ -58,6 +89,41 @@ export interface PromptAssistantThreadResponse {
   threadId: string;
   messages: PromptAssistantThreadMessage[];
   promptResult?: PromptResult;
+  createdAt: string;
+  /** Last change to the thread ITSELF; appending a message does not move it. */
+  updatedAt: string | null;
+  progress: PromptAssistantThreadProgress;
+}
+
+export interface AwaitThreadOptions {
+  /**
+   * How long the SERVER holds the request, 1..55 s (default 55).
+   *
+   * Capped because the proxy in front of the API cuts a request at 60 s, so a
+   * longer hold is a dropped connection rather than a longer wait.
+   */
+  timeoutSeconds?: number;
+  /**
+   * Message count observed BEFORE the turn being waited on was sent.
+   *
+   * Pass it whenever a turn was just sent. Without it, a thread left
+   * `completed` by an EARLIER turn answers instantly with that stale verdict —
+   * the server does not reset `status` when a new user message arrives.
+   */
+  afterMessageCount?: number;
+}
+
+export interface AwaitThreadResult {
+  /**
+   * Why the wait ended. `timed-out` is NOT a failure and NOT an error: the
+   * generation is still running server-side, and the caller resumes by calling
+   * again with the same id.
+   */
+  outcome: "terminal" | "assistant-replied" | "timed-out";
+  /** How long the server actually held the request. */
+  waitedMs: number;
+  /** The thread as of the moment the wait ended. */
+  thread: PromptAssistantThreadResponse;
 }
 
 /**
@@ -138,6 +204,23 @@ export interface WaitForThreadResult {
 /** Statuses whose meaning is "ask again later", not "this is the answer". */
 const PERMANENT_ERROR_STATUSES = new Set([400, 401, 403, 404]);
 
+/**
+ * The server's own cap on a single held request, mirrored here so
+ * {@link PromptAssistantResource.awaitThread} can size its abort when the
+ * caller names no timeout. The server re-validates it; asking for more is a 400.
+ */
+export const PROMPT_ASSISTANT_MAX_WAIT_SECONDS = 55;
+
+/**
+ * Slack between the server's hold and the client's abort.
+ *
+ * The server answers AT the hold, then serialises a whole transcript and sends
+ * it. Aborting at exactly the hold would race that response and turn the most
+ * ordinary outcome — a timed-out wait on a long generation — into a thrown
+ * connection error.
+ */
+const AWAIT_THREAD_TIMEOUT_MARGIN_MS = 10_000;
+
 const DEFAULT_WAIT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_WAIT_INTERVAL_MS = 2_000;
 const DEFAULT_WAIT_MAX_INTERVAL_MS = 15_000;
@@ -170,6 +253,58 @@ export class PromptAssistantResource extends BaseResource {
     return this.http.request<PromptAssistantThreadResponse>(
       "GET",
       `/prompt-assistant/threads/${threadId}`
+    );
+  }
+
+  /**
+   * ONE request the SERVER holds until the thread finishes — the async
+   * completion signal (NEX-2524).
+   *
+   * {@link waitForThread} solves the same problem from the client side, and
+   * pays a full transcript download per poll to do it: the 26-minute production
+   * generation it documents is ~28 whole-thread responses even with its
+   * backoff. This is the same wait with the loop moved behind the API, so a
+   * caller that only wants "tell me when it is done" makes one request per
+   * minute and gets the answer within a second of it being true.
+   *
+   * ⚠️ IT RETURNS BEFORE THE THREAD FINISHES, AND THAT IS NORMAL. The hold is
+   * capped at 55 s by the proxy in front of the API, so a long generation
+   * answers `outcome: "timed-out"` with the thread as it stands. That is "not
+   * yet — ask again", never a failure; loop on it until
+   * `outcome === "terminal"`.
+   *
+   * ```ts
+   * const before = await client.promptAssistant.getThread(threadId);
+   * await client.promptAssistant.chat({ message, mode: "agent", threadId });
+   * let result = await client.promptAssistant.awaitThread(threadId, {
+   *   afterMessageCount: before.messages.length
+   * });
+   * while (result.outcome === "timed-out") {
+   *   result = await client.promptAssistant.awaitThread(threadId, {
+   *     afterMessageCount: before.messages.length
+   *   });
+   * }
+   * ```
+   */
+  async awaitThread(threadId: string, opts?: AwaitThreadOptions): Promise<AwaitThreadResult> {
+    const holdSeconds = opts?.timeoutSeconds ?? PROMPT_ASSISTANT_MAX_WAIT_SECONDS;
+
+    return this.http.request<AwaitThreadResult>(
+      "GET",
+      `/prompt-assistant/threads/${threadId}/wait`,
+      {
+        query: {
+          timeoutSeconds: opts?.timeoutSeconds,
+          afterMessageCount: opts?.afterMessageCount
+        },
+        // 🚨 THE ONE ROUTE WHOSE SLOWNESS IS THE FEATURE. `HttpClient`'s own
+        // timeout defaults to 30 s, so the default 55 s hold would abort
+        // LOCALLY at 30 and throw `NexusTimeoutError` — the caller never sees
+        // `outcome: "timed-out"`, and the documented resume loop, which reads
+        // that field, never runs. The abort has to be sized off the hold this
+        // call actually asked the server for.
+        timeoutMs: holdSeconds * 1_000 + AWAIT_THREAD_TIMEOUT_MARGIN_MS
+      }
     );
   }
 

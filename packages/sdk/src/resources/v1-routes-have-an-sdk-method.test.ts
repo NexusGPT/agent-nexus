@@ -19,12 +19,22 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * proves exactly this shape for upload routes; this is the same argument over
  * the whole surface.
  *
- * Measured when this gate was written: **424 v1 descriptors, 367 reached, 57
- * not**. The 57 are ledgered below, and they are not evenly spread — 34 of them
- * are `agent-evals`, an entire domain (runs, batches, templates, schedules,
- * triggers, webhooks) that shipped on the public API and never reached the SDK
- * or the CLI. That is the drift this ticket was filed about, and it was already
- * this large before anyone measured it.
+ * The unreached routes are ledgered below, and the ledger's SIZE is a fact this
+ * gate keeps true rather than a measurement that rots: it is asserted in both
+ * directions, so a route that gains a method or disappears reds this file. They
+ * are not evenly spread — over half carry one reason, `agent-evals`, an entire
+ * domain (runs, batches, templates, schedules, triggers, webhooks) that shipped
+ * on the public API and never reached the SDK or the CLI. That is the drift this
+ * ticket was filed about, and it was already this large before anyone measured
+ * it. Group the ledger by its reason string to see the spread; nothing asserts
+ * that breakdown, so read it rather than trusting a figure.
+ *
+ * **The size of the v1 surface, and how much of it the SDK reaches, are
+ * deliberately NOT written here.** Both grow with every route landed, so a
+ * figure goes stale with nothing to catch it — this paragraph carried one that
+ * had drifted by more than twenty routes. `collectRoutes().length` is the live
+ * total and `collectRoutes().filter((r) => reachedBySdk(r.method, r.path))` the
+ * live reached set; the failure message below prints the delta that matters.
  *
  * ## Shape: a ledger that may only shrink
  *

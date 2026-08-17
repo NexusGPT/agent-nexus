@@ -475,6 +475,10 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "phone-number search": "registration-only",
 
   // ── prompt-assistant ───────────────────────────────────────────────────────
+  // Read-only, but it takes a thread id AND holds the connection for up to 55s
+  // — a sweep that ran it would spend a minute per invocation waiting on a
+  // thread that does not exist.
+  "prompt-assistant await-thread": "registration-only",
   "prompt-assistant chat": "never-execute", // interactive REPL
   "prompt-assistant delete-thread": "registration-only",
   "prompt-assistant get-thread": "registration-only",

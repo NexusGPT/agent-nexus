@@ -101,7 +101,13 @@ export class NexusConnectionError extends NexusError {
  * processing the request) from "the API was unreachable".
  */
 export class NexusTimeoutError extends NexusConnectionError {
-  /** The client-side timeout that elapsed, in milliseconds. */
+  /**
+   * The client-side timeout that elapsed, in milliseconds.
+   *
+   * The EFFECTIVE one: a request may name its own deadline
+   * (`RequestOptions.timeout`), in which case this is that value and not the
+   * client's default.
+   */
   public readonly timeoutMs: number;
 
   constructor(timeoutMs: number) {

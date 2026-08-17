@@ -1012,6 +1012,20 @@ export type V1ResponseAssertions = [
       PageItems<MethodResult<NexusClient["promptAssistant"]["listThreads"]>>
     >
   >,
+  // PromptAssistantGetThread  GET /public/v1/prompt-assistant/threads/:threadId  ->  client.promptAssistant.getThread()
+  Expect<
+    Equals<
+      ResponseOf<"PromptAssistantGetThread">,
+      MethodResult<NexusClient["promptAssistant"]["getThread"]>
+    >
+  >,
+  // PromptAssistantWaitForThread  GET /public/v1/prompt-assistant/threads/:threadId/wait  ->  client.promptAssistant.awaitThread()
+  Expect<
+    Equals<
+      ResponseOf<"PromptAssistantWaitForThread">,
+      MethodResult<NexusClient["promptAssistant"]["awaitThread"]>
+    >
+  >,
   // SkillFolderList  GET /public/v1/skill-folders  ->  client.skillFolders.list()
   Expect<Equals<ResponseOf<"SkillFolderList">, MethodResult<NexusClient["skillFolders"]["list"]>>>,
   // SkillFolderCreate  POST /public/v1/skill-folders  ->  client.skillFolders.create()
@@ -1592,6 +1606,8 @@ const GATED_ROUTES = [
   "KnownIssuesForRoute",
   "PromptAssistantChat",
   "PromptAssistantListThreads",
+  "PromptAssistantGetThread",
+  "PromptAssistantWaitForThread",
   "SkillFolderList",
   "SkillFolderCreate",
   "SkillFolderUpdate",

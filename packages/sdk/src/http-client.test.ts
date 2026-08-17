@@ -414,6 +414,98 @@ describe("retrying a transient failure", () => {
     });
   });
 
+  it("arms the timer with the ROUTE's deadline when the caller set no dial", async () => {
+    // The route that asks the server to HOLD the connection. On the transport's
+    // own default a 55 s server-side wait aborts locally and throws where the
+    // caller was promised an outcome in the body, so the route's own deadline is
+    // what has to arm the timer.
+    //
+    // PRECEDENCE, and it is deliberate: an explicit `HttpClientOptions.timeout`
+    // outranks this — see the case below. The CLI only sets one when the user
+    // passes `--timeout`, so the route's deadline is what applies by default and
+    // an explicit dial still means what it says.
+    let aborted = false;
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new DOMException("aborted", "AbortError"));
+          });
+          // Answers after the client's own 20 ms deadline, inside the 5 000 ms
+          // this call asked for.
+          setTimeout(
+            () =>
+              resolve(
+                new Response(JSON.stringify({ success: true, data: { ok: true } }), {
+                  status: 200,
+                  headers: { "content-type": "application/json" }
+                })
+              ),
+            60
+          );
+        })
+    );
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    });
+
+    await expect(http.request("GET", "/agents", { timeoutMs: 5_000 })).resolves.toEqual({
+      ok: true
+    });
+    expect(aborted).toBe(false);
+  });
+
+  it("lets an EXPLICIT client dial outrank the route's own deadline", async () => {
+    // The other half of the precedence. `--timeout` exists to bound a wait, so a
+    // route asking for longer must not silently ignore it — the caller who typed
+    // a number is the one who gets to be wrong about it.
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          );
+        })
+    );
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      timeout: 20,
+      maxRetries: 0,
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    });
+
+    await expect(http.request("GET", "/agents", { timeoutMs: 5_000 })).rejects.toMatchObject({
+      message: expect.stringContaining("20")
+    });
+  });
+
+  it("reports the EFFECTIVE deadline when a per-request timeout is the one that fires", async () => {
+    // Reporting the client's 30 000 for a request given 40 sends the reader to
+    // the wrong dial.
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          );
+        })
+    );
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      maxRetries: 0,
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    });
+
+    await expect(http.request("GET", "/agents", { timeoutMs: 40 })).rejects.toMatchObject({
+      message: expect.stringContaining("40")
+    });
+  });
+
   it("cancels the body of a discarded 502 so the socket is released", async () => {
     const cancel = vi.fn(async () => undefined);
     let n = 0;

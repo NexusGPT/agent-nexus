@@ -279,12 +279,27 @@ const _app: Mirrors<"VibeAppDto", VibeAppDto, WireApp, "icon" | "linkedToolId"> 
  * wide, and composing a display name is a rendering decision this package has
  * not made. The id is what a CLI user pipes into another command; the name is
  * what a grid renders.
+ *
+ * `deploymentHistory` is omitted for the reason the two deployment summaries
+ * are, one step further: it is a bounded WINDOW plus a set of counts, and
+ * `vibe deployments list` already prints every attempt at full fidelity with
+ * nothing dropped and nothing classified. Mirroring a truncated twelve beside
+ * it would put a second, lossier history surface in the same binary — and the
+ * counts carry a judgement (`vibeDeploymentOutcome`, which reads a rolled-back
+ * version as failed) that a table printing raw statuses deliberately does not
+ * make. A grid draws twelve ticks because that is what fits; a terminal has the
+ * whole list.
  */
 const _appListItem: Mirrors<
   "VibeAppListItemDto",
   ListVibeAppsResponse["apps"][number],
   VibeData<"ListApps">["apps"][number],
-  "icon" | "linkedToolId" | "latestDeployment" | "servingDeployment" | "createdBy"
+  | "icon"
+  | "linkedToolId"
+  | "latestDeployment"
+  | "servingDeployment"
+  | "createdBy"
+  | "deploymentHistory"
 > = AGREES;
 
 const _getApp: Mirrors<"GetVibeAppResponse", GetVibeAppResponse, VibeData<"GetApp">> = AGREES;

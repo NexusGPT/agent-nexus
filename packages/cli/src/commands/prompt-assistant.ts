@@ -59,6 +59,37 @@ function parseWaitSeconds(raw: string): number {
 }
 
 /**
+ * Ceiling on a single server-held wait, mirroring the API's own cap.
+ *
+ * Not imported from `@nexus/types`: this package talks to the API through
+ * `@agent-nexus/sdk` and does not depend on the contract package. The value is
+ * a property of the proxy in front of the API (a request is cut at 60 s), and
+ * the server re-validates it — a client that asked for more would get a 400,
+ * not a longer hold.
+ */
+const MAX_AWAIT_SECONDS = 55;
+
+/** Parser for `await-thread --wait-timeout <seconds>`, which caps far lower than the poll's. */
+function parseAwaitSeconds(raw: string): number {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_AWAIT_SECONDS) {
+    throw new InvalidArgumentError(
+      `--wait-timeout must be a whole number of seconds between 1 and ${MAX_AWAIT_SECONDS}.`
+    );
+  }
+  return parsed;
+}
+
+/** Parser for `await-thread --after-message-count <n>`. */
+function parseAfterMessageCount(raw: string): number {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new InvalidArgumentError("--after-message-count must be a whole number of 0 or more.");
+  }
+  return parsed;
+}
+
+/**
  * Narrate a long wait on the human channel — and ONLY there.
  *
  * Under `--json` this prints nothing at all: a progress line on stdout is a
@@ -116,6 +147,10 @@ function waitDocument(result: WaitForThreadResult): Record<string, unknown> {
 const GET_THREAD_FIELDS = [
   { key: "threadId", label: "ID" },
   { key: "status", label: "Status" },
+  // How long it has been in that status, measured by the SERVER. `status` alone
+  // cannot tell a generation that started two seconds ago from one that has been
+  // running forty minutes, and that gap is what NEX-2524 was filed about.
+  { key: "progress", label: "Progress" },
   { key: "messages", label: "Messages" },
   { key: "promptResult", label: "Prompt Result" }
 ] as const satisfies readonly { key: keyof PromptAssistantThreadResponse; label: string }[];
@@ -127,13 +162,27 @@ const GET_THREAD_FIELDS = [
  * flag. NEX-2923 was filed because a caller read "the command returned" as "the
  * prompt is ready" while the thread was still generating. Exiting 0 with a
  * `generating` status reproduces exactly that, one layer down.
+ *
+ * `resumeCommand` is the WHOLE command that continues this wait, flags included,
+ * and it is passed in rather than rebuilt here because only the call site knows
+ * what the caller typed. Two ways a hint goes wrong, and both have shipped:
+ * naming the other verb (sending an `await-thread` user to `get-thread --wait`
+ * hands them back the client-side poll they chose the server-held one to
+ * avoid), and dropping `--after-message-count` — following THAT hint answers
+ * instantly with the previous turn's verdict, which is the stale-prompt trap
+ * the flag exists to close.
  */
-function waitExitCode(result: WaitForThreadResult, threadId: string): number {
+function waitExitCode(
+  result: WaitForThreadResult,
+  threadId: string,
+  resumeCommand = `nexus prompt-assistant get-thread ${threadId} --wait`
+): number {
   if (result.outcome === "timed-out") {
+    const resume = resumeCommand;
     return reportFailure(
       "timed-out",
       `Still ${result.thread.status} after ${Math.round(result.waitedMs / 1000)}s — the CLI stopped waiting, the server did not stop working.`,
-      `Resume with "nexus prompt-assistant get-thread ${threadId} --wait". Do NOT resend the message: a resend is a second user turn.`
+      `Resume with "${resume}". Do NOT resend the message: a resend is a second user turn.`
     );
   }
   // `outcome`, not `status`: a thread carries the PREVIOUS turn's terminal
@@ -408,6 +457,78 @@ Notes:
         const waited = await client.promptAssistant.waitForThread(threadId, waitOptions(opts));
         printRecord(waited.thread, GET_THREAD_FIELDS);
         const code = waitExitCode(waited, threadId);
+        if (code !== 0) process.exitCode = code;
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── await-thread ────────────────────────────────────────────────────────
+  pa.command("await-thread")
+    .description("Hold ONE request open on the server until the thread finishes")
+    .argument("<thread-id>", "Thread ID")
+    // NOT `--timeout`: that is a GLOBAL option, and the root parses its options
+    // across the whole of argv, so a subcommand flag sharing the name never
+    // receives a value — it silently retunes the CLI's own transport instead.
+    .option(
+      "--wait-timeout <seconds>",
+      `How long the SERVER holds the request, 1..${MAX_AWAIT_SECONDS} (default ${MAX_AWAIT_SECONDS})`,
+      parseAwaitSeconds
+    )
+    .option(
+      "--after-message-count <n>",
+      "Message count observed BEFORE the turn you are waiting on was sent",
+      parseAfterMessageCount
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus prompt-assistant await-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01
+  $ nexus prompt-assistant await-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01 --wait-timeout 30
+  $ nexus prompt-assistant await-thread 3f2a9c7e-1b4d-4a8e-9c0f-5d6e7a8b9c01 --after-message-count 4
+
+Notes:
+  THIS IS get-thread --wait WITH THE LOOP ON THE SERVER. One request is held
+  until the thread is completed, failed or cancelled instead of re-downloading
+  the whole transcript every few seconds. Prefer it in a hook or a script that
+  only needs to know when the prompt is ready.
+
+  ⚠️ IT RETURNS BEFORE A LONG GENERATION FINISHES, AND THAT IS NORMAL. The proxy
+  in front of the API cuts a request at 60s, so the hold is capped at
+  ${MAX_AWAIT_SECONDS}s and a longer generation exits non-zero with a timed-out
+  status. Run the command again with the same id — the work never stopped, and
+  a resend of the message would be a second user turn.
+
+  --after-message-count MATTERS AFTER A REPLY. A thread left completed by an
+  earlier turn still reads completed the moment you send the next message, so
+  without this flag the wait returns the PREVIOUS turn's prompt instantly. Pass
+  the message count you read before sending.`
+    )
+    .action(async (threadId: string, opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.promptAssistant.awaitThread(threadId, {
+          timeoutSeconds: opts.waitTimeout,
+          afterMessageCount: opts.afterMessageCount
+        });
+
+        printRecord(result.thread, GET_THREAD_FIELDS);
+        // The hint carries the FLAGS BACK, not just the id. Resuming without
+        // `--after-message-count` reopens the stale-verdict trap the flag
+        // closes, and resuming without `--wait-timeout` silently changes the
+        // hold the caller asked for.
+        const code = waitExitCode(
+          result,
+          threadId,
+          [
+            `nexus prompt-assistant await-thread ${threadId}`,
+            opts.waitTimeout === undefined ? "" : ` --wait-timeout ${opts.waitTimeout}`,
+            opts.afterMessageCount === undefined
+              ? ""
+              : ` --after-message-count ${opts.afterMessageCount}`
+          ].join("")
+        );
         if (code !== 0) process.exitCode = code;
       } catch (err) {
         process.exitCode = handleError(err);

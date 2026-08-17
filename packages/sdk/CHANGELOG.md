@@ -1,5 +1,222 @@
 # @agent-nexus/sdk
 
+## 0.22.0
+### Minor Changes
+
+- 7d6539a: A prompt-assistant thread now says HOW LONG it has been working, and the wait can happen on the server
+  
+  Two gaps, one cause: `status` was the only thing a thread told you about itself.
+  
+  ## 1. `generating` was not observable
+  
+  `status: "generating"` says the prompt is being written. It does not say whether
+  that started two seconds ago or forty minutes ago — and it reads identically to a
+  thread whose assistant asked a question and has been waiting for a human ever
+  since. A consumer with no way to tell those apart invented a state of its own and
+  reported a live generation as needing clarification.
+  
+  `getThread` now carries `createdAt`, `updatedAt` and a `progress` object measured
+  by the server:
+  
+  ```ts
+  const thread = await client.promptAssistant.getThread(threadId);
+  
+  thread.progress.state; // "generating"
+  thread.progress.elapsedSeconds; // 214 — time in THIS state, not the thread's age
+  thread.progress.lastActivityAt; // the heartbeat: advances while it works
+  thread.progress.isTerminal; // no terminal set to re-derive, and none to get wrong
+  thread.progress.serverTime; // the clock elapsedSeconds was measured against
+  ```
+  
+  `isTerminal` is the field to branch on. Deriving "which statuses are final" by
+  hand is what shipped a four-value union that omitted `cancelled`, and a wait loop
+  built on it polled a stopped thread until its own deadline.
+  
+  ## 2. Detecting completion meant polling
+  
+  `waitForThread` hides the poll but still pays for it: every pass downloads the
+  entire transcript, and a 26-minute generation is dozens of full-thread responses
+  to observe one state change.
+  
+  `awaitThread` moves the loop behind the API. One request, held by the server
+  until the thread finishes:
+  
+  ```ts
+  let result = await client.promptAssistant.awaitThread(threadId, {
+    afterMessageCount: before.messages.length
+  });
+  while (result.outcome === "timed-out") {
+    result = await client.promptAssistant.awaitThread(threadId, {
+      afterMessageCount: before.messages.length
+    });
+  }
+  console.log(result.thread.promptResult?.prompt);
+  ```
+  
+  ⚠️ **It returns before a long generation finishes, and that is normal.** The
+  proxy in front of the API cuts a request at 60 s, so the hold is capped at 55 s
+  and `outcome: "timed-out"` means "not yet — ask again". The work never stopped;
+  do not resend the message, because a resend is a second user turn.
+  
+  `afterMessageCount` matters whenever a turn was just sent: the server does not
+  reset `status` when a new user message arrives, so a thread left `completed` by
+  an earlier turn would otherwise answer instantly with that stale verdict.
+  
+  ## CLI
+  
+  ```bash
+  # the same wait, one request instead of a poll loop
+  nexus prompt-assistant await-thread <thread-id>
+  nexus prompt-assistant await-thread <thread-id> --wait-timeout 30 --after-message-count 4
+  
+  # and get-thread now prints the progress block
+  nexus prompt-assistant get-thread <thread-id>
+  ```
+  
+  `get-thread --wait` is unchanged — it still blocks for as long as you ask, on the
+  client side. Reach for `await-thread` in a hook or a script that only needs to
+  know when the prompt is ready.
+- c8c90e0: A Role can be paused, and pausing stops its WORK rather than its access
+  
+  `client.roles.pause(roleId)` / `client.roles.resume(roleId)`, and
+  `nexus role pause` / `nexus role resume`. A paused Role's workflows and agents
+  are refused execution until it resumes.
+  
+  ## 🔴 It reaches 2 of the 6 kinds a Role can hold
+  
+  Read this before reporting what a pause achieved, because the honest answer is
+  narrower than the word:
+  
+  | kind                | off switch                               | stopped by a pause? |
+  | ------------------- | ---------------------------------------- | ------------------- |
+  | `workflow`          | `Workflow.status = PAUSED`, guarded      | ✅ stops            |
+  | `agent`             | `Agent.status = PAUSED`, guarded         | ✅ stops            |
+  | `deployment`        | `isActive`, **no execution-guard tier**  | ❌ keeps serving    |
+  | `ai_task`           | **none**                                 | ❌ keeps running    |
+  | `document_template` | `DRAFT \| SAVED` — not on/off            | ❌ unaffected       |
+  | `external_tool`     | a status on the **shared catalogue row** | ❌ untouchable      |
+  
+  The last one is not an oversight left for later: that row is shared across
+  tenants, so no per-Role state may touch it without reaching every other tenant
+  holding the same tool. Call `client.roles.listSystems()` / `nexus role systems`
+  first — on a Role whose systems are deployments and AI tasks, a pause changes
+  nothing a customer would notice.
+  
+  ## 🚨 It changes no access, and the opposite reading does not exist on purpose
+  
+  Nothing the Role grants is suspended, narrowed or revoked, and every member
+  reaches afterwards exactly what they reached before. There is no verb that
+  suspends a Role's access, deliberately: a Role is the exclusive holder of the
+  resources it owns and the permission family is subtractive, so emptying its
+  grants would **publish** every collection and workspace it was the last holder
+  of to the whole organization — the opposite of what "suspend its access" sounds
+  like.
+  
+  ## Idempotent, and the first stop is the one that survives
+  
+  Pausing an already-paused Role succeeds and returns the **original** `pausedAt`.
+  That field answers _since when_, and re-stamping it would destroy the only
+  record of the original stop, so a double-click, a retry, or two operators
+  reacting to one incident all resolve with the same answer.
+  
+  ⚠️ **There is no `changed` flag, and its absence is the contract.** `pause()`
+  resolving with a `pausedAt` you did not set means _somebody already stopped this
+  Role_, which is a SUCCESS. Do not retry or alarm on it. `role.pausedAt` is the
+  answer.
+  
+  ## `@agent-nexus/sdk`
+  
+  - **`roles.pause(roleId)` and `roles.resume(roleId)`**, both resolving with
+    `RolePauseStateResponse` (`{ role: Role }`).
+  - **`Role` gains `pausedAt: string | null` and `pausedByUserId: string | null`.**
+    `pausedAt` is ISO 8601; `null` means the Role is running.
+  - **`RoleCapability` gains `"role.pause"` and `"role.resume"`.** They are a pair
+    rather than one value: an on-call permission set that may restart a Role
+    somebody else stopped, without being able to stop one itself, is a real
+    audience a single capability cannot express.
+  
+  ⚠️ **The two new `Role` fields are additive on the wire and a compile error for
+  one shape of consumer**, exactly as `Workspace.kind` was. Anything that only
+  READS a `Role` is unaffected. Anything that CONSTRUCTS a `Role` object literal —
+  a fixture, a mock, a hand-rolled double — now fails to compile until it supplies
+  both. That is the good direction: the break is at build time.
+  
+  ⚠️ **`RoleCapability` widening breaks an exhaustive switch.** A consumer that
+  maps every member of that union to something now has two unhandled cases.
+  
+  🔴 **`pausedAt` set with `pausedByUserId` null is a real and reachable state, and
+  it is NOT "running".** The column clears when the user who paused it is deleted,
+  so a paused Role outlives its pauser. Read the stop off `pausedAt` alone;
+  `pausedByUserId` decides only whether you can name a person.
+  
+  ## `@agent-nexus/cli`
+  
+  - **`nexus role pause <role>` and `nexus role resume <role>`.** Both take a name
+    or a UUID. Their `Notes` carry the census above.
+  - **`nexus role get` now prints `Paused at` and `Paused by`** — it is the command
+    an operator runs when a Role's workflows are not firing, so hiding the stop
+    there would hide it in the one place it is looked for.
+  
+  ⚠️ **Pausing needs `role.pause` and resuming needs `role.resume`, and holding one
+  does not imply the other.** Check before stopping a Role you cannot start again.
+  
+  ⚠️ **A 403 on resume has two causes and only one is about you.** `role.resume`
+  not held is curable by asking the Role's owner. An organization that has opted
+  out of Roles is not — the error `code` is `FEATURE_NOT_ENABLED`, nobody in that
+  organization can reach the command, and the Role's systems are running
+  regardless, because the server declines to enforce a Role stop for an opted-out
+  organization.
+
+### Patch Changes
+
+- fc80b57: A blank environment variable no longer defeats the default it sits beside
+  
+  `??` fires on `null` and `undefined`. `""` is neither. So an environment
+  variable that is SET AND EMPTY wins a `??` chain and the default beside it is
+  unreachable — and a blank env var is not exotic: `NEXUS_BASE_URL=` in a `.env`,
+  or `export NEXUS_BASE_URL=$SOMETHING_UNSET`, both produce it.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`new NexusClient()` no longer sends requests to the empty string.**
+  
+  ```ts
+  const baseUrl = opts.baseUrl ?? getEnv("NEXUS_BASE_URL") ?? "https://api.nexusgpt.io";
+  ```
+  
+  `getEnv` returns `process.env[key]` verbatim, so a blank `NEXUS_BASE_URL` made
+  `baseUrl` the empty string, every request resolved against a relative path, and
+  the documented default one operand to the right was never reached. It now takes
+  the first PRESENT value.
+  
+  The two `??` chains beside it are unchanged and were checked rather than
+  rewritten: `apiKey` is followed by `if (!apiKey) throw` and `organizationId` by
+  a truthiness test, so a blank is already caught in both.
+  
+  ## `@agent-nexus/cli`
+  
+  Seven places rendered a blank where they promised a fallback. All are display
+  paths — the command still does the same work, it just no longer prints nothing
+  in place of a label:
+  
+  - **`nexus workspace list`** — a blank org name swallowed the `orgId` fallback,
+    leaving the column empty instead of identifying the org.
+  - **`nexus execution ...`** — a blank node label swallowed the `nodeId`
+    fallback, so a node in the tree could not be identified at all.
+  - **`nexus vibe deploy-state`** — a blank ref name printed an empty string where
+    the fallback is a sentence saying no ref head matches the commit.
+  - **`nexus emulator`** — a blank tool name printed nothing instead of `tool`.
+  - **`nexus ... --format table`** — a folder named `""` rendered as an empty
+    cell, where the formatter's contract is a dash.
+  - **the auto-update notice** — a blank cached version reached the user-facing
+    message.
+  
+  Both packages carry a small local blank-aware helper rather than importing
+  `firstNonBlankOr` from `@nexus/types`. Both publish standalone and hold
+  `@nexus/types` as a devDependency, so an import would emit a `require` for a
+  package their `dependencies` do not declare — it would install cleanly and throw
+  on first call.
+
 ## 0.21.0
 ### Minor Changes
 

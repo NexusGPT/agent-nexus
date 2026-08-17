@@ -1,5 +1,1052 @@
 # @agent-nexus/cli
 
+## 0.29.0
+### Minor Changes
+
+- 21e7929: `workflow node-type <type>` now answers with the node type's authoring guide
+  
+  `nexus workflow node-type aiTask` told you the SHAPE of an `aiTask` node — its
+  fields, its defaults, how many edges it takes. It did not tell you the things
+  people actually get wrong: which node type to reach for instead, what a
+  configuration that RUNS looks like, or which writes the platform accepts at 200
+  and then fails at run time.
+  
+  Each node type now carries a `guide`: one Markdown page, written from live runs
+  against a real organisation rather than from source, covering what problem the
+  type solves, when to pick it and over what, a minimal working configuration, the
+  gotchas, and what it cannot do.
+  
+  ## `@agent-nexus/cli`
+  
+  - **`workflow node-type <type>` prints the guide below the schema.** The schema
+    rows render exactly as before; the guide follows as a Markdown block.
+  - **`--json` carries it as the `guide` string, in the same document as
+    everything else.** The two channels are deliberately not split: a script and a
+    reader get the same content.
+  - A node type with no guide yet omits the key and prints nothing extra.
+  
+  ## `@agent-nexus/sdk`
+  
+  `NodeTypeSchema` gains an optional `guide?: string`, returned by
+  `client.workflows.getNodeTypeSchema(type)`.
+  
+  ⚠️ **Additive, and it changes no existing field.** The value was already on the
+  wire for nothing to read it: `NodeTypeSchemaResponseSchema` did not declare a
+  `guide`, and Zod strips unknown keys — so a consumer parsing with the published
+  contract would have silently discarded it. The schema declares it now, which is
+  what makes the field reachable at all.
+  
+  This batch covers six of the eight trigger types: `agentInputTrigger`,
+  `manualTrigger`, `pluginTrigger`, `scheduleTrigger`, `selectTrigger` and
+  `webhookTrigger`. The remaining 35 node types follow on the same mechanism.
+  
+  ## Also
+  
+  **`newsMonitorTrigger`'s `description` said the node "cannot be created or
+  replaced via the API". Only the REPLACE half of that was ever true.**
+  `PUT /workflows/:id/trigger` does reject the type. `POST /workflows/:id/nodes`
+  answers `201` — it refuses only `loopStart`, `doWhileStart` and `selectTrigger`
+  — and what it creates is a second trigger node that no execution reaches and
+  that cannot be deleted, because trigger nodes are `deletable: false`.
+  
+  The description now separates the two, because a reader who took the old
+  sentence as "the API will stop me" was told the platform had a guard it does not
+  have, and the damage it permits instead is permanent.
+- b3f5f2b: An AI task can carry its few-shot examples as a field, instead of inside the prompt
+  
+  The platform already stored few-shot demonstrations, already showed a manager for
+  them in the dashboard, and already replayed each pair as a user/assistant
+  exchange ahead of the real input at inference. What it had no way to do was
+  accept them over the public API. A create carrying `examples` answered success
+  with the key stripped, and a task read back never mentioned the pairs it held —
+  so the only place a demonstration could live was the prompt string itself. One
+  reported prompt reached ~190K characters that way.
+  
+  `fewShots` is now a first-class field:
+  
+  ```ts
+  const task = await client.skills.createTask({
+    name: "Summarize Email",
+    modelName: "gpt-4o",
+    modelProvider: "OPEN_AI",
+    generation: { expectedInput: "Raw email text", expectedOutput: "One sentence" },
+    fewShots: [
+      { input: "Dear team, the Q4 report is attached.", output: "Q4 report shared." }
+    ]
+  });
+  
+  task.fewShots; // [{ id, input, output }] — oldest first
+  ```
+  
+  `TaskDetail` gains `fewShots`, and `CreateTaskBody` / `UpdateTaskBody` gain it as
+  `{ input, output }` pairs. Both halves are required and must be non-empty: an
+  empty one is not an empty example, it is a blank turn the model reads as an
+  instruction to answer with nothing.
+  
+  ## On update it REPLACES, and that is the one field here that does
+  
+  The array sent becomes the task's whole set. `[]` clears it; omitting the key
+  leaves the stored examples alone, like every other field on the PATCH. Whole-set
+  replacement rather than per-example ids because a caller of this route never
+  holds those ids — `getTask` is the only read that carries them — and an
+  append-only field would leave "remove the third example" unexpressible.
+  
+  A `fewShots`-only update counts as a change and returns a `versionId`, so that
+  field keeps its published meaning of "the body named a recognized field and
+  something was written". The version snapshot covers the task's own fields and not
+  its examples, so restoring one puts the prompt back and leaves the examples as
+  the update left them.
+  
+  ## `examples` is refused, not dropped
+  
+  `examples`, `fewShotExamples`, `samples` and `demonstrations` are the names
+  callers reach for, and all four are now a 400 that names `fewShots` — the same
+  treatment `promptText` and `systemPrompt` get for the prompt. A write body that
+  strips what it does not know and answers success is how this gap stayed
+  invisible: you only found out by reading the task back and noticing the key was
+  gone.
+  
+  ## Order is the caller's, and it is now stable
+  
+  The pairs are stored, read back and replayed to the model in the order they were
+  sent. That was not previously guaranteed for a bulk write — the stored timestamp
+  these are ordered by defaults to the transaction's, which is identical for every
+  row written together, so the order fell to whatever the database returned.
+  
+  ## A task that carries examples can still be deleted
+  
+  `FewShot`'s foreign key to the task is `ON DELETE RESTRICT`, and the delete path
+  never cleared those rows — so a task with demonstrations answered a database
+  constraint error instead of deleting. That was already reachable through the
+  dashboard's few-shot manager; making `fewShots` writable over the API would have
+  made it the normal outcome. The demonstrations are now removed in the same
+  transaction as the task.
+  
+  ## CLI
+  
+  `fewShots` is `--body` only on `task create` and `task update`, and `task get
+  --json` reports it:
+  
+  ```bash
+  nexus task create --name "Classify" --model-name gpt-4o --model-provider OPEN_AI \
+    --expected-input "A ticket" --expected-output "bug | billing | other" \
+    --body '{"fewShots":[{"input":"Card declined","output":"billing"}]}'
+  
+  nexus task get <id> --json | jq '.fewShots'
+  ```
+- cc4146e: An API deployment can stream a turn, instead of blocking and then polling
+  
+  `POST /public/v1/emulator/:deploymentId/sessions/:sessionId/messages/stream` is
+  the streaming twin of the emulator send: same body, same effect on the
+  conversation, but it holds the response open (`text/event-stream`) and emits the
+  turn as it happens.
+  
+  Before this, the API channel had one shape: a POST that blocked for 10–60s, gave
+  back `{chatId, messageId, debug.toolsInvoked}` and no text, and left the caller
+  polling `GET /conversations/:chatId/messages` for the answer — against a
+  persistence race that could land the final agent row AFTER the send returned. The
+  embed widget had tokens, live tool activity and a settled final message the whole
+  time, over its socket. A hosted app that wanted its own branding had to choose
+  between an iframe and a spinner.
+  
+  ## The frames
+  
+  One JSON object per `data:` line, `start` first and `done` last:
+  
+  `start` (chatId/messageId, before the first token) · `token` (answer deltas) ·
+  `thinking` (reasoning deltas) · `tool_call` (`started` then `completed`, sharing
+  a `toolCallId`) · `message` (a row's final state) · `error` · `done`
+  (`completed` | `failed` | `processing`).
+  
+  `thinking` and the leading edge of `tool_call` have no socket counterpart — the
+  widget shows neither — so this surface is a superset of what the widget receives,
+  not a copy of it.
+  
+  ## SDK
+  
+  ```ts
+  for await (const event of client.emulator.streamMessage(depId, sessionId, { content: "hi" })) {
+    if (event.type === "token") process.stdout.write(event.delta);
+  }
+  ```
+  
+  `HttpClient.requestSSE()` is the new transport underneath it — an async
+  generator over a `text/event-stream` body. Leaving the loop early cancels the
+  connection; the turn keeps running server-side and its result is still persisted.
+  
+  ## CLI
+  
+  `nexus emulator send <dep> <session> --text "…" --stream` prints the turn live.
+  Under `--json` it still prints ONE document, `{"events":[…]}`, holding every
+  frame in order.
+  
+  ## Additive
+  
+  The blocking send is unchanged, and so is every existing SDK method and CLI flag.
+- 5f7b113: Cue conversation transcripts can now be exported, subagent traces included
+  
+  Cue persists everything a session did — every turn, every tool call and tool result, the
+  reasoning behind each turn, the model and provider that produced it — and it does the same
+  for every subagent the session spawns. None of that was reachable outside the product UI,
+  so the population could not be used as data.
+  
+  Three routes, all read-only, all under one scope (`cue_transcripts:read`):
+  
+  ```ts
+  // Which conversations exist, and how big each transcript is. No content.
+  const { data } = await client.cueTranscripts.listConversations({ startDate: "2026-08-01" });
+  
+  // One conversation, whole.
+  const transcript = await client.cueTranscripts.getTranscript(data[0].id);
+  
+  // Every conversation in a range, NDJSON by default.
+  const corpus = await client.cueTranscripts.export({ startDate: "2026-08-01" });
+  ```
+  
+  ```bash
+  nexus cue conversations --start-date 2026-08-01
+  nexus cue transcript <conversation-id> > session.json
+  nexus cue export --start-date 2026-08-01 > corpus.ndjson
+  ```
+  
+  ## A subagent's OWN transcript, not the summary it returned
+  
+  `agentThreads` carries one entry per spawned subagent, keyed by the tool-use id on the
+  parent turn that spawned it, and each entry holds that subagent's complete transcript. The
+  summary the subagent handed back to the main loop is what the lead saw; it is not what the
+  subagent did, and only the second is useful as data.
+  
+  The split is not "assistant vs tool". A row belongs to a subagent thread only when it
+  carries BOTH `parentToolUseId` and `agentName`. A row that names a teammate with no thread
+  key is the SPAWN, and it stays on `mainThread` — that row is where the parent↔child link
+  lives, so filing it under the thread would lose the lineage.
+  
+  ## Every document is versioned, and both routes emit the same one
+  
+  `schemaVersion` is `"cue.transcript/v1"`. A corpus on disk carries no URL, so the version
+  travels on the document rather than on the route that served it — match on it before
+  parsing. The per-conversation route and the bulk export emit the identical shape, so one
+  parser serves both.
+  
+  ## The date window is `updatedAt`, not `createdAt`
+  
+  `startDate` / `endDate` bound when a conversation was last touched. That makes one
+  parameter do two jobs: "sessions active in this period", and the incremental-refresh
+  primitive — re-run with the previous run's `exportedAt` as `startDate` and you get exactly
+  the conversations that changed. A `createdAt` filter could only answer the first, and would
+  miss a session that started before the window and ran into it.
+  
+  ## `export()` buffers; the ROUTE streams
+  
+  `client.cueTranscripts.export()` and `nexus cue export` resolve the whole response before
+  returning, the same as `analytics.export()`. The server writes one document at a time, so
+  for a range wide enough to matter call
+  `GET /api/public/v1/cue/transcripts/export` directly and consume the body as a stream —
+  NDJSON is line-delimited precisely so a reader can.
+  
+  Both are rate limited to 5 requests per minute per organization: this is a bulk pull, not
+  a poll.
+- fa0caec: `nexus mcp` — the outbound MCP endpoint is reachable, and the bridge stops
+  losing the organization.
+  
+  `POST /api/public/v1/mcp` has worked for months and was invisible from the CLI:
+  no `mcp` command, nothing in `nexus docs`, and the only way in was
+  `nexus api POST /mcp` with a hand-written JSON-RPC envelope. Anyone who found the
+  surface found it as a separate npm package and logged in a second time, into a
+  second credential store, with a key the CLI was already holding.
+  
+  `nexus mcp tools list` and `nexus mcp tools get <tool>` read the catalog the
+  calling key can see, `nexus mcp call <tool> --input '{…}'` invokes one, and
+  `nexus mcp serve` is the stdio bridge running on the active CLI profile.
+  `nexus mcp install --client claude-code|claude-desktop|cursor` writes the host
+  config block for it — a block that launches this binary and therefore carries no
+  API key at all, so a project-scoped `.mcp.json` can be committed.
+  
+  The parity gap was not only ergonomic. `@agent-nexus/mcp-server` sent `api-key`
+  and nothing else, so a personal cross-org token — which belongs to no
+  organization, and acts on whichever `organization-id` names — drove MCP against
+  the server's default while every other command in the same shell acted on the one
+  `nexus auth use-org` selected. Reads answered from another tenant and writes
+  landed in it, silently. Both bridges now send the header, and the standalone one
+  also honours `NEXUS_PROFILE` and reports the organization in `nexus-mcp whoami`.
+- a3c20d8: An AI task can be run on another model per CALL, and `task duplicate` exists
+  
+  An AI task binds a prompt to a model. That binding is right for the prompt and
+  wrong for the call: the same assessor runs over every record in a nightly sweep,
+  where cheap and good-enough wins, and on the one record a human is about to act
+  on, where the frontier model is worth many times more. Saying that needed two
+  tasks — which means two copies of the prompt, and the prompt is the artifact you
+  most want to keep single.
+  
+  ## `modelOverride` on execute
+  
+  `client.skills.executeTask()` takes an optional `modelOverride`, and
+  `nexus task execute` takes `--model-name` / `--model-provider`:
+  
+  ```ts
+  // The nightly sweep, cheap.
+  await client.skills.executeTask(taskId, {
+    input: notice,
+    modelOverride: { modelName: "claude-haiku-4-5", modelProvider: "ANTHROPIC" }
+  });
+  
+  // The same task, from a button, on its own model.
+  await client.skills.executeTask(taskId, { input: notice });
+  ```
+  
+  **Nothing is persisted.** The task keeps its binding, its versions are untouched,
+  and every other caller of it is unaffected. The same field is accepted on a
+  workflow's `aiTask` node, so a scheduled workflow and an on-demand run can share
+  one prompt.
+  
+  - `modelName` and `modelProvider` are REQUIRED together. Half a pair is refused
+    before any request leaves the CLI — completing it from the task's own config is
+    how a task ends up addressing an Anthropic endpoint with an OpenAI model id.
+  - **`temperature` is not overridable and is always the task's.** It is part of
+    the reasoning rather than the routing.
+  - **`customModelId` is NOT inherited.** A BYOM endpoint replaces the routing
+    outright, so carrying a stored one into an override that names a platform model
+    would accept the override and then silently ignore it. Name one in the override
+    to route this call onto a custom endpoint instead.
+  - The provider tuning (`thinkingLevel`, `reasoningEffort`, …) is not inherited
+    either, matching what a model change already does on `task update`. It has no
+    flag; send it under `--body`.
+  
+  ## `task duplicate` — the command the 409 has always recommended
+  
+  `POST /skills/tasks` refuses a byte-identical prompt with _"Consider editing the
+  existing task or duplicating it instead"_, and nothing named `duplicate` existed:
+  
+  ```
+  $ nexus task duplicate <id>
+  error: unknown command 'duplicate'
+  ```
+  
+  `client.skills.duplicateTask()` and `nexus task duplicate <id> [--name]
+  [--description] [--model-name] [--model-provider] [--custom-model-id]` now serve
+  it, and the 409 names only paths that exist — the override first, since that is
+  what most callers arriving at it actually want.
+  
+  **The copy is the SOURCE for every field the body does not name**, which is the
+  whole difference from calling create again. There, a field you leave out takes
+  THAT route's default: an unsent `temperature` becomes 0.7 however the original
+  was tuned, and `task get` returns no temperature at any value, so nothing you can
+  read afterwards shows the change. That is not hypothetical — it is what a
+  production "model-only" fork of a 94,268-char prompt actually did.
+  
+  Knowledge collections are the one field a copy does not carry: attaching one is a
+  permission decision this path does not make.
+
+### Patch Changes
+
+- 425ec9a: A refusal under `--json` answered NOTHING on stdout, and the gate built to catch that read zero
+  
+  `nexus --help` promises: *"Under --json an error is a JSON document on STDOUT:
+  `{"error":{"message","hint","code"}}`, all three keys ALWAYS present"*. Six ways
+  of getting an invocation wrong broke it, and every one of them exited 1 with an
+  EMPTY stdout and prose on stderr — the one combination a caller cannot work
+  around by output shape OR by status.
+  
+  Measured on the shipped binary:
+  
+  ```
+  $ nexus agent get --json
+  error: missing required argument 'id'          # stderr
+                                                 # stdout: 0 bytes
+  $ echo $?
+  1
+  ```
+  
+  ## Why
+  
+  JSON mode is decided from `--json` inside the root program's `preAction` hook.
+  Commander refuses an invalid invocation **above the hook chain** — before any
+  hook runs — so at the instant of the refusal the process did not yet know it was
+  in JSON mode, and the error printer took its human branch.
+  
+  The refusal already reached the right funnel: `installArgumentRefusalReporting`
+  turns commander's exit into a typed throw and `handleError` builds the document.
+  What was missing was the one fact that decides which channel it goes on.
+  
+  ## What changes
+  
+  Every refusal commander decides itself now emits the documented envelope on
+  stdout when `--json` is in the invocation:
+  
+  - a missing required argument (`nexus agent get --json`)
+  - an unknown command, at the root or inside a namespace
+  - an unknown option
+  - a value outside a `.choices()` set
+  - too many arguments
+  - a root option whose value parser throws (`nexus --timeout abc … --json`)
+  
+  **Exit codes are unchanged.** A refusal still exits 1, and `--help` / `--version`
+  still exit 0 and still print help rather than an error. Without `--json` a
+  refusal still prints prose on stderr, exactly as before. Commander's own
+  one-line `error: …` stays on stderr in both modes; what is new is the document
+  beside it.
+  
+  ⚠️ **A script that treated an empty stdout as "the CLI itself is broken" now
+  gets a parseable document with `"code": "CLI_INVALID_ARGUMENTS"`.** That is the
+  code the root epilogue already documents for an invocation refused before
+  anything was sent, and it is the field to branch on.
+  
+  ## And a missing command now says what is missing
+  
+  Commander answers "no command was given" by printing the help screen and exiting
+  with the literal marker `(outputHelp)` as its message. That reached the error
+  document as its `message` — a field a machine parses, saying nothing, on the one
+  failure with the most obvious remedy in the CLI. Two sentences replace it, the
+  same hint and the same exit code beside each, and the help screen still goes to
+  stderr:
+  
+  - `nexus --json` → `"No command given."`
+  - `nexus agent --json` → `"No subcommand given for \"nexus agent\"."`
+  
+  Commander raises one code for both, so a single sentence would have denied a
+  command the caller plainly supplied while the hint named that namespace's help.
+- 0e33dda: `nexus --help` no longer says scopes are non-hierarchical — a write scope now carries the matching read.
+  
+  The API's `checkScope` had **no action hierarchy at all**: `<r>:write` did not imply
+  `<r>:read`, and only `<r>:*`, `*:<action>` and `*:*` bridged two actions. Twelve destructive
+  v1 routes prescribe a pre-flight read in their own descriptions, and that read needed a scope
+  the destructive route did not — so the description read as complete, a caller followed it
+  exactly, and a `403` was the first thing that said otherwise.
+  
+  The sharp case is the replace-style `PUT`, where the body is the whole list and every element
+  omitted is deleted at `200` — the route's own words are that success and total data loss are
+  the same response. The prescribed `GET` was the only safeguard and it was exactly what the
+  refusal removed.
+  
+  **`<r>:write` now satisfies `<r>:read` on the same resource. Nothing else bridges:**
+  `:write` does not imply `:delete`, `:delete` implies nothing, `:read` and `:execute` imply
+  nothing, and the implication never crosses a resource.
+  
+  Two help surfaces led with _"Scopes are NOT hierarchical"_, which is now false in one
+  direction. Both state the one implication and the things that still do not bridge, so a key is
+  minted for what it actually needs rather than for what the old sentence implied:
+  
+  - `nexus --help`, the `SCOPES AND WHO YOU ARE` section.
+  - `nexus workspace --help`, where the sentence introduced the mount's scope note. That note's
+    actual point is unchanged and now leads: **deleting needs `workspaces:delete`, which write
+    does NOT imply** — a read-write mount whose key lacks it fails every `rm` with a `403` while
+    `cp` keeps working. `workspaces:write` does now carry `workspaces:read`.
+  
+  The other per-command notes that name a specific gap — `conversation delete` needing
+  `conversations:delete`, `phone-number delete` needing `phone_numbers:delete`, the
+  deployment-folder scopes a `deployments:*` key does not reach — were each re-checked and are
+  unchanged, because every one of them is a `delete` or a different resource.
+  
+  No command, flag, output shape or exit code changes.
+- 4bf96d2: `agent create` and `agent update` help now lists the four valid model providers
+  
+  `--model-provider` documented no values at all. The help printed the flag, and a
+  caller had to send one and read the 400 to learn what the server accepts.
+  
+  It now prints them:
+  
+  ```
+  modelProvider — one of:
+      OPEN_AI, ANTHROPIC, GOOGLE_AI, KIMI
+  ```
+  
+  The same four reach `nexus agent create --help`, `nexus agent update --help`,
+  `--print-contract`, and the generated docs page for the `agent` namespace. Each
+  page's "Not shown: N optional field(s)" count drops by exactly one, because the
+  field became documented rather than being omitted from the summary.
+  
+  ## Why the help changed without the CLI changing
+  
+  Nothing in this package was edited by hand. `generate-contract-help.ts` reads the
+  v1 Zod contract to build each flag's choices, and it can read a `z.enum` while a
+  bare `z.string()` gives it nothing to publish — so the flag was emitted as
+  `type: "unknown"` with no `enumValues`.
+  
+  The contract's agent write bodies declared `modelProvider: z.string().max(255)`
+  beside a `modelConfig.modelProvider` that was already the four-member
+  `ModelProvider` enum. Both land in the same stored key, so the enum was defeated
+  by the door next to it: `modelConfig.modelProvider: "MISTRAL"` was refused while
+  a flat `modelProvider: "MISTRAL"` on the same body was accepted, on both POST and
+  PATCH. Narrowing the flat field to the same schema closed that, and the generator
+  then had an enum to read.
+  
+  ⚠️ **The server now refuses an unrecognised provider with a 400 where it used to
+  accept one.** That is the point of the change rather than a side effect: the
+  value was never storable in a shape the read contract could describe, and it
+  would have been published back against the same four-member enum. Production
+  holds zero non-member rows across 1,340 agents, so nothing was relying on it.
+- 4616c7a: An operation that runs a model gets the minutes it needs
+  
+  `client.skills.executeTask()` aborted after 30 seconds. On a frontier model with
+  structured JSON output a generation takes 60–90 s, so the SDK stopped waiting on
+  every correct answer and returned only the fast or degenerate ones — while the
+  server ran the generation to completion and billed it.
+  
+  The same wall stood in front of `nexus-mcp`, where every tool call shared one
+  60 s deadline. `skills_execute_task` needs longer than that by design, so the
+  tool most likely to be slow was the one the default could not accommodate.
+  
+  ## A deadline belongs to the operation, not to the transport
+  
+  `HttpClient` had ONE number and every route inherited it. Under one number the
+  two classes of route cannot both be served: 30 s kills a generation, and raising
+  the shared value to ten minutes would hang a script for ten minutes on an
+  unreachable `GET /models`.
+  
+  So each long-running method now states the deadline its own route needs:
+  
+  |                              | Deadline | Applies to                                                                                                         |
+  | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+  | `DEFAULT_REQUEST_TIMEOUT_MS` | 30 s     | Ordinary reads and writes                                                                                          |
+  | `LONG_RUNNING_TIMEOUT_MS`    | 10 min   | `skills.executeTask` · `skills.testExternalTool` · `tools.execute` · `workflows.testNode` · `promptAssistant.chat` |
+  
+  Both constants are exported from the package root.
+  
+  ## An explicit `timeout` still wins, in both directions
+  
+  `new NexusClient({ timeout })` governs every request, long-running routes
+  included — that is the contract the CLI's global `--timeout <seconds>` flag rests
+  on, and it is why the client's own timeout is no longer collapsed to `30_000` in
+  the constructor: "the caller asked for 30 s" and "nobody said anything" had
+  become the same value, which is what made the long routes unfixable.
+  
+  `NEXUS_MCP_REQUEST_TIMEOUT_MS` plays the same role for the MCP bridge.
+  
+  ## Deliberate omissions
+  
+  A route only qualifies if the server holds the connection open across the model
+  run itself, so several near misses stay on 30 s: `emulator.sendMessage`, because
+  the SERVER bounds its own wait at 25 s and answers `status: "processing"` for a
+  slow turn; `evaluations.execute`, `evaluations.judge` and `workflows.testWorkflow`,
+  because they acknowledge and run in the background (`testWorkflow` returns
+  `{ executionId, status: "RUNNING" }` — its sibling `testNode`, which answers with
+  the node's own output, IS in the set); and
+  `skills.generateDocumentTemplate`, which renders a docx/pptx rather than
+  generating anything with a model. The membership is held by a test, so a new
+  synchronous model-running route cannot quietly inherit 30 s again.
+  
+  ## For the CLI
+  
+  `task execute` already carried a local 600 s constant; it now derives that number
+  from the SDK rather than restating it, and the sibling commands that reach a
+  long-running route (`workflow test-node`, `tool execute`, `external-tool test`,
+  `prompt-assistant chat`) get the same deadline without each having to remember.
+  `--help` and the docs pages say so.
+  
+  ## Additive
+  
+  No signature changes. A caller who set `timeout` keeps exactly the behaviour they
+  had; a caller who did not gets a deadline that fits the operation.
+- 69a1303: CLI startup halves — the bundled skills payload is no longer compiled into every invocation
+  
+  Every `nexus` command paid to read and compile an 8.4 MB skills payload before it
+  did anything, including `nexus --version`, which never reads that data at all.
+  
+  Measured on the built bundle, same machine, same method:
+  
+  | | bundle | `nexus --version` |
+  |---|---|---|
+  | before | 10.40 MB | ~178 ms |
+  | after | 1.75 MB | ~81 ms |
+  
+  **~97 ms saved per invocation, about 54% of startup**, and it is paid back by every
+  command that never touches the skills data — which is nearly all of them. Scripts
+  that shell out to `nexus` in a loop pay it once per call.
+  
+  ## What changed
+  
+  The payload moved out of `skills-content.generated.ts` and into
+  `skills-content.generated.json` beside it, read with `readFileSync` +
+  `JSON.parse` on FIRST USE and cached for the rest of the process. Only
+  `skills`, `claude-code` and the installer ever load it.
+  
+  `tsup` copies the asset into `dist/`, and the package already ships
+  `files: ["dist"]`, so it travels in the published tarball. `splitting: false` is
+  unchanged — this is two files, not a chunk graph.
+  
+  ## Why it was not the obvious win
+  
+  A first attempt to attribute the cost was WRONG and a control caught it. An 8.2 MB
+  synthetic module of flat string literals loads in ~39 ms, which suggested the
+  payload was cheap. The real payload is a deep object graph of `{ path, content }`
+  entries built from template literals that V8 must CONSTRUCT at module scope, not
+  merely parse — so it cost ~2.4× the prediction. Cheap to load is not the same as
+  cheap to have in the bundle, and only the real before/after showed it.
+  
+  ## Safety
+  
+  The bundle is now TWO files that ship and can be replaced separately, so both
+  halves carry the source commit and are checked against each other:
+  
+  - `SKILLS_NEXUS_SHA` and the `// Source:` header stay INLINE in the module, so the
+    `Skills bundle pinned` gate needs no network and no parse of the asset.
+  - The asset carries its own `sha`. `check-skills-lock.ts` asserts it equals the
+    lockfile, and the CLI asserts the same at runtime — a payload from a different
+    generator run cannot sit silently beside the module.
+  - Four new self-test cases cover the asset going missing, unparseable, sha-less
+    and stale. Verified against the real tree, not just the fixture: deleting the
+    asset takes the checker from exit 0 to **exit 1** naming `ASSET_MISSING` and the
+    path, and restoring it returns exit 0.
+  
+  A missing payload is reported as a named install error identifying the file, never
+  a bare `ENOENT` from inside an unrelated command.
+- d77b4cf: `--help` now states each command's own `--json` shape, `--json` carries a `dashboardUrl`, and `nexus api` refuses a doubled path prefix
+  
+  Three per-command facts a caller previously had to discover by running the
+  command, or by reading a document kept outside this repository.
+  
+  ## Each command's own `--json` shape
+  
+  `--json` is not uniformly wrapped, and the wrapping is not derivable from a
+  command's name: `agent list` answers `{data, meta}`, `task list` answers a bare
+  array, `agent create` answers `{success, …}` and `agent get` answers the resource
+  flat. The cost of guessing is SILENT — a `jq` path against the wrong pattern
+  returns `null`, which reads as an empty field rather than as a wrong parse — so
+  the pipeline succeeds and the value is simply gone.
+  
+  362 of the 507 leaf commands now print one line naming which shape they return
+  and how to iterate it:
+  
+  ```
+  OUTPUT --json: A BARE ARRAY — the rows ARE the document. No envelope, no
+    meta, [] when empty. jq '.data[]' selects nothing here; use jq '.[]'.
+  ```
+  
+  **Nothing here is authored.** The five shapes are five functions in `output.ts`,
+  each with one `if (_jsonMode)` branch, so "which shape does this command print"
+  is the same question as "which of the five does its action reach" — read off the
+  code, projected into a generated map, and re-derived by a spec that fails on any
+  difference. A command whose printer changes turns the build red instead of
+  shipping a line describing the old shape.
+  
+  **The 145 commands with no line are the honest half.** An action that composes
+  its own document — itself, or through a helper that branches between a printer
+  and a hand-built document — cannot be answered syntactically, and a default
+  would be a claim nobody measured. The generated file records the shadow by
+  reason rather than leaving it as an absence.
+  
+  Three commands proved that the hard way, and each was CLASSIFIED by an earlier
+  version of this scan. `workspace search` opens with
+  `if (isJsonMode()) { …; return; }` and only then falls through to `printTable`.
+  `role automation-settings` reaches `printStatedOrNothing`, a helper that prints
+  a record OR the literal document `null`. `workflow test` prints a record without
+  `--follow` and streams NDJSON through `runFollow` with it, so the printer and
+  the writer sit on different branches. Each would have shipped a confident
+  sentence contradicting the command's own help; each is a named control now.
+  
+  ## `dashboardUrl` in the payload
+  
+  `create`, `get`, `update` and `duplicate` on agent, workflow, deployment, AI
+  task, external tool and document template now return a `dashboardUrl` — the page
+  for the resource — in `--json` and as a `Dashboard` line in the human output.
+  
+  The alternative was printing the URL PATTERN into `--help`. That moves the copy
+  without fixing the class: the patterns live in the SPA's router, one package
+  away, so a rename leaves a confident sentence pointing at a 404 that reads as
+  "the resource was not created". A returned field cannot drift for the caller, and
+  it puts every pattern in one file, which a gate can hold — that gate reads
+  `apps/frontend/src/routes.tsx` and fails when a pattern stops matching a declared
+  route.
+  
+  The field is this CLI's own, not an API field, and each help screen says so. An
+  absent id yields no key at all rather than `/app/workflows/undefined`, which
+  renders an error page at 200 and looks openable.
+  
+  ## `nexus api` refuses a doubled prefix
+  
+  `nexus api <method> <path>` prepends `/api/public/v1`, so a full path pasted from
+  a doc page sent it twice and came back 404 — indistinguishable, from this command,
+  from "no such route at this version". The four redundant spellings are now refused
+  locally, naming the path you meant, before anything leaves the process.
+  
+  ## Two node-shape facts in `workflow` help
+  
+  A workflow node's configuration lives under the node's own `data` key, so the
+  label is `.nodes[].data.label` and never `.nodes[].label`. `workflow get --help`
+  previously explained the WORKFLOW's unrelated top-level `data` blob and nothing
+  else, which made the collision worse rather than better. Both `workflow get` and
+  `workflow node get` now state the nesting with the `jq` line that reads it.
+- 83302b5: `user-group --help` no longer sends you to a command that does not exist
+  
+  `nexus user-group update` documents the one thing about it that surprises people
+  — a name is required on every update, so passing `--user-ids` alone is not
+  expressible and guessing a name RENAMES the group. Its remedy was a copy-paste
+  line built on `nexus user-group get <id>`:
+  
+  ```bash
+  nexus user-group update <id> --name "$(nexus user-group get <id> --json | jq -r .name)" --user-ids user_abc
+  ```
+  
+  **There is no `user-group get`.** Not in the CLI, not in the SDK, and not in the
+  API: `v1-user-groups.controller.ts` declares `GET /user-groups`, `POST`, `PUT`,
+  `DELETE` and the two membership verbs, and no per-group read. Pasting that line
+  answers `error: too many arguments for 'user-group'`, and the reader hits it at
+  the exact moment the help had just told them a careless update renames the group.
+  
+  `user-group list --json` already carries what the recipe wanted — `memberUserIds`
+  and `name` come back for every group in the one call — so the note now takes the
+  name from there:
+  
+  ```bash
+  name=$(nexus user-group list --json | jq -r --arg id <id> '.data[] | select(.id == $id) | .name')
+  nexus user-group update <id> --name "$name" --user-ids user_abc
+  ```
+  
+  `user-group list`'s own Notes made the same claim from the other side ("the
+  member ids come back from … `user-group get`") and now says where they really
+  come from. The absent per-group read is a real gap in the v1 surface; it is not
+  closed here, and no help text pretends otherwise.
+  
+  ## The gate that let it ship, and what it sees now
+  
+  NEX-3714 reported `task create --help`'s `--body` example as unrunnable on CLI
+  0.22.1. It runs on 0.24.0 and later — `--body` has satisfied a required flag
+  since that release, and `help-truth`'s R1 rule (commander is the real parser;
+  what it refuses, a reader cannot run) gates the class. Verified by mutation:
+  deleting `"name"` from that example's body reddens R1 with
+  `commander.missingMandatoryOptionValue --name`.
+  
+  The issue's second half — *audit the other namespaces for the same omission* —
+  found the gate's own blind spot. R1's population was collected with
+  `line.startsWith("$ nexus ")`, so an invocation that is not the first word of its
+  line was never handed to commander. That excluded **22 printed invocations**,
+  measured across the tree, and the exclusion was not random:
+  
+  - **12 were the `-`-stdin forms** — `--body -`, `--prompt -`, `--content -`,
+    `--input -`, `--file -`, `--message -` — because a document piped into a
+    command puts the pipe on the same line. They are the examples a caller copies
+    rather than reads, the body shape being the hard part, which is the whole of
+    what NEX-3714 is about.
+  - The rest were command substitutions: `eval "$(nexus auth switch …)"`,
+    `cfg=$(nexus agent-tool get …)`.
+  
+  `task create`'s FIRST example is `$ cat task-prompt.md | nexus task create …`,
+  so the command the issue was filed against had an unparsed example the whole
+  time.
+  
+  The population is now every `$ …` line that invokes `nexus`, and `invocationsIn`
+  extracts the command from a pipeline or a `$( … )`. One line may hold two
+  invocations and both are judged; a line that merely names the string — `$ rm
+  ~/nexus/support-docs/notes/probe.md` — yields none, because the match is on a
+  `nexus` TOKEN rather than a substring. The `user-group get` defect is what the
+  widened population found on its first run; the ledger is back to zero with it
+  fixed.
+  
+  Two mechanisms keep a parse honest now that piped examples reach it:
+  
+  - **stdin is supplied, never inherited.** `applyBodySatisfiesRequired` resolves
+    `--body` in a pre-action hook, so a `--body -` example reads standard input
+    while commander is still deciding whether to run. Inheriting the test runner's
+    stdin there is a hang. Each parse gets the document the example states
+    (`echo '<doc>' | nexus …`) or an already-ended empty one, and an example whose
+    document is genuinely unknowable (`cat batch.json | nexus … --body -`) is
+    counted as an abstention rather than judged on bytes nobody wrote.
+  - **the `--body` memo is cleared between parses.** It is keyed on the raw flag
+    value, and the raw value for every piped body in the package is the identical
+    `"-"` — so the first document read would otherwise answer for all of them, and
+    an example would pass or fail on another example's bytes. `resetResolvedBodies`
+    exists for that one caller; nothing in `src/` calls it.
+  - **R2 judges the stated document, not the `-` that stands for it.** R1 parses a
+    piped example with the bytes the line states; R2 was still `JSON.parse`-ing the
+    RAW flag value, which for every one of those examples is the literal `"-"`, so
+    it threw and continued and no field of any stated payload reached a route's
+    `Body`. A skipped population and a clean one produce the identical empty
+    violation list, so `stdinBodiesJudged` floors it — 2 today, `role create` and
+    `workflow node update`.
+  - **an `xargs` replacement is not a literal id.** `prompt-assistant delete-thread`'s
+    Notes print the one-call-per-id loop that stands in for the bulk delete the
+    namespace does not have, and its `{}` is rewritten by xargs per input line. Read
+    as an operand it is a UUID slot holding `{}` — the shell's own syntax reported
+    as a defect in a line that runs exactly as printed — so `invocationsIn` records
+    the replacement token and R4/R6 exempt it, on the same ground as an argument the
+    CLI resolves client-side.
+- 9794d31: `workflow node update` and `workflow batch` help now state the real merge semantics
+  
+  Both commands promised "data is MERGED into the stored data, so send only what
+  changes". That held for a sibling key of `data` and broke one level down: writing
+  one entry of `parametersSetup`, or one parameter of an `agentInputTrigger`,
+  replaced the whole map at 200 with no warning.
+  
+  The backend now merges recursively, so the documented promise holds at every
+  depth. The help text says so, and states the three rules a caller needs: send a
+  nested entry as `null` to remove it, a `null` at the top level of `data` stores
+  null instead, and an array always replaces wholesale. It also documents the new
+  refusal — a partial write over a stored value that cannot be merged fails and
+  writes nothing, rather than destroying the drifted value.
+- 8e8055f: `permissions` stops offering two resource types the route always refuses
+  
+  `nexus permissions grant --resource-type knowledge …` was refused with _"knowledge
+  access is managed exclusively through Role grants, never through the generic
+  Permissions API"_ — while `--resource-type`'s own help listed `knowledge` as an
+  accepted value. The refusal is correct and is unchanged; the defect was that the
+  only way to learn the value was ungrantable here was to send it and read the
+  error.
+  
+  `knowledge` (a Collection) and `workspace` never carry a permission row at all —
+  both are narrowed by a Role's grants, resolved live — so **every** route in this
+  namespace refuses them, not just `grant`. They are now gone from the accepted
+  values of:
+  
+  - `nexus permissions grant --resource-type`
+  - `nexus permissions revoke --resource-type`
+  - `nexus permissions access <resource-type>` (the positional)
+  
+  A wrong value is refused locally, naming the list, with no round trip. The
+  namespace help now says where the two DO live (`nexus role collection-grants` /
+  `grant-collection`, `nexus role workspace-grants` / `grant-workspace`) and that
+  neither has a reverse read — nothing lists the Roles reaching one Collection.
+  
+  The narrowing is in the v1 contract itself rather than in the CLI's help, so the
+  SDK's `GrantPermissionBody`, `RevokePermissionBody` and
+  `listResourceAccess()` now type `resourceType` as the new
+  `GenericGrantResourceType` — passing `"knowledge"` is a compile error instead of
+  a runtime 400. Sending it over HTTP anyway is still refused, and the refusal
+  still names the route that does answer.
+  
+  The same narrowing removes both values from the `permissions_*` **MCP tool**
+  input schemas, which are projected from the same contract slot.
+  
+  `nexus permissions set-visibility` is unaffected: an organization CAN set
+  `knowledge`'s and `workspace`'s org-wide visibility, and that command still
+  offers both.
+- 462334f: Every subcommand's `--help` now names the global flags, and five more commands
+  state a shape a caller previously had to discover by running them.
+  
+  `--json`, `--profile`, `--api-key`, `--base-url` and `--timeout` are declared
+  once, on the program. Commander therefore lists them in the root's Options block
+  and in no subcommand's — while `--json` appears in the Examples of nearly every
+  subcommand. A reader on a leaf saw the flag used and never saw it documented,
+  which reads as undocumented rather than as inherited. One `afterAll` handler on
+  the root reaches every leaf at every depth (the mechanism the scope footer
+  already uses), suppressed on the root itself, whose epilogue spells all five out
+  with their resolution order.
+  
+  `agent-tool create` states that `TASK` and `DOCUMENT_TEMPLATE` have no config key
+  of their own. The config schema is `.strict()` and declares six keys; `taskId`
+  and `documentTemplateId` are not among them, so the obvious spelling is a 400
+  naming the key. `WORKFLOW` is the only type with a renamed public field
+  (`workflowId`); every other type puts its target id in the generic `toolId`. Read
+  off the converter in both directions rather than off the enum.
+  
+  `auth list` states that `--json` is a bare array and that the active profile is
+  flagged by a GLYPH rather than a boolean. `marker` is the table's arrow, and a
+  single SPACE on every other row — so a truthiness test matches every row, because
+  `" "` is a non-empty string. It has to be compared against the arrow.
+  
+  `phone-number search` states that `price` is the STRING `"1.15"`, with the unit
+  in a separate `currency` field. A script that parses the row, reads `price` as a
+  number and re-serialises it sends `1.10` back as `"1.1"`, and the buy is refused
+  for a price that no longer matches the quote. Both fields can be null, which is
+  Twilio declining to quote rather than a free number.
+  
+  `html-template list` states that 100 is both the default and the ceiling, so
+  `--limit` can only ever REDUCE what comes back. The adapter reads
+  `take: params.limit ?? 100` and the params schema caps `limit` at 100, and there
+  is no `--page`, no `--offset`, no cursor and no total anywhere — `--json` carries
+  no `meta`, the route returns an items array and nothing else. An organization
+  holding more than 100 templates therefore cannot reach the rest from this command
+  at any spelling, and the 100 rows it returns look exactly like a complete list.
+  `--deployment-id` and `--search` are the only levers that reach past the cap,
+  because they change WHICH templates are considered rather than how many are
+  returned.
+  
+  `claude-code install` states that naming one skill narrows the SKILLS and nothing
+  else. The whole posture — `shared/`, `CLAUDE.md`, `settings.json`, `hooks/`,
+  `agents/` — still lands, so "install one skill" writes dozens of files rather
+  than the handful the skill contains.
+  
+  No behaviour changes. Three rows of the `--help` audit were retired rather than
+  written, because the tree already answers them: `asset` has the namespace Notes
+  block whose absence the row reported, `credential get` explains `source`
+  including what `credential delete` tears down, and `skill-folder assign` already
+  names both source commands and the two different JSON shapes they answer in.
+- e50ef31: Thirteen namespaces gain the facts a caller previously had to discover by running
+  the command, and three `--help` texts stop pointing at a command that does not
+  exist.
+  
+  `user-group list --help` and `user-group update --help` both told the reader to
+  run `nexus user-group get`. There is no such verb and no route behind one — the
+  namespace has `list`, `create`, `update`, `add-member`, `remove-member` and
+  `delete`. One of the two citations sat inside a command substitution:
+  
+  ```
+  --name "$(nexus user-group get <id> --json | jq -r .name)"
+  ```
+  
+  which resolves to an unknown-command error, an empty substitution, and a rename
+  to the empty string — in the one command whose own notes warn that a guessed name
+  renames the group as a side effect. Both now read the name out of
+  `user-group list --json`, which is the namespace's whole read surface and carries
+  the `memberUserIds` the table never prints.
+  
+  `skills where` and `skills update` state how auto-detection actually chooses a
+  project root. Both said it "walks up and picks the first of" a `.claude/` folder,
+  a `CLAUDE.md` or the git root. It does not: it records the nearest ancestor
+  holding each of the three and then ranks them BY KIND, so a `.claude/` six levels
+  up beats a `CLAUDE.md` in the directory you are standing in. That is the
+  stray-`.claude` case the wording was there to warn about, described backwards.
+  The bound at `$HOME` and the fall back to the current directory are stated too.
+  
+  `execution diagnose` stops implying `outputSummary` can be parsed. It is the
+  node's output run through `JSON.stringify` and cut to 100 characters with an
+  ellipsis — a string at every length, and not valid JSON once cut. Anything a
+  script reads needs `--verbose`, which adds `input` and `output`; without it those
+  keys are ABSENT rather than null, so testing for `null` cannot tell "produced
+  nothing" from "you did not ask".
+  
+  The rest are notes for facts that were true and unwritten: the twelve fields a
+  `model list` row carries and the total absence of filter flags; the `model`
+  namespace as a read-only dead end whose two ids are spent in `agent` and `task`,
+  against the same-spelled `custom-model --model-name` that means something else;
+  `executionType`, which is what `.type` is called in `--json`; the four `channel`
+  lists that answer empty when no messaging connection exists at all; that no route
+  renders a WhatsApp template without delivering it, with the local substitution
+  that costs nothing; `supportsRefreshToken`, false for Notion, absent from the
+  providers table and decisive for anything unattended; `--color` as an unvalidated
+  free string behind a description that reads like an enum; the two `admin` verbs
+  its own prose block omitted, both state-machine drivers, and its exit-code table
+  scoped to that namespace; a zero-risk read that answers whether
+  `CONVERSATION_EVAL` is enabled; and a complete inline `run.json`.
+  
+  `cloud-import`'s namespace help no longer claims the per-provider commands
+  "behave identically" to the provider-agnostic ones: `browse` requires
+  `--folder-id` and `google-drive list-files` defaults it to `root`.
+  
+  No behaviour changes. Six rows of the `--help` audit were retired rather than
+  written, because the tree already answers them — two of those would have shipped
+  false sentences, since `agent-skill delete` is wrapped in `confirmable()` and
+  answers `{success,message}`, not the unguarded `{success,id}` the audit recorded.
+- a96d367: `prompt-assistant get-thread --help` no longer tells an agent-mode caller that its
+  prompt is ordinary markdown, and `task`, `conversation` and `prompt-assistant`
+  gain the facts a caller previously had to discover by running the command.
+  
+  `promptResult.prompt` is built by two different generators. Under `--mode agent`
+  it is `serializeToMarkdown(promptJson)`, which opens on a
+  `::: section: name="…" :::` directive and is the Nexus agent-prompt format; under
+  `--mode ai-task` it is the model's `system_prompt` verbatim, with no directive at
+  all. The help said "A MARKDOWN STRING. Use it verbatim" over both, which reads,
+  in agent mode, as permission to strip the directives — and stripping them
+  flattens every section and tab into one blob that `agent update --prompt` then
+  stores. The two modes also return different fields (`agentFields` and
+  `promptJson` against `input` and `output`), so a caller reading for one gets
+  `undefined` rather than an error. Both are now stated separately.
+  
+  `list-threads` states what `summary` actually is. It reads as an
+  assistant-written title; it is `promptResult.name` once one is stored, and
+  otherwise the caller's own first message with whitespace collapsed and cut at 140
+  characters. Which one you are looking at is a fact about the thread's progress,
+  so the column is now documented in both branches rather than as one of them.
+  
+  The rest are notes for facts that were true and unwritten: `--prompt` takes
+  literal text despite its `<file-or-->` label, and silently prefers a file when
+  the value happens to name one; `task create` echoes back only `id` and `name`, so
+  `task get` is the only confirmation a write landed; `task list --json` is a bare
+  array whose route pages and reports a total that this command does not expose;
+  `conversation list`, `messages` and `search` return three different `meta` shapes;
+  `conversation assign` takes Clerk user ids from a namespace that lists none;
+  `conversation assigned-users` answers `responseHandling` beside the ids; the
+  emulator session `chatId` is the conversation id and the only bridge into the
+  inbox; and `prompt-assistant delete-thread` is one call per id.
+  
+  Every published `jq` path was checked against the printer that emits it —
+  `printRecord` writes the record bare and `printList` wraps it in `data`, so
+  `emulator session get --json` is `.chatId` while `emulator session list --json`
+  is `.data[].chatId`.
+  
+  No behaviour changes. Two rows of the `--help` audit were retired instead of
+  written, because the CLI they describe no longer exists: `--body` alone now
+  satisfies `task create` and `task execute` through the deferred-requirement seam,
+  which was verified by parsing the shipped examples against the real command tree
+  rather than by reading the action.
+- 10a19ee: Two `branching` operators in the bundled skills content do not exist, and an unknown operator returns `false` silently
+  
+  The CLI ships the `claude-code-skills-nexus` content compiled into its binary. That content named `is_not_empty` and `does_not_contain` as `branching` condition operators. Neither is accepted — the executor's real names are `not_empty` and `not_contains`.
+  
+  **That is worse than two typos.** `evaluateCondition` ends in a `default` arm that warns to the *server* log and returns `false`, so a misspelt operator does not fail the node, does not fail the run, and surfaces nowhere the caller can see. A workflow built from our own shipped guidance takes the wrong branch and reports success.
+  
+  Worse still, neither correct name appeared anywhere in the bundle: `not_empty` and `not_contains` were each present **zero** times, so a reader had no way to discover the real names from the content they were given.
+  
+  Fixed upstream (`NexusGPT/claude-code-skills-nexus#24`) and pulled in by moving `skills-nexus.lock` to `d7c08e8` — that fix cherry-picked onto the SHA the lock already pinned, so the bundle moves by 40 lines and nothing else.
+  
+  **Bumping to upstream `main` was refused, and the CLI's own gate is why.** `src/workspace-registry-skill-compat.test.ts` goes red with 12 findings at `main`: the bundled skills index `workspace-mounts.json` by bare slug again, while this CLI writes `<kind>:<id>|<slug>` keys. `git show <sha>:skills/nexus-workspaces/SKILL.md | grep -c '\.\[\$s\]\.mountPath'` answers 0 at the old pin and 1 at `main`, and the commit between them is `1744d52 sync: close long-standing primary→mirror drift (primary is source of truth)` — a mirror sync that overwrote the fix PR #23 landed. That is upstream's to repair in its primary, and it is filed as `NexusGPT/claude-code-skills-nexus#25`; re-fixing the mirror alone regresses on the next sync.
+  
+  The branching guide now carries the complete accepted set — all 19 members of `ConditionOperators` in `packages/types/src/shared/domain/tools/workflow.types.ts`, which the executor's switch is `never`-exhaustive against, so the two cannot drift. It previously listed 10 and omitted 9 real ones, including every numeric comparison and every array-length check.
+  
+  `documentation-plan.md` carried the same class and is corrected in this repo: it named `greater_than_or_equal`, `less_than_or_equal`, `is_not_empty` and `not_has_key`, where the accepted spellings are `greater_equal`, `less_equal`, `not_empty` and `has_not_key`.
+  
+  Four spellings that read correctly and are refused are now named as refused in both places, because being right about the names is not enough when the wrong ones are what a reader would guess.
+  
+  ## The class sweep
+  
+  Every skill document was swept for the same defect — an enum value **asserted** beside its true siblings that no code accepts. Vocabulary built from 1,142 distinct accepted values: the 756 contract enum members the CLI generates from the real Zod schemas, the types package's `z.enum`s and string-literal unions, and every backend `switch` case label.
+  
+  **Before: 2 findings, both of them these operators. After: 0, over 114 examined runs.** The `documentation-plan.md` line is a third finding on its own rule.
+  
+  The sweep judges a run only when two or more of its tokens are real accepted values — a token alone is a field name, a file or a shell word, not an assertion about a vocabulary — and skips a run whose line teaches a name as *wrong*, or it would force the deletion of the warnings this change adds.
+- 6a259f1: `nexus upgrade` under `sudo` no longer reports an upgrade it verified for root
+  
+  `sudo nexus upgrade` reported a successful upgrade and the version never moved — run it again and it repeats, forever.
+  
+  The version check itself was fixed in 0.25.0: the command re-reads the PATH after installing and refuses to print a success it did not observe. **Under `sudo` that verification reads the wrong machine.** The install runs as root and writes root's global prefix; `resolve()` then reads the ROOT process's PATH. A match there is a statement about root's shell, and whether it is also the invoking user's depends on how sudo is configured — `secure_path`, `env_keep`, `always_set_home` — none of which this command can read.
+  
+  So the elevated run could still print "Upgraded to 0.25.0." about an environment the user never types into.
+  
+  **Nothing here claims sudo changes PATH on any particular machine.** That depends on sudoers. The fix is not a new diagnosis — it is the refusal of one that was never established.
+  
+  - A warning before the install, while the reader can still cancel, naming who the install actually runs as.
+  - A verified resolution under sudo is now **exit 3** with the one command that settles it (`nexus --version`, without sudo) rather than a success. Exit 3 is new and deliberate: **2 is a finding, 3 is the absence of one.** Exit 2 says a specific file wins on your PATH and here it is; reporting the sudo case as 2 would name a PATH problem that may not exist, and reporting it as 0 is the defect the whole file exists to prevent. Retrying does not help either way, but for different reasons — the same sudo produces the same non-answer forever.
+  - The other three outcomes now say **whose** PATH they read. The empty-resolution message previously told the reader their own PATH had no `nexus` on it and to add their global bin directory — a repair for a PATH that is very likely fine, since the empty list is root's and sudo commonly replaces PATH with a fixed `secure_path` carrying no per-user global bin directory at all.
+  
+  `elevatedBy` sits on the injectable `UpgradeEnvironment` seam rather than being read inline, because a spec cannot re-enter `sudo` — the elevated outcomes would otherwise be unreachable and therefore untested. Six cases, two of them controls that run the identical resolution with `elevatedBy: null` and assert the ordinary success and the ordinary PATH advice, so the sudo cases cannot pass against a build that simply stopped printing successes. Proven to fail on the pre-fix behaviour.
+  
+  The `upgrade --help` exit-code table is corrected from three codes to four, and states the sudo hazard.
+- 48f60e3: `nexus workflow --help` told every reader that the API's named error codes never
+  reach this CLI. They do, and they have since `code` became a required field of
+  the error document.
+  
+  The paragraph said: *"THE API'S NAMED ERROR CODES DO NOT REACH THIS CLI … under
+  `--json` the payload is `{"error":{"message":…}}` with no code. Error handling
+  written against the code names matches nothing here. Match on the message."*
+  
+  Every refusal carries one. `nexus workflow node create <id> --type loopStart
+  --json` answers `code: "NODE_LOOP_START_DIRECT_CREATE"`; `node delete` on a
+  do-while start answers `NODE_DO_WHILE_START_DELETE_FORBIDDEN`. So does
+  `EDGE_SCOPE_VIOLATION`, `EDGE_INVALID_SOURCE_HANDLE`,
+  `NODE_TRIGGER_DELETE_FORBIDDEN`, `PARAMETERS_SETUP_INVALID` and
+  `WORKFLOW_ALREADY_PUBLISHED`.
+  
+  **This is worse than an undocumented field.** A caller reading that help
+  deliberately ignored the one field that was present and machine-readable, and
+  was steered onto matching the message — prose, which gets rewritten.
+  
+  ## What the help says now
+  
+  - **`nexus workflow --help`** states that the code comes through unchanged, that
+    it is the field to branch on, and what an unrecognised value means:
+    `HTTP_<status>` when the API sent no name of its own, and a `CLI_` prefix when
+    the failure never reached the server at all.
+  - **The root epilogue (`nexus --help`)** spelled the document with two keys,
+    `{"error":{"message","hint"}}`, which is the same understatement one level up
+    and is where the workflow paragraph took its cue. It now spells all three —
+    `{"error":{"message","hint","code"}}`, every key always present, `hint` null
+    when there is none — and says the code is printed dim in brackets after the
+    message when `--json` is not passed.
+  
+  No behaviour changes. The document has carried three keys since `code` was made
+  required; only the prose was behind.
+  
+  ## The class, not the instance
+  
+  Eleven places in the package describe this envelope and exactly one emits it.
+  Five of the eleven had drifted, each reading as a checked fact, because nothing
+  compared prose to behaviour.
+  
+  `error-envelope-help-is-true.test.ts` now does. It DRIVES a real refusal under
+  `--json`, reads the key set off what lands on stdout, and requires every
+  `{"error":{…}}` fragment in the package either to elide its keys or to name
+  exactly that set. The expectation is derived from the emitter rather than written
+  down, so adding a fourth key fails the gate until the prose follows.
+
 ## 0.28.0
 ### Minor Changes
 

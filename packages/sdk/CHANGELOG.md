@@ -1,5 +1,420 @@
 # @agent-nexus/sdk
 
+## 0.21.0
+### Minor Changes
+
+- 21e7929: `workflow node-type <type>` now answers with the node type's authoring guide
+  
+  `nexus workflow node-type aiTask` told you the SHAPE of an `aiTask` node — its
+  fields, its defaults, how many edges it takes. It did not tell you the things
+  people actually get wrong: which node type to reach for instead, what a
+  configuration that RUNS looks like, or which writes the platform accepts at 200
+  and then fails at run time.
+  
+  Each node type now carries a `guide`: one Markdown page, written from live runs
+  against a real organisation rather than from source, covering what problem the
+  type solves, when to pick it and over what, a minimal working configuration, the
+  gotchas, and what it cannot do.
+  
+  ## `@agent-nexus/cli`
+  
+  - **`workflow node-type <type>` prints the guide below the schema.** The schema
+    rows render exactly as before; the guide follows as a Markdown block.
+  - **`--json` carries it as the `guide` string, in the same document as
+    everything else.** The two channels are deliberately not split: a script and a
+    reader get the same content.
+  - A node type with no guide yet omits the key and prints nothing extra.
+  
+  ## `@agent-nexus/sdk`
+  
+  `NodeTypeSchema` gains an optional `guide?: string`, returned by
+  `client.workflows.getNodeTypeSchema(type)`.
+  
+  ⚠️ **Additive, and it changes no existing field.** The value was already on the
+  wire for nothing to read it: `NodeTypeSchemaResponseSchema` did not declare a
+  `guide`, and Zod strips unknown keys — so a consumer parsing with the published
+  contract would have silently discarded it. The schema declares it now, which is
+  what makes the field reachable at all.
+  
+  This batch covers six of the eight trigger types: `agentInputTrigger`,
+  `manualTrigger`, `pluginTrigger`, `scheduleTrigger`, `selectTrigger` and
+  `webhookTrigger`. The remaining 35 node types follow on the same mechanism.
+  
+  ## Also
+  
+  **`newsMonitorTrigger`'s `description` said the node "cannot be created or
+  replaced via the API". Only the REPLACE half of that was ever true.**
+  `PUT /workflows/:id/trigger` does reject the type. `POST /workflows/:id/nodes`
+  answers `201` — it refuses only `loopStart`, `doWhileStart` and `selectTrigger`
+  — and what it creates is a second trigger node that no execution reaches and
+  that cannot be deleted, because trigger nodes are `deletable: false`.
+  
+  The description now separates the two, because a reader who took the old
+  sentence as "the API will stop me" was told the platform had a guard it does not
+  have, and the damage it permits instead is permanent.
+- b3f5f2b: An AI task can carry its few-shot examples as a field, instead of inside the prompt
+  
+  The platform already stored few-shot demonstrations, already showed a manager for
+  them in the dashboard, and already replayed each pair as a user/assistant
+  exchange ahead of the real input at inference. What it had no way to do was
+  accept them over the public API. A create carrying `examples` answered success
+  with the key stripped, and a task read back never mentioned the pairs it held —
+  so the only place a demonstration could live was the prompt string itself. One
+  reported prompt reached ~190K characters that way.
+  
+  `fewShots` is now a first-class field:
+  
+  ```ts
+  const task = await client.skills.createTask({
+    name: "Summarize Email",
+    modelName: "gpt-4o",
+    modelProvider: "OPEN_AI",
+    generation: { expectedInput: "Raw email text", expectedOutput: "One sentence" },
+    fewShots: [
+      { input: "Dear team, the Q4 report is attached.", output: "Q4 report shared." }
+    ]
+  });
+  
+  task.fewShots; // [{ id, input, output }] — oldest first
+  ```
+  
+  `TaskDetail` gains `fewShots`, and `CreateTaskBody` / `UpdateTaskBody` gain it as
+  `{ input, output }` pairs. Both halves are required and must be non-empty: an
+  empty one is not an empty example, it is a blank turn the model reads as an
+  instruction to answer with nothing.
+  
+  ## On update it REPLACES, and that is the one field here that does
+  
+  The array sent becomes the task's whole set. `[]` clears it; omitting the key
+  leaves the stored examples alone, like every other field on the PATCH. Whole-set
+  replacement rather than per-example ids because a caller of this route never
+  holds those ids — `getTask` is the only read that carries them — and an
+  append-only field would leave "remove the third example" unexpressible.
+  
+  A `fewShots`-only update counts as a change and returns a `versionId`, so that
+  field keeps its published meaning of "the body named a recognized field and
+  something was written". The version snapshot covers the task's own fields and not
+  its examples, so restoring one puts the prompt back and leaves the examples as
+  the update left them.
+  
+  ## `examples` is refused, not dropped
+  
+  `examples`, `fewShotExamples`, `samples` and `demonstrations` are the names
+  callers reach for, and all four are now a 400 that names `fewShots` — the same
+  treatment `promptText` and `systemPrompt` get for the prompt. A write body that
+  strips what it does not know and answers success is how this gap stayed
+  invisible: you only found out by reading the task back and noticing the key was
+  gone.
+  
+  ## Order is the caller's, and it is now stable
+  
+  The pairs are stored, read back and replayed to the model in the order they were
+  sent. That was not previously guaranteed for a bulk write — the stored timestamp
+  these are ordered by defaults to the transaction's, which is identical for every
+  row written together, so the order fell to whatever the database returned.
+  
+  ## A task that carries examples can still be deleted
+  
+  `FewShot`'s foreign key to the task is `ON DELETE RESTRICT`, and the delete path
+  never cleared those rows — so a task with demonstrations answered a database
+  constraint error instead of deleting. That was already reachable through the
+  dashboard's few-shot manager; making `fewShots` writable over the API would have
+  made it the normal outcome. The demonstrations are now removed in the same
+  transaction as the task.
+  
+  ## CLI
+  
+  `fewShots` is `--body` only on `task create` and `task update`, and `task get
+  --json` reports it:
+  
+  ```bash
+  nexus task create --name "Classify" --model-name gpt-4o --model-provider OPEN_AI \
+    --expected-input "A ticket" --expected-output "bug | billing | other" \
+    --body '{"fewShots":[{"input":"Card declined","output":"billing"}]}'
+  
+  nexus task get <id> --json | jq '.fewShots'
+  ```
+- cc4146e: An API deployment can stream a turn, instead of blocking and then polling
+  
+  `POST /public/v1/emulator/:deploymentId/sessions/:sessionId/messages/stream` is
+  the streaming twin of the emulator send: same body, same effect on the
+  conversation, but it holds the response open (`text/event-stream`) and emits the
+  turn as it happens.
+  
+  Before this, the API channel had one shape: a POST that blocked for 10–60s, gave
+  back `{chatId, messageId, debug.toolsInvoked}` and no text, and left the caller
+  polling `GET /conversations/:chatId/messages` for the answer — against a
+  persistence race that could land the final agent row AFTER the send returned. The
+  embed widget had tokens, live tool activity and a settled final message the whole
+  time, over its socket. A hosted app that wanted its own branding had to choose
+  between an iframe and a spinner.
+  
+  ## The frames
+  
+  One JSON object per `data:` line, `start` first and `done` last:
+  
+  `start` (chatId/messageId, before the first token) · `token` (answer deltas) ·
+  `thinking` (reasoning deltas) · `tool_call` (`started` then `completed`, sharing
+  a `toolCallId`) · `message` (a row's final state) · `error` · `done`
+  (`completed` | `failed` | `processing`).
+  
+  `thinking` and the leading edge of `tool_call` have no socket counterpart — the
+  widget shows neither — so this surface is a superset of what the widget receives,
+  not a copy of it.
+  
+  ## SDK
+  
+  ```ts
+  for await (const event of client.emulator.streamMessage(depId, sessionId, { content: "hi" })) {
+    if (event.type === "token") process.stdout.write(event.delta);
+  }
+  ```
+  
+  `HttpClient.requestSSE()` is the new transport underneath it — an async
+  generator over a `text/event-stream` body. Leaving the loop early cancels the
+  connection; the turn keeps running server-side and its result is still persisted.
+  
+  ## CLI
+  
+  `nexus emulator send <dep> <session> --text "…" --stream` prints the turn live.
+  Under `--json` it still prints ONE document, `{"events":[…]}`, holding every
+  frame in order.
+  
+  ## Additive
+  
+  The blocking send is unchanged, and so is every existing SDK method and CLI flag.
+- 4616c7a: An operation that runs a model gets the minutes it needs
+  
+  `client.skills.executeTask()` aborted after 30 seconds. On a frontier model with
+  structured JSON output a generation takes 60–90 s, so the SDK stopped waiting on
+  every correct answer and returned only the fast or degenerate ones — while the
+  server ran the generation to completion and billed it.
+  
+  The same wall stood in front of `nexus-mcp`, where every tool call shared one
+  60 s deadline. `skills_execute_task` needs longer than that by design, so the
+  tool most likely to be slow was the one the default could not accommodate.
+  
+  ## A deadline belongs to the operation, not to the transport
+  
+  `HttpClient` had ONE number and every route inherited it. Under one number the
+  two classes of route cannot both be served: 30 s kills a generation, and raising
+  the shared value to ten minutes would hang a script for ten minutes on an
+  unreachable `GET /models`.
+  
+  So each long-running method now states the deadline its own route needs:
+  
+  |                              | Deadline | Applies to                                                                                                         |
+  | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+  | `DEFAULT_REQUEST_TIMEOUT_MS` | 30 s     | Ordinary reads and writes                                                                                          |
+  | `LONG_RUNNING_TIMEOUT_MS`    | 10 min   | `skills.executeTask` · `skills.testExternalTool` · `tools.execute` · `workflows.testNode` · `promptAssistant.chat` |
+  
+  Both constants are exported from the package root.
+  
+  ## An explicit `timeout` still wins, in both directions
+  
+  `new NexusClient({ timeout })` governs every request, long-running routes
+  included — that is the contract the CLI's global `--timeout <seconds>` flag rests
+  on, and it is why the client's own timeout is no longer collapsed to `30_000` in
+  the constructor: "the caller asked for 30 s" and "nobody said anything" had
+  become the same value, which is what made the long routes unfixable.
+  
+  `NEXUS_MCP_REQUEST_TIMEOUT_MS` plays the same role for the MCP bridge.
+  
+  ## Deliberate omissions
+  
+  A route only qualifies if the server holds the connection open across the model
+  run itself, so several near misses stay on 30 s: `emulator.sendMessage`, because
+  the SERVER bounds its own wait at 25 s and answers `status: "processing"` for a
+  slow turn; `evaluations.execute`, `evaluations.judge` and `workflows.testWorkflow`,
+  because they acknowledge and run in the background (`testWorkflow` returns
+  `{ executionId, status: "RUNNING" }` — its sibling `testNode`, which answers with
+  the node's own output, IS in the set); and
+  `skills.generateDocumentTemplate`, which renders a docx/pptx rather than
+  generating anything with a model. The membership is held by a test, so a new
+  synchronous model-running route cannot quietly inherit 30 s again.
+  
+  ## For the CLI
+  
+  `task execute` already carried a local 600 s constant; it now derives that number
+  from the SDK rather than restating it, and the sibling commands that reach a
+  long-running route (`workflow test-node`, `tool execute`, `external-tool test`,
+  `prompt-assistant chat`) get the same deadline without each having to remember.
+  `--help` and the docs pages say so.
+  
+  ## Additive
+  
+  No signature changes. A caller who set `timeout` keeps exactly the behaviour they
+  had; a caller who did not gets a deadline that fits the operation.
+- 5f7b113: Cue conversation transcripts can now be exported, subagent traces included
+  
+  Cue persists everything a session did — every turn, every tool call and tool result, the
+  reasoning behind each turn, the model and provider that produced it — and it does the same
+  for every subagent the session spawns. None of that was reachable outside the product UI,
+  so the population could not be used as data.
+  
+  Three routes, all read-only, all under one scope (`cue_transcripts:read`):
+  
+  ```ts
+  // Which conversations exist, and how big each transcript is. No content.
+  const { data } = await client.cueTranscripts.listConversations({ startDate: "2026-08-01" });
+  
+  // One conversation, whole.
+  const transcript = await client.cueTranscripts.getTranscript(data[0].id);
+  
+  // Every conversation in a range, NDJSON by default.
+  const corpus = await client.cueTranscripts.export({ startDate: "2026-08-01" });
+  ```
+  
+  ```bash
+  nexus cue conversations --start-date 2026-08-01
+  nexus cue transcript <conversation-id> > session.json
+  nexus cue export --start-date 2026-08-01 > corpus.ndjson
+  ```
+  
+  ## A subagent's OWN transcript, not the summary it returned
+  
+  `agentThreads` carries one entry per spawned subagent, keyed by the tool-use id on the
+  parent turn that spawned it, and each entry holds that subagent's complete transcript. The
+  summary the subagent handed back to the main loop is what the lead saw; it is not what the
+  subagent did, and only the second is useful as data.
+  
+  The split is not "assistant vs tool". A row belongs to a subagent thread only when it
+  carries BOTH `parentToolUseId` and `agentName`. A row that names a teammate with no thread
+  key is the SPAWN, and it stays on `mainThread` — that row is where the parent↔child link
+  lives, so filing it under the thread would lose the lineage.
+  
+  ## Every document is versioned, and both routes emit the same one
+  
+  `schemaVersion` is `"cue.transcript/v1"`. A corpus on disk carries no URL, so the version
+  travels on the document rather than on the route that served it — match on it before
+  parsing. The per-conversation route and the bulk export emit the identical shape, so one
+  parser serves both.
+  
+  ## The date window is `updatedAt`, not `createdAt`
+  
+  `startDate` / `endDate` bound when a conversation was last touched. That makes one
+  parameter do two jobs: "sessions active in this period", and the incremental-refresh
+  primitive — re-run with the previous run's `exportedAt` as `startDate` and you get exactly
+  the conversations that changed. A `createdAt` filter could only answer the first, and would
+  miss a session that started before the window and ran into it.
+  
+  ## `export()` buffers; the ROUTE streams
+  
+  `client.cueTranscripts.export()` and `nexus cue export` resolve the whole response before
+  returning, the same as `analytics.export()`. The server writes one document at a time, so
+  for a range wide enough to matter call
+  `GET /api/public/v1/cue/transcripts/export` directly and consume the body as a stream —
+  NDJSON is line-delimited precisely so a reader can.
+  
+  Both are rate limited to 5 requests per minute per organization: this is a bulk pull, not
+  a poll.
+- a3c20d8: An AI task can be run on another model per CALL, and `task duplicate` exists
+  
+  An AI task binds a prompt to a model. That binding is right for the prompt and
+  wrong for the call: the same assessor runs over every record in a nightly sweep,
+  where cheap and good-enough wins, and on the one record a human is about to act
+  on, where the frontier model is worth many times more. Saying that needed two
+  tasks — which means two copies of the prompt, and the prompt is the artifact you
+  most want to keep single.
+  
+  ## `modelOverride` on execute
+  
+  `client.skills.executeTask()` takes an optional `modelOverride`, and
+  `nexus task execute` takes `--model-name` / `--model-provider`:
+  
+  ```ts
+  // The nightly sweep, cheap.
+  await client.skills.executeTask(taskId, {
+    input: notice,
+    modelOverride: { modelName: "claude-haiku-4-5", modelProvider: "ANTHROPIC" }
+  });
+  
+  // The same task, from a button, on its own model.
+  await client.skills.executeTask(taskId, { input: notice });
+  ```
+  
+  **Nothing is persisted.** The task keeps its binding, its versions are untouched,
+  and every other caller of it is unaffected. The same field is accepted on a
+  workflow's `aiTask` node, so a scheduled workflow and an on-demand run can share
+  one prompt.
+  
+  - `modelName` and `modelProvider` are REQUIRED together. Half a pair is refused
+    before any request leaves the CLI — completing it from the task's own config is
+    how a task ends up addressing an Anthropic endpoint with an OpenAI model id.
+  - **`temperature` is not overridable and is always the task's.** It is part of
+    the reasoning rather than the routing.
+  - **`customModelId` is NOT inherited.** A BYOM endpoint replaces the routing
+    outright, so carrying a stored one into an override that names a platform model
+    would accept the override and then silently ignore it. Name one in the override
+    to route this call onto a custom endpoint instead.
+  - The provider tuning (`thinkingLevel`, `reasoningEffort`, …) is not inherited
+    either, matching what a model change already does on `task update`. It has no
+    flag; send it under `--body`.
+  
+  ## `task duplicate` — the command the 409 has always recommended
+  
+  `POST /skills/tasks` refuses a byte-identical prompt with _"Consider editing the
+  existing task or duplicating it instead"_, and nothing named `duplicate` existed:
+  
+  ```
+  $ nexus task duplicate <id>
+  error: unknown command 'duplicate'
+  ```
+  
+  `client.skills.duplicateTask()` and `nexus task duplicate <id> [--name]
+  [--description] [--model-name] [--model-provider] [--custom-model-id]` now serve
+  it, and the 409 names only paths that exist — the override first, since that is
+  what most callers arriving at it actually want.
+  
+  **The copy is the SOURCE for every field the body does not name**, which is the
+  whole difference from calling create again. There, a field you leave out takes
+  THAT route's default: an unsent `temperature` becomes 0.7 however the original
+  was tuned, and `task get` returns no temperature at any value, so nothing you can
+  read afterwards shows the change. That is not hypothetical — it is what a
+  production "model-only" fork of a 94,268-char prompt actually did.
+  
+  Knowledge collections are the one field a copy does not carry: attaching one is a
+  permission decision this path does not make.
+
+### Patch Changes
+
+- 8e8055f: `permissions` stops offering two resource types the route always refuses
+  
+  `nexus permissions grant --resource-type knowledge …` was refused with _"knowledge
+  access is managed exclusively through Role grants, never through the generic
+  Permissions API"_ — while `--resource-type`'s own help listed `knowledge` as an
+  accepted value. The refusal is correct and is unchanged; the defect was that the
+  only way to learn the value was ungrantable here was to send it and read the
+  error.
+  
+  `knowledge` (a Collection) and `workspace` never carry a permission row at all —
+  both are narrowed by a Role's grants, resolved live — so **every** route in this
+  namespace refuses them, not just `grant`. They are now gone from the accepted
+  values of:
+  
+  - `nexus permissions grant --resource-type`
+  - `nexus permissions revoke --resource-type`
+  - `nexus permissions access <resource-type>` (the positional)
+  
+  A wrong value is refused locally, naming the list, with no round trip. The
+  namespace help now says where the two DO live (`nexus role collection-grants` /
+  `grant-collection`, `nexus role workspace-grants` / `grant-workspace`) and that
+  neither has a reverse read — nothing lists the Roles reaching one Collection.
+  
+  The narrowing is in the v1 contract itself rather than in the CLI's help, so the
+  SDK's `GrantPermissionBody`, `RevokePermissionBody` and
+  `listResourceAccess()` now type `resourceType` as the new
+  `GenericGrantResourceType` — passing `"knowledge"` is a compile error instead of
+  a runtime 400. Sending it over HTTP anyway is still refused, and the refusal
+  still names the route that does answer.
+  
+  The same narrowing removes both values from the `permissions_*` **MCP tool**
+  input schemas, which are projected from the same contract slot.
+  
+  `nexus permissions set-visibility` is unaffected: an organization CAN set
+  `knowledge`'s and `workspace`'s org-wide visibility, and that command still
+  offers both.
+
 ## 0.20.0
 ### Minor Changes
 

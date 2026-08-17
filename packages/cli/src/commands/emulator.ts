@@ -13,6 +13,7 @@ import { handleError } from "../errors";
 import { color, emitDocument, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { nonBlankOr } from "../util/present-text";
 import {
   EMULATOR_CREATE_SESSION_CONTRACT,
   EMULATOR_DELETE_SCENARIO_CONTRACT,
@@ -87,7 +88,7 @@ async function streamTurn(events: AsyncIterable<EmulatorStreamEvent>): Promise<v
       case "tool_call":
         closeLine();
         console.log(
-          color.dim(`  ${event.status === "started" ? "→" : "✓"} ${event.name ?? "tool"}`)
+          color.dim(`  ${event.status === "started" ? "→" : "✓"} ${nonBlankOr(event.name, "tool")}`)
         );
         break;
       case "message":

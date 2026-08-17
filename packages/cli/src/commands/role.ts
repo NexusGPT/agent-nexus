@@ -623,6 +623,11 @@ Notes:
           { key: "jobDescription", label: "Job description" },
           { key: "ownerUserId", label: "Owner" },
           { key: "readiness", label: "Readiness", format: formatReadiness },
+          // A `get` that hid the stop would be the worst place to hide it: this
+          // is the command an operator runs to find out why a Role's workflows
+          // are not firing. `pausedAt` null means running.
+          { key: "pausedAt", label: "Paused at" },
+          { key: "pausedByUserId", label: "Paused by" },
           { key: "createdAt", label: "Created" },
           { key: "updatedAt", label: "Updated" }
         ]);
@@ -1217,6 +1222,101 @@ Notes:
         const result = await client.roles.delete(await resolveRoleId(client, ref));
 
         reportGovernedWrite(result);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── pause ─────────────────────────────────────────────────────────────────
+  role
+    .command("pause")
+    .description("Stop a Role's work — its workflows and agents stop executing")
+    .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role pause "Refunds"
+
+Notes:
+  THIS STOPS 2 OF THE 6 KINDS A ROLE CAN HOLD. Workflows and agents are refused
+  execution. Deployments KEEP SERVING, AI tasks KEEP RUNNING, document
+  templates are unaffected, and external tools sit on a catalogue row shared
+  across tenants that no per-Role state may touch. Run "nexus role systems
+  <role>" first: on a Role whose systems are deployments and AI tasks this
+  command changes nothing anyone would notice.
+
+  IT CHANGES NO ACCESS. Nothing the Role grants is suspended, narrowed or
+  revoked, and every member reaches afterwards exactly what they reached
+  before. There is no command that suspends a Role's access, deliberately —
+  emptying a Role's grants PUBLISHES every collection and workspace it was the
+  last holder of to the whole organization, which is the opposite of what it
+  sounds like.
+
+  IT IS IDEMPOTENT AND KEEPS THE FIRST STOP. Pausing an already-paused Role
+  succeeds and reports the ORIGINAL "pausedAt" — that field answers since when,
+  and re-stamping it would destroy the only record of the original stop. There
+  is no flag saying which of the two happened, and "nothing changed" is a
+  SUCCESS: do not retry or alarm on it.
+
+  RESUMING NEEDS "role.resume", WHICH IS A SEPARATE CAPABILITY. A key that can
+  pause is not thereby able to resume. Check before stopping a Role you cannot
+  start again.`
+    )
+    .action(async (ref: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const { role: paused } = await client.roles.pause(await resolveRoleId(client, ref));
+
+        printRecord(paused, [
+          { key: "id", label: "ID" },
+          { key: "name", label: "Name" },
+          { key: "pausedAt", label: "Paused at" },
+          { key: "pausedByUserId", label: "Paused by" }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── resume ────────────────────────────────────────────────────────────────
+  role
+    .command("resume")
+    .description("Start a Role's work again")
+    .argument("<role>", "Role name or UUID")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role resume "Refunds"
+
+Notes:
+  A SYSTEM PAUSED ON ITS OWN STAYS PAUSED. A workflow or agent somebody stopped
+  individually carries its own status, which this does not clear, and nothing
+  in the output says so. This restores only the stop the Role itself was under.
+
+  It also cannot restart what the pause never stopped — deployments, AI tasks,
+  document templates and external tools were running throughout.
+
+  Idempotent: resuming a running Role succeeds and changes nothing.
+
+  A 403 here has TWO causes and only one is about you. "role.resume" not held
+  is curable by asking the Role's owner. The organization having opted out of
+  Roles is not — read the error "code": FEATURE_NOT_ENABLED means nobody in
+  that organization can reach this command, and the Role's systems are running
+  regardless, because the server declines to enforce a Role stop for an
+  opted-out organization.`
+    )
+    .action(async (ref: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const { role: resumed } = await client.roles.resume(await resolveRoleId(client, ref));
+
+        printRecord(resumed, [
+          { key: "id", label: "ID" },
+          { key: "name", label: "Name" },
+          { key: "pausedAt", label: "Paused at" }
+        ]);
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -8,7 +8,7 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 363 of 516 leaves are answered here. The
+ * 365 of 518 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     27  no-registration
@@ -254,6 +254,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "role job-types": "list",
   "role list": "list",
   "role move-card": "success",
+  "role pause": "record",
   "role permission-sets": "list",
   "role remove-board": "success",
   "role remove-member": "success",
@@ -262,6 +263,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "role reorder-boards": "success",
   "role request-access": "success",
   "role responsibilities": "list",
+  "role resume": "record",
   "role review-access": "success",
   "role review-creation-request": "success",
   "role review-deletion-request": "success",

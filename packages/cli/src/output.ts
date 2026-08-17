@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 let _jsonMode = false;
+import { nonBlankOr } from "./util/present-text";
 
 /**
  * Has a JSON document already been written to STDOUT in this run?
@@ -356,7 +357,11 @@ function chooseFit(cells: readonly string[], width: number): Fit {
  */
 export function formatFolder(val: unknown): string {
   if (val && typeof val === "object" && "name" in val) {
-    return String((val as { name: unknown }).name ?? "—");
+    // `?? "—"` here rendered an EMPTY CELL for a folder named "", which is the
+    // one thing this function's docblock promises never to do. `nonBlankOr`
+    // also absorbs the non-string case, so the `String(...)` cast is gone with
+    // it — a folder whose `name` is a number was never meant to print either.
+    return nonBlankOr((val as { name: unknown }).name, "—");
   }
   return "—";
 }

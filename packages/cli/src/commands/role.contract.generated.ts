@@ -162,6 +162,8 @@ export const ROLES_CREATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM = {
     "role.view",
     "role.update",
     "role.delete",
+    "role.pause",
+    "role.resume",
     "team.view",
     "team.manage",
     "group.view",
@@ -251,6 +253,8 @@ export const ROLES_UPDATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM = {
     "role.view",
     "role.update",
     "role.delete",
+    "role.pause",
+    "role.resume",
     "team.view",
     "team.manage",
     "group.view",
@@ -421,7 +425,7 @@ export const ROLES_CREATE_PERMISSION_SET_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.resourceRelation", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["owner", "editor", "viewer"] },
     { path: "Body.capabilities", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
+    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "role.pause", "role.resume", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
     { path: "Body.surfaces", slot: "Body", type: "array", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -509,7 +513,7 @@ export const ROLES_UPDATE_PERMISSION_SET_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.resourceRelation", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["owner", "editor", "viewer"] },
     { path: "Body.capabilities", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
+    { path: "Body.capabilities[]", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["role.view", "role.update", "role.delete", "role.pause", "role.resume", "team.view", "team.manage", "group.view", "group.manage", "resource.view", "resource.attach", "resource.detach", "collection_grant.view", "collection_grant.manage", "workspace_grant.view", "workspace_grant.manage", "external_tool_grant.view", "external_tool_grant.manage", "coverage.view", "coverage.manage", "board.view", "board.manage", "access_request.view", "access_request.create", "access_request.review"] },
     { path: "Body.surfaces", slot: "Body", type: "array", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

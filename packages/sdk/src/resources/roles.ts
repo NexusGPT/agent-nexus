@@ -41,6 +41,7 @@ import type {
   RoleManagementSettingsResponse,
   RoleMember,
   RoleMembershipResponse,
+  RolePauseStateResponse,
   RolePermissionSetMemberAddedResult,
   RolePermissionSetResponse,
   RolePermissionSetsResponse,
@@ -337,6 +338,56 @@ export class RolesResource extends BaseResource {
    */
   async delete(roleId: string): Promise<DeleteRoleResult> {
     return this.http.request<DeleteRoleResult>("DELETE", `/roles/${roleId}`);
+  }
+
+  /**
+   * Stop this Role's work.
+   *
+   * 🔴 THIS REACHES 2 OF THE 6 KINDS A ROLE CAN HOLD. Its workflows and agents
+   * are refused execution. Its DEPLOYMENTS KEEP SERVING, its AI TASKS KEEP
+   * RUNNING, its document templates are unaffected, and its external tools sit
+   * on a catalogue row shared across tenants that no per-Role state may touch.
+   * Call {@link RolesResource.listSystems} first: on a Role whose systems are
+   * deployments and AI tasks, this call changes nothing a customer would notice.
+   *
+   * 🚨 IT CHANGES NO ACCESS. Nothing this Role grants is suspended, narrowed or
+   * revoked, and every member reaches afterwards exactly what they reached
+   * before. If you are looking for the other behaviour, it does not exist and
+   * was refused deliberately — emptying a Role's grants PUBLISHES every
+   * Collection and Workspace it was the last holder of to the whole
+   * organization, which is the opposite of what "suspend its access" sounds
+   * like.
+   *
+   * Idempotent: pausing an already-paused Role resolves with the ORIGINAL
+   * `pausedAt` and changes nothing. There is no flag saying which happened — see
+   * {@link RolePauseStateResponse} for why, and why treating that as a failure
+   * is the wrong retry.
+   *
+   * @param roleId - Role UUID.
+   * @returns The Role, now stopped.
+   */
+  async pause(roleId: string): Promise<RolePauseStateResponse> {
+    return this.http.request<RolePauseStateResponse>("POST", `/roles/${roleId}/pause`);
+  }
+
+  /**
+   * Start this Role's work again.
+   *
+   * 🔴 A SYSTEM PAUSED ON ITS OWN STAYS PAUSED. A workflow or agent somebody
+   * stopped individually carries its own status, which this call does not clear,
+   * and nothing in the response says so. Resuming a Role restores only the stop
+   * the Role itself was under.
+   *
+   * ⚠️ And it cannot restart what the pause never stopped — the four kinds named
+   * on {@link RolesResource.pause} were running throughout.
+   *
+   * Idempotent: resuming a running Role resolves and changes nothing.
+   *
+   * @param roleId - Role UUID.
+   * @returns The Role, now running.
+   */
+  async resume(roleId: string): Promise<RolePauseStateResponse> {
+    return this.http.request<RolePauseStateResponse>("POST", `/roles/${roleId}/resume`);
   }
 
   /**

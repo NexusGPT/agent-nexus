@@ -1372,6 +1372,10 @@ export type V1ResponseAssertions = [
   Expect<Equals<ResponseOf<"RolesUpdate">, MethodResult<NexusClient["roles"]["update"]>>>,
   // RolesDelete  DELETE /public/v1/roles/:roleId  ->  client.roles.delete()
   Expect<Equals<ResponseOf<"RolesDelete">, MethodResult<NexusClient["roles"]["delete"]>>>,
+  // RolesPause  POST /public/v1/roles/:roleId/pause  ->  client.roles.pause()
+  Expect<Equals<ResponseOf<"RolesPause">, MethodResult<NexusClient["roles"]["pause"]>>>,
+  // RolesResume  POST /public/v1/roles/:roleId/resume  ->  client.roles.resume()
+  Expect<Equals<ResponseOf<"RolesResume">, MethodResult<NexusClient["roles"]["resume"]>>>,
   // RolesAttachResource  POST /public/v1/roles/:roleId/resources  ->  client.roles.attachSystem()
   Expect<
     Equals<ResponseOf<"RolesAttachResource">, MethodResult<NexusClient["roles"]["attachSystem"]>>
@@ -1660,6 +1664,8 @@ const GATED_ROUTES = [
   "RolesCreate",
   "RolesUpdate",
   "RolesDelete",
+  "RolesPause",
+  "RolesResume",
   "RolesAttachResource",
   "RolesDetachResource",
   "RolesUpsertMember",

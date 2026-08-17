@@ -92,8 +92,18 @@ export type RoleAccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
  * `resourceRelation` + `surfaces`, which is what a member may REACH through it.
  * Conflating them hands out resource access nobody asked for.
  *
- * A read capability ending `.view` is held by an ordinary member; the `.manage`
- * / `.attach` / `.detach` / `.review` half is not.
+ * A read capability ending `.view` is held by an ordinary member; every other
+ * verb — `.manage`, `.attach`, `.detach`, `.review`, `.pause`, `.resume` — is
+ * not. The rule is the VERB rather than the list, and the server derives both
+ * seeded sets from it, so a capability added to the catalog lands on the correct
+ * side by construction. `access_request.create` is the single deliberate
+ * exception: a member must be able to file into the queue that exists for them.
+ *
+ * ⚠️ `role.pause` and `role.resume` are a PAIR AND NOT ONE CAPABILITY. Stopping
+ * a Role's work and starting it again are different claims — an on-call set that
+ * may restart a Role somebody else stopped, and may not stop one itself, is the
+ * audience the split exists for. Neither confers resource access, and neither
+ * changes what the Role grants.
  *
  * There is no ownership-transfer member. Handing `Role.ownerUserId` over is
  * authorised by identity — the current owner, or an organisation admin — so no
@@ -103,6 +113,8 @@ export type RoleCapability =
   | "role.view"
   | "role.update"
   | "role.delete"
+  | "role.pause"
+  | "role.resume"
   | "team.view"
   | "team.manage"
   | "group.view"
@@ -171,6 +183,34 @@ export interface Role {
   createdAt: string;
   /** ISO 8601. */
   updatedAt: string;
+  /**
+   * ISO 8601 — when this Role's work was stopped. `null` means it is running.
+   *
+   * 🔴 IT DOES NOT MEAN "EVERYTHING THIS ROLE HOLDS HAS STOPPED", AND READING IT
+   * THAT WAY IS WRONG ABOUT FOUR OF SIX KINDS. Only the workflows and agents a
+   * Role holds are refused execution. Its deployments keep serving, its AI tasks
+   * keep running, its document templates are unaffected, and its external tools
+   * live on a catalogue row shared across tenants that no per-Role state may
+   * touch. Call {@link RolesResource.listSystems} to see which kinds this Role
+   * actually holds before reporting what a pause achieved.
+   *
+   * 🚨 AND IT SAYS NOTHING ABOUT ACCESS. Pausing revokes no grant and narrows no
+   * permission; every member reaches afterwards exactly what they reached before.
+   *
+   * A timestamp rather than a boolean on purpose: a reader shown a stopped Role
+   * needs to know *since when*, and it survives a repeat pause —
+   * {@link RolesResource.pause} is idempotent and keeps the FIRST stop.
+   */
+  pausedAt: string | null;
+  /**
+   * The user who stopped it, or `null`.
+   *
+   * 🔴 `pausedAt` SET WITH THIS `null` IS A REAL STATE AND IT IS NOT "RUNNING" —
+   * the column is `ON DELETE SET NULL`, so a paused Role outlives the deletion of
+   * whoever paused it. Read the stop off `pausedAt` alone; this field decides
+   * only whether you can name a person.
+   */
+  pausedByUserId: string | null;
 }
 
 // ============================================================================
@@ -1115,6 +1155,23 @@ export interface UpdateRoleBody {
  * reads, and paying for them on every write to report something the write did not
  * change would make the expensive read the default. Ask `get()` for readiness.
  */
+/**
+ * Response from `client.roles.pause()` and `client.roles.resume()` — the Role's
+ * state as it now stands.
+ *
+ * 🚨 THERE IS NO `changed` FLAG, AND ITS ABSENCE IS THE CONTRACT. Both calls are
+ * idempotent: pausing an already-paused Role succeeds and returns the ORIGINAL
+ * `pausedAt`, because that field answers *since when* and re-stamping it would
+ * destroy the only fact it carries. A script must not read "nothing changed" as
+ * a failure — somebody already stopped this Role is a SUCCESS, and looping or
+ * alarming on it is the mistake this shape exists to prevent. `role.pausedAt`
+ * is the answer.
+ */
+export interface RolePauseStateResponse {
+  /** The Role, now stopped or now running. */
+  role: Role;
+}
+
 export interface RoleUpdatedResponse {
   /** The Role after the write. */
   role: Role;

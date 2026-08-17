@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { getGlobalInstallCommand, getGlobalUpdateHint } from "./package-manager";
+import { firstNonBlankOr } from "./present-text";
 
 const PACKAGE_NAME = "@agent-nexus/cli";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
@@ -354,6 +355,8 @@ export async function autoUpdate(currentVersion: string): Promise<string | null>
     // so this is non-fatal — show a brief one-line notice, never the
     // alarming "MUST update / results may be incorrect" warning.
     if (latest) recordFailedAttempt(latest);
-    return formatAutoUpdateFailedMessage(latest ?? loadCache()?.latestVersion ?? "latest");
+    return formatAutoUpdateFailedMessage(
+      firstNonBlankOr([latest, loadCache()?.latestVersion], "latest")
+    );
   }
 }

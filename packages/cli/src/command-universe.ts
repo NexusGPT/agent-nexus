@@ -516,6 +516,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role reorder-boards": "registration-only",
   "role update-board": "registration-only",
   "role permission-sets": "registration-only",
+  // Both are real and both are unsafe to fire in a sweep: `pause` stops a live
+  // organization's workflows and agents, and `resume` would restart work
+  // somebody deliberately stopped.
+  "role pause": "registration-only",
+  "role resume": "registration-only",
   "role remove-member": "registration-only",
   "role remove-permission-set-member": "registration-only",
   "role remove-responsibility": "registration-only",

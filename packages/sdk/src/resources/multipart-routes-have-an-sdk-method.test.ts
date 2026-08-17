@@ -1,4 +1,5 @@
 import { ZPublicApiV1 } from "@nexus/types/public-api-v1";
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { describe, expect, it } from "vitest";
 
 import { NexusClient } from "../client";
@@ -238,7 +239,12 @@ describe("every v1 multipart route has an SDK method that matches the contract",
     ).toEqual(declared);
   });
 
-  describe.each([...CONTRACT_UPLOAD_ROUTES.entries()])("%s", (key, route) => {
+  describe.each(
+    eachOrRefuse(
+      [...CONTRACT_UPLOAD_ROUTES.entries()],
+      "CONTRACT_UPLOAD_ROUTES — every multipart route the v1 contract declares"
+    )
+  )("%s", (key, route) => {
     const entry = SDK_UPLOAD_METHODS[key];
 
     it("sends the contract's verb to the contract's path, with the file under the contract's field name", async () => {

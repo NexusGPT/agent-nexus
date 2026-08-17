@@ -111,6 +111,33 @@ function getEnv(key: string): string | undefined {
   }
 }
 
+/**
+ * The first PRESENT candidate, or the fallback.
+ *
+ * `??` is wrong for anything read out of the environment. An environment
+ * variable that is SET AND EMPTY is `""`, not `undefined` — `NEXUS_BASE_URL=` in
+ * a `.env`, or `export NEXUS_BASE_URL=$SOMETHING_UNSET`, both produce it — and
+ * `""` is not nullish, so it WINS a `??` chain and the default beside it is
+ * unreachable.
+ *
+ * Declared here rather than imported from `@nexus/types`, which owns
+ * `firstNonBlankOr`. This package publishes standalone with tsup's
+ * `skipNodeModulesBundle: true` and holds `@nexus/types` as a devDependency, so
+ * an import would emit a CommonJS require for that package into a bundle whose
+ * `dependencies` do not contain it: installs fine, throws on first call. Do not
+ * replace this with the shared helper.
+ *
+ * The require call is described rather than written out, matching the CLI's
+ * copy of this helper — its sibling gate greps source text for that import and
+ * cannot tell a prose example from a real one.
+ */
+function firstNonBlankOr(candidates: readonly (string | undefined)[], fallback: string): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) return candidate;
+  }
+  return fallback;
+}
+
 // ============================================================================
 // NexusClient
 // ============================================================================
@@ -271,7 +298,17 @@ export class NexusClient {
       );
     }
 
-    const baseUrl = opts.baseUrl ?? getEnv("NEXUS_BASE_URL") ?? "https://api.nexusgpt.io";
+    // NOT `??`. A blank `NEXUS_BASE_URL` is a real and common shape, and under
+    // `??` it made every request target the empty string while the documented
+    // default sat unreachable one operand to the right.
+    //
+    // The two chains beside this one are deliberately left as `??`: `apiKey`
+    // is followed by `if (!apiKey) throw` and `organizationId` by a truthiness
+    // test, so a blank is already caught in both.
+    const baseUrl = firstNonBlankOr(
+      [opts.baseUrl, getEnv("NEXUS_BASE_URL")],
+      "https://api.nexusgpt.io"
+    );
 
     // Personal (cross-org) tokens select their acting org via the
     // `organization-id` header; merge it ahead of any explicit defaultHeaders.

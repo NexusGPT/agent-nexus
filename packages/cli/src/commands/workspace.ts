@@ -20,6 +20,7 @@ import {
   printWarning
 } from "../output";
 import { promptLine, promptStream } from "../util/confirm";
+import { firstNonBlankOr } from "../util/present-text";
 import {
   claimMountPoint,
   describeOwner,
@@ -1548,7 +1549,7 @@ Notes:
         // out of that check.
         const rows = records.map((r) => ({
           ...r,
-          org: r.orgName ?? r.orgId ?? "?",
+          org: firstNonBlankOr([r.orgName, r.orgId], "?"),
           profile: r.profile ?? "-",
           mode: r.mode ?? "?"
         }));

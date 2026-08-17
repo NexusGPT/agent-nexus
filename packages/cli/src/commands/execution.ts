@@ -19,6 +19,7 @@ import {
   type RecordField
 } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { firstNonBlankOr } from "../util/present-text";
 import { runFollow, shortTag } from "../util/run-follow";
 import {
   WORKFLOW_EXECUTION_CANCEL_CONTRACT,
@@ -746,7 +747,7 @@ function formatDuration(ms: number): string {
 function printDiagnoseNode(node: ExecutionDiagnoseNode, depth: number, verbose: boolean): void {
   const indent = "  ".repeat(depth + 1);
   const icon = getStatusIcon(node.status);
-  const label = node.label ?? node.nodeId ?? "unknown";
+  const label = firstNonBlankOr([node.label, node.nodeId], "unknown");
   const nodeType = node.nodeType ? color.dim(`[${node.nodeType}]`) : "";
   const duration = node.duration != null ? color.dim(`(${formatDuration(node.duration)})`) : "";
   const outputSummary = node.outputSummary && !verbose ? color.dim(` — ${node.outputSummary}`) : "";

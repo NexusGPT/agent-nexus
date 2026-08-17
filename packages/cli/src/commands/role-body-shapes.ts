@@ -413,6 +413,8 @@ export const ROLE_NAMESPACE_AREAS: ReadonlyArray<{
       "create",
       "update",
       "delete",
+      "pause",
+      "resume",
       "responsibilities",
       "add-responsibility",
       "remove-responsibility"

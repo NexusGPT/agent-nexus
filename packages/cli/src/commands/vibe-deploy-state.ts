@@ -35,6 +35,7 @@
  */
 
 import { color } from "../output";
+import { nonBlankOr } from "../util/present-text";
 import type {
   GetDeployStateResponse,
   VibeDeployStateOutcome,
@@ -242,7 +243,7 @@ export function renderDeployState(data: GetDeployStateResponse, nowMs: number): 
       ? "the app's own deploy branch"
       : `the ${data.resolved.from} you named`;
   lines.push(
-    `${color.bold("Commit".padEnd(12))}  ${data.resolved.sha === null ? color.dim("— none resolved") : shortSha(data.resolved.sha)}  ${color.dim(`${data.resolved.refName ?? "no ref head matches this commit"} — resolved from ${askedBy}`)}`
+    `${color.bold("Commit".padEnd(12))}  ${data.resolved.sha === null ? color.dim("— none resolved") : shortSha(data.resolved.sha)}  ${color.dim(`${nonBlankOr(data.resolved.refName, "no ref head matches this commit")} — resolved from ${askedBy}`)}`
   );
 
   lines.push(

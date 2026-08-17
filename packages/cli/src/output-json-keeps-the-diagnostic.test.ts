@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -138,20 +139,22 @@ describe("the --json document carries every diagnostic the human output prints",
     expect(conditional.length).toBeGreaterThanOrEqual(8);
   });
 
-  it.each(conditional)(
-    "$where — both outcomes are distinguishable under --json",
-    ({ branches }) => {
-      const [whenTrue, whenFalse] = branches;
+  it.each(
+    eachOrRefuse(
+      conditional,
+      "the conditional printSuccess messages found by walking packages/cli/src"
+    )
+  )("$where — both outcomes are distinguishable under --json", ({ branches }) => {
+    const [whenTrue, whenFalse] = branches;
 
-      // The two outcomes must not merely both be present; they must DIFFER.
-      // A message that reads the same either way is a boolean with extra
-      // characters, which is the defect wearing the fix's clothes.
-      expect(whenTrue).not.toEqual(whenFalse);
+    // The two outcomes must not merely both be present; they must DIFFER.
+    // A message that reads the same either way is a boolean with extra
+    // characters, which is the defect wearing the fix's clothes.
+    expect(whenTrue).not.toEqual(whenFalse);
 
-      expect(jsonDocument(whenTrue).message).toBe(whenTrue);
-      expect(jsonDocument(whenFalse).message).toBe(whenFalse);
-    }
-  );
+    expect(jsonDocument(whenTrue).message).toBe(whenTrue);
+    expect(jsonDocument(whenFalse).message).toBe(whenFalse);
+  });
 
   it("keeps the data fields it already carried", () => {
     const doc = jsonDocument("No such grant.", { removed: false });

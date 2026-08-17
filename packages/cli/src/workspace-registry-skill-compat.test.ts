@@ -90,13 +90,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AGENT_FILES,
-  CLAUDE_MD,
-  HOOK_FILES,
-  SETTINGS_JSON,
-  SHARED_FILES,
-  type SkillFile,
-  SKILLS
+  getAgentFiles,
+  getClaudeMd,
+  getHookFiles,
+  getSettingsJson,
+  getSharedFiles,
+  getSkills,
+  type SkillFile
 } from "./skills-content.generated";
 import { mountKey } from "./workspace-mounts";
 
@@ -250,18 +250,18 @@ interface Hit {
  */
 function installedSurfaces(): { bundle: string; file: SkillFile }[] {
   const surfaces: { bundle: string; file: SkillFile }[] = [];
-  for (const [slug, entry] of Object.entries(SKILLS)) {
+  for (const [slug, entry] of Object.entries(getSkills())) {
     for (const file of entry.files) surfaces.push({ bundle: slug, file });
   }
   for (const [bundle, files] of [
-    ["shared", SHARED_FILES],
-    ["hooks", HOOK_FILES],
-    ["agents", AGENT_FILES]
+    ["shared", getSharedFiles()],
+    ["hooks", getHookFiles()],
+    ["agents", getAgentFiles()]
   ] as const) {
     for (const file of files) surfaces.push({ bundle, file });
   }
-  surfaces.push({ bundle: "root", file: { path: "CLAUDE.md", content: CLAUDE_MD } });
-  surfaces.push({ bundle: "root", file: { path: "settings.json", content: SETTINGS_JSON } });
+  surfaces.push({ bundle: "root", file: { path: "CLAUDE.md", content: getClaudeMd() } });
+  surfaces.push({ bundle: "root", file: { path: "settings.json", content: getSettingsJson() } });
   return surfaces;
 }
 
@@ -315,12 +315,12 @@ describe("the bundled skills read the mount registry the way this CLI writes it"
     // satisfies "no bare-slug readers" perfectly, and that is the one way this
     // file could go green while the breakage ships.
     const surfaces = installedSurfaces();
-    expect(Object.keys(SKILLS).length).toBeGreaterThan(0);
+    expect(Object.keys(getSkills()).length).toBeGreaterThan(0);
     expect(surfaces.length).toBeGreaterThan(0);
     // Both halves that matter: the markdown runbook and the Python hooks. A
     // regression that dropped HOOK_FILES from the scan is invisible otherwise —
     // it was the first version of this spec's own bug.
-    expect(HOOK_FILES.length).toBeGreaterThan(0);
+    expect(getHookFiles().length).toBeGreaterThan(0);
     expect(
       surfaces.filter((s) => s.file.content.includes("workspace-mounts.json")).length
     ).toBeGreaterThan(1);

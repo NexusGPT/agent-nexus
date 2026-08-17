@@ -23,6 +23,23 @@ export type PermissionResourceType =
   | "workspace";
 
 /**
+ * A resource kind the generic permissions routes can actually name — every
+ * {@link PermissionResourceType} except the two managed by Role grants.
+ *
+ * `knowledge` (a Collection) and `workspace` never carry a permission row at
+ * all: they are narrowed through a Role's collection and workspace grants, and
+ * every route on `client.permissions` refuses them with a 400 naming
+ * `/roles/:roleId/collection-grants` or `/roles/:roleId/workspace-grants`. The
+ * refusal is deliberate, so this type is what stops the request shapes offering
+ * a value the server will never accept.
+ *
+ * READ them off `client.roles`; the wide {@link PermissionResourceType} still
+ * types every RESPONSE, because a grant row written before the refusal existed
+ * can still name one.
+ */
+export type GenericGrantResourceType = Exclude<PermissionResourceType, "knowledge" | "workspace">;
+
+/**
  * The principal a grant is written for.
  *
  * `user` and `group` name a profile the access list can render. `organization`,
@@ -123,8 +140,8 @@ export interface ListResourceAccessResponse {
 
 /** Request body for `client.permissions.grant()`. */
 export interface GrantPermissionBody {
-  /** The kind of resource to share. */
-  resourceType: PermissionResourceType;
+  /** The kind of resource to share. `knowledge` and `workspace` are refused — see {@link GenericGrantResourceType}. */
+  resourceType: GenericGrantResourceType;
   /** The resource's UUID. A wildcard is not accepted here. */
   resourceId: string;
   /** The kind of principal to grant to. */
@@ -145,8 +162,8 @@ export interface GrantPermissionResponse {
 
 /** Request body for `client.permissions.revoke()`. */
 export interface RevokePermissionBody {
-  /** The kind of resource to un-share. */
-  resourceType: PermissionResourceType;
+  /** The kind of resource to un-share. `knowledge` and `workspace` are refused — see {@link GenericGrantResourceType}. */
+  resourceType: GenericGrantResourceType;
   /** The resource's UUID, or `"*"` to target a wildcard grant. */
   resourceId: string;
   /** The kind of principal to revoke from. */
@@ -200,7 +217,15 @@ export interface OrgPermissionSettings {
  * here with a 400 rather than stored as an override nothing honours.
  */
 export interface UpdateResourceTypeVisibilityBody {
-  /** The resource type whose override to set or clear. */
+  /**
+   * The resource type whose override to set or clear.
+   *
+   * WIDER THAN THE ROUTE, and deliberately left that way for now: the schema
+   * behind it accepts only the non-pinned types at RUNTIME, but its tuple is
+   * cast back to the full union, so this type cannot be narrowed without
+   * narrowing that cast — and `types-match-the-v1-contract.test.ts` gates the
+   * two as exactly equal. `vibe_app` and `access_card` are refused with a 400.
+   */
   resourceType: PermissionResourceType;
   /** The override to store, or `null` to remove it. */
   visibility: ResourceVisibility | null;

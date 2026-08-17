@@ -155,6 +155,21 @@ Notes:
   never a silent strip.
   A WORKFLOW config takes config.workflowId (stored internally as config.toolId,
   and read back as workflowId). THE WORKFLOW MUST BE PUBLISHED.
+
+  🚨 TASK AND DOCUMENT_TEMPLATE HAVE NO KEY OF THEIR OWN — BOTH USE
+  config.toolId, AND THE OBVIOUS SPELLING IS A 400. The config schema is strict
+  and declares exactly six keys: toolId, workflowId, collectionId, action,
+  toolCredentialId, instructions (plus parameters). "taskId" and
+  "documentTemplateId" are not among them, so guessing either is refused by
+  name. WORKFLOW is the only type with a renamed field; every other type puts
+  its target id in the generic toolId:
+    --type TASK               --config '{"toolId":"<ai-task-id>"}'
+    --type DOCUMENT_TEMPLATE  --config '{"toolId":"<document-template-id>"}'
+    --type COLLECTION         --config '{"collectionId":"<collection-id>"}'
+  The ids come from "nexus task list" and "nexus template list". A TASK tool
+  takes an agentInputSchema like any other; the workflow-trigger rule below
+  applies to WORKFLOW only, because only a workflow publishes a contract to
+  check against.
   ON A WORKFLOW TOOL, EVERY agentInputSchema NAME MUST ALREADY EXIST ON THE
   PUBLISHED WORKFLOW'S AGENT INPUT TRIGGER. Inventing one is a 400 naming the
   parameter; declaring FEWER than the trigger accepts is fine and normal.

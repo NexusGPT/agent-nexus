@@ -78,7 +78,20 @@ Notes:
   is shown untruncated.
   Only an EMBED deployment id is meaningful here — these templates render in the
   web widget.
-  --search matches the name only, not the description and not the markup.`
+  --search matches the name only, not the description and not the markup.
+
+  THERE IS NO PAGING HERE AND NOTHING REPORTS A TOTAL, so a full page is
+  indistinguishable from a truncated one. There is no --page, no --offset and no
+  cursor, and --json is {"data":[…]} with NO meta beside it — the route returns
+  an items array and nothing else.
+
+  🚨 100 IS BOTH THE DEFAULT AND THE CEILING, so --limit can only ever REDUCE
+  what you see. Omitting it takes 100; asking for more than 100 is refused by
+  validation. An organization holding more than 100 templates therefore CANNOT
+  reach the rest from this command at any spelling, and the 100 rows it returns
+  look exactly like a complete list. Narrow with --deployment-id or --search —
+  those change WHICH templates are considered, which is the only lever that
+  reaches past the cap.`
     )
     .action(async (opts) => {
       try {

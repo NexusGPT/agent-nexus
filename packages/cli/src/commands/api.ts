@@ -3,7 +3,7 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { resolveApiKey, resolveBaseUrl } from "../config";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { isJsonMode } from "../output";
 import { resolveBody } from "../util/body";
 import { buildMultipartBody, MULTIPART_FILE_FIELD } from "../util/multipart";
@@ -19,7 +19,10 @@ export function registerApiCommand(program: Command): void {
     .command("api")
     .description("Call any Nexus API endpoint directly")
     .argument("<method>", "HTTP method, uppercased and sent as given — see Notes")
-    .argument("<path>", "API path relative to /api/public/v1 (e.g. /models)")
+    .argument(
+      "<path>",
+      "API path relative to /api/public/v1, which is PREPENDED for you (e.g. /models)"
+    )
     .option("--body <json>", "Request body as JSON string, .json file path, or '-' for stdin")
     .option(
       "--file <path>",
@@ -56,6 +59,17 @@ File uploads:
 Notes:
   For long-running calls, raise the global --timeout <seconds> flag (default 30 s).
 
+  🚨 THE /api/public/v1 PREFIX IS ADDED FOR YOU, SO DO NOT TYPE IT. <path> is
+  what comes AFTER it. Paste a full path from a doc page or a browser and you
+  get {base-url}/api/public/v1/api/public/v1/... — which 404s, and a 404 reads
+  as "that route does not exist" rather than "you typed the prefix twice". This
+  command refuses that spelling locally and prints the path you meant, so the
+  mistake never reaches the network:
+
+    $ nexus api GET /models                     # correct
+    $ nexus api GET /api/public/v1/models       # refused, names /models
+    $ nexus api GET /public/v1/models           # refused, names /models
+
   🚨 THIS REACHES public/v1 AND NOTHING ELSE, SO IT CANNOT AUDIT THE PLATFORM.
   Every request goes to {base-url}/api/public/v1{path}; the prefix is prepended
   and there is no flag that removes it. A second family of routes is served
@@ -75,6 +89,33 @@ Notes:
   pipeline against .data, and do not expect the payload at the top level:
 
     $ nexus api GET /models | jq '.data[0].id'
+
+  "meta" IS WHAT DRIVES A PAGING LOOP, AND ONLY TWO OF ITS FIELDS ARE ALWAYS
+  THERE. A paginated route answers {"data":[…],"meta":{…}} where meta carries:
+    total       always — rows matching the query, across all pages
+    page        always — 1-based, echoing what you sent
+    hasMore     OFTEN, NOT ALWAYS. Several v1 list routes omit it entirely.
+    limit       only where the route reports it
+    totalPages  only where the route reports it
+  So write the loop against what the route actually returned, never against the
+  richest shape you have seen: "conversation list" sends {total, page, hasMore}
+  and "deployment list" sends all five. Where hasMore is absent, page against
+  total. Treat a MISSING hasMore as unknown — never as false, which ends the
+  loop on page one:
+
+    $ nexus api GET /agents --query page=1 --query limit=5 | jq '.meta'
+
+  SOME ROUTES HAVE NO TYPED COMMAND AT ALL, AND ONE OF THEM IS THE ONLY WAY TO
+  SEE INSIDE A WORKSPACE. "nexus workspace" can list, create, rename, delete,
+  restore, mount, unmount and report status — it cannot list a workspace's
+  FILES. That read exists only here:
+
+    $ nexus api GET /workspaces/<slug>/files --query path=<dir>
+
+  path defaults to the workspace root when omitted. It is what proves a write
+  through a mount actually landed, and it pages with continuationToken rather
+  than with page/limit — pass the token back:
+    --query continuationToken=<token-from-the-previous-response>
 
   THE METHOD IS NOT VALIDATED LOCALLY. Whatever you type is uppercased and
   sent, so a typo travels to the server and comes back as a bare 400 that never
@@ -115,6 +156,15 @@ Notes:
         // Normalize path — accept with or without leading slash
         const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
+        const redundant = redundantPrefix(normalizedPath);
+        if (redundant !== null) {
+          process.exitCode = refuse(
+            `<path> is relative to /api/public/v1, and "${redundant.prefix}" repeats it.`,
+            `Send ${redundant.corrected} instead. The prefix is prepended by this command; typed twice it becomes /api/public/v1${normalizedPath} and answers 404.`
+          );
+          return;
+        }
+
         const { data, meta } = await http.requestWithMeta<unknown>(
           method.toUpperCase(),
           normalizedPath,
@@ -128,6 +178,40 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+}
+
+/**
+ * The prefix segments this command prepends, longest first.
+ *
+ * 🚨 LONGEST FIRST IS LOAD-BEARING. `/api/public/v1/models` starts with `/api`
+ * as well, and matching the short form would report the prefix as `/api` and
+ * name `/public/v1/models` as the correction — which is still wrong and would
+ * be refused a second time. A caller who pastes a full path deserves ONE
+ * refusal that names the path they meant.
+ */
+const REDUNDANT_PREFIXES = ["/api/public/v1", "/public/v1", "/api/v1", "/v1"] as const;
+
+/**
+ * Is this `<path>` carrying the prefix this command already prepends?
+ *
+ * ⚠️ THE ANSWER IS SAFE BECAUSE NO v1 ROUTE BEGINS WITH ANY OF THESE SEGMENTS.
+ * Derived, not assumed: every descriptor path in
+ * `packages/types/src/api/public/v1/contract/` begins `/public/v1/`, and the
+ * segment that follows is a resource name — none of the 304 is `api`, `public`
+ * or `v1`. So `/api/...` and `/v1/...` cannot be a real path relative to the
+ * prefix, and refusing them costs no legitimate call. A route that ever adds
+ * one would need this list narrowed in the same commit.
+ *
+ * A trailing boundary is required (`/` or end of string) so `/videos` is not
+ * read as `/v1` plus `deos`.
+ */
+function redundantPrefix(normalizedPath: string): { prefix: string; corrected: string } | null {
+  for (const prefix of REDUNDANT_PREFIXES) {
+    if (normalizedPath !== prefix && !normalizedPath.startsWith(`${prefix}/`)) continue;
+    const rest = normalizedPath.slice(prefix.length);
+    return { prefix, corrected: rest === "" ? "/" : rest };
+  }
+  return null;
 }
 
 /** Commander collector for repeatable --query options. */

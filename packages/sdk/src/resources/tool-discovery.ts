@@ -1,3 +1,4 @@
+import { LONG_RUNNING_TIMEOUT_MS } from "../timeouts";
 import type {
   ExecuteToolDirectBody,
   ExecuteToolDirectResponse,
@@ -237,7 +238,10 @@ export class ToolDiscoveryResource extends BaseResource {
    */
   async execute(toolId: string, body: ExecuteToolDirectBody): Promise<ExecuteToolDirectResponse> {
     return this.http.request<ExecuteToolDirectResponse>("POST", `/tools/${toolId}/execute`, {
-      body
+      body,
+      // Runs the action against the third party and answers with its result, so
+      // the wait is theirs to decide, not ours.
+      timeoutMs: LONG_RUNNING_TIMEOUT_MS
     });
   }
 }

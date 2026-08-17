@@ -87,6 +87,17 @@ describe("permissions access", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  // The read side of NEX-3761. `permissions access knowledge <id>` was offered
+  // by the positional's own choices list and answered 400 — a Collection's
+  // access list is read per-ROLE ("nexus role collection-grants") or not at all.
+  it.each(["knowledge", "workspace"])("refuses the access list for %s", async (resourceType) => {
+    await expect(run(["permissions", "access", resourceType, RESOURCE_ID])).rejects.toThrow(
+      /Allowed choices are .*\bagent\b/
+    );
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("renders the grant rows in table mode, not only in JSON", async () => {
     request.mockResolvedValue({
       permissions: [
@@ -147,6 +158,65 @@ describe("permissions grant and revoke", () => {
       }
     });
   });
+
+  /**
+   * 🚨 THE HELP USED TO OFFER A VALUE THE ROUTE ALWAYS REFUSED (NEX-3761).
+   *
+   * `knowledge` and `workspace` are held in Role grants and in nothing else, so
+   * every route in this namespace answers 400 for them. `--resource-type` still
+   * listed both, because its choices come from the contract and the contract
+   * listed every `ResourceType` — so the only way to learn a Collection was not
+   * grantable here was to send it and read the refusal.
+   *
+   * Both ends moved: the v1 request schemas no longer accept them, and this
+   * asserts the CLI now refuses locally, naming the list, WITHOUT a round trip.
+   * A test on `agent` alone would stay green if the narrowing were reverted.
+   */
+  it.each(["knowledge", "workspace"])(
+    "refuses --resource-type %s locally, without calling the API",
+    async (resourceType) => {
+      await expect(
+        run([
+          "permissions",
+          "grant",
+          "--resource-type",
+          resourceType,
+          "--resource-id",
+          RESOURCE_ID,
+          "--subject-type",
+          "group",
+          "--subject-id",
+          GROUP_ID,
+          "--relation",
+          "viewer"
+        ])
+      ).rejects.toThrow(/Allowed choices are .*\bagent\b/);
+
+      expect(request).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["knowledge", "workspace"])(
+    "refuses a revoke on %s the same way",
+    async (resourceType) => {
+      await expect(
+        run([
+          "permissions",
+          "revoke",
+          "--resource-type",
+          resourceType,
+          "--resource-id",
+          RESOURCE_ID,
+          "--subject-type",
+          "user",
+          "--subject-id",
+          "user_abc"
+        ])
+      ).rejects.toThrow(/Allowed choices are .*\bagent\b/);
+
+      expect(request).not.toHaveBeenCalled();
+    }
+  );
 
   it("omits cascadeSubjectIds entirely when the flag is not given", async () => {
     request.mockResolvedValue({ revokedCount: 1 });

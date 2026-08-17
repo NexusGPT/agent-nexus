@@ -6,6 +6,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, refuse } from "../errors";
 import { printDryRun, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
@@ -134,20 +135,26 @@ Notes:
   modelProvider are the fallback, so MODEL and the two mirrors all describe a
   model this agent is not using. Absent means it runs the platform model named.
   --json also carries bio, tags, gender and playgroundFirstMessage, which the
-  table omits.`
+  table omits.
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is the page for
+  this agent, so a script never has to assemble one from a path pattern that
+  can be renamed underneath it. The skills tab is the same URL with
+  /tabs/skills in place of /tabs/prompt.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const agent = await client.agents.get(id);
-        printRecord(agent, [
+        printRecord({ ...agent, dashboardUrl: dashboardUrlFor("agent", agent.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "firstName", label: "First Name" },
           { key: "lastName", label: "Last Name" },
           { key: "role", label: "Role" },
           { key: "status", label: "Status" },
           { key: "model", label: "Model" },
-          { key: "createdAt", label: "Created" }
+          { key: "createdAt", label: "Created" },
+          { key: "dashboardUrl", label: "Dashboard" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -231,13 +238,18 @@ Notes:
   against what the agent will need to do, not after the 400 lands on a later
   command. Changing it afterwards is "nexus agent update --model-name".
   THIS DOES NOT ECHO THE AGENT. --json prints exactly
-  {success, message, id, name} — and name is "<firstName> <lastName>" joined by
-  this CLI, not a field the API returns. Nothing else you sent comes back, so
-  read the stored agent with "nexus agent get <id>" before trusting a write.`
+  {success, message, id, name, dashboardUrl} — and name is
+  "<firstName> <lastName>" joined by this CLI, not a field the API returns.
+  Nothing else you sent comes back, so read the stored agent with
+  "nexus agent get <id>" before trusting a write.
+  dashboardUrl IS ALSO THIS CLI'S, NOT THE API'S. It is the page for the agent
+  you just made — open it, or hand it to whoever asked for the agent, instead
+  of building a URL from a path pattern that can be renamed underneath you.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
 
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
@@ -267,7 +279,8 @@ Notes:
         const agent = await client.agents.create(asRequestBody<CreateAgentBody>(body));
         printSuccess("Agent created.", {
           id: agent.id,
-          name: `${agent.firstName} ${agent.lastName}`
+          name: `${agent.firstName} ${agent.lastName}`,
+          dashboardUrl: dashboardUrlFor("agent", agent.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -352,6 +365,8 @@ Notes:
   .modelConfig.customModelId.
   A PATCH whose only field is --prompt writes nothing on the agent row and still
   answers 200 — the version write is the change, not a no-op.
+  dashboardUrl in the payload is this agent's page, added by this CLI rather
+  than returned by the API — open it to see the edit you just made.
   Every field is optional, but the ones you do send must be non-empty:
   --first-name, --last-name and --role each still require at least one character.
   An unknown --body key is silently stripped, exactly as on create.
@@ -361,7 +376,8 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
 
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
@@ -427,7 +443,11 @@ Notes:
               ? "Agent updated. Prompt PUBLISHED — live on every deployment."
               : "Agent updated. Prompt written to the draft, NOT published."
             : "Agent updated.",
-          { id: agent.id, ...(sentPrompt && { promptPublished: published }) }
+          {
+            id: agent.id,
+            ...(sentPrompt && { promptPublished: published }),
+            dashboardUrl: dashboardUrlFor("agent", agent.id, globals)
+          }
         );
       } catch (err) {
         process.exitCode = handleError(err);
@@ -509,15 +529,19 @@ Notes:
   with fewer tools than the original and nothing says which went — count with
   "nexus agent-tool list <new-id>" against the source before trusting it.
   ATTACHED CLAUDE CODE SKILLS ARE DROPPED. The copy starts with none; re-attach
-  them with "nexus agent-skill add-preset" or "nexus agent-skill create".`
+  them with "nexus agent-skill add-preset" or "nexus agent-skill create".
+  dashboardUrl in the payload is THE COPY'S page, added by this CLI rather than
+  returned by the API. It is the fastest way to check what the copy inherited.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const agent = await client.agents.duplicate(id);
         printSuccess("Agent duplicated.", {
           id: agent.id,
-          name: `${agent.firstName} ${agent.lastName}`
+          name: `${agent.firstName} ${agent.lastName}`,
+          dashboardUrl: dashboardUrlFor("agent", agent.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -612,12 +636,27 @@ Notes:
     "set it inside --body's modelConfig — the field only applies to one provider family, " +
     "so a flag would advertise it for every model";
 
+  // `--model-provider` writes BOTH contract paths, so the flat mirror needs no
+  // flag of its own. The handler sends `modelConfig.modelProvider` when a name
+  // and a provider are both given, and the flat `modelProvider` when only the
+  // provider is — one option, two paths, and the server folds the flat pair
+  // into the same stored key either way.
+  //
+  // The flat field only entered this gate's population when it stopped being a
+  // bare `z.string()`: an enum-less field carries no `enumValues`, so it LEFT
+  // the population rather than failing it. A second `--model-provider-flat`
+  // would offer the identical four values under a name no caller wants.
+  const FLAT_MIRROR_IS_THE_SAME_FLAG =
+    "written by --model-provider, which sets this flat mirror when only the " +
+    "provider is given and modelConfig.modelProvider when the name is given too";
+
   const MODEL_CONFIG_TUNING = {
     "Body.modelConfig.thinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.thinkingDisplay": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.reasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
     "Body.modelConfig.geminiThinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
-    "Body.modelConfig.kimiReasoningEffort": TUNING_IS_PROVIDER_SPECIFIC
+    "Body.modelConfig.kimiReasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
+    "Body.modelProvider": FLAT_MIRROR_IS_THE_SAME_FLAG
   };
 
   bindCommand(list, AGENT_LIST_CONTRACT);

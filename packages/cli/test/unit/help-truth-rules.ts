@@ -14,15 +14,16 @@ import {
   fieldIssues,
   flagValuesIn,
   helpOf,
+  invocationsIn,
   isIdFormatIssue,
   isPlaceholder,
   parseExample,
+  type ParseOutcome,
   pathVarsOf,
   registrarCount,
   sdkCallsIn,
   sdkRouteIndex,
   sourceSlices,
-  tokenize,
   transportCallsIn,
   walkTree
 } from "./help-truth-scan";
@@ -77,6 +78,41 @@ export interface ScanReport {
   readonly leafCount: number;
   readonly examplesChecked: number;
   readonly truncated: number;
+  /**
+   * Invocations whose stdin document the example STATES — `echo '<doc>' | nexus …`.
+   *
+   * ⚠️ A FLOOR, NOT A RESULT, and the counter that proves the population widened.
+   * Every one of these lines was invisible to R1 until the prefix rule stopped
+   * being `$ nexus `: a piped example does not start with the binary's name. If
+   * this goes to zero the collection has silently narrowed back, and the gate
+   * would read exactly as green as it does now.
+   */
+  readonly statedStdinDocuments: number;
+  /**
+   * `--body -` payloads R2 actually put to a route's `Body` — the stated stdin
+   * document, parsed as an object.
+   *
+   * ⚠️ A FLOOR, NOT A RESULT, AND THE COUNTERPART OF
+   * {@link statedStdinDocuments} FOR THE RULE THAT READS THE DOCUMENT. R1 was
+   * taught to parse an echoed `--body -` example; R2 kept `JSON.parse`-ing the
+   * raw flag value, which for every one of them is the literal `"-"`, so it
+   * threw, continued, and judged no field of any stated payload. A rule that
+   * skips its whole population and a rule that asked and found nothing produce
+   * the identical empty violation list. Zero here means the skip is back.
+   */
+  readonly stdinBodiesJudged: number;
+  /**
+   * Invocations refused ONLY because the scanner could not know the document
+   * they pipe in — `cat batch.json | nexus … --body -`.
+   *
+   * Reported rather than silently skipped, for the reason every other counter
+   * here exists: an abstention and a clean pass produce the same empty violation
+   * list. Zero when this landed, and it stays zero while every `--body -` example
+   * either states its document or belongs to a command whose parse never reads
+   * one. A number above zero is not a defect — it is coverage this arm does not
+   * have, printed where a reader sees it.
+   */
+  readonly unstatedStdinBodies: number;
   readonly routesResolved: number;
   readonly routesUnresolved: number;
   readonly unresolvedNoSdkCall: number;
@@ -149,6 +185,30 @@ export const PERMANENT_BLINDNESS: readonly NamespaceBlindness[] = ["NO-ROUTE", "
 
 /** Flags that carry a request body rather than a single field value. */
 const BODY_FLAGS = new Set(["body", "data"]);
+
+/** Does this invocation take its request body from standard input? */
+function readsBodyFromStdin(argv: readonly string[]): boolean {
+  return argv.some(
+    (token, i) =>
+      // Both spellings commander accepts. Missing `--body=-` would report an
+      // abstention as a violation — the one direction that reads as a real find.
+      ((token === "--body" || token === "--data") && argv[i + 1] === "-") ||
+      token === "--body=-" ||
+      token === "--data=-"
+  );
+}
+
+/**
+ * Is this refusal the scanner's own empty stdin talking, rather than the example?
+ *
+ * `readAndParseBody` refuses an empty document with `Invalid JSON in --body:` and
+ * nothing after the colon. Matching the message rather than the code because the
+ * code is the generic `threw` — the throw comes from the CLI's own resolver, not
+ * from commander.
+ */
+function isEmptyBodyRefusal(outcome: ParseOutcome): boolean {
+  return outcome.kind === "refused" && /Invalid JSON in --body:\s*$/.test(outcome.message);
+}
 /** Flags that configure the CLI, never a request field. */
 const META_FLAGS = new Set([
   "json",
@@ -177,6 +237,9 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
   const unresolvedCommands: { command: string; reason: string }[] = [];
   let examplesChecked = 0;
   let truncated = 0;
+  let statedStdinDocuments = 0;
+  let stdinBodiesJudged = 0;
+  let unstatedStdinBodies = 0;
   let routesResolved = 0;
   let unresolvedNoSdkCall = 0;
   let unresolvedNoDescriptor = 0;
@@ -207,6 +270,16 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     const examples = examplesIn(help);
     const routes = routeOf.get(label) ?? [];
 
+    // 🚨 THE POPULATION IS INVOCATIONS, NOT LINES, AND THE TWO STOPPED BEING THE
+    // SAME THING WHEN `examplesIn` WIDENED. It now returns every `$ …` line, and
+    // a `$` line need not run this CLI at all — `workspace restore`'s help shows
+    // `$ rm ~/nexus/support-docs/notes/probe.md` to set the scene. Counting lines
+    // would let that satisfy R0, certifying a command as exampled on a line that
+    // invokes `rm`.
+    const invocations = examples.flatMap((example) =>
+      invocationsIn(example).map((invocation) => ({ example, ...invocation }))
+    );
+
     // ── R0 — a leaf a caller lands on must show a runnable example and Notes ──
     // This is the TRIPWIRE for R1–R4 as much as a rule of its own: every one of
     // them iterates examples, so a command with none satisfies all four
@@ -220,12 +293,12 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     // whether the command is covered.
     const hidden = (node.cmd as unknown as { _hidden?: boolean })._hidden === true;
     if (node.isLeaf && !hidden) {
-      if (examples.length === 0) {
+      if (invocations.length === 0) {
         violations.push({
           command: label,
           rule: "R0-no-example",
           key: "R0-no-example",
-          detail: "no `$ nexus …` example in --help, so rules 1-4 cannot see this command"
+          detail: "no `nexus …` invocation in --help, so rules 1-4 cannot see this command"
         });
       }
       if (!help.includes("Notes:")) {
@@ -245,36 +318,48 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     // executed" produce the identical output, so the gate floors
     // {@link ScanReport.requiredOptionsExamined} instead of reading the zero as
     // evidence. An assertion nobody proved ran is not an assertion.
-    if (node.isLeaf && examples.length > 0) {
+    if (node.isLeaf && invocations.length > 0) {
       for (const option of node.cmd.options) {
         if (!option.mandatory || !option.long) continue;
         requiredOptionsExamined++;
-        const named = examples.some(
-          (e) => e.includes(`${option.long} `) || e.includes(`${option.long}=`)
+        const named = invocations.some(
+          (i) => i.example.includes(`${option.long} `) || i.example.includes(`${option.long}=`)
         );
         if (!named) {
           violations.push({
             command: label,
             rule: "R5b-required-option-unexampled",
             key: `R5b ${option.long}`,
-            detail: `${option.long} is required and appears in none of the ${examples.length} example(s)`
+            detail: `${option.long} is required and appears in none of the ${invocations.length} example(s)`
           });
         }
       }
     }
 
-    for (const example of examples) {
-      const { argv, truncated: cut } = tokenize(example);
-      if (argv[0] !== "nexus") continue;
-      const args = argv.slice(1);
+    // One printed line can hold more than one invocation — a `$(…)` that computes
+    // an argument, then the command that uses it — and each is separately
+    // runnable, so each is separately judged.
+    for (const { example, argv: args, truncated: cut, stdin, substituted } of invocations) {
       if (args.includes("--help") || args.includes("-h")) continue;
       if (cut) truncated++;
       examplesChecked++;
+      if (stdin !== undefined) statedStdinDocuments++;
 
       // ── R1 — commander is the real parser; what it refuses, a reader cannot run
       const program = await buildProgram();
-      const outcome = await parseExample(program, args);
+      const outcome = await parseExample(program, args, stdin ?? "");
       if (outcome.kind === "refused") {
+        // 🚨 ONE REFUSAL IS NOT A FINDING, AND IT IS THE ONE THIS SCANNER
+        // CANNOT SEE THE INPUT OF. `cat batch.json | nexus … --body -` sends a
+        // document the help does not print; the scanner supplies an empty
+        // stdin, and refusing the example for that is judging bytes nobody
+        // wrote. Every other refusal — an unknown flag, a bad enum value, a
+        // required field supplied by neither a flag nor the body — is
+        // independent of the document and is reported.
+        if (stdin === undefined && readsBodyFromStdin(args) && isEmptyBodyRefusal(outcome)) {
+          unstatedStdinBodies++;
+          continue;
+        }
         violations.push({
           command: label,
           rule: "R1-example-refused",
@@ -312,13 +397,24 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
       // This is the arm that catches `{"type":"conditional"}`.
       for (const [flag, raw] of flags) {
         if (!BODY_FLAGS.has(flag)) continue;
+        // 🚨 `-` IS THE MARKER, NEVER THE PAYLOAD, AND READING IT AS ONE SKIPPED
+        // EXACTLY THE EXAMPLES THIS SCAN WIDENED TO REACH. R1 already parses a
+        // piped example with the document it states, so the bytes are here; R2
+        // went on `JSON.parse("-")`, threw, and continued — so every stated
+        // stdin body passed this rule without a field of it being put to a
+        // schema, which is byte-for-byte what a clean one looks like. The
+        // document the example states IS what the flag resolves to, so it is
+        // what R2 must judge.
+        const source = raw === "-" ? stdin : raw;
+        if (source === undefined) continue; // a document the example does not state
         let payload: unknown;
         try {
-          payload = JSON.parse(raw);
+          payload = JSON.parse(source);
         } catch {
-          continue; // a `-` stdin marker or a .json path, not an inline body
+          continue; // a .json path, or a --body this command carries as plain text
         }
         if (typeof payload !== "object" || payload === null || Array.isArray(payload)) continue;
+        if (raw === "-") stdinBodiesJudged++;
         for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
           for (const issue of agreed((d) => (d.Body ? fieldIssues(d.Body, key, value) : []))) {
             violations.push({
@@ -381,7 +477,16 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
         // UUID, and the help is still correct, because a lookup runs first.
         const resolvedClientSide = /\bname or\b/i.test(outcome.argumentDescriptions[i] ?? "");
 
-        if (isPlaceholder(supplied) || resolvedClientSide) {
+        // A token an upstream `xargs` REWRITES before the command runs:
+        // `… | xargs -I{} nexus prompt-assistant delete-thread {} --yes` sends
+        // the id the previous stage printed, never the literal `{}`. Exempt on
+        // the same ground as a `name or` argument — the example is runnable and
+        // this token is not what reaches the route — and NOT through
+        // `isPlaceholder`, which would hand it to R6 and report the shell's own
+        // syntax as a placeholder the reader cannot run.
+        const rewrittenByShell = substituted !== undefined && supplied === substituted;
+
+        if (isPlaceholder(supplied) || resolvedClientSide || rewrittenByShell) {
           if (constrained) bump(pathOperandsSkipped, namespace);
 
           // ── R6 — a placeholder standing in a slot whose FORMAT is fixed ────
@@ -390,8 +495,10 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
           // the route refuses the literal. R4 skipped both, so a namespace could
           // be certified clean having had every path id it ships waved through.
           // A `name or` argument is EXEMPT here as it is in R4 — a client-side
-          // lookup means the human-readable form is genuinely correct.
-          if (!resolvedClientSide) {
+          // lookup means the human-readable form is genuinely correct — and so
+          // is an `xargs` replacement, which the shell has already rewritten by
+          // the time the route sees anything.
+          if (!resolvedClientSide && !rewrittenByShell) {
             for (const issue of agreed((d) => {
               const vars = pathVarsOf(d);
               if (!d.PathVars || vars.length !== outcome.operands.length) return [];
@@ -427,7 +534,7 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     }
 
     // ── the blind spots, counted rather than skipped ──────────────────────────
-    if (examples.length > 0) {
+    if (invocations.length > 0) {
       if (routes.length > 0) {
         routesResolved++;
       } else {
@@ -514,6 +621,9 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     leafCount: leafNodes.length,
     examplesChecked,
     truncated,
+    statedStdinDocuments,
+    stdinBodiesJudged,
+    unstatedStdinBodies,
     routesResolved,
     routesUnresolved: unresolvedNoSdkCall + unresolvedNoDescriptor,
     unresolvedNoSdkCall,

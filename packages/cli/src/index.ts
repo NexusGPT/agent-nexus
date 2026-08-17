@@ -22,6 +22,7 @@ import { registerCloudImportCommands } from "./commands/cloud-import";
 import { registerCollectionCommands } from "./commands/collection";
 import { registerConversationCommands } from "./commands/conversation";
 import { registerCredentialCommands } from "./commands/credential";
+import { registerCueCommands } from "./commands/cue";
 import { registerCustomModelCommands } from "./commands/custom-model";
 import { registerCustomerCommands } from "./commands/customer";
 import { registerDeploymentCommands } from "./commands/deployment";
@@ -34,6 +35,7 @@ import { registerExternalToolCommands } from "./commands/external-tool";
 import { registerFolderCommands } from "./commands/folder";
 import { registerHtmlMessageTemplateCommands } from "./commands/html-message-template";
 import { registerKnownIssuesCommand } from "./commands/known-issues";
+import { registerMcpCommands } from "./commands/mcp";
 import { registerModelCommands } from "./commands/model";
 import { registerPermissionsCommands } from "./commands/permissions";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
@@ -54,6 +56,7 @@ import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
 import { registerHelpScopeFooter } from "./help-scope";
+import { applyJsonShapeHelpLine } from "./json-shape-help";
 import { applyKnownIssuesHelpLine } from "./known-issues-help";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
 import { applyProbeBarrierHelpLine } from "./probe-barrier";
@@ -130,7 +133,7 @@ export function buildRootProgram(version: string = VERSION): Command {
     .option("--profile <name>", "Use a specific named profile")
     .option(
       "--timeout <seconds>",
-      "HTTP request timeout in seconds (default 30; task execute defaults to 600)",
+      "HTTP request timeout in seconds (default 30; 600 for operations that run a model)",
       parseTimeoutSeconds
     )
     // Declaring BOTH forms is what makes the default OFF: commander gives a lone
@@ -226,7 +229,9 @@ export function buildRootProgram(version: string = VERSION): Command {
     --profile <name>       use a named profile instead of the active one
     --api-key <key>        override the key for this invocation
     --base-url <url>       point at another environment
-    --timeout <seconds>    client-side only, default 30
+    --timeout <seconds>    client-side only; default 30, and 600 for the
+                           operations that run a model before they answer
+                           (task execute, tool execute, external-tool test, …)
     --auto-update          self-update on exit; OFF by default
 
   UPDATES
@@ -251,8 +256,15 @@ export function buildRootProgram(version: string = VERSION): Command {
 
   FAILURE
     EVERY failure exits 1. There is no distinct exit code for "not found",
-    "forbidden" or "invalid" — read the message, not the status. Under --json an
-    error is a JSON document on STDOUT: {"error":{"message","hint"}}.
+    "forbidden" or "invalid" — read the code, not the status. Under --json an
+    error is a JSON document on STDOUT: {"error":{"message","hint","code"}}, all
+    three keys ALWAYS present, hint null when there is none. Without --json the
+    code is printed dim in brackets after the message.
+    THE CODE IS THE FIELD TO BRANCH ON. An API refusal's own name comes through
+    unchanged (NODE_IS_TRIGGER, WORKFLOW_ALREADY_PUBLISHED, …); a refusal the API
+    sent without one falls back to HTTP_<status>; and a CLI_ prefix means the
+    failure never reached the server at all. Match on the code, never on the
+    message, which is prose and gets rewritten.
     --timeout IS CLIENT-SIDE. Hitting it means this CLI stopped waiting; THE
     SERVER MAY STILL BE COMPLETING THE REQUEST. Never retry a write on a timeout
     without checking whether the first one landed.
@@ -280,9 +292,11 @@ export function buildRootProgram(version: string = VERSION): Command {
     namespace's.
 
   SCOPES AND WHO YOU ARE
-    Scopes are NOT hierarchical: :write does not imply :delete, and a read scope
-    on one surface says nothing about another. A missing scope is a 403, not an
-    empty result.
+    Scopes have exactly ONE implication: :write implies :read on the SAME
+    resource, so a key that can rewrite a list can always fetch it first. Nothing
+    else bridges: :write does not imply :delete, :delete implies nothing at all,
+    and a scope on one surface says nothing about another — implication never
+    crosses a resource. A missing scope is a 403, not an empty result.
     A key minted for an org MEMBER sees only what that user created on several
     surfaces, so a list can be empty while the organization has rows, and
     somebody else's id answers 404 rather than 403.
@@ -325,6 +339,45 @@ export function buildRootProgram(version: string = VERSION): Command {
     sortSubcommands: true
   });
 
+  // THE GLOBAL FLAGS, NAMED ON THE SCREEN THAT DOES NOT DECLARE THEM.
+  //
+  // Every global option is declared ONCE, here on the program. So they appear in
+  // the Options block of the root and of NO subcommand — while `--json` appears
+  // in the Examples block of nearly every subcommand. A reader on a leaf
+  // therefore sees the flag used and never sees it documented, which reads as
+  // undocumented rather than as inherited.
+  //
+  // 🚨 THE LIST IS DERIVED FROM `program.options`, NEVER TYPED OUT. A
+  // hand-written one is the defect this closes, one level up: it goes stale the
+  // moment an option is added here, and it silently omits whatever its author
+  // forgot. The docblock on `buildRootProgram` records that `--dashboard-url`
+  // and `--timeout` were "real global options documented on no page" for exactly
+  // that reason — and a hand-typed five-flag version of this footer reproduced
+  // the `--dashboard-url` half of it before the derivation replaced it.
+  //
+  // `--no-auto-update` is filtered out because commander declares it as the
+  // negated twin of `--auto-update`; printing both would advertise the default
+  // as if it were an action.
+  //
+  // Registered BEFORE the scope footer so it renders above it, and suppressed on
+  // the root itself, whose epilogue already spells them out with their
+  // resolution order. `afterAll` fires on the helped command and its ancestors,
+  // so the guard is on the command being helped, not on the registration.
+  program.addHelpText("afterAll", (ctx) => {
+    if (ctx.command === program) return "";
+    const flags = program.options
+      .filter((option) => !option.long?.startsWith("--no-"))
+      .map((option) => option.flags)
+      .join("  ");
+    return (
+      '\nGLOBAL FLAGS, USABLE HERE THOUGH THEY ARE LISTED ONLY ON "nexus --help"\n' +
+      `  ${flags}\n` +
+      "  They work anywhere in the line, before or after the subcommand, and none\n" +
+      "  of them appears in a subcommand's own Options block. --json is one of\n" +
+      "  them, which is why the Examples above use a flag this screen never lists.\n"
+    );
+  });
+
   // The scope footer, on EVERY help screen at every depth. One registration:
   // commander fires `afterAll` on the helped command and all its ancestors.
   // Read `help-scope.ts` before moving, rewording or removing this — the
@@ -359,6 +412,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerTemplateCommands(program);
   registerHtmlMessageTemplateCommands(program);
   registerKnownIssuesCommand(program);
+  registerMcpCommands(program);
   registerExternalToolCommands(program);
   registerPromptAssistantCommands(program);
   registerSkillFolderCommands(program);
@@ -367,6 +421,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerPhoneNumberCommands(program);
   registerChannelCommands(program);
   registerTracingCommands(program);
+  registerCueCommands(program);
   registerCredentialCommands(program);
   registerCustomerCommands(program);
   registerAccessCardCommands(program);
@@ -388,6 +443,13 @@ export function buildRootProgram(version: string = VERSION): Command {
   // tree, so it needs no cooperation from any command file and no list of
   // participating commands to keep current. See the module docblock.
   applyBodySatisfiesRequired(program);
+
+  // Which of the five --json shapes each leaf prints. Walks the FINISHED tree
+  // for the same reason as the two lines above, and reads a GENERATED map: the
+  // shape is derived from the printer a command's action reaches, never
+  // authored. A leaf the derivation cannot answer for carries no line at all.
+  // See `json-shape-help.ts`.
+  applyJsonShapeHelpLine(program);
 
   // The known-issues pointer, on every command's --help. Walks the FINISHED
   // tree, so it needs no list of participating commands; a namespace added

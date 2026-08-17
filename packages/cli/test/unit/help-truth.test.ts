@@ -139,6 +139,53 @@ test("CONTROL: R4 was proved to have JUDGED, not merely to have run", () => {
   );
 });
 
+test("CONTROL: an example that does not START with `nexus` was parsed too", () => {
+  // ⚠️ THE POPULATION'S OWN BLIND SPOT, MEASURED. Until 2026-08-15 an example
+  // was collected only when its line began `$ nexus `, so 22 printed invocations
+  // were never handed to commander — and the exclusion was not random. TWELVE of
+  // them were the `-`-stdin forms, because a document piped into a command puts
+  // the pipe on the same line: `cat prompt.md | nexus agent create … --prompt -`.
+  // Those are the examples a reader COPIES rather than reads, which is the whole
+  // of NEX-3714: a body-carrying example that cannot run as printed.
+  //
+  // 10 stated documents when this landed (`echo '<doc>' | nexus …`). The floor
+  // is 5 so ordinary movement does not redden it and only a collection that has
+  // narrowed back can cross it — a gate that stopped seeing this shape would
+  // read exactly as green as one that sees all of it.
+  assert.ok(
+    report.statedStdinDocuments >= 5,
+    `only ${report.statedStdinDocuments} piped examples reached the parser — the ` +
+      `collection has narrowed back to lines starting with "nexus"`
+  );
+  // Not a floor: an abstention, printed so it cannot grow in silence. 0 today.
+  if (report.unstatedStdinBodies > 0) {
+    console.log(
+      `    ${report.unstatedStdinBodies} example(s) pipe a --body this scan cannot see, ` +
+        `so their parse was not judged`
+    );
+  }
+});
+
+test("CONTROL: R2 was proved to have READ the stated stdin bodies", () => {
+  // The other half of the counter above, for the rule that reads the DOCUMENT
+  // rather than the invocation. R1 was taught to parse an echoed `--body -`
+  // example with the document the line states; R2 went on `JSON.parse`-ing the
+  // RAW flag value, which for every one of those examples is the literal `"-"`,
+  // so it threw and continued and not one field of a stated payload was ever put
+  // to a route's Body. An arm that skips its whole population and an arm that
+  // asked and found nothing print the identical empty violation list.
+  //
+  // 2 when this landed — `role create` and `workflow node update`, the two piped
+  // examples whose document is a JSON object on a command with a resolved route.
+  // The floor is 1 because it proves the arm is alive, not a number that moves
+  // whenever an example is rewritten.
+  assert.ok(
+    report.stdinBodiesJudged > 0,
+    `R2 put no piped --body document to a route's schema — it is reading the "-" ` +
+      `marker again rather than the document the example states`
+  );
+});
+
 test("CONTROL: the examples, the contracts and the SDK routes were all read", () => {
   assert.ok(report.examplesChecked > 800, `only ${report.examplesChecked} examples parsed`);
   assert.ok(report.descriptorCount > 300, `only ${report.descriptorCount} v1 descriptors read`);

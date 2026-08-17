@@ -7,6 +7,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- see the note above */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { ZPublicApiV1 } from "@nexus/types/public-api-v1";
@@ -14,6 +15,7 @@ import { Command, CommanderError } from "commander";
 
 import { discoverRootRegistrars } from "../../src/command-universe";
 import { buildRootProgram } from "../../src/root-program";
+import { resetResolvedBodies } from "../../src/util/body";
 
 /**
  * THE SCANNER BEHIND THE `--help` TRUTH GATE. Population first, predicate second.
@@ -249,25 +251,205 @@ export function helpOf(cmd: Command): string {
 }
 
 /**
- * Every `$ nexus …` example in a help block, with wrapped lines rejoined.
+ * Every `$ …` example in a help block, with wrapped lines rejoined.
  *
  * A long example is written across two lines with a trailing backslash, exactly
  * as it would be typed. Reading the first line alone yields a truncated command
  * that fails to parse — 4 false findings on the first run of this scanner, every
  * one a continuation no reader would ever have hit.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE PREFIX RULE USED TO BE `$ nexus `, AND IT EXCLUDED THE HARDEST EXAMPLES
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `nexus` is not always the first word of the line a reader copies. It sits
+ * downstream of a pipe (`cat prompt.md | nexus agent create … --prompt -`) and
+ * inside a command substitution (`eval "$(nexus auth switch work --session)"`).
+ * Requiring the line to START with it dropped 22 printed invocations, measured
+ * 2026-08-15 — and the exclusion was not random. TWELVE of the 22 were the
+ * `-`-stdin forms (`--body -`, `--prompt -`, `--content -`, `--input -`,
+ * `--file -`, `--message -`), because a document piped into a command is written
+ * with the pipe on the same line. Those are exactly the examples a reader copies
+ * rather than reads — the body shape is the hard part — and R1 could not see one
+ * of them.
+ *
+ * NEX-3714 is the class: `task create`'s body example was reported unrunnable,
+ * and the FIRST example on that command
+ * (`$ cat task-prompt.md | nexus task create …`) was outside every rule here.
+ *
+ * So the population is now "a shell line that invokes `nexus`", and
+ * {@link invocationsIn} does the extraction. A line that names no `nexus`
+ * COMMAND — `$ rm ~/nexus/support-docs/notes/probe.md` names a path — yields no
+ * invocation and is not one.
  */
 export function examplesIn(help: string): string[] {
   const lines = help.split("\n").map((l) => l.trim());
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i]!;
-    if (!line.startsWith("$ nexus ")) continue;
+    if (!line.startsWith("$ ")) continue;
     while (line.endsWith("\\") && i + 1 < lines.length) {
       line = `${line.slice(0, -1).trim()} ${lines[++i]!}`;
     }
     out.push(line);
   }
   return [...new Set(out)];
+}
+
+/** One `nexus …` invocation lifted out of the shell line that prints it. */
+export interface Invocation {
+  /** Everything after the `nexus` token — what commander is handed. */
+  readonly argv: string[];
+  /** A `#`, `;`, `&&` or ` >` cut the tail of this invocation short. */
+  readonly truncated: boolean;
+  /**
+   * What an upstream stage puts on this command's stdin, when the example says
+   * so. `echo '<doc>' | nexus …` states it exactly; `cat file.json | nexus …`
+   * does not, and `undefined` is that difference rather than an empty document.
+   */
+  readonly stdin?: string;
+  /**
+   * The token an upstream `xargs` REWRITES before this command ever runs — `{}`
+   * under `xargs -I{}`. Whatever the previous stage printed goes there, so the
+   * token itself never reaches the CLI and no format rule may judge it.
+   */
+  readonly substituted?: string;
+}
+
+/** Split on `|` that is not inside quotes. Quotes are KEPT for re-tokenising. */
+function pipelineStages(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: '"' | "'" | null = null;
+  for (const ch of line) {
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === "|") {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * The inside of every `$( … )`, so a substituted invocation is still one.
+ *
+ * `cfg=$(nexus agent-tool get … --json | jq -c '.config')` and
+ * `eval "$(nexus auth switch work --session)"` both run a real command that a
+ * reader will hit, and in both the `nexus` token is buried in a word rather than
+ * standing alone — so neither is found by looking at argv positions.
+ */
+function substitutions(line: string): { inner: string[]; masked: string } {
+  const inner: string[] = [];
+  let masked = "";
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== "$" || line[i + 1] !== "(") {
+      masked += line[i];
+      continue;
+    }
+    let depth = 1;
+    let j = i + 2;
+    for (; j < line.length && depth > 0; j++) {
+      if (line[j] === "(") depth++;
+      else if (line[j] === ")") depth--;
+    }
+    if (depth > 0) {
+      masked += line[i]; // unbalanced: not a substitution, leave it alone
+      continue;
+    }
+    inner.push(line.slice(i + 2, j - 1));
+    // 🚨 THE OUTER LINE KEEPS ONE TOKEN WHERE THE SUBSTITUTION WAS, because a
+    // shell hands the outer command ONE argument here however many words the
+    // inner one spans. `--name $(nexus x get 1)` unquoted otherwise tokenises
+    // into four, and the outer command is then refused for excess arguments —
+    // a defect in the scanner reported as a defect in the help.
+    masked += "$SUBSTITUTION";
+    i = j - 1;
+  }
+  return { inner, masked };
+}
+
+/** The document an upstream `echo '<doc>'` stage puts on stdin, if it is one. */
+function echoedDocument(stage: string): string | undefined {
+  const { argv } = tokenize(stage);
+  if (argv[0] !== "echo") return undefined;
+  const words = argv.slice(1).filter((w) => w !== "-n" && w !== "-e");
+  return words.length > 0 ? words.join(" ") : undefined;
+}
+
+/**
+ * The token `xargs` will REPLACE with each line it reads, if this stage is one.
+ *
+ * `… | xargs -n1 -I{} nexus prompt-assistant delete-thread {} --yes` is a
+ * genuinely runnable line whose `{}` is never sent: xargs rewrites it per input
+ * line, so the id the route receives is whatever the previous stage printed.
+ * Judging `{}` against the slot's UUID format reports the SCANNER'S reading of a
+ * shell feature as a defect in the help — the same class as the unquoted `$( … )`
+ * masking above, and it arrived the same way, from a printed example that only
+ * became visible once the population widened.
+ *
+ * Both spellings every xargs accepts: `-I<repl>` and `-I <repl>`, plus `-i` and
+ * GNU's `--replace`, whose replacement defaults to `{}`.
+ */
+function xargsReplacement(argv: readonly string[]): string | undefined {
+  if (argv[0] !== "xargs") return undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (token.startsWith("-I") && token.length > 2) return token.slice(2);
+    if (token === "-I") return argv[i + 1];
+    if (token.startsWith("--replace=")) return token.slice("--replace=".length);
+    if (token === "-i" || token === "--replace") return "{}";
+  }
+  return undefined;
+}
+
+/**
+ * Every `nexus …` invocation a printed example contains.
+ *
+ * A shell line can hold more than one — `cfg=$(nexus agent-tool get …)` on one
+ * line, the command that uses `$cfg` on the next — and each is separately
+ * runnable, so each is separately checked.
+ *
+ * A stage counts as an invocation when one of its TOKENS is exactly `nexus`.
+ * Substring matching would promote `rm ~/nexus/support-docs/…` into a command
+ * and then report the refusal of a path as a help defect.
+ */
+export function invocationsIn(example: string): Invocation[] {
+  const line = example.replace(/^\$\s*/, "");
+  const { inner, masked } = substitutions(line);
+  const out: Invocation[] = [];
+  for (const candidate of [masked, ...inner]) {
+    const stages = pipelineStages(candidate);
+    for (let i = 0; i < stages.length; i++) {
+      const { argv, truncated } = tokenize(stages[i]!);
+      const at = argv.indexOf("nexus");
+      if (at === -1) continue;
+      out.push({
+        argv: argv.slice(at + 1),
+        // A pipe AFTER the invocation (`… --json | jq`) cut its tail; a pipe
+        // BEFORE it did not, and the old tokenizer reported the second as a
+        // truncation because it counted pipes rather than position.
+        truncated: truncated || i < stages.length - 1,
+        stdin: i > 0 ? echoedDocument(stages[i - 1]!) : undefined,
+        // Read from the xargs prefix ONLY, never from the invocation's own
+        // flags: `nexus … -I x` is this CLI's argument, not the shell's.
+        substituted: xargsReplacement(argv.slice(0, at))
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -681,8 +863,31 @@ export type ParseOutcome =
  * Commander hands an action `(arg1, …, argN, options, command)`, so the leading
  * arguments are exactly what the caller typed in the `<id>` slots — which is what
  * rule 4 needs and what no amount of re-tokenising can reliably rebuild.
+ *
+ * ── STDIN IS SUPPLIED, NOT INHERITED ─────────────────────────────────────────
+ *
+ * Replacing the actions stops the CLI's own `-` readers, but NOT the one above
+ * them: `applyBodySatisfiesRequired` resolves `--body` in a pre-action hook, so a
+ * `--body -` example on a command with required flags reads standard input while
+ * commander is still deciding whether to run at all. Inheriting the runner's
+ * stdin there is a hang — an fd that never emits `end` leaves that promise
+ * unsettled with the process still held open by the test runner — and a gate
+ * that hangs is a gate somebody switches off.
+ *
+ * So every parse gets its own stdin: the document the example states it pipes
+ * in, or an empty one that has ALREADY ENDED. Nothing here reads the caller's
+ * terminal, and the verdict for an example that states its document is the
+ * verdict a reader would get.
+ *
+ * The `--body` memo is cleared for the same reason. It is keyed on the raw flag
+ * value, and the raw value for every piped body in the package is the identical
+ * `"-"` — so without the reset the first document read answers for all of them.
  */
-export async function parseExample(program: Command, args: string[]): Promise<ParseOutcome> {
+export async function parseExample(
+  program: Command,
+  args: string[],
+  stdin = ""
+): Promise<ParseOutcome> {
   let operands: string[] = [];
   let selected: Command | undefined;
   const pathOf = new Map<Command, string>();
@@ -708,6 +913,12 @@ export async function parseExample(program: Command, args: string[]): Promise<Pa
   const stderr = process.stderr.write.bind(process.stderr);
   process.stdout.write = (() => true) as never;
   process.stderr.write = (() => true) as never;
+  const realStdin = Object.getOwnPropertyDescriptor(process, "stdin");
+  Object.defineProperty(process, "stdin", {
+    value: Readable.from([Buffer.from(stdin, "utf-8")]),
+    configurable: true
+  });
+  resetResolvedBodies();
   let refusal: ParseOutcome | undefined;
   try {
     await program.parseAsync(args, { from: "user" });
@@ -723,6 +934,13 @@ export async function parseExample(program: Command, args: string[]): Promise<Pa
   } finally {
     process.stdout.write = stdout as never;
     process.stderr.write = stderr as never;
+    // The descriptor is an own accessor on `process` in every supported node, so
+    // the else-branch is unreachable today. Deleting rather than leaving the
+    // stub installed is the only cleanup that cannot outlive this call: a stub
+    // that survives is read by every later parse AND by the runner itself.
+    if (realStdin) Object.defineProperty(process, "stdin", realStdin);
+    else delete (process as unknown as { stdin?: unknown }).stdin;
+    resetResolvedBodies();
   }
   if (refusal) return refusal;
 

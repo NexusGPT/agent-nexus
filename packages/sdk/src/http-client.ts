@@ -4,6 +4,7 @@ import {
   NexusConnectionError,
   NexusTimeoutError
 } from "./errors";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
 import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/common";
 
 // ============================================================================
@@ -20,7 +21,15 @@ export interface HttpClientOptions {
   fetch?: typeof globalThis.fetch;
   /** Additional headers sent with every request. */
   defaultHeaders?: Record<string, string>;
-  /** Request timeout in milliseconds (default 30 000). Applies to EACH attempt. */
+  /**
+   * Request timeout in milliseconds. Applies to EACH attempt.
+   *
+   * Setting this states a deadline for EVERY request, long-running routes
+   * included — it outranks the per-operation deadline a method declares for
+   * itself. Leave it unset to get {@link DEFAULT_REQUEST_TIMEOUT_MS} for
+   * ordinary routes and {@link LONG_RUNNING_TIMEOUT_MS} for the ones that run a
+   * model; see `./timeouts.ts`.
+   */
   timeout?: number;
   /**
    * How many times a transient failure may be replayed, on top of the first
@@ -121,6 +130,16 @@ export interface RequestOptions {
   query?: Record<string, string | number | boolean | string[] | number[] | undefined>;
   /** Additional headers for this request. */
   headers?: Record<string, string>;
+  /**
+   * The deadline THIS operation needs, in milliseconds, when the caller has not
+   * stated one of their own.
+   *
+   * Declared by the method that owns the route — a synchronous generation knows
+   * it may take minutes, and the transport does not. Ignored whenever
+   * `HttpClientOptions.timeout` is set, so an explicit caller deadline still
+   * wins. See `./timeouts.ts` for why the two classes cannot share one number.
+   */
+  timeoutMs?: number;
 }
 
 interface ApiSuccessEnvelope<T> {
@@ -214,6 +233,31 @@ async function readBody(res: Response): Promise<string> {
   }
 }
 
+/**
+ * The JSON carried by one SSE record's `data:` lines, or `undefined` when the
+ * record carries none (a `: keepalive` comment, a blank tail) or does not parse.
+ *
+ * Multi-line `data:` is joined with newlines, as the SSE spec requires. The
+ * Nexus streams write single-line frames today, but a client that silently
+ * dropped the continuation of a multi-line one would corrupt a payload rather
+ * than fail on it.
+ */
+function parseSSEData<T>(record: string): T | undefined {
+  const payload = record
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart())
+    .join("\n");
+
+  if (payload === "") return undefined;
+
+  try {
+    return JSON.parse(payload) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 // ============================================================================
 // HttpClient
 // ============================================================================
@@ -239,7 +283,16 @@ export class HttpClient {
   private readonly apiKey: string;
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly defaultHeaders: Record<string, string>;
-  private readonly timeout: number;
+  /**
+   * The caller's own deadline, or `undefined` when they stated none.
+   *
+   * Kept UNRESOLVED on purpose. Collapsing it to `opts.timeout ?? 30_000` in the
+   * constructor is what made every long-running route unfixable: from that point
+   * on "the caller wants 30 s" and "nobody said anything" are the same value, so
+   * a method could not supply the minutes its own route needs without
+   * overriding a deadline the caller may have set deliberately.
+   */
+  private readonly timeout: number | undefined;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -249,7 +302,7 @@ export class HttpClient {
     this.apiKey = opts.apiKey;
     this.fetchFn = opts.fetch ?? globalThis.fetch;
     this.defaultHeaders = opts.defaultHeaders ?? {};
-    this.timeout = opts.timeout ?? 30_000;
+    this.timeout = opts.timeout;
     this.maxRetries = Math.max(0, opts.maxRetries ?? DEFAULT_MAX_RETRIES);
     this.retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
     this.sleep =
@@ -257,18 +310,33 @@ export class HttpClient {
   }
 
   /**
+   * The deadline this request runs under, in milliseconds.
+   *
+   * Three sources, in the order they outrank each other:
+   *   1. the caller's `HttpClientOptions.timeout` — stated deliberately, wins
+   *      over everything, and is what the CLI's `--timeout <seconds>` flag sets;
+   *   2. the operation's own `timeoutMs` — what a synchronous generation needs;
+   *   3. {@link DEFAULT_REQUEST_TIMEOUT_MS} — an ordinary read or write.
+   */
+  private deadlineFor(opts: RequestOptions): number {
+    return this.timeout ?? opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  /**
    * Perform one attempt: fetch under the per-attempt timeout, mapping a
    * transport failure onto the SDK's own error types.
    */
-  private async attempt(url: string, init: RequestInit): Promise<Response> {
+  private async attempt(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       return await this.fetchFn(url, { ...init, signal: controller.signal });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new NexusTimeoutError(this.timeout);
+        // The deadline actually waited, not the transport's default — the CLI
+        // prints this number back to the user as the wait it just performed.
+        throw new NexusTimeoutError(timeoutMs);
       }
       throw new NexusConnectionError(
         err instanceof Error ? err.message : "Network request failed",
@@ -299,13 +367,18 @@ export class HttpClient {
    * invisible to every gate, and worst under exactly the load that triggers a
    * retry in the first place.
    */
-  private async send(method: string, url: string, init: RequestInit): Promise<Response> {
+  private async send(
+    method: string,
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<Response> {
     const attempts = IDEMPOTENT_METHODS.has(method.toUpperCase()) ? this.maxRetries + 1 : 1;
 
     for (let n = 1; ; n++) {
       const isLast = n === attempts;
       try {
-        const res = await this.attempt(url, init);
+        const res = await this.attempt(url, init, timeoutMs);
         if (isLast || !RETRYABLE_STATUSES.has(res.status)) return res;
         await res.body?.cancel().catch(() => undefined);
       } catch (err) {
@@ -361,7 +434,7 @@ export class HttpClient {
       ...(requestBody === undefined ? {} : { body: requestBody })
     };
 
-    const res = await this.send(method, url.toString(), fetchInit);
+    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
 
     const text = await readBody(res);
 
@@ -378,6 +451,118 @@ export class HttpClient {
     }
 
     return text;
+  }
+
+  /**
+   * Make a request and yield each `data:` frame of a `text/event-stream`
+   * response as it arrives.
+   *
+   * ## Why this is not `requestRaw`
+   *
+   * `requestRaw` awaits `res.text()`, which resolves only when the server closes
+   * the body. On an endpoint that streams a live agent turn that is the exact
+   * behaviour the caller is trying to escape: it would buffer every token and
+   * hand them over at the end, indistinguishable from the blocking POST.
+   *
+   * ## Timeouts
+   *
+   * The per-attempt timeout bounds the WAIT FOR HEADERS only — `attempt` clears
+   * its timer as soon as `fetch` resolves, which for a streaming response is
+   * before the first frame. A turn may then run for minutes without tripping the
+   * client's 30s default, which is what makes this usable; the server's own
+   * keepalive comments are what keep intermediaries from closing it.
+   *
+   * That deadline still has to be HANDED to `send`. Left off, the timer is armed
+   * as `setTimeout(…, undefined)` — it fires on the next tick and aborts the
+   * request before its headers can arrive, so every stream fails as a timeout on
+   * a real network while a stub `fetch` that resolves instantly wins the race.
+   *
+   * ## Termination
+   *
+   * The generator ends when the server closes the body. A caller that leaves the
+   * loop early (`break`, `return`, a throw) cancels the underlying reader
+   * through the generator's `finally`, so abandoning a stream does not leak the
+   * connection — the turn keeps running server-side and its result is still
+   * persisted to the conversation.
+   *
+   * Malformed frames are SKIPPED rather than thrown on: one unparseable line in
+   * a long stream should not destroy the turn a caller has already half-rendered.
+   */
+  async *requestSSE<T>(
+    method: string,
+    path: string,
+    opts: RequestOptions = {}
+  ): AsyncGenerator<T, void, undefined> {
+    const url = new URL(`${this.baseUrl}/api/public/v1${path}`);
+
+    if (opts.query) {
+      appendQuery(url, opts.query);
+    }
+
+    const headers: Record<string, string> = {
+      ...this.defaultHeaders,
+      ...opts.headers,
+      "api-key": this.apiKey,
+      Accept: "text/event-stream"
+    };
+
+    const fetchInit: RequestInit = { method, headers };
+
+    if (opts.body !== undefined) {
+      const serialized = serializeBody(opts.body, headers);
+      if (serialized !== undefined) fetchInit.body = serialized;
+    }
+
+    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
+
+    if (!res.ok) {
+      // The failure path is ordinary JSON — a refusal happens before the stream
+      // opens, by construction on the server side — so it is read and mapped the
+      // same way every other error is.
+      const text = await readBody(res);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      throw toApiError(res.status, parsed);
+    }
+
+    if (!res.body) {
+      throw new NexusConnectionError("Streaming response carried no body");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // `stream: true` so a multi-byte character split across two chunks is
+        // held rather than decoded into a replacement character — an emoji in a
+        // token delta lands on a chunk boundary often enough to matter.
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE records are separated by a blank line. The trailing element is
+        // whatever has arrived since the last one and is deliberately kept.
+        const records = buffer.split("\n\n");
+        buffer = records.pop() ?? "";
+
+        for (const record of records) {
+          const frame = parseSSEData<T>(record);
+          if (frame !== undefined) yield frame;
+        }
+      }
+
+      const last = parseSSEData<T>(buffer);
+      if (last !== undefined) yield last;
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
   }
 
   /**
@@ -416,7 +601,7 @@ export class HttpClient {
       if (serialized !== undefined) fetchInit.body = serialized;
     }
 
-    const res = await this.send(method, url.toString(), fetchInit);
+    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
 
     // Handle 204 No Content (e.g. DELETE responses)
     if (res.status === 204) {

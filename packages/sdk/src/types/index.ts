@@ -33,6 +33,7 @@ export type * from "./cloud-imports";
 export type * from "./common";
 export type * from "./conversations";
 export type * from "./credentials";
+export type * from "./cue-transcripts";
 export type * from "./custom-models";
 export type * from "./customers";
 export type * from "./deployment-folders";

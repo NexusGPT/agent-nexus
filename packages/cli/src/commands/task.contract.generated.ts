@@ -45,6 +45,78 @@ export const SKILLS_CREATE_TASK__BODY_OUTPUT_FORMAT = {
   ]
 } as const satisfies ContractEnum;
 
+export const SKILLS_DUPLICATE_TASK__BODY_MODEL_PROVIDER = {
+  path: "SkillsDuplicateTask.Body.modelProvider",
+  contractValues: [
+    "OPEN_AI",
+    "ANTHROPIC",
+    "GOOGLE_AI",
+    "KIMI"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_MODEL_PROVIDER = {
+  path: "SkillsExecuteTask.Body.modelOverride.modelProvider",
+  contractValues: [
+    "OPEN_AI",
+    "ANTHROPIC",
+    "GOOGLE_AI",
+    "KIMI"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_THINKING_LEVEL = {
+  path: "SkillsExecuteTask.Body.modelOverride.thinkingLevel",
+  contractValues: [
+    "fast",
+    "detailed",
+    "extended",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_THINKING_DISPLAY = {
+  path: "SkillsExecuteTask.Body.modelOverride.thinkingDisplay",
+  contractValues: [
+    "summarized",
+    "omitted"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_REASONING_EFFORT = {
+  path: "SkillsExecuteTask.Body.modelOverride.reasoningEffort",
+  contractValues: [
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_GEMINI_THINKING_LEVEL = {
+  path: "SkillsExecuteTask.Body.modelOverride.geminiThinkingLevel",
+  contractValues: [
+    "dynamic",
+    "low",
+    "medium",
+    "high",
+    "minimal"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_KIMI_REASONING_EFFORT = {
+  path: "SkillsExecuteTask.Body.modelOverride.kimiReasoningEffort",
+  contractValues: [
+    "low",
+    "high",
+    "max"
+  ]
+} as const satisfies ContractEnum;
+
 export const SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER = {
   path: "SkillsUpdateTask.Body.modelProvider",
   contractValues: [
@@ -88,6 +160,9 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
     { path: "Body.outputFormat", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["text", "json", "template"] },
     { path: "Body.multimodal", slot: "Body", type: "boolean", required: false, depth: 0 },
     { path: "Body.allowDuplicate", slot: "Body", type: "boolean", required: false, depth: 0 },
+    { path: "Body.fewShots", slot: "Body", type: "array", required: false, depth: 0 },
+    { path: "Body.fewShots[].input", slot: "Body", type: "string", required: true, depth: 1 },
+    { path: "Body.fewShots[].output", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.generation", slot: "Body", type: "object", required: true, depth: 0 },
     { path: "Body.generation.multimodal", slot: "Body", type: "boolean", required: false, depth: 1 },
     { path: "Body.generation.prompt", slot: "Body", type: "string", required: false, depth: 1 },
@@ -99,7 +174,44 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
     { path: "Body.promptText", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.systemPrompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.instructions", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 }
+    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.examples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.fewShotExamples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.samples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.demonstrations", slot: "Body", type: "unknown", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const SKILLS_DUPLICATE_TASK_CONTRACT = {
+  name: "SkillsDuplicateTask",
+  method: "POST",
+  route: "/public/v1/skills/tasks/:taskId/duplicate",
+  fields: [
+    { path: "PathVars.taskId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const SKILLS_EXECUTE_TASK_CONTRACT = {
+  name: "SkillsExecuteTask",
+  method: "POST",
+  route: "/public/v1/skills/tasks/:taskId/execute",
+  fields: [
+    { path: "PathVars.taskId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.input", slot: "Body", type: "unknown", required: true, depth: 0 },
+    { path: "Body.modelOverride", slot: "Body", type: "object", required: false, depth: 0 },
+    { path: "Body.modelOverride.modelName", slot: "Body", type: "string", required: true, depth: 1 },
+    { path: "Body.modelOverride.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelOverride.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.modelOverride.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
+    { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
+    { path: "Body.modelOverride.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
+    { path: "Body.modelOverride.geminiThinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["dynamic", "low", "medium", "high", "minimal"] },
+    { path: "Body.modelOverride.kimiReasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "high", "max"] }
   ]
 } as const satisfies ProjectedDescriptor;
 
@@ -124,6 +236,9 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.expectedOutput", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.jsonOutputSchema", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
     { path: "Body.documentTemplateId", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.fewShots", slot: "Body", type: "array", required: false, depth: 0 },
+    { path: "Body.fewShots[].input", slot: "Body", type: "string", required: true, depth: 1 },
+    { path: "Body.fewShots[].output", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.generation", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.generation.multimodal", slot: "Body", type: "boolean", required: false, depth: 1 },
     { path: "Body.generation.prompt", slot: "Body", type: "string", required: false, depth: 1 },
@@ -135,6 +250,10 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.promptText", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.systemPrompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.instructions", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 }
+    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.examples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.fewShotExamples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.samples", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.demonstrations", slot: "Body", type: "unknown", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

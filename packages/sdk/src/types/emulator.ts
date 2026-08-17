@@ -81,6 +81,54 @@ export interface EmulatorSendMessageResult {
   debug?: EmulatorDebugInfo;
 }
 
+// ============================================================================
+// Streaming (SSE)
+// ============================================================================
+
+/**
+ * One frame of `client.emulator.streamMessage()`.
+ *
+ * The stream always opens with `start` and always ends with `done`; a failed
+ * turn sends `error` and then `done`, so `done` is the single termination rule.
+ *
+ * Mirrors `EmulatorStreamEventSchema` in `@nexus/types` — the server validates
+ * every frame against it before writing, so a frame that reaches a caller has
+ * this shape.
+ */
+export type EmulatorStreamEvent =
+  /** Correlation, before the first token. */
+  | { type: "start"; sessionId: string; chatId: string; messageId: string }
+  /** One delta of the agent's answer; concatenating them rebuilds the text. */
+  | { type: "token"; messageId: string; delta: string }
+  /** One delta of the model's reasoning, where the model emits it. */
+  | { type: "thinking"; messageId: string; delta: string }
+  /** A tool's leading (`started`) and trailing (`completed`) edge, sharing a `toolCallId`. */
+  | {
+      type: "tool_call";
+      status: "started" | "completed";
+      messageId: string;
+      toolCallId?: string;
+      name?: string;
+      toolType?: string;
+      content?: { text: string } & Record<string, unknown>;
+    }
+  /** A message row reached its final state. `contentType: "AI"` is the answer. */
+  | {
+      type: "message";
+      messageId: string;
+      contentType?: string;
+      content: { text: string } & Record<string, unknown>;
+    }
+  /** The turn failed. A `done` frame still follows. */
+  | { type: "error"; messageId?: string; code: string; message: string }
+  /** Terminal. `processing` means the turn outlived the stream and is still running. */
+  | {
+      type: "done";
+      chatId: string;
+      messageId: string;
+      status: "completed" | "processing" | "failed";
+    };
+
 /** Summary of a scenario (returned by list). */
 export interface EmulatorScenario {
   id: string;

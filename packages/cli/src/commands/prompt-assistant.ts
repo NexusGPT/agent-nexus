@@ -300,7 +300,17 @@ Examples:
 
 Notes:
   Use this to recover a thread whose ID was lost (e.g. a chat call killed
-  before its response was read). Results are paginated; check meta.hasMore.`
+  before its response was read). Results are paginated; check meta.hasMore.
+
+  SUMMARY IS NOT ASSISTANT-WRITTEN, AND IT CHANGES MEANING WITH status. The
+  server sends the generated promptResult.name once there is one, and until then
+  it echoes YOUR OWN first message — whitespace collapsed, cut at 140 characters
+  with a trailing "…", or "(no messages)" on an empty thread. So a row that
+  reads like a title means a promptResult is stored, and a row that reads like a
+  request means none is. Read STATUS for whether it is ready — a thread can hold
+  an earlier turn's promptResult while the current turn is still running.
+  Never match on summary to find a thread: two threads
+  opened with the same sentence carry the same summary. Match on threadId.`
       )
   ).action(async (opts) => {
     try {
@@ -354,8 +364,32 @@ Notes:
   thread and do not resend the message.
   promptResult IS ABSENT UNTIL status IS completed. Its absence is "not ready",
   never "no prompt was produced".
-  promptResult.prompt IS A MARKDOWN STRING. Use it verbatim as an agent or task
-  prompt — do NOT JSON.parse it.
+
+  THE SHAPE, SINCE --json PRINTS THE RECORD BARE — no "data" wrapper, so every
+  path below is read from the top level:
+    thread          {threadId, status, messages, promptResult}
+    messages[]      {role, content, timestamp}   role is "user" or "assistant"
+    promptResult    {prompt, name, description, …}
+  name and description are what a caller fills "agent create --first-name /
+  --description" or "task create --name / --description" with; prompt is the
+  prompt itself. THE REST OF promptResult DEPENDS ON THE MODE THE THREAD WAS
+  OPENED WITH, and reading for the wrong one gets undefined rather than an error.
+
+  🚨 --mode agent AND --mode ai-task PRODUCE DIFFERENT prompt FORMATS. Both are
+  used verbatim and neither is ever JSON.parse'd, but they are not interchangeable:
+    agent     NEXUS SECTION MARKUP, NOT PROSE MARKDOWN. It opens
+              ::: section: name="…", deploymentSpecific=false, readonly=false,
+              hidden=false, defaultConfig=false :::
+              then ::: tab: NEXUS :::, and it may carry {{firstName}}-style
+              placeholders. Those directives ARE the agent prompt format — send
+              the string unchanged to "nexus agent create/update --prompt";
+              stripping them flattens every section and tab into one blob.
+              This mode also returns agentFields and promptJson.
+    ai-task   PLAIN PROSE, with no directives at all — the model's text as
+              written. This mode instead returns input and output, each
+              {type: "json"|"text", schema?}, which is what "task create"
+              --expected-input / --expected-output and the JSON schemas want.
+
   The thread id is a UUID; lost ones are recovered with
   "prompt-assistant list-threads".`
     )
@@ -396,7 +430,19 @@ Notes:
   and nowhere else, so copy it out before deleting — deleting is the only way to
   lose a prompt you have not applied to an agent or task.
   WITHOUT A TERMINAL THIS REFUSES. A script must pass --yes; it will not delete
-  a thread on the assumption that nobody objected.`
+  a thread on the assumption that nobody objected.
+
+  ONE THREAD PER CALL — THERE IS NO BULK DELETE AND NO DELETE-BY-STATUS. The
+  argument is a single UUID and there is no --status, no --before and no
+  --all, here or anywhere in this namespace. Threads accumulate, including ones
+  abandoned at "generating", and clearing them is one call per id harvested from
+  "prompt-assistant list-threads":
+    $ nexus prompt-assistant list-threads --limit 100 --json \\
+        | jq -r '.data[] | select(.status=="generating") | .threadId' \\
+        | xargs -n1 -I{} nexus prompt-assistant delete-thread {} --yes
+  READ THE ROWS BEFORE PIPING THEM. "generating" is a LIVE state, not a stale
+  one — the loop above deletes a prompt that is still being written, along with
+  every thread whose promptResult you have not copied out.`
     )
     .action(async (threadId: string, opts) => {
       try {

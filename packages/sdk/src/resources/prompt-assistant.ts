@@ -1,4 +1,5 @@
 import { NexusApiError } from "../errors";
+import { LONG_RUNNING_TIMEOUT_MS } from "../timeouts";
 import type { PageResponse } from "../types/common";
 import { BaseResource } from "./base-resource";
 
@@ -144,7 +145,11 @@ const DEFAULT_WAIT_MAX_INTERVAL_MS = 15_000;
 export class PromptAssistantResource extends BaseResource {
   async chat(body: PromptAssistantChatBody): Promise<PromptAssistantChatResponse> {
     return this.http.request<PromptAssistantChatResponse>("POST", "/prompt-assistant/chat", {
-      body
+      body,
+      // The assistant runs its own LLM calls before replying — minutes, not
+      // seconds. The CLI states a longer deadline still for `prompt-assistant
+      // chat`; this is the floor every other SDK caller now gets.
+      timeoutMs: LONG_RUNNING_TIMEOUT_MS
     });
   }
 

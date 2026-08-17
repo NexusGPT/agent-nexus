@@ -335,7 +335,16 @@ describe("the streaming and passthrough exemptions cannot become a dumping groun
   });
 
   it("the exemption is SMALL, and growing it is a deliberate edit here", () => {
-    expect(EXEMPT_LEAVES.length).toBeLessThanOrEqual(6);
+    // 7, raised from 6 for `mcp serve`. Its stdout IS the MCP stdio transport —
+    // newline-delimited JSON-RPC for as long as the host holds the pipe — so
+    // there is no last document to wait for and driving it would block on a
+    // stdin that never closes. That is the strongest member of the streaming
+    // list, not a borderline one.
+    //
+    // Raising this is the cost the gate charges, and it is the whole mechanism:
+    // the lists are written out rather than derived precisely so a new exemption
+    // cannot arrive without a second edit a reviewer reads.
+    expect(EXEMPT_LEAVES.length).toBeLessThanOrEqual(7);
   });
 
   it("every exempt leaf is a real command — a stale exemption is a hole", () => {

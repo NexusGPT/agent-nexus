@@ -14,6 +14,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, refuse } from "../errors";
 import {
   absent,
@@ -229,20 +230,25 @@ Notes:
   API, TELEGRAM and the Office add-ins all report null and work.
   inboundWebhook is null on every type except GMAIL and OUTLOOK, the only two
   with a push subscription; NOT_CONFIGURED is the different fact that one of
-  those two has a connection and no watch on it.`
+  those two has a connection and no watch on it.
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is this
+  deployment's page, so nothing has to assemble a URL from a path pattern that
+  can be renamed underneath it.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const dep = await client.deployments.get(id);
-        printRecord(dep, [
+        printRecord({ ...dep, dashboardUrl: dashboardUrlFor("deployment", dep.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "type", label: "Type" },
           { key: "isActive", label: "Active", format: (v) => (v ? "yes" : "no") },
           { key: "agentId", label: "Agent ID" },
           { key: "description", label: "Description" },
-          { key: "createdAt", label: "Created" }
+          { key: "createdAt", label: "Created" },
+          { key: "dashboardUrl", label: "Dashboard" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -328,11 +334,14 @@ Notes:
 
   settings is capped at 50 top-level keys and 50KB serialized.
   Verify with "nexus deployment get <id>" — it is the only read carrying
-  settings back.`
+  settings back.
+  dashboardUrl in the payload is the new deployment's page, added by this CLI
+  rather than returned by the API — open it, or hand it to whoever asked.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         // DeploymentTypeSchema accepts only uppercase enum values; the CLI
         // historically advertised lowercase aliases in the help text that
@@ -349,7 +358,8 @@ Notes:
         printSuccess("Deployment created.", {
           id: dep.id,
           name: dep.name,
-          type: dep.type
+          type: dep.type,
+          dashboardUrl: dashboardUrlFor("deployment", dep.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -405,7 +415,8 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
@@ -421,7 +432,10 @@ Notes:
         const body = mergeBodyWithFlags(base, flags);
 
         await client.deployments.update(id, asRequestBody<UpdateDeploymentBody>(body));
-        printSuccess("Deployment updated.", { id });
+        printSuccess("Deployment updated.", {
+          id,
+          dashboardUrl: dashboardUrlFor("deployment", id, globals)
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

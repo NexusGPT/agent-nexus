@@ -7,6 +7,7 @@ import {
   NexusTimeoutError
 } from "./errors";
 import { HttpClient, retryDelayMs, withDerivedHasMore } from "./http-client";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
 
 /**
  * NEX-3021 — the client decided success from the BODY (`json.success`) instead
@@ -555,5 +556,204 @@ describe("a 401 preserves the server's error code", () => {
     // The SDK is published; this constructor is public API. Existing callers pass
     // only a message and must keep working.
     expect(new NexusAuthenticationError("nope").code).toBe("UNAUTHORIZED");
+  });
+});
+
+/**
+ * `requestSSE` — the transport half of the streaming turn (NEX-2768).
+ *
+ * Driven through a stub `fetch` whose body is a real `ReadableStream`, chunked
+ * the way a network chunks one: records split across chunk boundaries, several
+ * records in one chunk, comments interleaved. A stub that emitted one whole
+ * record per chunk would exercise none of the buffering this method is.
+ */
+function streamingClient(
+  chunks: string[],
+  init: ResponseInit = { status: 200 }
+): { http: HttpClient; cancelled: () => boolean } {
+  let cancelled = false;
+
+  const fetchFn = vi.fn(async () => {
+    const encoder = new TextEncoder();
+    let next = 0;
+    // `pull`, not an eager `start`: a stream that enqueued everything and closed
+    // in one tick is already finished by the time the caller reads it, so a
+    // `cancel()` on it is a no-op and the abandonment case below would pass
+    // against a fixture that could not fail.
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (next < chunks.length) controller.enqueue(encoder.encode(chunks[next++]));
+        else controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    return new Response(body, init);
+  });
+
+  return {
+    http: new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    }),
+    cancelled: () => cancelled
+  };
+}
+
+async function collect<T>(events: AsyncIterable<T>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const event of events) out.push(event);
+  return out;
+}
+
+describe("requestSSE", () => {
+  it("yields one parsed frame per record, reassembling records split across chunks", async () => {
+    const { http } = streamingClient([
+      'data: {"type":"start"}\n\ndata: {"type":"tok',
+      'en","delta":"hi"}\n\n',
+      'data: {"type":"done"}\n\n'
+    ]);
+
+    await expect(collect(http.requestSSE("POST", "/stream"))).resolves.toEqual([
+      { type: "start" },
+      { type: "token", delta: "hi" },
+      { type: "done" }
+    ]);
+  });
+
+  it("ignores keepalive comments", async () => {
+    // The server writes `: keepalive` every 15s through a silent turn. A client
+    // that tried to parse one would throw on most of a long stream.
+    const { http } = streamingClient([": keepalive\n\n", 'data: {"type":"done"}\n\n']);
+
+    await expect(collect(http.requestSSE("POST", "/stream"))).resolves.toEqual([{ type: "done" }]);
+  });
+
+  it("skips a malformed frame rather than destroying the stream around it", async () => {
+    const { http } = streamingClient([
+      'data: {"type":"token","delta":"a"}\n\ndata: not json\n\ndata: {"type":"done"}\n\n'
+    ]);
+
+    await expect(collect(http.requestSSE("POST", "/stream"))).resolves.toEqual([
+      { type: "token", delta: "a" },
+      { type: "done" }
+    ]);
+  });
+
+  it("yields a trailing record the server never terminated with a blank line", async () => {
+    const { http } = streamingClient(['data: {"type":"done"}']);
+
+    await expect(collect(http.requestSSE("POST", "/stream"))).resolves.toEqual([{ type: "done" }]);
+  });
+
+  it("cancels the underlying body when the caller leaves the loop early", async () => {
+    // Abandoning a stream must not pin the connection. The turn keeps running
+    // server-side; the socket does not.
+    const { http, cancelled } = streamingClient([
+      'data: {"type":"token","delta":"a"}\n\n',
+      'data: {"type":"token","delta":"b"}\n\n',
+      'data: {"type":"done"}\n\n'
+    ]);
+
+    for await (const _event of http.requestSSE("POST", "/stream")) break;
+
+    expect(cancelled()).toBe(true);
+  });
+
+  it("throws the server's error for a refusal, which arrives before the stream opens", async () => {
+    const fetchFn = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ success: false, error: { code: "NOT_FOUND", message: "no" } }),
+          {
+            status: 404,
+            headers: { "content-type": "application/json" }
+          }
+        )
+    );
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    });
+
+    const err = await collect(http.requestSSE("POST", "/stream")).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NexusApiError);
+    expect((err as NexusApiError).code).toBe("NOT_FOUND");
+  });
+
+  it("arms the header wait with a real deadline instead of aborting on the next tick", async () => {
+    // The deadline has to reach `send`. Without it the timer is armed as
+    // `setTimeout(…, undefined)`, fires on the next tick, and aborts the request
+    // before its headers arrive — every stream a timeout on a real network,
+    // while the stub `fetch` of every test above resolves first and hides it.
+    //
+    // Fake timers and a fetch that answers only its own abort, the same shape
+    // `long-running-operations.test.ts` uses: what is asserted is the deadline
+    // that actually armed the timer, not one read back off the client.
+    vi.useFakeTimers();
+    try {
+      const fetchFn = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          })
+      ) as unknown as typeof globalThis.fetch;
+      const http = new HttpClient({
+        baseUrl: "https://api.nexusgpt.io",
+        apiKey: "nxs_test",
+        fetch: fetchFn
+      });
+
+      const outcomes: unknown[] = [];
+      // Never awaited: "still waiting" is one of the two answers this needs.
+      collect(http.requestSSE("POST", "/stream")).then(
+        () => outcomes.push(new Error("resolved, which this stub fetch never does")),
+        (err: unknown) => outcomes.push(err)
+      );
+
+      const settle = async (ms: number) => {
+        await vi.advanceTimersByTimeAsync(ms);
+        // The rejection travels generator → `send` → `attempt`; each hop is a microtask.
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      };
+
+      await settle(1_000);
+      expect(outcomes).toEqual([]);
+
+      await settle(DEFAULT_REQUEST_TIMEOUT_MS - 1_000);
+      expect(outcomes[0]).toBeInstanceOf(NexusTimeoutError);
+      // The default of an ordinary request, not a deadline of the stream's own:
+      // the server flushes the SSE headers before the turn starts, and the timer
+      // is cleared the moment they arrive.
+      expect((outcomes[0] as NexusTimeoutError).timeoutMs).toBe(DEFAULT_REQUEST_TIMEOUT_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for an event stream and sends the body", async () => {
+    const seen: RequestInit[] = [];
+    const fetchFn = vi.fn(async (_url: string, init: RequestInit) => {
+      seen.push(init);
+      return new Response('data: {"type":"done"}\n\n', { status: 200 });
+    });
+    const http = new HttpClient({
+      baseUrl: "https://api.nexusgpt.io",
+      apiKey: "nxs_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch
+    });
+
+    await collect(http.requestSSE("POST", "/stream", { body: { content: "hi" } }));
+
+    const headers = seen[0].headers as Record<string, string>;
+    expect(headers.Accept).toBe("text/event-stream");
+    expect(headers["api-key"]).toBe("nxs_test");
+    expect(seen[0].body).toBe(JSON.stringify({ content: "hi" }));
   });
 });

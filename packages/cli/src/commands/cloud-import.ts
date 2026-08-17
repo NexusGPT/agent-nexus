@@ -125,7 +125,19 @@ TWO THINGS THE IMPORT WILL NOT TELL YOU:
     failed is reported, as a 400.
 
 The per-provider sub-commands (google-drive, sharepoint, notion) call the same
-endpoints as the provider-agnostic ones and behave identically.`
+endpoints as the provider-agnostic ones. THEY DO NOT TAKE THE SAME FLAGS, and
+the one that bites is --folder-id:
+
+  cloud-import browse <provider>         --folder-id is REQUIRED. There is no
+                                         default; omitting it is refused before
+                                         a request is built. Pass "root".
+  cloud-import google-drive list-files   --folder-id DEFAULTS to "root", so
+                                         omitting it lists the drive root.
+
+Both statements are true of their own command — this is a difference in the CLI
+surface, not in the route behind it. A script moved from one spelling to the
+other therefore keeps working or starts failing depending on which direction it
+moved, with no change in what the server does.`
   );
 
   // ==========================================================================
@@ -148,7 +160,20 @@ Notes:
 
   FOLDERS false means "browse" has nothing to walk and you want "search"
   instead. SYNC describes the provider, not documents already imported: nothing
-  imported through this API re-syncs on its own.`
+  imported through this API re-syncs on its own.
+
+  THE TABLE HIDES THE FIELD THAT DECIDES WHETHER A CONNECTION SURVIVES
+  UNATTENDED. --json carries a fourth capability the columns do not show:
+
+    $ nexus cloud-import providers --json | jq -r '.data[] | "\\(.slug) \\(.supportsRefreshToken)"'
+
+  supportsRefreshToken false means the provider issues NO refresh token, so its
+  OAuth connection expires and has to be re-authorised BY HAND in the app. It is
+  true for google-drive and sharepoint and FALSE FOR NOTION. Nothing warns you
+  when it lapses — a scheduled Notion import simply starts failing, and it fails
+  as the API-key error described in the namespace help, which points at the
+  wrong credential. Check this before building anything unattended on a
+  provider.`
     )
     .action(async () => {
       try {

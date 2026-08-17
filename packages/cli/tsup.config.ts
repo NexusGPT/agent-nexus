@@ -15,6 +15,24 @@ export default defineConfig({
   silent: true,
   async onSuccess() {
     const fs = await import("node:fs");
+
+    // The skills payload is DATA, read at runtime, so it must be copied rather
+    // than bundled — the whole point is that it never enters dist/index.js.
+    // `package.json` ships `files: ["dist"]`, so landing it here is what puts it
+    // in the published tarball; without this copy every skills command throws
+    // the "payload is missing" error at runtime while the build stays green.
+    const asset = "skills-content.generated.json";
+    try {
+      fs.copyFileSync(`src/${asset}`, `dist/${asset}`);
+    } catch (error) {
+      // Unlike the shebang below, a missing payload is NOT self-correcting and
+      // ships a broken package, so fail the build rather than warn.
+      throw new Error(
+        `Failed to copy ${asset} into dist/. The published CLI reads it at runtime.\n` +
+          `Cause: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
     const shebang = "#!/usr/bin/env node\n";
     const file = "dist/index.js";
     try {

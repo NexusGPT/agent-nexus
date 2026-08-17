@@ -163,7 +163,15 @@ Notes:
   "enabled": false with no value strips the parameter.
 
   Prove it before trusting it: run the action through the card and confirm the
-  parameters that survived.`
+  parameters that survived.
+
+  --color IS A FREE STRING AND "(slate, blue, green, etc.)" IS NOT A SET. There
+  is no enum behind it and nothing validates it: --color notacolor is accepted,
+  persisted verbatim, and returned by "access-card get". The dashboard is what
+  decides whether a value renders as a colour, so a typo produces a card that
+  saved cleanly and looks wrong there, with no error at any point on this side.
+  Omitting it stores "slate". "access-card update --color" is the same field
+  with the same absence of checking.`
     )
     .action(async (opts) => {
       try {

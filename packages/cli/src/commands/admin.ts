@@ -69,16 +69,27 @@ Authentication:
   identity lacks the permission. Those are different problems — a fresh JWT
   fixes the first and nothing but a permission grant fixes the second.
 
-Subcommands:
+Subcommands (all nine — this list and the Commands block above are the same set):
   vibe-cost-safety     List the gated fleet; read/write one org's state
   vibe-consumption-cap Read/write per-org Vibe consumption-cap overrides
   vibe-tenant-cluster  Provision / disable an org's dedicated data-plane cluster
+  vibe-build-job       Drive the build-job state machine — claim, succeed, fail,
+                       time-out. Writes a job's state directly.
+  vibe-deployment      Drive the deployment state machine — build-succeeded,
+                       await-approval, begin-deploy, mark-healthy, mark-failed,
+                       mark-rolled-back. Writes a deployment's state directly.
   vibe-rollback-sweep  Manually trigger the cost-safety rollback sweep
   vibe-build-job-timeout-sweep  Manually trigger the build-job timeout sweep
   vibe-build-runner    Fire one tick of the Vibe build-runner pipeline
   vibe-deployment-runner Fire one tick of the Vibe deployer pipeline
 
-Exit codes:
+  ⚠️ vibe-build-job AND vibe-deployment ARE THE TWO MOST CONSEQUENTIAL VERBS
+  HERE, and they were the two this prose block used to omit. They do not ask a
+  pipeline to do something — they SET a state machine's state, so a wrong
+  transition is not corrected by the next tick.
+
+Exit codes (THIS NAMESPACE ONLY — every other command in this CLI exits 0 or 1
+and nothing else, so do not carry this table to another page):
   0  success
   1  network or malformed response
   2  missing / invalid admin token (HTTP 401)

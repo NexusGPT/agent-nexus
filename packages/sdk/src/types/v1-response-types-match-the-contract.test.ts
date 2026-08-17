@@ -780,6 +780,20 @@ export type V1ResponseAssertions = [
   >,
   // TracingGetTrace  GET /public/v1/tracing/traces/:traceId  ->  client.tracing.getTrace()
   Expect<Equals<ResponseOf<"TracingGetTrace">, MethodResult<NexusClient["tracing"]["getTrace"]>>>,
+  // CueTranscriptsListConversations  GET /public/v1/cue/conversations  ->  client.cueTranscripts.listConversations()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"CueTranscriptsListConversations">,
+      PageItems<MethodResult<NexusClient["cueTranscripts"]["listConversations"]>>
+    >
+  >,
+  // CueTranscriptsGetTranscript  GET /public/v1/cue/conversations/:conversationId/transcript  ->  client.cueTranscripts.getTranscript()
+  Expect<
+    Equals<
+      ResponseOf<"CueTranscriptsGetTranscript">,
+      MethodResult<NexusClient["cueTranscripts"]["getTranscript"]>
+    >
+  >,
   // TracingListGenerations  GET /public/v1/tracing/generations  ->  client.tracing.listGenerations()  [paged]
   Expect<
     Equals<
@@ -1398,6 +1412,8 @@ export type V1ResponseAssertions = [
  * source makes it agree with itself for free.
  */
 const GATED_ROUTES = [
+  "CueTranscriptsListConversations",
+  "CueTranscriptsGetTranscript",
   "AgentDelete",
   "AgentUploadProfilePicture",
   "ModelList",
@@ -1735,6 +1751,9 @@ const V1_RESPONSE_DRIFT: Record<string, string> = {
   // POST /public/v1/skills/tasks  ->  client.skills.createTask()
   SkillsCreateTask:
     "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
+  // POST /public/v1/skills/tasks/:taskId/duplicate  ->  client.skills.duplicateTask()
+  SkillsDuplicateTask:
+    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
   // PATCH /public/v1/skills/tasks/:taskId  ->  client.skills.updateTask()
   SkillsUpdateTask:
     "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
@@ -1878,6 +1897,16 @@ export type V1ResponseDrift = [
   Expect<
     Equals<
       Equals<ResponseOf<"SkillsCreateTask">, MethodResult<NexusClient["skills"]["createTask"]>>,
+      false
+    >
+  >,
+  // SkillsDuplicateTask  ->  client.skills.duplicateTask()
+  Expect<
+    Equals<
+      Equals<
+        ResponseOf<"SkillsDuplicateTask">,
+        MethodResult<NexusClient["skills"]["duplicateTask"]>
+      >,
       false
     >
   >,
@@ -2082,7 +2111,7 @@ export type V1ResponseDrift = [
  * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
  * assertion deriving both sides from one source passes vacuously.
  */
-const GATED_ROUTE_FLOOR = 246;
+const GATED_ROUTE_FLOOR = 248;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

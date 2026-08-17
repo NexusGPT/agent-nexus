@@ -141,7 +141,12 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     namespace: "task",
-    descriptors: ["SkillsCreateTask", "SkillsUpdateTask"]
+    descriptors: [
+      "SkillsCreateTask",
+      "SkillsUpdateTask",
+      "SkillsDuplicateTask",
+      "SkillsExecuteTask"
+    ]
   },
   {
     namespace: "workflow",
@@ -337,6 +342,14 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "CloudImportItems",
       "CloudImportListProviders",
       "CloudImportSearch"
+    ]
+  },
+  {
+    namespace: "cue",
+    descriptors: [
+      "CueTranscriptsListConversations",
+      "CueTranscriptsGetTranscript",
+      "CueTranscriptsExport"
     ]
   },
   {

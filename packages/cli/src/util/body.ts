@@ -24,6 +24,27 @@ import { readStdin, resolveInputValue } from "./stdin";
 const resolvedBodies = new Map<string, Promise<Record<string, unknown>>>();
 
 /**
+ * Forget every memoized body. For a caller that runs MANY commands in one
+ * process — there is exactly one, and it is a scanner, not the CLI.
+ *
+ * 🚨 "ONE-SHOT PER PROCESS" IS TRUE OF THE BINARY AND FALSE OF THE GATE.
+ * `help-truth-rules.ts` parses every `--help` example in the package in a single
+ * node process, and the key for a piped body is the literal `"-"` for all of
+ * them. Without this the FIRST example to resolve stdin answers for every later
+ * one: `role create --body -` would be judged against the document
+ * `workflow node update --body -` had piped in, so an example could pass on
+ * another example's bytes, or fail on them. Both verdicts are about the wrong
+ * input, and neither says so.
+ *
+ * Nothing in `src/` calls this and nothing should. The alternative — the scanner
+ * spawning a process per example — costs about a thousand node startups to avoid
+ * four lines.
+ */
+export function resetResolvedBodies(): void {
+  resolvedBodies.clear();
+}
+
+/**
  * Resolve a `--body` flag value that the caller guarantees is present, into a
  * parsed object.
  *

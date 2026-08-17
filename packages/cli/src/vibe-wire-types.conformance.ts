@@ -270,12 +270,21 @@ const _app: Mirrors<"VibeAppDto", VibeAppDto, WireApp, "icon" | "linkedToolId"> 
  * `VibeAppDto & VibeAppEnvelopeExtras` and inherits it. The list table still
  * prints no gate column — mirroring a field is not rendering it — but the
  * omission line had to go, and this gate is what said so rather than a reader.
+ *
+ * `createdBy` is the creator SUMMARY the console's Owner column reads, and it
+ * is omitted rather than mirrored because the CLI already prints the fact it
+ * carries: `VibeAppDto.createdByUserId` is mirrored, and the two are the same
+ * attribution at different resolutions. Mirroring the summary as well would
+ * invite a second, name-shaped ownership column in a table that is already
+ * wide, and composing a display name is a rendering decision this package has
+ * not made. The id is what a CLI user pipes into another command; the name is
+ * what a grid renders.
  */
 const _appListItem: Mirrors<
   "VibeAppListItemDto",
   ListVibeAppsResponse["apps"][number],
   VibeData<"ListApps">["apps"][number],
-  "icon" | "linkedToolId" | "latestDeployment" | "servingDeployment"
+  "icon" | "linkedToolId" | "latestDeployment" | "servingDeployment" | "createdBy"
 > = AGREES;
 
 const _getApp: Mirrors<"GetVibeAppResponse", GetVibeAppResponse, VibeData<"GetApp">> = AGREES;

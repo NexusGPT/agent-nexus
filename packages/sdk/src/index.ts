@@ -35,6 +35,12 @@ export * from "./resources";
 export type { HttpClientOptions, RequestOptions } from "./http-client";
 export { HttpClient } from "./http-client";
 
+// Timeouts — the two deadlines an operation runs under, exported so a caller
+// raising `timeout` deliberately can start from the right one rather than
+// guessing (and so the CLI's own defaults derive from these rather than restate
+// them).
+export { DEFAULT_REQUEST_TIMEOUT_MS, LONG_RUNNING_TIMEOUT_MS } from "./timeouts";
+
 // Types
 export type {
   ListPromptAssistantThreadsParams,

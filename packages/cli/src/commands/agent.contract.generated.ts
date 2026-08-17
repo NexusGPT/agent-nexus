@@ -102,6 +102,16 @@ export const AGENT_CREATE__BODY_MODEL_CONFIG_KIMI_REASONING_EFFORT = {
   ]
 } as const satisfies ContractEnum;
 
+export const AGENT_CREATE__BODY_MODEL_PROVIDER = {
+  path: "AgentCreate.Body.modelProvider",
+  contractValues: [
+    "OPEN_AI",
+    "ANTHROPIC",
+    "GOOGLE_AI",
+    "KIMI"
+  ]
+} as const satisfies ContractEnum;
+
 export const AGENT_LIST__PARAMS_STATUS = {
   path: "AgentList.Params.status",
   contractValues: [
@@ -194,6 +204,16 @@ export const AGENT_UPDATE__BODY_MODEL_CONFIG_KIMI_REASONING_EFFORT = {
   ]
 } as const satisfies ContractEnum;
 
+export const AGENT_UPDATE__BODY_MODEL_PROVIDER = {
+  path: "AgentUpdate.Body.modelProvider",
+  contractValues: [
+    "OPEN_AI",
+    "ANTHROPIC",
+    "GOOGLE_AI",
+    "KIMI"
+  ]
+} as const satisfies ContractEnum;
+
 export const AGENT_CREATE_CONTRACT = {
   name: "AgentCreate",
   method: "POST",
@@ -218,7 +238,7 @@ export const AGENT_CREATE_CONTRACT = {
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },
     { path: "Body.modelConfig.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
     { path: "Body.playgroundFirstMessage", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 }
   ]
@@ -261,7 +281,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },
     { path: "Body.modelConfig.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
     { path: "Body.playgroundFirstMessage", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.autoPublish", slot: "Body", type: "boolean", required: false, depth: 0 }

@@ -54,6 +54,21 @@ EVERY COMMAND HERE NEEDS THE CONVERSATION_EVAL FEATURE. With it off, all of them
 answer 403 FORBIDDEN whatever the arguments — ask an org admin to enable it before
 debugging anything else.
 
+⚠️ THE 403 DOES NOT NAME THE FLAG. Its body reads only "This feature is not
+enabled for your organization", which is the same sentence other gated features
+send, so the error alone cannot tell you WHICH flag is missing or that a flag is
+the problem at all. The flag is CONVERSATION_EVAL and only this help says so.
+
+ASK WITH THE ONE READ THAT CHANGES NOTHING, before blaming your arguments:
+
+  $ nexus agent-eval template list --scope GLOBAL
+
+It is a plain GET, it creates no run and spends nothing. Exit 0 with rows means
+the feature is ON and your problem is elsewhere in the command you were writing.
+A 403 means the feature is OFF and NOTHING in this namespace will work until an
+org admin enables it — every other 403 you get is that same cause, so stop
+bisecting the arguments. A 401 is a bad key, which is a different problem.
+
 A run's life: "run create" leaves it DRAFT, "run execute" queues it, the worker
 takes it to RUNNING then COMPLETED or FAILED, and "run abort" ends it ABORTED.
 Nothing runs at create time, so a run can be created wrong and only fail later.
@@ -151,7 +166,50 @@ Notes:
   targetVersionMode PRODUCTION. Costs and caps are USD × 10,000.
   A baselineRunId must have been judged on the SAME criteria, or the create is
   refused before any spend.
-  Config is FROZEN into the run: editing a template afterwards does not change it.`
+  Config is FROZEN into the run: editing a template afterwards does not change it.
+
+  A COMPLETE run.json, INLINE — no template UUIDs, so it runs as written once you
+  substitute the two ids. This is the file the "--body run.json" example above
+  wants, and it satisfies every rule in these notes: two DISTINCT criteria, all
+  four inline judge fields on each, kRepetitions odd and at least 3, a
+  summaryConfig with its three inline fields, and a testerConfig because the mode
+  is SIMULATED.
+
+    {
+      "name": "Refund flow",
+      "sourceMode": "SIMULATED",
+      "targetAgentId": "11111111-1111-4111-8111-111111111111",
+      "targetDeploymentId": "22222222-2222-4222-8222-222222222222",
+      "testerConfig": {
+        "resolvedSystemPrompt": "You are a customer who was double-charged and wants a refund. Stay in character."
+      },
+      "judgeConfigs": [
+        {
+          "criterion": "helpfulness",
+          "resolvedRubric": "Score 1-5. 5 = the refund path was stated plainly and completely.",
+          "provider": "OPEN_AI",
+          "model": "gpt-4o",
+          "kRepetitions": 3
+        },
+        {
+          "criterion": "tone",
+          "resolvedRubric": "Score 1-5. 5 = calm and non-defensive throughout.",
+          "provider": "OPEN_AI",
+          "model": "gpt-4o",
+          "kRepetitions": 3
+        }
+      ],
+      "summaryConfig": {
+        "resolvedPrompt": "Summarize how the agent handled the refund request, in three bullets.",
+        "provider": "OPEN_AI",
+        "model": "gpt-4o"
+      }
+    }
+
+  Swap "sourceMode" to "INBOX" and you drop testerConfig, targetAgentId and
+  targetDeploymentId, and add "sourceChatId" instead. Add "thresholdConfig" if
+  you want run.verdict written — without one it stays null on a healthy run.
+  CREATING IT SPENDS NOTHING; "run execute" is what queues the work.`
     )
     .action(async (opts) => {
       try {

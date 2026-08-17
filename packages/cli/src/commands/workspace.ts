@@ -593,10 +593,11 @@ in-place edits are not supported: mv, sed -i and >> answer "Function not
 implemented". Read the file, transform it in memory, and write the whole file
 back. Ordinary create / read / overwrite / delete all work.
 
-SCOPES ARE NOT HIERARCHICAL. workspaces:read is enough to MOUNT and to read.
-Writing needs workspaces:write, and DELETING NEEDS workspaces:delete, which
-write does NOT imply — a read-write mount whose key lacks it fails every rm
-with a 403 while cp keeps working.
+DELETING NEEDS workspaces:delete, WHICH write DOES NOT IMPLY — a read-write
+mount whose key lacks it fails every rm with a 403 while cp keeps working.
+workspaces:read is enough to MOUNT and to read; writing needs workspaces:write,
+which does carry the read (that is the only implication scopes have, and it is
+same-resource only).
 
 MOUNTING NEEDS rclone ON LINUX AND WINDOWS (the default engine there):
   Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash

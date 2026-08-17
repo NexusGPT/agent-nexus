@@ -49,8 +49,21 @@
  * WORST case for this invariant, not a plausible one.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 THREE BRANCHES THIS SCAN STRUCTURALLY CANNOT ENTER, AND THE SIBLING THAT
- *    READS THEM
+ * 🚨 THE MODE IS AN OUTPUT OF THE RUN, NEVER AN INPUT TO IT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `--json` rides in argv and NOTHING here calls `setJsonMode(true)`. The harness
+ * used to, and that single statement made the whole PRE-HOOK half of the
+ * contract unreachable: JSON mode is decided in the root's `preAction` hook,
+ * commander refuses an invalid invocation above the hook chain, and a harness
+ * that flipped the flag itself was measuring a world where that cannot happen.
+ * Both ledgers read ZERO while `nexus agent get --json` exited 1 with an empty
+ * stdout. A gate that supplies the precondition its subject is supposed to
+ * establish reports on its own harness.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 FOUR BRANCHES THIS SCAN STRUCTURALLY CANNOT ENTER, AND THE SIBLINGS THAT
+ *    READ THEM
  * ══════════════════════════════════════════════════════════════════════════════
  *
  *   - **An equality.** The stub is a proxy, so no field is a particular string.
@@ -62,8 +75,17 @@
  *     whole action body is unmeasured.
  *   - **A confirmation's refusal path.** `--yes` rides every run, so the branch
  *     a SCRIPT always takes is the branch this scan never takes.
+ *   - **AN ARGV THE SYNTHESIZER NEVER PRODUCES.** {@link synthesizeArgv} fills
+ *     every mandatory option and every required positional from its own
+ *     declaration, so a missing argument, an unknown command, an unknown option
+ *     and an excess argument are removed from this population BY CONSTRUCTION —
+ *     and every one of them is a refusal commander decides above the hook chain.
+ *     `json-refusal-above-the-hook-chain.test.ts` drives that shadow directly.
+ *     The one member of the class this scan does reach is a value outside a
+ *     `.choices()` set, because `"stub"` is a legal string and an illegal
+ *     choice; those four runs are what caught the defect above.
  *
- * All three read as `clean` or `error-document` here. A branch this instrument
+ * All four read as `clean` or `error-document` here. A branch this instrument
  * cannot enter is not a branch it found compliant, and both ledgers sitting at
  * zero says nothing about any of them: NINE call sites still exited non-zero
  * with an empty stdout while every leaf ran green.
@@ -86,10 +108,19 @@ import { setJsonMode } from "../output";
  *
  * ⚠️ WRITTEN OUT, NEVER DERIVED, AND THE GATE BOUNDS ITS SIZE. Derived from a
  * marker on the command it would be true by construction and would exempt
- * whatever anyone marked. Two entries is the whole honest list; a third needs a
- * deliberate edit here that a reviewer reads.
+ * whatever anyone marked. Three entries is the whole honest list; a fourth needs
+ * a deliberate edit here that a reviewer reads.
+ *
+ * `mcp serve` is the strongest member rather than a borderline one: its stdout
+ * IS the MCP stdio transport — newline-delimited JSON-RPC, one message per line,
+ * for as long as the host keeps the pipe open. There is no last document to wait
+ * for, and driving it here would block on a stdin that never closes.
  */
-export const STREAMING_LEAVES: readonly string[] = ["execution follow", "vibe app logs"];
+export const STREAMING_LEAVES: readonly string[] = [
+  "execution follow",
+  "mcp serve",
+  "vibe app logs"
+];
 
 /**
  * Commands whose stdout is the SERVER'S payload in a format the CALLER chose.
@@ -108,6 +139,11 @@ export const STREAMING_LEAVES: readonly string[] = ["execution follow", "vibe ap
  */
 export const PAYLOAD_PASSTHROUGH_LEAVES: readonly string[] = [
   "analytics export",
+  // `cue export` is the same shape: stdout is the server's transcript corpus in
+  // the framing the caller asked for — NDJSON by default, which is many JSON
+  // documents by construction and one payload by intent. Its own `--help` says
+  // "THE OUTPUT IS THE PAYLOAD, VERBATIM".
+  "cue export",
   "tracing export",
   "tracing export-bulk"
 ];
@@ -137,8 +173,8 @@ export type Outcome =
  * The root epilogue makes TWO promises about `--json`, not one:
  *
  *   READING THE OUTPUT — "--json prints ONE JSON document on STDOUT"
- *   FAILURE            — "EVERY failure exits 1. Under --json an error is a
- *                         JSON document on STDOUT: {"error":{"message","hint"}}"
+ *   FAILURE            — "EVERY failure exits 1. Under --json an error is a JSON
+ *                         document on STDOUT: {"error":{"message","hint","code"}}"
  *
  * A command can satisfy the first and break the second: refusing a bad argument
  * with `console.error("Error: --body is required.")` and `process.exitCode = 1`
@@ -534,7 +570,21 @@ async function driveOne(
     throw new ProcessExitCalled(code ?? 0);
   }) as typeof process.exit;
 
-  setJsonMode(true);
+  // 🚨 THE HARNESS DOES NOT ENTER JSON MODE. THE PROGRAM DOES, OR NOTHING DOES.
+  //
+  // This line used to read `setJsonMode(true)`, and that one statement put the
+  // whole PRE-HOOK half of the contract out of the gate's reach. JSON mode is
+  // decided in the root's `preAction` hook, and commander refuses an invalid
+  // invocation ABOVE the hook chain — so in production a refusal happens while
+  // the process still believes it is in text mode, and `printCliError` writes
+  // prose to stderr with nothing on stdout. A harness that flipped the flag
+  // itself was testing a world where that is impossible: every commander
+  // refusal came back as a compliant `error-document` and both ledgers read
+  // ZERO over a defect reproducible from the shipped binary in one command.
+  //
+  // So the mode is now an OUTPUT of the run rather than an input to it. `--json`
+  // rides in argv exactly as a caller types it, and whether the process notices
+  // is precisely what this scan measures.
   deps.resetRequests();
   const previousExitCode = process.exitCode;
   process.exitCode = undefined;
@@ -581,6 +631,10 @@ async function driveOne(
     process.stdout.write = realWrite;
     process.stderr.write = realErrWrite;
     process.exit = realExit;
+    // A RESET, not the other half of a pair. One `nexus` process runs one
+    // command; this one runs five hundred, so the flag the program may have set
+    // has to be cleared before the next leaf is driven, or run N+1 inherits run
+    // N's mode and the scan measures a state no caller can produce.
     setJsonMode(false);
   }
 

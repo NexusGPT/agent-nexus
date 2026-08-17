@@ -9,6 +9,7 @@ import { ChannelsResource } from "./resources/channels";
 import { CloudImportsResource } from "./resources/cloud-imports";
 import { ConversationsResource } from "./resources/conversations";
 import { CredentialsResource } from "./resources/credentials";
+import { CueTranscriptsResource } from "./resources/cue-transcripts";
 import { CustomModelsResource } from "./resources/custom-models";
 import { CustomersResource } from "./resources/customers";
 import { DeploymentFoldersResource } from "./resources/deployment-folders";
@@ -81,7 +82,19 @@ export interface NexusClientOptions {
   defaultHeaders?: Record<string, string>;
 
   /**
-   * Request timeout in milliseconds. Defaults to 30 000 (30 s).
+   * Request timeout in milliseconds, applied to EVERY request.
+   *
+   * Leave it unset and each operation gets the deadline it needs:
+   * `DEFAULT_REQUEST_TIMEOUT_MS` (30 s) for an ordinary read or write, and
+   * `LONG_RUNNING_TIMEOUT_MS` (10 min) for the routes that run a model before
+   * they can answer — `skills.executeTask`, `workflows.testWorkflow`, and the
+   * rest of that set.
+   *
+   * Setting it OVERRIDES those, long-running routes included. That is what the
+   * CLI's global `--timeout <seconds>` flag needs, and it is why a value here
+   * should be a deliberate ceiling rather than a defensive default: a 30 s
+   * value reinstates NEX-2492 for every generation that legitimately takes
+   * longer.
    */
   timeout?: number;
 }
@@ -219,6 +232,9 @@ export class NexusClient {
   /** View LLM traces, generations, analytics, and export data. */
   public readonly tracing: TracingResource;
 
+  /** Read and bulk-export full Cue conversation transcripts, including subagent traces. */
+  public readonly cueTranscripts: CueTranscriptsResource;
+
   /** List, search, and manage inbox conversations, messages, and assignments. */
   public readonly conversations: ConversationsResource;
 
@@ -303,6 +319,7 @@ export class NexusClient {
     this.tickets = new TicketsResource(http);
     this.channels = new ChannelsResource(http);
     this.tracing = new TracingResource(http);
+    this.cueTranscripts = new CueTranscriptsResource(http);
     this.conversations = new ConversationsResource(http);
     this.credentials = new CredentialsResource(http);
     this.apiKeyConnections = new ApiKeyConnectionsResource(http);

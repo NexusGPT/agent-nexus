@@ -4,13 +4,13 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  AGENT_FILES,
-  CLAUDE_MD,
-  HOOK_FILES,
-  SETTINGS_JSON,
-  SHARED_FILES,
-  type SkillEntry,
-  SKILLS
+  getAgentFiles,
+  getClaudeMd,
+  getHookFiles,
+  getSettingsJson,
+  getSharedFiles,
+  getSkills,
+  type SkillEntry
 } from "../skills-content.generated";
 import { confirmDestructive } from "./confirm";
 
@@ -82,7 +82,7 @@ export interface ClaudeTarget {
  */
 export function bundleToInstallables(slugs: readonly string[]): InstallableSkill[] {
   return slugs.map((slug) => {
-    const entry: SkillEntry = SKILLS[slug];
+    const entry: SkillEntry = getSkills()[slug];
     return {
       slug: entry.slug,
       files: entry.files.map((f) => ({
@@ -102,14 +102,14 @@ export function bundleToInstallables(slugs: readonly string[]): InstallableSkill
 export function sharedInstallable(): InstallableSkill {
   return {
     slug: "shared",
-    files: SHARED_FILES.map((f) => ({
+    files: getSharedFiles().map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
   };
 }
 
-export const claudeMdContent = (): Buffer => Buffer.from(CLAUDE_MD, "utf-8");
+export const claudeMdContent = (): Buffer => Buffer.from(getClaudeMd(), "utf-8");
 
 /**
  * The scoped permission posture (NEX-2461): `.claude/settings.json` declares
@@ -117,7 +117,7 @@ export const claudeMdContent = (): Buffer => Buffer.from(CLAUDE_MD, "utf-8");
  * hooks. Like CLAUDE.md it lands at a path a user may have customised, so it
  * gets the same preserve-unless-`--force` treatment.
  */
-export const settingsJsonContent = (): Buffer => Buffer.from(SETTINGS_JSON, "utf-8");
+export const settingsJsonContent = (): Buffer => Buffer.from(getSettingsJson(), "utf-8");
 
 /**
  * The `hooks/` tree (Python firewall + lifecycle scripts, their `lib/`, and
@@ -128,7 +128,7 @@ export const settingsJsonContent = (): Buffer => Buffer.from(SETTINGS_JSON, "utf
 export function hookInstallables(): InstallableSkill {
   return {
     slug: "hooks",
-    files: HOOK_FILES.map((f) => ({
+    files: getHookFiles().map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
@@ -145,7 +145,7 @@ export function hookInstallables(): InstallableSkill {
 export function agentInstallables(): InstallableSkill {
   return {
     slug: "agents",
-    files: AGENT_FILES.map((f) => ({
+    files: getAgentFiles().map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))

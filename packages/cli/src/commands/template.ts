@@ -12,6 +12,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
@@ -145,18 +146,23 @@ Notes:
   DRAFT or SAVED, and nothing in this API ever writes SAVED — a template
   uploaded through the CLI stays DRAFT with a real fileUrl, so "status ===
   DRAFT" does not mean the template is unfinished. fileUrl and previewFileUrl
-  are null until a file is uploaded; a non-null fileUrl is the whole check.`
+  are null until a file is uploaded; a non-null fileUrl is the whole check.
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is this
+  template's page, so nothing has to assemble a URL from a path pattern that
+  can be renamed underneath it.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const t = await client.skills.getDocumentTemplate(id);
-        printRecord(t, [
+        printRecord({ ...t, dashboardUrl: dashboardUrlFor("documentTemplate", t.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "createdAt", label: "Created" },
-          { key: "updatedAt", label: "Updated" }
+          { key: "updatedAt", label: "Updated" },
+          { key: "dashboardUrl", label: "Dashboard" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -190,11 +196,15 @@ Notes:
   naming nothing, not a 400 naming the missing file.
 
   EXCEL_TEMPLATE DOES NOT SUBSTITUTE VARIABLES YET. Generating from one returns
-  the file essentially as uploaded — it is accepted, so nothing reports this.`
+  the file essentially as uploaded — it is accepted, so nothing reports this.
+
+  dashboardUrl in the payload is the new template's page, added by this CLI
+  rather than returned by the API — open it, or hand it to whoever asked.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           name: opts.name,
@@ -206,7 +216,8 @@ Notes:
         );
         printSuccess("Template created.", {
           id: t.id,
-          name: t.name
+          name: t.name,
+          dashboardUrl: dashboardUrlFor("documentTemplate", t.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);

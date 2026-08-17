@@ -1,4 +1,4 @@
-import { loadConfig, resolveBaseUrl } from "../config";
+import { loadConfig, resolveBaseUrl, resolveOrganizationId } from "../config";
 
 /**
  * Print the current configuration: base URL, masked API key, env.
@@ -24,8 +24,33 @@ export async function whoamiCommand(): Promise<void> {
     keySource = "config file";
   }
 
+  // An org-unbound key (`nxs_p_` personal, `nxs_o_` platform-operator) carries no
+  // organization at all, so with none selected the SERVER decides the tenant.
+  // An org-scoped key answers from its own. Saying "the key's own organization
+  // decides" for both hides the wrong-tenant case this block exists to surface.
+  const apiKey = process.env.NEXUS_API_KEY ?? config.apiKey;
+  const keyIsCrossOrg = apiKey !== undefined && /^nxs_[po]_/.test(apiKey);
+  const orgFallbackLabel = (): string =>
+    keyIsCrossOrg
+      ? "(NONE SELECTED — this key is org-unbound, so the server picks the tenant)"
+      : "(none — the key's own organization decides)";
+
+  // The organization is a SECOND resolution and does not follow the key: an
+  // org-unbound token acts on whichever one `organization-id` names. Printing
+  // "which key" without "which organization" is how a bridge could look
+  // correctly configured while answering from another tenant (NEX-3022).
+  const organizationId = resolveOrganizationId();
+  const orgSource = process.env.NEXUS_ORGANIZATION_ID
+    ? "NEXUS_ORGANIZATION_ID env"
+    : "profile (nexus auth use-org)";
+
   console.log(`  Base URL:  ${baseUrl} (${urlSource})`);
   console.log(`  API Key:   ${keyDisplay}${keySource ? ` (${keySource})` : ""}`);
+  console.log(
+    `  Org:       ${organizationId ?? orgFallbackLabel()}` +
+      (organizationId ? ` (${orgSource})` : "")
+  );
+  console.log(`  Profile:   ${process.env.NEXUS_PROFILE ?? "(active profile)"}`);
   console.log(`  Env:       ${process.env.NEXUS_ENV ?? "(not set)"}`);
 }
 

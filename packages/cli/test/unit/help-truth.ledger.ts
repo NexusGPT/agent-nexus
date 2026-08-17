@@ -98,7 +98,7 @@ export const LEDGER_CEILING = 0;
  * this count. They are top-level command NAMES, never namespaces — 65 top-level
  * names are {@link NAMESPACE_TOTAL} namespaces.
  */
-export const NAMESPACE_TOTAL = 47;
+export const NAMESPACE_TOTAL = 49;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -216,6 +216,12 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "collection",
   "conversation",
   "credential",
+  // `cue` is clean from its first commit rather than remediated into cleanliness
+  // (NEX-2816): its three leaves each carry a `Notes:` block written off the
+  // route, its one path operand is spelled as a real UUID, and its `--format`
+  // enumerates its own values in the option description. Nothing was relocated
+  // because nothing was misplaced.
+  "cue",
   "custom-model",
   "customer",
   "deployment",
@@ -227,6 +233,12 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "folder",
   "html-template",
   "known-issues",
+  // `mcp` is the first namespace to arrive clean rather than be cleaned: it
+  // shipped with `Examples:` and `Notes:` on every leaf, so it holds no ledger
+  // entry and never has. Its id-shaped example values use the
+  // `11111111-1111-4111-8111-111111111111` spelling this file settled on — the
+  // variant nibble is 4/8 because zod's `.uuid()` refuses anything else.
+  "mcp",
   // `model list` was the namespace's only entry and its only leaf. It gained a
   // Notes block explaining that the listing carries TWO kinds of row — a
   // platform model, selected by `modelId` + `provider`, and an organization's

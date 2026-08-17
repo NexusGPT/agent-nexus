@@ -1,4 +1,5 @@
 import { appendFilePart } from "../multipart";
+import { LONG_RUNNING_TIMEOUT_MS } from "../timeouts";
 import type { PageResponse } from "../types/common";
 import type {
   AvailableVariables,
@@ -513,7 +514,10 @@ export class WorkflowsResource extends BaseResource {
     return this.http.request<TestNodeResult>(
       "POST",
       `/workflows/${workflowId}/nodes/${nodeId}/test`,
-      { body }
+      // Runs the node for real and answers with its output in `data` — an AI
+      // node runs its model first, a tool node calls the third party. Unlike
+      // `testWorkflow`, which only starts an execution and hands back an id.
+      { body, timeoutMs: LONG_RUNNING_TIMEOUT_MS }
     );
   }
 

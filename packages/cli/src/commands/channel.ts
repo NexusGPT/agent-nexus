@@ -159,6 +159,19 @@ Two things here reach the outside world and cannot be undone from the CLI:
 "whatsapp-template test-send" sends a real billed message to a real phone, and
 "whatsapp-template create --submit" files the template with Meta.
 
+🚨 AN EMPTY LIST HERE USUALLY MEANS STEP 1 NEVER HAPPENED, NOT AN EMPTY
+INVENTORY. With no messaging connection, "channel connection list",
+"channel whatsapp-sender list", "channel whatsapp-template list" and
+"channel whatsapp-template approvals" ALL answer an empty array and exit 0.
+Nothing in any of those four says a prerequisite is missing, so "no templates"
+and "no account" are the same output. Settle it before reading any of them as
+inventory:
+
+  $ nexus channel setup --type WHATSAPP    # names the next missing piece
+
+An empty "connection list" is the root cause of the other three; there is no
+error to find further down the chain.
+
 Needs channels:read / channels:write; the phone-number steps run on
 phone_numbers:read / :write / :delete instead.`
   );
@@ -298,7 +311,8 @@ Notes:
     )
     .action(async () => {
       try {
-        const dashboardUrl = resolveDashboardUrl(program.optsWithGlobals().dashboardUrl);
+        const globals = program.optsWithGlobals();
+        const dashboardUrl = resolveDashboardUrl(globals.dashboardUrl, globals.profile);
         const url = `${dashboardUrl}/app/connect-waba`;
         // The url is the only thing worth having here, and it was reachable ONLY
         // by reading four lines of prose off stdout. On a machine with no
@@ -1138,7 +1152,23 @@ Notes:
   undelivered. Without it the command returns as soon as Twilio accepts the
   message — "queued" is not "delivered", and a delivery failure is invisible.
   Check later with the messageSid it prints.
-  An unapproved template is refused by Meta at send time, not here.`
+  An unapproved template is refused by Meta at send time, not here.
+
+  THERE IS NO WAY TO PREVIEW THE RENDERED TEMPLATE — NOT HERE AND NOT ANYWHERE
+  ELSE IN THIS CLI. No route renders a template against variables without
+  delivering it, so the first time anyone sees the filled-in text is when the
+  recipient does. Saying that plainly is the whole of the answer: do not go
+  looking for a preview flag.
+
+  RENDER IT YOURSELF FIRST — it costs nothing and catches the common mistakes
+  (a wrong position, a missing one, a placeholder you forgot):
+
+    $ nexus channel whatsapp-template get <template-id> --json | jq '.types, .variables'
+
+  "types" holds the body with its {{1}}, {{2}} … placeholders exactly as Meta
+  approved it, and "variables" holds the positions the template declares.
+  Substitute your --variables map into that text by hand and read the result.
+  Then send once, to a number you own.`
     )
     .action(async (opts) => {
       try {

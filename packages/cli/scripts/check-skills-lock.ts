@@ -50,6 +50,9 @@ const CLI_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const REPO = "NexusGPT/claude-code-skills-nexus";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
+/** The payload half of the bundle. Must stay in step with `bundle-skills.ts`. */
+const ASSET_BASENAME = "skills-content.generated.json";
+
 /** A single reason the pin and the artefact disagree. */
 interface Finding {
   /** Stable identifier, so the self-test asserts on the CAUSE, not on prose. */
@@ -123,6 +126,53 @@ export function findDisagreements(cliRoot: string): Finding[] {
     });
   }
 
+  // ── the payload asset ───────────────────────────────────────────────────────
+  //
+  // The bundle is TWO files: this module, and the JSON payload beside it that
+  // holds every skill, hook and agent. The module compiles and passes every
+  // other gate on its own, so without these checks a missing or stale payload
+  // is invisible until a user runs `nexus skills update` and the CLI throws.
+  // The module carries the sha inline and the payload carries its own, so the
+  // two halves cannot silently come from different generator runs.
+  const assetPath = path.join(cliRoot, "src", ASSET_BASENAME);
+  if (!fs.existsSync(assetPath)) {
+    findings.push({
+      code: "ASSET_MISSING",
+      message:
+        `${assetPath} does not exist. The CLI reads it at runtime and ships it via dist/. ` +
+        `Run: GITHUB_TOKEN=$(gh auth token) pnpm run gen:skills`
+    });
+    return findings;
+  }
+
+  let assetSha: string | null = null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(assetPath, "utf-8")) as { sha?: unknown };
+    assetSha = typeof parsed.sha === "string" ? parsed.sha : null;
+  } catch (error) {
+    findings.push({
+      code: "ASSET_UNREADABLE",
+      message:
+        `${assetPath} is not valid JSON: ` +
+        `${error instanceof Error ? error.message : String(error)}`
+    });
+    return findings;
+  }
+
+  if (assetSha === null) {
+    findings.push({
+      code: "ASSET_SHA_MISSING",
+      message: `${ASSET_BASENAME} carries no top-level "sha" string.`
+    });
+  } else if (assetSha !== pinned) {
+    findings.push({
+      code: "ASSET_SHA_MISMATCH",
+      message:
+        `${ASSET_BASENAME} was built from ${assetSha.slice(0, 12)} but skills-nexus.lock pins ` +
+        `${pinned.slice(0, 12)}. The two halves of the bundle disagree.`
+    });
+  }
+
   return findings;
 }
 
@@ -139,6 +189,13 @@ function writeCleanFixture(root: string, sha: string): void {
       `export const SKILLS_NEXUS_SHA: string = "${sha}";`,
       ""
     ].join("\n"),
+    "utf-8"
+  );
+  // The payload half. Only `sha` is read by the checker, so the fixture carries
+  // the smallest shape the real asset has rather than a copy of the whole thing.
+  fs.writeFileSync(
+    path.join(root, "src", ASSET_BASENAME),
+    JSON.stringify({ sha, SKILLS: {}, SKILL_LIST: [] }),
     "utf-8"
   );
 }
@@ -200,6 +257,43 @@ function selfTest(): number {
             `SKILLS_NEXUS_SHA: string = "${sha}"`,
             `SKILLS_NEXUS_SHA: string = "${other}"`
           )
+        )
+    },
+    // ── the payload half ──────────────────────────────────────────────────────
+    //
+    // These four are the reason this self-test was re-pointed rather than left
+    // alone. The bundle became TWO files, and a mutation aimed only at the
+    // module would still have passed while the payload could go missing, go
+    // stale, or stop parsing with nothing to catch it.
+    {
+      name: "payload asset deleted",
+      expect: "ASSET_MISSING",
+      break: (root) => fs.rmSync(path.join(root, "src", ASSET_BASENAME))
+    },
+    {
+      name: "payload asset is not JSON",
+      expect: "ASSET_UNREADABLE",
+      break: (root) =>
+        fs.writeFileSync(path.join(root, "src", ASSET_BASENAME), "{ not json", "utf-8")
+    },
+    {
+      name: "payload asset carries no sha",
+      expect: "ASSET_SHA_MISSING",
+      break: (root) =>
+        fs.writeFileSync(
+          path.join(root, "src", ASSET_BASENAME),
+          JSON.stringify({ SKILLS: {} }),
+          "utf-8"
+        )
+    },
+    {
+      name: "payload asset built from another SHA",
+      expect: "ASSET_SHA_MISMATCH",
+      break: (root) =>
+        fs.writeFileSync(
+          path.join(root, "src", ASSET_BASENAME),
+          JSON.stringify({ sha: other, SKILLS: {} }),
+          "utf-8"
         )
     }
   ];

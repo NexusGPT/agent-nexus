@@ -1,4 +1,5 @@
 import type {
+  GenericGrantResourceType,
   GrantPermissionBody,
   PermissionResourceType,
   ResourceVisibility,
@@ -30,32 +31,38 @@ import {
 } from "./permissions.contract.generated";
 
 /**
- * Every member of `PermissionResourceType`, as a runtime lookup.
+ * Every member of `GenericGrantResourceType`, as a runtime lookup.
  *
  * A `Record` over the union rather than an array: a resource type added to the
  * SDK is a COMPILE ERROR here until it is listed, where an array would silently
  * start rejecting a type the server accepts. The CLI needs the runtime list at
  * all because `nexus permissions access` takes the type as a positional
  * argument, and a `string` from commander has to be narrowed rather than cast.
+ *
+ * 🚨 IT IS KEYED ON THE NARROW UNION, NOT ON `PermissionResourceType`, and that
+ * is what keeps this list and the route in step. `knowledge` and `workspace` are
+ * REFUSED by every route in this namespace — their access is held in Role grants
+ * and nowhere else — so listing them here would re-offer, from the one file that
+ * is hand-written, exactly the two values the generated contract just stopped
+ * advertising (NEX-3761). Keying on the response-side union would compile and
+ * would say the wrong thing.
  */
-const PERMISSION_RESOURCE_TYPES: Record<PermissionResourceType, true> = {
+const GENERIC_GRANT_RESOURCE_TYPES: Record<GenericGrantResourceType, true> = {
   agent: true,
   workflow: true,
-  knowledge: true,
   credential: true,
   access_card: true,
   template: true,
   document: true,
   deployment: true,
   feature: true,
-  vibe_app: true,
-  workspace: true
+  vibe_app: true
 };
 
-const RESOURCE_TYPE_NAMES = Object.keys(PERMISSION_RESOURCE_TYPES).sort().join(", ");
+const RESOURCE_TYPE_NAMES = Object.keys(GENERIC_GRANT_RESOURCE_TYPES).sort().join(", ");
 
-function isPermissionResourceType(value: string): value is PermissionResourceType {
-  return Object.prototype.hasOwnProperty.call(PERMISSION_RESOURCE_TYPES, value);
+function isGenericGrantResourceType(value: string): value is GenericGrantResourceType {
+  return Object.prototype.hasOwnProperty.call(GENERIC_GRANT_RESOURCE_TYPES, value);
 }
 
 /**
@@ -138,7 +145,19 @@ no subject-side read, so "what does this user, group or API key reach?" has no
 answer in this namespace and is not a command you have failed to find. Answering
 it means walking the resources yourself, one "permissions access" per id.
 The nearest thing that does exist is scoped to roles rather than to grants:
-"nexus role systems" and "nexus role coverage" read outward from a role.`
+"nexus role systems" and "nexus role coverage" read outward from a role.
+
+KNOWLEDGE AND WORKSPACE ARE NOT IN --resource-type, AND THAT IS NOT AN OVERSIGHT.
+Neither type carries a grant row at all — a Collection is narrowed by a Role's
+collection grants and a Workspace by its workspace grants, both resolved live —
+so every route in this namespace refuses them. They live one namespace over:
+
+  knowledge   nexus role collection-grants <role>    ·  grant-collection <role> <id>
+  workspace   nexus role workspace-grants <role>     ·  grant-workspace <role> <id>
+
+There is no reverse read for either: nothing lists the roles reaching ONE
+collection, so an access review over a collection means enumerating the org's
+roles and reading each one's grants.`
   );
 
   // ── access ────────────────────────────────────────────────────────────
@@ -186,7 +205,7 @@ Notes:
     )
     .action(async (resourceType: string, resourceId: string) => {
       try {
-        if (!isPermissionResourceType(resourceType)) {
+        if (!isGenericGrantResourceType(resourceType)) {
           throw new Error(
             `Invalid resource type "${resourceType}". Expected one of: ${RESOURCE_TYPE_NAMES}.`
           );

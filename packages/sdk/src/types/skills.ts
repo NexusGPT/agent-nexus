@@ -123,6 +123,30 @@ export interface TaskModelTuning {
   customModelId?: string;
 }
 
+/**
+ * One stored few-shot demonstration on an AI task.
+ *
+ * Not part of the prompt: the platform replays each pair as a user/assistant
+ * exchange ahead of the real input, so demonstrations stay structured data
+ * instead of text concatenated into `prompt`.
+ */
+export interface TaskFewShot {
+  /** Unique demonstration ID. */
+  id: string;
+  /** The example input. */
+  input: string;
+  /** The output the model should produce for it. */
+  output: string;
+}
+
+/** One few-shot demonstration as a create/update body carries it (no `id`). */
+export interface TaskFewShotInput {
+  /** The example input. Required and non-empty. */
+  input: string;
+  /** The output the model should produce for it. Required and non-empty. */
+  output: string;
+}
+
 /** Full AI task detail (extends summary with schemas and model tuning). */
 export interface TaskDetail extends TaskSummary, TaskModelTuning {
   /** Task prompt template. `null` if not set. */
@@ -144,6 +168,11 @@ export interface TaskDetail extends TaskSummary, TaskModelTuning {
    * `null` otherwise.
    */
   documentTemplateId: string | null;
+  /**
+   * Few-shot demonstrations, oldest first — the order the model is shown them
+   * in. Empty when the task has none.
+   */
+  fewShots: TaskFewShot[];
 }
 
 /**
@@ -293,6 +322,12 @@ export interface CreateTaskBody {
   inputFormat?: "text" | "json";
   /** Output format (default "text"). */
   outputFormat?: "text" | "json" | "template";
+  /**
+   * Few-shot demonstrations, stored beside the prompt rather than inside it and
+   * replayed as user/assistant message pairs at inference. Persisted in the
+   * order given.
+   */
+  fewShots?: TaskFewShotInput[];
   /** Generation-specific settings (required). */
   generation: {
     /** Whether the task supports multimodal input. */
@@ -326,6 +361,11 @@ export interface UpdateTaskBody {
   temperature?: number;
   inputFormat?: "text" | "json";
   outputFormat?: "text" | "json" | "template";
+  /**
+   * REPLACES the stored demonstrations with exactly this list — it does not
+   * append. `[]` removes them all; omitting the field leaves them untouched.
+   */
+  fewShots?: TaskFewShotInput[];
   generation?: {
     multimodal?: boolean;
     expectedInput?: string;
@@ -352,10 +392,101 @@ export interface GenerateDocumentTemplateResponse {
   url: string;
 }
 
+/**
+ * The model ONE call runs on, overriding the task's stored binding.
+ *
+ * A task binds a prompt to a model, and the same prompt is invoked in
+ * economically different contexts: over every new record in a nightly sweep,
+ * where cheap and good-enough wins, and on the one record a human is about to
+ * act on, where the frontier model is worth many times more. Without this the
+ * only way to express that was a second task — which means a second copy of the
+ * prompt, and the copies drift.
+ *
+ * Nothing is persisted. The task, its versions, and every other caller are
+ * unaffected.
+ *
+ * - `modelName` and `modelProvider` are BOTH required. Half a pair is how a task
+ *   ends up addressing an Anthropic endpoint with an OpenAI model id.
+ * - `temperature` is deliberately absent: it is part of the reasoning rather
+ *   than the routing, and is ALWAYS inherited from the task.
+ * - `customModelId` is NOT inherited from the task. A BYOM endpoint replaces the
+ *   routing outright, so carrying one over would silently ignore the model just
+ *   named. Set it here to override onto a custom endpoint.
+ * - The provider knobs are NOT inherited from the task, not even on the same
+ *   provider. An override that names none runs with none — name the one you
+ *   want here. (`thinkingLevel` is specific to a provider and to a model
+ *   generation, so carrying one across a model change is not the safe default
+ *   it looks like.)
+ */
+export interface AiTaskModelOverride {
+  /** Model id from the catalog, e.g. "claude-haiku-4-5". */
+  modelName: string;
+  /** Provider of `modelName`. */
+  modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  /** Run this call on a custom (BYOM) endpoint instead of the platform one. */
+  customModelId?: string;
+  /** Anthropic thinking level. */
+  thinkingLevel?: string;
+  /** Anthropic adaptive thinking display mode. */
+  thinkingDisplay?: string;
+  /** OpenAI reasoning effort. */
+  reasoningEffort?: string;
+  /** Google AI thinking level. */
+  geminiThinkingLevel?: string;
+  /** Kimi reasoning effort. */
+  kimiReasoningEffort?: string;
+}
+
 /** Body for `client.skills.executeTask()`. */
 export interface ExecuteTaskBody {
   /** Input to the task — text string or structured JSON object. */
   input: string | Record<string, unknown>;
+  /**
+   * Run THIS call on another model, leaving the task's stored binding alone.
+   * Omit it to use the task's own model. See {@link AiTaskModelOverride}.
+   */
+  modelOverride?: AiTaskModelOverride;
+}
+
+/**
+ * Body for `client.skills.duplicateTask()`. Every field is optional — an empty
+ * body is a plain copy.
+ *
+ * The copy is the source task field for field: prompt, schemas, few-shots,
+ * folder and model config. That is the difference from re-creating the variant
+ * through `createTask()`, where a field you do not send takes THAT route's
+ * default — which is how a "model-only" fork silently changes the temperature.
+ *
+ * One exception: a task's knowledge `collections` are NOT bound to the copy.
+ * Binding them is a permission decision (Role grants narrow which collections a
+ * member may attach) and the duplicate path does not carry that authority yet.
+ *
+ * When only the model differs, prefer `modelOverride` on `executeTask()`: it
+ * needs no second copy of the prompt to keep in step.
+ */
+export interface DuplicateTaskBody {
+  /** Defaults to the source task's name suffixed with " (Copy)". */
+  name?: string;
+  /** Defaults to the source task's description. */
+  description?: string;
+  /**
+   * Re-point the copy at another model. `modelName` and `modelProvider` travel
+   * together — sending one without the other is a 400, because completing the
+   * pair from the source task is the silent inheritance this route removes.
+   *
+   * Naming a model rebuilds the routing: temperature and the rest of the
+   * non-routing config carry over from the source, but the provider tuning
+   * (`thinkingLevel`, `reasoningEffort`, …) is cleared, exactly as it is on
+   * `updateTask()`. Omit the model fields entirely and the copy keeps the
+   * source's model configuration whole.
+   */
+  modelName?: string;
+  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  /**
+   * Run the copy on a custom (BYOM) endpoint. Not inherited from the source when
+   * a model is named — a custom endpoint replaces the routing outright.
+   */
+  customModelId?: string;
 }
 
 /** Response from `client.skills.executeTask()`. */

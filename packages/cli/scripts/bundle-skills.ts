@@ -27,15 +27,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = path.resolve(__dirname, "..");
 const LOCK_FILE = path.join(CLI_ROOT, "skills-nexus.lock");
 const OUTPUT_FILE = path.join(CLI_ROOT, "src", "skills-content.generated.ts");
+
+/**
+ * The bulk payload, emitted BESIDE the module above and read at runtime rather
+ * than compiled into the CLI bundle. `tsup.config.ts` copies it into `dist/`,
+ * and `package.json` ships `files: ["dist"]`, so landing it there is what puts
+ * it in the published tarball.
+ */
+const ASSET_BASENAME = "skills-content.generated.json";
+const ASSET_FILE = path.join(CLI_ROOT, "src", ASSET_BASENAME);
 const REPO = "NexusGPT/claude-code-skills-nexus";
 
 interface FileEntry {
   path: string;
   content: string;
-}
-
-function escapeForTemplate(content: string): string {
-  return content.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 }
 
 /**
@@ -202,19 +207,26 @@ async function main(): Promise<void> {
   // case — same model as a lockfile. If neither token nor committed bundle
   // exist, we genuinely can't proceed.
   if (!token) {
-    if (fs.existsSync(OUTPUT_FILE)) {
+    // BOTH halves must be present. The module alone compiles and passes every
+    // gate, then throws at runtime the first time a skills command reads the
+    // payload — so a half-present bundle is worse here than an absent one.
+    if (fs.existsSync(OUTPUT_FILE) && fs.existsSync(ASSET_FILE)) {
       console.log(
-        `No GITHUB_TOKEN / GH_TOKEN / gh-cli auth available — keeping committed ${path.basename(OUTPUT_FILE)} as-is.`
+        `No GITHUB_TOKEN / GH_TOKEN / gh-cli auth available — keeping committed ${path.basename(OUTPUT_FILE)} + ${ASSET_BASENAME} as-is.`
       );
       console.log(
         `To refresh from skills-nexus, run: GITHUB_TOKEN=$(gh auth token) pnpm run gen:skills`
       );
       return;
     }
+    const missing = [OUTPUT_FILE, ASSET_FILE]
+      .filter((f) => !fs.existsSync(f))
+      .map((f) => path.relative(process.cwd(), f))
+      .join(", ");
     throw new Error(
       `Cannot bootstrap the skills bundle: no GITHUB_TOKEN / GH_TOKEN / gh-cli auth, ` +
-        `and no committed ${path.relative(process.cwd(), OUTPUT_FILE)} to fall back to.\n` +
-        `Provide a token (GITHUB_TOKEN=$(gh auth token) pnpm run gen:skills) or check the file in.`
+        `and the committed bundle is incomplete (missing: ${missing}).\n` +
+        `Provide a token (GITHUB_TOKEN=$(gh auth token) pnpm run gen:skills) or check the files in.`
     );
   }
 
@@ -240,7 +252,8 @@ async function main(): Promise<void> {
 
   console.log(`Found ${skillDirs.length} skill directories`);
 
-  const skillEntries: string[] = [];
+  const skillsRecord: Record<string, { slug: string; description: string; files: FileEntry[] }> =
+    {};
   let totalFiles = 0;
 
   for (const slug of skillDirs) {
@@ -249,30 +262,12 @@ async function main(): Promise<void> {
     const description = extractDescription(dir);
     totalFiles += files.length;
 
-    const filesStr = files
-      .map(
-        (f) =>
-          `      { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
-      )
-      .join(",\n");
-
-    skillEntries.push(
-      `  ${JSON.stringify(slug)}: {\n` +
-        `    slug: ${JSON.stringify(slug)},\n` +
-        `    description: ${JSON.stringify(description)},\n` +
-        `    files: [\n${filesStr}\n    ],\n` +
-        `  }`
-    );
+    skillsRecord[slug] = { slug, description, files };
   }
 
   const claudeMd = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, "utf-8").trim() : "";
 
   const sharedFiles = collectFiles(path.join(skillsRoot, "shared"));
-  const sharedStr = sharedFiles
-    .map(
-      (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
-    )
-    .join(",\n");
 
   // settings.json + hooks/ — the scoped permission posture (NEX-2461). The
   // top-level settings.json installs to .claude/settings.json; the hooks/ tree
@@ -281,11 +276,6 @@ async function main(): Promise<void> {
     ? fs.readFileSync(settingsJsonPath, "utf-8").trim()
     : "";
   const hookFiles = collectFiles(hooksRoot);
-  const hookFilesStr = hookFiles
-    .map(
-      (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
-    )
-    .join(",\n");
   console.log(
     `Found settings.json (${settingsJson.length} bytes) and ${hookFiles.length} hook files`
   );
@@ -294,16 +284,23 @@ async function main(): Promise<void> {
   // under .claude/agents and, like the skill files, are refreshed in place on
   // every install. Collected the same way skills/ and shared/ are.
   const agentFiles = collectFiles(agentsRoot);
-  const agentFilesStr = agentFiles
-    .map(
-      (f) => `  { path: ${JSON.stringify(f.path)}, content: \`${escapeForTemplate(f.content)}\` }`
-    )
-    .join(",\n");
   console.log(`Found ${agentFiles.length} agent files`);
 
   const output = [
     "// AUTO-GENERATED — do not edit. Run: pnpm run gen:skills",
     `// Source: ${REPO}@${sha}`,
+    "//",
+    "// The BULK of the bundle lives in `skills-content.generated.json`, beside this",
+    "// file, and is read on FIRST USE rather than compiled into the CLI bundle. It",
+    "// was an 8.4 MB object literal here, and every `nexus` invocation paid to read",
+    "// and compile it — `--version` included. Measured on the built bundle:",
+    "// 10.40 MB / ~178 ms against 1.74 MB / ~86 ms without it.",
+    "//",
+    "// `SKILLS_NEXUS_SHA` and the `// Source:` header stay INLINE deliberately:",
+    "// `scripts/check-skills-lock.ts` reads both out of this file.",
+    "",
+    'import fs from "node:fs";',
+    'import path from "node:path";',
     "",
     "export interface SkillFile {",
     "  path: string;",
@@ -316,33 +313,105 @@ async function main(): Promise<void> {
     "  files: SkillFile[];",
     "}",
     "",
-    `export const SKILLS: Record<string, SkillEntry> = {`,
-    skillEntries.join(",\n"),
-    "};",
-    "",
-    `export const SKILL_LIST: string[] = ${JSON.stringify(skillDirs)};`,
-    "",
-    `export const CLAUDE_MD: string = \`${escapeForTemplate(claudeMd)}\`;`,
-    "",
-    `export const SHARED_FILES: SkillFile[] = [`,
-    sharedStr,
-    "];",
-    "",
-    `export const SETTINGS_JSON: string = \`${escapeForTemplate(settingsJson)}\`;`,
-    "",
-    `export const HOOK_FILES: SkillFile[] = [`,
-    hookFilesStr,
-    "];",
-    "",
-    `export const AGENT_FILES: SkillFile[] = [`,
-    agentFilesStr,
-    "];",
-    "",
     `export const SKILLS_NEXUS_SHA: string = ${JSON.stringify(sha)};`,
+    "",
+    "interface SkillsPayload {",
+    "  sha: string;",
+    "  SKILLS: Record<string, SkillEntry>;",
+    "  SKILL_LIST: string[];",
+    "  CLAUDE_MD: string;",
+    "  SHARED_FILES: SkillFile[];",
+    "  SETTINGS_JSON: string;",
+    "  HOOK_FILES: SkillFile[];",
+    "  AGENT_FILES: SkillFile[];",
+    "}",
+    "",
+    `export const SKILLS_ASSET_FILENAME = ${JSON.stringify(ASSET_BASENAME)};`,
+    "",
+    "export function skillsAssetPath(): string {",
+    "  return path.join(__dirname, SKILLS_ASSET_FILENAME);",
+    "}",
+    "",
+    "let cached: SkillsPayload | null = null;",
+    "",
+    "function load(): SkillsPayload {",
+    "  if (cached !== null) return cached;",
+    "",
+    "  const assetPath = skillsAssetPath();",
+    "  let raw: string;",
+    "  try {",
+    '    raw = fs.readFileSync(assetPath, "utf-8");',
+    "  } catch (error) {",
+    "    throw new Error(",
+    "      `The bundled skills payload is missing: ${assetPath}\\n` +",
+    "        `The published package ships it beside the CLI entrypoint. Reinstall @agent-nexus/cli, ` +",
+    '        `or run "pnpm run gen:skills" in a checkout.\\n` +',
+    "        `Cause: ${error instanceof Error ? error.message : String(error)}`",
+    "    );",
+    "  }",
+    "",
+    "  let parsed: SkillsPayload;",
+    "  try {",
+    "    parsed = JSON.parse(raw) as SkillsPayload;",
+    "  } catch (error) {",
+    "    throw new Error(",
+    "      `The bundled skills payload is not valid JSON: ${assetPath}\\n` +",
+    "        `Cause: ${error instanceof Error ? error.message : String(error)}`",
+    "    );",
+    "  }",
+    "",
+    "  // Checked BEFORE the comparison below, which slices it. A payload with no",
+    "  // `sha` would otherwise fail the `!==` test and then throw a bare TypeError",
+    "  // out of `.slice`, defeating the named error this loader exists to give.",
+    '  if (typeof parsed.sha !== "string") {',
+    "    throw new Error(",
+    '      `The bundled skills payload carries no "sha" string: ${assetPath}\\n` +',
+    "        `Both halves of the bundle are written by the same generator — ` +",
+    '        `run "pnpm run gen:skills" to regenerate them together.`',
+    "    );",
+    "  }",
+    "",
+    "  if (parsed.sha !== SKILLS_NEXUS_SHA) {",
+    "    throw new Error(",
+    "      `The bundled skills payload was built from ${parsed.sha.slice(0, 12)} but this module ` +",
+    "        `pins ${SKILLS_NEXUS_SHA.slice(0, 12)}. The two halves of the bundle disagree — ` +",
+    '        `run "pnpm run gen:skills" to regenerate both.`',
+    "    );",
+    "  }",
+    "",
+    "  cached = parsed;",
+    "  return cached;",
+    "}",
+    "",
+    "/** Test-only: drop the parsed payload so the next getter re-reads from disk. */",
+    "export function resetSkillsCacheForTests(): void {",
+    "  cached = null;",
+    "}",
+    "",
+    "export const getSkills = (): Record<string, SkillEntry> => load().SKILLS;",
+    "export const getSkillList = (): string[] => load().SKILL_LIST;",
+    "export const getClaudeMd = (): string => load().CLAUDE_MD;",
+    "export const getSharedFiles = (): SkillFile[] => load().SHARED_FILES;",
+    "export const getSettingsJson = (): string => load().SETTINGS_JSON;",
+    "export const getHookFiles = (): SkillFile[] => load().HOOK_FILES;",
+    "export const getAgentFiles = (): SkillFile[] => load().AGENT_FILES;",
     ""
   ].join("\n");
 
+  const payload = {
+    sha,
+    SKILLS: skillsRecord,
+    SKILL_LIST: skillDirs,
+    CLAUDE_MD: claudeMd,
+    SHARED_FILES: sharedFiles,
+    SETTINGS_JSON: settingsJson,
+    HOOK_FILES: hookFiles,
+    AGENT_FILES: agentFiles
+  };
+  const payloadJson = JSON.stringify(payload);
+
   fs.writeFileSync(OUTPUT_FILE, output, "utf-8");
+  fs.writeFileSync(ASSET_FILE, payloadJson, "utf-8");
 
   // Best-effort cleanup of the extracted tarball.
   try {
@@ -353,7 +422,8 @@ async function main(): Promise<void> {
 
   console.log(
     `Generated ${path.relative(CLI_ROOT, OUTPUT_FILE)} ` +
-      `(${skillDirs.length} skills, ${totalFiles} files, ${agentFiles.length} agents, ${output.length} bytes)`
+      `(${skillDirs.length} skills, ${totalFiles} files, ${agentFiles.length} agents) ` +
+      `+ ${path.relative(CLI_ROOT, ASSET_FILE)} (${payloadJson.length} bytes)`
   );
 }
 

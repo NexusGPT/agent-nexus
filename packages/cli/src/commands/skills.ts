@@ -4,7 +4,7 @@ import path from "node:path";
 import { Command } from "commander";
 
 import { color, isJsonMode } from "../output";
-import { SKILL_LIST, SKILLS, SKILLS_NEXUS_SHA } from "../skills-content.generated";
+import { getSkillList, getSkills, SKILLS_NEXUS_SHA } from "../skills-content.generated";
 import { confirmable } from "../util/confirm";
 import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
 import { runSkillsInstallToTarget, type SkillsInstallOpts } from "./claude-code";
@@ -129,13 +129,35 @@ Examples:
 
 How the target is chosen (most specific first):
   --dir > --global > --here > auto-detect.
-Auto-detect walks up from the current directory and picks the first of:
-  an existing .claude/ folder, a CLAUDE.md, then the git repo root. Walking
-  up to the OWNING project root is what stops a stray .claude landing in a
-  subfolder, or another folder's CLAUDE.md being overwritten. An existing,
-  differing CLAUDE.md is always preserved unless you pass --force.
+Auto-detect walks UP from the current directory, notes the nearest ancestor
+  holding each of three markers — a .claude/ folder, a CLAUDE.md, a .git — and
+  ranks them BY KIND rather than by distance: .claude/ beats CLAUDE.md beats
+  .git. So a DISTANT .claude/ outranks a NEARBY CLAUDE.md; the walk does not
+  stop at the first marker it meets. It stops at your home directory, never
+  picks home itself, and falls back to the CURRENT directory when none of the
+  three exists. Run "nexus skills where" first and read the path — it is the
+  same resolver with the writes off. An existing, differing CLAUDE.md is always
+  preserved unless you pass --force.
 --dir names the target outright: nothing is derived from the directory you are
   standing in. "nexus skills where --dir <path>" prints every path first.
+
+THIS COMMAND AND "nexus claude-code install" RUN THE SAME INSTALLER. Same bundle,
+same files, same manifest, same --force / --dry-run / --no-claude-md /
+--no-settings. Exactly one thing differs, and it is WHERE THEY WRITE:
+  nexus skills update          auto-detects the owning project root, and takes
+                               --global and --here to override it.
+  nexus claude-code install    NEVER walks. --dir defaults to ".claude/skills"
+                               relative to the directory you are standing in,
+                               and it has no --global and no --here.
+So running "claude-code install" from a SUBDIRECTORY creates a .claude/ there
+rather than in the project root — and because auto-detection ranks a .claude/
+above every other marker at any distance, that stray folder then captures this
+command for the whole tree beneath it. Prefer "skills update" unless you mean a
+specific directory, and pass --dir when you do.
+
+⚠️ "nexus skills install" IS AN ALIAS OF THIS COMMAND ("sync" too) AND IS NOT
+"nexus claude-code install". The two spellings are one word apart and resolve
+the target by opposite rules.
 
 Notes:
   YOUR OWN EDITS TO SKILLS, HOOKS AND AGENTS ARE NEVER OVERWRITTEN SILENTLY.
@@ -198,10 +220,10 @@ Notes:
             {
               cliVersion: v.cli,
               skillsSha: v.sha,
-              skills: SKILL_LIST.map((slug) => ({
+              skills: getSkillList().map((slug) => ({
                 slug,
-                description: SKILLS[slug].description,
-                files: SKILLS[slug].files.length
+                description: getSkills()[slug].description,
+                files: getSkills()[slug].files.length
               }))
             },
             null,
@@ -211,9 +233,9 @@ Notes:
         return;
       }
 
-      console.log(color.bold(`\nBundled Claude Code skills (${SKILL_LIST.length}):\n`));
-      for (const slug of SKILL_LIST) {
-        const entry = SKILLS[slug];
+      console.log(color.bold(`\nBundled Claude Code skills (${getSkillList().length}):\n`));
+      for (const slug of getSkillList()) {
+        const entry = getSkills()[slug];
         const name = slug.replace("nexus-", "");
         console.log(`  ${color.cyan(name.padEnd(22))} ${entry.description}`);
         console.log(`  ${"".padEnd(22)} ${color.dim(`${entry.files.length} files`)}`);
@@ -247,7 +269,7 @@ Notes:
       if (isJsonMode()) {
         console.log(
           JSON.stringify(
-            { cliVersion: v.cli, skillsSha: v.sha, skillCount: SKILL_LIST.length },
+            { cliVersion: v.cli, skillsSha: v.sha, skillCount: getSkillList().length },
             null,
             2
           )
@@ -256,7 +278,7 @@ Notes:
       }
       console.log(`\n  CLI version:   ${color.cyan(v.cli)}`);
       console.log(`  Skills commit: ${color.cyan(v.sha)}`);
-      console.log(`  Skills:        ${color.cyan(String(SKILL_LIST.length))} bundled`);
+      console.log(`  Skills:        ${color.cyan(String(getSkillList().length))} bundled`);
       console.log(color.dim(`\n  Refresh: nexus upgrade && nexus skills update\n`));
     });
 
@@ -284,7 +306,28 @@ Notes:
   --json adds projectRoot, which the printed form does not show, and returns the
   reason as its raw value where the text renders it as a sentence.
   The same --dir / --global / --here flags select the target here as they do on
-  "skills update", so resolve with the flags you intend to install with.`
+  "skills update", so resolve with the flags you intend to install with.
+
+  HOW AUTO-DETECT PICKS A ROOT, AND WHY THE NEAREST MARKER DOES NOT ALWAYS WIN.
+  With no --dir, --global or --here, this walks UP from the current directory and
+  notes the nearest ancestor holding each of three markers — a .claude/ folder,
+  a CLAUDE.md, a .git — and then ranks them BY KIND, not by distance:
+
+    .claude/   beats   CLAUDE.md   beats   .git
+
+  🚨 SO A DISTANT .claude/ OUTRANKS A NEARBY CLAUDE.md. A .claude/ six levels up
+  wins over a CLAUDE.md in the directory you are standing in — the walk does not
+  stop at the first marker it meets. If a stray .claude/ ever landed up-tree,
+  every project under it silently resolves there. Run this command before
+  "skills update" and read the path, rather than assuming the closest file won.
+
+  THE WALK STOPS AT YOUR HOME DIRECTORY and never climbs past it, and home
+  itself is never chosen as a project root — otherwise a normal ~/.claude would
+  capture every project you own. ~/.claude is reachable only with --global.
+  WHEN NONE OF THE THREE EXISTS, THE TARGET IS THE CURRENT DIRECTORY. That is a
+  real answer, not a refusal, so running "skills update" from an empty directory
+  creates a .claude/ there. --json reports which rule fired, as "reason":
+  explicit · global · cwd · detected-claude · detected-md · detected-git.`
     )
     .action((opts: SkillsInstallOpts) => {
       const target = resolveClaudeTarget(opts);

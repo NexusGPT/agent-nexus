@@ -4,7 +4,7 @@ import { Command } from "commander";
 
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
-import { SKILL_LIST, SKILLS } from "../skills-content.generated";
+import { getSkillList, getSkills } from "../skills-content.generated";
 import { confirmable } from "../util/confirm";
 import {
   agentInstallables,
@@ -57,18 +57,20 @@ Notes:
     )
     .action(() => {
       if (isJsonMode()) {
-        const skills = SKILL_LIST.map((slug) => ({
+        const bundled = getSkills();
+        const skills = getSkillList().map((slug) => ({
           slug,
-          description: SKILLS[slug].description,
-          files: SKILLS[slug].files.length
+          description: bundled[slug].description,
+          files: bundled[slug].files.length
         }));
         console.log(JSON.stringify(skills, null, 2));
         return;
       }
 
-      console.log(color.bold(`\nBundled Claude Code skills (${SKILL_LIST.length}):\n`));
-      for (const slug of SKILL_LIST) {
-        const entry = SKILLS[slug];
+      const bundled = getSkills();
+      console.log(color.bold(`\nBundled Claude Code skills (${getSkillList().length}):\n`));
+      for (const slug of getSkillList()) {
+        const entry = bundled[slug];
         const name = slug.replace("nexus-", "");
         console.log(`  ${color.cyan(name.padEnd(22))} ${entry.description}`);
         console.log(`  ${"".padEnd(22)} ${color.dim(`${entry.files.length} files`)}`);
@@ -118,6 +120,13 @@ Examples:
 Tip: \`nexus skills update\` runs the same install but auto-detects your
 project's existing .claude folder instead of always writing to the current
 directory.
+
+NAMING ONE SKILL NARROWS THE SKILLS AND NOTHING ELSE. A targeted install still
+lays down the ENTIRE posture below — shared/, CLAUDE.md, settings.json, hooks/
+and agents/ — so "install one skill" writes dozens of files, not the handful the
+skill itself contains. The argument filters which skills are selected; it does
+not make the install partial. Use --dry-run to see the file count before
+committing to it, and --no-claude-md / --no-settings to actually opt out.
 
 Alongside the skills, install writes:
   • shared/        — api-client + helpers the skill example scripts import
@@ -216,8 +225,8 @@ export async function runSkillsInstallToTarget(
     const claudeMdTarget = target.claudeMdPath;
 
     // Filter to the requested subset (or all)
-    const availableSlugs = new Set(SKILL_LIST);
-    let selectedSlugs: readonly string[] = SKILL_LIST;
+    const availableSlugs = new Set(getSkillList());
+    let selectedSlugs: readonly string[] = getSkillList();
 
     if (skillArgs.length > 0) {
       const unknown = skillArgs.filter((s) => !availableSlugs.has(s));
@@ -233,7 +242,7 @@ export async function runSkillsInstallToTarget(
         return;
       }
       const requested = new Set(skillArgs);
-      selectedSlugs = SKILL_LIST.filter((s) => requested.has(s));
+      selectedSlugs = getSkillList().filter((s) => requested.has(s));
     }
 
     const selected = bundleToInstallables(selectedSlugs);

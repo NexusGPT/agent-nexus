@@ -1,24 +1,98 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
-import { resolveApiKey, resolveBaseUrl } from "./config";
+import { resolveApiKey, resolveBaseUrl, resolveOrganizationId } from "./config";
 
 // Per-message timeout. Without it a stalled backend makes a tool call hang
 // forever, which Claude Code surfaces as the assistant silently stopping
 // mid-response (NEX-1941). Override via NEXUS_MCP_REQUEST_TIMEOUT_MS.
-const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
-const USER_AGENT = "nexus-mcp/1.0.0";
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-function resolveTimeoutMs(): number {
+/**
+ * The deadline for a tool whose route runs a MODEL before it can answer.
+ *
+ * 60 s is right for the bridge's ordinary traffic — a stalled backend should
+ * not hold a tool call open — and wrong for the handful of tools that cannot
+ * answer until a generation finishes. `skills_execute_task` on a frontier model
+ * with structured JSON output takes 60–90 s, so the default landed on the wrong
+ * side of it: the call failed as "timed out" while the server ran to completion
+ * and billed the generation (NEX-2492).
+ *
+ * Ten minutes, matching the SDK's `LONG_RUNNING_TIMEOUT_MS`, so hitting this
+ * means something is genuinely wrong rather than merely slow.
+ */
+export const LONG_RUNNING_TOOL_TIMEOUT_MS = 600_000;
+
+/**
+ * The tools whose route runs a model, or waits on a third party that may itself
+ * run one, before the API can answer at all.
+ *
+ * Names are the `mcp.name` the route contracts declare in
+ * `@nexus/types` — the bridge deliberately carries no dependency on that
+ * package (it is a transport, and stays dependency-light), so
+ * `proxy.test.ts` reads the contracts from source and fails if a name here
+ * stops matching one there.
+ */
+export const LONG_RUNNING_TOOLS: ReadonlySet<string> = new Set([
+  "skills_execute_task",
+  "tools_execute"
+]);
+
+/**
+ * The bridge's own deadline, or `undefined` when the operator has stated none.
+ *
+ * Kept unresolved so "the operator asked for 60 s" and "nobody said anything"
+ * stay distinguishable: an explicit `NEXUS_MCP_REQUEST_TIMEOUT_MS` governs every
+ * message, long-running tools included, and that is the point of setting it.
+ *
+ * An UNPARSEABLE or non-positive value is `undefined` here, i.e. treated as
+ * unset rather than as 60 s. `NEXUS_MCP_REQUEST_TIMEOUT_MS=abc` is not a stated
+ * ceiling, and reading it as one would put the flat default back in front of the
+ * tools this exemption exists for.
+ */
+function resolveConfiguredTimeoutMs(): number | undefined {
   const raw = process.env.NEXUS_MCP_REQUEST_TIMEOUT_MS;
-  if (!raw) return DEFAULT_REQUEST_TIMEOUT_MS;
+  if (!raw) return undefined;
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REQUEST_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
+
+/** The tool a `tools/call` message invokes, or `undefined` for anything else. */
+function calledToolName(message: JSONRPCMessage): string | undefined {
+  if ((message as { method?: string }).method !== "tools/call") return undefined;
+  const name = (message as { params?: { name?: unknown } }).params?.name;
+  return typeof name === "string" ? name : undefined;
+}
+
+/**
+ * How long to wait on one message.
+ *
+ * @param message - The JSON-RPC message about to be forwarded.
+ * @param configuredMs - `NEXUS_MCP_REQUEST_TIMEOUT_MS`, when the operator set
+ *   one. It governs EVERY message, long-running tools included: an explicit
+ *   ceiling that a per-tool default silently outlived would not be a ceiling.
+ */
+export function requestTimeoutMs(message: JSONRPCMessage, configuredMs?: number): number {
+  if (configuredMs !== undefined) return configuredMs;
+  const tool = calledToolName(message);
+  return tool !== undefined && LONG_RUNNING_TOOLS.has(tool)
+    ? LONG_RUNNING_TOOL_TIMEOUT_MS
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+const USER_AGENT = "nexus-mcp/1.0.0";
 
 export interface ProxyOptions {
   apiKey?: string;
   baseUrl?: string;
+  /**
+   * Organization to act on, sent as `organization-id`.
+   *
+   * Resolved per message from {@link resolveOrganizationId} when omitted. An
+   * org-unbound key acts on NO organization without it — see that function for
+   * what the omission cost.
+   */
+  organizationId?: string;
 }
 
 /** How the forwarder writes a reply back to the client. */
@@ -46,7 +120,10 @@ function safeJson(text: string): unknown {
 
 function httpErrorMessage(status: number, body: string): string {
   if (status === 401 || status === 403) {
-    return `Nexus API rejected the request (HTTP ${status}). Check your API key or run: nexus-mcp login`;
+    return (
+      `Nexus API rejected the request (HTTP ${status}). Check your API key and the ` +
+      `organization it acts on — run "nexus auth status", or "nexus-mcp login" to store a key here.`
+    );
   }
   const detail = body.slice(0, 300);
   return `Nexus API error (HTTP ${status})${detail ? `: ${detail}` : ""}`;
@@ -69,7 +146,7 @@ export function createMcpForwarder(
 ): (message: JSONRPCMessage, send: SendFn) => Promise<void> {
   const baseUrl = (options?.baseUrl ?? resolveBaseUrl()).replace(/\/+$/, "");
   const endpoint = `${baseUrl}/api/public/v1/mcp`;
-  const timeoutMs = resolveTimeoutMs();
+  const configuredTimeoutMs = resolveConfiguredTimeoutMs();
 
   // In-flight requests by id, so a `notifications/cancelled` can abort the
   // matching fetch and drop its now-unwanted reply. A late reply after a cancel
@@ -119,8 +196,16 @@ export function createMcpForwarder(
       return asError(-32001, error instanceof Error ? error.message : String(error));
     }
 
+    // Resolved beside the key and for the same reason: `nexus auth use-org`
+    // mid-session must take effect without a restart. Absent when the key is
+    // org-scoped and nothing selected an organization, which is the ordinary
+    // case — an EMPTY header is not the same as no header, and sending one would
+    // be refused rather than defaulted.
+    const organizationId = options?.organizationId ?? resolveOrganizationId();
+
     const entry = { controller: new AbortController(), cancelled: false };
     if (id !== undefined) inflight.set(id, entry);
+    const timeoutMs = requestTimeoutMs(message, configuredTimeoutMs);
     const timer = setTimeout(() => entry.controller.abort(), timeoutMs);
     try {
       const response = await fetch(endpoint, {
@@ -128,7 +213,8 @@ export function createMcpForwarder(
         headers: {
           "content-type": "application/json",
           "api-key": apiKey,
-          "user-agent": USER_AGENT
+          "user-agent": USER_AGENT,
+          ...(organizationId ? { "organization-id": organizationId } : {})
         },
         body: JSON.stringify(message),
         signal: entry.controller.signal

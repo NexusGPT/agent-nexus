@@ -1,7 +1,7 @@
-import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ResolvedProfile } from "../config";
+import { buildRootProgram } from "../index";
 import { setJsonMode } from "../output";
 import { mountKey } from "../workspace-mounts";
 
@@ -22,7 +22,12 @@ import { mountKey } from "../workspace-mounts";
 
 // Hermetic error taxonomy: `handleError` narrows over the SDK's error classes,
 // which is all this suite needs from @agent-nexus/sdk.
-vi.mock("@agent-nexus/sdk", () => {
+// PARTIAL, via `importOriginal`: this file drives the REAL root program, whose
+// full command graph reads exports this list does not carry
+// (`LONG_RUNNING_TIMEOUT_MS`). A total mock made the suite fail to COLLECT,
+// which reports as `Tests: no tests` — a void run rather than a red.
+vi.mock("@agent-nexus/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@agent-nexus/sdk")>();
   class NexusError extends Error {}
   class NexusApiError extends NexusError {}
   class NexusAuthenticationError extends NexusApiError {}
@@ -32,6 +37,7 @@ vi.mock("@agent-nexus/sdk", () => {
   }
   class NexusClient {}
   return {
+    ...actual,
     NexusClient,
     NexusError,
     NexusApiError,
@@ -79,8 +85,6 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-import { registerWorkspaceCommands } from "./workspace";
-
 const ORG_A_PROFILE: ResolvedProfile = {
   name: "org-a",
   source: "active",
@@ -102,11 +106,12 @@ function mountRow(over: Record<string, unknown>): Record<string, unknown> {
 }
 
 async function runUnmount(slug: string): Promise<unknown> {
-  const program = new Command();
-  program.name("nexus").option("--json", "Output as JSON").exitOverride();
-  registerWorkspaceCommands(program);
+  // The REAL root, and nothing here enters JSON mode. `--json` rides in argv
+  // below exactly as a caller types it; the root's own `preAction` hook is what
+  // must notice it, and whether it does is part of what this file measures.
+  const program = buildRootProgram();
+  program.exitOverride();
 
-  setJsonMode(true);
   const chunks: string[] = [];
   const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
     chunks.push(args.map((a) => String(a)).join(" "));

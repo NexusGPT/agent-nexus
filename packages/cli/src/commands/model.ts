@@ -7,6 +7,29 @@ import { printList } from "../output";
 export function registerModelCommands(program: Command): void {
   const model = program.command("model").description("Manage AI models");
 
+  model.addHelpText(
+    "after",
+    `
+THIS NAMESPACE ONLY READS. "list" is its one verb — there is nothing here to
+create, update or delete, and a model id is spent in ANOTHER namespace:
+
+  nexus agent create|update   --model-name --model-provider [--custom-model-id]
+  nexus task  create|update   --model-name --model-provider [--custom-model-id]
+                              (--model-name and --model-provider are REQUIRED on
+                              "task create", optional on the updates)
+
+A ROW GIVES YOU TWO DIFFERENT IDS AND THEY ARE NOT INTERCHANGEABLE. Take
+modelId ("gpt-4.1") for --model-name; take the row's UUID id for
+--custom-model-id, and only on a row whose source is "custom". Sending the UUID
+to --model-name, or "custom:<uuid>" to either, resolves to no model.
+--custom-model-id never travels alone: it is sent ALONGSIDE --model-name and
+--model-provider, which stay the platform fallback.
+
+⚠️ "nexus custom-model create|update --model-name" IS A DIFFERENT FLAG WITH THE
+SAME SPELLING. There it is the identifier YOUR endpoint answers to (e.g.
+"llama-3-70b"), not a Nexus modelId, and nothing in this list belongs in it.`
+  );
+
   // ── list ────────────────────────────────────────────────────────────────
   model
     .command("list")
@@ -34,7 +57,28 @@ Notes:
   THIS COMMAND HIDES A DISABLED CUSTOM MODEL. The merge filters on enabled, so
   an endpoint you switched off is absent here and still present, still
   attachable, in "nexus custom-model list". Read that command for the full set
-  and for the ids.`
+  and for the ids.
+
+  THE TABLE SHOWS FOUR COLUMNS AND A ROW CARRIES TWELVE FIELDS. Under --json the
+  rows arrive as {"data":[…]}, each one:
+    id             the UUID — this is --custom-model-id for a custom row
+    modelId        the platform identifier — this is --model-name
+    provider       --model-provider, or CUSTOM_<PROTOCOL> on a custom row
+    displayName    the NAME column; for humans, never an input
+    modelName      what is actually sent to the provider
+    contextSize    tokens, or null when unknown — null is "not reported"
+    streaming      boolean
+    thinkingDialect  null or absent means no thinking support of any kind
+    supportsThinking · supportsReasoning
+                   DEPRECATED and derived from thinkingDialect; they are slated
+                   for removal, so read thinkingDialect instead
+    deprecated     boolean — a deprecated model is still listed and still usable
+    source         "system" or "custom" (see above)
+
+  THERE ARE NO FILTER FLAGS AND NO PAGINATION. No --provider, no --deprecated,
+  no --limit, no --page: the route takes no parameters and returns every model
+  in one document. Filter client-side —
+    $ nexus model list --json | jq -r '.data[] | select(.deprecated | not) | .modelId'`
     )
     .action(async () => {
       try {

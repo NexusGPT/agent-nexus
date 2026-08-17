@@ -14,6 +14,7 @@ import { registerCollectionCommands } from "./collection";
 import { GENERATED_NAMESPACE_LEDGER, type GeneratedNamespaceName } from "./contract-help.ledger";
 import { registerConversationCommands } from "./conversation";
 import { registerCredentialCommands } from "./credential";
+import { registerCueCommands } from "./cue";
 import { registerCustomModelCommands } from "./custom-model";
 import { registerCustomerCommands } from "./customer";
 import { registerDeploymentCommands } from "./deployment";
@@ -374,6 +375,20 @@ export const UNCONTRACTED_NAMESPACES: readonly UncontractedNamespace[] = [
       "ClaudeCodeSkillDownload and ClaudeCodeSkillExists routes have no caller here."
   },
   {
+    namespace: "mcp",
+    surface: "/api/public/v1/mcp, as a JSON-RPC 2.0 envelope",
+    because:
+      "the SECOND member here that does call v1, and unbindable for a different " +
+      "reason from `api`. `McpRpc` is a TRANSPORT descriptor: its Body is the " +
+      "JSON-RPC envelope — jsonrpc, id, method, params — and `params` is " +
+      "deliberately `z.unknown()`, because its shape is decided by `method`, " +
+      "which the envelope does not know. So the contract projects no field a " +
+      "flag could carry and declares no enum: `--input` fills `params.arguments`, " +
+      "whose schema is the TOOL's `inputSchema`, generated server-side at request " +
+      "time and printed by `nexus mcp tools get`. The SDK excludes it for the " +
+      "same reason — see `v1-routes-have-an-sdk-method.test.ts`."
+  },
+  {
     namespace: "skills",
     surface: "(no network)",
     because:
@@ -448,6 +463,7 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   "agent-collection": registerAgentCollectionCommands,
   asset: registerAssetCommands,
   "cloud-import": registerCloudImportCommands,
+  cue: registerCueCommands,
   docs: registerDocsCommand,
   emulator: registerEmulatorCommands,
   "html-template": registerHtmlMessageTemplateCommands,

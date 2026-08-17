@@ -7,7 +7,7 @@ import {
 } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
-import { color, emitDocument, isJsonMode } from "./output";
+import { color, emitDocument, isJsonMode, setJsonMode } from "./output";
 
 /**
  * Handle errors from SDK calls and print actionable messages.
@@ -157,7 +157,8 @@ const CLI_CODES = {
    * and the remedy is a PATH edit rather than a retry — the opposite advice a
    * `LOCAL_FAILED` reader would follow.
    */
-  UPGRADE_NOT_RESOLVED: "CLI_UPGRADE_NOT_RESOLVED"
+  UPGRADE_NOT_RESOLVED: "CLI_UPGRADE_NOT_RESOLVED",
+  UPGRADE_NOT_VERIFIED_FOR_YOU: "CLI_UPGRADE_NOT_VERIFIED_FOR_YOU"
 } as const;
 
 /**
@@ -170,6 +171,27 @@ const CLI_CODES = {
  * same document and leaves the verdict to the caller.
  */
 export const CLI_UPGRADE_NOT_RESOLVED = CLI_CODES.UPGRADE_NOT_RESOLVED;
+
+/**
+ * The upgrade installed and could not be checked for the invoking user.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 IT IS A SEPARATE CODE BECAUSE THE EXIT CODE IS SEPARATE, AND SHARING ONE
+ *    UNDOES THE WHOLE POINT OF SPLITTING THE OTHER.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `nexus upgrade` exits 3 rather than 2 under `sudo` so a caller can tell an
+ * ABSENT measurement from a PATH FINDING. Stamping
+ * {@link CLI_UPGRADE_NOT_RESOLVED} on that document hands the `--json` consumer
+ * the opposite instruction: that code means "your shell resolves a different
+ * copy", whose remedy is a PATH edit — the exact misdiagnosis exit 3 exists to
+ * avoid. The two channels would then disagree about the same event, and the
+ * machine-readable one would be the wrong half.
+ *
+ * Same reasoning as the code above: no {@link FailureCause}, because it owns its
+ * own exit code and goes through {@link printFailure}.
+ */
+export const CLI_UPGRADE_NOT_VERIFIED_FOR_YOU = CLI_CODES.UPGRADE_NOT_VERIFIED_FOR_YOU;
 
 /**
  * WHY A FAILURE THAT HAPPENED AFTER THE SEND CANNOT USE {@link refuse}.
@@ -233,7 +255,7 @@ const FAILURE_CAUSE_CODES: Readonly<Record<FailureCause, string>> = {
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `nexus --help` promises: "Under --json an error is a JSON document on STDOUT:
- * {"error":{"message","hint"}}". Every failure that reached {@link handleError}
+ * {"error":{"message","hint","code"}}". Every failure that reached {@link handleError}
  * kept that promise. An argument refusal never reached it — commander writes its
  * own sentence to stderr and calls `process.exit(1)` from inside the parser, so
  * stdout is EMPTY. Measured over every leaf: 41 commands refuse this way, and a
@@ -283,6 +305,56 @@ export class CliArgumentError extends Error {
  * to `parseAsync`'s rejection, where the entry point sets `process.exitCode` and
  * lets node exit normally, flushing.
  */
+/**
+ * The argv commander was handed, read back off the command it was handed to.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 `process.argv` IS THE WRONG SOURCE, AND CHOOSING IT IS HOW THIS DEFECT
+ *    SURVIVES ITS OWN FIX.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The binary parses `process.argv`, so reading it here would look correct and
+ * would be correct in production. Every gate that drives this CLI in-process
+ * calls `program.parseAsync(["node", "nexus", "--json", …])` instead, and that
+ * argv is nowhere near `process.argv` — so a `process.argv` read is invisible to
+ * the one instrument that would notice it breaking. Commander records what it
+ * was actually given, on the command `parse` was called on, and that is the same
+ * fact in both worlds.
+ *
+ * ⚠️ `rawArgs` IS NOT IN COMMANDER'S TYPINGS (13.1.0), which is why this is an
+ * assertion rather than a property access. It is set in `_prepareUserArgs`
+ * before any option is looked at, so it is populated at every refusal — and it
+ * is set on the ENTRY command only, never on a subcommand, which is why the
+ * caller passes the root rather than the refusing leaf. If a commander upgrade
+ * ever renames it this returns `[]` and the fix silently stops working, so
+ * `json-refusal-above-the-hook-chain.test.ts` drives the real program and
+ * asserts the document — a red there is the signal, not a missing field.
+ */
+function argvUnderParse(program: Command): readonly string[] {
+  const recorded: unknown = (program as Command & { rawArgs?: unknown }).rawArgs;
+  if (!Array.isArray(recorded)) return [];
+  const values: unknown[] = recorded;
+  return values.filter((value): value is string => typeof value === "string");
+}
+
+/**
+ * Did this invocation ask for JSON, as commander itself received it?
+ *
+ * A plain membership test rather than commander's own parsed value, because the
+ * parsed value does not exist yet for every refusal this has to cover: a root
+ * option whose value parser throws (`--timeout abc … --json`) aborts the parse
+ * before `--json` is ever looked at, and that is exactly the shape where the
+ * caller is owed a document.
+ *
+ * The one over-reach is deliberate: a literal `--json` consumed as another
+ * option's VALUE reads as a request here. On an invocation that is already being
+ * refused, handing a machine a parseable document it did not ask for costs it
+ * nothing, and handing it an empty stdout costs it everything.
+ */
+function jsonRequested(program: Command): boolean {
+  return argvUnderParse(program).includes("--json");
+}
+
 export function installArgumentRefusalReporting(
   program: Command,
   options: {
@@ -306,6 +378,26 @@ export function installArgumentRefusalReporting(
     const path = [...prefix, command.name()];
     command.exitOverride((error) => {
       if (error.exitCode === 0 && onSuccessfulExit === "exit") return;
+      // 🚨 THE PROCESS DOES NOT YET KNOW IT IS IN JSON MODE, AND THIS IS THE
+      // LAST INSTANT ANYTHING CAN TELL IT.
+      //
+      // `--json` is read in the root's `preAction` hook, and commander refuses
+      // an invalid invocation ABOVE the hook chain — so a refusal reached
+      // `handleError` with `isJsonMode()` false and `printCliError` wrote PROSE
+      // to stderr with nothing on stdout. The document the root epilogue
+      // promises ("Under --json an error is a JSON document on STDOUT") was
+      // therefore absent for every refusal commander decides itself: a missing
+      // required argument, an unknown command, an unknown option, a value
+      // outside a `.choices()` set, too many arguments, and a root option whose
+      // value parser throws. Measured on the shipped binary: exit 1, ZERO bytes
+      // on stdout.
+      //
+      // Setting it here rather than earlier is what makes ONE mechanism cover
+      // all six: every one of those paths reaches commander's `_exit`, and this
+      // callback is it. The exit CODE is untouched — `handleError` still returns
+      // `error.exitCode`, and a successful exit (`--help`, `--version`) returns
+      // above without reaching this line.
+      if (!isJsonMode() && jsonRequested(program)) setJsonMode(true);
       throw new CliArgumentError(path.join(" "), error.exitCode, error.message, error.code);
     });
     for (const child of command.commands) install(child, path);
@@ -345,6 +437,38 @@ interface CliErrorDocument {
   readonly code: string;
 }
 
+/**
+ * The sentence a refused invocation puts on the wire.
+ *
+ * ⚠️ ONE COMMANDER REFUSAL CARRIES NO SENTENCE AT ALL, AND IT IS THE ONE A BARE
+ * `nexus --json` PRODUCES. Commander answers "no command was given" by calling
+ * `help({ error: true })`, which writes the help screen to stderr and exits with
+ * the literal marker `(outputHelp)` as its message — an internal token, not
+ * prose. As stderr text beside a printed help screen that was merely useless; in
+ * a document a machine parses it is a `message` field that says nothing, on the
+ * one failure whose remedy is the most obvious in the CLI.
+ *
+ * Keyed on commander's own `code` rather than on the marker string, so a change
+ * to that token cannot silently reinstate it.
+ *
+ * ⚠️ AND THAT CODE COVERS TWO DIFFERENT SENTENCES. Commander raises it for a
+ * bare `nexus` AND for a namespace run without a leaf (`nexus agent`), so a
+ * single "No command given." denies a command the caller plainly supplied and
+ * contradicts the hint printed beside it, which names that namespace's help.
+ * The path is the discriminator and it is already on the error: the walk in
+ * {@link installArgumentRefusalReporting} builds it from the tree, so a path
+ * carrying a space IS a namespace. Derived rather than compared against a
+ * literal "nexus", which would be a second declaration of the program's name.
+ */
+function messageForRefusal(err: CliArgumentError): string {
+  if (err.commanderCode === "commander.help") {
+    return err.commandPath.includes(" ")
+      ? `No subcommand given for "${err.commandPath}".`
+      : "No command given.";
+  }
+  return err.message.replace(/^error:\s*/, "");
+}
+
 export function handleError(err: unknown): number {
   // First, because it is the only failure that never reached the network and the
   // only one whose remedy is a `--help` the CLI can name exactly.
@@ -352,7 +476,7 @@ export function handleError(err: unknown): number {
     printCliError(
       // Commander prefixes its own text with "error: "; the document has a
       // `code` field for that job and the duplication reads badly in JSON.
-      err.message.replace(/^error:\s*/, ""),
+      messageForRefusal(err),
       `Run "${err.commandPath} --help" for the full usage.`,
       CLI_CODES.INVALID_ARGUMENTS
     );

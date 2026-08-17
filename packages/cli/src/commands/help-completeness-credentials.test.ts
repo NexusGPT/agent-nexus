@@ -294,15 +294,27 @@ describe("nexus prompt-assistant --help", () => {
     ]);
   });
 
-  it("says promptResult.prompt is markdown and is absent until completion", () => {
+  it("separates the two prompt formats and says promptResult is absent until completion", () => {
     const help = helpFor(registerPromptAssistantCommands, "prompt-assistant", "get-thread");
 
-    // PromptResultSchema.prompt is z.string(); promptResult is written only on
-    // the COMPLETED transition in prompt-assistant.service.ts.
+    // promptResult is written only on the COMPLETED transition in
+    // prompt-assistant.service.ts.
+    //
+    // 🚨 "IT IS A MARKDOWN STRING" WAS TRUE OF ONE MODE AND FALSE OF THE OTHER,
+    // WHICH IS WHY THIS CASE NO LONGER ACCEPTS IT. The two generators in
+    // `prompt-assistant.service.ts` build `promptResult.prompt` differently:
+    // `runAgentMetaPrompter` sets it to `serializeToMarkdown(promptJson)`, whose
+    // output opens on a `::: section: name="…" :::` directive and is the Nexus
+    // agent-prompt format, NOT prose; `runAiTaskMetaPrompter` sets it to the
+    // model's `system_prompt` verbatim, which carries no directive at all. One
+    // sentence covering both told an agent-mode caller its directives were
+    // incidental markdown it could strip — and stripping them flattens every
+    // section and tab into one blob that `agent update --prompt` then stores.
     expectAllPresent(help, [
       "promptResult IS ABSENT UNTIL status IS completed",
-      "MARKDOWN STRING",
-      "do NOT JSON.parse it"
+      "NEXUS SECTION MARKUP, NOT PROSE MARKDOWN",
+      "PLAIN PROSE, with no directives at all",
+      "neither is ever JSON.parse'd"
     ]);
   });
 

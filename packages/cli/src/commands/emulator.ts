@@ -1,5 +1,6 @@
 import type {
   CreateEmulatorSessionBody,
+  EmulatorStreamEvent,
   ReplayEmulatorScenarioBody,
   SaveEmulatorScenarioBody,
   SendEmulatorMessageBody
@@ -9,7 +10,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { color, emitDocument, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
@@ -21,6 +22,99 @@ import {
   EMULATOR_LIST_SESSIONS_CONTRACT,
   EMULATOR_SAVE_SCENARIO_CONTRACT
 } from "./emulator.contract.generated";
+
+/**
+ * Renders a live turn (NEX-2768).
+ *
+ * Two output modes, and the split is the root epilogue's promise rather than a
+ * preference: `--json` must print ONE document on stdout, so the frames are
+ * collected and emitted as `{ events }` when the turn ends. Without it the
+ * point is to watch, so tokens go out as they arrive and everything else is a
+ * labelled line around them.
+ *
+ * `process.stdout.write`, not `console.log`, for the deltas: a token is a
+ * fragment of a sentence and a newline per fragment would print the answer one
+ * word per line.
+ */
+async function streamTurn(events: AsyncIterable<EmulatorStreamEvent>): Promise<void> {
+  const collected: EmulatorStreamEvent[] = [];
+  const json = isJsonMode();
+
+  /**
+   * Which kind of delta the cursor is currently mid-line on.
+   *
+   * Both `thinking` and `token` arrive as fragments and are written WITHOUT a
+   * newline — one line break per fragment would print the answer a word at a
+   * time. That makes the two indistinguishable if they ever share a line, and a
+   * model that reasons between tool calls interleaves them constantly. Tracking
+   * the run is what lets a switch break the line and label the new one; a plain
+   * boolean could only say "something was written".
+   */
+  let openLine: "thinking" | "token" | null = null;
+
+  /** Ends the current run, if any, so the next output starts on its own line. */
+  const closeLine = () => {
+    if (openLine !== null) process.stdout.write("\n");
+    openLine = null;
+  };
+
+  /** Writes a delta, opening a labelled line when the run changes. */
+  const writeDelta = (kind: "thinking" | "token", delta: string) => {
+    if (openLine !== kind) {
+      closeLine();
+      if (kind === "thinking") process.stdout.write(color.dim("thinking  "));
+      openLine = kind;
+    }
+    process.stdout.write(kind === "thinking" ? color.dim(delta) : delta);
+  };
+
+  for await (const event of events) {
+    if (json) {
+      collected.push(event);
+      continue;
+    }
+
+    switch (event.type) {
+      case "start":
+        console.log(color.dim(`chat ${event.chatId} · message ${event.messageId}`));
+        break;
+      case "thinking":
+        writeDelta("thinking", event.delta);
+        break;
+      case "token":
+        writeDelta("token", event.delta);
+        break;
+      case "tool_call":
+        closeLine();
+        console.log(
+          color.dim(`  ${event.status === "started" ? "→" : "✓"} ${event.name ?? "tool"}`)
+        );
+        break;
+      case "message":
+        // The final text has usually already been printed token by token. It is
+        // reprinted only when it was not — a turn served from cache, or a
+        // provider that does not stream, emits the whole answer as one frame.
+        // `openLine === "thinking"` counts as NOT printed: reasoning is not the
+        // answer.
+        if (openLine !== "token" && event.content.text) {
+          closeLine();
+          console.log(event.content.text);
+        }
+        closeLine();
+        break;
+      case "error":
+        closeLine();
+        console.error(color.red(`${event.code}: ${event.message}`));
+        break;
+      case "done":
+        closeLine();
+        console.log(color.dim(`[${event.status}]`));
+        break;
+    }
+  }
+
+  if (json) emitDocument({ events: collected });
+}
 
 export function registerEmulatorCommands(program: Command): void {
   const emulator = program.command("emulator").description("Test deployments via the emulator");
@@ -63,6 +157,21 @@ TEST traffic and "nexus deployment stats" excludes them from both of its
 counters, so testing a deployment does not move its usage figures. What they DO
 reach is the inbox: deleting one archives its conversation rather than erasing
 it.
+
+chatId IS THE CONVERSATION ID, AND IT IS THE ONLY LINK BETWEEN A TEST AND THE
+INBOX. "session list" and "session get" both carry it under --json and NEITHER
+table prints the column; nothing in either namespace is called "conversationId".
+Hand it straight to the conversation verbs:
+
+  $ nexus emulator session get <deployment-id> <session-id> --json | jq -r '.chatId'
+  $ nexus conversation messages <that-id> --visible-only
+
+"session get" prints its record BARE, so the path is ".chatId"; "session list"
+is wrapped, so there it is ".data[].chatId".
+
+IT READS null UNTIL THE FIRST MESSAGE. The field is the session's first chat,
+and a session has no chat until something is sent into it — so null on a
+freshly created session means "nothing sent yet", never a broken link.
 
 SO DELETING EVERY SESSION DOES NOT CLEAN UP AFTER A TEST. "session list" comes
 back empty while the conversations those sessions produced are still there,
@@ -239,15 +348,27 @@ Notes:
     .argument("<session-id>", "Session ID")
     .option("--text <message>", "Message text")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .option(
+      "--stream",
+      "Stream the turn as it happens (SSE): tokens, reasoning, tool calls, then the final message"
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --text "Hello, agent!"
+  $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --text "Hello" --stream
   $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --body '{"content":"Hi","participantId":"participant_2"}'
   $ nexus emulator send 44444444-4444-4444-8444-444444444444 33333333-3333-4333-8333-333333333333 --text "Test" --json
 
 Notes:
+  --stream IS THE EXCEPTION TO EVERYTHING BELOW. It holds the connection open
+  and prints the turn as it happens — the agent's text arrives token by token,
+  reasoning and tool calls are shown as they run, and the stream ends with the
+  final status. There is no "processing" handoff and no second call: the reply
+  IS the output. Under --json it prints one document, {"events":[...]}, holding
+  every frame in order. Everything below describes the DEFAULT (buffered) send.
+
   THE REPLY IS NEVER IN THIS RESPONSE, ON ANY STATUS. Even on "completed" the
   payload is chatId, messageId, sessionId, status and debug — no text. Reading
   the agent's answer is always a second call:
@@ -294,6 +415,17 @@ Notes:
         const body = mergeBodyWithFlags(base, {
           content: opts.text
         });
+
+        if (opts.stream) {
+          await streamTurn(
+            client.emulator.streamMessage(
+              deploymentId,
+              sessionId,
+              asRequestBody<SendEmulatorMessageBody>(body)
+            )
+          );
+          return;
+        }
 
         const result = await client.emulator.sendMessage(
           deploymentId,

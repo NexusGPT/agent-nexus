@@ -136,6 +136,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "List, inspect, rename, and delete the OAuth connections, API keys, and tool credentials your agents and workflows use to reach external services — from the command line."
   },
+  cue: {
+    title: "Cue Transcripts CLI",
+    icon: "file-json",
+    description:
+      "List Cue conversations and export their full JSON transcripts — every turn, tool call, tool result and reasoning block, plus the complete transcript of every subagent a session spawned — one conversation at a time or in bulk across a date range."
+  },
   "custom-model": {
     title: "Custom Models CLI",
     icon: "cpu",
@@ -201,6 +207,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     icon: "triangle-alert",
     description:
       "Show the platform issues a human has published against the CLI command you ran. An empty list with polled=false means the server has not checked yet -- it is not a clean bill of health."
+  },
+  mcp: {
+    title: "MCP CLI",
+    icon: "plug-zap",
+    description:
+      "Inspect, call, and serve the Nexus MCP tool surface from the command line — list the tools your API key exposes, invoke one directly, run the stdio bridge on your active profile, and write the config block for Claude Code, Claude Desktop or Cursor."
   },
   model: {
     title: "Model CLI",

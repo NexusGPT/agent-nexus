@@ -24,6 +24,7 @@ export { ChannelsResource } from "./channels";
 export { CloudImportsResource } from "./cloud-imports";
 export { ConversationsResource } from "./conversations";
 export { CredentialsResource } from "./credentials";
+export { CueTranscriptsResource } from "./cue-transcripts";
 export { CustomModelsResource } from "./custom-models";
 export { CustomersResource } from "./customers";
 export { DeploymentFoldersResource } from "./deployment-folders";

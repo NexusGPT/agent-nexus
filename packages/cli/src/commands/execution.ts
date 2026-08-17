@@ -101,7 +101,11 @@ Notes:
   running — two concurrent tests on the same workflow and you read the other one's
   result. Use --include-test-runs and check the TYPE column.
   nodeStatusCounts in --json counts nodes by status. status COMPLETED with
-  nodeStatusCounts.completed == 0 means an execution row exists and NOTHING RAN.`
+  nodeStatusCounts.completed == 0 means an execution row exists and NOTHING RAN.
+  THE TYPE COLUMN IS "executionType" IN --json, NOT "type". Reading .type gets
+  you undefined, and undefined is indistinguishable from a real run here — every
+  row has an executionType, so a missing value means you read the wrong key:
+    $ nexus execution list --json | jq -r '.data[] | "\\(.id) \\(.executionType)"'`
       )
   ).action(async (opts) => {
     try {
@@ -203,7 +207,21 @@ Notes:
   SKIPPED is not a failure: it is a node a branch did not select. A whole branch
   reading SKIPPED means the condition chose elsewhere.
   --verbose adds each node's full input and output JSON, which is how you see what
-  a reference actually resolved to. Without it you get a one-line output summary.`
+  a reference actually resolved to. Without it you get a one-line output summary.
+
+  🚨 outputSummary IS A TRUNCATED STRING, NOT THE OUTPUT. It is the node's output
+  run through JSON.stringify and cut to the first 100 characters with a "…"
+  appended — so a truncated one is 101 characters — and it is a STRING at every
+  length. jq'ing into it (.outputSummary.someField) gets undefined, and once it
+  has been cut it is no longer parseable JSON either. Treat it as a PREVIEW for
+  reading, never as a field to script against.
+  ANYTHING YOU MEAN TO PARSE NEEDS --verbose, which adds "input" and "output"
+  carrying the real values. WITHOUT IT THOSE TWO KEYS ARE ABSENT, not null: a
+  script testing "output === null" cannot tell "the node produced nothing" from
+  "you did not pass --verbose". Test for the key.
+  A BRANCHING NODE'S CHOICE LIVES IN THAT FULL OUTPUT — read
+  .nodes[] | select(.nodeType=="…") | .output under --verbose. It is not on
+  outputSummary in any readable form, and it is not a field of its own here.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -581,8 +599,9 @@ Examples:
 
 Notes:
   IT PRINTS A DOWNLOAD LINK, NOT THE EXPORT. The answer is {url, expiresAt} and
-  nothing else — the run itself is the JSON document at that url. Fetch it:
-    curl -sL "$(nexus execution export exec-123 --json | jq -r .data.url)" > run.json
+  nothing else — the run itself is the JSON document at that url. The document is
+  FLAT, so the url is at .url and NOT at .data.url. Fetch it:
+    curl -sL "$(nexus execution export exec-123 --json | jq -r .url)" > run.json
   THE LINK EXPIRES IN ABOUT FIVE MINUTES and carries its own authorization, so
   it needs no API key and it is not re-fetchable afterwards. Download it in the
   same breath as you mint it; re-run the command for a fresh link.

@@ -500,10 +500,35 @@ export function resolveBaseUrl(override?: string, profile?: string): string {
 
 /**
  * Resolve the dashboard URL.
- * Priority: explicit override → NEXUS_DASHBOARD_URL env → active profile → NEXUS_ENV → production
+ *
+ * Priority: explicit override → named --profile → NEXUS_DASHBOARD_URL env →
+ * active profile → NEXUS_ENV → production.
+ *
+ * 🚨 `profile` IS NOT OPTIONAL POLISH — WITHOUT IT THIS ANSWERS ABOUT A
+ * DIFFERENT ENVIRONMENT THAN THE REQUEST WENT TO. `resolveBaseUrl` and
+ * `resolveApiKey` both take it, so `--profile staging` sends the request to
+ * staging; this function used to take only the override and resolve the ACTIVE
+ * profile, so the link came back pointing at production. The failure looks like
+ * a missing resource: the link opens, the dashboard is the wrong org's, and the
+ * thing the command just created is not there.
+ *
+ * ⚠️ THE NAMED PROFILE OUTRANKS `NEXUS_DASHBOARD_URL`, matching `resolveBaseUrl`
+ * exactly. An explicit flag beats an ambient env var, and the two resolvers
+ * disagreeing about that ordering is how the host and the link drift apart on
+ * one invocation.
  */
-export function resolveDashboardUrl(override?: string): string {
+export function resolveDashboardUrl(override?: string, profile?: string): string {
   if (override) return override;
+
+  if (profile) {
+    try {
+      const resolved = resolveProfile({ profile });
+      if (resolved.profile.dashboardUrl) return resolved.profile.dashboardUrl;
+    } catch {
+      // Named profile missing — fall through to env / defaults.
+    }
+  }
+
   if (process.env.NEXUS_DASHBOARD_URL) return process.env.NEXUS_DASHBOARD_URL;
 
   try {

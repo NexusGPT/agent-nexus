@@ -306,6 +306,30 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "credential list": "safe",
   "credential update": "registration-only",
 
+  // ── cue ────────────────────────────────────────────────────────────────────
+  // `export` is read-only and needs no input, but it would not be swept even
+  // once its route is live: it is rate limited to 5 requests per minute per
+  // organization and a bare invocation pulls the org's whole transcript corpus
+  // to stdout. A sweep firing it every run would spend the limit a real export
+  // needs and move megabytes to do it.
+  //
+  // ⚠️ `cue conversations` IS a `safe` leaf by every property the disposition
+  // describes — read-only, no required input, emits `--json` — and it is
+  // classified `registration-only` for one reason that is about TIME, not about
+  // the command: the sweep runs against STAGING, and `GET /public/v1/cue/
+  // conversations` ships in the same PR as this line, so on the run that gates
+  // that PR the route answers 404. `sweep.sh` treats that as a FAIL and is right
+  // to — a 404 from a route that used to exist is exactly the regression it
+  // exists to catch, and widening its SKIP match to swallow one would blind it
+  // to every deleted route.
+  //
+  // FLIP THIS TO "safe" ONCE THE ROUTE IS ON STAGING. It is a one-line follow-up
+  // and nothing else has to change; leaving it is a read-only leaf the sweep
+  // stopped watching.
+  "cue conversations": "registration-only",
+  "cue export": "registration-only",
+  "cue transcript": "registration-only",
+
   // ── custom-model ───────────────────────────────────────────────────────────
   "custom-model create": "registration-only",
   "custom-model delete": "registration-only",
@@ -421,6 +445,18 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // argument means here, not a judgement about the call being unsafe.
   "known-issues": "registration-only",
 
+  // ── mcp ────────────────────────────────────────────────────────────────────
+  // `call` dispatches whatever tool name it is handed against the real Public
+  // API, so it is `nexus api`'s class rather than a typed verb's: unbounded by
+  // construction, and the sweep must never fire one blind. `serve` reads stdin
+  // until it closes and speaks a wire protocol on stdout — nothing a sweep can
+  // drive. `install` writes a config file outside this directory under --apply.
+  "mcp call": "never-execute",
+  "mcp install": "registration-only",
+  "mcp serve": "never-execute",
+  "mcp tools get": "registration-only",
+  "mcp tools list": "safe",
+
   // ── model ──────────────────────────────────────────────────────────────────
   "model list": "safe",
 
@@ -525,6 +561,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ── task ───────────────────────────────────────────────────────────────────
   "task create": "registration-only",
   "task delete": "registration-only",
+  "task duplicate": "registration-only",
   "task execute": "registration-only",
   "task get": "registration-only",
   "task list": "safe",

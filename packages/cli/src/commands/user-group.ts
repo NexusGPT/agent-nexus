@@ -26,6 +26,32 @@ export function registerUserGroupCommands(program: Command): void {
     .command("user-group")
     .description("Manage user groups — the group principal a permission grant names");
 
+  userGroup.addHelpText(
+    "after",
+    `
+THREE ENVELOPES IN ONE NAMESPACE, AND ONLY ONE OF THEM CARRIES memberUserIds.
+Under --json the same group comes back three different ways, so a script that
+reads the membership after a write has to know which verb it just called:
+
+  list                    {"data":[{id, name, description, createdAt,
+                          memberUserIds, memberCount}]}   ← the only READ
+  create · update         {success, message, id, name, memberCount}
+                          NO memberUserIds. The write landed; the membership is
+                          simply not in the answer. Do not read this as empty.
+  add-member              the WHOLE group object, BARE — no "success" key and
+  remove-member           no "data" wrapper, memberUserIds included.
+
+So: parse ".data[]" after list, the top level after a membership write, and
+neither after create or update — go back to list for the ids.
+
+THERE IS NO "user-group get" AND NO GET ROUTE BEHIND ONE. "list" is the whole
+read surface; select the row you want out of it by id.
+
+EVERY VERB HERE NEEDS THE org:admin ROLE ON TOP OF ITS SCOPE — all six routes
+check it, reads included. A correctly scoped key held by a non-admin is a 403,
+never an empty list.`
+  );
+
   // ── list ──────────────────────────────────────────────────────────────
   const list = userGroup
     .command("list")
@@ -38,9 +64,11 @@ Examples:
   $ nexus user-group list --json
 
 Notes:
-  MEMBERS IS A COUNT, NOT A LIST. This table shows how many users a group holds
-  and never which ones. The member ids come back from "add-member",
-  "remove-member" and "user-group get".
+  MEMBERS IS A COUNT, NOT A LIST — IN THE TABLE. --json carries memberUserIds
+  on every row, so this command IS the read; the table simply does not print the
+  column. THERE IS NO "user-group get": this list is the only read in the
+  namespace, and the two membership writes echo the group back as well.
+    $ nexus user-group list --json | jq -r '.data[] | select(.id=="<id>")'
   The ID column is a UUID and is what every other user-group verb takes. A group
   NAME is not unique and selects nothing.
   Members are Clerk user ids (user_…), which are a different id space from this
@@ -122,10 +150,11 @@ Notes:
   group; omitting the flag leaves the membership alone.
   YOU CANNOT CHANGE MEMBERSHIP WITHOUT ALSO SENDING A NAME. A name is required
   on every update, so a membership-only edit is not expressible — and sending a
-  name you guessed RENAMES the group as a side effect. Read the current name
-  with "nexus user-group get <id>" and pass it back unchanged:
+  name you guessed RENAMES the group as a side effect. Read the current name out
+  of "user-group list" — the namespace has no "get" — and pass it back unchanged:
 
-    $ nexus user-group update 11111111-1111-4111-8111-111111111111 --name "$(nexus user-group get 11111111-1111-4111-8111-111111111111 --json | jq -r .name)" --user-ids user_abc
+    $ nexus user-group update 11111111-1111-4111-8111-111111111111 --user-ids user_abc \\
+        --name "$(nexus user-group list --json | jq -r '.data[] | select(.id=="11111111-1111-4111-8111-111111111111") | .name')"
 
   A USER WHO IS NOT IN THIS ORGANIZATION IS REFUSED, and the refusal counts the
   bad ids without naming them. Passing ten ids to find the one that fails means

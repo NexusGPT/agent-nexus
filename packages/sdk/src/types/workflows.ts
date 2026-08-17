@@ -622,6 +622,18 @@ export interface NodeTypeSchema {
   actionCatalog?: NexusApiActionCatalog;
   /** Present only on trigger node types. */
   runOutputSchema?: RunOutputShape;
+  /**
+   * The node type's authoring guide — one CommonMark document, served verbatim.
+   *
+   * Covers what no other field on this response can: which node type to pick
+   * over which, a minimal configuration that actually RUNS, and the writes the
+   * platform accepts and then fails at run time. Every other field here is
+   * structured registry data a consumer could already reconstruct.
+   *
+   * ABSENT rather than empty when a type has no guide yet — `""` would read as
+   * "nothing worth saying about this type", which is never the case.
+   */
+  guide?: string;
 }
 
 /**

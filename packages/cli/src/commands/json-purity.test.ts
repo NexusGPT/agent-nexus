@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildRootProgram } from "../index";
 import { setJsonMode } from "../output";
 
 /**
@@ -35,14 +36,24 @@ const fakeClient = {
   }
 };
 
-vi.mock("../client", () => ({
-  createClient: () => fakeClient,
-  timeoutSecondsToMs: (s?: number) => (s !== undefined ? s * 1000 : undefined)
-}));
+// 🚨 PARTIAL, VIA `importOriginal`. A total mock listing only the two members
+// this file calls is enough for a hand-built program carrying three commands,
+// and it makes the REAL root program fail to COLLECT — `prompt-assistant.ts`
+// reads `seconds` at module scope, so the suite reports `Tests: no tests`,
+// which is a void run rather than a red. Keeping every other export real is
+// what lets this gate drive the entry point the binary drives.
+vi.mock("../client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../client")>();
+  return {
+    ...actual,
+    createClient: () => fakeClient,
+    timeoutSecondsToMs: (s?: number) => (s !== undefined ? s * 1000 : undefined)
+  };
+});
 
-import { registerCustomerCommands } from "./customer";
+// Only the HUMAN-path control still registers a command by hand. Every `--json`
+// case now goes through `buildRootProgram()`, which registers all of them.
 import { registerModelCommands } from "./model";
-import { registerSkillFolderCommands } from "./skill-folder";
 
 interface Run {
   stdout: string;
@@ -50,15 +61,28 @@ interface Run {
   exitCode: number | undefined;
 }
 
-/** Run one argv under `--json`, capturing both streams and the exit code. */
+/**
+ * Run one argv under `--json`, capturing both streams and the exit code.
+ *
+ * 🚨 THE MODE IS AN OUTPUT OF THE RUN, NEVER AN INPUT TO IT.
+ *
+ * This helper used to build its own root — `new Command().option("--json")` —
+ * and then call `setJsonMode(true)` before parsing. That hand-built root
+ * DECLARES the flag and installs no `preAction` hook, so the harness was
+ * supplying the one piece of state the program is responsible for producing,
+ * and every assertion below was about a world where `--json` cannot fail to
+ * take effect.
+ *
+ * Measured, two arms over one mutant (`if (opts.json) setJsonMode(true)` deleted
+ * from the root's `preAction` hook in `index.ts`): the old harness passed 5 of 5
+ * against a CLI whose `--json` did nothing at all; this one fails 4 of 5, with
+ * the human-path control still green. `--json` now rides in argv exactly as a
+ * caller types it, `buildRootProgram()` is the same root the binary runs, and
+ * whether the process notices is part of what this file measures.
+ */
 async function runJson(argv: string[]): Promise<Run> {
-  const program = new Command();
-  program.name("nexus").option("--json", "Output as JSON");
-  registerCustomerCommands(program);
-  registerModelCommands(program);
-  registerSkillFolderCommands(program);
+  const program = buildRootProgram();
 
-  setJsonMode(true);
   process.exitCode = undefined;
 
   const stdout: string[] = [];

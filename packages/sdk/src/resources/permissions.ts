@@ -1,9 +1,9 @@
 import type {
+  GenericGrantResourceType,
   GrantPermissionBody,
   GrantPermissionResponse,
   ListResourceAccessResponse,
   OrgPermissionSettings,
-  PermissionResourceType,
   RevokePermissionBody,
   RevokePermissionResponse,
   UpdateResourceTypeVisibilityBody,
@@ -24,12 +24,14 @@ export class PermissionsResource extends BaseResource {
   /**
    * List every grant currently written against one resource.
    *
-   * @param resourceType - The kind of resource.
+   * @param resourceType - The kind of resource. `knowledge` and `workspace` are
+   *   refused by this route — read their access off `client.roles` instead, see
+   *   {@link GenericGrantResourceType}.
    * @param resourceId - The resource's UUID.
    * @returns Every grant row, each naming its subject and relation.
    */
   async listResourceAccess(
-    resourceType: PermissionResourceType,
+    resourceType: GenericGrantResourceType,
     resourceId: string
   ): Promise<ListResourceAccessResponse> {
     return this.http.request<ListResourceAccessResponse>(

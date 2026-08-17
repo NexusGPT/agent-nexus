@@ -124,6 +124,16 @@ Notes:
   --voice.
   PRICE is the monthly rate and is what "phone-number buy --price" must
   repeat. Copy it from this table rather than typing it.
+  🚨 IT IS A STRING, AND A JSON ROUND TRIP THROUGH A NUMBER CORRUPTS IT. The
+  field is "1.15", not 1.15, with the unit in a separate "currency" field —
+  so a script that parses the row, reads price as a number and re-serialises
+  it sends 1.15 as "1.15" but 1.10 as "1.1", and the buy is refused for a
+  price that no longer matches the quote. Carry the string through untouched:
+
+    $ nexus phone-number search --country US --sms --json | jq -r '.[0].price'
+
+  Both price and currency can be null — that is Twilio declining to quote, or a
+  number billed to your own subaccount, not a free number.
   --area-code is digits only and Twilio applies it to US and Canada only.
   --limit is capped at 50 and defaults to 5. Over the cap is a 400, NOT a clamp
   to 50 — the search does not run at all.

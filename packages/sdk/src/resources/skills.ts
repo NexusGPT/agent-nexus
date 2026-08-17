@@ -1,4 +1,5 @@
 import { appendFilePart } from "../multipart";
+import { LONG_RUNNING_TIMEOUT_MS } from "../timeouts";
 import type {
   AttachCollectionDocumentsBody,
   AttachCollectionDocumentsResponse
@@ -16,6 +17,7 @@ import type {
   DeleteExternalToolResponse,
   DeleteTaskResponse,
   DocumentTemplateDetail,
+  DuplicateTaskBody,
   ExecuteTaskBody,
   ExecuteTaskResponse,
   ExternalToolAuth,
@@ -291,6 +293,10 @@ export class SkillsResource extends BaseResource {
    * against the available AI models — on invalid model, returns 400 with
    * the list of valid model names.
    *
+   * Few-shot demonstrations belong in `fewShots`, not concatenated into the
+   * prompt — each pair is replayed as a user/assistant exchange ahead of the
+   * real input.
+   *
    * @param body - Task definition.
    * @returns Created task detail.
    *
@@ -303,7 +309,10 @@ export class SkillsResource extends BaseResource {
    *   generation: {
    *     expectedInput: "Raw email text",
    *     expectedOutput: "A concise 2-sentence summary"
-   *   }
+   *   },
+   *   fewShots: [
+   *     { input: "Dear team, the Q4 report is attached.", output: "Q4 report shared." }
+   *   ]
    * });
    * ```
    */
@@ -312,7 +321,47 @@ export class SkillsResource extends BaseResource {
   }
 
   /**
+   * Copy an AI task, optionally onto another name, description or model.
+   *
+   * This is the path the 409 `DUPLICATE_TASK_PROMPT` from {@link createTask}
+   * recommends. Every field the body does not name is taken from the SOURCE
+   * task — prompt, schemas, few-shots, folder, temperature, provider tuning —
+   * which is what separates it from re-creating the variant with `createTask`,
+   * where an unsent field silently takes that route's DEFAULT instead. The one
+   * field a copy does not carry is `collections`: attaching one is a permission
+   * decision this path does not yet make.
+   *
+   * 🚨 **If the ONLY thing you want to change is the model, do not copy the
+   * task.** Pass `modelOverride` to {@link executeTask} (or set it on the
+   * workflow's `aiTask` node) and keep one prompt. Two copies of one prompt
+   * drift: a rubric change then has to land twice or the two paths quietly
+   * start disagreeing. Duplicate is for a prompt that is genuinely going to
+   * diverge.
+   *
+   * @param taskId - AI Task UUID to copy.
+   * @param body - Optional overrides for the copy.
+   * @returns The copy, as task detail.
+   *
+   * @example
+   * ```ts
+   * // Fork a prompt that is about to diverge, onto a cheaper model.
+   * const copy = await client.skills.duplicateTask("task-uuid", {
+   *   name: "Tender fit assessor (draft rubric v2)",
+   *   modelName: "claude-haiku-4-5",
+   *   modelProvider: "ANTHROPIC"
+   * });
+   * ```
+   */
+  async duplicateTask(taskId: string, body: DuplicateTaskBody = {}): Promise<TaskDetail> {
+    return this.http.request<TaskDetail>("POST", `/skills/tasks/${taskId}/duplicate`, { body });
+  }
+
+  /**
    * Partially update an existing AI task (name, prompt, model, generation config, etc.).
+   *
+   * `fewShots` is the one field that REPLACES rather than merges: the array
+   * sent becomes the task's whole demonstration set, and `[]` clears it.
+   * Omitting the key leaves the stored examples alone.
    *
    * @param taskId - AI Task UUID.
    * @param body - Fields to update.
@@ -489,7 +538,12 @@ export class SkillsResource extends BaseResource {
     return this.http.request<TestExternalToolResponse>(
       "POST",
       `/skills/external-tools/${externalToolId}/test`,
-      { body }
+      {
+        body,
+        // The server holds the connection open for a round trip to somebody
+        // else's API, whose latency this SDK does not get to choose.
+        timeoutMs: LONG_RUNNING_TIMEOUT_MS
+      }
     );
   }
 
@@ -666,7 +720,7 @@ export class SkillsResource extends BaseResource {
    * Execute an AI task with input and get the output.
    *
    * @param taskId - AI Task UUID.
-   * @param body - Input to the task.
+   * @param body - Input to the task, and optionally the model to run it on.
    * @returns Task output and output type.
    *
    * @example
@@ -676,10 +730,27 @@ export class SkillsResource extends BaseResource {
    * });
    * console.log(`Output (${outputType}):`, output);
    * ```
+   *
+   * @example
+   * ```ts
+   * // One prompt, two economics. The nightly sweep runs it cheap...
+   * await client.skills.executeTask(taskId, {
+   *   input: notice,
+   *   modelOverride: { modelName: "claude-haiku-4-5", modelProvider: "ANTHROPIC" }
+   * });
+   * // ...and the button a human presses runs the SAME task on the frontier
+   * // model. Neither call changes the task, so there is one prompt to maintain.
+   * await client.skills.executeTask(taskId, { input: notice });
+   * ```
    */
   async executeTask(taskId: string, body: ExecuteTaskBody): Promise<ExecuteTaskResponse> {
     return this.http.request<ExecuteTaskResponse>("POST", `/skills/tasks/${taskId}/execute`, {
-      body
+      body,
+      // The route runs the model before it can answer. On a frontier model with
+      // a structured-JSON output that is 60–90 s, so the transport's 30 s
+      // default aborted every correct generation and let only the degenerate
+      // ones through (NEX-2492). A caller-set client `timeout` still wins.
+      timeoutMs: LONG_RUNNING_TIMEOUT_MS
     });
   }
 

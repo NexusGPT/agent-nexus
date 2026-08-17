@@ -169,7 +169,7 @@ Notes:
       // Default: show links. These are pages a human opens in a browser, so they
       // are on the dashboard host — a different host from the feeds above, and
       // the reason both resolvers are used in one command.
-      const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl).replace(/\/+$/, "")}/docs`;
+      const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl, globals.profile).replace(/\/+$/, "")}/docs`;
       const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
       console.log(color.bold("Nexus Documentation\n"));
       console.log(`  Full docs:     ${color.cyan(docsUrl)}`);

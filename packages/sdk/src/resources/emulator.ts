@@ -5,6 +5,7 @@ import type {
   EmulatorSendMessageResult,
   EmulatorSession,
   EmulatorSessionDetail,
+  EmulatorStreamEvent,
   ListEmulatorScenariosParams,
   ReplayEmulatorScenarioBody,
   ReplayScenarioResponse,
@@ -59,6 +60,39 @@ export class EmulatorResource extends BaseResource {
     return this.http.request<EmulatorSendMessageResult>(
       "POST",
       `/emulator/${deploymentId}/sessions/${sessionId}/messages`,
+      { body }
+    );
+  }
+
+  /**
+   * Send a message and stream the agent turn as it happens.
+   *
+   * The streaming twin of {@link sendMessage}: same body, same effect on the
+   * conversation, but it yields token deltas, reasoning, tool start/finish and
+   * the final message instead of waiting for the turn and returning a summary.
+   * Use it to build a chat UI that shows progress rather than a spinner.
+   *
+   * The stream opens with `start` (carrying `chatId` / `messageId`, which the
+   * blocking send only reveals at the end) and closes with `done`. Leaving the
+   * loop early cancels the connection; the turn keeps running server-side and
+   * its result is still persisted, so `getSession()` can read it afterwards.
+   *
+   * @example
+   * ```ts
+   * for await (const event of client.emulator.streamMessage(depId, sessionId, { content: "hi" })) {
+   *   if (event.type === "token") process.stdout.write(event.delta);
+   *   if (event.type === "done") console.log(`\n[${event.status}]`);
+   * }
+   * ```
+   */
+  streamMessage(
+    deploymentId: string,
+    sessionId: string,
+    body: SendEmulatorMessageBody
+  ): AsyncGenerator<EmulatorStreamEvent, void, undefined> {
+    return this.http.requestSSE<EmulatorStreamEvent>(
+      "POST",
+      `/emulator/${deploymentId}/sessions/${sessionId}/messages/stream`,
       { body }
     );
   }

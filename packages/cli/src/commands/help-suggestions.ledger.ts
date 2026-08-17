@@ -178,7 +178,7 @@ export interface HelpSuggestion {
  * number. That is the friction, and it is the feature — a figure nobody has to
  * update is a figure nobody can trust.
  */
-export const PLACED_COUNT = 177;
+export const PLACED_COUNT = 213;
 
 /**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
@@ -214,7 +214,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "global-02",
     target: "every subcommand --help",
     summary: "State that --json is a GLOBAL flag.",
-    state: "open"
+    state: "placed",
+    leaf: "auth whoami",
+    probe: "GLOBAL FLAGS, USABLE HERE"
   },
   {
     id: "global-03",
@@ -236,7 +238,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "access-card-01",
     target: "access-card create",
     summary: "--color <color> Card color (slate, blue, green, etc.)",
-    state: "open"
+    state: "placed",
+    leaf: "access-card create",
+    probe: '--color IS A FREE STRING AND "(slate, blue, green, etc.)" IS NOT A SET'
   },
   {
     id: "access-card-02",
@@ -268,7 +272,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "access-card create/update",
     summary:
       "Show that the policies map goes inside --data, alongside name/color, not as a bare argument.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'both halves are already in the tree. "access-card create" documents policies as a map inside --data and both of its examples show it there beside the separate --name flag; "access-card update" states THE REPLACEMENT ONLY FIRES WHEN YOU ACTUALLY SEND policies, and that a metadata-only edit with no --data leaves policies untouched — which is the audit\'s own verified answer ("alone is fine"). There is no line left to write.'
   },
   {
     id: "access-card-06",
@@ -282,7 +288,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "admin-01",
     target: "admin",
     summary: "reconcile the two subcommand lists in the same help page",
-    state: "open"
+    state: "placed",
+    leaf: "admin",
+    probe: "this list and the Commands block above are the same set"
   },
   {
     id: "admin-02",
@@ -296,7 +304,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "admin-03",
     target: "admin",
     summary: "state that the exit-code contract is admin-only",
-    state: "open"
+    state: "placed",
+    leaf: "admin",
+    probe: "THIS NAMESPACE ONLY — every other command in this CLI exits 0 or 1"
   },
   {
     id: "agent-01",
@@ -374,13 +384,17 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "agent-eval-01",
     target: "agent-eval",
     summary: "put the feature-flag NAME in the server error, or say how to check it",
-    state: "open"
+    state: "placed",
+    leaf: "agent-eval",
+    probe: "ASK WITH THE ONE READ THAT CHANGES NOTHING"
   },
   {
     id: "agent-eval-02",
     target: "agent-eval run create",
     summary: "ship a complete run.json the reader can copy",
-    state: "open"
+    state: "placed",
+    leaf: "agent-eval run create",
+    probe: "A COMPLETE run.json, INLINE"
   },
   {
     id: "agent-skill-01",
@@ -402,13 +416,17 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "agent-skill-03",
     target: "agent-skill list / get",
     summary: "document the response fields, including the size totals.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'the fields and both totals are documented on "agent-skill list", with a distinction the audit did not draw: totalCount and totalSizeBytes describe EVERYTHING attached to the agent, not the page. "agent-skill get" documents its own field set and says it is metadata only. The row asked for the response fields including the size totals; all of it is present.'
   },
   {
     id: "agent-skill-04",
     target: "agent-skill update / delete / list / get",
     summary: "add the missing per-command notes.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'all four commands the audit found without Notes — update, delete, list, get — now have them, and two of the audit\'s own facts are refuted by the tree. "update" carries the lowercase/hyphen rule and the identical-message rejection; "get" carries metadata-only, no file list. But the audit says "delete needs no --yes off a TTY", and delete is wrapped in confirmable(): its Notes say --yes IS REQUIRED IN A SCRIPT. The audit also reports delete answering {success,id}; the route answers {success,message} and the id a caller sees under --json is printSuccess\'s own line. Placing this row as drafted would ship two false sentences.'
   },
   {
     id: "agent-tool-01",
@@ -438,7 +456,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "agent-tool-04",
     target: "agent-tool create",
     summary: "name the config shape for TASK and DOCUMENT_TEMPLATE types.",
-    state: "open"
+    state: "placed",
+    leaf: "agent-tool create",
+    probe: "TASK AND DOCUMENT_TEMPLATE HAVE NO KEY OF THEIR OWN"
   },
   {
     id: "analytics-01",
@@ -501,7 +521,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "api-02",
     target: "api",
     summary: "document the pagination meta shape alongside the --query example",
-    state: "open"
+    state: "placed",
+    leaf: "api",
+    probe: '"meta" IS WHAT DRIVES A PAGING LOOP'
   },
   {
     id: "api-03",
@@ -515,13 +537,17 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "api-04",
     target: "api",
     summary: "cross-reference `nexus api GET /workspaces/<slug>/files --query path=<dir>`",
-    state: "open"
+    state: "placed",
+    leaf: "api",
+    probe: "SOME ROUTES HAVE NO TYPED COMMAND AT ALL"
   },
   {
     id: "asset-01",
     target: "asset (namespace)",
     summary: "give this namespace a Notes section — it is the only one of the five with none.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      "the row asks for a Notes section on the `asset` namespace because it was the only one of the five without one. It has one, and it carries more than the row asked for: that the URL is public, unsigned and permanent and is therefore the opposite of `document download`'s signed hour-long link; that deleting an asset usually breaks every page using it and that the delete is two operations whose second may fail; and that the file's BYTES are checked against its extension, so renaming something to .png does not get it in. The audit also wanted the extension allowlist enumerated, which is still discoverable only from a 400 — that is a smaller gap than the row, and the row's own ask is answered."
   },
   {
     id: "asset-02",
@@ -543,7 +569,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "auth-01",
     target: "auth list",
     summary: "document the --json shape (a bare ARRAY, with a `marker` field)",
-    state: "open"
+    state: "placed",
+    leaf: "auth list",
+    probe: "--json IS A BARE ARRAY AND THE ACTIVE PROFILE IS FLAGGED BY A GLYPH"
   },
   {
     id: "auth-02",
@@ -581,19 +609,25 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "channel-02",
     target: "channel setup / whatsapp-template list / approvals",
     summary: "(empty is not an error)",
-    state: "open"
+    state: "placed",
+    leaf: "channel",
+    probe: "AN EMPTY LIST HERE USUALLY MEANS STEP 1 NEVER HAPPENED"
   },
   {
     id: "channel-03",
     target: "channel whatsapp-template test-send",
     summary: "(safer alternative)",
-    state: "open"
+    state: "placed",
+    leaf: "channel whatsapp-template test-send",
+    probe: "THERE IS NO WAY TO PREVIEW THE RENDERED TEMPLATE"
   },
   {
     id: "claude-code-01",
     target: "nexus claude-code install",
     summary: "Examples: '$ nexus claude-code install nexus-workflow-builder # Install one skill'",
-    state: "open"
+    state: "placed",
+    leaf: "claude-code install",
+    probe: "NAMING ONE SKILL NARROWS THE SKILLS AND NOTHING ELSE"
   },
   {
     id: "cloud-import-01",
@@ -615,13 +649,17 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "cloud-import-03",
     target: "cloud-import providers",
     summary: "surface supportsRefreshToken in the table, or explain it.",
-    state: "open"
+    state: "placed",
+    leaf: "cloud-import providers",
+    probe: "THE TABLE HIDES THE FIELD THAT DECIDES WHETHER A CONNECTION SURVIVES"
   },
   {
     id: "cloud-import-04",
     target: "cloud-import browse vs google-drive list-files",
     summary: "reconcile the --folder-id default between the twin commands.",
-    state: "open"
+    state: "placed",
+    leaf: "cloud-import",
+    probe: "THEY DO NOT TAKE THE SAME FLAGS"
   },
   {
     id: "cloud-import-05",
@@ -692,19 +730,25 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "conversation-01",
     target: "conversation list / messages / search",
     summary: "(meta shape differs per command)",
-    state: "open"
+    state: "placed",
+    leaf: "conversation",
+    probe: "NO TWO OF THEM CARRY THE SAME meta"
   },
   {
     id: "conversation-02",
     target: "conversation assign",
     summary: "(where user ids come from)",
-    state: "open"
+    state: "placed",
+    leaf: "conversation assign",
+    probe: "WHERE THE IDS COME FROM, BECAUSE NOTHING IN THIS NAMESPACE LISTS THEM"
   },
   {
     id: "conversation-03",
     target: "conversation assigned-users",
     summary: "(undocumented useful field)",
-    state: "open"
+    state: "placed",
+    leaf: "conversation assigned-users",
+    probe: "IT ALSO ANSWERS responseHandling"
   },
   {
     id: "conversation-04",
@@ -718,7 +762,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "conversation-05",
     target: "conversation messages",
     summary: "(how to reach a conversation from a deployment)",
-    state: "open"
+    state: "placed",
+    leaf: "conversation messages",
+    probe: "REACHING THIS COMMAND FROM A DEPLOYMENT YOU JUST TESTED"
   },
   {
     id: "credential-01",
@@ -733,7 +779,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "credential get",
     summary:
       "Repeat (or cross-reference) the meaning of `source` here, as `credential list --help` does.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      "`credential get` explains `source` in full and goes past what the row asked. The row wanted the meaning repeated or cross-referenced from `credential list`; the text names the three backing records (oauth_connection, api_key_connection, tool_credential) and both consequences that make the field matter — what `credential delete` has to tear down, and which of name/description `credential update` can actually store. A reader arriving via `get` misses nothing."
   },
   {
     id: "credential-03",
@@ -998,7 +1046,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "emulator-01",
     target: "emulator session list / get",
     summary: "(chatId is the conversation id)",
-    state: "open"
+    state: "placed",
+    leaf: "emulator session",
+    probe: "chatId IS THE CONVERSATION ID"
   },
   {
     id: "emulator-02",
@@ -1028,14 +1078,18 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "emulator-05",
     target: "emulator session delete",
     summary: "(what deleting every session leaves behind)",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'the tree answers this in full on the "emulator session" namespace help and CORRECTS the audit while doing it. It states that deleting every session leaves the conversations behind, ARCHIVED, and names the exact command that still lists them ("conversation list --deployment-id <dep> --status ARCHIVED"). The audit also claimed the inbox AND "deployment stats" keep counting them; the same block says "nexus deployment stats" EXCLUDES emulator sessions from both of its counters, so writing the row as drafted would ship a false sentence. Nothing is left to place.'
   },
   {
     id: "execution-01",
     target: "execution list",
     summary:
       "name the JSON field `executionType` alongside the table's TYPE column, and list its three values (run / loop_iteration / node_test).",
-    state: "open"
+    state: "placed",
+    leaf: "execution list",
+    probe: 'THE TYPE COLUMN IS "executionType" IN --json'
   },
   {
     id: "execution-02",
@@ -1051,7 +1105,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "execution diagnose",
     summary:
       "promote outputSummary as the fastest way to read what each node emitted, and note that a branching node reports {chosenBranch, chosenBranchId} there.",
-    state: "open"
+    state: "placed",
+    leaf: "execution diagnose",
+    probe: "outputSummary IS A TRUNCATED STRING, NOT THE OUTPUT"
   },
   {
     id: "execution-04",
@@ -1205,7 +1261,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "html-template-02",
     target: "html-template list",
     summary: "(paging)",
-    state: "open"
+    state: "placed",
+    leaf: "html-template list",
+    probe: "THERE IS NO PAGING HERE AND NOTHING REPORTS A TOTAL"
   },
   {
     id: "html-template-03",
@@ -1219,13 +1277,17 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "model-01",
     target: "model list",
     summary: "the field set a model row returns, and that there are no filter flags.",
-    state: "open"
+    state: "placed",
+    leaf: "model list",
+    probe: "THE TABLE SHOWS FOUR COLUMNS AND A ROW CARRIES TWELVE FIELDS"
   },
   {
     id: "model-02",
     target: "model --help",
     summary: "a cross-reference to the commands that consume a model id.",
-    state: "open"
+    state: "placed",
+    leaf: "model",
+    probe: "THIS NAMESPACE ONLY READS"
   },
   {
     id: "permissions-01",
@@ -1263,25 +1325,33 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "phone-number-02",
     target: "phone-number search",
     summary: "(price is a string)",
-    state: "open"
+    state: "placed",
+    leaf: "phone-number search",
+    probe: "IT IS A STRING, AND A JSON ROUND TRIP THROUGH A NUMBER CORRUPTS IT"
   },
   {
     id: "prompt-assistant-01",
     target: "prompt-assistant get-thread",
     summary: "the thread and promptResult field shapes.",
-    state: "open"
+    state: "placed",
+    leaf: "prompt-assistant get-thread",
+    probe: "THE SHAPE, SINCE --json PRINTS THE RECORD BARE"
   },
   {
     id: "prompt-assistant-02",
     target: "prompt-assistant get-thread",
     summary: "that promptResult.prompt is Nexus SECTION MARKUP, not plain prose markdown.",
-    state: "open"
+    state: "placed",
+    leaf: "prompt-assistant get-thread",
+    probe: "NEXUS SECTION MARKUP, NOT PROSE MARKDOWN"
   },
   {
     id: "prompt-assistant-03",
     target: "prompt-assistant list-threads",
     summary: "that 'summary' is a truncated echo of the user's own first message.",
-    state: "open"
+    state: "placed",
+    leaf: "prompt-assistant list-threads",
+    probe: "SUMMARY IS NOT ASSISTANT-WRITTEN, AND IT CHANGES MEANING WITH status"
   },
   {
     id: "prompt-assistant-04",
@@ -1296,7 +1366,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "prompt-assistant-05",
     target: "prompt-assistant delete-thread",
     summary: "that there is no bulk delete and no delete-by-status.",
-    state: "open"
+    state: "placed",
+    leaf: "prompt-assistant delete-thread",
+    probe: "THERE IS NO BULK DELETE AND NO DELETE-BY-STATUS"
   },
   {
     id: "role-01",
@@ -1363,7 +1435,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "skill-folder-01",
     target: "skill-folder assign",
     summary: "--skill-id <id> Skill ID (workflow or task)",
-    state: "open"
+    state: "obsolete",
+    reason:
+      "`skill-folder assign` already names both source commands and the trap between them. The row wanted `--skill-id` to say where an id comes from; the notes say a skill is a workflow or an AI task, that `nexus workflow list --json` is an object ({data,meta}) while `nexus task list --json` is a bare array, that one jq path cannot read both (.data[].id against .[].id), and that piping one into the other produces an empty id list rather than an error. It also states that a well-formed uuid naming neither answers 404, indistinguishably from another organization's."
   },
   {
     id: "skill-folder-02",
@@ -1378,7 +1452,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "nexus skills where",
     summary:
       "'Auto-detect walks up from the current directory and picks the first of: an existing .claude/ folder, a CLAUDE.md, then the git repo root.'",
-    state: "open"
+    state: "placed",
+    leaf: "skills where",
+    probe: "SO A DISTANT .claude/ OUTRANKS A NEARBY CLAUDE.md"
   },
   {
     id: "skills-02",
@@ -1393,34 +1469,44 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "nexus skills update vs nexus claude-code install",
     summary:
       "skills: 'Install/refresh the bundled Claude Code skills + CLAUDE.md into your project' · claude-code: 'Install the Claude Code skills bundled with th…",
-    state: "open"
+    state: "placed",
+    leaf: "skills update",
+    probe: 'THIS COMMAND AND "nexus claude-code install" RUN THE SAME INSTALLER'
   },
   {
     id: "task-01",
     target: "task create",
     summary:
       "give the working body shape — `--name <n> --model-name <m> --model-provider <p> --body <file.json>`; all three flags are required regardless of what…",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'the audit reports that --name, --model-name and --model-provider must be typed beside a --body that already carries them, so every --body example fails on three successive missing-option errors. `applyBodySatisfiesRequired` (`util/body-satisfies-required.ts`) deleted that: `task create` matches its DERIVED population — a `--body <json>` flag plus at least one other mandatory option — so all three mandatory bits are cleared and the requirement is re-imposed in a preAction hook that has already resolved --body, BACKFILLING name, modelName and modelProvider into the option store. Verified by PARSE against the real root program rather than by reading the action: the shipped third example, `task create --body \'{"name":"Extract","modelName":"gpt-4o","modelProvider":"OPEN_AI",…}\'`, reaches the HTTP call and fails only on the unreachable base URL. The root epilogue already states the general rule ("A REQUIRED FLAG IS SATISFIED BY --body TOO"), so there is no line to place.'
   },
   {
     id: "task-02",
     target: "task create",
     summary: "note that --prompt also accepts LITERAL text, not just a file path or '-'.",
-    state: "open"
+    state: "placed",
+    leaf: "task create",
+    probe: "--prompt TAKES LITERAL TEXT, DESPITE ITS <file-or--> LABEL"
   },
   {
     id: "task-03",
     target: "task create",
     summary:
       "point at `task get` for verification — create answers {success,id,name} and echoes back none of the prompt, formats or schemas it just stored.",
-    state: "open"
+    state: "placed",
+    leaf: "task create",
+    probe: "THE CREATE RESPONSE ECHOES NOTHING BACK BUT id AND name"
   },
   {
     id: "task-04",
     target: "task list",
     summary:
       "document that --json returns a BARE ARRAY with no envelope and no meta, and that there is no --page (only --limit).",
-    state: "open"
+    state: "placed",
+    leaf: "task list",
+    probe: "--json IS A BARE ARRAY WITH NO ENVELOPE AND NO meta"
   },
   {
     id: "task-05",
@@ -1436,7 +1522,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     target: "task execute",
     summary:
       "state that --input is REQUIRED and is the only input channel — --body cannot carry the input on its own — and that a JSON-input task accepts either a…",
-    state: "open"
+    state: "obsolete",
+    reason:
+      "both halves are answered and neither by anyone acting on this row. The first half is FALSE now: `task execute` matches `applyBodySatisfiesRequired`'s derived population (`--body <json>` beside the mandatory `--input`), so --input's mandatory bit is cleared and the requirement is re-imposed after --body has been read, with `input` backfilled. Verified by PARSE against the real root program: the shipped example `task execute <id> --body '{\"input\":\"Hello world\"}'` reaches the HTTP call, so --body IS a second input channel. The second half is already IN the tree — `task execute`'s notes carry \"A TASK WHOSE inputFormat IS 'JSON' ALSO TAKES A PLAIN STRING\" with the --body object form beside it. Writing this row would restate one fact and contradict the other."
   },
   {
     id: "task-07",
@@ -1505,7 +1593,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "template-01",
     target: "template upload / template get",
     summary: "document the placeholder syntax the parser recognises.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'the premise is dead, and the tree kills it deliberately. The audit asks for the placeholder syntax "the parser recognises" because a .docx uploaded cleanly and left inputFormat null. "template upload" now states that the route STORES THE FILE AND READS NOTHING OUT OF IT — it never runs the placeholder parser — and "template get" states that inputFormat READS null FOR EVERY TEMPLATE THIS API CAN BUILD, because the parser is behind a dashboard-only route. The null is unconditional, never a verdict on the file. Documenting a syntax this API never applies would resurrect exactly the inference those two blocks exist to kill.'
   },
   {
     id: "template-02",
@@ -1527,7 +1617,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "template-04",
     target: "template generate",
     summary: "say that generated files are unlistable as well as undeletable.",
-    state: "open"
+    state: "obsolete",
+    reason:
+      'already placed, and more fully than the row asks. "template generate" states that no row is written for a generated file, that "nexus document list" never shows it, that there is no "template generations" verb, that the returned url is THE ONLY REFERENCE THAT WILL EVER EXIST, and that every run leaves another file no command here deletes. Unlistable and undeletable are both in the tree, alongside the signed-url expiry the audit did not have.'
   },
   {
     id: "template-05",
@@ -1740,7 +1832,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "user-group-02",
     target: "user-group list / create / update / add-member",
     summary: "no response shapes documented",
-    state: "open"
+    state: "placed",
+    leaf: "user-group",
+    probe: "THREE ENVELOPES IN ONE NAMESPACE"
   },
   {
     id: "version-01",
@@ -2097,25 +2191,50 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
  * a description of the tree — which is a red in the spec, not an edit here.
  */
 export const REVIEWED_NAMESPACES: readonly string[] = [
+  "access-card",
+  "admin",
   "agent",
   "agent-collection",
+  "agent-eval",
+  "agent-skill",
+  "agent-tool",
   "analytics",
+  "api",
+  "asset",
+  "auth",
+  "channel",
+  "claude-code",
+  "cloud-import",
   "collection",
+  "conversation",
+  "credential",
   "cross-cutting",
   "custom-model",
   "customer",
   "deployment",
   "docs",
   "document",
+  "emulator",
+  "execution",
   "external-tool",
   "folder",
+  "global",
+  "html-template",
+  "model",
   "permissions",
+  "phone-number",
+  "prompt-assistant",
   "role",
+  "skill-folder",
+  "skills",
+  "task",
   "task-eval",
+  "template",
   "ticket",
   "tool",
   "tracing",
   "upgrade",
+  "user-group",
   "version",
   "vibe",
   "workflow",

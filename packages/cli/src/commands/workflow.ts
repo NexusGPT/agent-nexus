@@ -6,6 +6,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, refuse } from "../errors";
 import {
   color,
@@ -62,13 +63,20 @@ get", "overview" and publish, and resolves to nothing at run time. "workflow
 validate" is the ONLY command that reports it. Run validate before every
 publish; nothing runs it for you.
 
-THE API'S NAMED ERROR CODES DO NOT REACH THIS CLI. Every refusal below
-(EDGE_SELF_LOOP, EDGE_DUPLICATE, BRANCH_NOT_FOUND, NODE_IS_TRIGGER,
-WORKFLOW_ALREADY_PUBLISHED and the rest) carries a machine-readable code on the
-HTTP response, and this CLI prints only the message — including under --json,
-where the payload is {"error":{"message":…}} with no code. Error handling
-written against the code names matches nothing here. Match on the message, or
-call the route through "nexus api" and read error.code off the raw response.`
+THE API'S NAMED ERROR CODES DO REACH THIS CLI — BRANCH ON THE CODE, NOT THE
+MESSAGE. Every refusal below (EDGE_SELF_LOOP, EDGE_DUPLICATE, BRANCH_NOT_FOUND,
+NODE_IS_TRIGGER, WORKFLOW_ALREADY_PUBLISHED and the rest) carries a
+machine-readable code on the HTTP response, and this CLI passes that code
+through unchanged. Under --json the payload is {"error":{"message","hint","code"}}
+— all three keys ALWAYS present, hint null when there is none — and without
+--json the code is printed dim in brackets after the message.
+A code is always there; it is not always one of the names above. A refusal the
+API sent without one falls back to HTTP_<status>, and a CLI_ prefix means the
+failure never reached the server at all (bad arguments, a timeout, a dropped
+connection). So treat an unrecognised code as "not a case I handle" rather than
+falling back to matching the message, which is prose and gets rewritten. Call
+the route through "nexus api" when you need a response field this document does
+not carry.`
   );
 
   // ── list ──────────────────────────────────────────────────────────────
@@ -137,8 +145,24 @@ Examples:
   $ nexus workflow get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
-  --json carries the whole graph: nodes, edges, publishedNodes, publishedEdges,
-  agentInputSchema and the editor's data blob. The table shows six fields.
+  --json is ONE FLAT OBJECT — the workflow's own fields at the top level, no
+  {data, meta} envelope and no {success} wrapper. It carries the whole graph:
+  nodes, edges, publishedNodes, publishedEdges, agentInputSchema and the
+  editor's data blob. The table shows six fields.
+  🚨 A NODE'S CONFIGURATION IS ONE LEVEL DOWN, UNDER THE NODE'S OWN "data" KEY.
+  A node object carries id, type and data — plus parentId inside a loop, and
+  deletable only when it cannot be deleted. Everything you configured is inside
+  data. So the label is .nodes[].data.label, NOT .nodes[].label, and the same
+  holds for instructions, code, message and every other node field. jq reading
+  the shallow path finds nothing and prints null, which reads as an empty label
+  rather than as a wrong path:
+
+    $ nexus workflow get 11111111-1111-4111-8111-111111111111 --json | jq '.nodes[] | {id, type, label: .data.label}'
+
+  "data" THEREFORE MEANS TWO DIFFERENT THINGS ON THIS ONE DOCUMENT, and the
+  next paragraph is about the OTHER one. .nodes[].data is the node's
+  configuration and is always there; the workflow's own top-level .data is the
+  canvas blob described below.
   data IS THE DASHBOARD EDITOR'S OWN BLOB AND IS null ON A WORKFLOW BUILT HERE.
   Only the canvas writes it, so its absence says nothing about the graph — nodes
   and edges are the graph. Never test data for emptiness to decide whether a
@@ -149,19 +173,24 @@ Notes:
   is the check to run right after "workflow publish": an edit made after a
   publish leaves the snapshot behind, with nothing reporting the drift.
   agentInputSchema is DERIVED from the agentInputTrigger node's parameters. It is
-  read-only here and not writable through "workflow update".`
+  read-only here and not writable through "workflow update".
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is the canvas
+  for this workflow, so nothing has to assemble a URL from a path pattern that
+  can be renamed underneath it.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const wf = await client.workflows.get(id);
-        printRecord(wf, [
+        printRecord({ ...wf, dashboardUrl: dashboardUrlFor("workflow", wf.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "status", label: "Status" },
           { key: "createdAt", label: "Created" },
-          { key: "updatedAt", label: "Updated" }
+          { key: "updatedAt", label: "Updated" },
+          { key: "dashboardUrl", label: "Dashboard" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -197,11 +226,14 @@ Notes:
   Status is DRAFT. This command prints the id and the name; read the graph back
   with "workflow get".
   ARCHIVING IS THE ONLY DELETE. A workflow you create here cannot be destroyed
-  later — see "nexus workflow delete --help" before you create a throwaway.`
+  later — see "nexus workflow delete --help" before you create a throwaway.
+  dashboardUrl in the payload is the new workflow's canvas, added by this CLI
+  rather than returned by the API — open it, or hand it to whoever asked.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           ...(opts.name !== undefined && { name: opts.name }),
@@ -211,7 +243,8 @@ Notes:
         const wf = await client.workflows.create(asRequestBody<CreateWorkflowBody>(body));
         printSuccess("Workflow created.", {
           id: wf.id,
-          name: wf.name
+          name: wf.name,
+          dashboardUrl: dashboardUrlFor("workflow", wf.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -240,11 +273,14 @@ Notes:
   silent strip. Change the graph with "workflow node/edge/branch" or
   "workflow batch"; agentInputSchema comes from the agentInputTrigger's
   parameters.
-  A new --name is held to the same uniqueness rule as create.`
+  A new --name is held to the same uniqueness rule as create.
+  dashboardUrl in the payload is this workflow's canvas, added by this CLI
+  rather than returned by the API.`
     )
     .action(async (id: string, opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           ...(opts.name !== undefined && { name: opts.name }),
@@ -252,7 +288,10 @@ Notes:
         });
 
         await client.workflows.update(id, asRequestBody<UpdateWorkflowBody>(body));
-        printSuccess("Workflow updated.", { id });
+        printSuccess("Workflow updated.", {
+          id,
+          dashboardUrl: dashboardUrlFor("workflow", id, globals)
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -329,15 +368,19 @@ Notes:
   The copy starts in DRAFT with no deployed triggers, so nothing fires until you
   publish it, and its transient test state (runOutput, loop test data) is stripped.
   It is named "<name> (copy)", numbered upward, so the uniqueness rule that
-  create enforces never blocks a duplicate. Answers 201.`
+  create enforces never blocks a duplicate. Answers 201.
+  dashboardUrl in the payload is THE COPY'S canvas, added by this CLI rather
+  than returned by the API.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const wf = await client.workflows.duplicate(id);
         printSuccess("Workflow duplicated.", {
           id: wf.id,
-          name: wf.name
+          name: wf.name,
+          dashboardUrl: dashboardUrlFor("workflow", wf.id, globals)
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -653,7 +696,10 @@ Notes:
   gets its own ref. Use GET /workflows/node-types ("nexus workflow node-types")
   for the type names — "llm", "action" and "condition" are not among them.
   label is OPTIONAL. Node types carry their own default label, and data is merged
-  over the type's defaults.
+  over the type's defaults. RE-DECLARING AN EXISTING NODE MERGES RECURSIVELY over
+  its stored data, so one entry of a nested map (parametersSetup, an
+  agentInputTrigger's parameters) no longer replaces the whole map; send a nested
+  entry as null to drop it, and send an array complete because arrays replace.
   IT IS ATOMIC. Everything is validated in memory and written once, so a refusal
   anywhere leaves the workflow exactly as it was — no orphan nodes to clean up.
   Refusals are literal: "Duplicate ref 'X'", "Unknown node type: 'X'",

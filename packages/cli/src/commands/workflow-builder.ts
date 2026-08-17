@@ -13,7 +13,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
-import { printList, printRecord, printSuccess } from "../output";
+import { isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
@@ -124,6 +124,17 @@ Notes:
   THE VERIFICATION READ for every node write, and the required step between the
   two halves of configuring a plugin node (set the action, read it back, then set
   the credential).
+  --json is ONE FLAT OBJECT — the node's own fields at the top level, with no
+  {data, meta} envelope, no {success} wrapper and no "node" key to unwrap.
+  🚨 THE CONFIGURATION IS ONE LEVEL DOWN, UNDER "data". The top level carries
+  id, type, configStatus, missingFields, errors and data; everything you SET on
+  the node is inside data. So it is .data.label, NOT .label — and the same for
+  instructions, code, message and every other node field. jq reading the
+  shallow path finds nothing and prints null, which reads as an empty field
+  rather than as a wrong path:
+
+    $ nexus workflow node get 11111111-1111-4111-8111-111111111111 node-456 --json | jq '{configStatus, label: .data.label}'
+
   configStatus and missingFields say whether the node's OWN required fields are
   filled — not that its inputs resolve. deletable appears only when the node
   cannot be deleted, parentId only when it lives inside a loop.
@@ -165,7 +176,19 @@ Notes:
   parentId MOVES THE NODE'S LOOP SCOPE: an id puts it inside that loop, null takes
   it out, and omitting it leaves the scope alone. A cycle, or a loopStart /
   doWhileStart / trigger node, is refused.
-  data is MERGED into the stored data, so send only what changes.
+  data is MERGED into the stored data, so send only what changes. THE MERGE IS
+  RECURSIVE, so this holds INSIDE a nested map too: writing one entry of
+  parametersSetup, or one parameter of an agentInputTrigger, leaves the other
+  entries alone instead of replacing the map.
+  TO REMOVE A NESTED ENTRY, SEND IT AS null:
+  --body '{"data":{"parametersSetup":{"city":null}}}' drops "city" and keeps the
+  rest. A null at the TOP level of data stores null instead, because several node
+  types read a top-level key that is present-and-null differently from an absent
+  one. An ARRAY always replaces wholesale, at every depth — send it complete.
+  A PARTIAL WRITE IS REFUSED WHEN THE STORED VALUE CANNOT BE MERGED: if the key
+  you are writing into holds a string or an array on the stored node rather than
+  an object, the call fails and NOTHING is written, so the drifted value is left
+  intact for you to read with "workflow node get" and send back whole.
   FIVE data FIELDS ARE READ-ONLY AND SILENTLY STRIPPED FROM YOUR WRITE:
   runOutput, testExecutionId, outputFormat, testWebhookUrl and the editor's own
   state. runOutput is the exception that matters — it IS writable, but only on an
@@ -768,13 +791,36 @@ Notes:
   and its connection rules (how many inputs and outputs it takes, whether it can
   live inside a loop, what children it creates).
   Read the configuration steps before configuring a plugin node: the order is
-  load-bearing, and doing it out of order is accepted and produces nothing.`
+  load-bearing, and doing it out of order is accepted and produces nothing.
+  MOST TYPES ALSO CARRY A 'guide' — a Markdown page written from live runs, saying
+  which type to pick over which, a configuration that actually RUNS, and the writes
+  the platform accepts and then fails at run time. It prints below the schema here
+  and is the 'guide' string under --json. A type with no guide yet omits the key.`
     )
     .action(async (type: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.workflows.getNodeTypeSchema(type);
-        printRecord(result);
+
+        // --json must carry the WHOLE document, guide included: splitting the
+        // rendering must never split the payload. `printRecord` short-circuits
+        // to `emitDocument` under --json, so handing it `result` untouched is
+        // what keeps the two channels in agreement.
+        if (isJsonMode()) {
+          printRecord(result);
+          return;
+        }
+
+        // A guide is 4-13 KB of Markdown with its own newlines, and
+        // `printRecord` pads a label then prints the value on one line — so as a
+        // record field it would wreck the alignment of every row after it. It is
+        // the same object either way; only where it is drawn differs.
+        const { guide, ...schema } = result;
+        printRecord(schema);
+
+        if (guide !== undefined) {
+          console.log(`\n${guide}`);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

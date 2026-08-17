@@ -100,8 +100,10 @@ Notes:
   totalSizeBytes come back beside the rows and describe everything attached to
   this agent, so they are the figures to read when you care how much this agent
   is carrying rather than what one skill weighs.
-  A row is id, name, fileCount, sizeBytes and description. The ID column is what
-  every other agent-skill verb takes — the NAME is display only.`
+  A row is id, name, description, fileCount, sizeBytes, createdAt and updatedAt;
+  the table prints the first five and --json carries all seven. The ID column is
+  what every other agent-skill verb takes — the NAME is display only.
+  sizeBytes is the UNCOMPRESSED size of the bundle, not the ZIP's size on disk.`
     )
     .action(async (agentId: string) => {
       try {

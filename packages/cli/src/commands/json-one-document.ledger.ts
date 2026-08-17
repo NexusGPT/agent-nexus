@@ -12,7 +12,7 @@
  *   else."  Ten commands printed two, or printed prose.
  *
  *   FAILURE — "Under --json an error is a JSON document on STDOUT:
- *   {"error":{"message","hint"}}."  NINETY-THREE runs of 502 failed with prose
+ *   {"error":{"message","hint","code"}}."  NINETY-THREE runs of 502 failed with prose
  *   on stderr and an empty stdout — a non-zero exit and nothing to parse.
  *
  * Both are now zero, and the largest share of each was closed by construction
@@ -56,6 +56,16 @@ export const LEDGER_CEILING = 0;
  * required-option guard, or behind the `--yes` every run passes.
  * `json-error-document.static-scan.ts` is the instrument for those, and its own
  * ledger is the one to read beside this one.
+ *
+ * ⚠️ AND IT SAYS NOTHING ABOUT AN ARGV THE SYNTHESIZER NEVER PRODUCES, WHICH IS
+ * A SHADOW OF THE POPULATION RATHER THAN OF THE TREE. `synthesizeArgv` fills in
+ * every mandatory option and every required positional from their own
+ * declarations, so a missing argument, an unknown command, an unknown option,
+ * an excess argument and a root option whose value parser throws are all
+ * removed from the scan by construction. Every one of those is refused by
+ * commander ABOVE the hook chain, which is the exact place JSON mode used to be
+ * unknown. `json-refusal-above-the-hook-chain.test.ts` drives them deliberately
+ * and is the third instrument to read beside this one.
  */
 export const ERROR_DOCUMENT_LEDGER: Readonly<Record<string, string>> = {};
 

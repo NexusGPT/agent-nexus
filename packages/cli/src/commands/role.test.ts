@@ -2,6 +2,7 @@ import { RolesResource } from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildRootProgram } from "../index";
 import { setJsonMode } from "../output";
 
 /**
@@ -28,20 +29,22 @@ import { setJsonMode } from "../output";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 
-vi.mock("../client", () => ({
-  createClient: () => ({
-    roles: new RolesResource({ request } as never)
-  })
-}));
+vi.mock("../client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../client")>();
+  return {
+    ...actual,
+    createClient: () => ({
+      roles: new RolesResource({ request } as never)
+    })
+  };
+});
 
 import { ASSIGNMENT_KIND_NAMES, registerRoleCommands, RESOURCE_TYPE_NAMES } from "./role";
 
 async function run(argv: string[]): Promise<void> {
-  const program = new Command();
-  program.name("nexus").exitOverride();
-  registerRoleCommands(program);
-  setJsonMode(true);
-  await program.parseAsync(["node", "nexus", ...argv]);
+  const program = buildRootProgram();
+  program.exitOverride();
+  await program.parseAsync(["node", "nexus", "--json", ...argv]);
 }
 
 /**
@@ -74,10 +77,8 @@ async function runJson(argv: string[]): Promise<Record<string, unknown>> {
  * discriminants are rendered ONLY there.
  */
 async function runTable(argv: string[]): Promise<string> {
-  const program = new Command();
-  program.name("nexus").exitOverride();
-  registerRoleCommands(program);
-  setJsonMode(false);
+  const program = buildRootProgram();
+  program.exitOverride();
 
   const chunks: string[] = [];
   const log = console.log;
@@ -89,7 +90,6 @@ async function runTable(argv: string[]): Promise<string> {
     await program.parseAsync(["node", "nexus", ...argv]);
   } finally {
     console.log = log;
-    setJsonMode(true);
   }
 
   return chunks.join("\n");
@@ -160,6 +160,15 @@ function rolesList(roles: { id: string; name: string }[]) {
 beforeEach(() => {
   request.mockReset();
   process.exitCode = 0;
+
+  // 🚨 A RUN BOUNDARY, NOT A PRECONDITION. One `nexus` process runs one command;
+  // this file runs a hundred and twenty-six, and JSON mode is module-global. So
+  // the flag the PROGRAM set on the previous case has to be cleared before the
+  // next one, or a `runTable` case inherits the previous `run`'s mode and the
+  // human renderer writes nothing at all. Nothing here ever sets it to TRUE —
+  // `--json` in argv does that, through the root's own `preAction` hook, which
+  // is the thing under test.
+  setJsonMode(false);
 });
 
 /**

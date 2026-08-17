@@ -18,7 +18,6 @@
  * customer than the id does — the trap `setProfileOrganization` already
  * documents. Under the env selection the name is withheld instead.
  */
-import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const SANDBOX = vi.hoisted(() => {
@@ -32,23 +31,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { type NexusProfile, resolveOrganization } from "../config";
+import { buildRootProgram } from "../index";
 import { setJsonMode } from "../output";
-import { registerAuthCommands } from "./auth";
 
 const CONFIG_FILE = path.join(SANDBOX, ".nexus-mcp", "config.json");
 
 async function runStatus(argv: string[]): Promise<string[]> {
-  const program = new Command();
-  program
-    .name("nexus")
-    .option("--json", "Output as JSON")
-    .option("--api-key <key>", "Override API key for this invocation")
-    .option("--base-url <url>", "Override API base URL")
-    .option("--profile <name>", "Use a specific named profile")
-    .hook("preAction", (thisCommand) => {
-      if (thisCommand.optsWithGlobals().json) setJsonMode(true);
-    });
-  registerAuthCommands(program);
+  // 🚨 THE REAL ROOT, NOT A RESTATEMENT OF IT. This helper used to declare the
+  // global options itself AND re-implement the production `preAction` hook,
+  // line for line. That is a SECOND declaration of the rule under test: the
+  // mode did come from argv, but from the harness's own copy of the hook, so
+  // deleting the real one in `index.ts` left every case here green.
+  const program = buildRootProgram();
+  program.exitOverride();
 
   const stdout: string[] = [];
   const logSpy = vi

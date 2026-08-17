@@ -80,6 +80,21 @@ question is what the customer actually received.
 "conversation send-message" posts as your organization to the real channel.
 "conversation comment" is internal and the customer never sees it.
 
+THREE COMMANDS IN THIS NAMESPACE PAGE, AND NO TWO OF THEM CARRY THE SAME meta.
+Under --json every one answers {"data":[…]} and the difference is what sits
+beside it, so a script written against one silently reads undefined on the next:
+
+  conversation list      meta = {total, page, hasMore}
+                         NO limit and NO totalPages — "deployment list" carries
+                         all five, and this one does not.
+  conversation messages  meta = {hasMore, nextBefore}
+                         NO total and NO page; nextBefore is the opaque cursor.
+  conversation search    NO meta KEY AT ALL. It does not page — see its own
+                         notes for the cap that replaces paging.
+
+Read hasMore where it exists and never derive "that was the last page" from a
+row count. "conversation comments" is unpaginated and also carries no meta.
+
 Reads need conversations:read, writes conversations:write, and "close" needs
 conversations:delete.`
   );
@@ -353,7 +368,20 @@ Notes:
   window is read, so a page can legitimately return nothing while messages
   remain further back. Stop paging on hasMore: false, never on an empty page.
   In --json, hasMore and nextBefore ride in meta; in table mode they are
-  printed as a trailer line.`
+  printed as a trailer line.
+
+  REACHING THIS COMMAND FROM A DEPLOYMENT YOU JUST TESTED. Nothing in an
+  emulator or deployment response is named "conversationId", which is why the
+  bridge is hard to find:
+    from a deployment  nexus conversation list --deployment-id <deployment-id>
+    from an emulator   nexus emulator session get <deployment-id> <session-id>
+    session              --json | jq -r '.chatId'   ← THE CONVERSATION ID
+                       That read prints the record BARE, with no "data" wrapper.
+                       "emulator session list <deployment-id> --json" carries it
+                       per session and IS wrapped: '.data[].chatId'. Neither
+                       TABLE prints the column at all.
+  chatId reads null until a chat exists for that session, and an emulator
+  conversation has no nanoId — pass the UUID.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -674,6 +702,24 @@ Notes:
   EXACTLY ONE OF --user-ids AND --clear. A bare "assign <id>" is refused rather
   than treated as an empty list — under replace-all semantics, defaulting to
   empty makes the no-flags form the most destructive one.
+  WHERE THE IDS COME FROM, BECAUSE NOTHING IN THIS NAMESPACE LISTS THEM. These
+  are Clerk user ids (user_…), a DIFFERENT ID SPACE from every UUID here. A
+  conversation id or a user-group UUID is not a user, and nothing on this side
+  checks the shape — the refusal comes from the server, at the write.
+    your own      nexus api GET /me --json | jq -r '.data.userId'
+                  "auth whoami" resolves the same identity and prints the org,
+                  the email and the role — never the id.
+    the current   nexus conversation assigned-users <id> --json
+    assignees     Read them first: this command REPLACES the list.
+    anyone else   nexus user-group list --json | jq -r '.data[].memberUserIds[]'
+                  The TABLE prints a member COUNT and never the ids; only --json
+                  carries memberUserIds. Needs the org:admin role — a non-admin
+                  key gets a 403 here, not an empty list.
+  THERE IS NO COMMAND THAT LISTS EVERY MEMBER OF THE ORGANIZATION, so a user in
+  no group is reachable only from the dashboard. Source the id rather than
+  guessing one — the write connects each id to a real user row, so a wrong one
+  surfaces as a persistence error, the same way a blank one does below.
+
   A BLANK ID IS REFUSED, NOT SENT. --user-ids "$SOME_UNSET_VAR" hands over an
   empty string; it is a shell accident, never a user, and the server answers a
   blank id with a persistence error rather than a validation message.
@@ -882,7 +928,12 @@ Notes:
   Read this before "conversation assign", which REPLACES the whole list rather
   than adding to it.
   An empty list means unassigned — it is not an error, and it is what
-  "conversation list --assigned-to none" selects on.`
+  "conversation list --assigned-to none" selects on.
+  IT ALSO ANSWERS responseHandling, WHICH IS WHY ONE READ IS ENOUGH. The
+  response is {userIds, responseHandling}, so the two facts a handover needs —
+  who has it, and whether the agent is still replying — come back together.
+  Assignment does NOT stop the agent; "conversation update-status <id>
+  --response-handling MANUAL" does. Reading AUTO here is the signal to send it.`
     )
     .action(async (id: string) => {
       try {

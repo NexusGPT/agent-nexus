@@ -39,7 +39,7 @@ const PERSONAL_TOKEN_PREFIX = "nxs_p_";
 const PLATFORM_OPERATOR_TOKEN_PREFIX = "nxs_o_";
 
 /** True for any key whose acting org comes from the header rather than the key. */
-function isCrossOrgToken(apiKey: string): boolean {
+export function isCrossOrgToken(apiKey: string): boolean {
   return (
     apiKey.startsWith(PERSONAL_TOKEN_PREFIX) || apiKey.startsWith(PLATFORM_OPERATOR_TOKEN_PREFIX)
   );
@@ -665,7 +665,18 @@ Notes:
   that column is never blank and never proves the value was set explicitly.
   EMPTY ANSWERS DIFFERENTLY IN THE TWO MODES. With no profiles saved, --json is
   \`[]\` and the plain form is a human sentence pointing at "nexus auth login" —
-  so parse the JSON, never the prose.`
+  so parse the JSON, never the prose.
+
+  --json IS A BARE ARRAY AND THE ACTIVE PROFILE IS FLAGGED BY A GLYPH, NOT A
+  BOOLEAN. There is no envelope and no meta — the rows are the whole document,
+  each one {marker, name, orgName, baseUrl}. "marker" is the ▸ from the table,
+  and it is a single SPACE on every other row, so test it against "▸" rather
+  than for truthiness: " " is a non-empty string and every row would match.
+
+    $ nexus auth list --json | jq -r '.[] | select(.marker == "▸") | .name'
+
+  That reads the ACTIVE profile, which is still not necessarily the one the next
+  command uses — see the first note. "nexus auth whoami" resolves that one.`
     )
     .action(() => {
       const { profiles, activeProfile } = listProfiles();

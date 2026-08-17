@@ -13,6 +13,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, printFailure, refuse, reportFailure } from "../errors";
 import type {
   ToolHasAttachmentsDetails,
@@ -104,18 +105,23 @@ Notes:
   "external-tool test --operation-id" or "execute --action". Read them from
   your spec.
   actionsCount is what the spec parsed to at create/refresh time, not a
-  liveness check. "external-tool test" is the liveness check.`
+  liveness check. "external-tool test" is the liveness check.
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is this tool's
+  page, so nothing has to assemble a URL from a path pattern that can be
+  renamed underneath it.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const t = await client.skills.getExternalTool(id);
-        printRecord(t, [
+        printRecord({ ...t, dashboardUrl: dashboardUrlFor("externalTool", t.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "description", label: "Description" },
           { key: "endpointUrl", label: "Endpoint URL" },
-          { key: "createdAt", label: "Created" }
+          { key: "createdAt", label: "Created" },
+          { key: "dashboardUrl", label: "Dashboard" }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -174,13 +180,16 @@ Notes:
   neither does the REST route, so this body is the only copy you will have.
 
   IT DOES NOT ECHO THE TOOL. --json prints exactly
-  {success, message, id, name}; id is what every other subcommand in this
-  namespace takes as its argument. Read the stored tool with
-  "nexus external-tool get <id>".`
+  {success, message, id, name, dashboardUrl}; id is what every other subcommand
+  in this namespace takes as its argument. Read the stored tool with
+  "nexus external-tool get <id>".
+  dashboardUrl IS THIS CLI'S, NOT THE API'S. It is the page for the tool you
+  just made — open it, or hand it to whoever asked for the tool.`
     )
     .action(async (opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.imageUrl) flags.imageUrl = opts.imageUrl;
@@ -189,7 +198,11 @@ Notes:
         const t = await client.skills.createExternalTool(
           asRequestBody<CreateExternalToolBody>(body)
         );
-        printSuccess("External tool created.", { id: t.id, name: t.name });
+        printSuccess("External tool created.", {
+          id: t.id,
+          name: t.name,
+          dashboardUrl: dashboardUrlFor("externalTool", t.id, globals)
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -553,11 +566,14 @@ Notes:
   A KEY THE UPDATE DOES NOT RECOGNISE IS DROPPED IN SILENCE, and the call still
   succeeds. So a misspelled field looks applied: the response is a success and
   the value never lands. Read the field back with "nexus external-tool get <id>"
-  after any --body update rather than trusting the 200.`
+  after any --body update rather than trusting the 200.
+  dashboardUrl in the payload is this tool's page, added by this CLI rather
+  than returned by the API.`
     )
     .action(async (id: string, opts) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const base = opts.body ? await resolveBody(opts.body) : {};
         const flags: Record<string, unknown> = {};
         if (opts.name) flags.name = opts.name;
@@ -572,7 +588,11 @@ Notes:
             force: !!opts.force
           }
         );
-        printSuccess("External tool updated.", { id: t.id, name: t.name });
+        printSuccess("External tool updated.", {
+          id: t.id,
+          name: t.name,
+          dashboardUrl: dashboardUrlFor("externalTool", t.id, globals)
+        });
       } catch (err) {
         const breaking = extractSpecBreakingChangeDetails(err);
         if (breaking) {

@@ -10,6 +10,27 @@ is not hand-maintained here, so the tools you see always match the live API and
 can never drift. Which tools appear is scoped automatically to the permissions of
 the API key you provide.
 
+## If you already have the Nexus CLI, use it instead
+
+`@agent-nexus/cli` ships the same bridge as `nexus mcp serve`, running on the
+profile the CLI already holds. That means **no second login and no second
+credential store**, and the config block it writes carries no API key at all:
+
+```bash
+npm i -g @agent-nexus/cli
+nexus auth login
+nexus mcp install --client claude-code --apply   # or --client claude-desktop / cursor
+```
+
+`nexus mcp tools list` and `nexus mcp call <tool>` reach the same endpoint from
+the terminal, and `nexus mcp install --help` explains where each host keeps its
+config.
+
+This package remains supported and is the right choice when you do not want the
+CLI installed — for example a container that only runs the bridge. What it
+cannot do is follow the CLI's full profile resolution: it honours `NEXUS_PROFILE`
+and the active profile, but has no `--profile` flag and does not read `.nexusrc`.
+
 ## Quick Start
 
 Get your API key from [Settings > API Keys](https://app.nexusgpt.io/app/settings/api-keys), then add the server to your MCP client.
@@ -58,11 +79,21 @@ Add to your MCP settings:
 
 ## Configuration
 
-| Variable         | Description             | Default                   |
-| ---------------- | ----------------------- | ------------------------- |
-| `NEXUS_API_KEY`  | Your API key (required) | —                         |
-| `NEXUS_BASE_URL` | API base URL override   | `https://api.nexusgpt.io` |
-| `NEXUS_ENV`      | `production` or `dev`   | `production`              |
+| Variable                | Description                          | Default                   |
+| ----------------------- | ------------------------------------ | ------------------------- |
+| `NEXUS_API_KEY`         | Your API key (required)              | —                         |
+| `NEXUS_BASE_URL`        | API base URL override                | `https://api.nexusgpt.io` |
+| `NEXUS_ENV`             | `production` or `dev`                | `production`              |
+| `NEXUS_PROFILE`         | Which stored profile to use          | the active profile        |
+| `NEXUS_ORGANIZATION_ID` | Organization a cross-org key acts on | the profile's `orgId`     |
+
+**Which organization you get.** An org-scoped key (`nxs_`) reaches exactly one
+organization and needs nothing here. A personal cross-org key (`nxs_p_`) belongs
+to none: the one it acts on is whatever `organization-id` names, which is
+`NEXUS_ORGANIZATION_ID` if set, else the `orgId` that `nexus auth use-org` stored
+on the profile. Run `nexus-mcp whoami` — it prints the key, the organization and
+the profile together, because "which key" alone does not tell you which tenant a
+tool call lands in.
 
 ## CLI Commands
 

@@ -4,7 +4,13 @@ import path from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { readString, readStringField, resolveInputJson } from "./body";
+import {
+  readString,
+  readStringField,
+  resetResolvedBodies,
+  resolveInputJson,
+  resolveRequiredBody
+} from "./body";
 
 describe("resolveInputJson (NEX-2480)", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "nex-2480-"));
@@ -92,5 +98,37 @@ describe("readStringField", () => {
 
   it("ignores a body field of the wrong type rather than forwarding it", () => {
     expect(readStringField(undefined, { service: 42 }, "service")).toBeUndefined();
+  });
+});
+
+describe("the resolved-body memo, and the one caller that must clear it", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "nex-3714-"));
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("answers the SECOND read from the first, so a check and a request agree", async () => {
+    const file = path.join(dir, "b.json");
+    writeFileSync(file, JSON.stringify({ name: "first" }));
+
+    expect(await resolveRequiredBody(file)).toEqual({ name: "first" });
+    writeFileSync(file, JSON.stringify({ name: "second" }));
+    expect(await resolveRequiredBody(file)).toEqual({ name: "first" });
+  });
+
+  it("forgets on request, so one process can resolve the same key twice", async () => {
+    // The CLI never needs this: it resolves one command and exits. The `--help`
+    // example scanner parses every example in the package in ONE process, and
+    // the key for every piped body in it is the identical `"-"` — so without the
+    // reset the first document read would answer for all of them, and an example
+    // would be judged against another example's bytes.
+    const file = path.join(dir, "c.json");
+    writeFileSync(file, JSON.stringify({ name: "first" }));
+    expect(await resolveRequiredBody(file)).toEqual({ name: "first" });
+
+    resetResolvedBodies();
+    writeFileSync(file, JSON.stringify({ name: "second" }));
+    expect(await resolveRequiredBody(file)).toEqual({ name: "second" });
   });
 });

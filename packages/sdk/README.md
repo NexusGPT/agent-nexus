@@ -45,11 +45,38 @@ console.log(`Created agent: ${agent.id}`);
 const client = new NexusClient({
   apiKey: "nxs_...", // Required (or set NEXUS_API_KEY env var)
   baseUrl: "https://api.nexusgpt.io", // Optional, defaults to production
-  timeout: 30000, // Optional, request timeout in ms
+  timeout: 30000, // Optional; see "Timeouts" below before setting it
   defaultHeaders: {}, // Optional, extra headers per request
   fetch: customFetch // Optional, custom fetch implementation
 });
 ```
+
+### Timeouts
+
+Each operation runs under the deadline it needs, so nothing has to be configured
+for the common cases:
+
+|                              | Deadline | Applies to                                                                                                                                                                                |
+| ---------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_REQUEST_TIMEOUT_MS` | 30 s     | Ordinary reads and writes                                                                                                                                                                 |
+| `LONG_RUNNING_TIMEOUT_MS`    | 10 min   | Routes that run a model, or wait on a third party, before they can answer: `skills.executeTask`, `skills.testExternalTool`, `tools.execute`, `workflows.testNode`, `promptAssistant.chat` |
+
+Setting `timeout` on the client **overrides both**, long-running routes included.
+That is what a deliberate ceiling needs — and it is why `timeout: 30000` is worth
+a second thought: a task whose generation legitimately takes 90 s would abort at
+30 s while the server ran it to completion and billed the tokens.
+
+Both constants are exported, so a raised ceiling can start from the right one:
+
+```typescript
+import { LONG_RUNNING_TIMEOUT_MS, NexusClient } from "@agent-nexus/sdk";
+
+const client = new NexusClient({ apiKey: "nxs_...", timeout: LONG_RUNNING_TIMEOUT_MS * 2 });
+```
+
+A `NexusTimeoutError` means **this client** stopped waiting; the server may still
+be completing the request, so never retry a write on one without first checking
+whether the first attempt landed.
 
 ### Environment Variables
 
@@ -231,7 +258,8 @@ try {
     console.error(`API error [${err.code}]: ${err.message} (status ${err.status})`);
   } else if (err instanceof NexusTimeoutError) {
     // Client-side timeout — the server may still be processing the request.
-    // Raise the `timeout` client option for long-running operations.
+    // `err.timeoutMs` is the deadline that actually elapsed, which is the
+    // operation's own when you did not set `timeout` on the client.
     console.error(`Timed out after ${err.timeoutMs}ms`);
   } else if (err instanceof NexusConnectionError) {
     console.error("Network error:", err.message);

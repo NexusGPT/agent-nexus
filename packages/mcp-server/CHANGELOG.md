@@ -1,5 +1,35 @@
 # @agent-nexus/mcp-server
 
+## 1.1.1
+### Patch Changes
+
+- 156139c: `~/.nexus-mcp/config.json` holds your API key in plaintext, and its permissions were set once —
+  when the file was first created — and never again. Every write since passed `mode: 0o600`, which
+  reads as hardening and is not: `open(2)` applies that argument only when it has to CREATE the
+  file, and ignores it entirely when the path already exists. The same is true of
+  `mkdirSync(dir, { mode: 0o700 })` on a directory that is already there.
+  
+  So a config file that reached `0644` by any route stayed world-readable through every
+  `nexus auth login` after it, with a live key inside. The routes are ordinary: an installer or a
+  provisioning script that created the file, a restored backup, a hand-created `~/.nexus-mcp`, or a
+  version of this CLI old enough to predate the `mode:` argument. Nothing in either binary ever
+  checked, so nothing ever said so.
+  
+  Both binaries now `chmod` after the write. Every write of a credential-bearing file leaves the
+  file at `0600` and `~/.nexus-mcp` at `0700`, whether either existed beforehand or not — including
+  the two write paths in `nexus-mcp`, the scoped git credential file `nexus vibe clone` and
+  `nexus vibe pull` hand to `git`, the workspace mount registry, and the update-check cache. The
+  last two carry no secret of their own; they are here because creating `~/.nexus-mcp` is what
+  decides the mode the credential file sits behind.
+  
+  **Reading a loose config now prints one line to stderr.** Repairing the mode does not undo the
+  exposure: while the file was `0644`, every user on the machine could read the key, and a `chmod`
+  cannot un-read it. So the CLI says so once per invocation, names the file and its mode, and tells
+  you to rotate the key. It is a warning and never a refusal — the command runs, and the line goes
+  to stderr, so `--json` output stays a single parseable document.
+  
+  If you see it, rotate your API key.
+
 ## 1.1.0
 ### Minor Changes
 

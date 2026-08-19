@@ -1,5 +1,147 @@
 # @agent-nexus/sdk
 
+## 0.23.0
+### Minor Changes
+
+- 6bbe209: A client can now SEE a response that no longer matches the shape its route publishes
+  
+  `HttpClient` has three read boundaries that hand a caller a value typed `T`, and
+  none of them looked at it: the envelope path of `requestWithMeta` (whose guard
+  tests `success === true` and `"data" in body`, so it checks the ENVELOPE and
+  nothing about the payload), its non-envelope passthrough, and each frame of
+  `requestSSE`. A field the server renames therefore reaches the caller under a
+  type that no longer describes it, and nothing anywhere says so.
+  
+  The three instruments that already watch this chain all read a SINGLE tree, so
+  the case none of them can reach is the ordinary one: an INSTALLED client talking
+  to a server that moved on without it.
+  
+  ## What is new
+  
+  `NexusClientOptions.onResponseContract` and `HttpClientOptions.onResponseContract`
+  take a reporter that is told, for every read, whether the payload matched the
+  shape its route publishes:
+  
+  ```ts
+  const client = new NexusClient({
+    apiKey,
+    onResponseContract: (report) => {
+      if (report.state === "mismatch") console.warn(formatContractReport(report));
+    }
+  });
+  ```
+  
+  `formatContractReport`, and the types `ContractReport`, `ContractIssue`,
+  `ContractReporter`, `ResponseContractState`, `RouteShape`, `PayloadShape` and
+  `RouteShapeManifest`, are exported alongside it.
+  
+  ## What it does to your data: nothing
+  
+  The payload is returned UNCHANGED, in every state. The reporter observes; it
+  never substitutes, strips or defaults. A checker that returned its own parsed
+  output would delete every field it did not know about — so an older client
+  against a newer server would quietly lose the new fields, which is the drift
+  this detects wearing the cure.
+  
+  ## Three outcomes, never two
+  
+  `passed`, `mismatch`, and `unchecked` with a reason. A route publishing no
+  response schema, a 204, an empty body and a streamed frame are all `unchecked`,
+  so none of them can be mistaken for a payload that was examined and found good.
+  
+  ## Off unless you ask
+  
+  With no reporter installed nothing is checked, no shape is consulted, and the
+  client behaves exactly as it did before. A reporter that throws is caught and
+  ignored — an observer must not fail a request that succeeded.
+  
+  The shapes ship as generated data derived from the published v1 schemas. No new
+  dependency: the package still declares none, and the built bundle carries no
+  Zod and no `@nexus/types`.
+- 7c5daef: `NodeTypeSchema` gains `nonExecutable`, so a caller can tell a live node type from a dead one before run time
+  
+  Four node types — `gptTask`, `polling`, `imageGen`, `surfer` — were offered by
+  `client.workflows.listNodeTypes()` with a full label, description and category,
+  accepted by `createNode()` at **201**, reported `configStatus: "complete"` with
+  `missingFields: []`, and passed `validate()` as `readyToPublish`. Every
+  execution of one threw `Node type <type> not found`.
+  
+  So every surface an SDK consumer could read BEFORE running a workflow said the
+  node was healthy, and the only thing that disagreed was the run itself. A
+  workflow containing one could be published and would fail in production.
+  
+  ## The field
+  
+  `NodeTypeSchema` gains an optional `nonExecutable?: { reason: string }`, returned
+  by `client.workflows.getNodeTypeSchema(type)`.
+  
+  It is present **only** on a type the workflow engine cannot dispatch, and the
+  reason names the working alternative where one exists — `aiTask` for `gptTask`,
+  a `plugin` node on an image-generation tool for `imageGen`. Branch on its
+  presence before offering a type to a user or writing a node of it.
+  
+  ⚠️ **Absent rather than `{ reason: "" }` or a `false` flag when the type CAN
+  run.** The check is a presence test, so there is no third state to interpret —
+  the same shape `guide` already uses.
+  
+  ## What changed on the server at the same time
+  
+  - **`createNode()` and the batch route now refuse one**, with
+    `NODE_TYPE_NOT_EXECUTABLE` and the same reason string. A node that could never
+    have run is no longer creatable.
+  - **`validate()` reports it as a critical error**, so a workflow holding one is
+    no longer `readyToPublish`.
+  - **`updateNode()` still accepts one.** That is deliberate: the stored nodes are
+    real, and a caller must be able to edit a workflow that already contains one.
+    Refusing there would make those workflows permanently uneditable over changes
+    that never touched the dead node.
+  
+  The types stay listed and stay describable, so a caller holding a stored graph
+  that contains one can still read its schema and its guide. What changed is that
+  the failure now arrives at the write, naming the type, instead of at the run.
+
+### Patch Changes
+
+- c7de914: A node-type field publishes the values it accepts
+  
+  `FieldDefinition` on a node-type schema carried `type` and nothing else, and
+  `type` is PROSE: `'"hours" | "minutes" | "days"'` reads like a union and is a
+  documentation string. A client that wanted to offer a picker, validate before
+  sending, or explain a rejection had to parse English.
+  
+  `values?: string[]` is the machine-readable half. It is served on every field
+  whose accepted set is closed, and the server refuses anything else on write with
+  `400 NODE_FIELD_VALUE_INVALID`.
+  
+  ```ts
+  const schema = await client.workflows.getNodeTypeSchema("scheduleTrigger");
+  const interval = schema.fields.required.find((f) => f.name === "interval");
+  interval?.values; // ["seconds", "minutes", "hours", "days", "weeks", "months"]
+  ```
+  
+  Three things worth knowing before acting on it:
+  
+  - **The empty string is always accepted**, regardless of the list. It is the
+    ordinary mid-configuration state of these fields, and several node types ship
+    it in their `defaultData`.
+  - **`values` may be WIDER than `type` names, never narrower.** `type` is what the
+    field ADVERTISES; `values` is what the server ACCEPTS. `parallelai.searchMode`
+    advertises the three current pipelines and also accepts three legacy aliases
+    that still resolve to one of them.
+  - **Absent `values` is not "any value works".** It means nothing on the server
+    can say which values do — the field is not value-checked at all.
+  
+  The published sets are taken from the code that consumes each field rather than
+  from the schema's own prose, so two of them are wider or differently spelled than
+  what the API used to document: `scheduleTrigger.interval` now names all six units
+  `intervalToCron` honours (it advertised three, while `weeks` and `months` have
+  been working anchor-aware cadences all along), and
+  `newsMonitorTrigger.monitorProvider` names `PARALLEL_AI` / `EXA` rather than the
+  lowercase spellings it published, which the deploy-time guard has always
+  rejected.
+  
+  Additive: `values` is optional and no existing field changed shape.
+
 ## 0.22.0
 ### Minor Changes
 

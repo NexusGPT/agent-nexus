@@ -1,5 +1,356 @@
 # @agent-nexus/cli
 
+## 0.31.0
+### Minor Changes
+
+- eef5f93: A folder-list `--json` document now carries the agent-to-folder map
+  
+  **BREAKING for three commands' `--json` envelope.** `folder list`,
+  `deployment folder list` and `template folder list` printed a bare array of
+  folders. They now print the route's own response object. `jq '.[]'` selects
+  nothing against the new shape — use `jq '.folders[]'`.
+  
+  ## What was wrong
+  
+  `GET /folders` answers `{folders, assignments}`. The action did
+  
+  ```ts
+  const folders = result.folders ?? result;
+  printTable(folders, COLUMNS);
+  ```
+  
+  `printTable` owns the only `if (jsonMode)` branch, so it is the one line that
+  knows whether a table or a document is wanted — and the narrowing happened the
+  line above it. Both channels lost `assignments`, `--json` included.
+  
+  That field is the only agent-to-folder map either surface publishes: a folder
+  row carries no membership at all. So the flag whose entire purpose is machine
+  consumption was the one that could not answer "which folder is this agent in",
+  and the command's own `--help` documented the gap and pointed at
+  `nexus api GET /folders` instead.
+  
+  ```bash
+  # Now answerable from the command itself
+  nexus folder list --json | jq '.assignments[] | select(.agentId=="<id>") | .folderId'
+  ```
+  
+  ## The tables gained a count
+  
+  Each of the three prints a membership column — `AGENTS`, `DEPLOYMENTS`,
+  `TEMPLATES` — folded from the same `assignments[]` the document carries. It is a
+  fold of the response beside it, so a reader who distrusts the number can
+  re-derive it from the same output rather than from a second call that may
+  disagree. Nesting is not rolled up: a parent's count is its own assignments.
+  
+  ## The class, not the instance
+  
+  The narrowing-before-the-branch shape is copy-paste — a table takes one array,
+  so the action takes one array, and the document inherits the table's taste. Two
+  commands had already been cured by hand with an `if (isJsonMode())` early return
+  and their own `console.log(JSON.stringify(...))`, which is correct, has to be
+  remembered, sits outside the one-document guarantee, and leaves the command
+  unclassifiable to the `--json` shape derivation — so neither published a shape
+  line in `--help`.
+  
+  `printEnvelope(envelope, render)` in `src/output.ts` is that split as a
+  mechanism: the envelope is the document, the callback runs only when there is a
+  terminal to draw for, and a call site cannot narrow the wrong channel because it
+  never chooses the channel. `skill-folder list` and
+  `permissions access` move onto it with no change to their output, and both now
+  carry a `--json` shape line where they carried none.
+  
+  `envelope` is a sixth `--json` shape, derived and stated in `--help` like the
+  other five. 368 of 519 leaves now carry a shape line, up from 366.
+  
+  ## It cannot come back unnoticed
+  
+  `src/commands/envelope-narrowing.scan.ts` asks the type checker, for every
+  printer handed one key of a response, what happens to that response's other
+  keys — counting a key read only into the terminal as still lost. Every surviving
+  site is listed in `envelope-narrowing.ledger.ts` with the keys it drops and the
+  reason it is still there; a new one fails the build.
+- e997cdd: The CLI now tells you when the server answers with a shape the API does not publish
+  
+  `--json` output is the server's payload, printed verbatim. When a field is
+  renamed or retyped on the server, that output changes and nothing tells you —
+  your script breaks and the CLI reports success.
+  
+  The SDK compares each payload against the shape its route publishes in the
+  Public API v1 contract. On a mismatch the CLI now prints one warning to
+  **stderr**:
+  
+  ```
+  ⚠ the server answered GET /documents/abc with a shape the API does not publish
+    size: the route publishes null | number and the payload holds string
+    This is a bug in the API, not in your command — the data above is printed unchanged.
+    Silence these warnings with NEXUS_CONTRACT_WARNINGS=off
+  ```
+  
+  **Your data is never altered.** The payload is printed exactly as it arrived,
+  warning or not — verified byte-for-byte with the warnings on and off. Discarding
+  a field the CLI did not recognise is the failure this exists to detect, so it is
+  not something it will do to you.
+  
+  **stdout stays parseable.** The warning goes to stderr, so `nexus … --json | jq`
+  is unaffected.
+  
+  **One warning per distinct problem per command**, not one per row — a drifted
+  field is drifted in every element of a list.
+  
+  **Only real mismatches are reported.** 113 v1 routes publish no response schema;
+  those reads are unchecked and silent, because a line on almost every command
+  would teach you to stop reading them.
+  
+  Set `NEXUS_CONTRACT_WARNINGS=off` to silence it. Doing so also skips the
+  checking work entirely.
+
+### Patch Changes
+
+- 78680f6: A destructive command can no longer skip its confirmation unnoticed
+  
+  Six commands parsed `--yes` themselves instead of going through
+  `confirmable()` + `confirmDestructive()`. All six refused correctly, which is
+  why they lasted — but a correct copy of a rule is still a second place the rule
+  can change, and the gate over the tree could only ever prove a `--yes` was
+  DECLARED, never that the branch behind it was the shared one.
+  
+  `phone-number buy`, `phone-number release`, `workspace delete`,
+  `vibe app delete`, `vibe app rotate-edge-token` and `vibe git-project delete`
+  now use the shared helper. Behaviour is unchanged for the first three: without
+  a terminal and without `--yes` they refuse and do nothing.
+  
+  **Two behaviours change on the three `vibe` verbs**, both toward the rest of
+  the CLI:
+  
+  - Under `--json` at a terminal they now ASK instead of refusing outright. The
+    question goes to stderr, so a `--json` run's stdout is still one document.
+  - The refusal message is the shared one. It still carries the exact re-run
+    command — `confirmDestructive` takes a `rerun` hint now, so a per-command
+    line no longer costs a second implementation of the rule.
+  
+  **`nexus skills update` no longer decides on stdout.** Its location picker — the
+  question asking which `.claude` folder to write to — tested
+  `process.stdout.isTTY` and printed with `console.log`. A confirmation READS, so
+  three invocations were wrong at once:
+  
+  - `nexus skills update > log` from a real keyboard skipped the picker and wrote
+    dozens of files to the detected root with nobody asked which root that was.
+  - `echo 2 | nexus skills update` at a terminal asked, and consumed an answer
+    arriving from a script rather than a person.
+  - `nexus skills update < /dev/null` at a terminal asked against a stdin that had
+    already ended, and sat there forever.
+  
+  It now tests stdin and asks on stderr. The destructive confirmation in that
+  command was always the shared one and is unchanged.
+  
+  **And the gate that lets none of this back in.** Every leaf whose name carries a
+  destructive verb, or that declares `--yes`, is now DRIVEN with no terminal and
+  no `--yes`, and must be observed reaching `confirmDestructive` and then acting
+  on nothing — a call, not a declaration, because a flag can be declared and never
+  read. A command in neither the obligation set nor a reasoned exemption fails the
+  build by name.
+- 68c8bdc: Publish the CLI's whole public surface as one generated manifest, so a change to
+  it shows up as a diff.
+  
+  `src/cli-surface.generated.ts` records every invocable leaf — its path, its
+  positionals in order, every flag with its mandatoriness, hiddenness and value
+  choices, whether it is destructive and how its `--yes` is wired, its `--json`
+  envelope shape, its `COMPATIBILITY.md` tier, and a rename-stable identity. It is
+  walked off the real commander tree, never grepped, and a spec recomputes it and
+  fails byte-for-byte, so a pull request that moves the surface stays red until its
+  author regenerates.
+  
+  Nothing about the shipped binary changes. `pnpm --filter @agent-nexus/cli run
+  gen:cli-surface` writes the file.
+- 77738e2: `NEXUS_NO_AUTO_UPDATE` stops the version LOOKUP, not only the self-install
+  
+  Every non-`--json` invocation made a blocking request to `registry.npmjs.org`
+  once per 24 h, and neither documented way to turn the updater off stopped it.
+  
+  Measured on 0.26.0, built, with `globalThis.fetch` wrapped, against a fresh
+  `HOME`, running `nexus auth status`:
+  
+  | invocation | requests to `registry.npmjs.org` |
+  | --- | --- |
+  | no variable set | 1 |
+  | `NEXUS_NO_AUTO_UPDATE=1` | 1 |
+  | `CI=1` | 1 |
+  | `--json` | 0 |
+  
+  `--json` was the only thing that stopped it.
+  
+  ## Why the escape hatch did not work
+  
+  `index.ts` decides what to do after each command with one `if`:
+  
+  ```ts
+  if (opts.autoUpdate && !isAutoUpdateDisabled()) {
+    await autoUpdate(VERSION);   // install over yourself
+  } else {
+    await checkForUpdate(VERSION); // ask npm, print a notice
+  }
+  ```
+  
+  `isAutoUpdateDisabled()` was a term in the FIRST arm only, and `--auto-update`
+  is off by default — so the `else` arm was both the default path and the one
+  holding the network call. Setting the variable did not disable the updater; it
+  selected the half of it that talks to npm.
+  
+  **That is the general shape, not a typo:** an opt-out placed in one arm of a
+  two-arm decision does not remove the behaviour, it picks which half you get.
+  The gate now lives inside `checkForUpdate` and `autoUpdate`, beside the side
+  effect each one owns, so a caller cannot route around it.
+  
+  ## What changes
+  
+  - **`NEXUS_NO_AUTO_UPDATE`, and `CI`, now suppress the version lookup.** No
+    request is made on any invocation while either is set.
+  - **The notice is unchanged.** These variables are documented as "ignore
+    `--auto-update`, print the notice instead", and they still do: with the
+    lookup skipped the notice is served from `~/.nexus-mcp/version-check.json`,
+    written by the last permitted check. Removing the notice as well would have
+    been a second broken promise rather than a fix.
+  - **The cache timestamp is not touched on a skipped check**, so unsetting the
+    variable checks immediately rather than staying quiet for the rest of the day.
+  - **`0` and `false` are still read as "not set"**, unchanged, so
+    `CI=false` turns the updater back on.
+  - **`nexus upgrade` is unaffected.** It looks the latest version up directly;
+    an explicit upgrade command is the user asking, and the gate is deliberately
+    placed above the fetcher rather than inside it.
+  
+  ## What it is worth
+  
+  Same build, same command, cold cache, wall clock for the whole invocation:
+  
+  | | before | after |
+  | --- | --- | --- |
+  | `NEXUS_NO_AUTO_UPDATE=1` | 378–758 ms | 85–88 ms |
+  | no egress (request cannot complete) | 3093 ms | 85–88 ms |
+  
+  The 3 s figure is the CLI's own abort ceiling: an air-gapped runner, a container
+  with no egress, or a proxy that blackholes the registry paid it once a day with
+  no way to opt out. `--json` skipped it, which is why scripted use rarely saw it
+  and interactive use always did.
+  
+  Unset, nothing changes: the check still fires at most once per day and still
+  prints the same line.
+- c7de914: `workflow node-type` help says which half of a field to read
+  
+  The schema this command prints now carries `values` on every field whose legal
+  set is closed, and a write of anything else is refused with
+  `400 NODE_FIELD_VALUE_INVALID`. The record already printed the key; nothing said
+  what it was for, or that it is the half to act on.
+  
+  `type` is prose. It reads like a union — `'"hours" | "minutes" | "days"'` — and
+  it can name FEWER values than the server accepts: `scheduleTrigger.interval`
+  advertised three units while six have always worked. So the Notes now say to read
+  `values`, that the empty string is always accepted (it means "not configured
+  yet"), and that a field with no `values` is unchecked rather than unconstrained.
+  
+  Help text only. No command changed behaviour.
+- 156139c: `~/.nexus-mcp/config.json` holds your API key in plaintext, and its permissions were set once —
+  when the file was first created — and never again. Every write since passed `mode: 0o600`, which
+  reads as hardening and is not: `open(2)` applies that argument only when it has to CREATE the
+  file, and ignores it entirely when the path already exists. The same is true of
+  `mkdirSync(dir, { mode: 0o700 })` on a directory that is already there.
+  
+  So a config file that reached `0644` by any route stayed world-readable through every
+  `nexus auth login` after it, with a live key inside. The routes are ordinary: an installer or a
+  provisioning script that created the file, a restored backup, a hand-created `~/.nexus-mcp`, or a
+  version of this CLI old enough to predate the `mode:` argument. Nothing in either binary ever
+  checked, so nothing ever said so.
+  
+  Both binaries now `chmod` after the write. Every write of a credential-bearing file leaves the
+  file at `0600` and `~/.nexus-mcp` at `0700`, whether either existed beforehand or not — including
+  the two write paths in `nexus-mcp`, the scoped git credential file `nexus vibe clone` and
+  `nexus vibe pull` hand to `git`, the workspace mount registry, and the update-check cache. The
+  last two carry no secret of their own; they are here because creating `~/.nexus-mcp` is what
+  decides the mode the credential file sits behind.
+  
+  **Reading a loose config now prints one line to stderr.** Repairing the mode does not undo the
+  exposure: while the file was `0644`, every user on the machine could read the key, and a `chmod`
+  cannot un-read it. So the CLI says so once per invocation, names the file and its mode, and tells
+  you to rotate the key. It is a warning and never a refusal — the command runs, and the line goes
+  to stderr, so `--json` output stays a single parseable document.
+  
+  If you see it, rotate your API key.
+- d67952d: The daily update check no longer holds the process open
+  
+  Every command answered the update question from a cache that refreshes once per
+  24 hours, and the invocation that happened to be the one refreshing it WAITED on
+  `registry.npmjs.org` before it could exit. The refresh now runs in a detached
+  child process, so the current invocation never waits, and the number it prints
+  is whatever the last run already learned.
+  
+  ## What it cost, measured on 0.26.0, `nexus auth status`, expired cache
+  
+  Both columns built from the same tree and run alternately on one machine, five
+  invocations each:
+  
+  | condition                           | before       | after  |
+  | ----------------------------------- | ------------ | ------ |
+  | warm cache (no refresh due)         | 91 ms        | 89 ms  |
+  | refresh due, registry reachable     | 448 ms       | 118 ms |
+  | refresh due, registry never answers | **10613 ms** | 94 ms  |
+  
+  The whole remaining cost of a due refresh is the ~29 ms it takes to start the
+  child.
+  
+  ## The 10-second case is the one that mattered, and it is not a timeout bug
+  
+  The fetch already had a 3-second `AbortController` ceiling, and that ceiling
+  worked exactly as written — the promise rejected at 3.0 s. The process still did
+  not exit for another 7.6 s.
+  
+  Aborting a `fetch` rejects the PROMISE. It does not close the connection the
+  request is still trying to open, and an open connection is a handle on Node's
+  event loop, so the runtime refuses to exit while one is pending. The remaining
+  wait is undici's own 10-second connect timeout. Output was complete at 90 ms; the
+  shell prompt came back at 10.6 s.
+  
+  This is also why the obvious fix — start the fetch and simply not `await` it —
+  is not a fix. It moves the wait from before the last line of output to after it
+  and changes the total by nothing.
+  
+  ## The trade
+  
+  A version published minutes ago is announced one invocation late. Against a
+  24-hour check interval that is noise, and it buys every invocation an exit that
+  never touches the network. The self-install path (`--auto-update`) makes the same
+  trade, and it is the safer half of it: the CLI never installs on the strength of
+  a version the user has not already been shown.
+  
+  ## What it will not do
+  
+  - **It starts nothing under the opt-outs.** `NEXUS_NO_AUTO_UPDATE` and `CI`
+    already stopped the request; they now also stop the child. A detached process
+    making an unasked-for registry call is the worse version of the same offence,
+    because it outlives the command that started it.
+  - **It cannot corrupt the cache, and cannot be corrupted by an interrupted
+    write.** The refresher writes a temporary file and renames it over the cache,
+    which is atomic within a directory, so a reader sees the whole old file or the
+    whole new one. A cache that is unreadable anyway degrades to "no cache" — on
+    the synchronous path `--help` uses as well as the asynchronous one.
+  - **It does not spawn twenty children for twenty parallel invocations.** A lock
+    directory (`mkdir` is create-or-fail in one syscall) admits one refresher; a
+    lock left behind by a killed one ages out after a minute.
+  - **It cannot fail a command.** A refusal to spawn — a sandbox, a read-only home
+    directory, no writable state directory — is swallowed, and nothing is written
+    to stdout, so `--json` output stays one parseable document.
+  
+  `nexus upgrade` is unchanged and still looks the version up directly: an explicit
+  upgrade is the user asking, and it has to answer from the registry rather than
+  from yesterday's cache.
+- 544818e: `nexus version delete --help` said the refusal "LOOKS LIKE AN OUTAGE" and that
+  deleting the production version "answers HTTP 500 rather than a 4xx naming the
+  reason". Both were true and both stop being true in the same change: the API now
+  refuses with HTTP 409 and the code `PRODUCTION_PROMPT_VERSION_IN_USE`, naming the
+  version and what to publish instead.
+  
+  The help text is the stopgap that ticket shipped while the API was wrong. Leaving
+  it would have taught every reader to expect a 500 from a path that no longer
+  produces one.
+
 ## 0.30.0
 ### Minor Changes
 

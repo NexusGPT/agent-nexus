@@ -221,8 +221,8 @@ Notes:
   referenced the asset. Confirm the URL is unused first.
 
   THE EXIT CODE IS 0 ON A FAILED RECLAIM, because the request succeeded and the
-  record really is deleted; per the root --help, exit 1 means the call failed and
-  carries an error document. The signal is a warning on STDERR (written even
+  record really is deleted; a NON-ZERO exit means the call failed and carries an
+  error document, and "nexus --help" says which non-zero code means what. The signal is a warning on STDERR (written even
   under --json, which keeps stdout a clean document) plus objectRemoved in the
   payload. A script that must not proceed on a still-serving URL has to READ
   objectRemoved — the exit code will not tell it.

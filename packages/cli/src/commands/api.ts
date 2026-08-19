@@ -1,9 +1,9 @@
 import { HttpClient } from "@agent-nexus/sdk";
-import { createContractReporter } from "../contract-warnings";
 import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { resolveApiKey, resolveBaseUrl } from "../config";
+import { createContractReporter } from "../contract-warnings";
 import { handleError, refuse } from "../errors";
 import { isJsonMode } from "../output";
 import { resolveBody } from "../util/body";

@@ -3,7 +3,7 @@
 // by `.length`). A widening `?? ""` would report a violation against the empty
 // string instead of crashing on an impossible index.
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- see the note above */
-import { deriveCommandLeaves } from "../../src/command-universe";
+import { deriveCommandLeaves, isHiddenCommand } from "../../src/command-universe";
 import {
   buildProgram,
   camel,
@@ -314,13 +314,13 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     // them iterates examples, so a command with none satisfies all four
     // vacuously. A gate whose population can silently become empty is the false
     // green this file exists to prevent, one command at a time.
-    // A HIDDEN command is exempt from R0 and from R0 only. `upgrade` registers
-    // 18 hidden aliases (`up`, `bump`, `install`, …); nothing lists them, no
-    // reader browses to one, and demanding 18 copies of the same Notes block is
-    // how a rule earns its own deletion. Their examples and flags are still
-    // judged by R1-R4 — the exemption is about what a reader is shown, not about
-    // whether the command is covered.
-    const hidden = (node.cmd as unknown as { _hidden?: boolean })._hidden === true;
+    // A HIDDEN command is exempt from R0 and from R0 only, because nothing
+    // lists one and no reader browses to it. The exemption applies to nothing
+    // today — the tree carries no hidden command — and it is kept rather than
+    // deleted because the reasoning is about what a reader is SHOWN, which does
+    // not change with the population. A hidden command's examples and flags are
+    // still judged by R1-R4.
+    const hidden = isHiddenCommand(node.cmd);
     if (node.isLeaf && !hidden) {
       if (invocations.length === 0) {
         violations.push({

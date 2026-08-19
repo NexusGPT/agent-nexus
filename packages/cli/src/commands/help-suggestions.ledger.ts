@@ -178,7 +178,7 @@ export interface HelpSuggestion {
  * number. That is the friction, and it is the feature — a figure nobody has to
  * update is a figure nobody can trust.
  */
-export const PLACED_COUNT = 213;
+export const PLACED_COUNT = 212;
 
 /**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
@@ -304,9 +304,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "admin-03",
     target: "admin",
     summary: "state that the exit-code contract is admin-only",
-    state: "placed",
-    leaf: "admin",
-    probe: "THIS NAMESPACE ONLY — every other command in this CLI exits 0 or 1"
+    state: "obsolete",
+    reason:
+      "the row asks the admin namespace to declare its exit-code table admin-only, and that claim stopped being true. The whole CLI reads one taxonomy now (`src/exit-codes.ts`), and 2/3/4/5/6 mean in every namespace exactly what they meant here first. The help text says the opposite of what this row wanted — that the table MAY be carried to another page — which is the correct instruction and not an omission. What the row was really protecting is that a reader does not generalise a local contract; that is now served by there being no local contract to generalise."
   },
   {
     id: "agent-01",
@@ -531,7 +531,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "state that a non-2xx exits non-zero, so scripts can branch on `$?`",
     state: "placed",
     leaf: "nexus",
-    probe: "EVERY failure exits 1"
+    probe: "EVERY failure exits NON-ZERO"
   },
   {
     id: "api-04",

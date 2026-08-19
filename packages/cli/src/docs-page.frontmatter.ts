@@ -274,6 +274,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "Inspect LLM execution traces and generations, track cost and token usage, run analytics queries, and export trace data from the command line."
   },
+  tracks: {
+    title: "Tracks CLI",
+    icon: "route",
+    description:
+      "Work with tracks, their nested tasks and their agents from the command line, including claiming a task so other agents know somebody is on it."
+  },
   upgrade: {
     title: "Upgrade CLI",
     icon: "arrow-up-circle",

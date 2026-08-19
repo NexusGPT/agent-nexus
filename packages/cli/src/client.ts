@@ -1,13 +1,14 @@
-import { NexusClient } from "@agent-nexus/sdk";
+import { NexusClient, type RetryNotice } from "@agent-nexus/sdk";
 import { InvalidArgumentError } from "commander";
 
-import { createContractReporter } from "./contract-warnings";
 import {
   resolveBaseUrl,
   type ResolvedProfile,
   resolveOrganization,
   resolveProfile
 } from "./config";
+import { createContractReporter } from "./contract-warnings";
+import { color } from "./output";
 
 /**
  * A number that has been STATED to be in seconds.
@@ -154,9 +155,43 @@ export function createClient(opts?: {
       opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
     ...(organizationId ? { organizationId } : {}),
     timeout: timeoutSecondsToMs(opts?.timeout),
+    // Both of these write to stderr and neither writes to stdout, so a `--json`
+    // document stays a single parseable value with either or both firing.
+    onRetry: reportRetryOnStderr,
     // Warn on stderr when the server answers with a shape the API does not
     // publish. `undefined` when the user switched it off, which also switches
     // off the work behind it. See `./contract-warnings.ts`.
     onResponseContract: createContractReporter()
   });
+}
+
+/**
+ * Tell the user that a slow command is WAITING rather than hung.
+ *
+ * ⚠️ STDERR, and never stdout. `--json` promises exactly one parseable document
+ * on stdout, so a progress line written there would corrupt every piped
+ * consumer — which is the reason this is not gated on `isJsonMode()` either. A
+ * retry notice is diagnostic output, and diagnostic output belongs on stderr in
+ * both modes: suppressing it under `--json` would leave the one caller most
+ * likely to be running unattended in a script with no explanation for a forty
+ * second command.
+ *
+ * The wait is named as the server's or as ours, because the two mean different
+ * things to whoever is watching: a `Retry-After` is a rate limit that will clear
+ * on a schedule, while a backoff is the client guessing at a flapping upstream.
+ *
+ * Exported only so `retry-notice-goes-to-stderr.test.ts` can assert the stream
+ * it writes to. Nothing else calls it.
+ */
+export function reportRetryOnStderr(notice: RetryNotice): void {
+  const waited = `${Math.round(notice.delayMs / 100) / 10}s`;
+  const cause = notice.status === undefined ? "connection failed" : `HTTP ${notice.status}`;
+  const source = notice.statedByServer ? "requested by the server" : "backoff";
+
+  process.stderr.write(
+    color.dim(
+      `  Retrying in ${waited} — ${cause}, ${source} ` +
+        `(attempt ${notice.attempt + 1} of ${notice.maxAttempts})\n`
+    )
+  );
 }

@@ -214,6 +214,7 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "task-eval session delete",
   "template folder delete",
   "tool delete-credential",
+  "tracks memory delete",
   "user-group delete",
   "version delete",
   "version restore",

@@ -28,7 +28,7 @@ import { buildCommandTree } from "./global-option-shadowing";
  * `length` check.
  *
  * It could not have carried an obligation either, and the number says why. The
- * non-`safe` bucket is 483 of 519 leaves, because `registration-only` means "a
+ * non-`safe` bucket is 443 of 501 leaves, because `registration-only` means "a
  * mutation, OR a read that needs a required positional" — so `agent get <id>` is
  * in it. Asserting a confirmation over that set would demand one from every
  * parameterised read in the CLI. "Not read-only" is not "destructive", and no

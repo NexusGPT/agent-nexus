@@ -53,6 +53,7 @@ vi.mock("../client", async (importOriginal) => {
 
 // Only the HUMAN-path control still registers a command by hand. Every `--json`
 // case now goes through `buildRootProgram()`, which registers all of them.
+import { EXIT_CODES } from "../exit-codes";
 import { registerModelCommands } from "./model";
 
 interface Run {
@@ -136,7 +137,7 @@ describe("a not-found under --json is one JSON document AND a nonzero exit", () 
     const doc = parseSoleDocument(run.stdout) as { error?: { message?: string } };
     expect(doc.error?.message).toContain("nobody@example.com");
     // Promise 2 — a failure exits 1.
-    expect(run.exitCode).toBe(1);
+    expect(run.exitCode).toBe(EXIT_CODES["not-found"]);
     // And it must not be mistakable for a success document.
     expect(run.stdout).not.toContain("success");
   });

@@ -161,10 +161,13 @@ export interface BlockedAudit {
  *     and `auth` are accounted for, both on `no-projected-fields`.
  *
  * HIDDEN COMMANDS ARE EXCLUDED, through `isHiddenCommand` rather than a name
- * list. `upgrade` registers 18 hidden aliases that reinstall the running binary
- * and register no namespace of their own; that is exactly why 65 top-level names
- * are 47 namespaces, and hard-coding the number 18 here would make this gate
- * silently wrong the day somebody adds a nineteenth.
+ * list. The tree carries none today — every top-level name is a namespace, 49
+ * of each — so the exclusion currently subtracts nothing and a broken filter
+ * would agree with a correct one. That is the argument FOR deriving it rather
+ * than counting: `upgrade` once registered eighteen hidden aliases that
+ * reinstalled the running binary and registered no namespace of their own, and
+ * a hard-coded 18 would have gone silently wrong on the nineteenth exactly as a
+ * hard-coded 0 would go wrong on the first one added back.
  */
 export interface NamespaceCensus {
   /** Visible top-level command names, sorted. */

@@ -52,7 +52,7 @@ import { isConfirmable } from "./util/confirm";
  * is why {@link Projection.unjoined} is a FIELD rather than an assumption. A
  * leaf the root program does not carry is REPORTED, never dropped and never
  * guessed at, and the spec asserts the two sets are equal in both directions.
- * Measured today: 604 nodes, 604 root-program paths, 0 either way.
+ * Measured today: 586 nodes, 586 root-program paths, 0 either way.
  *
  * ── WHAT IS DERIVED, AND WHAT COULD NOT BE ──────────────────────────────────
  *

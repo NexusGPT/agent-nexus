@@ -28,6 +28,25 @@ export class NexusApiError extends NexusError {
   /** Additional error details (e.g. validation errors per field). */
   public readonly details?: unknown;
 
+  /**
+   * Attempts the transport made before giving up, counting the first.
+   *
+   * `undefined` when the request was not retried — which is every error the SDK
+   * threw before retrying could report itself, so a consumer must treat absence
+   * as "one attempt, or unknown", never as zero.
+   */
+  attempts?: number;
+
+  /**
+   * The wait the server asked for in `Retry-After`, in milliseconds, when the
+   * client DECLINED to honour it because it exceeded `maxTotalRetryWaitMs`.
+   *
+   * Present only on that refusal. A `Retry-After` that WAS honoured leaves this
+   * unset, because by the time an error surfaces the wait has already happened
+   * and reporting it as outstanding would be wrong.
+   */
+  retryAfterMs?: number;
+
   constructor(code: string, message: string, status: number, details?: unknown) {
     super(message);
     this.name = "NexusApiError";

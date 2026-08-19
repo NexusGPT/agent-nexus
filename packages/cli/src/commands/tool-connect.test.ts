@@ -33,6 +33,7 @@ vi.mock("../client", () => ({
   })
 }));
 
+import { EXIT_CODES } from "../exit-codes";
 import { registerToolCommands } from "./tool";
 
 const TOOL_ID = "22222222-2222-2222-2222-222222222222";
@@ -110,7 +111,7 @@ describe("nexus tool connect", () => {
   it("refuses locally when OAuth has no service, instead of sending a request that cannot validate", async () => {
     const doc = await refusalDocument(["tool", "connect", TOOL_ID]);
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect(doc.message).toContain("--service");
     // The example belongs in the hint, where a caller reads it, rather than
     // glued onto the message a script surfaces.
@@ -191,7 +192,7 @@ describe("nexus tool connect", () => {
       "GMAIL"
     ]);
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect(doc.message).toContain("oauth, http");
     expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
   });
@@ -199,7 +200,7 @@ describe("nexus tool connect", () => {
   it("refuses HTTP with no api key", async () => {
     const doc = await refusalDocument(["tool", "connect", TOOL_ID, "--auth-type", "http"]);
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect(doc.message).toContain("--api-key-value");
     expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
   });

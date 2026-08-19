@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 import { runUpgrade, type UpgradeEnvironment } from "./upgrade";
 
@@ -72,7 +73,7 @@ describe("runUpgrade", () => {
     );
 
     expect(stderr.join("\n")).toMatch(/yarn global add @agent-nexus\/cli@latest/);
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 
   it("accepts a resolved binary NEWER than the registry's latest", async () => {
@@ -114,7 +115,7 @@ describe("runUpgrade", () => {
     );
 
     expect(resolve).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["local-failed"]);
   });
 });
 
@@ -154,7 +155,7 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
     expect(out).toContain("NOT verified for shady");
     // The one command that answers it, and the warning that it must not be sudo.
     expect(out).toContain("nexus --version");
-    expect(process.exitCode).toBe(3);
+    expect(process.exitCode).toBe(EXIT_CODES["unmeasured"]);
   });
 
   it("CONTROL — the SAME resolution, not elevated, IS a success at exit 0", async () => {
@@ -200,7 +201,7 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
     expect(out).toContain("ROOT's PATH");
     expect(out).toContain("not shady's");
     expect(out).not.toContain("add the global bin directory");
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 
   it("CONTROL — the SAME empty resolution, not elevated, still blames your PATH", async () => {
@@ -209,7 +210,7 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
     const out = stderr.join("\n");
     expect(out).toContain("on your PATH");
     expect(out).toContain("add the global bin directory");
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 
   it("the JSON code separates exit 3 from exit 2, not just the exit code", async () => {
@@ -228,7 +229,7 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
 
     const doc = JSON.parse(stdout.join("\n")) as { error: { code: string } };
     expect(doc.error.code).toBe("CLI_UPGRADE_NOT_VERIFIED_FOR_YOU");
-    expect(process.exitCode).toBe(3);
+    expect(process.exitCode).toBe(EXIT_CODES["unmeasured"]);
   });
 
   it("CONTROL — a genuine PATH finding still carries the PATH code at exit 2", async () => {
@@ -246,7 +247,7 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
 
     const doc = JSON.parse(stdout.join("\n")) as { error: { code: string } };
     expect(doc.error.code).toBe("CLI_UPGRADE_NOT_RESOLVED");
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 
   it("an UNREADABLE binary under sudo does not say it is the one your shell runs", async () => {
@@ -321,6 +322,6 @@ describe("runUpgrade under sudo — it must not claim an upgrade it read for roo
     const out = stderr.join("\n");
     expect(out).toContain("ROOT's PATH resolves is still 0.22.4");
     expect(out).toContain("Re-run WITHOUT sudo to install and verify as shady.");
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 });

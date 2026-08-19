@@ -27,7 +27,8 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, reportFailure } from "../errors";
+import { EXIT_CODES } from "../exit-codes";
 import {
   color,
   isJsonMode,
@@ -1791,7 +1792,12 @@ Examples:
           rerun: `nexus vibe app delete ${appId} --yes`
         });
         if (!ok) {
-          process.exitCode = 1;
+          // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
+          // refused for want of a terminal, and a bare assignment here
+          // overwrote that category with the generic failure. The other way it
+          // returns false is a person typing "n", which sets nothing — so this
+          // supplies a code for the abort and never clobbers a refusal's.
+          process.exitCode ??= EXIT_CODES.failed;
           return;
         }
 
@@ -1884,7 +1890,12 @@ Examples:
           { ...cmdOpts, rerun: `nexus vibe app rotate-edge-token ${appId} --yes` }
         );
         if (!ok) {
-          process.exitCode = 1;
+          // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
+          // refused for want of a terminal, and a bare assignment here
+          // overwrote that category with the generic failure. The other way it
+          // returns false is a person typing "n", which sets nothing — so this
+          // supplies a code for the abort and never clobbers a refusal's.
+          process.exitCode ??= EXIT_CODES.failed;
           return;
         }
 
@@ -2429,7 +2440,12 @@ Examples:
           { ...cmdOpts, rerun: `nexus vibe git-project delete ${projectId} --yes` }
         );
         if (!ok) {
-          process.exitCode = 1;
+          // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
+          // refused for want of a terminal, and a bare assignment here
+          // overwrote that category with the generic failure. The other way it
+          // returns false is a person typing "n", which sets nothing — so this
+          // supplies a code for the abort and never clobbers a refusal's.
+          process.exitCode ??= EXIT_CODES.failed;
           return;
         }
 
@@ -2827,8 +2843,19 @@ async function confirmOverageInteractively(
   rerun: string
 ): Promise<boolean> {
   if (isJsonMode()) {
-    console.log(JSON.stringify(data, null, 2));
-    console.error(`Spend confirmation required. Re-run confirmed:\n  ${rerun}`);
+    // 🚨 A REFUSAL MUST NOT WEAR A SUCCESS SHAPE. This printed the raw
+    // `confirmation_required` payload on stdout and the remedy on stderr, so a
+    // script parsing stdout received a normal-looking deployment document for a
+    // deploy that DID NOT HAPPEN. The exit code said 1 and the document said
+    // nothing about failing — and the root epilogue promises the opposite:
+    // "Under --json an error is a JSON document on STDOUT". The figures the
+    // operator needs ride in the hint rather than in a second document, because
+    // one run prints one document.
+    reportFailure(
+      "remote-error",
+      `Spend confirmation required — nothing was deployed. ${data.reason.message}`,
+      `Cost-safety status: ${data.reason.costSafetyStatus}\n  Re-run confirmed:\n  ${rerun}`
+    );
     return false;
   }
 
@@ -2910,7 +2937,18 @@ async function triggerDeploymentAnsweringOverage(
     // A confirmed re-send that still asks means the org's state moved
     // mid-flight. Nothing was created, so this must not exit clean.
     if (data.status === "confirmation_required") {
-      printTriggeredDeployment(data, appId);
+      // The same rule as the first ask, one layer down: a confirmed re-send that
+      // is refused AGAIN created nothing, so under --json it owes an error
+      // document rather than the payload of the thing that did not happen.
+      if (isJsonMode()) {
+        reportFailure(
+          "remote-error",
+          `Spend confirmation required again — nothing was deployed. ${data.reason.message}`,
+          `Cost-safety status: ${data.reason.costSafetyStatus}\n  The organization's spend state moved mid-flight. Re-run: ${rerun}`
+        );
+      } else {
+        printTriggeredDeployment(data, appId);
+      }
       return null;
     }
   }

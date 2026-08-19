@@ -109,9 +109,11 @@ beforeAll(async () => {
     topLevel: tops.length,
     // `isHiddenCommand`, never a `_hidden` read. That field is private and
     // undeclared, so a rename upstream yields `undefined`, `undefined === true`
-    // is false, and all 18 hidden commands would report themselves VISIBLE with
-    // no compiler error — which is the defect `command-universe.ts` exists to
+    // is false, and every hidden command would report itself VISIBLE with no
+    // compiler error — which is the defect `command-universe.ts` exists to
     // prevent. It asks commander's own help filter what it would render.
+    // `hidden` is 0 today, so a broken read and the truth agree; that is
+    // precisely when a silent-failing detector stops being noticed.
     visible: tops.filter((command) => !isHiddenCommand(command)).length,
     hidden: tops.filter((command) => isHiddenCommand(command)).length,
     rootOptions: root.options.length,

@@ -14,6 +14,7 @@ vi.mock("../client", () => ({
   })
 }));
 
+import { EXIT_CODES } from "../exit-codes";
 import { registerCloudImportCommands } from "./cloud-import";
 
 async function run(argv: string[]): Promise<void> {
@@ -183,7 +184,7 @@ describe("cloud-import commands", () => {
     // and calling anything with a token would reach the endpoint that answers
     // with no files.
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     process.exitCode = 0;
   });
 
@@ -191,7 +192,7 @@ describe("cloud-import commands", () => {
     await run(["cloud-import", "google-drive", "list-files"]);
 
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     process.exitCode = 0;
   });
 

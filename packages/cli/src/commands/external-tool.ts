@@ -15,6 +15,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, printFailure, refuse, reportFailure } from "../errors";
+import { EXIT_CODES } from "../exit-codes";
 import type {
   ToolHasAttachmentsDetails,
   ToolSpecBreakingChangeDetails
@@ -775,8 +776,8 @@ function extractToolHasAttachmentsDetails(err: unknown): ToolHasAttachmentsDetai
  * call site that special-cases the SAME status for a richer message.
  *
  * `printFailure` is the verb for that: a document with a REQUIRED explicit code
- * and no opinion about the exit code. The `return 1` keeps the document and the
- * status in one statement at the call site.
+ * and no opinion about the exit code. Returning the code keeps the document and
+ * the status in one statement at the call site.
  */
 function reportToolHasAttachments({ total, sample }: ToolHasAttachmentsDetails): number {
   const lines = sample.map((a) => `  • ${a.label}  (agent: ${a.agentName})`);
@@ -789,7 +790,9 @@ function reportToolHasAttachments({ total, sample }: ToolHasAttachmentsDetails):
     TOOL_HAS_ATTACHMENTS,
     "Re-run with --force to cascade-delete the references along with the tool."
   );
-  return 1;
+  // The request conflicts with state that exists — the same category HTTP 409
+  // lands in. It returned a bare 1 before the taxonomy existed.
+  return EXIT_CODES["invalid-input"];
 }
 
 /**
@@ -854,5 +857,5 @@ function reportSpecBreakingChange({
     TOOL_SPEC_BREAKING_CHANGE,
     "Re-run with --force to refresh anyway — downstream nodes binding a removed action need repointing manually."
   );
-  return 1;
+  return EXIT_CODES["invalid-input"];
 }

@@ -1,5 +1,5 @@
 import { NexusError } from "./errors";
-import { HttpClient } from "./http-client";
+import { HttpClient, type RetryNotice } from "./http-client";
 import { AgentCollectionsResource } from "./resources/agent-collections";
 import { AgentsResource } from "./resources/agents";
 import { AnalyticsResource } from "./resources/analytics";
@@ -34,6 +34,7 @@ import { TicketsResource } from "./resources/tickets";
 import { ToolConnectionResource } from "./resources/tool-connection";
 import { ToolDiscoveryResource } from "./resources/tool-discovery";
 import { TracingResource } from "./resources/tracing";
+import { TracksResource } from "./resources/tracks";
 import { UserGroupsResource } from "./resources/user-groups";
 import { WorkflowExecutionsResource } from "./resources/workflow-executions";
 import { WorkflowsResource } from "./resources/workflows";
@@ -81,6 +82,38 @@ export interface NexusClientOptions {
    * Additional headers sent with every request.
    */
   defaultHeaders?: Record<string, string>;
+
+  /**
+   * How many times a retryable failure may be replayed, on top of the first
+   * attempt. `0` disables retrying.
+   *
+   * @see HttpClientOptions.maxRetries
+   */
+  maxRetries?: number;
+
+  /**
+   * Ceiling on the SUM of every wait in one request's retry sequence, in
+   * milliseconds.
+   *
+   * This is what bounds a `Retry-After` the server states. A stated wait larger
+   * than the budget is reported to the caller with the real number rather than
+   * silently capped or silently honoured.
+   *
+   * @see HttpClientOptions.maxTotalRetryWaitMs
+   */
+  maxTotalRetryWaitMs?: number;
+
+  /**
+   * Called before each retry wait, so a caller can tell a user that a slow
+   * command is waiting rather than hung.
+   *
+   * Forwarded to the transport. The SDK never writes anywhere itself — the
+   * consumer decides where a notice goes, which for the CLI is stderr, so a
+   * `--json` document on stdout stays a single parseable value.
+   *
+   * @see HttpClientOptions.onRetry
+   */
+  onRetry?: (notice: RetryNotice) => void;
 
   /**
    * Request timeout in milliseconds, applied to EVERY request.
@@ -270,6 +303,15 @@ export class NexusClient {
   /** View LLM traces, generations, analytics, and export data. */
   public readonly tracing: TracingResource;
 
+  /**
+   * Tracks: the ready set, sections, tasks, agents, the diary, memory and events.
+   *
+   * 🔴 Every task read carries a collision BANNER as its first field, and it is
+   * the only place the take-it-over instruction lives. Nothing in this domain
+   * locks or refuses a second worker.
+   */
+  public readonly tracks: TracksResource;
+
   /** Read and bulk-export full Cue conversation transcripts, including subagent traces. */
   public readonly cueTranscripts: CueTranscriptsResource;
 
@@ -335,6 +377,9 @@ export class NexusClient {
       fetch: opts.fetch,
       defaultHeaders,
       timeout: opts.timeout,
+      maxRetries: opts.maxRetries,
+      maxTotalRetryWaitMs: opts.maxTotalRetryWaitMs,
+      onRetry: opts.onRetry,
       onResponseContract: opts.onResponseContract
     });
 
@@ -368,6 +413,7 @@ export class NexusClient {
     this.tickets = new TicketsResource(http);
     this.channels = new ChannelsResource(http);
     this.tracing = new TracingResource(http);
+    this.tracks = new TracksResource(http);
     this.cueTranscripts = new CueTranscriptsResource(http);
     this.conversations = new ConversationsResource(http);
     this.credentials = new CredentialsResource(http);

@@ -88,15 +88,20 @@ Subcommands (all nine — this list and the Commands block above are the same se
   pipeline to do something — they SET a state machine's state, so a wrong
   transition is not corrected by the next tick.
 
-Exit codes (THIS NAMESPACE ONLY — every other command in this CLI exits 0 or 1
-and nothing else, so do not carry this table to another page):
+Exit codes — THE WHOLE CLI USES THIS TABLE NOW, so you may carry it to another
+page. This namespace had it first; it is no longer special:
   0  success
-  1  network or malformed response
+  1  a failure with no more specific category
   2  missing / invalid admin token (HTTP 401)
   3  permission denied (HTTP 403)
   4  not found (HTTP 404)
-  5  invalid state / validation (HTTP 400/422)
+  5  invalid state / validation (HTTP 400/409/422)
   6  server error (HTTP 5xx)
+  7  could not reach the admin API. RETRYABLE
+  🔴 7 IS WHERE AN UNREACHABLE ADMIN API MOVED, off the generic 1. If you
+  retry on 1 today, retry on 7 instead — 1 no longer implies a network fault.
+  "nexus --help" carries the full table, including the codes this namespace
+  does not itself produce.
 `
     );
 

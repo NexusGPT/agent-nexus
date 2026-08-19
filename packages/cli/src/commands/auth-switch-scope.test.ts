@@ -42,6 +42,7 @@ const SANDBOX = vi.hoisted(() => {
   return dir;
 });
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 import { registerAuthCommands } from "./auth";
 
@@ -219,7 +220,7 @@ describe("NEX-2525: --here binds the directory and leaves the machine alone", ()
     process.chdir(DIR_A);
     const { stderr, exitCode } = await run(["auth", "switch", "typo", "--here"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["not-found"]);
     expect(stderr).toContain('Profile "typo" not found');
     expect(stderr).toContain("org-a, org-b");
     expect(fs.existsSync(path.join(DIR_A, ".nexusrc"))).toBe(false);
@@ -296,7 +297,7 @@ describe("NEX-2525: --session binds the shell and writes nothing at all", () => 
 
     expect(stdout).toEqual([]);
     expect(stderr).toContain('Profile "typo" not found');
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["not-found"]);
   });
 
   it("refuses to emit shell code for a profile name that is not a plain name", async () => {
@@ -316,7 +317,7 @@ describe("NEX-2525: --session binds the shell and writes nothing at all", () => 
 
     expect(stdout).toEqual([]);
     expect(stderr).toContain("Invalid profile name");
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 });
 
@@ -326,7 +327,7 @@ describe("NEX-2525: the two scopes are two places", () => {
     const { stderr, exitCode } = await run(["auth", "switch", "org-b", "--here", "--session"]);
 
     expect(stderr).toContain("two different scopes");
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect(fs.existsSync(path.join(DIR_A, ".nexusrc"))).toBe(false);
     expect(readConfig().activeProfile).toBe("org-a");
   });

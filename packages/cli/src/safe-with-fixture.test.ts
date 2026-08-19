@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { COMMAND_CLASSIFICATION, classifyCommandUniverse } from "./command-universe";
+import { classifyCommandUniverse, COMMAND_CLASSIFICATION } from "./command-universe";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNER = join(PACKAGE_ROOT, "scripts", "scan-response.py");

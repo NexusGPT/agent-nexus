@@ -4,7 +4,7 @@ import { createClient, timeoutSecondsToMs } from "../client";
 import { resolveBaseUrl, resolveDashboardUrl } from "../config";
 import { bindCommand } from "../contract-binding";
 import { handleError, reportFailure } from "../errors";
-import { color, isJsonMode } from "../output";
+import { color, emitDocument, isJsonMode } from "../output";
 import { DOCS_SEARCH_CONTRACT } from "./docs.contract.generated";
 
 /**
@@ -171,6 +171,26 @@ Notes:
       // the reason both resolvers are used in one command.
       const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl, globals.profile).replace(/\/+$/, "")}/docs`;
       const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
+
+      // THE SAME LINKS, AS A DOCUMENT. This branch printed prose unconditionally
+      // — `nexus --json docs` answered 412 bytes of ANSI-coloured text at exit 0,
+      // on a command whose whole output is five URLs a script would happily use.
+      // It escaped `json-one-document.test.ts` because that gate's population is
+      // LEAVES and `docs` has a `search` child, so it is the one command in the
+      // tree that is invocable AND a namespace.
+      if (isJsonMode()) {
+        emitDocument({
+          docs: {
+            web: docsUrl,
+            cliReference: `${docsUrl}/api-reference/cli/overview`,
+            apiReference: `${docsUrl}/api-reference/authentication`,
+            llmsIndex: feeds.index,
+            llmsFull: feeds.full
+          }
+        });
+        return;
+      }
+
       console.log(color.bold("Nexus Documentation\n"));
       console.log(`  Full docs:     ${color.cyan(docsUrl)}`);
       console.log(`  CLI reference: ${color.cyan(`${docsUrl}/api-reference/cli/overview`)}`);

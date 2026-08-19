@@ -172,7 +172,11 @@ function expectOneErrorDocument(run: Driven, door: string, hintMustMention?: str
   // Asserted FIRST: a commander refusal of the harness's own argv reaches every
   // later assertion as an empty stdout, i.e. as the defect. This separates them.
   expect(run.threw, `${door}: the harness itself threw — this is not a finding`).toBeUndefined();
-  expect(run.exitCode, `${door}: a failure must exit 1`).toBe(1);
+  // NON-ZERO, not 1. This helper drives doors whose categories differ — a
+  // removed flag is `invalid-input` (5), a failed auth test is `remote-error`
+  // (6). The subject here is the DOCUMENT on stdout; `exit-code-taxonomy.test.ts`
+  // owns which number each category gets.
+  expect(run.exitCode, `${door}: a failure must exit non-zero`).not.toBe(0);
   expect(
     run.stdout,
     `${door}: exited 1 with an EMPTY stdout — the caller has nothing to parse`

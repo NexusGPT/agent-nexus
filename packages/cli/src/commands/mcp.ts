@@ -280,8 +280,8 @@ Notes:
   you pass to --input is exactly the object described here — path parameters at
   the top level, plus "query" and "body" objects where the route has them.
   THE NAME MUST MATCH EXACTLY. It is the contract's authored tool name, not the
-  CLI command and not the URL path, and an unknown name exits 1 rather than
-  printing an empty record.
+  CLI command and not the URL path, and an unknown name exits NON-ZERO rather
+  than printing an empty record. See "nexus --help" for the exit-code table.
   A TOOL THIS KEY CANNOT SEE IS INDISTINGUISHABLE FROM ONE THAT DOES NOT EXIST,
   because the catalog is scope-filtered before it reaches this process. Check
   "nexus permissions access" before concluding the tool was removed.`
@@ -361,7 +361,9 @@ Notes:
   JSON inside a text block; this command unwraps that one block so the output is
   the document itself. --raw prints the JSON-RPC result verbatim — content array,
   isError flag and all — which is what you want when the payload is not JSON.
-  A TOOL THAT FAILS EXITS 1 AND ITS ANSWER IS THE ERROR MESSAGE. The endpoint
+  A TOOL THAT FAILS EXITS NON-ZERO AND ITS ANSWER IS THE ERROR MESSAGE. The
+  exit code names the category, and "nexus --help" carries that table. The
+  endpoint
   reports a 4xx from the underlying route as isError on a successful JSON-RPC
   reply, so "the call worked and the API refused it" is a FAILURE here, never a
   0 exit with an error body on stdout.`

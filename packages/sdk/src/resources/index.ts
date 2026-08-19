@@ -48,6 +48,7 @@ export { SkillsResource } from "./skills";
 export { TicketsResource } from "./tickets";
 export { ToolConnectionResource } from "./tool-connection";
 export { ToolDiscoveryResource } from "./tool-discovery";
+export { TracksResource } from "./tracks";
 export { UserGroupsResource } from "./user-groups";
 export { VersionsResource } from "./versions";
 export { WorkflowExecutionsResource } from "./workflow-executions";

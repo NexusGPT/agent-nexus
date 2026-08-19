@@ -8,13 +8,13 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 368 of 519 leaves are answered here. The
+ * 389 of 522 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
- *     27  no-registration
+ *     10  no-registration
  *      1  ambiguous
  *    101  writes-its-own-json
- *      5  no-printer
+ *      4  no-printer
  *     17  branches
  *
  * `json-shape.codegen.test.ts` recomputes this file and fails on any
@@ -345,6 +345,27 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tracing summary": "record",
   "tracing timeline": "list",
   "tracing traces": "list",
+  "tracks agent beat": "success",
+  "tracks agent close": "success",
+  "tracks agent list": "envelope",
+  "tracks agent open": "success",
+  "tracks dependency add": "success",
+  "tracks diary append": "success",
+  "tracks diary list": "envelope",
+  "tracks event append": "success",
+  "tracks event list": "envelope",
+  "tracks memory delete": "success",
+  "tracks memory list": "envelope",
+  "tracks memory put": "success",
+  "tracks plan import": "success",
+  "tracks ready": "envelope",
+  "tracks section create": "success",
+  "tracks section rename": "success",
+  "tracks task claim": "success",
+  "tracks task edge": "success",
+  "tracks task get": "record",
+  "tracks task ready": "envelope",
+  "tracks task toggle": "success",
   "user-group add-member": "record",
   "user-group create": "success",
   "user-group delete": "success",

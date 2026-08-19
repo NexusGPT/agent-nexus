@@ -35,6 +35,7 @@ vi.mock("../config", async (importOriginal) => {
   };
 });
 
+import { EXIT_CODES } from "../exit-codes";
 import { registerApiCommand } from "./api";
 
 interface Run {
@@ -95,7 +96,7 @@ describe("nexus api — a path that repeats the prefix is refused before the net
     it(`refuses ${typed} and names /models`, async () => {
       const run = await runApi(["api", "GET", typed]);
 
-      expect(run.exitCode).toBe(1);
+      expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
       // NOTHING LEFT THE PROCESS. A refusal that still sends the request would
       // pass an exit-code assertion and cost the 404 it exists to prevent.
       expect(run.requestedUrl).toBeUndefined();

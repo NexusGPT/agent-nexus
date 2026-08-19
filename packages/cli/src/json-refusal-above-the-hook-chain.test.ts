@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { describeStdout } from "./commands/json-one-document.scan";
 import { handleError } from "./errors";
+import { EXIT_CODES } from "./exit-codes";
 import { isJsonMode, setJsonMode } from "./output";
 import { buildRootProgram } from "./root-program";
 
@@ -150,7 +151,7 @@ describe("a commander refusal under --json emits the documented envelope", () =>
 
       // The exit code is UNCHANGED by this. A refusal that started exiting 0
       // because it now prints JSON would be a worse bug than the one fixed.
-      expect(run.exitCode).toBe(1);
+      expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
     });
 
     it(`${refusal.name} still prints PROSE when --json is absent`, async () => {
@@ -158,7 +159,7 @@ describe("a commander refusal under --json emits the documented envelope", () =>
 
       expect(run.stdout.trim()).toBe("");
       expect(run.stderr).toContain("error:");
-      expect(run.exitCode).toBe(1);
+      expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
     });
   }
 
@@ -181,7 +182,7 @@ describe("a commander refusal under --json emits the documented envelope", () =>
     expect(document.error.code).toBe("CLI_INVALID_ARGUMENTS");
     expect(document.error.message).toBe("No command given.");
     expect(document.error.message).not.toContain("outputHelp");
-    expect(run.exitCode).toBe(1);
+    expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   /**
@@ -204,7 +205,7 @@ describe("a commander refusal under --json emits the documented envelope", () =>
     expect(document.error.message).toBe('No subcommand given for "nexus agent".');
     // The message and the hint must agree about which help to read.
     expect(document.error.hint).toContain('"nexus agent --help"');
-    expect(run.exitCode).toBe(1);
+    expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("json mode does not leak out of a driven run", () => {

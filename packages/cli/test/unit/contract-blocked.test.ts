@@ -125,8 +125,9 @@ test("the census FIRES on an unaccounted namespace, and skips a hidden one", () 
   assert.deepEqual(census.converted, ["agent"]);
   assert.deepEqual(census.uncontracted, ["upgrade"]);
   assert.deepEqual(census.blockedOnly, ["model"]);
-  // The hidden one must NOT appear: `upgrade` registers 18 hidden aliases, and a
-  // census counting those would be red on a correct tree.
+  // The hidden one must NOT appear. The real tree carries no hidden command, so
+  // this probe is the ONLY place the exclusion is exercised at all — without
+  // `secret-alias` here, a census that counted hidden commands would be green.
   assert.deepEqual(census.unaccounted, ["brand-new-thing"]);
   assert.ok(!census.visible.includes("secret-alias"));
 });

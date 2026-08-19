@@ -657,8 +657,9 @@ Notes:
   THE WHOLE FILE IS READ INTO MEMORY AND UPLOADED IN ONE REQUEST. There is no
   chunking and no resume, so a large file fails as a single timeout — raise the
   global --timeout <seconds> rather than retrying.
-  A MISSING PATH EXITS 1 BEFORE ANY REQUEST, printing the resolved absolute
-  path. That is a local check, not a server answer.
+  A MISSING PATH EXITS NON-ZERO BEFORE ANY REQUEST, printing the resolved
+  absolute path. That is a local check, not a server answer — the code says so,
+  and "nexus --help" carries the table.
   THE FILE IS NOT SCANNED OR REDACTED. A log with credentials in it goes to
   Linear as-is; the redaction on "ticket create" covers context bodies only.
   Confirm with "nexus ticket attachments <id>" — the upload response alone is

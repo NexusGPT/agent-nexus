@@ -936,9 +936,9 @@ Notes:
   before deleting one.
   A PARTIAL FAILURE LEAVES THE WORKSPACE PRESENT. If the storage purge fails
   the record is kept on purpose so a retry can finish; re-run the same command.
-  --yes is REQUIRED when stdin is not a TTY: without it a script exits 1
+  --yes is REQUIRED when stdin is not a TTY: without it a script exits NON-ZERO
   rather than deleting. Every destructive command in this CLI refuses the
-  same way.
+  same way. "nexus --help" carries the exit-code table.
   Needs workspaces:delete, which workspaces:write does not imply.`
     )
     .action(async (slug: string, opts: { yes?: boolean }) => {

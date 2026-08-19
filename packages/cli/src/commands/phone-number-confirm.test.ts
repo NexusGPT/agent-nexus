@@ -26,6 +26,7 @@ vi.mock("../client", () => ({
   createClient: () => ({ phoneNumbers: { buy, release } })
 }));
 
+import { EXIT_CODES } from "../exit-codes";
 import { registerPhoneNumberCommands } from "./phone-number";
 
 async function run(argv: string[]): Promise<typeof process.exitCode> {
@@ -87,7 +88,7 @@ describe("phone-number buy/release confirmation", () => {
     const exitCode = await run(BUY_ARGS);
 
     expect(buy).not.toHaveBeenCalled();
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("buys when --yes is passed", async () => {
@@ -105,7 +106,7 @@ describe("phone-number buy/release confirmation", () => {
     const exitCode = await run(["phone-number", "release", NUMBER_ID]);
 
     expect(release).not.toHaveBeenCalled();
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("releases when --yes is passed", async () => {

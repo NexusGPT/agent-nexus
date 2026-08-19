@@ -31,6 +31,7 @@ vi.mock("../client", async (importOriginal) => {
   };
 });
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 import { registerPromptAssistantCommands } from "./prompt-assistant";
 
@@ -214,7 +215,7 @@ describe("a wait that ends without a prompt exits non-zero", () => {
       "--json"
     ]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["timed-out"]);
     // FIRST WINS: the payload is the document on stdout, the error goes to
     // stderr, and the pipe stays parseable.
     expect(JSON.parse(out)).toMatchObject({
@@ -233,7 +234,7 @@ describe("a wait that ends without a prompt exits non-zero", () => {
 
     await run(["prompt-assistant", "chat", "--message", "hi", "--mode", "agent", "--wait"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["remote-error"]);
   });
 
   it("does NOT fail a retry that inherited a failed status from the previous turn", async () => {
@@ -279,6 +280,6 @@ describe("get-thread --wait is the recovery path for a chat that was killed", ()
 
     await run(["prompt-assistant", "get-thread", "t-1", "--wait"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["timed-out"]);
   });
 });

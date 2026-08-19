@@ -179,6 +179,8 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Individually unreached ───────────────────────────────────────────────
   VibeRegisterAppAsTool: "vibe app surface is driven by the vibe SDK, not this one",
   DeploymentVoiceSessionCreate: "voice session handshake is driven by the realtime client",
+  DeploymentChatSessionCreate:
+    "browser chat-session handshake — the SDK resource lands with the streaming surface it credentials",
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };

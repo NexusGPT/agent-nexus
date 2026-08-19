@@ -48,6 +48,7 @@ import { registerTemplateCommands } from "./commands/template";
 import { registerTicketCommands } from "./commands/ticket";
 import { registerToolCommands } from "./commands/tool";
 import { registerTracingCommands } from "./commands/tracing";
+import { registerTracksCommands } from "./commands/tracks";
 import { registerUpgradeCommand, UPGRADE_ALIASES } from "./commands/upgrade";
 import { registerUserGroupCommands } from "./commands/user-group";
 import { registerVersionCommands } from "./commands/version";
@@ -57,6 +58,7 @@ import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
 import { registerHelpScopeFooter } from "./help-scope";
 import { applyJsonShapeHelpLine } from "./json-shape-help";
+import { installJsonTerminalContract } from "./json-terminal-contract";
 import { applyKnownIssuesHelpLine } from "./known-issues-help";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
 import { applyProbeBarrierHelpLine } from "./probe-barrier";
@@ -260,14 +262,23 @@ export function buildRootProgram(version: string = VERSION): Command {
     untouched response.
 
   FAILURE
-    EVERY failure exits 1. There is no distinct exit code for "not found",
-    "forbidden" or "invalid" — read the code, not the status. Under --json an
-    error is a JSON document on STDOUT: {"error":{"message","hint","code"}}, all
-    three keys ALWAYS present, hint null when there is none. Without --json the
-    code is printed dim in brackets after the message.
-    THE CODE IS THE FIELD TO BRANCH ON. An API refusal's own name comes through
-    unchanged (NODE_IS_TRIGGER, WORKFLOW_ALREADY_PUBLISHED, …); a refusal the API
-    sent without one falls back to HTTP_<status>; and a CLI_ prefix means the
+    EVERY failure exits NON-ZERO, and the value NAMES THE CATEGORY:
+      1  failed — no more specific category applies
+      2  not authenticated      3  permission denied      4  not found
+      5  invalid input          6  the server failed      7  could not connect
+      8  timed out              9  a local operation failed
+      10 the operation ran and the outcome did not happen (retrying is the trap)
+      11 the operation ran and the result COULD NOT BE MEASURED
+      130 interrupted (SIGINT — the shell's number, not ours)
+    Under --json an error is a JSON document on STDOUT:
+    {"error":{"message","hint","code"}}, all three keys ALWAYS present, hint null
+    when there is none. Without --json the code is printed dim in brackets after
+    the message.
+    THE EXIT CODE IS THE CATEGORY; THE CODE FIELD IS THE CONDITION. Branch on $?
+    to decide whether to RETRY, on the code to decide WHAT to say. An API
+    refusal's own name comes through unchanged (NODE_IS_TRIGGER,
+    WORKFLOW_ALREADY_PUBLISHED, …); a refusal the API sent without one falls
+    back to HTTP_<status>; and a CLI_ prefix means the
     failure never reached the server at all. Match on the code, never on the
     message, which is prose and gets rewritten.
     --timeout IS CLIENT-SIDE. Hitting it means this CLI stopped waiting; THE
@@ -426,6 +437,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerPhoneNumberCommands(program);
   registerChannelCommands(program);
   registerTracingCommands(program);
+  registerTracksCommands(program);
   registerCueCommands(program);
   registerCredentialCommands(program);
   registerCustomerCommands(program);
@@ -473,6 +485,12 @@ export function buildRootProgram(version: string = VERSION): Command {
   // `_exitCallback` at subcommand CREATION, so a call on the root alone would
   // reach the root alone. See `installArgumentRefusalReporting`.
   installArgumentRefusalReporting(program);
+
+  // `--json` holds on every way this process can TERMINATE, not only on the ones
+  // that run an action. Walks the FINISHED tree for the same reason as the line
+  // above, and must come after it: the stray-operand refusal it installs exits
+  // through the callback that line registers. See `json-terminal-contract.ts`.
+  installJsonTerminalContract(program);
 
   return program;
 }

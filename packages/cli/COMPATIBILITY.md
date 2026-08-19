@@ -40,12 +40,12 @@ change under this document.
 
 ## The four tiers
 
-| Tier         | What it covers                                                                                                                   | May it break?                                                  |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **STABLE**   | Command names and required arguments, global flags, the error document, exit 0 and exit 1, destructive-command refusal           | Only in a release that says so, at the top of `CHANGELOG.md`   |
-| **EVOLVING** | The `--json` envelope shape per command, per-command optional flags, help text content, the classified command set               | Additions any release; removals only after a deprecation cycle |
-| **UNSTABLE** | `--json` payload field names, exit codes other than 0 and 1, table columns and widths, `nexus api`, the `vibe` and `admin` trees | Any release, without notice                                    |
-| **INTERNAL** | Hidden commands, stderr prose, config file layout, the bundled SDK                                                               | No promise at all                                              |
+| Tier         | What it covers                                                                                                                                                                                                                                             | May it break?                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **STABLE**   | Command names and required arguments, global flags, the error document, `--json` yielding ONE parseable document on every terminal path (`--help`, `--version`, `--print-contract`, every refusal), what each exit code MEANS, destructive-command refusal | Only in a release that says so, at the top of `CHANGELOG.md`   |
+| **EVOLVING** | The `--json` envelope shape per command, per-command optional flags, help text content, the classified command set, WHICH exit code a given failure gets                                                                                                   | Additions any release; removals only after a deprecation cycle |
+| **UNSTABLE** | `--json` payload field names, table columns and widths, `nexus api`, the `vibe` and `admin` trees                                                                                                                                                          | Any release, without notice                                    |
+| **INTERNAL** | Hidden commands, stderr prose, config file layout, the bundled SDK                                                                                                                                                                                         | No promise at all                                              |
 
 ---
 
@@ -69,13 +69,13 @@ runtime dependency.
 
 ### Command names and required arguments
 
-The CLI registers **67 top-level commands**, of which **49 are visible** and 18 are
-hidden (see INTERNAL). Under them sit **604 command nodes** and **519 invocable
-leaves**. Derive these yourself with `deriveCommandNodes()` and
+The CLI registers **50 top-level commands**, of which **50 are visible** and 0 are
+hidden — there are none at all (see INTERNAL). Under them sit **616 command nodes**
+and **522 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
-The 49 visible namespaces:
+The 50 visible namespaces:
 
 ```
 access-card   admin       agent        agent-collection  agent-eval
@@ -86,11 +86,11 @@ deployment    docs        document     emulator          execution
 external-tool folder      html-template  known-issues    mcp
 model         permissions phone-number prompt-assistant  role
 skill-folder  skills      task         task-eval         template
-ticket        tool        tracing      upgrade           user-group
-version       vibe        workflow     workspace
+ticket        tool        tracing      tracks            upgrade
+user-group    version     vibe         workflow          workspace
 ```
 
-⚠️ **Two of those 49 are carved out of this tier: `vibe` and `admin`.** They are
+⚠️ **Two of those 50 are carved out of this tier: `vibe` and `admin`.** They are
 visible because operators need to find them, not because they are stable. See
 UNSTABLE.
 
@@ -159,57 +159,148 @@ not covered by this tier** — see UNSTABLE.
 
 `message` is prose and gets rewritten. Match on `code`, never on `message`.
 
-### One document on stdout
+### One document on stdout, on EVERY way the process can end
 
 Under `--json` the CLI prints **one** JSON document on stdout and nothing else.
 Warnings, the profile banner, progress and the update notice go to stderr, so a
 pipe stays parseable.
 
-`emitDocument` in `src/output.ts` enforces first-wins: the first document is the
-payload and goes to stdout; anything after it is diverted to stderr. **101 leaves
-build their own document with a bare `console.log`** rather than going through a
-printer — the `writes-its-own-json` count in `src/json-shape.generated.ts` — and a
-module-level flag cannot see a write it was not asked to make. That half is
-covered by the `json-one-document.test.ts` gate, which drives **512 of the 519
-leaves** and parses each one's stdout.
+**That holds for every terminal path, not only for the ones that run a command.**
+`--help`, `--version`, an unknown command and an unknown command written beside
+`--help` each answer a document:
 
-The seven it does not drive are exempt from the PARSE, never from the invariant,
-and they are also the seven leaves where stdout is not one JSON document:
-`execution follow`, `mcp serve` and `vibe app logs` emit many values by design,
-and `analytics export`, `cue export`, `tracing export` and `tracing export-bulk`
-print the payload in the format the caller asked for. `cue export`, `tracing
-export` and `tracing export-bulk` say so on their own `--help`; the other four
-do not, so on those four screens the root epilogue's "ONE JSON document on
-STDOUT" is the only statement a reader gets. The gate asserts that list never
-grows past seven. It is weaker than the construction, and saying so is the
-point.
+| Invocation                                 | Exit  | stdout                                                            |
+| ------------------------------------------ | ----- | ----------------------------------------------------------------- |
+| `nexus --json --help`                      | 0     | `{"help":{"command":"nexus","text":"…"}}`                         |
+| `nexus --json agent --help`                | 0     | `{"help":{"command":"nexus agent","text":"…"}}`                   |
+| `nexus --json --version`                   | 0     | `{"version":"0.26.0"}`                                            |
+| `nexus --json docs`                        | 0     | `{"docs":{"web":…,"llmsIndex":…,"llmsFull":…}}`                   |
+| `nexus --json agnt`                        | **1** | the error document, with commander's "did you mean agent?" in it  |
+| `nexus --json agnt --help`                 | **1** | the error document — **a typo is a refusal, never a help screen** |
+| `nexus --json agent list --print-contract` | 0     | `{"contract":{"command":"nexus agent list","text":"…"}}`          |
+
+The last row used to be the sharp one: a misspelled namespace printed the ROOT
+help and exited **0**, so a script that shelled out, read the status and parsed
+stdout got a silent wrong answer for a command that does not exist. That was not a
+`--json` bug — `nexus agnt --help` exited 0 in prose mode too, because commander
+renders a requested help screen before it reports an unknown command.
+
+Two constructions hold this, both in `src/json-terminal-contract.ts`:
+
+- **JSON mode is resolved from argv before the parse**, by wrapping
+  `parse`/`parseAsync`. Nothing runs earlier, because nothing runs before a parse.
+- **`_outputConfiguration.writeOut` is commander's single stdout door**, and under
+  `--json` this CLI owns it. A commander path that writes prose to stdout is
+  unrepresentable rather than forbidden.
+
+A stray operand on a namespace is refused where the help would have rendered, so
+the typo exits 1 with the error document below.
+
+**The construction has one shape it cannot reach, and it is named here rather
+than implied: a call site that writes to `process.stdout` directly and then
+exits.** Commander never sees those bytes. `--print-contract`, declared on 177
+commands, was exactly that — 196 bytes of prose at exit 0 under `--json`. It now
+branches on JSON mode itself, and `every-zero-exit-path-is-ledgered.test.ts`
+fails on any `process.exit(` call site in this package that is not written down
+with what it does about `--json`, so the next one cannot arrive in silence.
+
+`emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
+document is the payload and goes to stdout; anything after it is diverted to
+stderr. **101 leaves build their own document with a bare `console.log`** rather
+than going through a printer — the `writes-its-own-json` count in the generated
+`src/json-shape.generated.ts`, which is the only derived reading of that number.
+A module-level flag cannot see a write it was not asked to make, so that half is
+covered by gates rather than by construction: the `json-one-document.test.ts`
+gate, which drives **515 of the 522 leaves** and parses each one's stdout, and
+`json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
+`--version`, an unknown command on every namespace, `--print-contract` on the 177
+commands that declare it, and the one command that is invocable AND a namespace
+(`docs`, which the leaf population excludes by construction). The gates are
+weaker than the construction, and saying so is the point.
+
+### The seven leaves that do NOT print JSON, by design
+
+**`--json` does not make these emit a JSON document, and a script must not
+assume it does:**
+
+| leaf                        | what stdout is                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `nexus tracing export`      | the format the caller asked for — `--format csv` is CSV                                          |
+| `nexus tracing export-bulk` | same                                                                                             |
+| `nexus analytics export`    | same                                                                                             |
+| `nexus cue export`          | the transcript corpus, NDJSON by default — many documents by construction, one payload by intent |
+| `nexus execution follow`    | a live stream, open until the run ends                                                           |
+| `nexus vibe app logs`       | a live stream, open until you stop it                                                            |
+| `nexus mcp serve`           | the MCP stdio transport — newline-delimited JSON-RPC for as long as the host holds the pipe      |
+
+The first four are a **payload passthrough**: stdout is the server's data in the
+shape you asked for. The last three **stream**: there is no last document to wait
+for. Both are deliberate, both are exempt in
+`src/commands/json-one-document.scan.ts`, and the gate asserts that list stays at
+**seven or fewer** so it cannot grow quietly.
+
+⚠️ **Only three of the seven say so on their own `--help`** — `cue export`,
+`tracing export` and `tracing export-bulk` carry _"THE OUTPUT IS THE PAYLOAD,
+VERBATIM"_. On the other four screens the root epilogue's "ONE JSON document on
+STDOUT" is the only statement a reader gets, and it is wrong for that command. So
+this table, not the per-command help, is the authority on which leaves are
+exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 512 leaves the gate drives. The seven named above print something other than
-one JSON document by design.
+the 515 leaves the gate drives. And on every terminal path — `--help`,
+`--version`, `--print-contract`, an unknown command, a refusal — one parseable
+document on stdout whether the command succeeded or not.
 
-### Exit 0 and exit 1
+**You may NOT rely on** the seven leaves above emitting JSON. Everywhere else the
+guarantee holds; there it is a payload or a stream — and on four of the seven,
+nothing on the command's own screen tells you, which is why the table above is
+the authority rather than a convenience.
 
-- **`0` means the command completed.** It does not always mean the thing happened
-  — several commands accept and discard input, or file a request instead of
-  acting. Where that is true, the command's own `--help` Notes say so and name the
-  verification step.
-- **`1` is the failure code.** It is what 467 of the CLI's error paths produce:
-  every one spells `process.exitCode = handleError(err)`, and `handleError` returns
-  `1` for every branch except a commander argument refusal, which forwards
-  commander's own code — also `1`.
+### What each exit code means
 
-**You may rely on:** `if nexus …; then` working. A non-zero exit always means the
-command did not complete.
+There is ONE taxonomy, declared in `src/exit-codes.ts` and read by every exit path
+in the binary. A category name maps to a number; nothing else in the package
+writes an exit code as an integer, and `exit-code-taxonomy.test.ts` fails naming
+any file that does.
 
-**A break here means:** making a currently-failing invocation exit 0, or a
-currently-succeeding one exit non-zero.
+| Code  | Category            | What it means                                                                  |
+| ----- | ------------------- | ------------------------------------------------------------------------------ |
+| `0`   | success             | The command completed.                                                         |
+| `1`   | failed              | A failure with no more specific category.                                      |
+| `2`   | not authenticated   | No usable credential, or one the server rejected. HTTP 401.                    |
+| `3`   | permission denied   | The credential is good and is not allowed to do this. HTTP 403.                |
+| `4`   | not found           | The named thing does not exist. HTTP 404, or a 2xx whose body means absent.    |
+| `5`   | invalid input       | The invocation or its payload was refused. Bad flags, HTTP 400 / 409 / 422.    |
+| `6`   | remote error        | The request arrived and the server failed. HTTP >= 500.                        |
+| `7`   | connection failed   | The API was unreachable — DNS, TLS, socket, offline. RETRYABLE.                |
+| `8`   | timed out           | The CLI stopped waiting. THE SERVER MAY STILL BE COMPLETING THE REQUEST.       |
+| `9`   | local failed        | A local operation failed — an install, a config write, a spawn.                |
+| `10`  | outcome not reached | The operation RAN and the wanted outcome did not happen. Retrying is the trap. |
+| `11`  | unmeasured          | The operation ran and its result could not be measured. Neither pass nor fail. |
+| `130` | interrupted         | SIGINT, i.e. `128 + 2`. The shell's number, reserved rather than chosen.       |
 
-**You may NOT rely on `1` being the only failure code.** See UNSTABLE.
+🚨 **`0` DOES NOT ALWAYS MEAN THE THING HAPPENED.** Several commands accept and
+discard input, or file a request instead of acting. Where that is true, the
+command's own `--help` Notes say so and name the verification step.
+
+⚠️ **Nothing above `11` is ours except `130`.** `126` is "found and not
+executable", `127` is "not found", `128 + n` is "killed by signal n". The taxonomy
+refuses to declare a code in that band, and the gate asserts it.
+
+**You may rely on:** `if nexus …; then` working; a non-zero exit always meaning the
+command did not complete; and each number above continuing to mean what this table
+says it means.
+
+**A break here means:** making a currently-failing invocation exit 0, making a
+currently-succeeding one exit non-zero, or giving one of these numbers a different
+meaning.
+
+**You may NOT rely on a given failure keeping the same code forever.** Which
+category a particular failure falls into is EVOLVING — see below.
 
 ### A destructive command with no terminal refuses
 
-**44 commands declare `--yes`**, and every one of them behaves identically:
+**45 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
 - No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
@@ -219,11 +310,11 @@ currently-succeeding one exit non-zero.
 The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
 the prompt and `nexus … > log.txt` cannot delete silently.
 
-All 44 declare the flag through `confirmable()` and ask through
+All 45 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
 one helper, and no command parses `--yes` for itself.
 
-**All 44 refuse, and that is DRIVEN rather than asserted from the source.**
+**All 45 refuse, and that is DRIVEN rather than asserted from the source.**
 `destructive-confirmation.driven.test.ts` runs each one with `stdin.isTTY` forced
 false and no `--yes`, in a sandboxed `HOME` and working directory with the network
 seams stubbed, and requires the refusal. Its spy calls THROUGH to the real helper
@@ -240,13 +331,13 @@ Refusing costs one retry; proceeding costs the data.
 
 🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 21 DESTRUCTIVE
 COMMANDS DO NOT CONFIRM.** `destructiveCandidates()` in
-`destructive-confirmation.scan.ts` derives **70** candidates by verb —
+`destructive-confirmation.scan.ts` derives **71** candidates by verb —
 `delete`, `purge`, `revoke`, `rotate`, `wipe` and 18 more — and every one must
 appear in exactly one of three declared sets:
 
 | Set                       | Count | What it means                                             |
 | ------------------------- | ----- | --------------------------------------------------------- |
-| `CONFIRMS_BEFORE_ACTING`  | 44    | destroys, and confirms. The promise above covers these.   |
+| `CONFIRMS_BEFORE_ACTING`  | 45    | destroys, and confirms. The promise above covers these.   |
 | `NOT_DESTRUCTIVE`         | 5     | carries a destructive-sounding verb and destroys nothing. |
 | `UNCONFIRMED_DESTRUCTIVE` | 21    | **destroys and does NOT confirm.** Named debt.            |
 
@@ -289,15 +380,15 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**368 of the 519 leaves** carry a derived shape line on their `--help`, generated
+**389 of the 522 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
 line describing the old shape.
 
-The remaining 151 carry **no** shape line, and that is the honest output rather
-than a gap: 101 write their own document, 27 have no registration the scan can
-read, 17 branch to two shapes, 5 reach no printer, and 1 is ambiguous. A default
+The remaining 134 carry **no** shape line, and that is the honest output rather
+than a gap: 101 write their own document, 17 branch to two shapes, 10 have no
+registration the scan can read, 4 reach no printer, and 1 is ambiguous. A default
 would be a claim nobody measured.
 
 `envelope` is the route's own response object, unnarrowed — the same document
@@ -326,6 +417,53 @@ multi-key response, with the keys nothing else publishes — and
 `envelope-narrowing.ledger.ts` records each survivor with the field it drops and
 the reason. The ledger is the honest count and it may only shrink; a new one
 fails the build. Read it before scripting against a command that is on it.
+
+### Which exit code a given failure gets
+
+The MEANINGS are STABLE. Which of them a particular failure lands in is not, and it
+moves in one direction: from `1` toward something specific.
+
+`handleError` returned `1` on every branch, at 467 call sites, until the taxonomy
+existed. Those sites now get the category their error type names — a 404 exits `4`,
+a timeout exits `8`, an unreachable API exits `7` — and `1` is what is left when the
+CLI genuinely cannot say more. Refinement continues: a failure that exits `1` today
+may exit a specific code in a later release once the CLI can tell which it is.
+
+**You may rely on:** a failure that exits non-zero today continuing to exit
+non-zero, and a code narrowing rather than widening — `4` will not become `1`.
+
+**A change here means:** a failure that exited `1` now exits something specific.
+That is announced in `CHANGELOG.md` when it affects a documented outcome, and is not
+announced when it is one of the 467 sites that never had a contract to break.
+
+🔴 **`nexus upgrade` PUBLISHED FOUR EXIT CODES IN ITS OWN `--help`, AND ALL THREE
+NON-ZERO ONES MOVED.** It is the one command in the CLI with a documented exit-code
+contract that this release breaks:
+
+| Was | Is   | Outcome                                               |
+| --- | ---- | ----------------------------------------------------- |
+| `1` | `7`  | the registry was unreachable                          |
+| `1` | `9`  | the install command failed                            |
+| `2` | `10` | installed, and your shell still resolves the old copy |
+| `3` | `11` | installed, and it could not be checked FOR you (sudo) |
+
+`2` and `3` had to move because those numbers already meant "not authenticated" and
+"permission denied" everywhere else in the same binary. `1` split because "the
+registry was unreachable" and "the install failed" are different categories and a
+caller retrying one should not retry the other. **A script branching on `1`, `2` or
+`3` from `nexus upgrade` must be updated.**
+
+**No number changed MEANING outside that table.** The admin tree's `2` `3` `4` `5`
+`6` mean what they always meant. Two other failures re-categorized rather than
+re-numbered, and both left the generic `1`:
+
+- an unreachable admin API now exits `7`, because a network failure is retryable and
+  the generic failure is not knowably anything;
+- `nexus mcp call` on a failing tool now exits `6` (or `5` when the input was
+  refused), which its own `--help` had documented as `1`.
+
+Every other command's help text that named a specific exit code has been corrected
+to match the code, and `exit-code-taxonomy.test.ts` asserts the root table is true.
 
 ### Optional flags on individual commands
 
@@ -361,7 +499,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-519 leaves, **0 unclassified, 0 stale**, 58 classified `safe`.
+522 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -407,41 +545,6 @@ JSON.
 inside the payload. Read defensively, and prefer `nexus api GET <path>` when you
 want the untouched response and want to be honest with yourself that that is what
 you are getting.
-
-### Exit codes other than 0 and 1
-
-Three maps coexist, and the root `--help` currently describes only one of them.
-
-| Surface                             | Codes                    | Where                                           |
-| ----------------------------------- | ------------------------ | ----------------------------------------------- |
-| The resource tree — 467 error paths | `1`, always              | `handleError`, `src/errors.ts`                  |
-| The admin tree — 22 error paths     | `2` `3` `4` `5` `6` `1`  | `exitCodeFor`, `src/util/admin-errors.ts:72-79` |
-| `vibe app-logs --follow`            | `130` on a second Ctrl-C | `src/commands/vibe-app-logs.ts:449`             |
-
-The admin map:
-
-```
-401           -> 2   missing / invalid admin token
-403           -> 3   permission denied
-404           -> 4   not found
-400 or 422    -> 5   invalid state / validation
->= 500        -> 6   server error
-anything else -> 1
-```
-
-Two more admin paths reach a code without a status: a missing admin token exits
-`2`, and CLI-side cross-field validation exits `5`.
-
-**`nexus --help` says "EVERY failure exits 1". That sentence is true of the
-resource tree and false of the admin tree**, which predates it and is richer. The
-admin-errors docblock says so explicitly. The disagreement will not be closed by
-quietly flattening the admin codes, because callers branch on them; it is closed by
-one documented taxonomy covering both trees, and that work is open.
-
-**You may rely on:** `0` = completed, non-zero = did not complete.
-
-**You may NOT rely on:** any specific non-zero value, in either direction. Do not
-write `if [ $? -eq 4 ]`. Read the `code` field of the error document.
 
 ### Table output
 
@@ -497,28 +600,36 @@ answer. Those numbers are tuning and may change.
 No promise. These exist, you can see them, and we will change them without telling
 anyone.
 
-### The 18 hidden top-level commands — all of them reinstall the binary
+### There are no hidden commands
 
-`src/commands/upgrade.ts` registers **18** hidden top-level commands beside
-`upgrade`, every one of which is the same action: reinstall this CLI.
+`src/commands/upgrade.ts` registers **0** hidden top-level commands beside
+`upgrade`. It once registered eighteen, every one of which was the same action:
+reinstall this CLI.
 
 ```
-update  latest  up      install  reinstall  refresh  fetch  pull  sync
-get     download  self-update  selfupdate  self-upgrade  selfupgrade
-new     patch   bump
+get     new       install      sync          fetch   pull  download
+refresh reinstall patch        bump          self-update  selfupdate
+self-upgrade      selfupgrade
 ```
 
-Verified by walking the tree: 67 top-level commands, 49 visible, 18 hidden, and all
-18 attributed to `upgrade.ts`. There are no hidden commands anywhere else in the
-tree.
+Fifteen of them were removed. `nexus get`, `nexus new`, `nexus install` and `nexus
+sync` are plausible names for something else entirely — `get` ends 40 leaves in
+this tree, `update` ends 29, and `install` and `sync` are declared aliases of
+`skills update` — and all four replaced the running binary. They were absent from
+`--help` by construction, so nothing warned you.
 
-**Read that list twice before scripting.** `nexus get`, `nexus new`, `nexus
-install` and `nexus sync` are plausible names for something else entirely, and all
-four replace the running binary. They are absent from `--help` by construction, so
-nothing warns you.
+The three that survive are `update`, `latest` and `up`, and they are no longer
+hidden commands at all: they are declared aliases on `upgrade`, so they appear in
+`--help` as `upgrade|update` and on the generated documentation page. They are
+STABLE for the same reason every other command name is — a rename without an alias
+is a breaking change.
 
-**You may rely on nothing here.** Any of these names may be reclaimed for a real
-command, or removed. Use `nexus upgrade`.
+Verified by walking the tree: 50 top-level commands, 50 visible, 0 hidden, and no
+hidden command anywhere in the tree.
+
+**This section is kept because the tier still exists and its population is empty.**
+A hidden command promises nothing, and adding one back is a change nobody would see
+in `--help`. Nothing currently relies on this tier.
 
 ### stderr
 
@@ -589,7 +700,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 604 nodes, and the root program is a 605th
+`src/command-universe.ts` renders all 616 nodes, and the root program is a 617th
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
@@ -614,7 +725,7 @@ version and its own promises.
 
 ## What we cannot promise yet, and why
 
-Four things a consumer would reasonably expect us to guarantee, and that we do not
+Three things a consumer would reasonably expect us to guarantee, and that we do not
 guarantee today. Each is a defect with an owner, not a design decision.
 
 ### 1. `--json` payload shapes are the backend's response, unvalidated
@@ -639,57 +750,7 @@ enforced.
 **Until then:** treat every payload field as best-effort. Pin the CLI version if
 you need a stable field set.
 
-### 2. Exit codes past 0 and 1 are inconsistent
-
-Three maps, described under UNSTABLE. The root `--help` documents one of them and
-says "EVERY failure exits 1", which is false for the 22 admin error paths and for
-`vibe app-logs --follow`.
-
-**Why we cannot promise it yet:** the two maps disagree about what a code _means_,
-not merely about which numbers are used. Flattening the admin tree to 1 would break
-callers branching on it today; widening the resource tree to 2-6 would be a real
-behaviour change across 467 sites. Picking one needs a decision, not an edit.
-
-**Until then:** `0` and non-zero are the contract. Branch on the `code` field.
-
-### 3. `--json` is not honoured on three surfaces, and a typo reads as success
-
-Measured against the built binary at 0.26.0:
-
-| Invocation                 | Exit  | stdout                                             |
-| -------------------------- | ----- | -------------------------------------------------- |
-| `nexus --json --help`      | **0** | the help screen, ASCII banner and all — not JSON   |
-| `nexus --json --version`   | **0** | `0.26.0` — not JSON                                |
-| `nexus --json docs`        | **0** | prose — not JSON                                   |
-| `nexus --json agnt --help` | **0** | the **root** help screen — a typo reads as success |
-| `nexus --json nosuchcmd`   | 1     | the error document ✅                              |
-| `nexus --json agent get`   | 1     | the error document ✅                              |
-
-The last two are the fixed half: `installArgumentRefusalReporting`
-(`src/errors.ts:358`) walks the whole tree, turns commander's internal
-`process.exit` into a typed throw, and sets JSON mode at the last instant anything
-can — so a missing argument, an unknown command, an unknown option, a bad
-`.choices()` value and a failing root value parser all produce a document.
-
-The gap is one line, `src/errors.ts:380`:
-
-```ts
-if (error.exitCode === 0 && onSuccessfulExit === "exit") return;
-```
-
-The callback returns before JSON mode is set. That is correct for `--help` and
-`--version`, which genuinely succeed — but it means a JSON consumer that asked for
-JSON gets prose at exit 0 and cannot tell the difference between "here is your
-help" and "I did not understand you". `nexus --json agnt --help` is the sharp case:
-a misspelled namespace prints the root help and exits 0.
-
-**This is being fixed.** It is stated here rather than papered over because a
-consumer reading this document today needs to know their typo will not be caught.
-
-**Until then:** do not treat exit 0 under `--json` as proof you got a document.
-Check that stdout parses.
-
-### 4. The CLI's verb table is smaller than the platform's route table
+### 2. The CLI's verb table is smaller than the platform's route table
 
 A verb absent from `nexus --help` is absent from **this CLI at this version**. It
 is not proof the platform cannot do the thing. Routes are served that this CLI has
@@ -726,9 +787,13 @@ release, not a clarification of this document. File it with `nexus ticket create
 ## Writing a script that survives
 
 - Always pass `--json`. Never parse a table.
-- Check stdout parses as JSON before trusting exit 0. See gap 3.
-- Branch on `error.code`, never on `error.message` and never on a non-zero exit
-  value.
+- Branch on the exit code first, then parse. Every terminal path under `--json`
+  puts one parseable document on stdout, including `--help`, `--version` and a
+  refusal — so a non-zero exit is the failure signal, and the document tells you
+  which failure it was.
+- Branch on `$?` to decide whether to RETRY — `7` and `8` are worth retrying, `5`
+  never is. Branch on `error.code` to decide what to SAY. Never branch on
+  `error.message`, which is prose and gets rewritten.
 - Read `--help` for a command's envelope shape before writing the `jq` path. The
   shapes are not uniform and a wrong path returns `null` rather than failing.
 - Pass `--yes` to every destructive command. Without a terminal the CLI refuses,

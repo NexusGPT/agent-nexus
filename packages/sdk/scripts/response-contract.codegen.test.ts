@@ -169,6 +169,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "CustomModelList",
   "CustomModelUpdate",
   "CustomerAddNote",
+  "DeploymentChatSessionCreate",
   "DeploymentCreate",
   "DeploymentFolderAssign",
   "DeploymentFolderCreate",
@@ -400,7 +401,29 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "WorkspaceListFolder",
   "WorkspaceRename",
   "WorkspaceRestore",
-  "WorkspaceSearch"
+  "WorkspaceSearch",
+  // tracks — one work item's seven scope resources
+  "TrackListReady",
+  "TrackListReadyTasks",
+  "TrackCreateDependencyEdge",
+  "TrackCreateSection",
+  "TrackRenameSection",
+  "TrackReadTask",
+  "TrackClaimTask",
+  "TrackToggleTask",
+  "TrackCreateTaskEdge",
+  "TrackImportPlan",
+  "TrackListAgents",
+  "TrackOpenAgent",
+  "TrackBeatAgent",
+  "TrackCloseAgent",
+  "TrackListDiaryEntries",
+  "TrackAppendDiaryEntry",
+  "TrackListMemoryEntries",
+  "TrackPutMemoryEntry",
+  "TrackDeleteMemoryEntry",
+  "TrackListEvents",
+  "TrackAppendEvent"
 ];
 
 const projection = projectResponseContract();

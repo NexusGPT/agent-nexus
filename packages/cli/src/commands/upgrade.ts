@@ -8,6 +8,7 @@ import {
   printFailure,
   reportFailure
 } from "../errors";
+import { EXIT_CODES } from "../exit-codes";
 import { color, printSuccess } from "../output";
 import { getGlobalInstallCommand } from "../util/package-manager";
 import {
@@ -27,69 +28,80 @@ const BINARY_NAME = "nexus";
  * Exit code for "the install succeeded and your shell still runs the old one".
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 IT IS NOT 1, AND THE HELP TEXT'S "EXIT 1 MEANS NOTHING CHANGED" IS WHY.
+ * 🚨 IT WAS 2, AND 2 ALREADY MEANT "NOT AUTHENTICATED" IN THE ADMIN TREE.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Both existing failures leave the machine exactly as it was — the registry was
+ * Both other failures leave the machine exactly as it was — the registry was
  * unreachable, or the install command itself failed — so a caller reading 1 can
  * retry and lose nothing. This outcome is the opposite: a package was written to
  * disk, and RETRYING IS THE TRAP. It writes the same bytes to the same directory
  * forever while the shell keeps resolving the other copy, which is precisely the
- * loop this whole change exists to end.
+ * loop this outcome exists to end. That distinction is real and it keeps its own
+ * code; what it does not keep is a NUMBER this binary spends on something else.
  *
- * A code that separates "retry may help" from "retrying is the thing that wasted
- * your week" is worth its own value. `|| handle` still catches it; only a caller
- * branching on `== 1` sees the difference, and that caller was being told
- * "nothing changed" about a machine that had changed.
+ * `outcome-not-reached` is the general name for it, and this command is only its
+ * first caller. See `src/exit-codes.ts`.
  */
-const EXIT_INSTALLED_BUT_NOT_RESOLVED = 2;
+export const EXIT_INSTALLED_BUT_NOT_RESOLVED = EXIT_CODES["outcome-not-reached"];
 
 /**
  * Exit code for "the install succeeded and I cannot check it for YOU".
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 IT IS NOT 2, BECAUSE 2 IS A FINDING AND THIS IS THE ABSENCE OF ONE.
+ * 🚨 IT IS NOT {@link EXIT_INSTALLED_BUT_NOT_RESOLVED}, BECAUSE THAT IS A
+ *    FINDING AND THIS IS THE ABSENCE OF ONE.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Exit 2 says something was READ BACK and disagreed — a specific file wins on
+ * `outcome-not-reached` says something was READ BACK and disagreed — a specific file wins on
  * your PATH and here it is. Under `sudo` nothing of the sort was established:
  * the install ran as root and the verification read the ROOT process's
  * environment, and whether that is your shell's environment depends on a
  * sudoers configuration this command cannot see.
  *
- * Reporting that as 2 would name a PATH problem that may not exist. Reporting it
+ * Reporting that as a finding would name a PATH problem that may not exist. Reporting it
  * as 0 is the defect this whole file exists to prevent — a success sentence
  * about a machine nobody checked. An UNMEASURED outcome is neither, and it gets
  * its own code so a script can tell "I checked and it is wrong" from "I could
  * not check".
  *
- * Retrying does not help here either, and for a different reason than 2: the
+ * Retrying does not help here either, and for a different reason: the
  * same `sudo` produces the same non-answer forever. The remedy is one command
  * WITHOUT `sudo`, which the output names.
  */
-const EXIT_VERIFICATION_NOT_YOURS = 3;
+export const EXIT_VERIFICATION_NOT_YOURS = EXIT_CODES.unmeasured;
 
-/** All hidden aliases that also trigger the upgrade action. */
-export const UPGRADE_ALIASES = [
-  "update",
-  "latest",
-  "up",
-  "install",
-  "reinstall",
-  "refresh",
-  "fetch",
-  "pull",
-  "sync",
-  "get",
-  "download",
-  "self-update",
-  "selfupdate",
-  "self-upgrade",
-  "selfupgrade",
-  "new",
-  "patch",
-  "bump"
-];
+/**
+ * The alternative spellings of `upgrade`, DECLARED ON THE COMMAND ITSELF.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A SPELLING BELONGS HERE ONLY IF IT CANNOT MEAN ANYTHING ELSE IN THIS CLI.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * This list was eighteen HIDDEN top-level commands, added so that "any
+ * intuitive word triggers the upgrade". That rule has no stopping point, and it
+ * reached words this CLI already uses for something else: `get` ends 40 leaves,
+ * `update` ends 29, and `install` and `sync` are declared aliases of `skills
+ * update`, which installs the skills bundle rather than the binary. Typed bare,
+ * every one of them replaced the running binary instead — off every help screen,
+ * so nothing warned anyone.
+ *
+ * The rule that replaced it is the one above, and it has a written boundary:
+ * `update`, `latest` and `up` are the three the published docs
+ * (`content/docs/cli/installation.mdx`) already instruct people to type. Adding
+ * a fourth means writing it down there first.
+ *
+ * They are `.alias()` calls on `upgrade` rather than separate commands, which is
+ * this CLI's own idiom (`task-eval` → `eval`, `workspace unmount` → `umount`).
+ * One command, one help entry reading `upgrade|update|latest|up`, and a guess
+ * that misses now prints "unknown command" and points at `--help` instead of
+ * silently reinstalling.
+ *
+ * ⚠️ `index.ts` still needs the WORDS, because it reads `process.argv[2]` to
+ * skip the auto-update after the upgrade ran. Commander reports an aliased
+ * invocation under the command's NAME, so the word a user typed is not
+ * recoverable from the tree.
+ */
+export const UPGRADE_ALIASES = ["update", "latest", "up"];
 
 /**
  * Everything the upgrade touches outside itself, in one injectable surface.
@@ -177,10 +189,9 @@ export async function runUpgrade(env: UpgradeEnvironment): Promise<void> {
   const latest = await env.fetchLatest();
 
   if (!latest) {
-    // One action, NINETEEN commands: `upgrade` plus its eighteen hidden
-    // aliases, every one of which failed with an empty stdout under --json.
-    // (This line read TWENTY while describing nineteen; the roster is the
-    // authority and `upgrade-verifies-what-it-claims.test.ts` counts it.)
+    // One command under four spellings — `upgrade` and the three aliases — and
+    // every one of them failed with an empty stdout under --json. The roster is
+    // the authority and `upgrade-verifies-what-it-claims.test.ts` counts it.
     process.exitCode = reportFailure(
       "connection-failed",
       "Failed to check for updates.",
@@ -398,18 +409,23 @@ function reportVerification(env: UpgradeEnvironment, latest: string, installCmd:
 export function registerUpgradeCommand(program: Command): void {
   const currentVersion: string = (require("../../package.json") as { version: string }).version;
 
-  // ONE closure, nineteen registrations, so a change to the upgrade cannot land
-  // on some entry points and miss the rest. That is NOT assertable by identity —
-  // commander wraps every `.action(fn)` in its own handler, so the tree holds
-  // nineteen distinct handlers either way. `upgrade-verifies-what-it-claims.test.ts`
-  // therefore DRIVES all nineteen.
+  // ONE command object now carries every spelling, so a change to the upgrade
+  // reaches all of them by construction rather than by a loop anyone can forget.
+  // `upgrade-verifies-what-it-claims.test.ts` still DRIVES each spelling, because
+  // an alias silently failing to resolve looks identical to one that works.
   const upgradeAction = async () => {
     await runUpgrade(realEnvironment(currentVersion));
   };
 
-  program
+  const upgrade = program
     .command("upgrade")
-    .description("Upgrade the Nexus CLI to the latest version")
+    .description("Upgrade the Nexus CLI to the latest version");
+
+  // Declared on the command, so `--help` renders `upgrade|update|latest|up` and
+  // the alternative spellings are DISCOVERABLE rather than hidden.
+  for (const alias of UPGRADE_ALIASES) upgrade.alias(alias);
+
+  upgrade
     .addHelpText(
       "after",
       `
@@ -434,7 +450,7 @@ Notes:
   nothing about the shell you will type "nexus" into next. That combination is
   what produces the loop where every run reports a successful upgrade and the
   version never moves. This command now detects sudo, warns before installing,
-  and REFUSES to report an upgrade it verified for somebody else: exit 3, with
+  and REFUSES to report an upgrade it verified for somebody else: exit 11, with
   the one command that settles it.
 
   IT IS A NO-OP WHEN YOU ARE CURRENT. The version is checked first, and an
@@ -455,23 +471,29 @@ Notes:
   through whatever installed them. That case is now named as its own outcome
   instead of being reported as a successful upgrade.
 
-  FOUR EXIT CODES, AND THE THREE NON-ZERO ONES MEAN DIFFERENT THINGS.
+THE EXIT CODES, AND EVERY NON-ZERO ONE MEANS SOMETHING DIFFERENT.
     0  You are on the latest version, and that was read back, not assumed.
-    1  NOTHING CHANGED — the registry was unreachable, or the install command
-       failed. Retrying is reasonable.
-    2  The install SUCCEEDED and the shell still resolves a different copy.
+    1, 7, 9  NOTHING CHANGED — the registry was unreachable (7), the install
+       command failed (9), or something else went wrong (1). Retrying is
+       reasonable. See "nexus --help" for the full exit-code table.
+
+    🔴 ALL FOUR NON-ZERO CODES MOVED. This command used to answer 1 for both
+    "registry unreachable" and "install failed", 2 for the PATH finding and 3
+    for the unmeasured one. They are now 7, 9, 10 and 11. A script branching on
+    1, 2 or 3 from THIS command must be updated — nothing here still exits 1
+    except a failure with no more specific category.
+    10 The install SUCCEEDED and the shell still resolves a different copy.
        Nothing about that PATH changed, so RETRYING WILL NOT HELP; the output
        names the file that wins and what to do about it.
-    3  The install SUCCEEDED and it could not be checked FOR YOU — this ran
+    11 The install SUCCEEDED and it could not be checked FOR YOU — this ran
        under sudo, so the check read root's environment. That is an ABSENT
        measurement, not a failed one: nothing here says your PATH is wrong.
        Re-running under sudo gives the same non-answer; run "nexus --version"
-       without sudo.`
+       without sudo.
+
+    🔴 THESE TWO MOVED. They were 2 and 3, which the rest of the binary spends
+    on "not authenticated" and "permission denied". A script branching on 2 or 3
+    here must be updated.`
     )
     .action(upgradeAction);
-
-  // Register hidden aliases so any intuitive word triggers the upgrade
-  for (const alias of UPGRADE_ALIASES) {
-    program.command(alias, { hidden: true }).action(upgradeAction);
-  }
 }

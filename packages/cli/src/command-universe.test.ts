@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Command } from "commander";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -13,6 +14,7 @@ import {
   deriveCommandNodes,
   discoverRootRegistrars,
   flattenCommands,
+  isHiddenCommand,
   unattributedHiddenSiblings
 } from "./command-universe";
 
@@ -254,17 +256,30 @@ describe("one walk carries the metadata a rendering throws away", () => {
     expect(nodes.length).toBeGreaterThan(leaves.length);
   });
 
-  it("distinguishes a hidden command from a real one", async () => {
-    const nodes = await deriveCommandNodes();
-    const hidden = nodes.filter((node) => node.hidden).map((node) => node.path);
+  it("distinguishes a hidden command from a real one", () => {
+    // 🚨 THE REAL TREE NO LONGER CONTAINS ONE, so this property cannot be
+    // asserted against it without going vacuous. `upgrade.ts` used to register
+    // 18 childless hidden top-level aliases, and a walk that dropped `hidden`
+    // returned them as leaves indistinguishable from real commands — a docs
+    // generator consuming that list emitted phantom pages. The read still has
+    // to work the day somebody adds a hidden command back.
+    const program = new Command();
+    const visible = program.command("real");
+    const concealed = program.command("concealed", { hidden: true });
 
-    // The 18 `upgrade` aliases are childless TOP-LEVEL commands, so a walk that
-    // dropped `hidden` returned them as leaves indistinguishable from real
-    // commands — and a docs generator consuming that list would have emitted 18
-    // phantom pages, or deleted the alias table that is the only record of them.
-    expect(hidden).toContain("update");
-    expect(hidden).toContain("bump");
-    expect(hidden.length).toBeGreaterThanOrEqual(18);
+    expect(isHiddenCommand(concealed)).toBe(true);
+    expect(isHiddenCommand(visible)).toBe(false);
+    // A parentless command is never hidden — commander's own invariant.
+    expect(isHiddenCommand(program)).toBe(false);
+  });
+
+  it("reports no hidden command anywhere in the real tree", async () => {
+    const nodes = await deriveCommandNodes();
+
+    // Control: the walk really ran. An empty derivation would satisfy the
+    // assertion below by returning nothing at all.
+    expect(nodes.length).toBeGreaterThan(100);
+    expect(nodes.filter((node) => node.hidden).map((node) => node.path)).toEqual([]);
     expect(nodes.find((node) => node.path === "upgrade")?.hidden).toBe(false);
   });
 
@@ -274,7 +289,13 @@ describe("one walk carries the metadata a rendering throws away", () => {
 
     expect(upgrade?.sourcePath).toBe("packages/cli/src/commands/upgrade.ts");
     expect(upgrade?.registrar).toBe("registerUpgradeCommand");
-    expect(upgrade?.hiddenSiblings.length).toBeGreaterThanOrEqual(18);
+
+    // `upgrade.ts` registered 18 of these and now registers none — its three
+    // remaining spellings are `.alias()` calls on the one command. The field
+    // stays because the attribution below is what refuses to guess when a
+    // module registers several visible namespaces, and that is still worth
+    // gating; the empty list is the current fact, not a disabled check.
+    expect(upgrade?.hiddenSiblings).toEqual([]);
 
     // Attribution is refused, not guessed, when a module registers more than one
     // visible namespace. Empty today; a red here is a new shape to look at, not

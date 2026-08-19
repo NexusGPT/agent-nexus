@@ -32,7 +32,7 @@ export {
 export * from "./resources";
 
 // HTTP client (for advanced usage)
-export type { HttpClientOptions, RequestOptions } from "./http-client";
+export type { HttpClientOptions, RequestOptions, RetryNotice, RetryRefusal } from "./http-client";
 export { HttpClient } from "./http-client";
 
 // Response-contract checking — the seam that lets a caller SEE a payload that

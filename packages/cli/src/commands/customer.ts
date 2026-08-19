@@ -165,10 +165,11 @@ Examples:
   $ nexus customer get-by-external-id crm-4471 --json
 
 Notes:
-  A MISS IS A 200 ON THE WIRE AND AN EXIT 1 HERE. The route answers data: null
-  rather than 404; this command turns that into an error document on STDERR and
-  exits 1, leaving STDOUT EMPTY. So read the exit code — empty stdout is the
-  miss, never a truncated document.
+  A MISS IS A 200 ON THE WIRE AND A NON-ZERO EXIT HERE. The route answers
+  data: null rather than 404; this command turns that into an error document on
+  STDERR and exits non-zero, leaving STDOUT EMPTY. So read the exit code — empty
+  stdout is the miss, never a truncated document. "nexus --help" carries the
+  table, and a miss is the not-found category rather than a generic failure.
   THE LOOKUP IS EXACT, CASE-SENSITIVE AND TRIMMED, and at most one customer per
   organization can hold a given external user id. A blank or whitespace-only key
   is a 400 rather than a miss.

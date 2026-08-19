@@ -17,6 +17,7 @@
  * HEALTHY** — see {@link waitForEdge}. Everything else exits non-zero.
  */
 
+import { EXIT_CODES } from "../exit-codes";
 import { color, isJsonMode } from "../output";
 
 /** Lifecycle of one deployment — mirrors `VibeDeploymentStatus` in the schema. */
@@ -299,6 +300,14 @@ function parseInstant(raw: string | null): number | null {
  * Render the outcome and return the process exit code. Success is `0` and
  * nothing else is: a caller scripting `nexus vibe deploy --watch` must be able
  * to branch on the exit code alone.
+ *
+ * ⚠️ THE NUMBERS COME FROM `src/exit-codes.ts` AND THE CATEGORIES ARE
+ * DELIBERATELY UNCHANGED. This file was a fifth exit map — bare `0` and `1`
+ * literals — and binding it to the taxonomy removes the map without touching
+ * what any outcome MEANS. Several of these are arguably `outcome-not-reached`
+ * or `unmeasured` rather than `failed`; that is a real re-categorization of a
+ * scripting surface whose whole contract is the exit code, so it is a separate
+ * deliberate decision and not a side effect of declaring the numbers.
  */
 export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number {
   if (isJsonMode()) {
@@ -308,7 +317,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
     // is. `kind` is dropped in favour of `outcome`, rather than appearing twice.
     const { kind, ...rest } = outcome;
     console.log(JSON.stringify({ outcome: kind, ...rest }, null, 2));
-    return kind === "served" ? 0 : 1;
+    return kind === "served" ? EXIT_CODES.success : EXIT_CODES.failed;
   }
 
   switch (outcome.kind) {
@@ -322,7 +331,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
         console.log(`  ${outcome.app.publicUrl}`);
         printServedVisibility(outcome.app.visibility, appId);
       }
-      return 0;
+      return EXIT_CODES.success;
 
     case "failed":
       console.log(
@@ -335,14 +344,14 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
       console.log(
         color.dim(`  Build log: nexus vibe deployments get ${appId} ${outcome.deployment.id}`)
       );
-      return 1;
+      return EXIT_CODES.failed;
 
     case "superseded":
       console.log(
         color.yellow("!") +
           ` v${String(outcome.deployment.versionNumber)} was superseded by a newer deployment — it will never go live.`
       );
-      return 1;
+      return EXIT_CODES.failed;
 
     case "displaced":
       // Says "never went live", not "was superseded". Both end the watch the
@@ -353,7 +362,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
         color.yellow("!") +
           ` v${String(outcome.deployment.versionNumber)} never went live — a newer deployment took over first. Nothing was interrupted.`
       );
-      return 1;
+      return EXIT_CODES.failed;
 
     case "approval-refused":
       console.log(
@@ -368,7 +377,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
           "  The deployment stays AWAITING_APPROVAL by design; the gate is what was decided."
         )
       );
-      return 1;
+      return EXIT_CODES.failed;
 
     case "deploy-timeout":
       // NOT a failure claim. The deploy may still be converging; what is true is
@@ -380,7 +389,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
       console.log(
         color.dim(`  Still running: nexus vibe deployments get ${appId} ${outcome.deployment.id}`)
       );
-      return 1;
+      return EXIT_CODES.failed;
 
     case "edge-unconfirmed":
       console.log(
@@ -398,7 +407,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
       // it as success is the failure this whole module exists to prevent.
       console.log(color.dim("  HEALTHY means the container passed its own check, not that a"));
       console.log(color.dim("  visitor can reach it. Check the app's public URL directly."));
-      return 1;
+      return EXIT_CODES.failed;
   }
 }
 

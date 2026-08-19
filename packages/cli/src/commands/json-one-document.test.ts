@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
+
 /**
  * THE ONE-DOCUMENT GATE — every leaf, driven under `--json`, stdout parsed.
  *
@@ -634,7 +636,7 @@ describe("the argument-refusal funnel", () => {
     // The hint names the exact help to run, which is the whole reason the
     // installer walks the tree carrying a path.
     expect(doc.error.hint).toContain("nexus thing --help");
-    expect(run.exitCode).toBe(1);
+    expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("the error it throws is TYPED, so handleError branches rather than string-matches", () => {
@@ -663,7 +665,7 @@ describe("the argument-refusal funnel", () => {
     }
     expect((caught as CliArgumentError).exitCode).toBe(0);
     // `handleError` still refuses to report a failure as exit 0.
-    expect(handleError(caught)).toBe(1);
+    expect(handleError(caught)).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("refuse() emits the same one-document envelope a command's own refusal needs", () => {
@@ -679,7 +681,7 @@ describe("the argument-refusal funnel", () => {
         code: "CLI_INVALID_ARGUMENTS"
       }
     });
-    expect(run.exitCode).toBe(1);
+    expect(run.exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("refuse() prints prose, not a document, when --json is off", () => {
@@ -688,7 +690,7 @@ describe("the argument-refusal funnel", () => {
     const realErr = console.error;
     console.error = (...a: unknown[]): void => void lines.push(a.map(String).join(" "));
     try {
-      expect(refuse("--body is required.")).toBe(1);
+      expect(refuse("--body is required.")).toBe(EXIT_CODES["invalid-input"]);
     } finally {
       console.error = realErr;
     }

@@ -7,6 +7,13 @@ import {
 } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
+import {
+  CategorizedCliError,
+  EXIT_CODES,
+  type ExitCategory,
+  exitCodeForHttpStatus
+} from "./exit-codes";
+import { argvRequestsJson } from "./json-terminal-contract";
 import { color, emitDocument, isJsonMode, setJsonMode } from "./output";
 
 /**
@@ -248,6 +255,24 @@ const FAILURE_CAUSE_CODES: Readonly<Record<FailureCause, string>> = {
 };
 
 /**
+ * THE SAME SIX CAUSES, AS EXIT CODES. The vocabulary is declared once and read
+ * twice — once for the document's `code`, once for the process's status.
+ *
+ * Written as a `Record<FailureCause, …>` so adding a cause is a compile error
+ * here until it has an exit category. A `?? failed` default would let a new
+ * cause ship as a generic `1` with nothing to notice it, which is the exact
+ * shape of the defect this whole file is undoing.
+ */
+const FAILURE_CAUSE_EXIT_CATEGORIES: Readonly<Record<FailureCause, ExitCategory>> = {
+  "not-found": "not-found",
+  "not-authenticated": "not-authenticated",
+  "connection-failed": "connection-failed",
+  "timed-out": "timed-out",
+  "remote-error": "remote-error",
+  "local-failed": "local-failed"
+};
+
+/**
  * COMMANDER REFUSED THE INVOCATION, AND IT USED TO DO SO WITHOUT A DOCUMENT.
  *
  * ══════════════════════════════════════════════════════════════════════════════
@@ -340,19 +365,16 @@ function argvUnderParse(program: Command): readonly string[] {
 /**
  * Did this invocation ask for JSON, as commander itself received it?
  *
- * A plain membership test rather than commander's own parsed value, because the
- * parsed value does not exist yet for every refusal this has to cover: a root
- * option whose value parser throws (`--timeout abc … --json`) aborts the parse
- * before `--json` is ever looked at, and that is exactly the shape where the
- * caller is owed a document.
+ * ONE reading of that fact, shared with `json-terminal-contract.ts` rather than
+ * spelled twice. Two membership tests over the same tokens are two things to
+ * drift, and they would drift in silence: a disagreement is only observable on
+ * an invocation neither file happens to have a case for.
  *
- * The one over-reach is deliberate: a literal `--json` consumed as another
- * option's VALUE reads as a request here. On an invocation that is already being
- * refused, handing a machine a parseable document it did not ask for costs it
- * nothing, and handing it an empty stdout costs it everything.
+ * {@link argvRequestsJson} carries why it reads RAW tokens rather than
+ * commander's parsed value, and which over-reach is deliberate.
  */
 function jsonRequested(program: Command): boolean {
-  return argvUnderParse(program).includes("--json");
+  return argvRequestsJson(argvUnderParse(program));
 }
 
 export function installArgumentRefusalReporting(
@@ -480,7 +502,17 @@ export function handleError(err: unknown): number {
       `Run "${err.commandPath} --help" for the full usage.`,
       CLI_CODES.INVALID_ARGUMENTS
     );
-    return err.exitCode === 0 ? 1 : err.exitCode;
+    // `err.exitCode` is COMMANDER's, and commander has no taxonomy — every
+    // refusal is its `1` and a `--help` is its `0`. Forwarding it said "generic
+    // failure" about the one failure whose category is never in doubt: the
+    // invocation was refused before anything was sent.
+    return EXIT_CODES["invalid-input"];
+  }
+
+  // A throw site that already knows its own category — see `CategorizedCliError`.
+  if (err instanceof CategorizedCliError) {
+    printCliError(err.message, err.hint ?? undefined, err.code);
+    return err.exitCode;
   }
 
   if (err instanceof NexusAuthenticationError) {
@@ -489,14 +521,14 @@ export function handleError(err: unknown): number {
     // carries the server's own code rather than needing a CLI_* one.
     if (PROVIDER_AUTH_CODES.has(err.code)) {
       printCliError(err.message, PROVIDER_RECONNECT_HINT, err.code);
-      return 1;
+      return EXIT_CODES["not-authenticated"];
     }
     printCliError(
       "Authentication failed — invalid or missing API key.",
       'Run "nexus auth login" to re-authenticate, or set NEXUS_API_KEY.',
       err.code
     );
-    return 1;
+    return EXIT_CODES["not-authenticated"];
   }
 
   if (err instanceof NexusApiError) {
@@ -525,7 +557,10 @@ export function handleError(err: unknown): number {
     } else {
       printCliError(`API error (${err.status}): ${err.message}`, undefined, err.code);
     }
-    return 1;
+    // One rule for the whole binary, and the admin tree calls the same function.
+    // Every branch above is a status this covers, so the mapping cannot disagree
+    // with the message printed beside it.
+    return exitCodeForHttpStatus(err.status);
   }
 
   // Before NexusConnectionError — a timeout IS a connection error in the SDK's
@@ -538,7 +573,7 @@ export function handleError(err: unknown): number {
       "For long-running operations, raise the limit with the global --timeout <seconds> flag.",
       CLI_CODES.TIMEOUT
     );
-    return 1;
+    return EXIT_CODES["timed-out"];
   }
 
   if (err instanceof NexusConnectionError) {
@@ -547,21 +582,24 @@ export function handleError(err: unknown): number {
       "Check your network connection and base URL configuration.",
       CLI_CODES.CONNECTION_FAILED
     );
-    return 1;
+    return EXIT_CODES["connection-failed"];
   }
 
+  // An SDK failure carrying no status and no category of its own. `failed` is
+  // the honest answer here, and it is the LAST place in this function where it
+  // is — every branch above knows what happened.
   if (err instanceof NexusError) {
     printCliError(err.message, undefined, CLI_CODES.SDK_ERROR);
-    return 1;
+    return EXIT_CODES.failed;
   }
 
   if (err instanceof Error) {
     printCliError(err.message, undefined, CLI_CODES.UNKNOWN);
-    return 1;
+    return EXIT_CODES.failed;
   }
 
   printCliError(String(err), undefined, CLI_CODES.UNKNOWN);
-  return 1;
+  return EXIT_CODES.failed;
 }
 
 /**
@@ -583,7 +621,7 @@ export function handleError(err: unknown): number {
  *     nothing else". It printed English prose on stdout instead, so `jq` on the
  *     documented pipeline fails to parse and the caller cannot tell a broken CLI
  *     from a missing customer.
- *   - FAILURE — "EVERY failure exits 1". It exited 0, so a shell script's `if`
+ *   - FAILURE — a failure exits NON-ZERO. It exited 0, so a shell script's `if`
  *     takes the success branch on a customer that does not exist.
  *
  * Together those make a miss INDISTINGUISHABLE from a hit by output shape AND by
@@ -599,7 +637,8 @@ export function handleError(err: unknown): number {
  * of a 2xx, not something the server said. Pass an API code instead when the
  * response genuinely carried one.
  *
- * @returns 1, always — assign it to `process.exitCode` like {@link handleError}.
+ * @returns the `not-found` exit code — assign it to `process.exitCode` like
+ * {@link handleError}.
  */
 /**
  * A command REFUSES its own input, on both channels, with one exit code.
@@ -618,12 +657,13 @@ export function handleError(err: unknown): number {
  * `{"error":{"message","hint","code"}}` every other failure emits, so a script
  * still has exactly one error shape and never needs a presence check.
  *
- * @returns 1, always — assign it to `process.exitCode`, like {@link handleError}
- * and {@link printNotFound}.
+ * @returns the `invalid-input` exit code — assign it to `process.exitCode`, like
+ * {@link handleError} and {@link printNotFound}. It returned `1` until the
+ * taxonomy existed; see `src/exit-codes.ts`.
  */
 export function refuse(message: string, hint?: string): number {
   printCliError(message, hint, CLI_CODES.INVALID_ARGUMENTS);
-  return 1;
+  return EXIT_CODES["invalid-input"];
 }
 
 /**
@@ -638,20 +678,23 @@ export function refuse(message: string, hint?: string): number {
  * the call site sees it without opening this file, and `refuse` having no code
  * parameter at all means the wrong label is not a mistake anyone can make.
  *
- * @returns 1, always — assign it to `process.exitCode`.
+ * @returns the exit code for `cause` — assign it to `process.exitCode`. The
+ * cause the caller already had to name IS the exit category, so the 40 call
+ * sites that adopted this verb got a specific exit code for free, and none of
+ * them had to be edited to get it.
  */
 export function reportFailure(cause: FailureCause, message: string, hint?: string): number {
   printCliError(message, hint, FAILURE_CAUSE_CODES[cause]);
-  return 1;
+  return EXIT_CODES[FAILURE_CAUSE_EXIT_CATEGORIES[cause]];
 }
 
 /**
  * The error document, with NO opinion about the exit code.
  *
- * {@link refuse} and {@link reportFailure} both mean exit 1. The admin tree is
- * the one caller that legitimately owns its exit code — it documents 2/3/4/5/6
- * for auth, permission, not-found, invalid-state and server-error — so it needs
- * the document without the verdict.
+ * {@link refuse} and {@link reportFailure} each decide their own exit code from
+ * `src/exit-codes.ts`. The admin tree carries its code on the ERROR instead —
+ * `AdminCliError.exitCode`, from the same taxonomy — so it needs the document
+ * without the verdict.
  *
  * `code` is REQUIRED here for the same reason `refuse` has none: an optional
  * code is an invitation to ship the default, and the default is a claim.
@@ -666,7 +709,7 @@ export function printNotFound(
   code: string = CLI_CODES.NOT_FOUND
 ): number {
   printCliError(message, hint, code);
-  return 1;
+  return EXIT_CODES["not-found"];
 }
 
 function printCliError(message: string, hint?: string, code: string = CLI_CODES.UNKNOWN): void {

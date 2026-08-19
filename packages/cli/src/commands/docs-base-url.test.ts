@@ -11,6 +11,7 @@ vi.mock("../client", async (importOriginal) => ({
 }));
 
 import { parseTimeoutSeconds } from "../client";
+import { EXIT_CODES } from "../exit-codes";
 import { registerDocsCommand } from "./docs";
 
 // AbortSignal hides the delay it was built with, so record it at construction.
@@ -172,7 +173,7 @@ describe("the docs feeds honour the global --timeout", () => {
     const err = stderr.join("\n");
     expect(err).toContain("60s");
     expect(err).toContain("--timeout");
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["timed-out"]);
   });
 });
 
@@ -225,7 +226,7 @@ describe("a 200 carrying a web page is refused, not printed as documentation", (
     // status line. Only the content type separates it from the real feed.
     expect(stdout.join("\n")).not.toContain("<!doctype html");
     expect(stderr.join("\n")).toContain("text/plain");
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["remote-error"]);
   });
 
   it("says the base URL is the thing to check, since that is the actual cause", async () => {

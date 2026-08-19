@@ -6,6 +6,9 @@ import {
   renderFullContract,
   renderHelpBlock
 } from "./contract-help.render";
+import { EXIT_CODES } from "./exit-codes";
+import { commandPath } from "./json-terminal-contract";
+import { emitDocument, isJsonMode } from "./output";
 
 /**
  * THE JOIN KEY between a `--flag` and the Public API v1 field it fills.
@@ -225,8 +228,25 @@ export function bindCommand(
   // command with NO required option: it must print either way, so a green there
   // cannot come from the flag being broken in both.
   command.on("option:print-contract", () => {
-    process.stdout.write(`${renderFullContract(shape)}\n`);
-    process.exit(0);
+    // 🚨 A TERMINAL PATH THAT EXITS 0, SO IT OWES `--json` A DOCUMENT.
+    //
+    // This wrote straight to `process.stdout`, which is BELOW commander's
+    // `_outputConfiguration.writeOut` — the one door `json-terminal-contract.ts`
+    // owns — so the contract could not reach it. Measured on the built binary at
+    // 0.26.0: `nexus agent list --print-contract --json` printed 196 bytes of
+    // prose and exited 0, on each of the 177 commands that declare this flag.
+    //
+    // `isJsonMode()` is already correct here, and that is the payoff of resolving
+    // the mode from argv BEFORE the parse: an `option:` listener fires during
+    // option parsing, upstream of every hook, and the old `preAction` resolution
+    // would still have been reading `false` at this line.
+    const text = renderFullContract(shape);
+    if (isJsonMode()) {
+      emitDocument({ contract: { command: commandPath(command), text } });
+    } else {
+      process.stdout.write(`${text}\n`);
+    }
+    process.exit(EXIT_CODES.success);
   });
 
   return command;

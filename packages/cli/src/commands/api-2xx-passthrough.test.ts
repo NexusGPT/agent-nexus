@@ -23,6 +23,7 @@ vi.mock("../config", async (importOriginal) => {
   };
 });
 
+import { EXIT_CODES } from "../exit-codes";
 import { registerApiCommand } from "./api";
 
 const JSON_RPC_TOOLS_RESULT = {
@@ -129,7 +130,7 @@ describe("nexus api — a 2xx is a success, whatever shape its body has", () => 
 
     const { stdout, exitCode } = await runApi(["api", "GET", "/agents"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["permission-denied"]);
     expect(stdout).toContain("scope missing");
   });
 });

@@ -162,10 +162,14 @@ describe("requestWithMeta — failures keep reporting what the server said", () 
   it("reports the status when a failed response carries no body at all", async () => {
     const http = clientFor(502, "");
 
+    // A GET 502 is retryable, so this exhausts the default budget of three
+    // attempts and the message says so. The attempt count is appended rather
+    // than substituted: everything the server told us is still in there.
     await expect(http.requestWithMeta("GET", "/agents")).rejects.toMatchObject({
       code: "HTTP_502",
-      message: "Request failed with status 502",
-      status: 502
+      message: "Request failed with status 502 (gave up after 3 attempts)",
+      status: 502,
+      attempts: 3
     });
   });
 
@@ -175,6 +179,40 @@ describe("requestWithMeta — failures keep reporting what the server said", () 
     await expect(http.requestWithMeta("GET", "/agents")).rejects.toMatchObject({
       code: "PARSE_ERROR",
       status: 200
+    });
+  });
+
+  // Retry metadata has to survive on EVERY terminal body shape, and the table is
+  // the point rather than any one row. `annotate` is applied per throw site, so
+  // the defect is always one unannotated arm — and the arm that was missed is
+  // the one a real exhausted retry lands on most often, because a proxy serves
+  // 502/503/504 as an HTML error page. Two of these three rows passed before the
+  // fix, so any single example other than the HTML one is green on the bug.
+  describe.each([
+    ["an empty body", "", "HTTP_502"],
+    ["an HTML error page from a proxy", "<html><body>502 Bad Gateway</body></html>", "PARSE_ERROR"],
+    [
+      "a JSON error envelope",
+      JSON.stringify({ success: false, error: { message: "nope" } }),
+      "HTTP_502"
+    ]
+  ])("a retried 502 ending on %s", (_label, body, code) => {
+    it("still reports how many attempts were spent", async () => {
+      const http = clientFor(502, body);
+
+      await expect(http.requestWithMeta("GET", "/agents")).rejects.toMatchObject({
+        code,
+        status: 502,
+        attempts: 3
+      });
+    });
+
+    it("says so in the message, so a human reading stderr sees it too", async () => {
+      const http = clientFor(502, body);
+
+      await expect(http.requestWithMeta("GET", "/agents")).rejects.toThrow(
+        /\(gave up after 3 attempts\)$/
+      );
     });
   });
 

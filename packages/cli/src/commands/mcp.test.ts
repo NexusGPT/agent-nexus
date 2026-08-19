@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 
 /**
@@ -138,7 +139,7 @@ describe("nexus mcp call", () => {
 
     const { out, exitCode } = await run(["mcp", "call", "agent_create", "--json"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
     const document = JSON.parse(out) as { error: { message: string; code: string } };
     // One document, and it carries the server's own words — a caller that only
     // reads the exit code still gets told what to fix.
@@ -159,7 +160,7 @@ describe("nexus mcp call", () => {
 
     const { out, exitCode } = await run(["mcp", "call", "agent_lst", "--json"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
     const document = JSON.parse(out) as { error: { message: string } };
     expect(document.error.message).toContain("Unknown tool: agent_lst");
     expect(document.error.message).toContain("-32602");
@@ -174,7 +175,7 @@ describe("nexus mcp call", () => {
 
     const { out, exitCode } = await run(["mcp", "call", "agent_list", "--input", "[1]", "--json"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect(requests).toBe(0);
     expect((JSON.parse(out) as { error: { code: string } }).error.code).toBe(
       "CLI_INVALID_ARGUMENTS"
@@ -183,7 +184,7 @@ describe("nexus mcp call", () => {
 
   it("refuses invalid JSON in --input", async () => {
     const { exitCode } = await run(["mcp", "call", "agent_list", "--input", "{oops", "--json"]);
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("EXITS 1 on a reply carrying neither result nor error", async () => {
@@ -198,7 +199,7 @@ describe("nexus mcp call", () => {
     // JSON-RPC 2.0 requires exactly one of the two. Treating the absence as a
     // value would exit 0 having printed nothing — the single outcome a caller
     // cannot tell apart from the command working.
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
     expect((JSON.parse(out) as { error: { code: string } }).error.code).toBe("CLI_REMOTE_ERROR");
   });
 });
@@ -250,7 +251,7 @@ describe("nexus mcp tools list", () => {
 
     // An empty table would read exactly like "this key has no tools", which is a
     // legitimate answer this one is not.
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
     expect((JSON.parse(out) as { error: { code: string } }).error.code).toBe("CLI_REMOTE_ERROR");
   });
 
@@ -290,7 +291,7 @@ describe("nexus mcp tools get", () => {
 
     const { out, exitCode } = await run(["mcp", "tools", "get", "agent_delete", "--json"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["not-found"]);
     expect((JSON.parse(out) as { error: { code: string } }).error.code).toBe("CLI_NOT_FOUND");
   });
 });
@@ -327,7 +328,7 @@ describe("nexus mcp install", () => {
     // failure this refusal prevents.
     const { out, exitCode } = await run(["mcp", "install", "--json"]);
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
     expect((JSON.parse(out) as { error: { message: string } }).error.message).toContain(
       "no profile to pin"
     );
@@ -344,7 +345,7 @@ describe("nexus mcp install", () => {
     const second = await run(["mcp", "install", "--client", "cursor", "--apply", "--json"]);
     const document = JSON.parse(second.out) as { error: { code: string; message: string } };
 
-    expect(second.exitCode).toBe(1);
+    expect(second.exitCode).toBe(EXIT_CODES["local-failed"]);
     // CLI_UNKNOWN_ERROR would tell a script nothing about whether anything left
     // this process. Nothing did: the write was refused on this machine.
     expect(document.error.code).toBe("CLI_LOCAL_FAILED");

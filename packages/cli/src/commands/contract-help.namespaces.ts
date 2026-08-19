@@ -37,6 +37,7 @@ import { registerTemplateCommands } from "./template";
 import { registerTicketCommands } from "./ticket";
 import { registerToolCommands } from "./tool";
 import { registerTracingCommands } from "./tracing";
+import { registerTracksCommands } from "./tracks";
 import { registerUserGroupCommands } from "./user-group";
 import { registerVersionCommands } from "./version";
 import { registerVibeCommands } from "./vibe";
@@ -400,12 +401,12 @@ export const UNCONTRACTED_NAMESPACES: readonly UncontractedNamespace[] = [
     surface: "npm registry + a global package-manager install",
     because:
       "manages the local CLI install. Its --help states it needs no API key, no " +
-      "base URL and no profile. Its 18 hidden aliases register no namespace of " +
-      "their own, which is why the top-level name count exceeds the namespace " +
-      "count. The namespace total is NAMESPACE_TOTAL in test/unit/" +
-      "help-truth.ledger.ts, where a test pins it to the live tree; a number " +
-      "written here would be prose that nothing can redden, and the two that " +
-      "used to be here had both gone stale."
+      "base URL and no profile. It answers to update, latest and up as declared " +
+      "aliases, which register no namespace of their own and are not separate " +
+      "top-level names either. The namespace total is NAMESPACE_TOTAL in test/" +
+      "unit/help-truth.ledger.ts, where a test pins it to the live tree; a " +
+      "number written here would be prose that nothing can redden, and the two " +
+      "that used to be here had both gone stale."
   }
 ];
 
@@ -449,6 +450,7 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   ticket: registerTicketCommands,
   tool: registerToolCommands,
   tracing: registerTracingCommands,
+  tracks: registerTracksCommands,
   version: registerVersionCommands,
   role: registerRoleCommands,
   "agent-tool": registerAgentToolCommands,

@@ -25,15 +25,11 @@ import type { Command } from "commander";
  * issues across two ids. That is a property of the derivation, not something a
  * maintainer has to remember.
  *
- * ## What it deliberately does NOT do
- *
- * It does not resolve the 18 hidden top-level self-update aliases (`get`,
- * `update`, `pull`, …) to `upgrade`. Those are registered as separate
- * `Command`s rather than as `.alias()` entries, so each derives its own id —
- * `get`, not `upgrade`. That is correct and harmless: they are hidden, nobody
- * curates a known issue against them, and collapsing them would need a list of
- * exactly the kind this function exists to avoid. `nexus get` and
- * `nexus agent get` derive `get` and `agent.get`, which do not collide.
+ * `nexus upgrade` is the same case and needs no exception: `update`, `latest`
+ * and `up` are `.alias()` spellings on it, so all four invocations derive
+ * `upgrade`. A spelling registered as its OWN top-level `Command` would derive
+ * its own id instead — `update`, not `upgrade` — which is why an alternative
+ * spelling belongs on `.alias()` rather than beside the command it spells.
  */
 export function routeIdOf(command: Command): string {
   const parts: string[] = [];

@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
+
 /**
  * EVERY DESTRUCTIVE COMMAND, DRIVEN WITH NO TERMINAL AND NO `--yes`.
  *
@@ -323,7 +325,10 @@ describe("a destructive command asks before it acts", () => {
         `${leaf} asked, was refused, and did not report the refusal. ` +
           `confirmDestructive sets process.exitCode; a caller that swallows the ` +
           `false return leaves a pipeline reading success. stderr: ${run.stderr}`
-      ).toBe(1);
+        // `invalid-input`, not a bare 1: the invocation was refused before
+        // anything was sent, and the remedy is an argument (`--yes`). See
+        // `src/exit-codes.ts`; it read 1 until the taxonomy existed.
+      ).toBe(EXIT_CODES["invalid-input"]);
 
       expect(
         run.requests,

@@ -1419,7 +1419,85 @@ export type V1ResponseAssertions = [
       ResponseOf<"RolesRemovePermissionSetMember">,
       MethodResult<NexusClient["roles"]["removePermissionSetMember"]>
     >
-  >
+  >,
+  // ── tracks ── the seven scope resources of one work item ─────────────────
+  // TrackListReady  GET /public/v1/tracks/ready  ->  client.tracks.listReady()
+  Expect<Equals<ResponseOf<"TrackListReady">, MethodResult<NexusClient["tracks"]["listReady"]>>>,
+  // TrackListReadyTasks  GET /public/v1/tracks/:trackId/tasks/ready  ->  client.tracks.listReadyTasks()
+  Expect<
+    Equals<ResponseOf<"TrackListReadyTasks">, MethodResult<NexusClient["tracks"]["listReadyTasks"]>>
+  >,
+  // TrackCreateDependencyEdge  POST /public/v1/tracks/dependencies  ->  client.tracks.createDependencyEdge()
+  Expect<
+    Equals<
+      ResponseOf<"TrackCreateDependencyEdge">,
+      MethodResult<NexusClient["tracks"]["createDependencyEdge"]>
+    >
+  >,
+  // TrackCreateSection  POST /public/v1/tracks/:trackId/sections  ->  client.tracks.createSection()
+  Expect<
+    Equals<ResponseOf<"TrackCreateSection">, MethodResult<NexusClient["tracks"]["createSection"]>>
+  >,
+  // TrackRenameSection  POST /public/v1/tracks/:trackId/sections/:sectionId/rename  ->  client.tracks.renameSection()
+  Expect<
+    Equals<ResponseOf<"TrackRenameSection">, MethodResult<NexusClient["tracks"]["renameSection"]>>
+  >,
+  // TrackReadTask  GET /public/v1/tracks/tasks/:taskId  ->  client.tracks.readTask()
+  Expect<Equals<ResponseOf<"TrackReadTask">, MethodResult<NexusClient["tracks"]["readTask"]>>>,
+  // TrackClaimTask  POST /public/v1/tracks/tasks/:taskId/claim  ->  client.tracks.claimTask()
+  Expect<Equals<ResponseOf<"TrackClaimTask">, MethodResult<NexusClient["tracks"]["claimTask"]>>>,
+  // TrackToggleTask  POST /public/v1/tracks/tasks/:taskId/toggle  ->  client.tracks.toggleTask()
+  Expect<Equals<ResponseOf<"TrackToggleTask">, MethodResult<NexusClient["tracks"]["toggleTask"]>>>,
+  // TrackCreateTaskEdge  POST /public/v1/tracks/:trackId/task-edges  ->  client.tracks.createTaskEdge()
+  Expect<
+    Equals<ResponseOf<"TrackCreateTaskEdge">, MethodResult<NexusClient["tracks"]["createTaskEdge"]>>
+  >,
+  // TrackImportPlan  POST /public/v1/tracks/:trackId/import-plan  ->  client.tracks.importPlan()
+  Expect<Equals<ResponseOf<"TrackImportPlan">, MethodResult<NexusClient["tracks"]["importPlan"]>>>,
+  // TrackListAgents  GET /public/v1/tracks/:trackId/agents  ->  client.tracks.listAgents()
+  Expect<Equals<ResponseOf<"TrackListAgents">, MethodResult<NexusClient["tracks"]["listAgents"]>>>,
+  // TrackOpenAgent  POST /public/v1/tracks/:trackId/agents  ->  client.tracks.openAgent()
+  Expect<Equals<ResponseOf<"TrackOpenAgent">, MethodResult<NexusClient["tracks"]["openAgent"]>>>,
+  // TrackBeatAgent  POST /public/v1/tracks/:trackId/agents/:agentId/beat  ->  client.tracks.beatAgent()
+  Expect<Equals<ResponseOf<"TrackBeatAgent">, MethodResult<NexusClient["tracks"]["beatAgent"]>>>,
+  // TrackCloseAgent  POST /public/v1/tracks/:trackId/agents/:agentId/close  ->  client.tracks.closeAgent()
+  Expect<Equals<ResponseOf<"TrackCloseAgent">, MethodResult<NexusClient["tracks"]["closeAgent"]>>>,
+  // TrackListDiaryEntries  GET /public/v1/tracks/:trackId/diary  ->  client.tracks.listDiaryEntries()
+  Expect<
+    Equals<
+      ResponseOf<"TrackListDiaryEntries">,
+      MethodResult<NexusClient["tracks"]["listDiaryEntries"]>
+    >
+  >,
+  // TrackAppendDiaryEntry  POST /public/v1/tracks/:trackId/diary  ->  client.tracks.appendDiaryEntry()
+  Expect<
+    Equals<
+      ResponseOf<"TrackAppendDiaryEntry">,
+      MethodResult<NexusClient["tracks"]["appendDiaryEntry"]>
+    >
+  >,
+  // TrackListMemoryEntries  GET /public/v1/tracks/:trackId/memory  ->  client.tracks.listMemoryEntries()
+  Expect<
+    Equals<
+      ResponseOf<"TrackListMemoryEntries">,
+      MethodResult<NexusClient["tracks"]["listMemoryEntries"]>
+    >
+  >,
+  // TrackPutMemoryEntry  PUT /public/v1/tracks/:trackId/memory  ->  client.tracks.putMemoryEntry()
+  Expect<
+    Equals<ResponseOf<"TrackPutMemoryEntry">, MethodResult<NexusClient["tracks"]["putMemoryEntry"]>>
+  >,
+  // TrackDeleteMemoryEntry  DELETE /public/v1/tracks/:trackId/memory/:key  ->  client.tracks.deleteMemoryEntry()
+  Expect<
+    Equals<
+      ResponseOf<"TrackDeleteMemoryEntry">,
+      MethodResult<NexusClient["tracks"]["deleteMemoryEntry"]>
+    >
+  >,
+  // TrackListEvents  GET /public/v1/tracks/:trackId/events  ->  client.tracks.listEvents()
+  Expect<Equals<ResponseOf<"TrackListEvents">, MethodResult<NexusClient["tracks"]["listEvents"]>>>,
+  // TrackAppendEvent  POST /public/v1/tracks/:trackId/events  ->  client.tracks.appendEvent()
+  Expect<Equals<ResponseOf<"TrackAppendEvent">, MethodResult<NexusClient["tracks"]["appendEvent"]>>>
 ];
 
 /**
@@ -1687,7 +1765,29 @@ const GATED_ROUTES = [
   "RolesUpsertMember",
   "RolesRemoveMember",
   "RolesAddPermissionSetMember",
-  "RolesRemovePermissionSetMember"
+  "RolesRemovePermissionSetMember",
+  // tracks — the seven scope resources of one work item
+  "TrackListReady",
+  "TrackListReadyTasks",
+  "TrackCreateDependencyEdge",
+  "TrackCreateSection",
+  "TrackRenameSection",
+  "TrackReadTask",
+  "TrackClaimTask",
+  "TrackToggleTask",
+  "TrackCreateTaskEdge",
+  "TrackImportPlan",
+  "TrackListAgents",
+  "TrackOpenAgent",
+  "TrackBeatAgent",
+  "TrackCloseAgent",
+  "TrackListDiaryEntries",
+  "TrackAppendDiaryEntry",
+  "TrackListMemoryEntries",
+  "TrackPutMemoryEntry",
+  "TrackDeleteMemoryEntry",
+  "TrackListEvents",
+  "TrackAppendEvent"
 ] as const;
 
 /**
@@ -2133,7 +2233,7 @@ export type V1ResponseDrift = [
  * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
  * assertion deriving both sides from one source passes vacuously.
  */
-const GATED_ROUTE_FLOOR = 248;
+const GATED_ROUTE_FLOOR = 269;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

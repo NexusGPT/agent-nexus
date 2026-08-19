@@ -49,11 +49,11 @@ import { asDerivedCapture } from "./util/version-check";
  * epilogue line that happens to be indented two spaces and start lowercase is
  * indistinguishable from a subcommand. This module reads `command.commands`.
  *
- * 🚨 THE RENDERING OMITS HIDDEN COMMANDS BY CONSTRUCTION, and the CLI has 18 of
- * them — `upgrade.ts` registers `update`, `latest`, `up`, `bump` and 14 more as
- * `{ hidden: true }` top-level commands that all reinstall the running binary.
- * A scraper could not see one. That is not a bug in the awk; it is the reason a
- * rendering can never be the source.
+ * 🚨 THE RENDERING OMITS HIDDEN COMMANDS BY CONSTRUCTION, and it also omits the
+ * `.alias()` spellings a command answers to. `upgrade.ts` once registered
+ * eighteen `{ hidden: true }` top-level commands that all reinstalled the
+ * running binary, and a scraper could not see one of them. The tree can. That is
+ * not a bug in the awk; it is the reason a rendering can never be the source.
  *
  * ── WHAT A NODE CARRIES, AND WHAT IT DELIBERATELY DOES NOT ───────────────────
  *
@@ -380,19 +380,9 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // to stdout. A sweep firing it every run would spend the limit a real export
   // needs and move megabytes to do it.
   //
-  // ⚠️ `cue conversations` IS a `safe` leaf by every property the disposition
-  // describes — read-only, no required input, emits `--json` — and it is
-  // classified `registration-only` for one reason that is about TIME, not about
-  // the command: the sweep runs against STAGING, and `GET /public/v1/cue/
-  // conversations` ships in the same PR as this line, so on the run that gates
-  // that PR the route answers 404. `sweep.sh` treats that as a FAIL and is right
-  // to — a 404 from a route that used to exist is exactly the regression it
-  // exists to catch, and widening its SKIP match to swallow one would blind it
-  // to every deleted route.
-  //
-  // FLIP THIS TO "safe" ONCE THE ROUTE IS ON STAGING. It is a one-line follow-up
-  // and nothing else has to change; leaving it is a read-only leaf the sweep
-  // stopped watching.
+  // `cue conversations` is `safe` by every property the disposition describes —
+  // read-only, no required input, emits `--json` — and `GET /public/v1/cue/
+  // conversations` answers 200 on staging, so the sweep watches it.
   "cue conversations": "safe",
   "cue export": "registration-only",
   "cue transcript": "registration-only",
@@ -704,9 +694,84 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracing timeline": "safe",
   "tracing trace": "registration-only",
   "tracing traces": "safe",
+  // ── tracks ─────────────────────────────────────────────────────────────────
+  // ONE LEAF HERE IS `safe`, AND THE RATIO IS THE DOMAIN RATHER THAN CAUTION.
+  // `tracks ready` is the only verb here that needs no argument: every other
+  // read is scoped to a track or a task the sweep has no id for, and every write
+  // changes a plan. A sweep that ran them would be authoring work items.
+  //
+  // `GET /public/v1/tracks/ready` answers 200 on staging, so `tracks ready` is
+  // `safe` and the sweep watches it. It is `safe` rather than
+  // `safe-with-fixture` deliberately: staging holds no ready tracks, so the
+  // route answers `{"tracks":[]}`, and `--require-non-empty` scores that EMPTY
+  // and FAILs. An empty list is the correct answer here — this leaf proves the
+  // route is alive and shaped like JSON, never that any item exists.
+  //
+  // 🔴 WHEN A LEAF'S ROUTE IS NOT ON STAGING YET, THE DISPOSITION IS THE LEVER —
+  // NEVER `sweep.sh`'s SKIP MATCH. A 404 from a route that used to exist is
+  // exactly the regression the sweep exists to catch, and a SKIP wide enough to
+  // swallow one blinds it to every deleted route. Park such a leaf
+  // `registration-only`, and write the flip-back as a RULE carrying its probe,
+  // never as a note about somebody's intention to remember:
+  //
+  //   THIS LEAF IS `registration-only` WHILE <ROUTE> ANSWERS 404 ON STAGING,
+  //   AND `safe` ONCE IT ANSWERS 200.
+  //
+  // The probe has to NAME THE HOST. `--env` recognises only `dev` and
+  // `production` — `URL_MAP` in config.ts has no `staging` key — and a
+  // `--profile staging` is local config that no checkout ships, so a probe
+  // written that way runs for whoever happens to have made one and for nobody
+  // else. This is why the sweep workflow sets `NEXUS_BASE_URL` explicitly:
+  //
+  //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
+  //     pnpm exec tsx src/index.ts api GET <route>
+  //
+  // Read the STATUS, and carry a control — a neighbouring path that must answer
+  // 404, so a probe that would report 200 for anything is caught before it
+  // decides a disposition.
+  //
+  // A note without a probe does not fire, because nothing about it can.
+  //
+  // On 200, change the value and move the TWO artifacts a disposition feeds:
+  // `pnpm run gen:cli-surface` (each row carries its disposition, and the
+  // header census with it) and `COMPATIBILITY.md`'s `classified safe` count,
+  // which is a published figure a test derives. `gen:json-shape` reads the
+  // contract rather than this table, so a flip leaves it untouched —
+  // `gen:json-shape --check` says so without writing. A `src/**` change here
+  // also needs a changeset naming `@agent-nexus/cli`.
+  //
+  // Leaving a leaf parked once its route answers is a read-only leaf the sweep
+  // has stopped watching, which is the silent half of this disposition rather
+  // than a tidy backlog item.
+  "tracks ready": "safe",
+  "tracks dependency add": "registration-only",
+  "tracks section create": "registration-only",
+  "tracks section rename": "registration-only",
+  "tracks task ready": "registration-only",
+  "tracks task get": "registration-only",
+  // A MUTATION, so existence only. It also OVERWRITES a claim another agent
+  // holds, by design, which is the last thing a sweep should run for real.
+  "tracks task claim": "registration-only",
+  "tracks task toggle": "registration-only",
+  "tracks task edge": "registration-only",
+  "tracks plan import": "registration-only",
+  "tracks agent list": "registration-only",
+  "tracks agent open": "registration-only",
+  "tracks agent beat": "registration-only",
+  "tracks agent close": "registration-only",
+  "tracks diary list": "registration-only",
+  "tracks diary append": "registration-only",
+  "tracks memory list": "registration-only",
+  "tracks memory put": "registration-only",
+  "tracks memory delete": "registration-only",
+  "tracks event list": "registration-only",
+  "tracks event append": "registration-only",
 
   // ── upgrade ────────────────────────────────────────────────────────────────
-  upgrade: "never-execute", // reinstalls the binary the sweep is running
+  // Reinstalls the binary the sweep is running. Its `update`, `latest` and `up`
+  // spellings are `.alias()` calls on this one command, so they are not separate
+  // leaves and need no separate line.
+  upgrade: "never-execute",
 
   // ── user-group ─────────────────────────────────────────────────────────────
   "user-group add-member": "registration-only",
@@ -807,29 +872,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "workspace restore": "registration-only",
   "workspace search": "registration-only",
   "workspace status": "registration-only",
-  "workspace unmount": "never-execute", // unmounts a drive the caller may be using
-
-  // ── upgrade, and its 18 hidden aliases ──────────────────────────────────
-  // Every one of these reinstalls the running binary. They are `hidden: true`,
-  // so a detector that scraped `--help` could not see a single one of them.
-  bump: "never-execute",
-  download: "never-execute",
-  fetch: "never-execute",
-  get: "never-execute",
-  install: "never-execute",
-  latest: "never-execute",
-  new: "never-execute",
-  patch: "never-execute",
-  pull: "never-execute",
-  refresh: "never-execute",
-  reinstall: "never-execute",
-  "self-update": "never-execute",
-  "self-upgrade": "never-execute",
-  selfupdate: "never-execute",
-  selfupgrade: "never-execute",
-  sync: "never-execute",
-  up: "never-execute",
-  update: "never-execute"
+  "workspace unmount": "never-execute" // unmounts a drive the caller may be using
 };
 
 /**
@@ -907,7 +950,7 @@ export async function discoverRootRegistrars(): Promise<DiscoveredRegistrar[]> {
  * (`as unknown as { _hidden?: boolean }`). An asserted shape is not checked
  * against commander at all, and the failure mode is silence rather than an
  * error: rename the field upstream and the property read yields `undefined`,
- * `undefined === true` is `false`, and all 18 hidden commands report themselves
+ * `undefined === true` is `false`, and every hidden command reports itself
  * VISIBLE. On a module whose entire job is to make the help surface true, a
  * fact that can go wrong without a compiler error is the defect, not the cast.
  *
@@ -929,8 +972,11 @@ export async function discoverRootRegistrars(): Promise<DiscoveredRegistrar[]> {
  * and is only ever set by `.command()` / `.addCommand()`, both of which assign
  * `parent` in the same breath. Nothing can be hidden and parentless.
  *
- * Measured over the real tree: identical to the `_hidden` read on all 582
- * commands, 18 hidden either way, at a cost of 0.4ms across the whole walk.
+ * ⚠️ THE TREE CURRENTLY REGISTERS NO HIDDEN COMMAND AT ALL, so today this read
+ * and the `_hidden` read agree trivially and neither could catch the other being
+ * wrong. That is a reason to keep the declared-surface read, not to drop it: the
+ * eighteen that used to be here were removed, and the next one added would land
+ * on whichever of the two reads this module happens to use.
  */
 export const isHiddenCommand = (command: Command): boolean => {
   const parent = command.parent;
@@ -1007,10 +1053,12 @@ export interface CommandNode {
 /**
  * One `src/commands/*.ts` module and every TOP-LEVEL command it registers.
  *
- * Roots are plural and hidden ones are included, because that is the fact the
- * shape has to carry: `upgrade.ts` registers ONE visible namespace and EIGHTEEN
- * hidden top-level aliases, each a childless `Command` rather than a commander
- * `.alias()`. Nothing distinguishes them from real commands except `hidden`.
+ * Roots are plural and hidden ones are included, because a module may register
+ * more than one. `upgrade.ts` registered ONE visible namespace and EIGHTEEN
+ * hidden top-level aliases — each a childless `Command` rather than a commander
+ * `.alias()`, with nothing distinguishing it from a real command except
+ * `hidden`. Those are gone and the shape still carries the fact, because a
+ * module registering a hidden root is a thing this walk has to be able to see.
  */
 export interface CommandModule {
   readonly sourceModule: string;
@@ -1025,8 +1073,9 @@ export interface CommandModule {
  */
 export interface CommandNamespace extends CommandNode {
   /**
-   * Sibling TOP-LEVEL commands the same module registered hidden — the
-   * `nexus update` / `nexus latest` / … family. Absent from every `--help`.
+   * Sibling TOP-LEVEL commands the same module registered hidden. Absent from
+   * every `--help`, which is why they are carried here rather than discovered.
+   * Empty across the whole tree today.
    *
    * Empty when the module registers more than one VISIBLE namespace, because
    * arity alone cannot say which of them owns the hidden ones. Those cases are
@@ -1141,7 +1190,8 @@ async function indexRootProgram(): Promise<ReadonlyMap<string, Command>> {
  * THE ONE WALK. Everything else in this module is a projection of it.
  *
  * Depth-first over `command.commands`, never over rendered text: a rendering
- * omits hidden commands by construction, and the CLI has 18 of them.
+ * omits hidden commands by construction, and it collapses a command's `.alias()`
+ * spellings into the same row as its name.
  *
  * The walked `command` supplies every STRUCTURAL fact — path, options, children,
  * hiddenness. `rootProgram` supplies the rendered HELP, because that text is

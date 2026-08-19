@@ -93,12 +93,13 @@ export const LEDGER_CEILING = 0;
  * cannot rot in silence. Registering a namespace reddens it, and the fix is to
  * raise this number in the same diff — where a reviewer reads it.
  *
- * ⚠️ VISIBLE namespaces. `upgrade` registers 18 hidden aliases (`up`, `bump`,
- * `install`, …); `deriveCommandNamespaces()` drops them, so they are outside
- * this count. They are top-level command NAMES, never namespaces — 65 top-level
- * names are {@link NAMESPACE_TOTAL} namespaces.
+ * ⚠️ VISIBLE namespaces. `deriveCommandNamespaces()` drops a hidden command, so
+ * one would be outside this count: a hidden command is a top-level command NAME
+ * and never a namespace. The tree carries none today, so 49 top-level names are
+ * {@link NAMESPACE_TOTAL} namespaces and the two agree — which is exactly when a
+ * dropped filter stops being visible in the number.
  */
-export const NAMESPACE_TOTAL = 49;
+export const NAMESPACE_TOTAL = 50;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -262,6 +263,16 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "ticket",
   "tool",
   "tracing",
+  // `tracks` is clean on arrival rather than repaired into cleanliness, and it is
+  // clean at TWENTY-ONE leaves rather than the one this note used to describe.
+  // Every example spells its ids `11111111-1111-4111-8111-111111111111` and
+  // every leaf carries a `Notes:` block stating what the code knows and the
+  // flags cannot: that a claim refuses nothing and overwrites, that the banner
+  // naming `task claim` is generated from the registration rather than copied,
+  // that a foreign track answers an empty set rather than a 404, that the memory
+  // budget is BYTES, and that the diary and the event stream have no delete verb
+  // by design.
+  "tracks",
   "upgrade",
   "user-group",
   "version",

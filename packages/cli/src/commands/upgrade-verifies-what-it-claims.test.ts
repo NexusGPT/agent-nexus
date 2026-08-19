@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 // DELIBERATELY only the two symbols that exist BEFORE the fix as well. This
 // file is the red proof, so it has to be loadable against the pre-fix tree —
@@ -218,14 +219,14 @@ describe("nexus upgrade — exit codes separate the two failures", () => {
   it("exits 2 when the install succeeded and the shell resolves an older copy", async () => {
     process.env.PATH = fakeBinDir(root, "stale-bin", LONG_SUPERSEDED);
     await runThroughCommander();
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
   });
 
   it("exits 2, not 0, when the resolved binary will not start", async () => {
     process.env.PATH = fakeBinDir(root, "broken-bin", null);
     await runThroughCommander();
 
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
     expect(printed()).toMatch(/will not start/);
     expect(printed()).toMatch(/Cannot find module/);
     expect(printed()).not.toMatch(/Successfully upgraded/);
@@ -235,7 +236,7 @@ describe("nexus upgrade — exit codes separate the two failures", () => {
     process.env.PATH = join(root, "empty-and-nonexistent");
     await runThroughCommander();
 
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
     expect(printed()).toMatch(/no "nexus" is on your PATH/);
   });
 
@@ -245,7 +246,7 @@ describe("nexus upgrade — exit codes separate the two failures", () => {
 
     await runThroughCommander();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["connection-failed"]);
     expect(execSyncMock).not.toHaveBeenCalled();
   });
 
@@ -257,7 +258,7 @@ describe("nexus upgrade — exit codes separate the two failures", () => {
 
     await runThroughCommander();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_CODES["local-failed"]);
     // The manual command is the whole remedy for an EACCES prefix.
     expect(stderr.join("\n")).toMatch(/Try running manually:/);
   });
@@ -327,14 +328,16 @@ describe("every entry point gets the fix", () => {
    * One closure is registered nineteen times, so the obvious control is to
    * assert every entry point carries the SAME function object. It does not:
    * commander's `.action(fn)` stores its own wrapper around `fn`, so the tree
-   * holds nineteen DISTINCT `_actionHandler`s whether or not they share a body.
+   * held nineteen DISTINCT `_actionHandler`s whether or not they shared a body.
    * Measured against the pre-fix tree, which has the identical structure: the
    * identity assertion failed there too, which is the tell that it was reading
    * commander's plumbing rather than this file's property.
    *
-   * So each entry point is RUN, against the same shadowed PATH, and each must
-   * produce the same refusal. Nineteen runs is the only statement that survives
-   * a refactor giving the aliases their own handler.
+   * So each spelling is RUN, against the same shadowed PATH, and each must
+   * produce the same refusal. Running them is the only statement that survives
+   * both shapes — the eighteen hidden commands this replaced, and the `.alias()`
+   * calls that carry the three surviving spellings today. An alias that fails to
+   * resolve looks exactly like one that works until something drives it.
    */
   it.each([["upgrade"], ...UPGRADE_ALIASES.map((a) => [a])])(
     "`nexus %s` verifies the install and refuses to claim success",
@@ -345,7 +348,7 @@ describe("every entry point gets the fix", () => {
 
       expect(printed()).toMatch(/still 0\.22\.4/);
       expect(printed()).not.toMatch(/Successfully upgraded/);
-      expect(process.exitCode).toBe(2);
+      expect(process.exitCode).toBe(EXIT_CODES["outcome-not-reached"]);
       // Control: this entry point really reached the installer. An alias that
       // silently did nothing would satisfy both assertions above.
       expect(execSyncMock).toHaveBeenCalledTimes(1);
@@ -358,9 +361,13 @@ describe("every entry point gets the fix", () => {
     const program = new Command();
     registerUpgradeCommand(program);
 
-    expect(UPGRADE_ALIASES).toHaveLength(18);
-    expect((program.commands as Command[]).map((c) => c.name()).sort()).toEqual(
-      ["upgrade", ...UPGRADE_ALIASES].sort()
-    );
+    expect(UPGRADE_ALIASES).toHaveLength(3);
+
+    // ONE command now, carrying its spellings as aliases. Asserting the name
+    // list alone would pass over a build in which every `.alias()` call was
+    // dropped, so the aliases are read back off the command itself.
+    const registered = program.commands as Command[];
+    expect(registered.map((c) => c.name())).toEqual(["upgrade"]);
+    expect([...registered[0].aliases()].sort()).toEqual([...UPGRADE_ALIASES].sort());
   });
 });

@@ -33,9 +33,9 @@ import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import {
-  type CommandDisposition,
+  classifyCommandUniverse,
   COMMAND_CLASSIFICATION,
-  classifyCommandUniverse
+  type CommandDisposition
 } from "./command-universe";
 import {
   PROBE_BARRIER,

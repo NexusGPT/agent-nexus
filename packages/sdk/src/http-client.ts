@@ -11,6 +11,15 @@ import {
   type ContractReporter
 } from "./response-contract";
 import { V1_RESPONSE_CONTRACT } from "./response-contract.generated";
+import {
+  decideRetry,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_MAX_TOTAL_RETRY_WAIT_MS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  IDEMPOTENT_METHODS,
+  isRetryableStatus,
+  parseRetryAfterMs
+} from "./retry-policy";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
 import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/common";
 
@@ -49,10 +58,37 @@ export interface HttpClientOptions {
   /** Base backoff in milliseconds (default {@link DEFAULT_RETRY_BASE_DELAY_MS}). */
   retryBaseDelayMs?: number;
   /**
+   * Ceiling on the SUM of every wait in one request's retry sequence, in
+   * milliseconds. Default {@link DEFAULT_MAX_TOTAL_RETRY_WAIT_MS}.
+   *
+   * Bounds a `Retry-After` the server states. A stated wait that does not fit
+   * what is left of this budget is REFUSED — the client stops and reports the
+   * real number it was asked for — rather than being quietly capped to the
+   * budget, which would send the next attempt while the block is provably still
+   * live. `0` accepts no server-stated wait at all.
+   */
+  maxTotalRetryWaitMs?: number;
+  /**
+   * Called immediately before each wait, so a caller can tell a user that a
+   * slow command is waiting rather than hung.
+   *
+   * The SDK writes nothing itself. A library that owns stderr is a library that
+   * corrupts somebody's output eventually; the consumer decides where a notice
+   * goes. A throw from this callback is swallowed — reporting a retry must never
+   * be able to fail the request it is reporting on.
+   */
+  onRetry?: (notice: RetryNotice) => void;
+  /**
    * Injectable sleep, so a test does not have to wait out the backoff. Defaults
    * to a real timer. Not part of the API surface a caller is expected to use.
    */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injectable jitter source, so a test can pin a backoff delay exactly.
+   * Defaults to `Math.random`. Not part of the API surface a caller is expected
+   * to use.
+   */
+  random?: () => number;
   /**
    * Notified of what each read's payload had to say about itself, against the
    * shape its route publishes. See `./response-contract.ts`.
@@ -73,74 +109,116 @@ export interface HttpClientOptions {
 }
 
 /**
- * Methods a retry cannot add an effect to.
- *
- * This set is the whole safety argument for retrying at all, so it is
- * deliberately narrow. HTTP defines GET/HEAD/OPTIONS/PUT/DELETE as idempotent:
- * replaying one lands the caller in the same state as sending it once, whether
- * or not the first attempt reached the server.
- *
- * **POST and PATCH are absent on purpose and must stay absent.** A 502 from an
- * edge proxy cannot distinguish "no healthy upstream, the request was never
- * forwarded" from "the upstream applied it and the connection died before the
- * response came back". Replaying a POST on the second reading duplicates its
- * effect. `POST /emulator/:id/sessions/:id/messages` is the worked example: it
- * writes a message and starts an agent turn, so an automatic retry would post
- * the user's message twice and bill two model calls — strictly worse than
- * surfacing the error. A POST that needs to survive this needs an idempotency
- * key on the wire, which this API does not have.
+ * Re-exported so the transport stays the one import a retry test needs, and so
+ * an existing caller of `retryDelayMs` keeps resolving. The decisions themselves
+ * live in `./retry-policy`, where they are pure and separately tested.
  */
-const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set([
-  "GET",
-  "HEAD",
-  "OPTIONS",
-  "PUT",
-  "DELETE"
-]);
+export type { RetryDecision } from "./retry-policy";
+export {
+  decideRetry,
+  IDEMPOTENT_METHODS,
+  isRetryableStatus,
+  parseRetryAfterMs,
+  retryDelayMs
+} from "./retry-policy";
 
 /**
- * Statuses that mean "the edge could not reach a healthy upstream right now".
+ * What one retry did, handed to {@link HttpClientOptions.onRetry}.
  *
- * All three are produced by the proxy in front of the API rather than by the
- * application, which is why the body is typically HTML and never the v1 error
- * envelope. They are the signature of a rolling deploy: a request in flight on a
- * pod that is being replaced comes back as one of these, seconds into a call
- * that normally succeeds.
- *
- * 500 is NOT here. An application-level failure is deterministic often enough
- * that replaying it just triples the load, and it carries a real error body the
- * caller should see.
+ * A record rather than a formatted string: this SDK must not decide where the
+ * notice goes. The CLI renders it on stderr — never stdout, where it would
+ * corrupt the single JSON document `--json` promises — and a library consumer
+ * may want a metric instead of a line of text.
  */
-const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
-
-/** Retries on top of the first attempt. Three attempts total. */
-const DEFAULT_MAX_RETRIES = 2;
-
-/** First backoff step; each subsequent retry doubles it. */
-const DEFAULT_RETRY_BASE_DELAY_MS = 250;
-
-/** Upper bound on a single backoff, so a large `maxRetries` cannot stall a CLI. */
-const MAX_RETRY_DELAY_MS = 5_000;
+export interface RetryNotice {
+  /** HTTP method of the request being replayed. */
+  method: string;
+  /** Absolute URL of the request being replayed. */
+  url: string;
+  /** Which retry this is: 1 for the first, 2 for the second. */
+  attempt: number;
+  /** How many attempts will be made in total before giving up. */
+  maxAttempts: number;
+  /** Status that triggered it, or `undefined` when the transport threw instead. */
+  status: number | undefined;
+  /** How long the client is about to wait, in milliseconds. */
+  delayMs: number;
+  /** `true` when `delayMs` came from a `Retry-After` header rather than the backoff curve. */
+  statedByServer: boolean;
+}
 
 /**
- * Full-jitter exponential backoff: a uniform draw from `[0, base * 2^n]`,
- * capped.
+ * A `Retry-After` the client declined to honour, because it did not fit the
+ * remaining total-wait budget.
  *
- * Jittered rather than fixed because every client that failed did so for the
- * same reason at the same instant — a synchronised retry would hit the
- * recovering upstream as one wave. Drawing from zero spreads them out.
- *
- * @param attempt - 1 for the first retry, 2 for the second, and so on.
- * @param baseDelayMs - The first step.
- * @param random - Injectable source, so a test can pin the delay.
+ * Kept as the two raw numbers rather than a message, so the number the user is
+ * shown is the number the server actually sent.
  */
-export function retryDelayMs(
-  attempt: number,
-  baseDelayMs: number,
-  random: () => number = Math.random
-): number {
-  const ceiling = Math.min(baseDelayMs * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
-  return Math.floor(random() * ceiling);
+export interface RetryRefusal {
+  /** What the server asked us to wait, in milliseconds. */
+  requestedMs: number;
+  /** What was left of `maxTotalRetryWaitMs` when it asked, in milliseconds. */
+  remainingBudgetMs: number;
+}
+
+/** What one call to `send` did, beyond the response itself. */
+interface SendOutcome {
+  res: Response;
+  /** Attempts actually made, counting the first. `1` means nothing was retried. */
+  attempts: number;
+  /** Set only when a stated wait was declined. */
+  refusal: RetryRefusal | undefined;
+}
+
+/** Whole seconds, for a message a human reads. `1.5` rather than `1.500`. */
+function seconds(ms: number): string {
+  return `${Math.round(ms / 100) / 10}s`;
+}
+
+/**
+ * Fold what the retry loop learned into the error the caller is about to throw.
+ *
+ * One place rather than each `toApiError` site, so the wording cannot drift and
+ * an error can never claim one attempt count on one route and another elsewhere.
+ *
+ * Both additions are conditional on having something to say: a request that
+ * succeeded first time reports nothing, which keeps the common error message
+ * byte-identical to what it was before retrying existed.
+ */
+function annotate(
+  error: NexusApiError,
+  attempts: number,
+  refusal: RetryRefusal | undefined
+): NexusApiError {
+  if (refusal) {
+    error.retryAfterMs = refusal.requestedMs;
+    // Both halves of this sentence are conditional, because a fixed wording got
+    // each one wrong in a different direction.
+    //
+    // `exceeded` — "exceeds the 0s left" is FALSE when the number asked for is
+    // itself `0`, which a spent budget refuses. A spent budget is its own fact
+    // and says so, rather than claiming a comparison that does not hold.
+    //
+    // `stopped` — "no retry was attempted" is false the moment earlier waits
+    // have already run, and it then contradicts the `(gave up after N attempts)`
+    // suffix appended immediately below. An error that states two contradictory
+    // things about one request is worse than a terse one, because a reader has
+    // to decide which half to disbelieve.
+    const exceeded =
+      refusal.remainingBudgetMs <= 0
+        ? `and this client's retry budget is already spent`
+        : `which exceeds the ${seconds(refusal.remainingBudgetMs)} left of this client's retry budget`;
+    const stopped = attempts > 1 ? "no further retry was attempted" : "no retry was attempted";
+    error.message =
+      `${error.message} The server asked for ${seconds(refusal.requestedMs)} before a retry, ` +
+      `${exceeded}, so ${stopped}. ` +
+      `Raise \`maxTotalRetryWaitMs\` or run the command again later.`;
+  }
+  if (attempts > 1) {
+    error.attempts = attempts;
+    error.message = `${error.message} (gave up after ${attempts} attempts)`;
+  }
+  return error;
 }
 
 /** Options for a single HTTP request. */
@@ -319,7 +397,10 @@ export class HttpClient {
   private readonly timeout: number | undefined;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
+  private readonly maxTotalRetryWaitMs: number;
+  private readonly onRetry: ((notice: RetryNotice) => void) | undefined;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly random: () => number;
   private readonly onResponseContract: ContractReporter | undefined;
   /**
    * The manifest, indexed for matching.
@@ -338,8 +419,14 @@ export class HttpClient {
     this.timeout = opts.timeout;
     this.maxRetries = Math.max(0, opts.maxRetries ?? DEFAULT_MAX_RETRIES);
     this.retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
+    this.maxTotalRetryWaitMs = Math.max(
+      0,
+      opts.maxTotalRetryWaitMs ?? DEFAULT_MAX_TOTAL_RETRY_WAIT_MS
+    );
+    this.onRetry = opts.onRetry;
     this.sleep =
       opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    this.random = opts.random ?? Math.random;
     this.onResponseContract = opts.onResponseContract;
   }
 
@@ -421,46 +508,138 @@ export class HttpClient {
   }
 
   /**
-   * Send a request, replaying a transient failure when — and only when — the
-   * method is idempotent.
+   * Send a request, replaying a failure the server or the transport says is
+   * worth replaying.
    *
-   * Retryable in two ways, and both need to be here rather than at the call
-   * sites: a proxy status ({@link RETRYABLE_STATUSES}), which arrives as an
-   * ordinary `Response`, and a dropped connection, which arrives as a thrown
-   * {@link NexusConnectionError}.
+   * Three things can be retried here, and they do NOT share a rule:
+   *
+   *  - a **429**, for any method. The server states it refused the request, so
+   *    nothing ran and nothing can be duplicated. Its `Retry-After` outranks our
+   *    backoff.
+   *  - a **proxy 5xx** ({@link PROXY_STATUSES}), for idempotent methods only.
+   *    The outcome is ambiguous — the upstream may have applied it.
+   *  - a **dropped connection**, for idempotent methods only, for the same
+   *    reason. It arrives as a thrown {@link NexusConnectionError} rather than a
+   *    `Response`, which is why the decision cannot live at the call sites.
    *
    * A {@link NexusTimeoutError} is deliberately NOT retried even though it is a
    * subclass of the connection error. The caller stated a deadline; spending it
    * two more times over is not what they asked for, and unlike a 502 the server
    * may still be processing the request.
    *
-   * A discarded 502 has its body cancelled before the next attempt. Node pins
-   * the connection in the undici pool until a body is consumed or cancelled, so
-   * dropping the response object on the floor leaks one socket per retry —
-   * invisible to every gate, and worst under exactly the load that triggers a
-   * retry in the first place.
+   * A discarded response has its body cancelled before the next attempt. Node
+   * pins the connection in the undici pool until a body is consumed or
+   * cancelled, so dropping the response object on the floor leaks one socket per
+   * retry — invisible to every gate, and worst under exactly the load that
+   * triggers a retry in the first place.
    */
   private async send(
     method: string,
     url: string,
     init: RequestInit,
     timeoutMs: number
-  ): Promise<Response> {
-    const attempts = IDEMPOTENT_METHODS.has(method.toUpperCase()) ? this.maxRetries + 1 : 1;
+  ): Promise<SendOutcome> {
+    // The attempt cap no longer depends on the method: a 429 is replayable for
+    // every method, so a POST needs a budget of attempts too. What the method
+    // decides is whether a given FAILURE is replayable — `isRetryableStatus`
+    // for a status, `IDEMPOTENT_METHODS` for a dropped connection.
+    const maxAttempts = this.maxRetries + 1;
+    const idempotent = IDEMPOTENT_METHODS.has(method.toUpperCase());
+    let budgetMs = this.maxTotalRetryWaitMs;
 
     for (let n = 1; ; n++) {
-      const isLast = n === attempts;
+      const isLast = n === maxAttempts;
+      let status: number | undefined;
+      let retryAfterMs: number | undefined;
+      let lastError: unknown;
+
       try {
         const res = await this.attempt(url, init, timeoutMs);
-        if (isLast || !RETRYABLE_STATUSES.has(res.status)) return res;
+        if (isLast || !isRetryableStatus(res.status, method)) {
+          return { res, attempts: n, refusal: undefined };
+        }
+        status = res.status;
+        retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After"));
+
+        const decision = decideRetry(n, retryAfterMs, budgetMs, this.retryBaseDelayMs, this.random);
+        if (decision.kind === "exhausted") {
+          return { res, attempts: n, refusal: undefined };
+        }
+        if (decision.kind === "refused") {
+          // Stop on the response we already have, so the caller still builds its
+          // error from the server's own body. The refusal travels beside it and
+          // carries the REAL number the server asked for — a silently capped
+          // wait would read to the user as the server having asked for less.
+          return {
+            res,
+            attempts: n,
+            refusal: {
+              requestedMs: decision.requestedMs,
+              remainingBudgetMs: decision.remainingBudgetMs
+            }
+          };
+        }
+
         await res.body?.cancel().catch(() => undefined);
+        await this.waitBeforeRetry(decision.delayMs, decision.statedByServer, {
+          method,
+          url,
+          attempt: n,
+          maxAttempts,
+          status
+        });
+        budgetMs -= decision.delayMs;
+        continue;
       } catch (err) {
-        if (isLast || err instanceof NexusTimeoutError || !(err instanceof NexusConnectionError)) {
+        if (
+          isLast ||
+          !idempotent ||
+          err instanceof NexusTimeoutError ||
+          !(err instanceof NexusConnectionError)
+        ) {
           throw err;
         }
+        lastError = err;
       }
-      await this.sleep(retryDelayMs(n, this.retryBaseDelayMs));
+
+      // Transport failure: there is no response, so there is no `Retry-After`
+      // and the wait can only come from the backoff curve.
+      const decision = decideRetry(n, undefined, budgetMs, this.retryBaseDelayMs, this.random);
+      // No response to hand back on this path — the last attempt threw — so an
+      // exhausted budget rethrows what the transport gave us.
+      if (decision.kind !== "retry") throw lastError;
+      await this.waitBeforeRetry(decision.delayMs, decision.statedByServer, {
+        method,
+        url,
+        attempt: n,
+        maxAttempts,
+        status: undefined
+      });
+      budgetMs -= decision.delayMs;
     }
+  }
+
+  /**
+   * Announce the wait, then perform it.
+   *
+   * The notice fires BEFORE the sleep — a message that arrives after a 40 s wait
+   * explains nothing, because the user has already decided the command is hung.
+   * A throw from the consumer's callback is swallowed: reporting a retry must
+   * never be able to fail the request it is reporting on.
+   */
+  private async waitBeforeRetry(
+    delayMs: number,
+    statedByServer: boolean,
+    about: Pick<RetryNotice, "method" | "url" | "attempt" | "maxAttempts" | "status">
+  ): Promise<void> {
+    if (this.onRetry) {
+      try {
+        this.onRetry({ ...about, delayMs, statedByServer });
+      } catch {
+        // Deliberately ignored. See the docblock.
+      }
+    }
+    await this.sleep(delayMs);
   }
 
   /**
@@ -507,7 +686,12 @@ export class HttpClient {
       ...(requestBody === undefined ? {} : { body: requestBody })
     };
 
-    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
+    const { res, attempts, refusal } = await this.send(
+      method,
+      url.toString(),
+      fetchInit,
+      this.deadlineFor(opts)
+    );
 
     const text = await readBody(res);
 
@@ -520,7 +704,7 @@ export class HttpClient {
       } catch {
         parsed = undefined;
       }
-      throw toApiError(res.status, parsed);
+      throw annotate(toApiError(res.status, parsed), attempts, refusal);
     }
 
     return text;
@@ -586,7 +770,12 @@ export class HttpClient {
       if (serialized !== undefined) fetchInit.body = serialized;
     }
 
-    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
+    const { res, attempts, refusal } = await this.send(
+      method,
+      url.toString(),
+      fetchInit,
+      this.deadlineFor(opts)
+    );
 
     if (!res.ok) {
       // The failure path is ordinary JSON — a refusal happens before the stream
@@ -599,7 +788,7 @@ export class HttpClient {
       } catch {
         parsed = undefined;
       }
-      throw toApiError(res.status, parsed);
+      throw annotate(toApiError(res.status, parsed), attempts, refusal);
     }
 
     if (!res.body) {
@@ -692,7 +881,12 @@ export class HttpClient {
       if (serialized !== undefined) fetchInit.body = serialized;
     }
 
-    const res = await this.send(method, url.toString(), fetchInit, this.deadlineFor(opts));
+    const { res, attempts, refusal } = await this.send(
+      method,
+      url.toString(),
+      fetchInit,
+      this.deadlineFor(opts)
+    );
 
     // Handle 204 No Content (e.g. DELETE responses)
     if (res.status === 204) {
@@ -714,17 +908,29 @@ export class HttpClient {
         this.reportUnread(method, path, "the response body was empty");
         return { data: {} as T, meta: undefined };
       }
-      throw toApiError(res.status, undefined);
+      throw annotate(toApiError(res.status, undefined), attempts, refusal);
     }
 
     let json: unknown;
     try {
       json = JSON.parse(rawBody);
     } catch {
-      throw new NexusApiError(
-        "PARSE_ERROR",
-        `Failed to parse response body (status ${res.status})`,
-        res.status
+      // Annotated like every other throw in this method, and this is the arm
+      // that needs it MOST rather than least. A retry sequence that exhausts
+      // itself against a proxy ends on the proxy's own error page — 502/503/504
+      // are served as HTML by nearly every load balancer — so the unparseable
+      // body IS the common terminal state of a retried request, not an exotic
+      // one. Left bare, `attempts` and `retryAfterMs` were dropped on exactly
+      // the failures this client retried hardest, while the empty-body 502 one
+      // arm above reported them in full.
+      throw annotate(
+        new NexusApiError(
+          "PARSE_ERROR",
+          `Failed to parse response body (status ${res.status})`,
+          res.status
+        ),
+        attempts,
+        refusal
       );
     }
 
@@ -744,7 +950,7 @@ export class HttpClient {
       // An explicit `success: false` is the server declaring failure; honor it
       // even on a 2xx rather than handing a caller an error body as data.
       if (isRecord(json) && json.success === false) {
-        throw toApiError(res.status, json);
+        throw annotate(toApiError(res.status, json), attempts, refusal);
       }
       // Any other 2xx body belongs to a route that speaks its own protocol.
       // Hand it back verbatim — that is what a passthrough owes its caller.
@@ -752,7 +958,7 @@ export class HttpClient {
       return { data: json as T, meta: undefined };
     }
 
-    throw toApiError(res.status, json);
+    throw annotate(toApiError(res.status, json), attempts, refusal);
   }
 
   /**

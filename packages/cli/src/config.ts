@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { CategorizedCliError } from "./exit-codes";
 import { warnIfLoosePermissions, writeSecretFile } from "./util/secret-file";
 
 // ---------------------------------------------------------------------------
@@ -412,13 +413,20 @@ export function resolveProfile(opts?: {
   // 7. No profiles at all
   const profileNames = Object.keys(config.profiles);
   if (profileNames.length > 0) {
-    throw new Error(
-      `No active profile set. Available: ${profileNames.join(", ")}.\n` +
-        `  Run: nexus auth switch <profile>`
+    throw new CategorizedCliError(
+      "not-authenticated",
+      "CLI_NOT_AUTHENTICATED",
+      `No active profile set. Available: ${profileNames.join(", ")}.`,
+      "Run: nexus auth switch <profile>"
     );
   }
 
-  throw new Error("No profiles configured. Run:\n  nexus auth login");
+  throw new CategorizedCliError(
+    "not-authenticated",
+    "CLI_NOT_AUTHENTICATED",
+    "No profiles configured.",
+    "Run: nexus auth login"
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -71,8 +71,8 @@ export function isJsonMode(): boolean {
  *
  * THE ONLY WAY THIS FILE WRITES JSON TO STDOUT. `errors.ts` routes its error
  * document through it too, so a command that printed a partial result and then
- * failed still leaves exactly one document on stdout — and still exits 1, which
- * is what the epilogue tells a caller to read.
+ * failed still leaves exactly one document on stdout — and still exits non-zero,
+ * which is what the epilogue tells a caller to read.
  *
  * See {@link _documentEmitted} for why the guard lives here and what it cannot
  * see.

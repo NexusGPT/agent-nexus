@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handleError, printNotFound } from "./errors";
+import { EXIT_CODES } from "./exit-codes";
 import { setJsonMode } from "./output";
 
 /** Capture everything the handler writes to stderr. */
@@ -37,7 +38,7 @@ describe("handleError next steps", () => {
       )
     );
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
     // The API's own reason still leads — the hint never replaces it.
     expect(output).toContain("no dedicated Vibe cluster");
     expect(output).toContain("nexus vibe cluster provision --region");
@@ -83,7 +84,7 @@ describe("handleError next steps", () => {
       )
     );
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["not-found"]);
     // The API's sentence still leads, and it is the half that names the id.
     expect(output).toContain("0b7f1f4c-2c3a-4f2e-9a1d-6c9f0d5b8e21");
     // What the terminal adds: which command prints which id.
@@ -111,7 +112,7 @@ describe("NEX-2760: client-side timeout vs unreachable API", () => {
   it("reports a timeout as the CLI giving up, never as an unreachable API", () => {
     const { exitCode, output } = capture(new NexusTimeoutError(600_000));
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["timed-out"]);
     expect(output).not.toContain("Could not reach the Nexus API");
     expect(output).toContain("600s");
     expect(output).toContain("stopped waiting");
@@ -170,7 +171,7 @@ describe("an API error code reaches the reader", () => {
 
     expect(doc.code).toBe(WORKFLOW_CODE);
     expect(doc.message).toContain("Node 3 threw");
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
   });
 
   it("survives to stderr in plain output", () => {
@@ -267,7 +268,7 @@ describe("the error document is one shape on every failure", () => {
     expect(Object.keys(doc).sort()).toEqual([...KEYS].sort());
     expect(typeof doc.code).toBe("string");
     expect(doc.code.length).toBeGreaterThan(0);
-    expect(exitCode).toBe(1);
+    expect(exitCode).not.toBe(0);
   });
 
   it("uses null for an absent hint, never an omitted key", () => {
@@ -307,6 +308,6 @@ describe("the error document is one shape on every failure", () => {
       hint: "Try customer list.",
       code: "CLI_NOT_FOUND"
     });
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(EXIT_CODES["not-found"]);
   });
 });

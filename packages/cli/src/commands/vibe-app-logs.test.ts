@@ -29,6 +29,7 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 import {
   VIBE_LOG_WIRE_MAX_CONTAINS_LENGTH,
@@ -264,7 +265,7 @@ describe("nexus vibe app logs — the page read", () => {
 
     expect(foreign.out).toBe(missing.out);
     expect(foreign.exitCode).toBe(missing.exitCode);
-    expect(foreign.exitCode).toBe(1);
+    expect(foreign.exitCode).toBe(EXIT_CODES["not-found"]);
   });
 });
 

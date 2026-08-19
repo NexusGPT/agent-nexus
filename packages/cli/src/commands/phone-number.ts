@@ -167,7 +167,7 @@ Notes:
   "nexus phone-number release <id>", and nothing expires it. It is confirmed
   once here and never again — there is no cancel, no undo and no refund.
 
-  IN A SCRIPT, WITHOUT --yes, IT BUYS NOTHING AND EXITS 1. There is no prompt to
+  IN A SCRIPT, WITHOUT --yes, IT BUYS NOTHING AND EXITS NON-ZERO. No prompt to
   answer when stdin is not a terminal, so the command refuses rather than
   proceeding: you get a refusal document and no number. A pipeline that ignores
   the exit code carries on as though it had bought one. Every destructive
@@ -346,10 +346,10 @@ Notes:
   that identifies no user is a 401 — the release is recorded against a person.
   Needs phone_numbers:delete, which phone_numbers:write does not imply.
 
-  IN A SCRIPT, WITHOUT --yes, IT RELEASES NOTHING AND EXITS 1. Non-interactive
-  stdin gets a refusal document instead of a prompt, so a cleanup job that never
-  checks the exit code leaves every number in place and still bills. The gate
-  reads STDIN — redirecting output alone still prompts.`
+  IN A SCRIPT, WITHOUT --yes, IT RELEASES NOTHING AND EXITS NON-ZERO.
+  Non-interactive stdin gets a refusal document instead of a prompt, so a cleanup
+  job that never checks the exit code leaves every number in place and still
+  bills. The gate reads STDIN — redirecting output alone still prompts.`
     )
     .action(async (id: string, opts) => {
       try {

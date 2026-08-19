@@ -432,6 +432,43 @@ export const GENERATED_NAMESPACE_LEDGER = [
     descriptors: ["VibeRegisterAppAsTool"]
   },
   {
+    // SEVEN SCOPE RESOURCES UNDER ONE NAMESPACE, and every descriptor is bound.
+    // Two enums reach a flag — `--state` on `agent list` and `agent close`,
+    // `--kind` on `diary list` and `diary append` — so nothing here needed a
+    // `BLOCKED_DESCRIPTORS` record or a `bodyOnly` declaration.
+    //
+    // This namespace was in `UNCONTRACTED_NAMESPACES` until now, and the row
+    // said why in its own words: the CLI registered `tracks task claim` ahead of
+    // the contract ON PURPOSE, because the collision banner every task read
+    // carries is GENERATED from that command node and the node had to exist for
+    // the banner to name anything. The row's last line was "Remove this row when
+    // the descriptor lands." It has.
+    namespace: "tracks",
+    descriptors: [
+      "TrackListReady",
+      "TrackListReadyTasks",
+      "TrackCreateDependencyEdge",
+      "TrackCreateSection",
+      "TrackRenameSection",
+      "TrackReadTask",
+      "TrackClaimTask",
+      "TrackToggleTask",
+      "TrackCreateTaskEdge",
+      "TrackImportPlan",
+      "TrackListAgents",
+      "TrackOpenAgent",
+      "TrackBeatAgent",
+      "TrackCloseAgent",
+      "TrackListDiaryEntries",
+      "TrackAppendDiaryEntry",
+      "TrackListMemoryEntries",
+      "TrackPutMemoryEntry",
+      "TrackDeleteMemoryEntry",
+      "TrackListEvents",
+      "TrackAppendEvent"
+    ]
+  },
+  {
     // A ONE-LEAF NAMESPACE, AND IT WAS IN NO LIST AT ALL until the namespace
     // partition became a gate — not this ledger, not UNCONTRACTED_NAMESPACES,
     // and not BLOCKED_DESCRIPTORS. `KnownIssuesForRoute` declares no enum, so

@@ -28,6 +28,7 @@
  * the difference the ticket asks for.
  */
 
+import { EXIT_CODES } from "../exit-codes";
 import { color, isJsonMode } from "../output";
 import { resolveLogWindow } from "../util/log-window";
 import { SseDecoder } from "../util/sse-decode";
@@ -446,7 +447,7 @@ export async function runAppLogsFollow(
   let interrupts = 0;
   const onInterrupt = (): void => {
     interrupts += 1;
-    if (interrupts > 1) process.exit(130);
+    if (interrupts > 1) process.exit(EXIT_CODES.interrupted);
     controller.abort();
   };
   process.on("SIGINT", onInterrupt);
@@ -464,7 +465,7 @@ export async function runAppLogsFollow(
       // Ctrl-C landed before the headers did. That is a deliberate stop, not a
       // connection failure, and reporting it as one would print an error for
       // something the user chose.
-      if (controller.signal.aborted) return 0;
+      if (controller.signal.aborted) return EXIT_CODES.success;
       throw err;
     }
 
@@ -472,7 +473,7 @@ export async function runAppLogsFollow(
     const failure = describeFollowFailure(outcome);
     if (failure !== null) throw new Error(failure);
     noteFollowEnd(outcome);
-    return 0;
+    return EXIT_CODES.success;
   } finally {
     process.off("SIGINT", onInterrupt);
     process.off("SIGTERM", onInterrupt);

@@ -56,6 +56,7 @@ export type * from "./tickets";
 export type * from "./tool-connection";
 export type * from "./tool-discovery";
 export type * from "./tracing";
+export type * from "./tracks";
 export type * from "./user-groups";
 export type * from "./versions";
 export type * from "./workflow-executions";

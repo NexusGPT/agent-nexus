@@ -15,8 +15,12 @@ import { asDerivedCapture } from "./util/version-check";
  *
  * `scripts/sweep.sh` executes a set of read-only leaves against a live API and
  * fails CI when one of them regresses. A sweep is only ever evidence about the
- * commands it KNOWS ABOUT, so the load-bearing question is not "did the 34
- * leaves pass" but "is 34 still all of them".
+ * commands it KNOWS ABOUT, so the load-bearing question is never "did the safe
+ * leaves pass" but "are those still all of them". No count is written down in
+ * this file, deliberately: a figure in prose beside a table that moves is the
+ * same stale list this module exists to delete, one layer up. Run
+ * `tsx scripts/command-universe.ts --check-drift` and read the number it
+ * derives.
  *
  * That question has exactly one honest source: the commander program tree. A
  * hand-written list of command paths beside an evolving CLI is the defect this
@@ -78,6 +82,23 @@ export type CommandDisposition =
    */
   | "registration-only"
   /**
+   * Executed exactly like `safe`, PLUS the sweep asserts the response is not
+   * empty. For a leaf whose route is real but whose organisation holds no rows
+   * unless something put them there.
+   *
+   * 🚨 THE ASSERTION IS THE WHOLE DISPOSITION, and without it this value would
+   * be a synonym for `safe` that documents an intention nobody checks. An empty
+   * read exercises auth, routing, tenancy scoping and the response envelope
+   * while asserting NOTHING about item shape — so a fixture row that someone
+   * later deletes turns real coverage back into a green row nobody re-examines,
+   * with no event anywhere. That is strictly worse than the honest gap it
+   * replaced, because the gap was visible.
+   *
+   * So: a `safe-with-fixture` leaf that comes back empty is a FAIL, and the
+   * remedy is `scripts/seed-sweep-fixtures.sh`, never a demotion to `safe`.
+   */
+  | "safe-with-fixture"
+  /**
    * Never execute, not even by hand during a sweep. Self-modifying, interactive,
    * credential-destroying, or an unbounded arbitrary surface.
    */
@@ -88,8 +109,20 @@ export interface DriftReport {
   readonly unclassified: readonly string[];
   /** Paths classified here that no longer exist in the tree. */
   readonly stale: readonly string[];
-  /** The `safe` leaves, in tree order — what `sweep.sh` actually executes. */
+  /**
+   * What `sweep.sh` EXECUTES, in tree order — `safe` and `safe-with-fixture`
+   * together. One list, because the two are executed identically; they differ
+   * only in what is asserted about the answer.
+   */
   readonly safe: readonly string[];
+  /**
+   * The subset of {@link safe} whose response must not be empty.
+   *
+   * A separate list rather than a flag on each entry because `sweep.sh` reads
+   * it: bash has no record type, and a second `--print-*` mode it can read line
+   * by line is the whole interface.
+   */
+  readonly fixtureBacked: readonly string[];
   /** Every leaf the tree currently has. */
   readonly observed: readonly string[];
 }
@@ -106,6 +139,40 @@ export interface DriftReport {
  * anything that mutates or needs an argument, and it costs the sweep nothing.
  * Reach for `safe` ONLY when all three hold: no required positional, no
  * required option, and `--json` on a read.
+ *
+ * 🚨 THOSE THREE ARE NECESSARY AND NOT SUFFICIENT, AND READING THE HELP CANNOT
+ * SETTLE THEM. Measured over every `registration-only` leaf on 2026-08-18: 75
+ * declared no required positional and no `(required)` option in their rendered
+ * `--help`, and invoking them against staging refused four of the reads
+ * outright — three `cloud-import` leaves want `--connection-id` and
+ * `conversation search` wants `--query`, none of which the help text marks the
+ * way the others do. The same probe read two leaves ALREADY classified `safe`
+ * as needing input, so the help is wrong in both directions.
+ *
+ * So the promotion test is an INVOCATION against a live environment, never a
+ * re-reading. A candidate earns `safe` when it exits 0, emits parseable JSON,
+ * and comes back with data — and these are the shapes that pass the first two
+ * and prove nothing:
+ *
+ *   - EXIT 0 AND NOT JSON. `--strict` promotes the WARN to a FAIL, so this
+ *     turns the gate red rather than covering anything. `analytics export` and
+ *     `cue export` are both this today.
+ *   - A 403 the SKIP grep does not match. It matches "not configured",
+ *     "feature is disabled" and "feature not enabled"; the `agent-eval` tree
+ *     answers "This feature is not enabled", which matches none of the three
+ *     and lands as a FAIL.
+ *   - AN EMPTY COLLECTION. It exercises auth, routing, tenancy scoping and the
+ *     envelope, and it asserts nothing whatever about item shape. Six leaves
+ *     already classified `safe` read empty against staging, so this is a REASON
+ *     TO SEED A FIXTURE rather than a rule anything currently enforces.
+ *
+ * 🚨 AND ONE SHAPE IS REFUSED NO MATTER HOW WELL IT READS: a leaf that RETURNS
+ * A CREDENTIAL. `vibe git-credentials` takes no input, exits 0 and emits clean
+ * JSON — it meets every test above — and what it emits is the organisation's
+ * git push token. `sweep.sh` prints the first 100 characters of a leaf's output
+ * into the CI log on failure, and a CI log is readable by anyone with repository
+ * access. It stays `registration-only` for that reason and not for any other, so
+ * do not promote it on a later pass that only re-checks the input rules.
  */
 export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>> = {
   // ── access-card ────────────────────────────────────────────────────────────
@@ -145,7 +212,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "agent duplicate": "registration-only",
   "agent generate-profile-picture": "registration-only",
   "agent get": "registration-only",
-  "agent list": "registration-only",
+  "agent list": "safe",
   "agent update": "registration-only",
   "agent upload-profile-picture": "registration-only",
 
@@ -196,7 +263,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "agent-skill download": "registration-only",
   "agent-skill get": "registration-only",
   "agent-skill list": "registration-only",
-  "agent-skill presets": "registration-only",
+  "agent-skill presets": "safe",
   "agent-skill update": "registration-only",
   "agent-skill upload": "registration-only",
 
@@ -221,14 +288,14 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ── asset ──────────────────────────────────────────────────────────────────
   "asset delete": "registration-only",
   "asset get": "registration-only",
-  "asset list": "registration-only",
+  "asset list": "safe-with-fixture",
   "asset upload": "registration-only",
 
   // ── auth ───────────────────────────────────────────────────────────────────
   "auth list": "safe",
   "auth login": "never-execute", // writes credentials
   "auth logout": "never-execute", // destroys the credentials the sweep is authenticated with
-  "auth orgs": "registration-only",
+  "auth orgs": "safe",
   "auth pin": "never-execute", // writes .nexusrc
   "auth status": "never-execute", // already spent in the sweep's own preflight
   "auth switch": "never-execute", // flips the active profile out from under the sweep
@@ -263,7 +330,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "cloud-import import": "registration-only",
   "cloud-import notion import": "registration-only",
   "cloud-import notion search": "registration-only",
-  "cloud-import providers": "registration-only",
+  "cloud-import providers": "safe",
   "cloud-import search": "registration-only",
   "cloud-import sharepoint import": "registration-only",
   "cloud-import sharepoint list-files": "registration-only",
@@ -326,7 +393,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // FLIP THIS TO "safe" ONCE THE ROUTE IS ON STAGING. It is a one-line follow-up
   // and nothing else has to change; leaving it is a read-only leaf the sweep
   // stopped watching.
-  "cue conversations": "registration-only",
+  "cue conversations": "safe",
   "cue export": "registration-only",
   "cue transcript": "registration-only",
 
@@ -342,7 +409,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "customer delete": "registration-only",
   "customer get": "registration-only",
   "customer get-by-external-id": "registration-only",
-  "customer list": "registration-only",
+  "customer list": "safe",
   "customer note": "registration-only",
   "customer update": "registration-only",
 
@@ -403,7 +470,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "execution export": "registration-only",
   "execution follow": "registration-only",
   "execution get": "registration-only",
-  "execution list": "registration-only",
+  "execution list": "safe",
   "execution node-result": "registration-only",
   "execution output": "registration-only",
   "execution poll": "registration-only",
@@ -435,7 +502,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "html-template delete": "registration-only",
   "html-template fill": "registration-only",
   "html-template get": "registration-only",
-  "html-template list": "registration-only",
+  "html-template list": "safe-with-fixture",
   "html-template render": "registration-only",
   "html-template update": "registration-only",
 
@@ -463,7 +530,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ── permissions ────────────────────────────────────────────────────────────
   "permissions access": "registration-only",
   "permissions grant": "registration-only",
-  "permissions org-settings": "registration-only",
+  "permissions org-settings": "safe",
   "permissions revoke": "registration-only",
   "permissions set-visibility": "registration-only",
 
@@ -490,7 +557,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role add-permission-set-member": "registration-only",
   "role add-responsibility": "registration-only",
   "role attach": "registration-only",
-  "role automation-settings": "registration-only",
+  "role automation-settings": "safe",
   "role collection-grants": "registration-only",
   "role coverage": "registration-only",
   "role create": "registration-only",
@@ -505,11 +572,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role deletion-requests": "registration-only",
   "role detach": "registration-only",
   "role get": "registration-only",
-  "role governance": "registration-only",
+  "role governance": "safe",
   "role grant-collection": "registration-only",
   "role grant-workspace": "registration-only",
-  "role job-types": "registration-only",
-  "role list": "registration-only",
+  "role job-types": "safe-with-fixture",
+  "role list": "safe",
   "role add-board": "registration-only",
   // Every board verb needs a Role argument, so none can be swept. The reads are
   // no exception: `role boards` takes one too.
@@ -558,14 +625,14 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "skill-folder assign": "registration-only",
   "skill-folder create": "registration-only",
   "skill-folder delete": "registration-only",
-  "skill-folder list": "registration-only",
+  "skill-folder list": "safe",
   "skill-folder update": "registration-only",
 
   // ── skills ─────────────────────────────────────────────────────────────────
-  "skills list": "registration-only",
+  "skills list": "safe",
   "skills update": "never-execute", // writes skills + CLAUDE.md into the caller's project
-  "skills version": "registration-only",
-  "skills where": "registration-only",
+  "skills version": "safe",
+  "skills where": "safe",
 
   // ── task ───────────────────────────────────────────────────────────────────
   "task create": "registration-only",
@@ -594,7 +661,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "template folder assign": "registration-only",
   "template folder create": "registration-only",
   "template folder delete": "registration-only",
-  "template folder list": "registration-only",
+  "template folder list": "safe-with-fixture",
   "template folder update": "registration-only",
   "template generate": "registration-only",
   "template get": "registration-only",
@@ -621,8 +688,8 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tool execute": "registration-only",
   "tool get": "registration-only",
   "tool resolve-options": "registration-only",
-  "tool search": "registration-only",
-  "tool skills": "registration-only",
+  "tool search": "safe",
+  "tool skills": "safe",
   "tool test": "registration-only",
 
   // ── tracing ────────────────────────────────────────────────────────────────
@@ -645,7 +712,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "user-group add-member": "registration-only",
   "user-group create": "registration-only",
   "user-group delete": "registration-only",
-  "user-group list": "registration-only",
+  "user-group list": "safe-with-fixture",
   "user-group remove-member": "registration-only",
   "user-group update": "registration-only",
 
@@ -664,7 +731,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "vibe app delete": "registration-only",
   "vibe app edge-token": "registration-only",
   "vibe app get": "registration-only",
-  "vibe app list": "registration-only",
+  "vibe app list": "safe",
   "vibe app logs": "registration-only",
   "vibe app provision-repo": "registration-only",
   "vibe app register-as-tool": "registration-only",
@@ -675,9 +742,9 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "vibe approvals decide": "registration-only",
   "vibe approvals get": "registration-only",
   "vibe approvals pending": "registration-only",
-  "vibe audit list": "registration-only",
+  "vibe audit list": "safe",
   "vibe cluster provision": "registration-only",
-  "vibe cluster status": "registration-only",
+  "vibe cluster status": "safe",
   "vibe deploy": "registration-only",
   "vibe deploy-state": "registration-only",
   "vibe deployments get": "registration-only",
@@ -690,7 +757,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "vibe git-project create": "registration-only",
   "vibe git-project delete": "registration-only",
   "vibe git-project get": "registration-only",
-  "vibe git-project list": "registration-only",
+  "vibe git-project list": "safe",
   "vibe git-project pull": "registration-only",
   "vibe git-project reprovision": "registration-only",
   "vibe rollback": "registration-only",
@@ -734,7 +801,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ── workspace ──────────────────────────────────────────────────────────────
   "workspace create": "registration-only",
   "workspace delete": "registration-only",
-  "workspace list": "registration-only",
+  "workspace list": "safe",
   "workspace mount": "never-execute", // mounts a FUSE drive on the caller's filesystem
   "workspace rename": "registration-only",
   "workspace restore": "registration-only",
@@ -1279,6 +1346,14 @@ export async function classifyCommandUniverse(): Promise<DriftReport> {
     stale: Object.keys(COMMAND_CLASSIFICATION)
       .filter((path) => !observedSet.has(path))
       .sort(),
-    safe: observed.filter((path) => COMMAND_CLASSIFICATION[path] === "safe")
+    // `safe` is what the sweep RUNS, so both executable dispositions belong in
+    // it. Filtering this to `"safe"` alone would silently stop sweeping every
+    // fixture-backed leaf while `--check-drift` still reported them classified.
+    safe: observed.filter(
+      (path) =>
+        COMMAND_CLASSIFICATION[path] === "safe" ||
+        COMMAND_CLASSIFICATION[path] === "safe-with-fixture"
+    ),
+    fixtureBacked: observed.filter((path) => COMMAND_CLASSIFICATION[path] === "safe-with-fixture")
   };
 }

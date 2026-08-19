@@ -514,9 +514,26 @@ export interface NodeTypeSummary {
 /** One field a node type accepts. */
 export interface FieldDefinition {
   name: string;
+  /**
+   * The field's shape, as PROSE. `'"hours" | "minutes" | "days"'` reads like a
+   * union and is a documentation string — read `values` to act on it.
+   */
   type: string;
   description: string;
   default?: unknown;
+  /**
+   * Every value the server accepts for this field, when that set is closed.
+   *
+   * Present: a write carrying anything else is refused with
+   * `400 NODE_FIELD_VALUE_INVALID`. Absent: the field is not value-checked,
+   * which is NOT "any value works" — it means nothing on the server can say
+   * which values do.
+   *
+   * The empty string is always accepted regardless of this list: it is the
+   * ordinary mid-configuration state. The list may be WIDER than `type` names
+   * (a legacy alias that still resolves), never narrower.
+   */
+  values?: string[];
 }
 
 /** One step in a node type's guided configuration. */
@@ -634,6 +651,26 @@ export interface NodeTypeSchema {
    * "nothing worth saying about this type", which is never the case.
    */
   guide?: string;
+  /**
+   * Present ONLY on a node type the workflow engine cannot dispatch, carrying
+   * the reason and the working alternative where one exists.
+   *
+   * Four node types shipped registered-and-unexecutable (NEX-3972): offered by
+   * `listNodeTypes()` with a full label and description, accepted by
+   * `createNode()` at 201, reported `configStatus: "complete"`, and passed
+   * `validate()` as ready to publish — then threw `Node type <type> not found`
+   * on every execution. Every surface a caller could read before running one
+   * said it was healthy.
+   *
+   * So this is the field to branch on BEFORE offering a type to a user or
+   * writing a node of it. `createNode()` now refuses one with
+   * `NODE_TYPE_NOT_EXECUTABLE`, and `validate()` reports a critical error for a
+   * stored node of that type.
+   *
+   * ABSENT rather than `{ reason: "" }` or a `false` flag when the type CAN run,
+   * so the check is a presence test with no third state to interpret.
+   */
+  nonExecutable?: { reason: string };
 }
 
 /**

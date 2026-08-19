@@ -5,7 +5,7 @@ import { Command } from "commander";
 
 import { color, isJsonMode } from "../output";
 import { getSkillList, getSkills, SKILLS_NEXUS_SHA } from "../skills-content.generated";
-import { confirmable } from "../util/confirm";
+import { confirmable, promptLine, promptStream } from "../util/confirm";
 import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
 import { runSkillsInstallToTarget, type SkillsInstallOpts } from "./claude-code";
 
@@ -39,6 +39,29 @@ function describeReason(reason: TargetReason, root: string): string {
  * to know where the claude files sit" requirement — and the guard against
  * writing into the wrong folder. Non-interactive runs (or --yes/--force) keep
  * the detected default.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 IT DECIDES ON STDIN, AND IT USED TO DECIDE ON STDOUT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This is not the destructive confirmation — that one lives in
+ * `runSkillsInstallToTarget` and has always gone through `confirmDestructive`.
+ * It is the OTHER question this command asks, and it carried the exact defect
+ * `util/confirm` exists to delete, three ways over:
+ *
+ *   - `nexus skills update > log` from a real keyboard. stdout is a pipe, so the
+ *     picker was skipped and dozens of files went to the detected root with
+ *     nobody asked which root that was.
+ *   - `echo 2 | nexus skills update` at a terminal. stdout is a terminal, so it
+ *     asked — and consumed an answer arriving from a script rather than a person.
+ *   - `nexus skills update < /dev/null` at a terminal. It asked, stdin had
+ *     already ended, and nothing could ever settle the promise. The question
+ *     printed and the process sat there.
+ *
+ * A question is answered on STDIN, so stdin is the only stream that says whether
+ * anyone can answer. And the question goes to {@link promptStream} — stderr in
+ * every case a person can read it — so redirecting stdout no longer hides the
+ * prompt behind the wait.
  */
 async function maybePickLocation(
   detected: ClaudeTarget,
@@ -52,26 +75,36 @@ async function maybePickLocation(
 
   // Nothing to disambiguate: explicit flag, already in the root, --json (the
   // picker would block on stdin and corrupt the JSON document), --yes/--force,
-  // or we can't prompt. Detection stands.
-  if (isExplicit || sameAsHere || isJsonMode() || opts.yes || opts.force || !process.stdout.isTTY) {
+  // or nobody is there to answer. Detection stands.
+  if (isExplicit || sameAsHere || isJsonMode() || opts.yes || opts.force || !process.stdin.isTTY) {
     return detected;
   }
 
-  console.log(
+  // THE OPTIONS GO WHERE THE QUESTION GOES. They are what the answer refers to;
+  // on `console.log` with stdout redirected the operator is asked to choose
+  // between three paths and shown none of them.
+  promptLine(
     color.bold("\nWhere should the skills go?\n") +
       color.dim(`  Detected: ${describeReason(detected.reason, detected.projectRoot)}\n`)
   );
-  console.log(
+  promptLine(
     `  ${color.cyan("1")}  ${detected.projectRoot}   ${color.dim("(detected — default)")}`
   );
-  console.log(`  ${color.cyan("2")}  ${here}   ${color.dim("(current directory)")}`);
-  console.log(`  ${color.cyan("3")}  ${path.join(homeDir, ".claude")}   ${color.dim("(global)")}`);
-  console.log();
+  promptLine(`  ${color.cyan("2")}  ${here}   ${color.dim("(current directory)")}`);
+  promptLine(`  ${color.cyan("3")}  ${path.join(homeDir, ".claude")}   ${color.dim("(global)")}`);
+  promptLine();
 
   const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = (await rl.question("Choose [1/2/3, default 1]: ")).trim();
-  rl.close();
+  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
+  let answer: string;
+  try {
+    answer = (await rl.question("Choose [1/2/3, default 1]: ")).trim();
+  } finally {
+    // `finally`, not a close on the happy path: an interface left open holds
+    // stdin and the process never exits, so a read error would hang rather than
+    // report.
+    rl.close();
+  }
 
   switch (answer) {
     case "":
@@ -82,7 +115,7 @@ async function maybePickLocation(
     case "3":
       return resolveClaudeTarget({ ...opts, global: true }, cwd, homeDir);
     default:
-      console.log(color.yellow("Unrecognized choice — aborting. Re-run and pick 1, 2, or 3."));
+      promptLine(color.yellow("Unrecognized choice — aborting. Re-run and pick 1, 2, or 3."));
       return null;
   }
 }

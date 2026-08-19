@@ -24,9 +24,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { writeSecretFile } from "../util/secret-file";
 
 /** Credential fields `clone`/`pull` need — the subset of the git-credentials payload. */
 export interface VibeGitCredentialParts {
@@ -185,7 +187,7 @@ export function runGitWithCredential(
   const scratchDir = mkdtempSync(join(tmpdir(), "nexus-vibe-git-"));
   const credentialPath = join(scratchDir, "credentials");
   try {
-    writeFileSync(credentialPath, credentialLine, { mode: 0o600 });
+    writeSecretFile(credentialPath, credentialLine);
     try {
       execFileSync("git", buildArgs(credentialPath), { stdio: ["ignore", "ignore", "inherit"] });
     } catch {

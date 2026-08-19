@@ -8,7 +8,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
-import { absent, color, isJsonMode, printSuccess, printTable } from "../output";
+import { absent, color, isJsonMode, printEnvelope, printSuccess, printTable } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
@@ -52,24 +52,27 @@ Notes:
         // dropped the assignments from both channels, so the command could not
         // do the thing its own description promises and a script had no way to
         // ask for the missing half.
-        if (isJsonMode()) {
-          console.log(JSON.stringify(result, null, 2));
-          return;
-        }
+        //
+        // The cure used to be a hand-written `if (isJsonMode())` early return
+        // with its own `console.log(JSON.stringify(...))`. That was correct and
+        // invisible: it bypassed `emitDocument`, so it sat outside the
+        // one-document guarantee, and it made this leaf unreadable to
+        // `json-shape.scan.ts`, which then published no `--json` shape line for
+        // it at all. `printEnvelope` is the same split as a mechanism.
+        printEnvelope(result, () => {
+          printTable(result.folders ?? [], [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "parentId", label: "PARENT", width: 36 }
+          ]);
 
-        printTable(result.folders ?? [], [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "parentId", label: "PARENT", width: 36 }
-        ]);
-
-        const assignments = result.assignments ?? [];
-        console.log();
-        console.log(color.bold("ASSIGNMENTS"));
-        printTable(assignments, [
-          { key: "skillId", label: "SKILL ID", width: 36 },
-          { key: "folderId", label: "FOLDER ID", width: 36 }
-        ]);
+          console.log();
+          console.log(color.bold("ASSIGNMENTS"));
+          printTable(result.assignments ?? [], [
+            { key: "skillId", label: "SKILL ID", width: 36 },
+            { key: "folderId", label: "FOLDER ID", width: 36 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

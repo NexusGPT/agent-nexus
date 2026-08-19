@@ -7,7 +7,8 @@
  * spec cannot disagree about what the CLI contains.
  *
  * Usage:
- *   tsx scripts/command-universe.ts --print-safe-leaves   # one path per line
+ *   tsx scripts/command-universe.ts --print-safe-leaves     # one path per line
+ *   tsx scripts/command-universe.ts --print-fixture-leaves  # the non-empty subset
  *   tsx scripts/command-universe.ts --check-drift         # report + exit code
  *   tsx scripts/command-universe.ts --check-drift --json  # machine-readable
  *
@@ -27,9 +28,19 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The subset whose response must not be empty. sweep.sh reads this into a
+  // lookup, so it is a separate mode rather than a column: bash has no record
+  // type, and a two-column format would need a parser on the shell side.
+  if (args.has("--print-fixture-leaves")) {
+    process.stdout.write(
+      report.fixtureBacked.length === 0 ? "" : `${report.fixtureBacked.join("\n")}\n`
+    );
+    return;
+  }
+
   if (!args.has("--check-drift")) {
     process.stderr.write(
-      "Usage: command-universe.ts --print-safe-leaves | --check-drift [--json]\n"
+      "Usage: command-universe.ts --print-safe-leaves | --print-fixture-leaves | --check-drift [--json]\n"
     );
     process.exitCode = 2;
     return;

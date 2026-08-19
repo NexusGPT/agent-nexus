@@ -35,6 +35,20 @@ export * from "./resources";
 export type { HttpClientOptions, RequestOptions } from "./http-client";
 export { HttpClient } from "./http-client";
 
+// Response-contract checking — the seam that lets a caller SEE a payload that
+// no longer matches the shape its route publishes. Off unless a reporter is
+// installed; see `./response-contract.ts` for why it never alters a payload.
+export type {
+  ContractIssue,
+  ContractReport,
+  ContractReporter,
+  PayloadShape,
+  ResponseContractState,
+  RouteShape,
+  RouteShapeManifest
+} from "./response-contract";
+export { formatContractReport, MAX_ARRAY_SAMPLE, MAX_ISSUES } from "./response-contract";
+
 // Timeouts — the two deadlines an operation runs under, exported so a caller
 // raising `timeout` deliberately can start from the right one rather than
 // guessing (and so the CLI's own defaults derive from these rather than restate

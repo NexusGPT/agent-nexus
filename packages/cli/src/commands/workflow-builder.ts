@@ -790,6 +790,12 @@ Notes:
   Carries the type's fields with their defaults, its configuration steps in ORDER,
   and its connection rules (how many inputs and outputs it takes, whether it can
   live inside a loop, what children it creates).
+  A FIELD WITH A CLOSED SET OF LEGAL VALUES CARRIES 'values', and a write of
+  anything else is refused with 400 NODE_FIELD_VALUE_INVALID. Read 'values', not
+  'type' — 'type' is prose, and it can name FEWER values than the server accepts.
+  The empty string is always accepted: it means the field is not configured yet.
+  A field with NO 'values' is not value-checked at all, which is not the same as
+  saying any value works.
   Read the configuration steps before configuring a plugin node: the order is
   load-bearing, and doing it out of order is accepted and produces nothing.
   MOST TYPES ALSO CARRY A 'guide' — a Markdown page written from live runs, saying

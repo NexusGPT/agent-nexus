@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
 
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { beforeAll, test } from "vitest";
+
+import { runHelpTruthScan, type ScanReport } from "./help-truth-rules";
 import { descriptorFor, descriptorIndex, sdkRouteIndex } from "./help-truth-scan";
-import { runHelpTruthScan } from "./help-truth-rules";
-import type { ScanReport } from "./help-truth-rules";
 
 /**
  * A TRAILING INTERPOLATION IS NOT PART OF THE PATH (NEX-3927).
@@ -77,7 +78,18 @@ const CASES: readonly Case[] = [
   }
 ];
 
-for (const c of CASES) {
+/**
+ * The loop is WRAPPED because vitest registers tests from it at collection time
+ * and an empty `CASES` would register ZERO — a file reported PASSED over nothing,
+ * at exit 0. These cases were run by `tsx --test` until this package folded its
+ * two runners into one; node:test's `--test-force-exit` accounting would have
+ * shown 0 tests, but vitest's summary shows only the total, and nobody diffs a
+ * total. `eachOrRefuse` turns that silent zero into a refusal at collection.
+ */
+for (const c of eachOrRefuse(
+  CASES,
+  "CASES \u2014 every path shape the SDK-to-contract matcher must judge"
+)) {
   test(`descriptorFor — ${c.name}`, () => {
     const index = new Map([
       [`POST ${c.contract}`, { name: "Probe", method: "POST", path: c.contract }]
@@ -95,7 +107,7 @@ for (const c of CASES) {
 
 let report: ScanReport;
 
-before(async () => {
+beforeAll(async () => {
   report = await runHelpTruthScan();
 });
 

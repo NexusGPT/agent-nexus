@@ -215,11 +215,28 @@ describe("sweep.sh keeps no second copy of the inventory", () => {
     // table, so the two cannot disagree. Pin the contract that lets it: the
     // safe set is non-empty, every entry is a real path, and none of them is a
     // bare namespace, which would sweep a group's help text instead of a leaf.
+    //
+    // `safe` is the EXECUTED set, so it holds both executable dispositions.
+    // This used to assert `=== "safe"` and it caught the day the second one was
+    // added, which is the assertion working rather than failing — the two lists
+    // really would have gone out of step. Naming both is stronger than widening
+    // to a truthiness check: a leaf that is `registration-only` or
+    // `never-execute` still cannot appear here.
     expect(safe.length).toBeGreaterThan(0);
     for (const path of safe) {
-      expect(COMMAND_CLASSIFICATION[path]).toBe("safe");
+      expect(["safe", "safe-with-fixture"]).toContain(COMMAND_CLASSIFICATION[path]);
       expect(path.trim()).toBe(path);
     }
+
+    // And the converse, which the old assertion could not express: every
+    // executable leaf in the table REACHES the executed set. A disposition
+    // added to the union and forgotten in `classifyCommandUniverse` would be
+    // declared, asserted about, and never actually run.
+    const executable = Object.entries(COMMAND_CLASSIFICATION)
+      .filter(([, disposition]) => disposition === "safe" || disposition === "safe-with-fixture")
+      .map(([path]) => path)
+      .sort();
+    expect([...safe].sort()).toEqual(executable);
   });
 });
 

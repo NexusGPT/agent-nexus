@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { COMMAND_CLASSIFICATION } from "../command-universe";
 import { booleanFlag } from "./boolean-flag";
 import {
   confirmable,
@@ -16,26 +15,35 @@ import {
 import { buildCommandTree } from "./global-option-shadowing";
 
 /**
- * ONE CONVENTION, ENFORCED ON THE TREE.
+ * HOW A CONFIRMATION IS DECLARED. Whether one EXISTS is the sibling file's job.
  *
- * The population comes from `command-universe.ts`'s classification, which is
- * derived from the commander tree by another owner and fails on an unclassified
- * leaf — so it cannot go stale and this file keeps no list of its own.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE POPULATION THIS FILE USED TO DERIVE HAS BEEN REMOVED, ON PURPOSE
+ * ══════════════════════════════════════════════════════════════════════════════
  *
- * Its three-way split is the right POPULATION FILTER and not a destructiveness
- * oracle: `registration-only` means "a mutation, OR a read that needs a required
- * positional/option", so it cannot separate `document delete` from
- * `agent get <id>`. What it CAN say for certain is the negative — a `safe` leaf
- * is read-only and can never need a confirmation. That is how it is used here.
+ * A `notReadOnly()` here filtered `COMMAND_CLASSIFICATION` to every non-`safe`
+ * leaf and fed the result to ONE control asserting `length > 50`. Nothing else
+ * ever read it. A derived population that feeds no obligation is worse than no
+ * population: it reads as the gate over the destructive surface, and it is a
+ * `length` check.
+ *
+ * It could not have carried an obligation either, and the number says why. The
+ * non-`safe` bucket is 483 of 519 leaves, because `registration-only` means "a
+ * mutation, OR a read that needs a required positional" — so `agent get <id>` is
+ * in it. Asserting a confirmation over that set would demand one from every
+ * parameterised read in the CLI. "Not read-only" is not "destructive", and no
+ * amount of assertion makes it so.
+ *
+ * `destructive-confirmation.scan.ts` derives the real population — a leaf whose
+ * name carries a destructive verb, or one that declares `--yes` — and
+ * `destructive-confirmation.driven.test.ts` DRIVES every member of it with no
+ * terminal and no `--yes`, so "does this command confirm" is answered by what it
+ * did rather than by what it declared.
+ *
+ * What stays here is the half that is about DECLARATION, and it is still
+ * load-bearing: the flag is spelled one way, registered one way, and no command
+ * decides on the wrong stream.
  */
-
-/** Every leaf that is not read-only, keyed as `command-universe` keys them. */
-function notReadOnly(): string[] {
-  return Object.entries(COMMAND_CLASSIFICATION)
-    .filter(([, disposition]) => disposition !== "safe")
-    .map(([path]) => path)
-    .sort();
-}
 
 function everyCommand(root: Command, trail: string[] = []): Array<[string, Command]> {
   const out: Array<[string, Command]> = [];
@@ -48,45 +56,25 @@ function everyCommand(root: Command, trail: string[] = []): Array<[string, Comma
 }
 
 /**
- * Commands declaring `--yes` by hand, from before `confirmable()` existed.
+ * THE HAND-ROLLED LIST IS GONE, AND ITS ABSENCE IS THE ASSERTION.
  *
- * They are listed so the count is visible and shrinking, and so a NEW
- * hand-rolled one cannot join them silently. Migrating a command means deleting
- * its line here — the last assertion refuses an entry that no longer needs one,
- * so the list cannot rot in the other direction either.
+ * Six commands used to declare `--yes` themselves — `phone-number buy|release`,
+ * `workspace delete` and three `vibe` verbs. Every one of them refused
+ * correctly, through a parser of its own; they were DRY debt rather than a
+ * data-loss risk, and that is exactly why they survived so long. A correct copy
+ * of a rule is still a place the rule can change, and a gate over the tree could
+ * only ever prove a `--yes` was DECLARED — never that the branch behind it was
+ * the shared one.
  *
- * 🚨 EVERY ENTRY LEFT IS ONE THAT REFUSES, through a correct parser of its own.
- * Both behaviours this list was opened for are gone from the tree — proceeding
- * silently because a stream nobody answers on is not a terminal, and declaring
- * `--yes` with no prompt behind it at all — so a hand-rolled entry rejoining it
- * is a regression rather than a backlog item.
- *
- * `phone-number buy|release`, `workspace delete` and the three `vibe` verbs
- * refuse on a non-TTY through a correct parser of their own. They are DRY debt,
- * never a data-loss risk.
- *
- * 🔴 Most of these files belong to other owners. The gate names the work; it
- * does not do it.
+ * All six now go through `confirmable()` + `confirmDestructive()`, so the
+ * assertion below runs against an EMPTY exemption list: any command declaring
+ * `--yes` by hand is a new one, and it reds by name. There is deliberately no
+ * constant left to add a line to.
  */
-const UNMIGRATED_HAND_ROLLED_YES: readonly string[] = [
-  "phone-number buy",
-  "phone-number release",
-  "vibe app delete",
-  "vibe app rotate-edge-token",
-  "vibe git-project delete",
-  "workspace delete"
-];
 
 describe("the destructive-confirmation convention", () => {
-  // CONTROLS FIRST. Every assertion below is an absence claim over a derived
-  // population, so both derivations must be shown to produce something.
-  it("derives a non-empty not-read-only population from command-universe", () => {
-    const population = notReadOnly();
-    expect(population.length).toBeGreaterThan(50);
-    expect(population).toContain("document delete");
-    expect(population).toContain("tool delete-credential");
-  });
-
+  // CONTROL FIRST. Every assertion below is an absence claim over a derived
+  // population, so the derivation must be shown to produce something.
   it("walks a tree that actually has commands", () => {
     expect(everyCommand(buildCommandTree()).length).toBeGreaterThan(200);
   });
@@ -106,12 +94,11 @@ describe("the destructive-confirmation convention", () => {
     );
   });
 
-  it("no NEW command declares --yes by hand", () => {
+  it("no command declares --yes by hand", () => {
     const handRolled = everyCommand(buildCommandTree())
       .filter(([, cmd]) => cmd.options.some((o) => o.long === "--yes"))
       .filter(([, cmd]) => !isConfirmable(cmd))
       .map(([path]) => path)
-      .filter((path) => !UNMIGRATED_HAND_ROLLED_YES.includes(path))
       .sort();
 
     expect(
@@ -122,15 +109,6 @@ describe("the destructive-confirmation convention", () => {
         "running. Use confirmable(cmd) to declare the flag and confirmDestructive() to " +
         "ask, from src/util/confirm.ts. Both refuse when stdin is not a terminal."
     ).toEqual([]);
-  });
-
-  it("carries no entry for a command that has been migrated or removed", () => {
-    const live = new Set(
-      everyCommand(buildCommandTree())
-        .filter(([, cmd]) => cmd.options.some((o) => o.long === "--yes") && !isConfirmable(cmd))
-        .map(([path]) => path)
-    );
-    expect(UNMIGRATED_HAND_ROLLED_YES.filter((p) => !live.has(p))).toEqual([]);
   });
 
   it("never tests stdout to decide whether a human can answer", () => {

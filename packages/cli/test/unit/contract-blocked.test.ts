@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
 
 import { Command } from "commander";
+import { beforeAll, test } from "vitest";
 
 import {
   BLOCKED_DESCRIPTORS,
@@ -51,7 +51,7 @@ import {
 
 let audit: BlockedAudit;
 
-before(() => {
+beforeAll(() => {
   audit = auditBlockedDescriptors();
 });
 

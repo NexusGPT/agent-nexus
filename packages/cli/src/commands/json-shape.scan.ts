@@ -7,7 +7,7 @@ import ts from "typescript";
  * WHICH OF THE FIVE `--json` SHAPES EACH LEAF PRINTS — DERIVED FROM THE CODE.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * THE FIVE SHAPES ARE FIVE FUNCTIONS, SO THIS IS A DEFINITION AND NOT A GUESS
+ * THE SIX SHAPES ARE SIX FUNCTIONS, SO THIS IS A DEFINITION AND NOT A GUESS
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `--json` is not uniformly wrapped across this CLI, and the wrapping is not
@@ -27,9 +27,10 @@ import ts from "typescript";
  *   printTable(rows, cols)      -> emitDocument(rows)          a bare array
  *   printSuccess(message, data) -> emitDocument({ success: true, message, …data })
  *   printDryRun(message, data)  -> emitDocument({ dryRun: true, message, …data })
+ *   printEnvelope(env, render) -> emitDocument(env)           the response itself
  *
  * So "which shape does this leaf print" is the same question as "which of those
- * five does this leaf's action reach", and that question is answered by reading
+ * six does this leaf's action reach", and that question is answered by reading
  * the code rather than by running it. A hand-written table of 508 shapes beside
  * an evolving CLI is the defect this module deletes: it goes stale in complete
  * silence, and a wrong shape in `--help` is worse than none — it is a confident
@@ -40,7 +41,7 @@ import ts from "typescript";
  * 🚨 SILENCE IS A RESULT HERE, AND IT IS THE MOST IMPORTANT ONE. Three cases
  * get NO classification and therefore NO help line:
  *
- *   · a leaf that reaches NONE of the five — around forty commands build their
+ *   · a leaf that reaches NONE of the six — around forty commands build their
  *     document with a bare `console.log(JSON.stringify(x))` or hand it to
  *     `emitDocument` through a helper, and the shape is then whatever that
  *     expression evaluates to. Nothing syntactic knows;
@@ -55,7 +56,7 @@ import ts from "typescript";
  * ── WHY THE PRINTERS ARE TERMINALS ──────────────────────────────────────────
  *
  * ⚠️ `printList` CALLS `printTable` — on its NON-json branch, to draw the table.
- * A call graph that expands the five reports `printList+printTable` for all 53
+ * A call graph that expands the six reports `printList+printTable` for all 53
  * list commands and classifies none of them, because two shapes look like a
  * branch. So the walk stops AT a printer: reaching one is the answer, never a
  * question to ask again one level down.
@@ -72,14 +73,33 @@ import ts from "typescript";
  * tree, where the absolute path is known.
  */
 
-/** The five, and nothing else. Each is a terminal in the walk below. */
+/** The six, and nothing else. Each is a terminal in the walk below. */
 export const SHAPE_PRINTERS = [
   "printRecord",
   "printList",
   "printTable",
   "printSuccess",
-  "printDryRun"
+  "printDryRun",
+  "printEnvelope"
 ] as const;
+
+/**
+ * `printEnvelope` OUTRANKS whatever printer runs inside its callback.
+ *
+ * 🚨 WITHOUT THIS RULE, ADOPTING THE PRINTER THAT FIXES A COMMAND'S SHAPE
+ * DELETES THAT COMMAND'S SHAPE LINE. `printEnvelope(result, () =>
+ * printTable(rows, cols))` reaches two of the six, and two is refused as
+ * `branches` — so `folder list` would have gone from a WRONG line ("a bare
+ * array") to NO line, and the help would have got quieter for a command that
+ * had just been made answerable.
+ *
+ * It is a definition rather than a tie-break. `printEnvelope` owns the only
+ * `if (_jsonMode)` branch on the path and never calls its callback under
+ * `--json`, so a printer inside that callback is human-channel BY
+ * CONSTRUCTION. There is no branch for the two to disagree about: the document
+ * is the envelope, always.
+ */
+const DOMINANT_PRINTER = "printEnvelope";
 
 export type ShapePrinter = (typeof SHAPE_PRINTERS)[number];
 
@@ -333,9 +353,9 @@ function functionCalls(
 }
 
 /**
- * Which of the five does this set of calls reach, transitively?
+ * Which of the six does this set of calls reach, transitively?
  *
- * The five are TERMINALS: reaching one records it and stops. See the header for
+ * The six are TERMINALS: reaching one records it and stops. See the header for
  * why expanding `printList` classifies all 53 list commands as ambiguous.
  */
 function reachedPrinters(seed: ReadonlySet<string>, graph: Map<string, Set<string>>): Set<string> {
@@ -366,7 +386,7 @@ function reachedPrinters(seed: ReadonlySet<string>, graph: Map<string, Set<strin
     }
   }
 
-  return found;
+  return found.has(DOMINANT_PRINTER) ? new Set([DOMINANT_PRINTER]) : found;
 }
 
 /** Strip `await` and parentheses, so `await confirmable(x)` reads as `confirmable(x)`. */

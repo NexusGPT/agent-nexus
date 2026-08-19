@@ -1,9 +1,9 @@
 // Typechecks the code `tsconfig.json` cannot see.
 //
 // `tsconfig.json` is `include: ["src"]`, so `tsc --noEmit` reads NOTHING under
-// `test/` or `scripts/` — while `pnpm test` runs `test/unit/*.test.ts` through
-// `tsx --test`, and the build-time generators under `scripts/` emit files the
-// repo then commits. Both directories are real, shipped code that no gate read.
+// `test/` or `scripts/` — while `pnpm test` runs `test/**/*.test.ts` through
+// vitest, and the build-time generators under `scripts/` emit files the repo
+// then commits. Both directories are real, shipped code that no gate read.
 //
 // Proved by positive control 2026-08-13: `const x: number = "s";` planted in
 // `test/unit/sample-config.test.ts` left `pnpm --filter @agent-nexus/cli

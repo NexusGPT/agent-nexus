@@ -928,7 +928,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "(envelope shape)",
     state: "placed",
     leaf: "deployment folder list",
-    probe: 'BARE ARRAY, not {data,meta}. "deployment list" is the other'
+    probe: "not {data,meta} and not a bare array."
   },
   {
     id: "deployment-07",

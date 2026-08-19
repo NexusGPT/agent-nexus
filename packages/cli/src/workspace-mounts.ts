@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { ensureSecretDir, writeSecretFile } from "./util/secret-file";
+
 // ── Workspace mount registry ─────────────────────────────────────────────────
 //
 // On-disk record of which workspaces are mounted, so `unmount`/`status` can find
@@ -263,8 +265,23 @@ export function readMounts(): Record<string, MountRecord> {
 }
 
 export function writeMounts(mounts: Record<string, MountRecord>): void {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(mounts, null, 2) + "\n");
+  writeSecretFile(STATE_FILE, JSON.stringify(mounts, null, 2) + "\n");
+}
+
+/**
+ * Create `dir` under `STATE_DIR`, with BOTH at 0700 whether they existed or not.
+ *
+ * `STATE_DIR` is `~/.nexus-mcp` — the directory that also holds `config.json`,
+ * the plaintext API key. So every route that can bring that directory into
+ * existence decides the mode the credential file will sit behind, including the
+ * ones that write nothing secret themselves. A bare
+ * `mkdirSync(LOG_DIR, { recursive: true })` created it at the caller's umask,
+ * and a create-time mode argument would not have helped on a directory that is
+ * already there.
+ */
+export function ensureStateSubdir(dir: string): void {
+  ensureSecretDir(STATE_DIR);
+  if (dir !== STATE_DIR) ensureSecretDir(dir);
 }
 
 /**

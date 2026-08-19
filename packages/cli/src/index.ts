@@ -237,11 +237,16 @@ export function buildRootProgram(version: string = VERSION): Command {
   UPDATES
     This CLI does NOT install over itself unless you pass --auto-update. Without
     it you get one line naming the newer version and the command that installs
-    it. That is deliberate: a self-install replaces the directory this binary is
-    running from and cannot relink the global shim itself, so an interrupted one
-    leaves a shim pointing at nothing. Once that happens NO nexus command runs —
-    not even --no-auto-update — because the failure is in Node's module
-    resolution, before any of this code. Reinstalling is the only repair.
+    it. Set NEXUS_NO_AUTO_UPDATE=1, or run where CI is set, and it also stops
+    ASKING npm — no request on any invocation, and the notice comes from
+    whatever the last check left on disk. --json skips both.
+
+    Keeping the flag off by default is deliberate: a self-install replaces the
+    directory this binary is running from and cannot relink the global shim
+    itself, so an interrupted one leaves a shim pointing at nothing. Once that
+    happens NO nexus command runs — not even --no-auto-update — because the
+    failure is in Node's module resolution, before any of this code.
+    Reinstalling is the only repair.
 
   READING THE OUTPUT
     --json prints ONE JSON document on STDOUT and nothing else. Warnings, the
@@ -526,7 +531,11 @@ if (isProcessEntryPoint()) {
           process.stderr.write(color.green(msg));
         }
       } else {
-        // --no-auto-update / NEXUS_NO_AUTO_UPDATE / CI: just show a message like before
+        // --no-auto-update / NEXUS_NO_AUTO_UPDATE / CI: print a notice, install
+        // nothing. `checkForUpdate` enforces the environment opt-out itself —
+        // under it the notice comes from the cache and no request is made. The
+        // condition above is a BRANCH SELECTOR, not the gate; see the docblock
+        // on `checkForUpdate` for why the gate had to move into that module.
         const updateMsg = await checkForUpdate(VERSION);
         if (updateMsg) {
           const { color } = await import("./output");

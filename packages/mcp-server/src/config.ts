@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { warnIfLoosePermissions, writeSecretFile } from "./secret-file";
+
 // ---------------------------------------------------------------------------
 // URL map
 // ---------------------------------------------------------------------------
@@ -79,6 +81,9 @@ function selectedProfileName(parsed: Record<string, unknown>): string {
 export function loadConfig(): NexusMcpConfig {
   try {
     const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
+    // The file holds an API key in plaintext. A loose mode found HERE is a past
+    // exposure the write path's chmod cannot undo, so it is said out loud once.
+    warnIfLoosePermissions(CONFIG_FILE);
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
     // V2 format: extract the selected profile
@@ -110,8 +115,6 @@ export function loadConfig(): NexusMcpConfig {
  * Otherwise writes the flat V1 format (CLI will migrate on next run).
  */
 export function saveConfig(config: NexusMcpConfig): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-
   // Check if existing config is V2
   try {
     const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
@@ -127,9 +130,7 @@ export function saveConfig(config: NexusMcpConfig): void {
         apiKey: config.apiKey,
         ...(config.baseUrl ? { baseUrl: config.baseUrl } : {})
       };
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2) + "\n", {
-        mode: 0o600
-      });
+      writeSecretFile(CONFIG_FILE, JSON.stringify(existing, null, 2) + "\n");
       return;
     }
   } catch {
@@ -137,9 +138,7 @@ export function saveConfig(config: NexusMcpConfig): void {
   }
 
   // Write V1 format
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n", {
-    mode: 0o600
-  });
+  writeSecretFile(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n");
 }
 
 // ---------------------------------------------------------------------------

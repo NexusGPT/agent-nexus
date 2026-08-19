@@ -2,9 +2,9 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printTable } from "../output";
-import { promptLine, promptStream } from "../util/confirm";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { getPaginationParams } from "../util/pagination";
 import {
   PHONE_NUMBER_SEARCH_AVAILABLE__PARAMS_TYPE,
@@ -12,10 +12,10 @@ import {
 } from "./phone-number.contract.generated";
 
 /**
- * Gate a command that SPENDS MONEY behind an explicit confirmation.
+ * `buy` and `release` SPEND MONEY, and both go through the shared confirmation.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * WHY THESE TWO AND WHY THIS SHAPE
+ * WHY THESE TWO ARE GATED, AND WHY THE GATE IS NOT WRITTEN HERE
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `buy` and `release` were the only mutating commands in this namespace with
@@ -25,43 +25,18 @@ import {
  * a purchase bills monthly from the moment it returns, and a release hands the
  * number back to the carrier pool where it cannot be reclaimed.
  *
- * The shape is `workspace delete`'s, deliberately, including the part that
- * matters most: WITHOUT A TTY AND WITHOUT `--yes` THIS REFUSES rather than
- * proceeding. Every destructive verb in this CLI now takes that branch; these
- * two were among the first, and the reason is sharper here than anywhere else —
- * an unasked delete is survivable for a row and is not survivable for a number
- * a customer is receiving calls on.
+ * This file used to carry its OWN copy of the rule, and the copy was correct —
+ * which is precisely why it survived so long. A correct copy is still a second
+ * place the rule can change, and the gate over the tree could only ever prove
+ * that a `--yes` was DECLARED, never that the branch behind it was the shared
+ * one. `confirmable()` + `confirmDestructive()` make the gate structural: the
+ * declaration is a fact on the `Command` and the ask is a call into one module,
+ * so `destructive-confirmation.driven.test.ts` can drive this command with no
+ * terminal and OBSERVE the refusal rather than infer it from a flag.
  *
- * @returns true when the caller confirmed and the command should proceed.
+ * The behaviour a caller sees is unchanged: without a terminal and without
+ * `--yes`, both verbs refuse and buy or release nothing.
  */
-async function confirmIrreversible(yes: boolean | undefined, question: string): Promise<boolean> {
-  if (yes) return true;
-
-  if (!process.stdin.isTTY) {
-    process.exitCode = refuse("use --yes to confirm in non-interactive mode");
-    return false;
-  }
-
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
-  // `finally`, not a bare close after the await: an interface left open holds
-  // stdin and the process never exits. The sibling confirmations in this
-  // package close on the happy path only, so a stdin error there hangs the CLI
-  // instead of reporting the failure — not a shape to copy for a command whose
-  // failure mode is "did my purchase go through?".
-  let answer: string;
-  try {
-    answer = await rl.question(`${question} [y/N] `);
-  } finally {
-    rl.close();
-  }
-
-  if (answer.toLowerCase() !== "y") {
-    promptLine("Aborted.");
-    return false;
-  }
-  return true;
-}
 
 export function registerPhoneNumberCommands(program: Command): void {
   const phoneNumber = program
@@ -171,8 +146,7 @@ Notes:
     });
 
   // ── buy ─────────────────────────────────────────────────────────────
-  phoneNumber
-    .command("buy")
+  confirmable(phoneNumber.command("buy"))
     .description("Purchase a phone number — THIS SPENDS MONEY and bills monthly")
     .requiredOption("--phone-number <number>", "Phone number to buy (E.164 format)")
     .requiredOption("--country <code>", "ISO country code")
@@ -181,7 +155,6 @@ Notes:
       "Monthly price from the search result — THIS IS THE AMOUNT DEBITED"
     )
     .option("--connection-id <id>", "ApiKeyConnection ID for subaccount purchase")
-    .option("--yes", "Skip the confirmation — required when not on a terminal")
     .addHelpText(
       "after",
       `
@@ -196,10 +169,10 @@ Notes:
 
   IN A SCRIPT, WITHOUT --yes, IT BUYS NOTHING AND EXITS 1. There is no prompt to
   answer when stdin is not a terminal, so the command refuses rather than
-  proceeding: you get "use --yes to confirm in non-interactive mode" and no
-  number. A pipeline that ignores the exit code carries on as though it had
-  bought one. Every destructive command in this CLI refuses the same way — do
-  not reach for --yes until you have read the --price note below.
+  proceeding: you get a refusal document and no number. A pipeline that ignores
+  the exit code carries on as though it had bought one. Every destructive
+  command in this CLI refuses the same way — do not reach for --yes until you
+  have read the --price note below.
 
   THE GATE READS STDIN, NOT STDOUT. Redirecting output alone still prompts;
   it is a piped or absent stdin that triggers the refusal.
@@ -223,9 +196,9 @@ Notes:
     .action(async (opts) => {
       try {
         if (
-          !(await confirmIrreversible(
-            opts.yes,
-            `Buy ${opts.phoneNumber} for ${opts.price}/month? This bills until released.`
+          !(await confirmDestructive(
+            `Buy ${opts.phoneNumber} for ${opts.price}/month? This bills until released.`,
+            opts
           ))
         ) {
           return;
@@ -342,11 +315,9 @@ Notes:
     });
 
   // ── release ─────────────────────────────────────────────────────────
-  phoneNumber
-    .command("release")
+  confirmable(phoneNumber.command("release"))
     .description("Give a number back to the carrier — PERMANENT, and it silences its channels")
     .argument("<id>", "Phone number ID")
-    .option("--yes", "Skip the confirmation — required when not on a terminal")
     .addHelpText(
       "after",
       `
@@ -376,17 +347,16 @@ Notes:
   Needs phone_numbers:delete, which phone_numbers:write does not imply.
 
   IN A SCRIPT, WITHOUT --yes, IT RELEASES NOTHING AND EXITS 1. Non-interactive
-  stdin gets "use --yes to confirm in non-interactive mode" instead of a prompt,
-  so a cleanup job that never checks the exit code leaves every number in place
-  and still bills. The gate reads STDIN — redirecting output alone still
-  prompts.`
+  stdin gets a refusal document instead of a prompt, so a cleanup job that never
+  checks the exit code leaves every number in place and still bills. The gate
+  reads STDIN — redirecting output alone still prompts.`
     )
     .action(async (id: string, opts) => {
       try {
         if (
-          !(await confirmIrreversible(
-            opts.yes,
-            `Release phone number ${id}? It cannot be reclaimed and its deployments stop receiving.`
+          !(await confirmDestructive(
+            `Release phone number ${id}? It cannot be reclaimed and its deployments stop receiving.`,
+            opts
           ))
         ) {
           return;

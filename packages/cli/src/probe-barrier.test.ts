@@ -32,7 +32,11 @@
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
-import { COMMAND_CLASSIFICATION } from "./command-universe";
+import {
+  type CommandDisposition,
+  COMMAND_CLASSIFICATION,
+  classifyCommandUniverse
+} from "./command-universe";
 import {
   PROBE_BARRIER,
   PROBE_BARRIER_HELP_PREFIX,
@@ -90,6 +94,14 @@ function renderedHelp(command: Command): string {
   return buffer;
 }
 
+/**
+ * Every disposition `sweep.sh` runs against a live API with no operator
+ * watching. MODULE SCOPE on purpose: the meta-test below has to READ this, and
+ * a copy inside the assertion is a copy that can be narrowed while a test
+ * asserting about "the list" stays green.
+ */
+const EXECUTED_UNATTENDED: readonly CommandDisposition[] = ["safe", "safe-with-fixture"];
+
 describe("probe barrier", () => {
   const leaves = realLeaves();
   const entries = Object.entries(PROBE_BARRIER) as Array<[string, ProbeBarrierEntry]>;
@@ -129,14 +141,50 @@ describe("probe barrier", () => {
   });
 
   it("never marks a leaf the sweep executes unattended", () => {
-    // `safe` means sweep.sh runs it against a live API with no operator watching.
-    // A `safe` leaf that costs money means one of the two tables is wrong, and
-    // which one is a question for a person — the gate's job is to refuse the pair.
+    // "Executed unattended" is the property, and it is NOT the single word
+    // `safe`. sweep.sh runs every EXECUTABLE disposition against a live API with
+    // no operator watching, so this filter has to name all of them.
+    //
+    // 🚨 IT NAMED ONE, AND THE DAY A SECOND WAS ADDED THIS GATE WENT QUIETLY
+    // HALF-BLIND. `safe-with-fixture` is executed exactly like `safe`; a leaf
+    // that spends money or reaches a third party, marked with it, passed this
+    // assertion while still being run unattended on every CLI PR. The same
+    // widening was done to `command-universe.test.ts` in the same change and
+    // this sibling was missed — bugbot caught it.
+    //
     const contradictions = entries
       .map(([path]) => path)
-      .filter((path) => COMMAND_CLASSIFICATION[path] === "safe");
+      .filter((path) => EXECUTED_UNATTENDED.includes(COMMAND_CLASSIFICATION[path]));
 
     expect(contradictions).toEqual([]);
+  });
+
+  it("covers EVERY disposition the sweep executes, read from the sweep's own list", async () => {
+    // 🚨 THE FIRST VERSION OF THIS TEST WAS VACUOUS, AND BUGBOT CAUGHT IT. It
+    // re-filtered `COMMAND_CLASSIFICATION` with the same hardcoded pair and
+    // asserted those two values appeared — so narrowing `EXECUTED_UNATTENDED`
+    // back to `"safe"` alone left it GREEN, and the half-blindness it existed to
+    // lock out could return unnoticed. A guard that does not read the thing it
+    // guards is not a weaker guard; it is decoration.
+    //
+    // The ground truth is `classifyCommandUniverse().safe` — that list IS what
+    // sweep.sh executes, derived from the real commander tree. Every disposition
+    // appearing in it must be covered by `EXECUTED_UNATTENDED`, or the barrier
+    // check above is blind to leaves the sweep genuinely runs.
+    const { safe } = await classifyCommandUniverse();
+    expect(safe.length).toBeGreaterThan(0);
+
+    const executed = new Set(safe.map((path) => COMMAND_CLASSIFICATION[path]));
+    expect(executed.size).toBeGreaterThan(0);
+
+    const uncovered = [...executed].filter(
+      (disposition) => !EXECUTED_UNATTENDED.includes(disposition)
+    );
+
+    expect(
+      uncovered,
+      `sweep.sh executes ${uncovered.join(", ")}, which the barrier check above does not name`
+    ).toEqual([]);
   });
 
   it("says what it costs and what to do instead, in the one line the walk installs", () => {

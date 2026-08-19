@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
+
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { beforeAll, test } from "vitest";
 
 import { buildProgram, parseExample, tokenize } from "./help-truth-scan";
 
@@ -76,7 +78,7 @@ async function parse(line: string): Promise<{ kind: string; code?: string; messa
   };
 }
 
-before(async () => {
+beforeAll(async () => {
   // A control on the harness itself: if `buildProgram` ever stopped registering
   // these namespaces, every case below would "pass" by being refused as an
   // unknown command rather than as a missing flag.
@@ -88,7 +90,17 @@ before(async () => {
   );
 });
 
-for (const c of CASES) {
+/**
+ * WRAPPED for the same reason the sibling detector test is: vitest registers
+ * these eight tests at collection, so an empty `CASES` registers NONE and the
+ * file still reports PASSED at exit 0. This gate is the only thing asserting the
+ * four flags are refused BY THE PARSER, so a silent zero here reopens NEX-3925
+ * with every check still green.
+ */
+for (const c of eachOrRefuse(
+  CASES,
+  "CASES \u2014 every flag declared required that a caller must be refused for omitting"
+)) {
   const name = c.without.replace(/^nexus /, "").replace(/ [0-9a-f-]{36}/g, " <id>");
 
   test(`${name} — omitting ${c.flag} is refused BY THE PARSER`, async () => {

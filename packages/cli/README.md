@@ -3,13 +3,15 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 24 command groups, 120+ subcommands
+- 49 command groups, 519 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
 - Node.js 18+
 
-> **Status: BETA** -- The CLI surface is stable but may evolve before 1.0.
+> **Status: BETA** -- read [`COMPATIBILITY.md`](COMPATIBILITY.md) before you script
+> against this CLI. It states which surfaces are stable, which move, and what we
+> cannot promise yet.
 
 ---
 
@@ -275,15 +277,15 @@ These flags are available on every command:
 
 ### Environment Variables
 
-| Variable                | Description                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `NEXUS_API_KEY`         | API key (used when `--api-key` flag and config file are absent)                             |
-| `NEXUS_BASE_URL`        | API base URL override                                                                       |
-| `NEXUS_ENV`             | Environment name: `production` (default) or `dev`                                           |
-| `NEXUS_PROFILE`         | Profile name override for this shell only (same as `--profile` flag)                        |
-| `NEXUS_ORGANIZATION_ID` | Organization a cross-org token acts on, for this shell only; outranks the profile's `orgId` |
-| `NEXUS_NO_AUTO_UPDATE`  | Disable automatic self-updates (same as `--no-auto-update`; also implied when `CI` is set)  |
-| `NO_COLOR`              | Disable all color output ([no-color.org](https://no-color.org))                             |
+| Variable                | Description                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `NEXUS_API_KEY`         | API key (used when `--api-key` flag and config file are absent)                                  |
+| `NEXUS_BASE_URL`        | API base URL override                                                                            |
+| `NEXUS_ENV`             | Environment name: `production` (default) or `dev`                                                |
+| `NEXUS_PROFILE`         | Profile name override for this shell only (same as `--profile` flag)                             |
+| `NEXUS_ORGANIZATION_ID` | Organization a cross-org token acts on, for this shell only; outranks the profile's `orgId`      |
+| `NEXUS_NO_AUTO_UPDATE`  | Turn the automatic updater off: no self-install and no version lookup (implied when `CI` is set) |
+| `NO_COLOR`              | Disable all color output ([no-color.org](https://no-color.org))                                  |
 
 ---
 
@@ -792,6 +794,7 @@ Place in your project root. The CLI walks up the directory tree to find it. Cons
 
 | Resource              | Link                                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------------------- |
+| Compatibility promise | [`COMPATIBILITY.md`](COMPATIBILITY.md)                                                             |
 | SDK                   | [`@agent-nexus/sdk`](../sdk/README.md)                                                             |
 | Product Documentation | [`packages/docs`](../docs/)                                                                        |
 | Claude Code Skills    | [`claude-code-skills-nexus` (separate repo)](https://github.com/NexusGPT/claude-code-skills-nexus) |

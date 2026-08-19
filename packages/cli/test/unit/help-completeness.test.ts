@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 
 import { DbEnum, NodeType } from "@nexus/types";
 import {
@@ -15,6 +14,7 @@ import {
   UpsertConversationEvalWebhookBodySchema
 } from "@nexus/types/public-api-v1";
 import { Command } from "commander";
+import { test } from "vitest";
 
 import { registerAgentCommands } from "../../src/commands/agent";
 import { registerAgentEvalCommands } from "../../src/commands/agent-eval";
@@ -57,8 +57,9 @@ import { registerWorkflowCommands } from "../../src/commands/workflow";
  * `wire-types-bundle.test.ts` forbids `@nexus/types` in ANY `src/` module that is
  * not a `.conformance.ts` gate: the package pulls Zod and the generated Prisma
  * enums, and the CLI publishes standalone. Reading the real contracts is the
- * whole point of this file, so it belongs outside `src/`. It runs under
- * `tsx --test` with the rest of `test/unit`, via the package's `test` script.
+ * whole point of this file, so it belongs outside `src/`. `vitest.config.ts`
+ * includes the `test/` tree alongside the `src/` one, so living outside `src/`
+ * costs it nothing: one runner reaches both.
  */
 
 type Register = (program: Command) => void;

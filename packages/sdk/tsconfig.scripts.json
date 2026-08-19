@@ -1,0 +1,24 @@
+// Typechecks the code `tsconfig.json` cannot see.
+//
+// `tsconfig.json` is `include: ["src"]`, so `tsc --noEmit` reads NOTHING under
+// `scripts/` — while those files GENERATE an artifact this package commits and
+// ships, and hold the gate that keeps it honest. Real code that no gate read.
+//
+// `rootDir` is dropped rather than widened: this config never emits, and
+// `src`'s rootDir would reject `../../types/src/**` with TS6059 — which is the
+// whole point of the relative import the projector deliberately uses.
+//
+// Same arrangement, and the same reasoning, as `packages/cli/tsconfig.test.json`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": null,
+    "outDir": null,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["src", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

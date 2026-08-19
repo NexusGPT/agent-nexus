@@ -69,7 +69,13 @@ function displayCopyDefaults(source: string): string[] {
 
 describe("printSuccess payloads carry no display copy", () => {
   it("uses absent() rather than a string fallback, everywhere", () => {
-    const offenders = sourceFiles(SRC).flatMap((file) =>
+    // The denominator. Without it an empty result means either "no payload
+    // carries display copy" or "the recursive listing resolved nothing", and
+    // the two print the same pass. 186 files reach the scan today.
+    const scanned = sourceFiles(SRC);
+    expect(scanned.length, "the source sweep resolved nothing").toBeGreaterThan(100);
+
+    const offenders = scanned.flatMap((file) =>
       displayCopyDefaults(fs.readFileSync(file, "utf8")).map(
         (hit) => `${path.relative(SRC, file)}:${hit}`
       )

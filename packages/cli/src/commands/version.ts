@@ -271,10 +271,10 @@ Examples:
   $ nexus version delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
 
 Notes:
-  YOU CANNOT DELETE THE PRODUCTION VERSION, AND THE REFUSAL LOOKS LIKE AN
-  OUTAGE. The database blocks it, so this answers HTTP 500 rather than a 4xx
-  naming the reason. Publish a different version first, then delete this one.
-  Check the PROD column in "nexus version list" before you call it.
+  YOU CANNOT DELETE THE PRODUCTION VERSION. The API refuses with HTTP 409 and
+  the code PRODUCTION_PROMPT_VERSION_IN_USE, naming the version and what to do
+  instead. Publish a different version first, then delete this one. Check the
+  PROD column in "nexus version list" before you call it.
   ANY OTHER VERSION GOES, INCLUDING AUTO ONES, and the prompt it held is gone
   with it. There is no undo. The response carries the id and nothing else —
   there is no "deleted" field to assert on, so a 200 IS the confirmation.

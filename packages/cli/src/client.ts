@@ -1,6 +1,7 @@
 import { NexusClient } from "@agent-nexus/sdk";
 import { InvalidArgumentError } from "commander";
 
+import { createContractReporter } from "./contract-warnings";
 import {
   resolveBaseUrl,
   type ResolvedProfile,
@@ -152,6 +153,10 @@ export function createClient(opts?: {
     baseUrl:
       opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
     ...(organizationId ? { organizationId } : {}),
-    timeout: timeoutSecondsToMs(opts?.timeout)
+    timeout: timeoutSecondsToMs(opts?.timeout),
+    // Warn on stderr when the server answers with a shape the API does not
+    // publish. `undefined` when the user switched it off, which also switches
+    // off the work behind it. See `./contract-warnings.ts`.
+    onResponseContract: createContractReporter()
   });
 }

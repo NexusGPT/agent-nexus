@@ -38,6 +38,7 @@ import { UserGroupsResource } from "./resources/user-groups";
 import { WorkflowExecutionsResource } from "./resources/workflow-executions";
 import { WorkflowsResource } from "./resources/workflows";
 import { WorkspacesResource } from "./resources/workspaces";
+import type { ContractReporter } from "./response-contract";
 
 // ============================================================================
 // Client options
@@ -97,6 +98,16 @@ export interface NexusClientOptions {
    * longer.
    */
   timeout?: number;
+
+  /**
+   * Notified of what each read's payload had to say about itself, against the
+   * shape its route publishes in the v1 contract. See `./response-contract.ts`.
+   *
+   * Installing one turns the check ON; with none, nothing is checked and this
+   * client behaves exactly as it did before. It NEVER changes what a call
+   * returns — a mismatch is described and the payload handed back untouched.
+   */
+  onResponseContract?: ContractReporter;
 }
 
 // ============================================================================
@@ -323,7 +334,8 @@ export class NexusClient {
       apiKey,
       fetch: opts.fetch,
       defaultHeaders,
-      timeout: opts.timeout
+      timeout: opts.timeout,
+      onResponseContract: opts.onResponseContract
     });
 
     this.agents = new AgentsResource(http);

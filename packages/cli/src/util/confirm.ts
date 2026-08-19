@@ -137,10 +137,19 @@ export function promptLine(text = ""): void {
  *
  * Returns true only when the caller may proceed. On a refusal it has already
  * reported and set `process.exitCode`, so the caller returns without acting.
+ *
+ * `rerun` is the exact command line that WOULD have worked, and it exists so a
+ * per-command hint is no longer a reason to hand-roll the whole helper. `vibe`
+ * kept its own copy of this function for exactly that one line, and the copy
+ * then drifted: it tested `isJsonMode()` as well as stdin, so `--json` at a
+ * terminal refused a question a person was standing right there to answer.
+ * Passing the line here gets the hint without a second implementation of the
+ * rule — and the prompt already lands on stderr, so a `--json` run's stdout
+ * stays one document either way.
  */
 export async function confirmDestructive(
   question: string,
-  opts: { yes?: boolean; force?: boolean }
+  opts: { yes?: boolean; force?: boolean; rerun?: string }
 ): Promise<boolean> {
   if (opts.yes || opts.force) return true;
 
@@ -152,7 +161,9 @@ export async function confirmDestructive(
     // arm that returns early above).
     process.exitCode = refuse(
       `${question} — refusing without a terminal to ask.`,
-      "Pass --yes to confirm in a script."
+      opts.rerun === undefined
+        ? "Pass --yes to confirm in a script."
+        : `Re-run with --yes:  ${opts.rerun}`
     );
     return false;
   }

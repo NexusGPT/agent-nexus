@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
+
+import { beforeAll, test } from "vitest";
 
 import { deriveCommandNamespaces } from "../../src/command-universe";
 import {
@@ -55,7 +56,7 @@ let report: ScanReport;
 let derived: string[];
 let namespaces: string[];
 
-before(async () => {
+beforeAll(async () => {
   report = await runHelpTruthScan();
   derived = await deriveCommandLeaves();
   namespaces = (await deriveCommandNamespaces()).map((ns) => ns.name).sort();

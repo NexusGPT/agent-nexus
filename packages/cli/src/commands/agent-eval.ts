@@ -1,4 +1,5 @@
 import { HttpClient } from "@agent-nexus/sdk";
+import { createContractReporter } from "../contract-warnings";
 import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
@@ -93,7 +94,8 @@ Two facts about reading a finished run:
     return new HttpClient({
       baseUrl: resolveBaseUrl(globals.baseUrl, globals.profile),
       apiKey: resolveApiKey(globals.apiKey, globals.profile),
-      timeout: timeoutSecondsToMs(globals.timeout)
+      timeout: timeoutSecondsToMs(globals.timeout),
+      onResponseContract: createContractReporter()
     });
   };
 

@@ -4,6 +4,13 @@ import {
   NexusConnectionError,
   NexusTimeoutError
 } from "./errors";
+import {
+  checkResponse,
+  type CompiledManifest,
+  compileManifest,
+  type ContractReporter
+} from "./response-contract";
+import { V1_RESPONSE_CONTRACT } from "./response-contract.generated";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
 import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/common";
 
@@ -46,6 +53,23 @@ export interface HttpClientOptions {
    * to a real timer. Not part of the API surface a caller is expected to use.
    */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Notified of what each read's payload had to say about itself, against the
+   * shape its route publishes. See `./response-contract.ts`.
+   *
+   * Installing one is what turns the check ON. Absent, the manifest is never
+   * consulted and this client behaves byte-for-byte as it did before — a
+   * published SDK should not start spending cycles because it was upgraded.
+   *
+   * The reporter NEVER changes what a request returns. A mismatch is described
+   * and the payload is handed back untouched, because substituting a parsed
+   * value would strip every field the manifest does not know about, which is
+   * the drift this exists to detect wearing the cure.
+   *
+   * A reporter that throws is caught and ignored: an observer must not be able
+   * to fail a request that succeeded.
+   */
+  onResponseContract?: ContractReporter;
 }
 
 /**
@@ -296,6 +320,15 @@ export class HttpClient {
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly onResponseContract: ContractReporter | undefined;
+  /**
+   * The manifest, indexed for matching.
+   *
+   * Built lazily and shared by every client, because compiling 448 routes for a
+   * client that never reads a payload is work nobody asked for — and the module
+   * is a `const`, so one index is correct for all of them.
+   */
+  private static compiledContract: CompiledManifest | undefined;
 
   constructor(opts: HttpClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -307,6 +340,46 @@ export class HttpClient {
     this.retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
     this.sleep =
       opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    this.onResponseContract = opts.onResponseContract;
+  }
+
+  /**
+   * Describe one payload against the shape its route publishes, and hand the
+   * description to the reporter.
+   *
+   * Returns nothing and changes nothing. Every failure mode here — no reporter,
+   * no matching route, a reporter that throws — leaves the request exactly as
+   * it was, because an observer that can break a successful read is worse than
+   * no observer at all.
+   */
+  private reportContract(method: string, path: string, payload: unknown): void {
+    const report = this.onResponseContract;
+    if (!report) return;
+
+    try {
+      HttpClient.compiledContract ??= compileManifest(V1_RESPONSE_CONTRACT);
+      report(checkResponse(HttpClient.compiledContract, method, path, payload));
+    } catch {
+      // Deliberately silent. The alternative is a diagnostic that can fail the
+      // thing it is diagnosing.
+    }
+  }
+
+  /**
+   * Report that a read produced no payload to check.
+   *
+   * A read that examined nothing must not be silent, or a sink counting
+   * verdicts would score it as if it had passed. It gets an `unchecked` verdict
+   * naming the reason, exactly like a route that publishes no schema.
+   */
+  private reportUnread(method: string, path: string, reason: string): void {
+    const report = this.onResponseContract;
+    if (!report) return;
+    try {
+      report({ state: "unchecked", route: null, method: method.toUpperCase(), path, reason });
+    } catch {
+      // See `reportContract`.
+    }
   }
 
   /**
@@ -533,6 +606,24 @@ export class HttpClient {
       throw new NexusConnectionError("Streaming response carried no body");
     }
 
+    // The THIRD read boundary of this client, and the one nothing can check.
+    //
+    // A frame is not the payload a descriptor describes: the v1 contract
+    // publishes a schema for a route's `data`, and a stream has no `data` — it
+    // has a sequence of deltas whose shape the contract never states. So there
+    // is nothing to compare a frame against, and there will not be until a
+    // per-frame schema exists.
+    //
+    // Reported ONCE per stream rather than per frame, because one agent turn is
+    // thousands of frames and a sink drowned in them stops being read. Reported
+    // at all because an unexamined read must not be silent — a sink counting
+    // verdicts would otherwise score this stream as if it had passed.
+    this.reportUnread(
+      method,
+      path,
+      "the route streams server-sent events, and the contract publishes no per-frame schema"
+    );
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -605,6 +696,11 @@ export class HttpClient {
 
     // Handle 204 No Content (e.g. DELETE responses)
     if (res.status === 204) {
+      // `{}` here is SYNTHESIZED by this client, not read off the wire, so
+      // checking it would report every field of a declared shape as missing.
+      // Say nothing was checked rather than manufacture a verdict about a
+      // payload that does not exist.
+      this.reportUnread(method, path, "the response carried no body (204)");
       return { data: {} as T, meta: undefined };
     }
 
@@ -614,7 +710,10 @@ export class HttpClient {
     // with nothing to report — POST /mcp answers a JSON-RPC *notification*
     // exactly that way: 201 with no body, by protocol.
     if (rawBody.trim() === "") {
-      if (res.ok) return { data: {} as T, meta: undefined };
+      if (res.ok) {
+        this.reportUnread(method, path, "the response body was empty");
+        return { data: {} as T, meta: undefined };
+      }
       throw toApiError(res.status, undefined);
     }
 
@@ -639,6 +738,7 @@ export class HttpClient {
     // that has no typed command at all. See NEX-3021.
     if (res.ok) {
       if (isSuccessEnvelope<T>(json)) {
+        this.reportContract(method, path, json.data);
         return { data: json.data, meta: json.meta };
       }
       // An explicit `success: false` is the server declaring failure; honor it
@@ -648,6 +748,7 @@ export class HttpClient {
       }
       // Any other 2xx body belongs to a route that speaks its own protocol.
       // Hand it back verbatim — that is what a passthrough owes its caller.
+      this.reportContract(method, path, json);
       return { data: json as T, meta: undefined };
     }
 

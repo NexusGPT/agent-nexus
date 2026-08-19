@@ -25,6 +25,17 @@ const SRC = path.resolve(__dirname);
 const PKG = path.resolve(__dirname, "..");
 
 /**
+ * `test/` IS SCANNED, and that is not tidiness. Until this package folded its
+ * two runners into one, `test/unit` was executed by `tsx --test` rather than by
+ * vitest, so an alias could not have applied to it and scanning it would have
+ * been meaningless. Those files now run under vitest through the same config, so
+ * an unmapped specifier there buys exactly the stale-`dist/` read this spec
+ * exists to prevent — and it would have been invisible, because the walk started
+ * and stopped at `src/`.
+ */
+const TEST = path.resolve(PKG, "test");
+
+/**
  * Files holding EMBEDDED CONTENT are excluded by the `.generated.` marker, never
  * by naming one file. `src/skills-content.generated.ts` is 7.5 MB of skill
  * markdown stored as string literals, and 12 of those literals are code examples
@@ -61,7 +72,7 @@ const SPECIFIER = /(?:from|import)\s*\(?\s*["']((?:@nexus\/|@agent-nexus\/)[^"']
  * `@nexus/types` inside the published CLI. Do not "harmonise" them.
  */
 const scan = (): { files: string[]; specifiers: Map<string, string[]> } => {
-  const files = walk(SRC);
+  const files = [...walk(SRC), ...walk(TEST)];
   const specifiers = new Map<string, string[]>();
   for (const file of files) {
     const source = stripTsComments(fs.readFileSync(file, "utf-8"));
@@ -98,6 +109,16 @@ describe("workspace imports stay aliased to source", () => {
       "The scan found no `@agent-nexus/sdk` import. This package has many, so the regex " +
         "or the walk is broken — and a broken scan satisfies the assertion above vacuously."
     ).toBeGreaterThan(10);
+  });
+
+  it("CONTROL: the scan reaches `test/`, not only `src/`", () => {
+    const { files } = scan();
+    expect(
+      files.filter((file) => file.startsWith(`${TEST}${path.sep}`)).length,
+      "The walk is not entering `test/`. Those files run under vitest through this " +
+        "package's config, so an unmapped specifier there is the same defect as one in " +
+        "`src/` — and a scan that never opens the directory reports it clean."
+    ).toBeGreaterThan(5);
   });
 
   it("CONTROL: the scan reads the package's real source tree", () => {

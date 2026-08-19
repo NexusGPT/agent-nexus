@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { warnIfLoosePermissions, writeSecretFile } from "./util/secret-file";
+
 // ---------------------------------------------------------------------------
 // URL map
 // ---------------------------------------------------------------------------
@@ -94,6 +96,9 @@ export interface ResolvedProfile {
 export function loadConfig(): NexusConfigV2 {
   try {
     const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
+    // The file holds an API key in plaintext. A loose mode found HERE is a past
+    // exposure the write path's chmod cannot undo, so it is said out loud once.
+    warnIfLoosePermissions(CONFIG_FILE);
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
     // V2 format: has "profiles" key
@@ -123,12 +128,15 @@ export function loadConfig(): NexusConfigV2 {
   }
 }
 
-/** Write V2 config to disk with restricted permissions. */
+/**
+ * Write V2 config to disk, owner-readable only.
+ *
+ * `writeSecretFile` rather than a `mode:` argument: a `mode:` is honoured only
+ * when the path has to be CREATED, so it left an already-0644 config file
+ * world-readable through every login. See `util/secret-file.ts`.
+ */
 export function saveConfig(config: NexusConfigV2): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n", {
-    mode: 0o600
-  });
+  writeSecretFile(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n");
 }
 
 /** Delete the config file entirely. */

@@ -40,7 +40,8 @@ const SHAPE_OF: Readonly<Record<ShapePrinter, JsonShapeId>> = {
   printList: "list",
   printTable: "array",
   printSuccess: "success",
-  printDryRun: "dryRun"
+  printDryRun: "dryRun",
+  printEnvelope: "envelope"
 };
 
 export interface Projection {
@@ -62,7 +63,7 @@ export type UnclassifiedReason =
   | "ambiguous"
   /** The action writes its own JSON, so the printer it reaches is the human branch. */
   | "writes-its-own-json"
-  /** The action reaches none of the five. */
+  /** The action reaches none of the six. */
   | "no-printer"
   /** The action reaches more than one — the shape depends on a branch. */
   | "branches";

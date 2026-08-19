@@ -8,8 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // making execSync throw. We also assert the installer output is captured, not
 // inherited, so npm's multi-line error stack never reaches the terminal.
 const execSyncMock = vi.fn();
+// `spawn` is mocked alongside `execSync` because the version cache is now
+// refreshed by a detached child rather than by an awaited fetch. A factory that
+// omitted it would make the import `undefined`, the call would throw, and
+// `scheduleCacheRefresh`'s own catch would swallow it — every case below would
+// pass while the refresh silently never happened.
+const spawnMock = vi.fn((_command: string, _args: string[], _options: Record<string, unknown>) => ({
+  unref: () => undefined
+}));
 vi.mock("node:child_process", () => ({
-  execSync: (...args: unknown[]) => execSyncMock(...args)
+  execSync: (...args: unknown[]) => execSyncMock(...args),
+  spawn: (...args: unknown[]) => spawnMock(...(args as [string, string[], Record<string, unknown>]))
 }));
 
 import {
@@ -29,6 +38,16 @@ const CACHE_REL = path.join(".nexus-mcp", "version-check.json");
 let tmpHome: string;
 let homedirSpy: ReturnType<typeof vi.spyOn>;
 
+/**
+ * 🚨 CLEARED FOR THE WHOLE FILE, NOT PER DESCRIBE. `isAutoUpdateDisabled()` now
+ * governs `checkForUpdate` and `autoUpdate` as well as the install, so a runner
+ * that exports `CI=1` — every GitHub Actions job — turns each case below into a
+ * no-op that returns null. The suite would go red on the machine that matters
+ * and stay green on every laptop.
+ */
+const AUTO_UPDATE_ENV = ["NEXUS_NO_AUTO_UPDATE", "CI"] as const;
+let savedEnv: Record<string, string | undefined>;
+
 function writeCache(latestVersion: string, lastChecked: number): void {
   const file = path.join(tmpHome, CACHE_REL);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -39,11 +58,18 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "version-check-test-"));
   homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tmpHome);
   execSyncMock.mockReset();
+  spawnMock.mockClear();
+  savedEnv = Object.fromEntries(AUTO_UPDATE_ENV.map((k) => [k, process.env[k]]));
+  for (const k of AUTO_UPDATE_ENV) delete process.env[k];
 });
 
 afterEach(() => {
   homedirSpy.mockRestore();
   fs.rmSync(tmpHome, { recursive: true, force: true });
+  for (const k of AUTO_UPDATE_ENV) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
 });
 
 describe("compareSemver", () => {
@@ -225,22 +251,8 @@ describe("isInstallPrefixWritable", () => {
   });
 });
 
+// Both keys are cleared and restored by the file-level hooks above.
 describe("isAutoUpdateDisabled", () => {
-  const ENV_KEYS = ["NEXUS_NO_AUTO_UPDATE", "CI"] as const;
-  let saved: Record<string, string | undefined>;
-
-  beforeEach(() => {
-    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
-    for (const k of ENV_KEYS) delete process.env[k];
-  });
-
-  afterEach(() => {
-    for (const k of ENV_KEYS) {
-      if (saved[k] === undefined) delete process.env[k];
-      else process.env[k] = saved[k];
-    }
-  });
-
   it("is enabled by default", () => {
     expect(isAutoUpdateDisabled()).toBe(false);
   });
@@ -272,29 +284,32 @@ describe("checkForUpdate", () => {
     expect(msg).not.toMatch(FORBIDDEN);
   });
 
-  it("preserves failure-backoff fields when refreshing an expired lookup cache", async () => {
+  it("answers from an EXPIRED cache and writes nothing itself", async () => {
+    // The expired cache is still the best answer this invocation has, and the
+    // refresh it schedules is for the next one. Returning null here instead
+    // would trade a number that is at most a day old for no number at all.
     const cacheFile = path.join(tmpHome, CACHE_REL);
     fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-    const failedAt = Date.now() - 60_000;
-    fs.writeFileSync(
-      cacheFile,
-      JSON.stringify({
-        lastChecked: Date.now() - 25 * 60 * 60 * 1000, // expired — forces a refresh
-        latestVersion: "0.2.21",
-        failedVersion: "0.2.21",
-        failedAt
-      })
-    );
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ version: "0.2.21" })));
+    const expired = {
+      lastChecked: Date.now() - 25 * 60 * 60 * 1000,
+      latestVersion: "0.2.21",
+      failedVersion: "0.2.21",
+      failedAt: Date.now() - 60_000
+    };
+    fs.writeFileSync(cacheFile, JSON.stringify(expired));
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     try {
-      await checkForUpdate("0.2.19");
+      const msg = await checkForUpdate("0.2.19");
 
-      const saved = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
-      expect(saved.failedVersion).toBe("0.2.21");
-      expect(saved.failedAt).toBe(failedAt);
+      expect(msg).toContain("Update available: 0.2.19 → 0.2.21");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      // Byte-identical: the parent is a reader here. The failure-backoff fields
+      // survive because nothing in this process rewrites the file at all — the
+      // child merges them back, which `update-check-never-blocks.test.ts`
+      // proves against a real process.
+      expect(JSON.parse(fs.readFileSync(cacheFile, "utf-8"))).toEqual(expired);
     } finally {
       fetchSpy.mockRestore();
     }

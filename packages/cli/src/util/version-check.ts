@@ -1,11 +1,14 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { getGlobalInstallCommand, getGlobalUpdateHint } from "./package-manager";
 import { firstNonBlankOr } from "./present-text";
+import { ensureSecretDir, SECRET_DIR_MODE, SECRET_FILE_MODE, writeSecretFile } from "./secret-file";
 
 const PACKAGE_NAME = "@agent-nexus/cli";
+const REGISTRY_LATEST_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const FETCH_TIMEOUT_MS = 3_000; // don't slow down the CLI
 // A failed install attempt is close to permanent (EACCES on a root-owned
@@ -13,10 +16,18 @@ const FETCH_TIMEOUT_MS = 3_000; // don't slow down the CLI
 const FAILURE_BACKOFF_MS = 24 * 60 * 60 * 1000; // 1 day
 // Hard ceiling on how long a self-install may hold up process exit.
 const INSTALL_TIMEOUT_MS = 60_000;
+// How long one refresh may hold the lock before another invocation may take it
+// over. Long enough to cover a slow-but-alive fetch, short enough that a killed
+// refresher does not suppress the next one for a noticeable time.
+const REFRESH_LOCK_TTL_MS = 60_000;
 // Resolved lazily (not at import time) so the home dir is read when the cache
 // is actually used.
 function getCacheFile(): string {
   return path.join(os.homedir(), ".nexus-mcp", "version-check.json");
+}
+
+function getRefreshLockDir(): string {
+  return path.join(os.homedir(), ".nexus-mcp", "version-check.lock");
 }
 
 interface VersionCache {
@@ -37,12 +48,264 @@ function loadCache(): VersionCache | null {
 
 function saveCache(cache: VersionCache): void {
   try {
-    const file = getCacheFile();
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, JSON.stringify(cache), { mode: 0o600 });
+    // `~/.nexus-mcp` also holds `config.json`, the plaintext API key. This cache
+    // carries no secret of its own, but it is one of the routes that CREATES
+    // that directory, so it decides the mode the credential file sits behind.
+    writeSecretFile(getCacheFile(), JSON.stringify(cache));
   } catch {
     // Non-critical — silently ignore write failures
   }
+}
+
+/**
+ * Claim the right to refresh the cache. True means THIS invocation owns it.
+ *
+ * ── WHY A LOCK AT ALL ───────────────────────────────────────────────────────
+ *
+ * The refresh runs in a detached child (see {@link scheduleCacheRefresh}), so
+ * nothing serialises it any more. Twenty parallel `nexus` invocations against
+ * one expired cache would otherwise be twenty node processes and twenty writers
+ * of one file. The write itself is made atomic separately, by rename; this stops
+ * the twenty PROCESSES, which is the cost the atomic write cannot address.
+ *
+ * ── WHY A DIRECTORY AND NOT A FILE ──────────────────────────────────────────
+ *
+ * `mkdir` is create-or-fail in ONE syscall, on POSIX and on NFS alike, with no
+ * flag to get wrong. `open(O_EXCL)` is the usual alternative and is documented
+ * as unreliable over older NFS, which a corporate home directory can still be.
+ *
+ * 🚨 `recursive: true` DEFEATS THIS ENTIRELY — it succeeds on an existing
+ * directory instead of throwing `EEXIST`, so every racer would "win". The parent
+ * directory is created separately, above, precisely so this call can stay
+ * non-recursive.
+ *
+ * ── THE CEILING, STATED ─────────────────────────────────────────────────────
+ *
+ * The takeover path (a lock older than {@link REFRESH_LOCK_TTL_MS}, left by a
+ * killed refresher) is NOT exclusive: two invocations can both remove and
+ * recreate it and both proceed. The cost is one extra detached child, in a
+ * window that opens only after a crash, so it is not worth a second lock to
+ * close. The common path — a live holder — is exclusive, and that is the path
+ * that runs twenty times at once.
+ */
+export function acquireRefreshLock(lockDir: string): boolean {
+  try {
+    // `~/.nexus-mcp` holds the plaintext API key, so its mode is the helper's
+    // business and not this function's — creating it here with a create-only
+    // `mode:` is the exact shape `secret-file.ts` exists to keep out of the tree.
+    ensureSecretDir(path.dirname(lockDir));
+  } catch {
+    // The parent may already exist, or be unwritable — the mkdir below decides.
+  }
+  try {
+    // No mode of its own: an empty lock directory holds nothing, and it inherits
+    // the 0700 the line above asserts on its parent.
+    fs.mkdirSync(lockDir);
+    return true;
+  } catch {
+    try {
+      if (Date.now() - fs.statSync(lockDir).mtimeMs < REFRESH_LOCK_TTL_MS) return false;
+      fs.rmdirSync(lockDir);
+      fs.mkdirSync(lockDir);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * The program the detached refresher runs, as source.
+ *
+ * Exported so a spec can run it for real — a child process, a real socket, a
+ * real rename — rather than asserting on a string nobody executes.
+ *
+ * Every path and number is baked in via `JSON.stringify`, so the child needs no
+ * argument parsing and no environment. It also reads NOTHING from this package:
+ * a `require` of our own `dist` would resolve differently for a global install,
+ * an `npx` run and a `tsx` run, and a refresher that cannot start is a refresher
+ * that never reports why.
+ *
+ * ── THE WRITE IS ATOMIC, AND THAT IS RULE-DRIVEN ────────────────────────────
+ *
+ * It writes a temp file and renames it over the cache. `rename(2)` within one
+ * directory is atomic on POSIX, so a reader either sees the whole old file or
+ * the whole new one — never a half-written one. A plain `writeFileSync` can be
+ * interrupted (the refresher is detached, so it outlives the terminal that could
+ * be Ctrl-C'd) and leave truncated JSON behind, which `loadCache` would then
+ * treat as no cache at all until the next successful refresh.
+ *
+ * ── THE LOCK IS RELEASED ONLY ON SUCCESS, ON PURPOSE ────────────────────────
+ *
+ * A failed refresh leaves the cache expired, so the NEXT invocation would try
+ * again, and the one after that. Holding the lock until it ages out turns an
+ * unreachable registry from "one detached child per invocation" into "one per
+ * minute". After a success the lock is worthless anyway — the cache is fresh for
+ * a day and nobody asks again.
+ */
+export function buildRefreshScript(options: {
+  cacheFile: string;
+  lockDir: string;
+  url: string;
+  timeoutMs: number;
+}): string {
+  const { cacheFile, lockDir, url, timeoutMs } = options;
+  return `
+const fs = require("node:fs");
+const path = require("node:path");
+const CACHE = ${JSON.stringify(cacheFile)};
+const LOCK = ${JSON.stringify(lockDir)};
+const URL_ = ${JSON.stringify(url)};
+const TIMEOUT = ${JSON.stringify(timeoutMs)};
+const DIR_MODE = ${JSON.stringify(SECRET_DIR_MODE)};
+const FILE_MODE = ${JSON.stringify(SECRET_FILE_MODE)};
+// 🚨 ARMED ONCE AND NEVER CLEARED. Aborting a fetch rejects the PROMISE without
+// closing a connection that is still being opened, so the work below can settle
+// while a handle keeps the loop alive — which is the whole reason this child
+// exists. Clearing this timer when the work settles would disarm it in exactly
+// the hang it is here for, and the child would linger to undici's own connect
+// timeout instead. Every path below ends in an explicit exit, so this only ever
+// fires when the work never settles at all.
+setTimeout(() => process.exit(0), TIMEOUT * 2);
+(async () => {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT);
+    const res = await fetch(URL_, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return;
+    const json = await res.json();
+    const latest = json && json.version;
+    if (typeof latest !== "string" || latest.length === 0) return;
+    let previous = {};
+    try {
+      const parsed = JSON.parse(fs.readFileSync(CACHE, "utf-8"));
+      if (parsed && typeof parsed === "object") previous = parsed;
+    } catch {}
+    const next = Object.assign({}, previous, {
+      lastChecked: Date.now(),
+      latestVersion: latest
+    });
+    // chmod AFTER the write, never a create-only \`mode:\` option: \`open(2)\` and
+    // \`mkdir(2)\` honour that argument only when they create the path and ignore
+    // it outright when it already exists. \`secret-file.ts\` owns this reasoning
+    // and a spec refuses the option's shape everywhere else in this package;
+    // this child cannot import the helper because it is a standalone program, so
+    // it carries the helper's SHAPE and its two constants instead.
+    fs.mkdirSync(path.dirname(CACHE), { recursive: true });
+    try { fs.chmodSync(path.dirname(CACHE), DIR_MODE); } catch {}
+    // The rename carries the temp file's mode onto the cache, so tightening it
+    // here is what makes the final path owner-only.
+    const tmp = CACHE + "." + process.pid + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(next));
+    try { fs.chmodSync(tmp, FILE_MODE); } catch {}
+    fs.renameSync(tmp, CACHE);
+    try { fs.rmdirSync(LOCK); } catch {}
+  } catch {
+  } finally {
+    // 🚨 finally, NOT a statement after the catch. A \`return\` inside the try —
+    // there are two, for a non-OK response and for a missing version — leaves
+    // the whole function, so anything BELOW the catch is skipped on exactly the
+    // outcomes that are most likely. Those children would then sit until the
+    // hard stop fired, which is the lingering process this whole change avoids.
+    // A finally runs on the returns as well.
+    //
+    // Leaving normally is not enough on its own: an aborted request can leave a
+    // socket pending, and node will not exit while one is open. Exiting is safe
+    // here — every write above is synchronous and already on disk, and stdio is
+    // ignored, so nothing is buffered.
+    process.exit(0);
+  }
+})();
+`;
+}
+
+/**
+ * Refresh the version cache for the NEXT invocation, in a detached child.
+ *
+ * ── WHY NOT SIMPLY NOT AWAIT THE FETCH ──────────────────────────────────────
+ *
+ * 🚨 AN UNAWAITED `fetch` DOES NOT MAKE THE CLI FASTER. It keeps a handle on the
+ * event loop, so node refuses to exit until the request settles — the wait moves
+ * from before the last line of output to after it, and the user's shell prompt
+ * is held for exactly as long. Measured on 0.26.0 against a registry that never
+ * answers: output complete at 90 ms, process exit at 10.6 s. The AbortController
+ * ceiling of 3 s rejects the PROMISE and does not close the pending connection,
+ * so the remaining ~7 s is undici's own connect timeout. Only a separate process
+ * removes the wait rather than relocating it.
+ *
+ * ── THE TRADE, NAMED ────────────────────────────────────────────────────────
+ *
+ * The current run answers from whatever is already on disk. A version published
+ * in the last few minutes is therefore announced one invocation late. Against a
+ * 24-hour check interval that lag is noise, and it buys every invocation an exit
+ * that never waits on the network.
+ *
+ * Never throws, and never writes a byte to stdout. It runs before every command,
+ * on a CLI whose `--json` output must stay one parseable document, so a spawn
+ * that fails — no `execPath`, a read-only filesystem, a sandbox that forbids
+ * `spawn`, a container with no writable home — has to be indistinguishable from
+ * one that succeeded.
+ */
+function scheduleCacheRefresh(): void {
+  try {
+    if (!process.execPath) return;
+    const lockDir = getRefreshLockDir();
+    if (!acquireRefreshLock(lockDir)) return;
+
+    const script = buildRefreshScript({
+      cacheFile: getCacheFile(),
+      lockDir,
+      url: REGISTRY_LATEST_URL,
+      timeoutMs: FETCH_TIMEOUT_MS
+    });
+
+    const child = spawn(process.execPath, ["-e", script], {
+      detached: true,
+      // Not "inherit", and not a pipe either. A pipe would leave the parent
+      // holding the read end and re-couple the two lifetimes.
+      stdio: "ignore",
+      windowsHide: true
+    });
+    // 🚨 THE try/catch AROUND THIS CANNOT CATCH A FAILED START, AND THE CRASH
+    // LANDS AFTER THE COMMAND HAS ALREADY PRINTED ITS OUTPUT.
+    //
+    // `spawn` returns a handle before the child exists. A start that fails —
+    // ENOENT on an `execPath` that moved, EACCES or EPERM in a sandbox, EAGAIN
+    // when the process table is full — is reported ASYNCHRONOUSLY, as an
+    // `error` event on that handle, long after this function has returned. An
+    // `error` event with no listener is not swallowed by anything: `EventEmitter`
+    // throws it, and it becomes an uncaught exception that tears the process
+    // down. So the one environment where a background refresh must be least
+    // visible is the one where it would kill the command, on the way out, with a
+    // stack trace about a process the user never asked for.
+    //
+    // Empty on purpose. There is nothing to report and nowhere to report it:
+    // stdout must stay one parseable document under `--json`, and stderr would
+    // put a warning about the CLI's own housekeeping on top of the command's
+    // real output.
+    child.on("error", () => undefined);
+    // Without this the parent still waits for the child to exit, which is the
+    // whole defect wearing a new shape.
+    child.unref();
+  } catch {
+    // The SYNCHRONOUS half — invalid arguments, and a mocked `spawn` that
+    // throws. The listener above is the asynchronous half; both are needed, and
+    // neither covers the other.
+  }
+}
+
+/**
+ * The cached `latest`, plus a refresh scheduled when it has expired.
+ *
+ * Single copy of the read-and-maybe-schedule decision, so the notice path and
+ * the self-install path can never disagree about what "fresh" means.
+ */
+function readCacheAndScheduleRefresh(): VersionCache | null {
+  const cache = loadCache();
+  const isFresh = cache !== null && Date.now() - cache.lastChecked < CHECK_INTERVAL_MS;
+  if (!isFresh) scheduleCacheRefresh();
+  return cache;
 }
 
 function recordFailedAttempt(version: string): void {
@@ -61,8 +324,20 @@ function isEnvFlagSet(value: string | undefined): boolean {
 }
 
 /**
- * Self-update is disabled via `NEXUS_NO_AUTO_UPDATE`, or implicitly in CI —
- * an environment where a global self-install is never wanted.
+ * The automatic updater is off — via `NEXUS_NO_AUTO_UPDATE`, or implicitly in
+ * CI, an environment where neither a global self-install nor an unasked-for
+ * registry round trip is ever wanted.
+ *
+ * 🚨 THIS GOVERNS TWO SIDE EFFECTS, NOT ONE: the self-INSTALL and the version
+ * LOOKUP. It used to gate only the install, and the lookup is the one a user
+ * actually feels — `checkForUpdate` ran in the `else` branch of the same `if`,
+ * so setting the variable moved the CLI from "install over yourself" to "make
+ * the npm request anyway". Measured on 0.26.0: with `NEXUS_NO_AUTO_UPDATE=1`
+ * and with `CI=1`, `registry.npmjs.org` was still contacted once per 24 h, at
+ * ~300 ms warm and a 3 s ceiling with no egress.
+ *
+ * Read {@link checkForUpdate} for where the second gate now lives, and why it
+ * is inside this module rather than at the call site.
  */
 export function isAutoUpdateDisabled(): boolean {
   return isEnvFlagSet(process.env.NEXUS_NO_AUTO_UPDATE) || isEnvFlagSet(process.env.CI);
@@ -118,7 +393,7 @@ export async function fetchLatestVersion(): Promise<string | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    const res = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
+    const res = await fetch(REGISTRY_LATEST_URL, {
       signal: controller.signal
     });
     clearTimeout(timer);
@@ -145,37 +420,56 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
+/** The update notice for a known `latest`, or null when it is not newer. */
+function messageIfNewer(currentVersion: string, latest: string): string | null {
+  return compareSemver(currentVersion, latest) < 0
+    ? formatUpdateMessage(currentVersion, latest)
+    : null;
+}
+
 /**
  * Check if a newer version of the CLI is available.
  *
- * - Fires at most once per day (cached).
- * - Never blocks or throws — all failures are silently swallowed.
+ * - Answers from the cache. NEVER waits on the network — a stale cache schedules
+ *   a detached refresh for the next invocation; see {@link scheduleCacheRefresh}
+ *   for why an unawaited fetch relocates the wait instead of removing it.
+ * - Refreshes at most once per day, and at most once per {@link REFRESH_LOCK_TTL_MS}
+ *   while the registry is unreachable.
+ * - Never throws — all failures are silently swallowed.
  * - Returns an update message if outdated, or null if up-to-date / check skipped.
+ *
+ * ── THE OPT-OUT IS ENFORCED HERE, NOT AT THE CALL SITE ──────────────────────
+ *
+ * 🚨 `index.ts` chooses between "install on exit" and "print a notice" with one
+ * `if`, and `isAutoUpdateDisabled()` was a term in the FIRST branch only. So
+ * the documented escape hatch selected the OTHER branch — and that branch was
+ * the one holding the network call. A gate that sits in one arm of a two-arm
+ * decision does not disable the behaviour; it picks which half of it you get.
+ *
+ * The cure is that the gate lives beside the side effect it governs. A future
+ * caller of this function inherits it by construction and cannot forget it,
+ * which a second copy of the condition at a second call site could not promise.
+ *
+ * The refusal is NARROW ON PURPOSE: it removes the REQUEST, never the NOTICE.
+ * `NEXUS_NO_AUTO_UPDATE` is documented as "ignore `--auto-update`, print the
+ * notice instead", and a user who is already told about 0.30.0 on disk is still
+ * told about it. Only the lookup that would refresh that number is skipped —
+ * so this reads exactly like a cache that is always fresh.
+ *
+ * `nexus upgrade` is unaffected: it calls {@link fetchLatestVersion} directly,
+ * because an explicit upgrade command is the user asking rather than the CLI
+ * deciding. Gating the fetch itself would have broken the one path that is
+ * supposed to reach the network under this variable.
  */
 export async function checkForUpdate(currentVersion: string): Promise<string | null> {
   try {
-    const cache = loadCache();
+    // Under the opt-out nothing is scheduled at all — a detached child making an
+    // unasked-for registry request is exactly what the variable refuses, and it
+    // would be a worse offence than the blocking one because it also survives
+    // the command that started it.
+    const cache = isAutoUpdateDisabled() ? loadCache() : readCacheAndScheduleRefresh();
 
-    // Skip if we checked recently
-    if (cache && Date.now() - cache.lastChecked < CHECK_INTERVAL_MS) {
-      if (compareSemver(currentVersion, cache.latestVersion) < 0) {
-        return formatUpdateMessage(currentVersion, cache.latestVersion);
-      }
-      return null;
-    }
-
-    // Fetch in background — don't await if we can avoid blocking
-    const latest = await fetchLatestVersion();
-    if (!latest) return null;
-
-    // Preserve failure-backoff fields across lookup refreshes.
-    saveCache({ ...cache, lastChecked: Date.now(), latestVersion: latest });
-
-    if (compareSemver(currentVersion, latest) < 0) {
-      return formatUpdateMessage(currentVersion, latest);
-    }
-
-    return null;
+    return cache === null ? null : messageIfNewer(currentVersion, cache.latestVersion);
   } catch {
     return null;
   }
@@ -290,28 +584,36 @@ export function formatAutoUpdateFailedMessage(latest: string): string {
 /**
  * Automatically update the CLI to the latest version.
  *
- * - Version lookup fires at most once per day (uses the same cache as checkForUpdate).
+ * - Reads the version from the cache and NEVER waits on the network; a stale
+ *   cache schedules a detached refresh for the next invocation, exactly as
+ *   {@link checkForUpdate} does and through the same helper.
  * - Never attempts an install that cannot succeed: skips when the install
  *   prefix isn't writable, and backs off for FAILURE_BACKOFF_MS after any
  *   failed attempt instead of re-running the blocking install per invocation.
  * - The install itself is bounded by INSTALL_TIMEOUT_MS.
  * - Never throws — all failures are silently swallowed and fall back to a manual-update message.
+ * - Does nothing at all when {@link isAutoUpdateDisabled} — no install, and no
+ *   network lookup either.
  * - Returns a status message describing what happened.
  */
 export async function autoUpdate(currentVersion: string): Promise<string | null> {
+  // Beside the side effect, for the reason {@link checkForUpdate} documents at
+  // length. `index.ts` tests the same predicate, and that is NOT a duplicate of
+  // this line: there it selects a BRANCH (install, or fall through to the
+  // notice), so deleting it would suppress the notice too. This line is the
+  // guarantee that no caller — present or future — can start an install the
+  // environment has refused.
+  if (isAutoUpdateDisabled()) return null;
+
   let latest: string | null = null;
   try {
-    const cache = loadCache();
-
-    if (cache && Date.now() - cache.lastChecked < CHECK_INTERVAL_MS) {
-      latest = cache.latestVersion;
-    } else {
-      latest = await fetchLatestVersion();
-      if (latest) {
-        // Preserve failure-backoff fields across lookup refreshes.
-        saveCache({ ...cache, lastChecked: Date.now(), latestVersion: latest });
-      }
-    }
+    // Same contract as `checkForUpdate`: decide from the cache, schedule the
+    // refresh for the next run. A self-install is a heavier side effect than a
+    // notice, so acting one invocation later is if anything the safer half of
+    // this trade — it never installs on the strength of a number the user has
+    // not already been shown.
+    const cache = readCacheAndScheduleRefresh();
+    latest = cache?.latestVersion ?? null;
 
     if (!latest || compareSemver(currentVersion, latest) >= 0) {
       return null; // up-to-date or unable to check

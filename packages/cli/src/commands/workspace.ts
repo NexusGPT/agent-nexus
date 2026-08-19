@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "../config";
 import { bindCommand } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import {
   color,
   type Column,
@@ -19,12 +19,13 @@ import {
   printTable,
   printWarning
 } from "../output";
-import { promptLine, promptStream } from "../util/confirm";
+import { confirmable, confirmDestructive } from "../util/confirm";
 import { firstNonBlankOr } from "../util/present-text";
 import {
   claimMountPoint,
   describeOwner,
   type Engine,
+  ensureStateSubdir,
   findMount,
   findMountsBySlug,
   LOG_DIR,
@@ -444,7 +445,7 @@ async function mountRclone(
 
   // Configure the WebDAV backend via RCLONE_* env vars so the API key stays out
   // of argv (and the process list).
-  fs.mkdirSync(LOG_DIR, { recursive: true });
+  ensureStateSubdir(LOG_DIR);
   const logPath = path.join(LOG_DIR, `${slug}.log`);
   const logFd = fs.openSync(logPath, "a");
 
@@ -906,11 +907,9 @@ Notes:
     });
 
   // ── delete ───────────────────────────────────────────────────────────────
-  const remove = ws
-    .command("delete")
+  const remove = confirmable(ws.command("delete"))
     .description("Delete a workspace and PURGE every file in it — not a soft delete")
     .argument("<slug>", "Workspace slug")
-    .option("--yes", "Skip confirmation")
     .addHelpText(
       "after",
       `
@@ -944,35 +943,17 @@ Notes:
     )
     .action(async (slug: string, opts: { yes?: boolean }) => {
       try {
-        if (!opts.yes) {
-          if (!process.stdin.isTTY) {
-            // A refusal owes a document: `console.error` + exit 1 left stdout
-            // empty under --json, which is the one combination a script cannot
-            // work around — non-zero status and nothing to parse.
-            //
-            // ⚠️ `hint` IS THE NEXT STEP FOR *THIS* FAILURE, NEVER A SECOND
-            // PLACE FOR THE COMMAND'S NOTES. This one carried
-            // "Needs workspaces:delete, which workspaces:write does not imply"
-            // — true, already in `--help`, and about a permission failure that
-            // did not happen here. Nothing was refused for scope; it was
-            // refused for a missing confirmation, so a script following the
-            // hint would go and widen a token that was never the problem. A
-            // wrong `hint` is the `code` defect in prose: a field a caller
-            // trusts, carrying an answer to a question nobody asked.
-            process.exitCode = refuse(
-              `Refusing to delete workspace "${slug}" without a terminal to ask.`,
-              "Pass --yes to confirm deletion in a script."
-            );
-            return;
-          }
-          const readline = await import("node:readline/promises");
-          const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
-          const answer = await rl.question(`Delete workspace "${slug}" and all its files? [y/N] `);
-          rl.close();
-          if (answer.toLowerCase() !== "y") {
-            promptLine("Aborted.");
-            return;
-          }
+        // ⚠️ A REFUSAL'S `hint` IS THE NEXT STEP FOR *THIS* FAILURE, NEVER A
+        // SECOND PLACE FOR THE COMMAND'S NOTES. The hand-rolled version of this
+        // gate carried "Needs workspaces:delete, which workspaces:write does not
+        // imply" — true, already in `--help`, and about a permission failure that
+        // did not happen here. Nothing was refused for scope; it was refused for
+        // a missing confirmation, so a script following the hint would go and
+        // widen a token that was never the problem. `confirmDestructive` owns the
+        // wording now, and it says the one thing that is true of every refusal it
+        // emits.
+        if (!(await confirmDestructive(`Delete workspace "${slug}" and all its files?`, opts))) {
+          return;
         }
         const client = createClient(program.optsWithGlobals());
         await client.workspaces.delete(slug);

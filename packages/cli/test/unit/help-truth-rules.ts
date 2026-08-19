@@ -225,6 +225,33 @@ const META_FLAGS = new Set([
   "version"
 ]);
 
+/**
+ * HAND THE EVENT LOOP BACK, so vitest's worker RPC can be answered.
+ *
+ * This scan is ~50 seconds of almost entirely SYNCHRONOUS work — it renders and
+ * regexes the `--help` of every command in the tree. The `await`s already inside
+ * the loop do not help: `buildProgram()` resolves from modules that are already
+ * imported, so awaiting it drains the MICROTASK queue and never reaches the poll
+ * phase. A macrotask is the only thing that does.
+ *
+ * ⚠️ WITHOUT THIS THE WHOLE RUN FAILS, and it fails somewhere else entirely.
+ * vitest talks to its workers over birpc with a 60-SECOND ceiling that is
+ * hardcoded in the runner (`DEFAULT_TIMEOUT = 6e4`) and is not configurable. A
+ * worker blocked past that never processes the reply to its own `onTaskUpdate`,
+ * so `onTimeoutError` throws `[vitest-worker]: Timeout calling "onTaskUpdate"`
+ * as an UNHANDLED error. Measured 2026-08-18 while folding this package's two
+ * test runners into one: every test passed, every file passed, and `vitest run`
+ * exited 1 on an error naming no test — 135 files, 1734 assertions, all green,
+ * exit 1. `tsx --test` had no RPC and so no ceiling, which is why this only
+ * appeared on the way in.
+ *
+ * Yielding per node caps the blocking stretch at one command's worth of work.
+ */
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+
 export async function runHelpTruthScan(): Promise<ScanReport> {
   const base = await buildProgram();
   const nodes = walkTree(base);
@@ -251,6 +278,7 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
   // example, and re-resolving per example would make the arm 1000x its cost.
   const routeOf = new Map<string, Descriptor[]>();
   for (const node of nodes) {
+    await yieldToEventLoop();
     const label = node.path.join(" ");
     const slice = slices.get(node);
     if (!slice) continue;
@@ -265,6 +293,7 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
   }
 
   for (const node of nodes) {
+    await yieldToEventLoop();
     const label = node.path.join(" ");
     const help = helpOf(node.cmd);
     const examples = examplesIn(help);

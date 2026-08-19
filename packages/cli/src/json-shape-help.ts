@@ -28,9 +28,9 @@ import { JSON_SHAPES } from "./json-shape.generated";
  * ── WHERE THE ANSWER COMES FROM ─────────────────────────────────────────────
  *
  * `json-shape.generated.ts`, projected by `scripts/generate-json-shape.ts` from
- * `json-shape.scan.ts`. Nothing here is authored: the five shapes are five
+ * `json-shape.scan.ts`. Nothing here is authored: the six shapes are six
  * functions in `output.ts`, each with one `if (_jsonMode)` branch, so "which
- * shape does this command print" is "which of the five does its action reach".
+ * shape does this command print" is "which of the six does its action reach".
  * Read that file's header for what the derivation refuses to answer and why.
  *
  * 🚨 A COMMAND ABSENT FROM THE MAP GETS NO LINE, AND THAT IS THE POINT. Roughly
@@ -41,7 +41,7 @@ import { JSON_SHAPES } from "./json-shape.generated";
  *
  * ⚠️ SOME COMMANDS ALSO CARRY A HAND-WRITTEN SENTENCE ABOUT THEIR SHAPE, and
  * that is deliberate rather than duplication left lying around. The generated
- * line states WHICH of the five; the hand-written note says why it surprises,
+ * line states WHICH of the six; the hand-written note says why it surprises,
  * which sibling command differs, and what the wrong `jq` does. A prose note
  * cannot be generated and a generated line cannot be trusted to prose. What
  * keeps them honest is `json-shape.codegen.test.ts`, which reads the shipped
@@ -49,8 +49,8 @@ import { JSON_SHAPES } from "./json-shape.generated";
  * derivation.
  */
 
-/** The five shapes, keyed as the generated map spells them. */
-export type JsonShapeId = "record" | "list" | "array" | "success" | "dryRun";
+/** The six shapes, keyed as the generated map spells them. */
+export type JsonShapeId = "record" | "list" | "array" | "success" | "dryRun" | "envelope";
 
 /**
  * The sentence for each shape.
@@ -88,7 +88,12 @@ export const JSON_SHAPE_LINES: Readonly<Record<JsonShapeId, string>> = {
   dryRun:
     "OUTPUT --json: {dryRun, message, ...} — nothing was changed. There is no\n" +
     '  "success" key, deliberately: a consumer switching on it sees a shape it\n' +
-    "  does not recognise rather than one that lies."
+    "  does not recognise rather than one that lies.",
+  envelope:
+    "OUTPUT --json: THE SERVER'S OWN RESPONSE OBJECT, unnarrowed — the same\n" +
+    '  document "nexus api GET <path>" returns for this route. The table above\n' +
+    "  renders ONE key of it; the others are there and are not shown. NOT a bare\n" +
+    "  array, so jq '.[]' selects nothing — name the key, e.g. jq '.folders[]'."
 };
 
 /** The stable prefix. The gate matches on this, so it must not be reworded lightly. */

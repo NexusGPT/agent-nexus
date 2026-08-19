@@ -12,7 +12,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumArgument, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
-import { isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { printEnvelope, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { parseIdList } from "../util/ids";
 import {
@@ -213,23 +213,20 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.permissions.listResourceAccess(resourceType, resourceId);
 
-        // ONE document under --json. `printList` short-circuits to its own
-        // `console.log(JSON.stringify(...))`, so printing the rows and then the
-        // reach would emit two concatenated documents: `JSON.parse` throws and a
-        // script reading the stream silently keeps only the first — which is the
-        // rows without the field that says what they omit.
-        if (isJsonMode()) {
-          console.log(JSON.stringify(result, null, 2));
-          return;
-        }
-
-        printList(result.permissions, undefined, [
-          { key: "subjectType", label: "SUBJECT TYPE", width: 14 },
-          { key: "subjectId", label: "SUBJECT ID", width: 36 },
-          { key: "relation", label: "RELATION", width: 10 },
-          { key: "createdAt", label: "CREATED", width: 20 }
-        ]);
-        console.log(describeUnlistedReach(result.unlistedReach));
+        // ONE document under --json, carrying BOTH halves. Printing the rows
+        // through `printList` and the reach beside it would narrow the response
+        // to `permissions` before anything knew which channel it was writing —
+        // and `unlistedReach` is the field that says what those rows OMIT, so a
+        // script would read an under-count as the whole answer.
+        printEnvelope(result, () => {
+          printList(result.permissions, undefined, [
+            { key: "subjectType", label: "SUBJECT TYPE", width: 14 },
+            { key: "subjectId", label: "SUBJECT ID", width: 36 },
+            { key: "relation", label: "RELATION", width: 10 },
+            { key: "createdAt", label: "CREATED", width: 20 }
+          ]);
+          console.log(describeUnlistedReach(result.unlistedReach));
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

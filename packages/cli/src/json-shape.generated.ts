@@ -8,12 +8,12 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 366 of 519 leaves are answered here. The
+ * 368 of 519 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     27  no-registration
  *      1  ambiguous
- *    103  writes-its-own-json
+ *    101  writes-its-own-json
  *      5  no-printer
  *     17  branches
  *
@@ -154,7 +154,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "deployment folder assign": "success",
   "deployment folder create": "success",
   "deployment folder delete": "success",
-  "deployment folder list": "array",
+  "deployment folder list": "envelope",
   "deployment folder update": "success",
   "deployment get": "record",
   "deployment list": "list",
@@ -206,7 +206,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "folder assign": "success",
   "folder create": "success",
   "folder delete": "success",
-  "folder list": "array",
+  "folder list": "envelope",
   "folder update": "success",
   "html-template create": "success",
   "html-template delete": "success",
@@ -216,6 +216,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "html-template render": "record",
   "html-template update": "success",
   "model list": "list",
+  "permissions access": "envelope",
   "permissions grant": "success",
   "permissions org-settings": "record",
   "permissions revoke": "success",
@@ -289,6 +290,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "role workspace-grants": "list",
   "skill-folder create": "success",
   "skill-folder delete": "success",
+  "skill-folder list": "envelope",
   "skill-folder update": "success",
   "task create": "success",
   "task delete": "success",
@@ -311,7 +313,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "template folder assign": "success",
   "template folder create": "success",
   "template folder delete": "success",
-  "template folder list": "list",
+  "template folder list": "envelope",
   "template folder update": "success",
   "template generate": "success",
   "template get": "record",

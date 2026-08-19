@@ -20,6 +20,7 @@ import {
   absent,
   isJsonMode,
   printDryRun,
+  printEnvelope,
   printList,
   printRecord,
   printSuccess,
@@ -28,6 +29,7 @@ import {
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { withMemberCounts } from "../util/folder-membership";
 import { getPaginationParams } from "../util/pagination";
 import {
   DEPLOYMENT_CREATE__BODY_TYPE,
@@ -690,27 +692,32 @@ Examples:
   $ nexus deployment folder list --json
 
 Notes:
-  PRINTS THE FOLDERS ONLY. The route also returns the deployment→folder
-  assignments and this command drops them, in --json too, so there is no way
-  to read which deployment sits in which folder from here. Fetch the route
-  directly for that: "nexus api GET /deployment-folders".
+  --json CARRIES assignments[] — the deployment-to-folder map, and the only
+  report of it anywhere in this CLI. Folder rows hold no membership, so which
+  folder a deployment sits in is answered by matching deploymentId in
+  assignments[] and by nothing else.
+  DEPLOYMENTS counts the assignments pointing at each folder. The pairs
+  themselves are read under --json.
   Unpaginated. Folders can nest (each carries a parentId) but this is a flat
   list — build the tree from parentId yourself.
 
-  --json HERE IS A BARE ARRAY, not {data,meta}. "deployment list" is the other
-  shape, so a jq '.data[]' carried over from it selects nothing AND DOES NOT
-  ERROR — it just prints an empty result, which reads as "no folders". Use
-  jq '.[]'.`
+  --json HERE IS THE ROUTE'S OWN OBJECT, not {data,meta} and not a bare array.
+  "deployment list" is the {data,meta} shape, so a jq '.data[]' carried over
+  from it selects nothing AND DOES NOT ERROR — it just prints an empty result,
+  which reads as "no folders". Use jq '.folders[]'.`
     )
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());
         const result = await client.deploymentFolders.list();
-        const folders = result.folders ?? result;
-        printTable(Array.isArray(folders) ? folders : [folders], [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 }
-        ]);
+
+        printEnvelope(result, () => {
+          printTable(withMemberCounts(result.folders, result.assignments), [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "members", label: "DEPLOYMENTS", width: 11 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

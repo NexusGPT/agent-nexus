@@ -1,4 +1,5 @@
 import { HttpClient } from "@agent-nexus/sdk";
+import { createContractReporter } from "../contract-warnings";
 import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
@@ -141,7 +142,8 @@ Notes:
           // The global --timeout is in seconds; this command's former local
           // --timeout <ms> was replaced by it (NEX-2760) so the flag cannot
           // mean two different units depending on where it sits in argv.
-          timeout: timeoutSecondsToMs(globals.timeout)
+          timeout: timeoutSecondsToMs(globals.timeout),
+          onResponseContract: createContractReporter()
         });
 
         const jsonBody = await resolveBody(opts.body);

@@ -232,9 +232,16 @@ describe("the set of long-running operations", () => {
 
   it("states the deadline through the constant, never as a bare number", () => {
     const dir = join(__dirname, "resources");
+    // The denominator. A renamed directory, a sparse checkout or a listing that
+    // resolved nothing all leave `offenders` empty and print the same green.
+    // The sibling control above floors a DIFFERENT scan — the declarations, not
+    // this directory — so it says nothing about this one. 45 files today.
+    const resourceFiles = readdirSync(dir).sort();
+    expect(resourceFiles.length, "the resources listing resolved nothing").toBeGreaterThan(20);
+
     const offenders: string[] = [];
 
-    for (const file of readdirSync(dir).sort()) {
+    for (const file of resourceFiles) {
       if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
       const source = readFileSync(join(dir, file), "utf8");
       for (const [, raw] of source.matchAll(/timeoutMs:\s*([^,\n}]+)/g)) {

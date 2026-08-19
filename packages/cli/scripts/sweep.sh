@@ -75,11 +75,17 @@ NEXUS_ARGS=()
 # `"${NEXUS_CMD[@]}"` with proper argv expansion (no eval).
 read -ra NEXUS_CMD <<< "${NEXUS_BIN:-nexus}"
 
+# Defined ABOVE `run_leaf` deliberately. `run_leaf` shells out to
+# `scan-response.py` beside this script, and bash resolves a variable at CALL
+# time, so a definition further down would work today and break silently the
+# first time anything calls `run_leaf` earlier.
+SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Inventory — resolved from src/command-universe.ts, never written down here
 # ─────────────────────────────────────────────────────────────────────────────
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+
 
 # `pnpm exec` resolves tsx through THIS package's own node_modules, so the sweep
 # runs from any directory. No fallback and no `|| true` anywhere below: if the
@@ -104,7 +110,11 @@ run_universe() {
 
 run_leaf() {
   local path="$1"
-  local out exit_code parse_ok=0
+  local out exit_code
+  # Second argument, not a global lookup: the caller already knows, and a
+  # function that re-derives its own inputs is a second place for the two lists
+  # to disagree.
+  local require_non_empty="${2:-false}"
 
   # shellcheck disable=SC2086
   out=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} $path --json 2>&1)
@@ -135,17 +145,62 @@ run_leaf() {
     return
   fi
 
-  if printf '%s' "$out" | python3 -c "import json,sys;json.load(sys.stdin)" 2>/dev/null; then
-    parse_ok=1
-  fi
+  # One pass answers both questions: is it JSON, and does it carry a secret.
+  # `scan-response.py` prints the KEY and the LENGTH of anything secret-shaped
+  # and NEVER the value, because everything printed here reaches the CI log.
+  local scan_out scan_code
+  local scan_args=()
+  [[ "$require_non_empty" == "true" ]] && scan_args+=(--require-non-empty)
+  scan_out=$(printf '%s' "$out" | python3 "$SCRIPT_DIR/scan-response.py" ${scan_args[@]+"${scan_args[@]}"})
+  scan_code=$?
 
-  if [[ $parse_ok -eq 1 ]]; then
-    printf 'PASS|%s|json ok\n' "$path"
-  else
-    local preview
-    preview=$(printf '%s' "$out" | head -1 | cut -c1-60)
-    printf 'WARN|%s|exit=0 but JSON parse failed: %s\n' "$path" "$preview"
-  fi
+  # 🚨 THE PREVIEW BRANCH IS THE DANGEROUS ONE, AND IT NEEDS A POSITIVE ANSWER
+  # RATHER THAN A DEFAULT. A python traceback exits 1 exactly like "not JSON"
+  # does, and a missing interpreter exits 127. A `*)` branch that previewed
+  # `$out` on any unexpected status would print the first characters of a
+  # response the scanner never managed to read — which is the leak this whole
+  # gate exists to prevent, reintroduced by its own error path. Bugbot caught
+  # that on the first version of this code.
+  #
+  # So: preview ONLY on exit 1 AND the scanner's own `NOT-JSON` marker. Anything
+  # else is UNMEASURED, and UNMEASURED is a failure with nothing quoted.
+  case $scan_code in
+    0) printf 'PASS|%s|json ok\n' "$path" ;;
+    2)
+      # LEAK. The field and its length, never the payload, and never the preview
+      # below. A FAIL in every mode, `--strict` included: a leaf that returns a
+      # live credential is not a warning anyone gets to tune down.
+      printf 'FAIL|%s|SECRET-SHAPED RESPONSE: %s — this leaf must not be swept; classify it away from `safe`\n' \
+        "$path" "$(printf '%s' "$scan_out" | tr '\n' ' ' | cut -c1-120)"
+      ;;
+    4)
+      # A `safe-with-fixture` leaf came back with no rows. The route works and
+      # the read proves nothing about item shape, which is exactly the vacuous
+      # green this disposition exists to refuse. Never demote the leaf to `safe`
+      # to clear this — reseed.
+      if [[ "$scan_out" == "EMPTY" ]]; then
+        printf 'FAIL|%s|FIXTURE MISSING: declared safe-with-fixture and returned no rows. Reseed with packages/cli/scripts/seed-sweep-fixtures.sh; do NOT reclassify this leaf as `safe`.\n' "$path"
+      else
+        printf 'FAIL|%s|SECRET SCAN UNMEASURED: exit 4 without the EMPTY marker.\n' "$path"
+      fi
+      ;;
+    1)
+      if [[ "$scan_out" == "NOT-JSON" ]]; then
+        local preview
+        preview=$(printf '%s' "$out" | head -1 | cut -c1-60)
+        printf 'WARN|%s|exit=0 but JSON parse failed: %s\n' "$path" "$preview"
+      else
+        printf 'FAIL|%s|SECRET SCAN UNMEASURED: exit 1 without the NOT-JSON marker, so the scanner died rather than read this response. Nothing is quoted here on purpose. Reproduce by piping this leaf'"'"'s output into packages/cli/scripts/scan-response.py by hand.\n' \
+          "$path"
+      fi
+      ;;
+    *)
+      # Neither read nor cleared. Say the status and quote NOTHING — the output
+      # this branch would have previewed is the output nothing has scanned.
+      printf 'FAIL|%s|SECRET SCAN UNMEASURED: scanner exited %d. Nothing is quoted here on purpose; an unscanned response may carry a credential.\n' \
+        "$path" "$scan_code"
+      ;;
+  esac
 }
 
 # Drift mode — delegated to the derivation, which reads the commander program
@@ -244,8 +299,50 @@ while IFS= read -r line; do
   [[ -n "$line" ]] && SWEEP_TARGETS+=("$line")
 done <<< "$SWEEP_TARGETS_RAW"
 
+# The fixture-backed subset, derived from the SAME table as the leaf list above.
+# A second `run_universe` call rather than a parsed two-column format, because
+# the alternative is a parser in bash. An empty answer is legitimate here — no
+# leaf need be fixture-backed — so unlike the leaf list this one does not treat
+# emptiness as a refusal. What it DOES refuse is a non-zero exit, because a
+# derivation that failed would silently drop every non-emptiness assertion and
+# the sweep would still report PASS.
+FIXTURE_STDERR=$(mktemp)
+FIXTURE_RAW=$(run_universe --print-fixture-leaves 2>"$FIXTURE_STDERR")
+FIXTURE_EXIT=$?
+if [[ $FIXTURE_EXIT -ne 0 ]]; then
+  # BOTH streams, exactly like the safe-leaf FATAL above. `pnpm exec` names an
+  # unresolvable tool on STDOUT, which `$(...)` traps in FIXTURE_RAW — so
+  # printing stderr alone can omit the only line that explains the failure. The
+  # refusal above already did this correctly and this one, written later, did
+  # not: the same file disagreed with itself.
+  echo "FATAL: could not derive the fixture-backed leaf list." >&2
+  echo "Refusing to sweep without it — every non-emptiness assertion would be skipped" >&2
+  echo "and the sweep would report PASS over exactly the leaves that need one." >&2
+  echo "  command : pnpm exec tsx scripts/command-universe.ts --print-fixture-leaves" >&2
+  echo "  exit    : $FIXTURE_EXIT" >&2
+  echo "  --- its stdout ---" >&2
+  printf '%s\n' "$FIXTURE_RAW" >&2
+  echo "  --- its stderr ---" >&2
+  cat "$FIXTURE_STDERR" >&2
+  rm -f "$FIXTURE_STDERR"
+  exit 6
+fi
+rm -f "$FIXTURE_STDERR"
+
+is_fixture_backed() {
+  local needle="$1" line
+  while IFS= read -r line; do
+    [[ "$line" == "$needle" ]] && return 0
+  done <<< "$FIXTURE_RAW"
+  return 1
+}
+
 for leaf in "${SWEEP_TARGETS[@]}"; do
-  RESULTS+=("$(run_leaf "$leaf")")
+  if is_fixture_backed "$leaf"; then
+    RESULTS+=("$(run_leaf "$leaf" true)")
+  else
+    RESULTS+=("$(run_leaf "$leaf")")
+  fi
 done
 
 ELAPSED=$(( $(date +%s) - START ))

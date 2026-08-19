@@ -27,7 +27,7 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import {
   color,
   isJsonMode,
@@ -36,7 +36,7 @@ import {
   printTable,
   type RecordField
 } from "../output";
-import { promptLine, promptStream } from "../util/confirm";
+import { confirmable, confirmDestructive, promptLine, promptStream } from "../util/confirm";
 import { type TenantHttpOptions, tenantRequest } from "../util/tenant-http";
 import {
   VIBE_AUDIT_EVENT_TYPES,
@@ -1758,10 +1758,8 @@ Examples:
       }
     });
 
-  app
-    .command("delete <appId>")
+  confirmable(app.command("delete <appId>"))
     .description("Delete a Vibe app and stop serving it")
-    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
     .addHelpText(
       "after",
       `
@@ -1788,11 +1786,10 @@ Examples:
     )
     .action(async (appId: string, cmdOpts: { yes?: boolean }) => {
       try {
-        const ok = await confirmDestructive(
-          `Delete app ${appId}? It will stop being served.`,
-          `nexus vibe app delete ${appId} --yes`,
-          cmdOpts.yes
-        );
+        const ok = await confirmDestructive(`Delete app ${appId}? It will stop being served.`, {
+          ...cmdOpts,
+          rerun: `nexus vibe app delete ${appId} --yes`
+        });
         if (!ok) {
           process.exitCode = 1;
           return;
@@ -1861,10 +1858,8 @@ Examples:
       }
     });
 
-  app
-    .command("rotate-edge-token <appId>")
+  confirmable(app.command("rotate-edge-token <appId>"))
     .description("Mint a fresh edge token for a private app and retire the old one")
-    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
     .addHelpText(
       "after",
       `
@@ -1886,8 +1881,7 @@ Examples:
       try {
         const ok = await confirmDestructive(
           `Rotate the edge token for ${appId}? Callers using the current token stop working immediately.`,
-          `nexus vibe app rotate-edge-token ${appId} --yes`,
-          cmdOpts.yes
+          { ...cmdOpts, rerun: `nexus vibe app rotate-edge-token ${appId} --yes` }
         );
         if (!ok) {
           process.exitCode = 1;
@@ -2410,10 +2404,8 @@ Examples:
       }
     });
 
-  project
-    .command("delete <projectId>")
+  confirmable(project.command("delete <projectId>"))
     .description("Delete a git project and release its name")
-    .option("--yes", "Skip the confirmation prompt (required when not on a terminal).")
     .addHelpText(
       "after",
       `
@@ -2434,8 +2426,7 @@ Examples:
       try {
         const ok = await confirmDestructive(
           `Delete git project ${projectId}? Apps pointing at it stop deploying.`,
-          `nexus vibe git-project delete ${projectId} --yes`,
-          cmdOpts.yes
+          { ...cmdOpts, rerun: `nexus vibe git-project delete ${projectId} --yes` }
         );
         if (!ok) {
           process.exitCode = 1;
@@ -2925,53 +2916,6 @@ async function triggerDeploymentAnsweringOverage(
   }
 
   return data;
-}
-
-/**
- * Gate a destructive command. Returns true only when the caller has actually
- * agreed — either by passing `--yes` up front, or by answering y at the prompt.
- *
- * Non-interactive without `--yes` REFUSES: it prints the exact re-run and
- * returns false, and the caller exits non-zero. Refusing is the direction the
- * whole CLI takes — see `confirmDestructive` in `src/util/confirm.ts`, which
- * this differs from only by carrying a per-command re-run line in its hint.
- *
- * IT READS STDIN TO DECIDE, NEVER STDOUT. Whether a person can answer is a
- * property of the stream the answer arrives on. Testing stdout refuses
- * `nexus vibe app delete <id> > log` from an operator's own terminal, where the
- * question is perfectly answerable — the safe direction of the same confusion,
- * and still wrong.
- *
- * Bare Enter is a NO. The prompt is spelled `[y/N]`, so the capital is a promise
- * about which way the default falls, and only the literal `y` may pass.
- */
-async function confirmDestructive(
-  question: string,
-  rerun: string,
-  yes: boolean | undefined
-): Promise<boolean> {
-  if (yes === true) return true;
-
-  if (isJsonMode() || !process.stdin.isTTY) {
-    // 🚨 THIS ARM NAMES `isJsonMode()` AND THEN WROTE ONLY TO STDERR, so under
-    // --json it produced the clause-2 defect on purpose-built code: every caller
-    // sets `process.exitCode = 1` on a false return, leaving a non-zero exit and
-    // an empty stdout. `refuse` emits the document; the callers' exit code is
-    // unchanged, so the refusal still reads the same to a human.
-    refuse("Refusing to proceed without confirmation.", `Re-run with --yes:  ${rerun}`);
-    return false;
-  }
-
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
-  const answer = await rl.question(`${question} [y/N] `);
-  rl.close();
-
-  if (answer.trim().toLowerCase() !== "y") {
-    promptLine("Aborted.");
-    return false;
-  }
-  return true;
 }
 
 function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string): void {

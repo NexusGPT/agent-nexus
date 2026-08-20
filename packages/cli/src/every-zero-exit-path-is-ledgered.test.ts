@@ -1,8 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { describe, expect, it } from "vitest";
 
 import { stripTsComments } from "./util/strip-ts-comments";
@@ -36,6 +36,21 @@ import { stripTsComments } from "./util/strip-ts-comments";
  * silence: the scan turns red naming the file and line until somebody writes the
  * sentence. That is deliberately a ratchet and not a ban — `process.exit` is
  * correct in several of these, and a gate that forbade it would be turned off.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🔴 A RATCHET TURNS ONE WAY. EVERY ASSERTION HERE IS AN UPPER BOUND.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This file shipped with three assertions that were lower bounds on the very
+ * data it wants drained — an EXACT site count per file, "an entry naming a file
+ * with no call site is stale", and `sites.length > 0`. Each of them reds when
+ * somebody removes an exit, and the last two vanish or fail outright when the
+ * list reaches zero. A gate that refuses its own cure gets switched off, and
+ * then the real defect flows again.
+ *
+ * So: adding an exit is red, by file and by line. REMOVING one is silently
+ * legal, always, and every control below is written to survive the list reaching
+ * zero.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * 🚨 A RAW TEXT SCAN FOR `process.exit(` REDS ON ITS OWN DOCUMENTATION
@@ -163,11 +178,11 @@ export function blankNonCode(source: string): string {
 }
 
 /**
- * Every `process.exit` call in the shipped source: which FILE, HOW MANY sites in
- * it, and what each does about `--json`.
+ * Every `process.exit` call in the shipped source: which FILE, HOW MANY sites it
+ * is ALLOWED to hold, and what each does about `--json`.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 THE COUNT IS THE LOAD-BEARING FIELD, AND A FILE-ONLY KEY IS A HOLE
+ * 🚨 THE ALLOWANCE IS THE LOAD-BEARING FIELD, AND A FILE-ONLY KEY IS A HOLE
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * The first version keyed on the file alone. A SECOND `process.exit` added to an
@@ -182,21 +197,46 @@ export function blankNonCode(source: string): string {
  * in it, which is the kind that gets a gate switched off. There is no symbol to
  * key on either: these are statements inside anonymous listeners.
  *
- * So the key is the FILE and the obligation is the COUNT. It is stable against
- * line drift and it fails on a second site, which is what was actually being
- * asked for. The report prints the line numbers it found, so a mismatch names
- * where to look without the ledger having to store them.
+ * So the key is the FILE and the obligation is the number of sites. It is stable
+ * against line drift and it fails on a second site, which is what was actually
+ * being asked for. The report prints the line numbers it found, so a mismatch
+ * names where to look without the ledger having to store them.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🔴 AN UPPER BOUND, NOT AN EXACT COUNT — AND THE FILE SHIPPED WITH AN EXACT ONE
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `found !== declared` reds from BOTH directions, and one of them is the cure:
+ * delete an exit and this gate turns red until somebody edits a number in a test
+ * file. It also reds on an unrelated merge that leaves the ledger one under. Both
+ * are red builds with no defect in them, and that is how a gate gets switched
+ * off rather than obeyed.
+ *
+ * So the obligation is `found <= maxSites`. Adding an exit is still red, by name
+ * and by line. REMOVING one is silently legal, and a file that drains to zero
+ * exits keeps a harmless entry exempting nothing — delete it when you notice.
+ * {@link ZERO_EXIT_LEDGER_CEILING} is what stops the allowances growing.
  */
 interface ZeroExitEntry {
-  /** How many `process.exit` call sites this file is allowed to hold. */
-  readonly sites: number;
+  /** The MOST `process.exit` call sites this file may hold. Never an equality. */
+  readonly maxSites: number;
   /** What each of them does about `--json`. Read by a human; length-checked. */
   readonly why: string;
 }
 
+/**
+ * The most sites this whole ledger may allow, summed across its files.
+ *
+ * An UPPER bound, for the same reason each entry is one. Draining moves the sum
+ * further under it and can never red a build; raising an allowance or naming a
+ * new file is the single edit that lets this class grow, and it needs a reason a
+ * reviewer reads in the same diff.
+ */
+const ZERO_EXIT_LEDGER_CEILING = 2;
+
 const ZERO_EXIT_LEDGER: Readonly<Record<string, ZeroExitEntry>> = {
   "src/contract-binding.ts": {
-    sites: 1,
+    maxSites: 1,
     why:
       "--print-contract, declared on 177 commands. Terminal by design: it answers a " +
       "question and stops. Under --json it emits {contract:{command,text}} through " +
@@ -205,7 +245,7 @@ const ZERO_EXIT_LEDGER: Readonly<Record<string, ZeroExitEntry>> = {
       "own door, so json-terminal-contract.ts could not reach it."
   },
   "src/commands/vibe-app-logs.ts": {
-    sites: 1,
+    maxSites: 1,
     why:
       "A SECOND Ctrl-C during a log follow, exiting 130. Not a --json surface: the " +
       "caller is a human at a terminal who has now asked twice, and 130 is the " +
@@ -237,13 +277,21 @@ function sourceFiles(root: string): string[] {
   return found.sort();
 }
 
-function findExitSites(): ExitSite[] {
+/**
+ * Every `process.exit` call site under `root`.
+ *
+ * The root is a PARAMETER so the whole pipeline — walk, read, blank, match,
+ * relative path, line number — can be driven over a fixture corpus whose content
+ * is known. That control is the one that survives this class being drained to
+ * zero; see `controls` below.
+ */
+function findExitSites(root: string = HERE): ExitSite[] {
   const sites: ExitSite[] = [];
-  for (const file of sourceFiles(HERE)) {
+  for (const file of sourceFiles(root)) {
     const cleaned = blankNonCode(readFileSync(file, "utf8"));
     cleaned.split("\n").forEach((text, index) => {
       if (/\bprocess\s*\.\s*exit\s*\(/.test(text)) {
-        sites.push({ file: relative(HERE, file).replace(/\\/g, "/"), line: index + 1 });
+        sites.push({ file: relative(root, file).replace(/\\/g, "/"), line: index + 1 });
       }
     });
   }
@@ -368,10 +416,37 @@ describe("controls", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("the population is NON-EMPTY — a zero here means the scan broke, not the code", () => {
-    // `--print-contract` alone guarantees at least one. A selector that stopped
-    // matching would empty this and every arm below would pass over nothing.
-    expect(sites.length).toBeGreaterThan(0);
+  it("the WHOLE pipeline finds a planted exit — walk, read, blank, line, path", () => {
+    // ══════════════════════════════════════════════════════════════════════════
+    // 🔴 NOT `sites.length > 0`, WHICH IS WHAT THIS FILE SHIPPED WITH.
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // That assertion is a LOWER BOUND on draining data. `process.exit` is
+    // correct in several of the named paths, so this population is not on its
+    // way to zero today — but nothing stops it, and the day somebody removes the
+    // last one, the control fails and takes the gate down with it. A control
+    // that dies when the work succeeds is the same defect as a gate that reds on
+    // its own cure.
+    //
+    // What it was really asking is whether the pipeline can find anything at
+    // all, and a fixture corpus answers that without depending on what the real
+    // tree happens to contain. Every arm is exercised: the directory walk, the
+    // `.test.ts` exclusion, the comment blanking, the line number, and the path
+    // made relative to the root it was given.
+    const root = mkdtempSync(join(tmpdir(), "zero-exit-pipeline-"));
+    try {
+      mkdirSync(join(root, "nested"), { recursive: true });
+      writeFileSync(
+        join(root, "nested", "real.ts"),
+        ["/**", " * three", " * lines", " */", "process.exit(0);"].join("\n")
+      );
+      writeFileSync(join(root, "prose.ts"), "// process.exit(0) is what commander does\n");
+      writeFileSync(join(root, "ignored.test.ts"), "process.exit(0);\n");
+
+      expect(findExitSites(root)).toEqual([{ file: "nested/real.ts", line: 5 }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -395,19 +470,18 @@ describe("every zero-exit terminal path is written down", () => {
     ).toEqual([]);
   });
 
-  it("an entry naming a file with no call site is stale and must be deleted", () => {
-    const live = new Set(sites.map((site) => site.file));
-    const stale = ledgeredFiles.filter((file) => !live.has(file)).sort();
+  // 🔴 THERE IS NO "THIS ENTRY IS STALE" ASSERTION, AND THIS FILE SHIPPED WITH
+  // ONE: "an entry naming a file with no call site is stale and must be
+  // deleted". That is a LOWER BOUND on draining data. Removing a `process.exit`
+  // — which is exactly what this gate wants to happen — turned the build red
+  // until somebody also deleted a line from a test file, and the person who
+  // removed the LAST one deleted the gate. A left-behind entry exempts a file
+  // that no longer exits, which costs nothing; delete it when you notice.
 
-    expect(
-      stale,
-      `\n\n${stale.length} ledger entr(y/ies) name a file that no longer exits.\n` +
-        `Delete the line — a stale exemption reads as "known, accepted" to everyone ` +
-        `who meets it.\n\n${stale.join("\n")}`
-    ).toEqual([]);
-  });
-
-  it("a file holds exactly as many exits as its entry declares", () => {
+  it("a file holds no more exits than its entry allows", () => {
+    // An UPPER bound per file. A SECOND exit in an already-named file is the
+    // hole a file-only ledger has, and it is still red here. Removing one is
+    // silently legal, which is the whole difference from an exact count.
     const counted = new Map<string, number[]>();
     for (const site of sites) {
       counted.set(site.file, [...(counted.get(site.file) ?? []), site.line]);
@@ -417,30 +491,70 @@ describe("every zero-exit terminal path is written down", () => {
     for (const [key, entry] of Object.entries(ZERO_EXIT_LEDGER)) {
       const file = key.replace(/^src\//, "");
       const lines = counted.get(file) ?? [];
-      if (lines.length !== entry.sites) {
+      if (lines.length > entry.maxSites) {
         wrong.push(
-          `  ${key}: declares ${entry.sites}, found ${lines.length} at line(s) ${lines.join(", ") || "none"}`
+          `  ${key}: allows ${entry.maxSites}, found ${lines.length} at line(s) ${lines.join(", ") || "none"}`
         );
       }
     }
 
     expect(
       wrong,
-      `\n\n${wrong.length} file(s) hold a number of exits their entry does not declare.\n\n` +
+      `\n\n${wrong.length} file(s) hold more exits than their entry allows.\n\n` +
         `A SECOND exit in an already-named file is the hole a file-only ledger has, and\n` +
         `it is the same defect class as the first: a path that ends without honouring\n` +
-        `--json. Say what the new one does, then raise the count in the same edit.\n\n` +
-        `${wrong.join("\n")}`
+        `--json. Say what the new one does, then raise the allowance AND the ceiling in\n` +
+        `the same edit.\n\n${wrong.join("\n")}`
     ).toEqual([]);
   });
 
-  it.each(
-    eachOrRefuse(Object.entries(ZERO_EXIT_LEDGER), "ZERO_EXIT_LEDGER, the named terminal paths")
-  )("%s states what it does about --json", (_file, entry) => {
+  it("the ledger never grows", () => {
+    // The second half of the upper bound. Per-file allowances alone cannot stop
+    // a NEW file being named, so the sum is bounded too — one number, one edit,
+    // and every direction growth can arrive from passes through it.
+    const allowed = Object.values(ZERO_EXIT_LEDGER).reduce(
+      (total, entry) => total + entry.maxSites,
+      0
+    );
+
+    expect(
+      allowed,
+      "ZERO_EXIT_LEDGER_CEILING is the one edit that lets this class grow. Lower it " +
+        "when a path drains; raising it needs a reason in the diff."
+    ).toBeLessThanOrEqual(ZERO_EXIT_LEDGER_CEILING);
+  });
+
+  /**
+   * THE ROW SWEEP, AS AN OFFENDER ARRAY — NEITHER `eachOrRefuse` NOR
+   * `emptyTableIsExpected`, AND NOT A GUARD EITHER.
+   *
+   * 🚨 `eachOrRefuse` THROWS on an empty table — the right default for a DERIVED
+   * population, where a zero means a selector broke. `ZERO_EXIT_LEDGER` is
+   * hand-written debt that is allowed to reach zero, and empty here means
+   * nothing in this package ends the process itself any more, which this file
+   * calls a legal end state. That makes it the sweep in this class most likely
+   * to actually get there.
+   *
+   * ⚠️ `emptyTableIsExpected` — which stood here — silences the throw and fixes
+   * nothing. It returns the table unchanged and has no reach into the runner.
+   * Measured on vitest 3.2.4 and 4.1.6: an empty `.each` registers no test, and
+   * a `describe` left with NONE fails "No test found in suite". This sweep is
+   * its `describe`'s only content, which is that case exactly.
+   *
+   * Collecting offenders into one array and expecting `[]` is green on an empty
+   * ledger in every runner, and it prints every bad row at once.
+   */
+  it("every entry states what it does about --json", () => {
     // A ledger is only worth what its reasons say. This cannot judge whether a
     // sentence is TRUE — only a reader can — but it refuses a placeholder.
-    expect(entry.why.length).toBeGreaterThan(80);
-    expect(entry.why.toLowerCase()).toMatch(/--json|json mode|not a --json surface/);
-    expect(entry.sites).toBeGreaterThan(0);
+    const offenders = Object.entries(ZERO_EXIT_LEDGER).flatMap(([file, entry]) => [
+      ...(entry.why.length > 80 ? [] : [`${file} — why is ${entry.why.length} characters`]),
+      ...(/--json|json mode|not a --json surface/.test(entry.why.toLowerCase())
+        ? []
+        : [`${file} — why never mentions --json`]),
+      ...(entry.maxSites > 0 ? [] : [`${file} — allows ${entry.maxSites} sites`])
+    ]);
+
+    expect(offenders).toEqual([]);
   });
 });

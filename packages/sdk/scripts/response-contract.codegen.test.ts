@@ -404,6 +404,9 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "WorkspaceRestore",
   "WorkspaceSearch",
   // tracks — one work item's seven scope resources
+  "TrackCreate",
+  "TrackUpdateCurrentStep",
+  "TrackReadRollup",
   "TrackListReady",
   "TrackListReadyTasks",
   "TrackCreateDependencyEdge",

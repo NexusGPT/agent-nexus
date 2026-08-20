@@ -31,6 +31,7 @@
   "scripts": {
     "gen:audit-types": "tsx scripts/generate-vibe-audit-event-types.ts",
     "gen:cli-surface": "tsx scripts/generate-cli-surface.ts",
+    "gen:cli-surface-baseline": "tsx scripts/generate-cli-surface-baseline.ts",
     "gen:contract-help": "tsx scripts/generate-contract-help.ts",
     "gen:json-shape": "tsx scripts/generate-json-shape.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",

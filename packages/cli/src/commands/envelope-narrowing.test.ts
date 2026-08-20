@@ -4,11 +4,16 @@ import path from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { ENVELOPE_NARROWING_LEDGER } from "./envelope-narrowing.ledger";
+import {
+  ENVELOPE_NARROWING_LEDGER,
+  ENVELOPE_NARROWING_LEDGER_CEILING
+} from "./envelope-narrowing.ledger";
 import {
   type EnvelopeNarrowing,
   narrowingKey,
-  scanEnvelopeNarrowing
+  narrowingsIn,
+  scanEnvelopeNarrowing,
+  scanPrinterCallSites
 } from "./envelope-narrowing.scan";
 
 /**
@@ -43,13 +48,29 @@ import {
  * exact set of keys it loses. A new narrowing is red on the day it is written.
  * Widening an EXISTING one — the response gains a key and the printer still
  * takes one — is red too, because the lost set is compared and not just the key.
+ * The ledger may only shrink: its size is checked against a CEILING, so deleting
+ * entries is always legal and adding one is a line in a diff.
  *
- * ── 3. NOTHING STALE ────────────────────────────────────────────────────────
+ * 🔴 THERE IS NO STALENESS ASSERTION HERE, AND ITS ABSENCE IS THE POINT. This
+ * file shipped with one — "holds no entry the scan has stopped reporting" — and
+ * that is a LOWER BOUND on draining data: it reds the moment somebody fixes a
+ * command, and it vanishes the moment somebody fixes the last one. A gate that
+ * refuses its own cure gets switched off, and then the real narrowings flow
+ * again. The ledger's own docblock records the same decision.
  *
- * A ledger entry the scan no longer reports is also red. That is what keeps the
- * file shrink-only in the direction that matters: when somebody fixes one of
- * these, the ledger entry has to go with it, so the count can never quietly
- * describe a tree that has moved on.
+ * ── 3. THE CONTROLS THAT SURVIVE THE DRAIN ──────────────────────────────────
+ *
+ * The findings go to zero when this class is cured — that is the goal — so
+ * "the scan found something" cannot be the anti-vacuity control. This file
+ * shipped with that one too (`found.length > 0`), which fails on the day the
+ * work succeeds. Two things that do NOT go to zero are asserted instead:
+ *
+ *   · the scan still reaches printer CALL SITES. A cured command still calls
+ *     `printTable`; it simply calls it inside `printEnvelope`;
+ *   · at least one real call site is exempted as a CURE. That proves the
+ *     exemption arm can return true against real code — the arm whose failure
+ *     mode is to report the cure — and it gets STRONGER with every command
+ *     drained.
  */
 
 const FIXTURE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "envelope-narrowing-"));
@@ -212,42 +233,147 @@ export function run(): void {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 2 — THE REAL TREE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CALL_SITES = scanPrinterCallSites();
+const FOUND = narrowingsIn(CALL_SITES);
+
 describe("the CLI's own narrowings are all accounted for", () => {
-  const found = scanEnvelopeNarrowing();
   const ledgered = new Map(ENVELOPE_NARROWING_LEDGER.map((entry) => [entry.key, entry]));
 
   it("reports nothing that is not in the ledger", () => {
-    const unledgered = found
-      .filter((narrowing) => !ledgered.has(narrowingKey(narrowing)))
-      .map((narrowing) => `${narrowing.file}:${narrowing.line} drops ${narrowing.lost.join(", ")}`);
+    const unledgered = FOUND.filter((narrowing) => !ledgered.has(narrowingKey(narrowing))).map(
+      (narrowing) => `  ${narrowing.file}:${narrowing.line} drops ${narrowing.lost.join(", ")}`
+    );
 
-    expect(unledgered).toEqual([]);
+    expect(
+      unledgered,
+      `\n\n${unledgered.length} printer call(s) drop a field the server sent.\n\n` +
+        `A key the action narrows away is gone from BOTH arms by the time the printer\n` +
+        `chooses between a table and a document, so \`--json\` answers a well-formed\n` +
+        `document with a hole in it. The cure is \`printEnvelope(response, () => …)\` —\n` +
+        `commands/folder.ts is the worked example — and it moves that command's\n` +
+        `published envelope, so it goes with a changelog entry.\n\n${unledgered.join("\n")}\n`
+    ).toEqual([]);
   });
 
   it("loses exactly the keys the ledger records", () => {
-    const drifted = found
-      .filter((narrowing) => {
-        const entry = ledgered.get(narrowingKey(narrowing));
-        return entry !== undefined && entry.lost.join(",") !== narrowing.lost.join(",");
-      })
-      .map((narrowing) => `${narrowingKey(narrowing)} now drops ${narrowing.lost.join(", ")}`);
+    // EXACT, and exact in the safe direction: a key the scan no longer reports
+    // is not in `FOUND` and never reaches this comparison, so a cure is silent.
+    // What it catches is WIDENING — the response gains a key and the printer
+    // still takes one.
+    const drifted = FOUND.filter((narrowing) => {
+      const entry = ledgered.get(narrowingKey(narrowing));
+      return entry !== undefined && entry.lost.join(",") !== narrowing.lost.join(",");
+    }).map((narrowing) => `  ${narrowingKey(narrowing)} now drops ${narrowing.lost.join(", ")}`);
 
-    expect(drifted).toEqual([]);
+    expect(drifted, `\n\n${drifted.join("\n")}\n`).toEqual([]);
   });
 
-  it("holds no entry the scan has stopped reporting", () => {
-    const live = new Set(found.map(narrowingKey));
-    const stale = ENVELOPE_NARROWING_LEDGER.map((entry) => entry.key).filter(
-      (key) => !live.has(key)
-    );
-
-    expect(stale).toEqual([]);
+  it("the ledger never grows", () => {
+    // An UPPER bound. Draining moves this further under the ceiling and can
+    // never red it; adding an entry is a line a reviewer reads.
+    expect(
+      ENVELOPE_NARROWING_LEDGER.length,
+      "ENVELOPE_NARROWING_LEDGER_CEILING is the one edit that lets this class grow. " +
+        "Lower it when a command drains; raising it needs a reason in the diff."
+    ).toBeLessThanOrEqual(ENVELOPE_NARROWING_LEDGER_CEILING);
   });
 
-  it("finds the population at all", () => {
-    // The scan reaching the real tree is a precondition for the three cases
-    // above, and all three pass on an empty result. This is the only one that
-    // does not.
-    expect(found.length).toBeGreaterThan(0);
+  it("holds no duplicate key", () => {
+    // A duplicate satisfies the subset check while describing one site twice,
+    // which makes the ceiling meaningless as a measure of the class.
+    const seen = new Set<string>();
+    const duplicates = ENVELOPE_NARROWING_LEDGER.map((entry) => entry.key).filter((key) => {
+      if (seen.has(key)) return true;
+      seen.add(key);
+      return false;
+    });
+
+    expect(duplicates).toEqual([]);
+  });
+
+  /**
+   * THE ROW SWEEP, AS AN OFFENDER ARRAY — NEITHER `eachOrRefuse` NOR
+   * `emptyTableIsExpected`, AND NOT A GUARD EITHER.
+   *
+   * 🚨 `eachOrRefuse` THROWS on an empty table — the right default for a DERIVED
+   * population, where a zero means a selector broke. This table is a debt list
+   * MEANT to reach zero: this file's own comment calls empty the success state,
+   * which is exactly why the sweep cannot stay.
+   *
+   * ⚠️ `emptyTableIsExpected` — which stood here — silences that throw and
+   * fixes nothing. It returns the table unchanged and has no reach into the
+   * runner. Measured on vitest 3.2.4 and 4.1.6: an empty `.each` registers no
+   * test, and a `describe` left with NONE fails "No test found in suite". This
+   * sweep is its `describe`'s only content, which is that case exactly.
+   *
+   * Collecting offenders into one array and expecting `[]` is green on an empty
+   * ledger in every runner, and it prints every bad row at once.
+   */
+  it("every survivor says what a `--json` caller cannot see", () => {
+    // A ledger is worth what its reasons say. This cannot judge whether a
+    // sentence is TRUE — only a reader can — but it refuses a placeholder.
+    const offenders = ENVELOPE_NARROWING_LEDGER.flatMap((entry) => [
+      ...(entry.note.length > 60 ? [] : [`${entry.key} — note is ${entry.note.length} characters`]),
+      ...(entry.lost.length > 0 ? [] : [`${entry.key} — names no lost field`]),
+      ...(JSON.stringify([...entry.lost]) === JSON.stringify([...entry.lost].sort())
+        ? []
+        : [`${entry.key} — lost fields are not sorted`])
+    ]);
+
+    expect(offenders).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 3 — THE CONTROLS THAT SURVIVE THE DRAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("controls", () => {
+  it("the scan reaches real printer calls", () => {
+    // NOT `FOUND.length > 0`. The findings are meant to reach zero, and a
+    // control that dies on success takes the gate with it. A CURED command is
+    // still in this population — it still calls `printTable`, inside
+    // `printEnvelope` — so a zero here means the walk broke, never that the tree
+    // got clean.
+    expect(
+      CALL_SITES.length,
+      "no file in src/ calls printTable, printList or printRecord any more. Either " +
+        "every printer was renamed, or the walk stopped resolving files and every " +
+        "assertion above is now passing over an empty set."
+    ).toBeGreaterThan(0);
+  });
+
+  it("at least one real call site is CURED — the exemption arm can say yes", () => {
+    // The arm whose failure mode is to report the cure as the disease. It cannot
+    // be exercised by the findings, which are by definition the uncured ones.
+    // `folder.ts` was fixed before this gate existed and every drained command
+    // joins it — so this control only gets stronger.
+    const cured = CALL_SITES.filter(
+      (site) =>
+        site.exempt === "inside-envelope" || site.exempt === "whole-response-reaches-the-document"
+    ).map((site) => `${site.file}:${site.line}`);
+
+    expect(
+      cured,
+      "no printer call in src/ is exempted as a cure any more. That is either a real " +
+        "regression across the whole package, or insideEnvelopeCallback stopped " +
+        "matching and this gate is about to report the next cure as a defect."
+    ).not.toEqual([]);
+  });
+
+  it("every finding carries an exemption of null, and every exempt site no finding", () => {
+    // The two halves are read off ONE walk, so they cannot drift into two
+    // opinions about what a printer call is — but they could still be assembled
+    // wrongly, and then the ledger would be keyed against a set nothing agrees
+    // with.
+    const mismatched = CALL_SITES.filter(
+      (site) => (site.narrowing === null) !== (site.exempt !== null)
+    ).map((site) => `  ${site.file}:${site.line} ${site.printer}`);
+
+    expect(mismatched, `\n\n${mismatched.join("\n")}\n`).toEqual([]);
   });
 });

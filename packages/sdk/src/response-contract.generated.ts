@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 471 routes: 353 with a checkable shape, 113 publishing no
+// 474 routes: 356 with a checkable shape, 113 publishing no
 // response schema, 5 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -241,6 +241,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "GET /tracks/:trackId/diary": {name:"TrackListDiaryEntries",method:"GET",path:"/tracks/:trackId/diary",payload:{kind:"object",fields:{"entries":"a"},required:["entries"]}},
   "GET /tracks/:trackId/events": {name:"TrackListEvents",method:"GET",path:"/tracks/:trackId/events",payload:{kind:"object",fields:{"events":"a"},required:["events"]}},
   "GET /tracks/:trackId/memory": {name:"TrackListMemoryEntries",method:"GET",path:"/tracks/:trackId/memory",payload:{kind:"object",fields:{"budgetBytes":"n","entries":"a","trackMemoryBytes":"n"},required:["budgetBytes","entries","trackMemoryBytes"]}},
+  "GET /tracks/:trackId/rollup": {name:"TrackReadRollup",method:"GET",path:"/tracks/:trackId/rollup",payload:{kind:"object",fields:{"done":"n","total":"n"},required:["done","total"]}},
   "GET /tracks/:trackId/tasks/ready": {name:"TrackListReadyTasks",method:"GET",path:"/tracks/:trackId/tasks/ready",payload:{kind:"object",fields:{"tasks":"a"},required:["tasks"]}},
   "GET /tracks/ready": {name:"TrackListReady",method:"GET",path:"/tracks/ready",payload:{kind:"object",fields:{"tracks":"a"},required:["tracks"]}},
   "GET /tracks/tasks/:taskId": {name:"TrackReadTask",method:"GET",path:"/tracks/tasks/:taskId",payload:{kind:"object",fields:{"acceptance":"0s","banner":"s","claimedByAgentId":"0s","doneAt":"0s","evidence":"0s","gate":"b","id":"s","parentTaskId":"0s","title":"s","trackId":"s"},required:["acceptance","banner","claimedByAgentId","doneAt","evidence","gate","id","parentTaskId","title","trackId"]}},
@@ -437,9 +438,11 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "POST /tools/:toolId/resolve-options": {name:"ToolDiscoveryResolveOptions",method:"POST",path:"/tools/:toolId/resolve-options",payload:{kind:"object",fields:{"options":"a"},required:["options"]}},
   "POST /tracing/export": {name:"TracingExportBulk",method:"POST",path:"/tracing/export",payload:{kind:"object",fields:{"content":"s","contentType":"s","filename":"s"},required:["content","contentType","filename"]}},
   "POST /tracing/traces/:traceId/export": {name:"TracingExportTrace",method:"POST",path:"/tracing/traces/:traceId/export",payload:{kind:"object",fields:{"content":"s","contentType":"s","filename":"s"},required:["content","contentType","filename"]}},
+  "POST /tracks": {name:"TrackCreate",method:"POST",path:"/tracks",payload:{kind:"object",fields:{"currentStep":"0s","id":"s","nextOwner":"s","number":"n","slug":"s","title":"s"},required:["currentStep","id","nextOwner","number","slug","title"]}},
   "POST /tracks/:trackId/agents": {name:"TrackOpenAgent",method:"POST",path:"/tracks/:trackId/agents",payload:{kind:"object",fields:{"acceptance":"0s","closedAt":"0s","dependsOn":"a","id":"s","inputs":"","lastHeardAt":"s","model":"0s","name":"s","openedAt":"s","outputPath":"0s","reason":"0s","state":"s","trackId":"s"},required:["acceptance","closedAt","dependsOn","id","inputs","lastHeardAt","model","name","openedAt","outputPath","reason","state","trackId"]}},
   "POST /tracks/:trackId/agents/:agentId/beat": {name:"TrackBeatAgent",method:"POST",path:"/tracks/:trackId/agents/:agentId/beat",payload:{kind:"object",fields:{"acceptance":"0s","closedAt":"0s","dependsOn":"a","id":"s","inputs":"","lastHeardAt":"s","model":"0s","name":"s","openedAt":"s","outputPath":"0s","reason":"0s","state":"s","trackId":"s"},required:["acceptance","closedAt","dependsOn","id","inputs","lastHeardAt","model","name","openedAt","outputPath","reason","state","trackId"]}},
   "POST /tracks/:trackId/agents/:agentId/close": {name:"TrackCloseAgent",method:"POST",path:"/tracks/:trackId/agents/:agentId/close",payload:{kind:"object",fields:{"acceptance":"0s","closedAt":"0s","dependsOn":"a","id":"s","inputs":"","lastHeardAt":"s","model":"0s","name":"s","openedAt":"s","outputPath":"0s","reason":"0s","state":"s","trackId":"s"},required:["acceptance","closedAt","dependsOn","id","inputs","lastHeardAt","model","name","openedAt","outputPath","reason","state","trackId"]}},
+  "POST /tracks/:trackId/current-step": {name:"TrackUpdateCurrentStep",method:"POST",path:"/tracks/:trackId/current-step",payload:{kind:"object",fields:{"currentStep":"0s","trackId":"s"},required:["currentStep","trackId"]}},
   "POST /tracks/:trackId/diary": {name:"TrackAppendDiaryEntry",method:"POST",path:"/tracks/:trackId/diary",payload:{kind:"object",fields:{"agentId":"0s","artifactPath":"0s","authorUserId":"0s","body":"s","createdAt":"s","id":"s","kind":"s","taskId":"0s","trackId":"s","workspaceId":"0s"},required:["agentId","artifactPath","authorUserId","body","createdAt","id","kind","taskId","trackId","workspaceId"]}},
   "POST /tracks/:trackId/events": {name:"TrackAppendEvent",method:"POST",path:"/tracks/:trackId/events",payload:{kind:"object",fields:{"actorAgentId":"0s","actorUserId":"0s","createdAt":"s","id":"s","payload":"","trackId":"0s","type":"s"},required:["actorAgentId","actorUserId","createdAt","id","payload","trackId","type"]}},
   "POST /tracks/:trackId/import-plan": {name:"TrackImportPlan",method:"POST",path:"/tracks/:trackId/import-plan",payload:{kind:"object",fields:{"edgeIds":"a","taskIdsByIndex":"a"},required:["edgeIds","taskIdsByIndex"]}},

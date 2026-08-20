@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { resolveDashboardUrl } from "../config";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
@@ -136,6 +136,20 @@ function emitPartialThenRethrow(acquired: object, stage: string, error: unknown)
   throw error;
 }
 
+/**
+ * The setup-step table, named once because TWO paths print it now.
+ *
+ * The refusal arm and the ready arm render the same columns; a second copy of
+ * this array is a second thing to drift, and the two would then disagree about
+ * what a reader sees depending on whether the channel is ready.
+ */
+const SETUP_STEP_COLUMNS = [
+  { key: "step" as const, label: "#", width: 3 },
+  { key: "label" as const, label: "STEP", width: 25 },
+  { key: "status" as const, label: "STATUS", width: 16 },
+  { key: "description" as const, label: "DESCRIPTION", width: 45 }
+];
+
 export function registerChannelCommands(program: Command): void {
   const channel = program
     .command("channel")
@@ -213,14 +227,22 @@ Notes:
   green. When every step ABOVE it is completed, the table prints "All
   prerequisites met", and that is the signal to create the deployment.
 
-  --json CARRIES THAT VERDICT, as one document: { type, ready, steps }. "ready"
-  is the same fact the table prints as "All prerequisites met", so gate
-  automation on it directly rather than re-deriving it from the steps:
+  THE EXIT CODE CARRIES THAT VERDICT. Ready exits 0; not-ready exits non-zero,
+  so "nexus channel setup --type WHATSAPP && nexus deployment create ..." is the
+  gate. This used to publish a jq filter over --json as the workaround for an
+  exit code that answered 0 either way; the exit code answers now, and the
+  filter is gone.
 
-    $ nexus channel setup --type WHATSAPP --json | jq -e '.ready'
+  --json ON THE READY PATH IS ONE DOCUMENT: { type, ready, steps }, with "ready"
+  the same fact the table prints as "All prerequisites met". ON THE NOT-READY
+  PATH IT IS THE ERROR DOCUMENT INSTEAD — one document on stdout is a promise
+  this CLI keeps on every terminal path, and a failure's document is the error
+  one. The checklist and the next step are inside its "message" and "hint".
 
   "ready" IS NOT ALWAYS A CHECK. For a --type with no real prerequisite checks
-  it reads true because nothing was checked — see two paragraphs down.
+  it reads true because nothing was checked — see two paragraphs down. A 0 from
+  this command is therefore "nothing is known to be missing", never "everything
+  was verified".
 
   THIS STOPS AT THE FIRST GAP. The first step that reads action_needed blocks
   the rest, and every step after it reads "pending" whatever its real state
@@ -240,7 +262,11 @@ Notes:
   --region is read only while creating that connection. An organization gets
   one connection, so once it exists this flag does nothing and the region
   cannot be changed here.
-  Each step carries an action.endpoint and action.hint; read them with --json.`
+  Each step carries an action.endpoint and action.hint. They come back on the
+  ready path under --json. On the not-ready path the error document CARRIES the
+  first blocking step's action in its own "hint" — endpoint, method and hint
+  text — because that document replaces the steps, and a whole checklist is in
+  its "message". Run without --json for the table.`
     )
     .action(async (opts) => {
       try {
@@ -255,6 +281,65 @@ Notes:
           result = await client.channels.getSetupStatus(opts.type);
         }
         const data = result;
+        // 🚨 `ready` IS THE ONE FACT THIS COMMAND EXISTS TO REPORT, and its own
+        // --help published the workaround for the exit code not carrying it:
+        // `nexus channel setup --type WHATSAPP --json | jq -e '.ready'`. A
+        // documented workaround for an exit code is the confession.
+        //
+        // ⚠️ THE REFUSAL CLAIMS NOTHING ABOUT WHAT WAS VERIFIED. `ready: true`
+        // is not a check for every `--type` — a type with no real prerequisites
+        // reports true having verified nothing, and the help says so. So only
+        // the FALSE arm is new; the success path makes no claim it did not make
+        // before.
+        //
+        // `remote-error`, never a refusal of the command line: the invocation
+        // was ACCEPTED and the platform answered that the prerequisites are not
+        // met. `outcome-not-reached` was considered and rejected — its own
+        // declaration is "here something changed and it was not enough", and a
+        // `channel setup` without `--auto` changes nothing at all.
+        if (!data.ready) {
+          // 🚨 UNDER --json A FAILURE IS THE ERROR DOCUMENT AND NOTHING ELSE.
+          // Printing the steps and then refusing takes stdout with a document
+          // that parses cleanly and never says the channel is not ready —
+          // `error-masked` in `json-one-document.scan.ts`, whose ceiling is 0.
+          //
+          // So the CHECKLIST MOVES INTO THE MESSAGE rather than being lost. Same
+          // construction as `reportSpecBreakingChange` in `external-tool.ts`,
+          // which lists the bindings it is refusing over inside the one document
+          // a `--json` caller gets. A human keeps the table above it.
+          if (!isJsonMode()) {
+            printTable(data.steps, SETUP_STEP_COLUMNS);
+          }
+          const blocking = data.steps.find((step) => step.status === "action_needed");
+          process.exitCode = reportFailure(
+            "remote-error",
+            [
+              `Channel setup for ${String(opts.type)} is NOT ready.`,
+              ...data.steps.map((step) => `  ${String(step.step)}. ${step.label} — ${step.status}`)
+            ].join("\n"),
+            // 🚨 THE ACTION TRAVELS IN THE HINT, IT IS NOT POINTED AT. This
+            // document REPLACES the steps under --json, so a hint saying "read
+            // action.endpoint with --json" would name a field that is no longer
+            // there — a hint that sends the reader to nothing, on the one path
+            // where the next step is the whole point.
+            //
+            // THIS STOPS AT THE FIRST GAP — every step after the blocking one
+            // reads "pending" whatever its real state is, so naming the first one
+            // is naming the only actionable fact there is.
+            blocking === undefined
+              ? "No step reports action_needed, so the platform is reporting not-ready for a reason this checklist does not name."
+              : [
+                  `Next: ${blocking.label} — ${blocking.description}`,
+                  ...(blocking.action === undefined
+                    ? []
+                    : [
+                        `  ${blocking.action.method} ${blocking.action.endpoint}`,
+                        ...(blocking.action.hint === undefined ? [] : [`  ${blocking.action.hint}`])
+                      ])
+                ].join("\n")
+          );
+          return;
+        }
         if (isJsonMode()) {
           // ONE document, and it carries the VERDICT — not only the steps.
           //
@@ -271,15 +356,11 @@ Notes:
           // the table plus the sentence that says the same thing.
           printRecord({ type: data.type, ready: data.ready, steps: data.steps });
         } else {
-          printTable(data.steps, [
-            { key: "step", label: "#", width: 3 },
-            { key: "label", label: "STEP", width: 25 },
-            { key: "status", label: "STATUS", width: 16 },
-            { key: "description", label: "DESCRIPTION", width: 45 }
-          ]);
-          if (data.ready) {
-            printSuccess("All prerequisites met. Ready to create deployment.");
-          }
+          printTable(data.steps, SETUP_STEP_COLUMNS);
+          // `data.ready` is TRUE by construction here — the false arm returned
+          // above — so the condition that used to guard this line is gone rather
+          // than kept as a second, weaker copy of the same test.
+          printSuccess("All prerequisites met. Ready to create deployment.");
         }
       } catch (err) {
         process.exitCode = handleError(err);

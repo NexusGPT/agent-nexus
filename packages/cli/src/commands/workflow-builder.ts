@@ -13,6 +13,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
+import { judgeNodeTest, reportNodeTestRefusal } from "../node-test-verdict";
 import { isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
@@ -292,7 +293,14 @@ Notes:
   survives; read the actual output from this command's own response.
   A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
   The returned executionId is a per-node test id, so "nexus execution get" on it
-  fails — the output is already in this response.`
+  fails — the output is already in this response.
+  THE EXIT CODE CARRIES THE NODE'S OUTCOME, NOT status. status reads COMPLETED for
+  a run whose node threw, so the outcome is read from data instead: a node that
+  failed exits non-zero and its error is in data.errorDetails. A node type that
+  runs in the background answers status PENDING with data null — nothing was
+  measured, so that exits non-zero under the UNMEASURED category, which is
+  neither a pass nor a failure. Identical to "nexus workflow test-node", which is
+  the same endpoint.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {
@@ -308,7 +316,23 @@ Notes:
           nodeId,
           asRequestBody<TestNodeBody>(body)
         );
-        printRecord(result);
+        // The SAME judgement as `workflow test-node`, from the same module. Two
+        // spellings of one operation cannot disagree about whether the node
+        // passed — see `node-test-verdict.ts`.
+        const verdict = judgeNodeTest(result);
+        if (verdict.outcome === "passed") {
+          printRecord(result);
+        } else {
+          // 🚨 UNDER --json A FAILURE IS THE ERROR DOCUMENT AND NOTHING ELSE.
+          // Printing the record first takes stdout, and `emitDocument`'s
+          // first-wins rule then diverts the refusal to stderr — so a consumer
+          // reading stdout sees a payload and never learns the node failed.
+          // `json-one-document.scan.ts` calls that `error-masked` and it is a
+          // defect, not a trade-off. In prose the record is the only place
+          // `data.errorDetails` is visible, so a human still gets it.
+          if (!isJsonMode()) printRecord(result);
+          process.exitCode = reportNodeTestRefusal(verdict);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

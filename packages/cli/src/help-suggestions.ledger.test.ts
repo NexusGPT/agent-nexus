@@ -6,6 +6,7 @@ import type { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AUDIT_TOTAL,
   DEFECTIVE_COUNT,
   HELP_SUGGESTIONS,
   type HelpSuggestion,
@@ -130,12 +131,18 @@ const DEFECT_TICKET = /^NEX-\d+$/;
 
 describe("the authored-suggestion ledger describes the tree it ships with", () => {
   /**
-   * The denominator. 237 is the audit's own total and it does not move — a new
-   * idea about `--help` is a new ticket, never a 238th row, because the moment
-   * this drifts "N of 237" stops meaning what the audit measured.
+   * The denominator. `AUDIT_TOTAL` is the audit's own total and it is a CEILING:
+   * a new idea about `--help` is a new ticket, never a 238th row, because the
+   * moment the table grows past it "N of 237" stops meaning what the audit
+   * measured. `help-suggestions.ledger.ts` holds the argument for why the other
+   * direction is deliberately left open.
    */
   it("holds the audit in full, once each", () => {
-    expect(HELP_SUGGESTIONS).toHaveLength(237);
+    expect(
+      HELP_SUGGESTIONS.length,
+      `the audit holds ${HELP_SUGGESTIONS.length} rows against a total of ${AUDIT_TOTAL}. ` +
+        `This can only fail by GROWING — a 238th row is a new ticket, not a row here.`
+    ).toBeLessThanOrEqual(AUDIT_TOTAL);
 
     const ids = HELP_SUGGESTIONS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -143,7 +150,14 @@ describe("the authored-suggestion ledger describes the tree it ships with", () =
     // Every row is accounted for by exactly one of the four states. This sum is
     // what catches a state added to the union and forgotten here — the rows in
     // it would vanish from every count without any assertion going red.
-    expect(placed.length + blocked.length + open.length + obsolete.length).toBe(237);
+    //
+    // 🚨 AGAINST THE TABLE'S OWN LENGTH, never against a literal. A literal here
+    // is the same equality the line above stopped being, and it says nothing the
+    // partition needs: the claim is that the four states cover the table, which
+    // is true of a table of 237 and of a table of 12.
+    expect(placed.length + blocked.length + open.length + obsolete.length).toBe(
+      HELP_SUGGESTIONS.length
+    );
   });
 
   it("gives every row a target and a summary a reader can act on", () => {
@@ -392,7 +406,22 @@ describe("a reviewed namespace is reviewed in full", () => {
     const withoutRows = REVIEWED_NAMESPACES.filter((ns) => !present.has(ns));
 
     expect(withoutRows).toEqual([]);
-    expect(REVIEWED_NAMESPACES.length).toBeGreaterThanOrEqual(1);
+
+    // 🚨 NO FLOOR ON `REVIEWED_NAMESPACES`, DELIBERATELY.
+    //
+    // `expect(REVIEWED_NAMESPACES.length).toBeGreaterThanOrEqual(1)` stood here
+    // as this block's anti-vacuity control, and a floor on a hand-written list
+    // refuses a correct edit: emptying it is what a re-audit does, and the person
+    // doing one finds the suite red and deletes the case. A floor on the derived
+    // namespace CENSUS is no better — it is built from the audit's own ids, so it
+    // empties with the table and dies on the same day.
+    //
+    // The vacuity it was guarding is already covered by something that survives
+    // every drain: `namespaceOf` is pinned against LITERALS below
+    // ("does not let one namespace swallow a longer one"), which is the arm that
+    // catches the ordinal-stripping breaking. With the splitter proven, both
+    // assertions here are correctly vacuous over an empty reviewed list — there
+    // is genuinely nothing claimed and nothing to check.
   });
 
   /**

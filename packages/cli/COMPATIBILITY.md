@@ -70,8 +70,8 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **50 top-level commands**, of which **50 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **617 command nodes**
-and **523 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+hidden — there are none at all (see INTERNAL). Under them sit **620 command nodes**
+and **526 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
@@ -211,7 +211,7 @@ than going through a printer — the `writes-its-own-json` count in the generate
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **516 of the 523 leaves** and parses each one's stdout, and
+gate, which drives **519 of the 526 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -247,7 +247,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 516 leaves the gate drives. And on every terminal path — `--help`,
+the 519 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -380,7 +380,7 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**390 of the 523 leaves** carry a derived shape line on their `--help`, generated
+**393 of the 526 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
@@ -435,6 +435,26 @@ non-zero, and a code narrowing rather than widening — `4` will not become `1`.
 **A change here means:** a failure that exited `1` now exits something specific.
 That is announced in `CHANGELOG.md` when it affects a documented outcome, and is not
 announced when it is one of the 467 sites that never had a contract to break.
+
+⚠️ **THIS SECTION IS ABOUT FAILURES. A SUCCESS BECOMING A FAILURE IS A DIFFERENT
+CHANGE, AND IT IS A BREAK.** Everything above says how a non-zero exit may move; a
+`0` that starts exiting non-zero moves no code — it changes what the command
+CONSIDERS a failure, which is the STABLE promise under "what each exit code
+MEANS". It ships with a changelog entry naming the old behaviour and the new one,
+like any other break in this tier.
+
+`nexus auth status` is the worked case. It reported a stored key without asking the
+API whether the key still worked, so it exited `0` over a revoked one and a
+preflight gated on it passed while everything behind it failed on auth. **A verb
+that reports a state and cannot fail on that state is a defect in this tier, not a
+design** — the exit code is the only surface a script reads, and a `0` it cannot
+trust is worse than no verb. It verifies now, and `--no-verify` is how a caller
+asks for the old local-only read.
+
+**You may rely on:** a command that reports a state exiting non-zero when that state
+is bad, and on the distinction between a bad state and an UNMEASURED one surviving —
+a check that could not run (`7` unreachable, `8` timed out, `6` server errored) is
+never reported as a check that ran and failed.
 
 🔴 **`nexus upgrade` PUBLISHED FOUR EXIT CODES IN ITS OWN `--help`, AND ALL THREE
 NON-ZERO ONES MOVED.** It is the one command in the CLI with a documented exit-code
@@ -499,7 +519,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-523 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
+526 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -700,7 +720,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 617 nodes, and the root program is a 618th
+`src/command-universe.ts` renders all 620 nodes, and the root program is a 621st
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
@@ -764,6 +784,81 @@ moving surfaces, and nothing measures the gap today.
 
 **Until then:** upgrade before recording a capability as missing, and ask the route
 rather than the help screen.
+
+---
+
+## How a command is retired
+
+A removal is a mechanism, not a review comment. **A command that stops answering
+without an alias or a served deprecation cycle fails the build**, so the promises
+above are enforced rather than merely stated.
+
+**0 leaves are on a deprecation cycle today**, out of the **523 paths** the last
+release promised. An empty list is the ordinary state — a release that retires
+nothing is the normal release — so read the list, never this sentence:
+`src/deprecations.ts` is the declaration and it is the whole of it.
+
+### What a cycle is, in three steps
+
+1. **Announce.** A record goes into `DEPRECATIONS` in `src/deprecations.ts`, keyed
+   by the leaf's `shape` from `src/cli-surface.generated.ts` — the rename-stable
+   identity, which is 12 hex characters of the module, flags, arguments and
+   description WITHOUT the path. Keying on the path would let a rename discharge a
+   deprecation. The `CHANGELOG.md` entry for that release names the command.
+2. **Warn.** From the moment the record lands, the command carries a `DEPRECATED:`
+   line on its own `--help`, and invoking it writes one sentence to **stderr** —
+   what is going, what replaces it, and the release it goes in. **Never to
+   stdout.** A notice on stdout would break every `--json` consumer one release
+   EARLY, which is the opposite of what an announcement is for.
+3. **Remove**, in a LATER release. Not the same one.
+
+### What is enforced, and by what
+
+`src/cli-surface.baseline.generated.ts` records the surface of the last released
+version. `src/deprecation-cycle.ts` compares the tree against it and gives every
+promised path one of four verdicts:
+
+| Verdict   | What it means                                        | Owed a cycle?                  |
+| --------- | ---------------------------------------------------- | ------------------------------ |
+| `present` | still a leaf under the same spelling                 | no                             |
+| `aliased` | not the canonical name, and it still resolves        | **no** — the sanctioned rename |
+| `moved`   | renamed with NO alias, so the old line stops working | yes, on a STABLE leaf          |
+| `removed` | the path and the identity are both gone              | yes, on a STABLE leaf          |
+
+`aliased` asks whether the old line still **runs** something, not whether it still
+parses. A leaf turned into a namespace — `access-card delete` gaining
+`access-card delete card` under it — still resolves, and prints a help screen
+instead of deleting. That is a removal, and it is refused as one.
+
+A STABLE removal is permitted only when the record was captured into the baseline
+at a release, its `announcedIn` is at or before that release, and the changelog
+entry for that version NAMES THE PATH — in a code span, as `` `agent list` `` or
+`` `nexus agent list` ``. A version heading alone is not an announcement, since
+every past release already has one; and a path that merely appears inside a
+LONGER command does not count, because `agent list` is a substring of
+`agent list-templates` and of `workflow agent list` alike.
+
+**UNSTABLE and INTERNAL owe no cycle**, because this document promises them
+nothing: `admin`, `api` and `vibe` "may change in any release, without a changelog
+entry", and a hidden command has "no promise at all". The tier is read off the
+BASELINE row, not recomputed — so hiding a command in the same commit that deletes
+it does not launder it out of the promise it was under.
+
+### What this cannot do
+
+⚠️ **A hand-edit of `src/cli-surface.baseline.generated.ts` walks around all of
+it**, and no arrangement of a checked-in file prevents that. What the design buys
+is that the walk-around is a deletion from a file whose header says GENERATED, in
+the same commit as the command it excuses — the same act as deleting the gate.
+
+⚠️ **A rename that changes a flag or the description in the SAME commit** moves the
+path and the identity together, so it reads as a removal. Keep the old name as an
+alias and the verdict is `aliased` whatever the identity did.
+
+⚠️ **Two leaves that share a `shape`** cannot be told apart, so neither can be
+deprecated by identity and a vanished one is reported as `removed` rather than
+moved. The manifest's generated header names every colliding group; there are none
+today.
 
 ---
 

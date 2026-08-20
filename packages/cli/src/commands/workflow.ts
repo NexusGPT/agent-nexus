@@ -7,7 +7,8 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
-import { handleError, refuse } from "../errors";
+import { handleError, refuse, reportFailure } from "../errors";
+import { judgeNodeTest, reportNodeTestRefusal } from "../node-test-verdict";
 import {
   color,
   formatFolder,
@@ -476,13 +477,42 @@ Notes:
   a workflow carrying an unresolvable reference in a text field. So a run of
   validate is not optional politeness before publish — it is the only thing
   standing between a ghost reference and run time.
-  This is a READ. It changes nothing and never publishes.`
+  This is a READ. It changes nothing and never publishes.
+  THE EXIT CODE CARRIES isValid. A workflow with errors exits non-zero; a clean
+  one, or one carrying warnings only, exits 0. Warnings never affect it, so a CI
+  step can be "nexus workflow validate <id> && nexus workflow publish <id>".`
     )
     .action(async (id: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const report = await client.workflows.validate(id);
-        printRecord(report);
+        // 🚨 UNDER --json A FAILURE IS THE ERROR DOCUMENT AND NOTHING ELSE, so
+        // the report is printed only when the workflow is VALID or the reader is
+        // a human. Printing it first takes stdout and `emitDocument`'s
+        // first-wins rule diverts the refusal to stderr — `error-masked` in
+        // `json-one-document.scan.ts`, a failure whose stdout reads as a
+        // success.
+        if (report.isValid || !isJsonMode()) printRecord(report);
+        if (!report.isValid) {
+          // 🚨 `isValid`, NOT `readyToPublish`. `isValid` is exactly "errors is
+          // empty"; `readyToPublish` additionally demands a trigger and a fully
+          // configured graph, and this command's own help records that a
+          // workflow failing THAT still publishes. Exiting non-zero on it would
+          // redden a healthy workflow, which is how a gate gets reverted.
+          //
+          // ⚠️ WARNINGS ARE LEFT TO THE DOCUMENT. A warning is not a failure,
+          // and a validate that refuses on one is a validate nobody runs.
+          //
+          // `remote-error`, never a refusal: the invocation was ACCEPTED and the
+          // platform answered that the workflow under test is broken. The
+          // caller's next move is to fix the workflow, not the command line.
+          process.exitCode = reportFailure(
+            "remote-error",
+            `Workflow ${id} is not valid: ${String(report.errors.length)} error(s).`,
+            "Each entry in `errors` names its node, its field and its severity. " +
+              "Warnings do not affect this exit code."
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -652,7 +682,13 @@ Notes:
   are persisted, which is what lets downstream nodes see this node's shape — and
   which overwrites the previous test's pointer.
   The returned executionId is a per-node test id, so "nexus execution get" on it
-  fails. The output you want is already in this response's data field.`
+  fails. The output you want is already in this response's data field.
+  THE EXIT CODE CARRIES THE NODE'S OUTCOME, NOT status. status reads COMPLETED for
+  a run whose node threw, so the outcome is read from data instead: a node that
+  failed exits non-zero and its error is in data.errorDetails. A node type that
+  runs in the background answers status PENDING with data null — nothing was
+  measured, so that exits non-zero under the UNMEASURED category, which is
+  neither a pass nor a failure. "nexus --help" holds the code table.`
     )
     .action(async (workflowId: string, nodeId: string, opts) => {
       try {
@@ -663,7 +699,24 @@ Notes:
         // keys; normalize a flat --input / --body so it isn't dropped (NEX-2483).
         const body = buildTestNodeBody(base, input);
         const result = await client.workflows.testNode(workflowId, nodeId, body);
-        printRecord(result);
+        // `node-test-verdict.ts` owns what this response MEANS, because
+        // `workflow node test` sends the identical request and must reach the
+        // identical exit code. `status` alone is the wrong verdict — it reads
+        // COMPLETED for a run whose node threw.
+        const verdict = judgeNodeTest(result);
+        if (verdict.outcome === "passed") {
+          printRecord(result);
+        } else {
+          // 🚨 UNDER --json A FAILURE IS THE ERROR DOCUMENT AND NOTHING ELSE.
+          // Printing the record first takes stdout, and `emitDocument`'s
+          // first-wins rule then diverts the refusal to stderr — so a consumer
+          // reading stdout sees a payload and never learns the node failed.
+          // `json-one-document.scan.ts` calls that `error-masked` and it is a
+          // defect, not a trade-off. In prose the record is the only place
+          // `data.errorDetails` is visible, so a human still gets it.
+          if (!isJsonMode()) printRecord(result);
+          process.exitCode = reportNodeTestRefusal(verdict);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

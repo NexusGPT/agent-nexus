@@ -445,6 +445,9 @@ export const GENERATED_NAMESPACE_LEDGER = [
     // the descriptor lands." It has.
     namespace: "tracks",
     descriptors: [
+      "TrackCreate",
+      "TrackUpdateCurrentStep",
+      "TrackReadRollup",
       "TrackListReady",
       "TrackListReadyTasks",
       "TrackCreateDependencyEdge",

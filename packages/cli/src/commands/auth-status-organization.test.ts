@@ -36,6 +36,16 @@ import { setJsonMode } from "../output";
 
 const CONFIG_FILE = path.join(SANDBOX, ".nexus-mcp", "config.json");
 
+/**
+ * ⚠️ EVERY CASE BELOW PASSES `--no-verify`, AND IT IS LOAD-BEARING.
+ *
+ * `auth status` verifies the key against the API by default — that is the whole
+ * point of the command, and `auth-probe.test.ts` owns those rules. These cases
+ * are about ORGANIZATION RESOLUTION, which is local and settled before any
+ * request is sent. Dropping the flag makes this file open a socket to whatever
+ * host the sandbox profile names: slow, offline-hostile, and failing for a
+ * reason that has nothing to do with what is under test.
+ */
 async function runStatus(argv: string[]): Promise<string[]> {
   // 🚨 THE REAL ROOT, NOT A RESTATEMENT OF IT. This helper used to declare the
   // global options itself AND re-implement the production `preAction` hook,
@@ -89,7 +99,7 @@ afterEach(() => {
 
 describe("NEX-2525: the reported organization is the one that will be used", () => {
   it("reports the profile's org, and names it, when this shell selects nothing", async () => {
-    const [document] = await runStatus(["--json", "auth", "status"]);
+    const [document] = await runStatus(["--json", "auth", "status", "--no-verify"]);
 
     expect(JSON.parse(document)).toMatchObject({
       orgId: "org_A",
@@ -101,7 +111,7 @@ describe("NEX-2525: the reported organization is the one that will be used", () 
   it("reports NEXUS_ORGANIZATION_ID over the profile's org, and withholds the wrong name", async () => {
     process.env.NEXUS_ORGANIZATION_ID = "org_B";
 
-    const [document] = await runStatus(["--json", "auth", "status"]);
+    const [document] = await runStatus(["--json", "auth", "status", "--no-verify"]);
     const parsed = JSON.parse(document);
 
     expect(parsed.orgId).toBe("org_B");
@@ -116,7 +126,7 @@ describe("NEX-2525: the reported organization is the one that will be used", () 
   it('says "token" when nothing selects an org — the key\'s own org decides, server-side', async () => {
     writeConfig({ apiKey: "nxs_p_aaaabbbbccccdddd", personalToken: true });
 
-    const [document] = await runStatus(["--json", "auth", "status"]);
+    const [document] = await runStatus(["--json", "auth", "status", "--no-verify"]);
 
     expect(JSON.parse(document)).toMatchObject({ orgId: null, orgSource: "token" });
   });
@@ -124,7 +134,7 @@ describe("NEX-2525: the reported organization is the one that will be used", () 
   it("marks the env selection in the human output, in place, and drops the wrong name", async () => {
     process.env.NEXUS_ORGANIZATION_ID = "org_B";
 
-    const text = (await runStatus(["auth", "status"])).join("\n");
+    const text = (await runStatus(["auth", "status", "--no-verify"])).join("\n");
 
     expect(text).toContain("org_B");
     expect(text).toContain("NEXUS_ORGANIZATION_ID");

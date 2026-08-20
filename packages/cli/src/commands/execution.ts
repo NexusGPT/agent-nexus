@@ -18,6 +18,7 @@ import {
   printSuccess,
   type RecordField
 } from "../output";
+import { judgeRunStatus, reportRunRefusal } from "../run-verdict";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { firstNonBlankOr } from "../util/present-text";
 import { runFollow, shortTag } from "../util/run-follow";
@@ -222,7 +223,12 @@ Notes:
   "you did not pass --verbose". Test for the key.
   A BRANCHING NODE'S CHOICE LIVES IN THAT FULL OUTPUT — read
   .nodes[] | select(.nodeType=="…") | .output under --verbose. It is not on
-  outputSummary in any readable form, and it is not a field of its own here.`
+  outputSummary in any readable form, and it is not a field of its own here.
+  THE EXIT CODE CARRIES status. A COMPLETED run exits 0 and a FAILED one exits
+  non-zero. A CANCELLED run, and one still PENDING or RUNNING, exit non-zero
+  under the UNMEASURED category instead — a run somebody stopped did not fail,
+  and a run still going has not been judged at all. "nexus --help" holds the
+  code table.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -231,8 +237,22 @@ Notes:
           verbose: !!opts.verbose
         });
 
+        // `run-verdict.ts` owns what a run status MEANS, because `execution poll`
+        // reads the same five values and must reach the same exit code.
+        const verdict = judgeRunStatus(result.status);
+
         if (isJsonMode()) {
-          console.log(JSON.stringify(result, null, 2));
+          // 🚨 UNDER --json A FAILURE IS THE ERROR DOCUMENT AND NOTHING ELSE.
+          // Printing the diagnosis first takes stdout, and `emitDocument`'s
+          // first-wins rule then diverts the refusal to stderr — so a consumer
+          // reading stdout sees a document that parses cleanly and never learns
+          // the run failed. `json-one-document.scan.ts` calls that
+          // `error-masked`.
+          if (verdict.outcome === "completed") {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            process.exitCode = reportRunRefusal(verdict, result.executionId);
+          }
           return;
         }
 
@@ -284,6 +304,12 @@ Notes:
           printDiagnoseNode(node, 0, !!opts.verbose);
         }
         console.log();
+
+        // The human already has the whole diagnosis above; the exit code is the
+        // half a script reads, and it said nothing.
+        if (verdict.outcome !== "completed") {
+          process.exitCode = reportRunRefusal(verdict, result.executionId);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -323,7 +349,14 @@ Notes:
   WHOSE GRAPH WROTE NOTHING. It is filled from the outputNode's own result, so a
   workflow with no outputNode, or one whose outputNode has no data.instructions
   to render, completes with outputData null and no error anywhere. Read the node
-  results with "execution diagnose" when a COMPLETED run polls back empty.`
+  results with "execution diagnose" when a COMPLETED run polls back empty.
+  THE EXIT CODE CARRIES status, WITH OR WITHOUT --watch. A COMPLETED run exits 0
+  and a FAILED one exits non-zero. CANCELLED exits non-zero under the UNMEASURED
+  category — --watch treats it as terminal, and it is NOT a failure: somebody
+  stopped the run before the platform judged it. A one-shot poll of a run still
+  PENDING or RUNNING is UNMEASURED too, which makes
+  "until nexus execution poll <id>; do sleep 5; done" a wait loop that can tell
+  the three apart. "nexus --help" holds the code table.`
     )
     .action(async (id: string | undefined, opts) => {
       try {
@@ -363,7 +396,12 @@ Notes:
 
         if (!opts.watch) {
           const result = await doPoll();
-          printRecord(result, fields);
+          const verdict = judgeRunStatus(result.status);
+          // Same rule as `diagnose`: under --json a refusal is the one document.
+          if (verdict.outcome === "completed" || !isJsonMode()) printRecord(result, fields);
+          if (verdict.outcome !== "completed") {
+            process.exitCode = reportRunRefusal(verdict, result.executionId);
+          }
           return;
         }
 
@@ -390,7 +428,15 @@ Notes:
           await new Promise((resolve) => setTimeout(resolve, interval));
         }
 
-        printRecord(result, fields);
+        // 🚨 THE LOOP ABOVE STOPS AT COMPLETED, FAILED **OR** CANCELLED, AND
+        // ANSWERED 0 ON ALL THREE. A wait loop written around this could not
+        // tell a run that finished from one that failed without re-reading the
+        // document it had just printed.
+        const watched = judgeRunStatus(result.status);
+        if (watched.outcome === "completed" || !isJsonMode()) printRecord(result, fields);
+        if (watched.outcome !== "completed") {
+          process.exitCode = reportRunRefusal(watched, result.executionId);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -4,7 +4,9 @@ import type {
   ClaimTrackTaskBody,
   ClaimTrackTaskResponse,
   CloseTrackAgentBody,
+  CreateTrackBody,
   CreateTrackDependencyEdgeBody,
+  CreateTrackResponse,
   CreateTrackSectionBody,
   CreateTrackTaskEdgeBody,
   DeleteTrackMemoryEntryResponse,
@@ -31,8 +33,11 @@ import type {
   TrackDiaryEntry,
   TrackEdgeCreated,
   TrackEvent,
+  TrackRollup,
   TrackSection,
-  TrackTask
+  TrackTask,
+  UpdateTrackCurrentStepBody,
+  UpdateTrackCurrentStepResponse
 } from "../types/tracks";
 import { BaseResource } from "./base-resource";
 
@@ -62,6 +67,47 @@ import { BaseResource } from "./base-resource";
  * makes its dependents appear in the very next call.
  */
 export class TracksResource extends BaseResource {
+  /**
+   * Create one track.
+   *
+   * 🔴 THE `number` COMES BACK, IT IS NEVER SENT. It is allocated from a
+   * per-organization sequence inside the creating transaction — gapless, from 1,
+   * and impossible for two concurrent creates to share.
+   *
+   * A slug already taken in this organization answers 409.
+   */
+  async create(body: CreateTrackBody): Promise<CreateTrackResponse> {
+    return this.http.request<CreateTrackResponse>("POST", `/tracks`, { body });
+  }
+
+  /**
+   * Set — or clear — the one line that says what is happening on this track.
+   *
+   * `currentStep` is what every row of the ready set carries and what a person
+   * scanning a board reads first. Send `null` to clear it. A track that does not
+   * resolve in your organization answers 404.
+   */
+  async updateCurrentStep(
+    trackId: string,
+    body: UpdateTrackCurrentStepBody
+  ): Promise<UpdateTrackCurrentStepResponse> {
+    return this.http.request<UpdateTrackCurrentStepResponse>(
+      "POST",
+      `/tracks/${trackId}/current-step`,
+      { body }
+    );
+  }
+
+  /**
+   * The track's progress: leaves done, leaves total.
+   *
+   * 🔴 COUNTS, NEVER A PERCENTAGE — divide them yourself. LEAVES ONLY, so a
+   * parent task is in neither number. A track that is not yours reads `0/0`.
+   */
+  async readRollup(trackId: string): Promise<TrackRollup> {
+    return this.http.request<TrackRollup>("GET", `/tracks/${trackId}/rollup`);
+  }
+
   /** The tracks whose blockers are all done. */
   async listReady(params?: ReadySetParams): Promise<ListReadyTracksResponse> {
     return this.http.request<ListReadyTracksResponse>("GET", `/tracks/ready`, {

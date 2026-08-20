@@ -181,6 +181,22 @@ export interface HelpSuggestion {
 export const PLACED_COUNT = 211;
 
 /**
+ * The DENOMINATOR of "N of 237" — the audit's own total, as a CEILING.
+ *
+ * 🚨 AN UPPER BOUND, NEVER AN EQUALITY, AND THE DIRECTION IT REFUSES IS THE ONE
+ * THIS NUMBER IS FOR. A 238th row is what makes "N of 237" stop meaning what the
+ * audit measured, and a new idea about `--help` is a new ticket rather than a
+ * row here. That is GROWTH, and a ceiling refuses it by name.
+ *
+ * An equality also refused a SHRINK, and a shrink is somebody deliberately
+ * removing a row — a correct edit that a gate must not red. The numerator stays
+ * honest without it: `PLACED_COUNT` is an equality in both directions, and the
+ * state partition in the spec is asserted against this table's OWN length rather
+ * than against a literal, so a deleted `placed` row still reds by name.
+ */
+export const AUDIT_TOTAL = 237;
+
+/**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
  *
  * Reported beside `PLACED_COUNT`, never subtracted from it — see the header.
@@ -603,7 +619,13 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "(parsing the output)",
     state: "placed",
     leaf: "channel setup",
-    probe: "--json CARRIES THAT VERDICT"
+    // The note this probe pins moved on from "--json carries the verdict" to
+    // "the exit code carries it". The suggestion was about how a caller learns
+    // the channel is ready; the answer is now `$?` rather than a jq filter over
+    // the document, and the jq one-liner this row's own history is about — the
+    // `defect` worked example in the header above — is deleted rather than
+    // corrected. The probe follows the sentence that answers the suggestion.
+    probe: "THE EXIT CODE CARRIES THAT VERDICT"
   },
   {
     id: "channel-02",

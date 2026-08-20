@@ -344,36 +344,74 @@ describe("a destructive command asks before it acts", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("the debt ledger still describes the tree", () => {
-  it.each(eachOrRefuse(Object.keys(UNCONFIRMED_DESTRUCTIVE), "UNCONFIRMED_DESTRUCTIVE"))(
-    "%s is still unconfirmed",
-    (leaf) => {
-      const run = runs.get(leaf);
-      expect(run, `${leaf} was never driven`).toBeDefined();
-      if (run === undefined) return;
+  /**
+   * 🚨 ONE TEST OVER THE ROWS, NEVER `.each` OVER THE LEDGER — AND
+   * `emptyTableIsExpected` DOES NOT MAKE `.each` SAFE HERE EITHER.
+   *
+   * `UNCONFIRMED_DESTRUCTIVE` is a DEBT list and this file calls it one: every
+   * entry is a destructive leaf that acts without asking, and the job is to
+   * empty it. `eachOrRefuse` stood here and THROWS at collection on an empty
+   * table, so the person who finally makes the last one ask would take this
+   * whole file down — the debt sweep, the exemption sweep and the
+   * `CONFIRMS_BEFORE_ACTING` sweep with it.
+   *
+   * `emptyTableIsExpected` silences that throw and does not fix the shape.
+   * Measured on vitest 3.2.4 and 4.1.6: an empty `.each` registers no test, and
+   * a `describe` left with NO test fails with `No test found in suite`. At file
+   * level, beside a sibling `it`, the same empty table passes — so the hazard is
+   * the `describe` wrapper, which is the shape every ledger sweep in this
+   * repository uses.
+   *
+   * Collecting offenders into one array and expecting `[]` is green on an empty
+   * ledger in every runner, and it prints every paid-off entry at once instead
+   * of one failing case each.
+   *
+   * `eachOrRefuse` stays on `CONFIRMS_BEFORE_ACTING` above, where it belongs: an
+   * empty list of commands that DO ask is a broken harness, never a success.
+   */
+  it("every entry is still a leaf that acts without asking", () => {
+    const undriven = Object.keys(UNCONFIRMED_DESTRUCTIVE).filter((leaf) => !runs.has(leaf));
 
-      expect(
-        run.asked,
-        `${leaf} now asks before acting. Delete its line from ` +
-          `UNCONFIRMED_DESTRUCTIVE and add it to CONFIRMS_BEFORE_ACTING — a ledger ` +
-          `that keeps a paid-off entry is a ledger nobody trusts the rest of.`
-      ).toBe(false);
-    }
-  );
+    const paidOff = Object.keys(UNCONFIRMED_DESTRUCTIVE)
+      .map((leaf) => ({ leaf, run: runs.get(leaf) }))
+      .filter((row) => row.run !== undefined && row.run.asked)
+      .map((row) => row.leaf);
+
+    expect(
+      { undriven, paidOff },
+      `Every leaf named here must still act without asking.\n` +
+        `  undriven — named in UNCONFIRMED_DESTRUCTIVE and never driven at all.\n` +
+        `  paidOff  — now asks before acting. Delete its line from ` +
+        `UNCONFIRMED_DESTRUCTIVE and add it to CONFIRMS_BEFORE_ACTING; a ledger that ` +
+        `keeps a paid-off entry is a ledger nobody trusts the rest of.`
+    ).toEqual({ undriven: [], paidOff: [] });
+  });
 });
 
 describe("the exemptions are still exemptions", () => {
-  it.each(eachOrRefuse(Object.keys(NOT_DESTRUCTIVE), "NOT_DESTRUCTIVE"))(
-    "%s legitimately asks nothing",
-    (leaf) => {
-      const run = runs.get(leaf);
-      expect(run, `${leaf} was never driven`).toBeDefined();
-      if (run === undefined) return;
+  /**
+   * The blessed exemption list is the LEAST likely of the three to empty, and it
+   * gets the same shape for the same reason: the failure was at COLLECTION, so
+   * it took the two sweeps above down with it rather than failing on its own.
+   * A list of leaves that genuinely ask nothing reaching zero is a tree where
+   * every destructive-looking leaf turned out to be destructive — unlikely is
+   * not the same as forbidden.
+   */
+  it("every exempt leaf still legitimately asks nothing", () => {
+    const undriven = Object.keys(NOT_DESTRUCTIVE).filter((leaf) => !runs.has(leaf));
 
-      expect(
-        run.asked,
-        `${leaf} now asks before acting, which contradicts the reason it was ` +
-          `exempted for: "${NOT_DESTRUCTIVE[leaf]}". Move it to CONFIRMS_BEFORE_ACTING.`
-      ).toBe(false);
-    }
-  );
+    const nowAsking = Object.keys(NOT_DESTRUCTIVE)
+      .map((leaf) => ({ leaf, run: runs.get(leaf) }))
+      .filter((row) => row.run !== undefined && row.run.asked)
+      .map((row) => `${row.leaf} (exempted because: "${NOT_DESTRUCTIVE[row.leaf]}")`);
+
+    expect(
+      { undriven, nowAsking },
+      `An exemption claims the leaf asks nothing BECAUSE there is nothing to ask ` +
+        `about.\n` +
+        `  undriven  — named in NOT_DESTRUCTIVE and never driven at all.\n` +
+        `  nowAsking — asks before acting, which contradicts the reason it was ` +
+        `exempted for. Move it to CONFIRMS_BEFORE_ACTING.`
+    ).toEqual({ undriven: [], nowAsking: [] });
+  });
 });

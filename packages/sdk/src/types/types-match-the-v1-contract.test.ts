@@ -690,6 +690,18 @@ const GATED_PAIRS = [
  * Anything absent from BOTH lists is simply unchecked, which is the state most
  * of the contract is still in — see the coverage test.
  */
+/**
+ * The most types this list may hold.
+ *
+ * 🚨 AN UPPER BOUND, NEVER AN EQUALITY. This is a DEBT list — every entry is a
+ * type the gate cannot compare against its schema — so removing one is the whole
+ * point, and `toBe(7)` reds until the number is edited too. It also reds in the
+ * other direction, over a tree that is strictly better than the one the 7 was
+ * written against. `GATED_PAIR_FLOOR` below is a floor because it bounds the
+ * OPPOSITE population, the pairs actually gated, which only grows.
+ */
+const UNGATED_CEILING = 7;
+
 const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
   [
     "ListPhoneNumbersParams",
@@ -850,6 +862,12 @@ describe("the SDK's types match the Public API v1 contract", () => {
         `${name} is listed as BOTH gated and ungated`
       ).toBe(false);
     }
-    expect(UNGATED_WITH_REASON.length).toBe(7);
+    expect(
+      UNGATED_WITH_REASON.length,
+      `${UNGATED_WITH_REASON.length} type(s) are exempt against a ceiling of ` +
+        `${UNGATED_CEILING}. This can only fail by GROWING: gating one of these is the ` +
+        `success state, and it passes here in silence. Lower the ceiling when a batch ` +
+        `drains, in the same commit.`
+    ).toBeLessThanOrEqual(UNGATED_CEILING);
   });
 });

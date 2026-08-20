@@ -1428,6 +1428,17 @@ export type V1ResponseAssertions = [
     >
   >,
   // ── tracks ── the seven scope resources of one work item ─────────────────
+  // TrackCreate  POST /public/v1/tracks  ->  client.tracks.create()
+  Expect<Equals<ResponseOf<"TrackCreate">, MethodResult<NexusClient["tracks"]["create"]>>>,
+  // TrackUpdateCurrentStep  POST /public/v1/tracks/:trackId/current-step  ->  client.tracks.updateCurrentStep()
+  Expect<
+    Equals<
+      ResponseOf<"TrackUpdateCurrentStep">,
+      MethodResult<NexusClient["tracks"]["updateCurrentStep"]>
+    >
+  >,
+  // TrackReadRollup  GET /public/v1/tracks/:trackId/rollup  ->  client.tracks.readRollup()
+  Expect<Equals<ResponseOf<"TrackReadRollup">, MethodResult<NexusClient["tracks"]["readRollup"]>>>,
   // TrackListReady  GET /public/v1/tracks/ready  ->  client.tracks.listReady()
   Expect<Equals<ResponseOf<"TrackListReady">, MethodResult<NexusClient["tracks"]["listReady"]>>>,
   // TrackListReadyTasks  GET /public/v1/tracks/:trackId/tasks/ready  ->  client.tracks.listReadyTasks()
@@ -1775,6 +1786,9 @@ const GATED_ROUTES = [
   "RolesAddPermissionSetMember",
   "RolesRemovePermissionSetMember",
   // tracks — the seven scope resources of one work item
+  "TrackCreate",
+  "TrackUpdateCurrentStep",
+  "TrackReadRollup",
   "TrackListReady",
   "TrackListReadyTasks",
   "TrackCreateDependencyEdge",

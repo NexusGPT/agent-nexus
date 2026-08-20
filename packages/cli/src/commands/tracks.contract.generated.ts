@@ -41,6 +41,15 @@ export const TRACK_CLOSE_AGENT__BODY_STATE = {
   ]
 } as const satisfies ContractEnum;
 
+export const TRACK_CREATE__BODY_NEXT_OWNER = {
+  path: "TrackCreate.Body.nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
+  ]
+} as const satisfies ContractEnum;
+
 export const TRACK_LIST_AGENTS__PARAMS_STATE = {
   path: "TrackListAgents.Params.state",
   contractValues: [
@@ -121,6 +130,18 @@ export const TRACK_CLOSE_AGENT_CONTRACT = {
     { path: "PathVars.agentId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "Body.state", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["CLOSED", "DEAD", "RETIRED"] },
     { path: "Body.reason", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_CREATE_CONTRACT = {
+  name: "TrackCreate",
+  method: "POST",
+  route: "/public/v1/tracks",
+  fields: [
+    { path: "Body.slug", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.title", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.currentStep", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.nextOwner", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["CUE", "USER", "EVENT"] }
   ]
 } as const satisfies ProjectedDescriptor;
 
@@ -283,6 +304,15 @@ export const TRACK_PUT_MEMORY_ENTRY_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const TRACK_READ_ROLLUP_CONTRACT = {
+  name: "TrackReadRollup",
+  method: "GET",
+  route: "/public/v1/tracks/:trackId/rollup",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const TRACK_READ_TASK_CONTRACT = {
   name: "TrackReadTask",
   method: "GET",
@@ -311,5 +341,15 @@ export const TRACK_TOGGLE_TASK_CONTRACT = {
     { path: "PathVars.taskId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "Body.done", slot: "Body", type: "boolean", required: true, depth: 0 },
     { path: "Body.evidence", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_UPDATE_CURRENT_STEP_CONTRACT = {
+  name: "TrackUpdateCurrentStep",
+  method: "POST",
+  route: "/public/v1/tracks/:trackId/current-step",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.currentStep", slot: "Body", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

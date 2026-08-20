@@ -58,6 +58,17 @@ async function runStatus(): Promise<unknown> {
   return JSON.parse(chunks.join("\n"));
 }
 
+// 🚨 EVERY FIXTURE MOUNT CARRIES THIS PROCESS'S OWN pid, SO IT READS LIVE.
+//
+// They were 999999999 — deliberately dead, to keep the fixture off the OS — and
+// that stopped working when `workspace status` began REFUSING on a dead mount:
+// under --json the error document replaces the rows, so a fixture about the
+// mode / org / profile COLUMNS never got to print one. `isMountLive` is
+// `process.kill(pid, 0)` for the rclone engine, which on our own pid is a
+// syscall rather than a shell-out, and is deterministic.
+//
+// Liveness itself is covered by `workspace-status-verdict-exits.test.ts`, which
+// drives both directions; nothing in THIS file is about it.
 describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,7 +87,7 @@ describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
         profile: "orange",
         orgName: "Acme",
         orgId: "org_abc",
-        pid: 999999999, // not alive → live: "no" without touching the OS
+        pid: process.pid,
         mountedAt: "2026-06-24T00:00:00.000Z"
       }
     };
@@ -100,7 +111,7 @@ describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
         baseUrl: "https://api.nexusgpt.io",
         readOnly: false,
         profile: "blue",
-        pid: 999999999,
+        pid: process.pid,
         mountedAt: "2026-06-24T00:00:00.000Z"
       }
     };
@@ -114,7 +125,7 @@ describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
       engine: "rclone",
       baseUrl: "https://api.nexusgpt.io",
       readOnly: false,
-      pid: 999999999,
+      pid: process.pid,
       mountedAt: "2026-06-24T00:00:00.000Z"
     };
     registry = {
@@ -146,7 +157,7 @@ describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
         engine: "rclone",
         mountPath: "/home/u/nexus/legacy",
         baseUrl: "https://api.nexusgpt.io",
-        pid: 999999999,
+        pid: process.pid,
         mountedAt: "2026-06-24T00:00:00.000Z"
       }
     };

@@ -750,6 +750,12 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // has stopped watching, which is the silent half of this disposition rather
   // than a tidy backlog item.
   "tracks ready": "safe",
+  // A mutation. Every one of the three creates or rewrites a row, so the sweep
+  // proves they are REGISTERED and never runs them — `tracks rollup` is the one
+  // read among them and it still needs a track id, which the sweep has none of.
+  "tracks create": "registration-only",
+  "tracks current-step": "registration-only",
+  "tracks rollup": "registration-only",
   "tracks dependency add": "registration-only",
   "tracks section create": "registration-only",
   "tracks section rename": "registration-only",

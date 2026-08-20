@@ -18,6 +18,78 @@
 export type TrackNextOwner = "CUE" | "USER" | "EVENT";
 
 /**
+ * Create one track.
+ *
+ * 🔴 `number` IS NOT A FIELD HERE AND MAY NEVER BE SENT. The server allocates it
+ * from a per-organization sequence inside the creating transaction, which is what
+ * makes it gapless and collision-free. A caller-supplied number would be handed
+ * out again later and refused on somebody else's create.
+ *
+ * `status` is absent too: a track is created `PLANNED`. So is `nextOwnerRef` —
+ * the watcher reference is written by whatever wires the watcher.
+ */
+export interface CreateTrackBody {
+  /** Unique per organization. 1-64 chars of `[a-z0-9-]`. A duplicate is a 409. */
+  slug: string;
+  title: string;
+  /** What happens next, one line, at most 400 characters. */
+  currentStep?: string | null;
+  /** Who is waited on. `USER` when omitted. */
+  nextOwner?: TrackNextOwner;
+}
+
+/**
+ * The track that was created.
+ *
+ * `number` is the field worth keeping: it is minted during the write, so it
+ * cannot be computed and cannot be asked for again cheaply.
+ */
+export interface CreateTrackResponse {
+  id: string;
+  number: number;
+  slug: string;
+  title: string;
+  currentStep: string | null;
+  nextOwner: TrackNextOwner;
+}
+
+/**
+ * Set — or clear — the one line that says what is happening on a track now.
+ *
+ * 🔴 `currentStep` IS REQUIRED AND NULLABLE, NEVER OPTIONAL. `null` clears it;
+ * an optional field would have no spelling for that, because an omitted key and
+ * an explicit `null` arrive the same way.
+ */
+export interface UpdateTrackCurrentStepBody {
+  /** One line. `null` clears it. */
+  currentStep: string | null;
+}
+
+/** What the track now says, echoed back so you need no second read. */
+export interface UpdateTrackCurrentStepResponse {
+  trackId: string;
+  currentStep: string | null;
+}
+
+/**
+ * A track's progress: leaves done, leaves total.
+ *
+ * 🔴 COUNTS, NEVER A PERCENTAGE. Rounding is a display decision and a caller
+ * handed a percentage cannot recover the counts. Divide them yourself.
+ *
+ * ⚠️ LEAVES ONLY, at any nesting depth. A parent task is structure rather than
+ * work, so it is in neither number — one parent with three children reads
+ * `0/3`, never `0/4`.
+ *
+ * ⚠️ A TRACK THAT IS NOT YOURS READS `0/0`, NOT a refusal. The same answer a
+ * real track with no tasks gives.
+ */
+export interface TrackRollup {
+  done: number;
+  total: number;
+}
+
+/**
  * One row of the TRACK-level ready set.
  *
  * A projection, never the stored row. `ready` is the whole agent loop in one

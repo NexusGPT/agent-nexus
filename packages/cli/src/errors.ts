@@ -165,8 +165,78 @@ const CLI_CODES = {
    * `LOCAL_FAILED` reader would follow.
    */
   UPGRADE_NOT_RESOLVED: "CLI_UPGRADE_NOT_RESOLVED",
-  UPGRADE_NOT_VERIFIED_FOR_YOU: "CLI_UPGRADE_NOT_VERIFIED_FOR_YOU"
+  UPGRADE_NOT_VERIFIED_FOR_YOU: "CLI_UPGRADE_NOT_VERIFIED_FOR_YOU",
+  /**
+   * A single-node test was DISPATCHED and its outcome is not in the response.
+   *
+   * Deliberately not {@link CLI_CODES.REMOTE_ERROR}: nothing failed. The node
+   * type runs in the background, so `data` is `null` and there is no verdict to
+   * report — the `unmeasured` exit category, whose whole reason for existing is
+   * that a check nobody could run is neither a pass nor a failure. A consumer
+   * branching on `CLI_REMOTE_ERROR` here would go and debug a node that has not
+   * yet run.
+   */
+  NODE_TEST_NOT_MEASURED: "CLI_NODE_TEST_NOT_MEASURED",
+  /**
+   * A workflow run was STOPPED before the platform could judge it.
+   *
+   * Deliberately not {@link CLI_CODES.REMOTE_ERROR}: nothing failed. A cancelled
+   * run may have done everything, nothing, or half of it, and the platform never
+   * reached a verdict — the `unmeasured` exit category. A consumer branching on
+   * a failure code here would go and debug a workflow that was never given the
+   * chance to be wrong.
+   */
+  RUN_CANCELLED: "CLI_RUN_CANCELLED",
+  /**
+   * A workflow run has NOT FINISHED — `PENDING`, `RUNNING`, or a status this
+   * build does not know.
+   *
+   * Separate from {@link CLI_CODES.RUN_CANCELLED} even though both exit
+   * `unmeasured`, because the reader's next move differs: one run is over and
+   * one is not. Waiting helps here and never helps there.
+   */
+  RUN_UNFINISHED: "CLI_RUN_UNFINISHED",
+  /**
+   * An OAuth handshake has not finished. The browser flow is still open.
+   *
+   * Deliberately not a failure code: nothing failed and nothing passed, so the
+   * exit category is `unmeasured`. `tool connection-status`'s own help calls
+   * PENDING the one state that means keep polling — a loop that treated it as a
+   * failure would abandon a handshake that is about to succeed.
+   */
+  HANDSHAKE_PENDING: "CLI_HANDSHAKE_PENDING",
+  /**
+   * An OAuth handshake outlived its `expiresAt` without completing.
+   *
+   * Terminal, and separate from a plain {@link CLI_CODES.REMOTE_ERROR} because
+   * the remedy differs: a FAILED handshake is diagnosed from its `errorCode`,
+   * and an EXPIRED one can only be replaced by a new one from
+   * `nexus tool connect`. Both exit `remote-error`; only the code says which.
+   */
+  HANDSHAKE_EXPIRED: "CLI_HANDSHAKE_EXPIRED"
 } as const;
+
+/**
+ * EVERY CODE THIS CLI MINTS, DERIVED FROM {@link CLI_CODES} RATHER THAN RETYPED.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A HAND-KEPT SECOND COPY OF THIS LIST GOES WRONG SILENTLY, AND IT ALREADY HAD.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `json-one-document.scan.ts` asks "is this a code the CLI mints" to separate a
+ * real refusal from a typo, and it asked it against a hand-written set. That set
+ * was missing `CLI_UPGRADE_NOT_RESOLVED` and `CLI_UPGRADE_NOT_VERIFIED_FOR_YOU`
+ * from the day they were added, and stayed green because neither reaches the
+ * driven scan — the miss only surfaces when a NEW code happens to be drivable,
+ * which turns a correct document into a reported defect for the one lane that
+ * adds one.
+ *
+ * Reading the declaration cannot drift from it. The scan unions this with the
+ * admin tree's own code, which is minted in `util/admin-errors.ts` and is
+ * deliberately not in `CLI_CODES` — that is the one addition it makes, and it
+ * makes it in one visible line.
+ */
+export const CLI_MINTED_CODES: ReadonlySet<string> = new Set(Object.values(CLI_CODES));
 
 /**
  * The one code with no {@link FailureCause}, because it owns its own exit code.
@@ -199,6 +269,31 @@ export const CLI_UPGRADE_NOT_RESOLVED = CLI_CODES.UPGRADE_NOT_RESOLVED;
  * own exit code and goes through {@link printFailure}.
  */
 export const CLI_UPGRADE_NOT_VERIFIED_FOR_YOU = CLI_CODES.UPGRADE_NOT_VERIFIED_FOR_YOU;
+
+/**
+ * A node test that was dispatched and not measured (`node-test-verdict.ts`), and
+ * a run that was stopped or has not finished (`run-verdict.ts`).
+ *
+ * None has a {@link FailureCause}, for the same reason as the two codes above:
+ * their exit category is `unmeasured`, and every `FailureCause` maps to a
+ * FAILURE. They go through {@link printFailure}, which emits the document and
+ * leaves the verdict to the caller.
+ */
+export const CLI_NODE_TEST_NOT_MEASURED = CLI_CODES.NODE_TEST_NOT_MEASURED;
+export const CLI_RUN_CANCELLED = CLI_CODES.RUN_CANCELLED;
+export const CLI_RUN_UNFINISHED = CLI_CODES.RUN_UNFINISHED;
+
+/**
+ * The two OAuth-handshake outcomes that are not a plain remote failure.
+ *
+ * Neither has a {@link FailureCause}: `HANDSHAKE_PENDING`'s exit category is
+ * `unmeasured`, which no `FailureCause` maps to, and `HANDSHAKE_EXPIRED` shares
+ * `remote-error`'s exit code while needing its own `code`. Both go through
+ * {@link printFailure}, which emits the document and leaves the verdict to the
+ * caller.
+ */
+export const CLI_HANDSHAKE_PENDING = CLI_CODES.HANDSHAKE_PENDING;
+export const CLI_HANDSHAKE_EXPIRED = CLI_CODES.HANDSHAKE_EXPIRED;
 
 /**
  * WHY A FAILURE THAT HAPPENED AFTER THE SEND CANNOT USE {@link refuse}.

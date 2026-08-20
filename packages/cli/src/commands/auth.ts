@@ -4,6 +4,8 @@ import readline from "node:readline/promises";
 
 import { Command } from "commander";
 
+import { AUTH_PROBE_DEFAULT_TIMEOUT_MS, probeCredential, refusalForProbe } from "../auth-probe";
+import { timeoutSecondsToMs } from "../client";
 import {
   clearConfig,
   getProfile,
@@ -799,9 +801,10 @@ Notes:
   marks the active one (▸). Switch with "nexus auth use-org <orgId>".`
     )
     .action(async () => {
+      const globals = program.optsWithGlobals();
       let resolved;
       try {
-        resolved = resolveProfile(program.optsWithGlobals());
+        resolved = resolveProfile(globals);
       } catch {
         process.exitCode = reportFailure(
           "not-authenticated",
@@ -989,7 +992,11 @@ Notes:
   // ── status ────────────────────────────────────────────────────────────
   auth
     .command("status")
-    .description("Show resolved profile and how it was determined")
+    .description("Verify the resolved profile's key against the API")
+    .option(
+      "--no-verify",
+      "Skip the live check and report local configuration only (reports verified: null)"
+    )
     .addHelpText(
       "after",
       `
@@ -1015,16 +1022,34 @@ Notes:
   it as "override". That is the case to look for when the key in use is not the
   key the named profile holds.
 
-  🚨 IT READS LOCAL CONFIG AND MAKES NO NETWORK CALL, SO IT IS NOT VERIFICATION.
-  A revoked, expired or mistyped key still reports here exactly as it did the
-  day it was stored, and the org and user lines are whatever was cached last —
-  stale, or absent if nothing ever cached them. "This command succeeded" is not
-  evidence the key works. Run "nexus auth whoami" for that: it resolves against
-  the API live, and it is also what fills those lines in when they are missing.`
+  IT VERIFIES THE KEY AGAINST THE API AND EXITS NON-ZERO WHEN THE KEY IS BAD.
+  Exit 0 from this command means the key authenticated against the base URL
+  reported on the "api:" line, at the moment it ran. Five failures and four
+  codes — the code names the family, the message names which one it was:
+
+    2  no profile, or the profile stores no key   -> nexus auth login
+    2  the server read the key and refused it     -> nexus auth login
+    7  the API could not be reached at all        -> check your network
+    8  the check ran out of time                  -> raise --timeout
+    6  the server was reached and errored         -> try again
+
+  ⚠️ 7, 8 and 6 mean THE CREDENTIAL WAS NOT JUDGED. They are not a verdict that
+  the key is bad, and treating them as one sends you to replace a key that may
+  be fine.
+
+  --no-verify skips the call and reports local configuration only. It exits 0
+  whatever the key's real state is, and says so: the JSON "verified" field is
+  null rather than true, because a check nobody ran is neither pass nor fail.
+  Use it offline, or to inspect a profile for a host you cannot reach.
+
+  "nexus auth whoami" answers a different question — WHO the key is, live, with
+  the organization and user resolved from the API and cached back into the
+  profile. Both verify; only whoami reports and refreshes the identity.`
     )
-    .action(() => {
+    .action(async (options: { verify: boolean }) => {
       try {
-        const resolved = resolveProfile(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const resolved = resolveProfile(globals);
 
         const sourceExplanation: Record<string, string> = {
           flag: "--profile flag",
@@ -1055,6 +1080,49 @@ Notes:
         // Never the key itself, on either channel — the same eight-and-four
         // masking the human line has always used.
         const maskedKey = `${resolved.profile.apiKey.slice(0, 8)}...${resolved.profile.apiKey.slice(-4)}`;
+        // Hoisted: the probe, the document and the human line must all name the
+        // SAME host. Resolving it three times is three chances to disagree, and
+        // a verdict reported against a host the reader was not shown is the
+        // defect this command exists to close, one level down.
+        const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+
+        // ── The verification ────────────────────────────────────────────
+        //
+        // 🚨 THIS IS THE WHOLE POINT OF THE COMMAND, AND IT USED NOT TO HAPPEN.
+        //
+        // `auth status` read local config, found a key and exited 0 — over a key
+        // the API had already stopped accepting. A sweep gated its preflight on
+        // that exit code, passed, and then watched 63 of 69 calls fail on auth.
+        // A verb named `status` that cannot fail on the state it reports turns a
+        // one-command fix into an open-ended hunt.
+        //
+        // `--no-verify` keeps the old local-only read for the cases that need it
+        // — offline, or inspecting a profile for a host you cannot reach. It is
+        // OPT-IN, because the default has to be the honest answer.
+        const probe = options.verify
+          ? await probeCredential(baseUrl, resolved.profile.apiKey, {
+              // The converter is named AT the call site on purpose: it is the one
+              // place the unit changes, and the timeout gate reads this text to
+              // prove the deadline is milliseconds and that the global flag can
+              // still move it. A probe pinning its own deadline would make the
+              // CLI's own "raise --timeout" advice a false instruction.
+              signal: AbortSignal.timeout(
+                timeoutSecondsToMs(globals.timeout) ?? AUTH_PROBE_DEFAULT_TIMEOUT_MS
+              )
+            })
+          : null;
+        const refusal =
+          probe === null
+            ? null
+            : refusalForProbe(
+                probe,
+                resolved.name,
+                baseUrl,
+                // THIS verb declares `--no-verify`, so it may name it. `whoami`
+                // does not and passes `null` — a shared hint naming a flag the
+                // calling command lacks sends the reader to a commander error.
+                "re-run with --no-verify"
+              );
 
         // ── The document ────────────────────────────────────────────────
         //
@@ -1065,6 +1133,15 @@ Notes:
         // the two the reader has to act on — whether the token reaches other
         // organizations, and whether the org identity was ever cached.
         if (isJsonMode()) {
+          // A failed verification is the error document and NOTHING ELSE — one
+          // document on stdout is a promise of this CLI, and a caller branching
+          // on `.error` must not have to also check a `verified` field it might
+          // not know about. The refusal message carries the profile name and the
+          // host, which is what the record would have told it.
+          if (refusal) {
+            process.exitCode = reportFailure(refusal.cause, refusal.message, refusal.hint);
+            return;
+          }
           printRecord({
             profile: resolved.name,
             source: resolved.source,
@@ -1082,9 +1159,18 @@ Notes:
             orgSource: org.source,
             userEmail: resolved.profile.userEmail ?? null,
             apiKey: maskedKey,
-            baseUrl: resolved.profile.baseUrl ?? resolveBaseUrl(),
-            // `auth status` reads local config and calls nothing, so an absent
-            // identity means "never resolved", not "no organization".
+            baseUrl,
+            // 🚨 THREE VALUES, NEVER TWO. `true` means the API accepted this key
+            // just now; `null` means `--no-verify` and NOBODY ASKED. A check
+            // that did not run must not wear a clean result — `false` would say
+            // the key was judged and failed, which is a different fact and one
+            // this document never reports (a failed check is the error document
+            // above, at a non-zero exit).
+            verified: probe === null ? null : true,
+            // The org/user fields above are the profile's CACHE. `whoami`
+            // refreshes them; an absent identity means "never resolved", not
+            // "no organization" — and `verified: true` says nothing about how
+            // old they are.
             identityCached: Boolean(resolved.profile.orgName ?? resolved.profile.orgId)
           });
           return;
@@ -1119,15 +1205,34 @@ Notes:
           console.log(`  ${color.dim("user:")} ${resolved.profile.userEmail}`);
         }
         console.log(`  ${color.dim("key:")} ${maskedKey}`);
-        console.log(`  ${color.dim("api:")} ${resolved.profile.baseUrl ?? resolveBaseUrl()}`);
+        console.log(`  ${color.dim("api:")} ${baseUrl}`);
+
+        // The human channel prints the resolution FIRST and the verdict after,
+        // on both outcomes. "Which profile is dead" is the fact a reader needs
+        // and the one a bare refusal cannot carry — and the `--json` funnel
+        // keeps this from becoming two documents on stdout.
+        if (refusal) {
+          process.exitCode = reportFailure(refusal.cause, refusal.message, refusal.hint);
+          return;
+        }
+        if (probe === null) {
+          // An unrun check must announce itself. Silence here reads as a pass,
+          // which is the exact false green `--no-verify` is allowed to produce.
+          console.log(
+            color.dim("\n  NOT VERIFIED — --no-verify skipped the live check. The key may be dead.")
+          );
+        } else {
+          console.log(`\n  ${color.green("verified")} ${color.dim(`— the API accepted this key`)}`);
+        }
         if (!resolved.profile.orgName && !resolved.profile.orgId) {
           console.log(
-            color.dim('\n  Run "nexus auth whoami" to resolve and cache org/user identity.')
+            color.dim('  Run "nexus auth whoami" to resolve and cache org/user identity.')
           );
         }
       } catch (err) {
-        // `auth status` reads local config and calls nothing, so the only thing
-        // that reaches here is `resolveProfile` refusing to find a credential.
+        // `resolveProfile` refusing to find a credential at all — no profiles
+        // configured, or a named one that does not exist. The probe itself never
+        // throws; every one of its failures is a member of its return union.
         process.exitCode = reportFailure("not-authenticated", (err as Error).message);
       }
     });
@@ -1153,9 +1258,10 @@ Notes:
   profiles that do exist.`
     )
     .action(async () => {
+      const globals = program.optsWithGlobals();
       let resolved;
       try {
-        resolved = resolveProfile(program.optsWithGlobals());
+        resolved = resolveProfile(globals);
       } catch {
         process.exitCode = reportFailure(
           "not-authenticated",
@@ -1171,102 +1277,72 @@ Notes:
 
       // whoami is a LIVE verification command: any failure to confirm the key
       // (network error, timeout, or a non-ok server response) must be reported
-      // as such — never a false "Authenticated.". The only graceful path is a
-      // 404 from /me, which means the backend predates this endpoint; there we
-      // fall back to the legacy /agents validity probe and show stored fields.
-      const requestInit = {
-        headers: { "api-key": resolved.profile.apiKey, Accept: "application/json" },
-        signal: AbortSignal.timeout(30_000)
-      };
-
-      const invalidKey = (): void => {
+      // as such — never a false "Authenticated.".
+      //
+      // 🚨 THE PROBE IS SHARED WITH `auth status` AND IS NOT REIMPLEMENTED HERE.
+      // Both verbs answer "is this key good", and this file used to hold the only
+      // correct copy while `status` had none. Two copies of that answer is two
+      // things to drift, silently, in the direction that reads as fine — so the
+      // mapping lives in `auth-probe.ts` and neither verb owns it.
+      //
+      // Behaviour preserved exactly, with ONE narrowing that the old bare `catch`
+      // could not express: a TIMEOUT now reports as `timed-out` rather than as
+      // `connection-failed`. They are different facts — a timeout may still be
+      // running server-side, an unreachable host is not — and collapsing them is
+      // the same defect one layer down.
+      const outcome = await probeCredential(baseUrl, resolved.profile.apiKey, {
+        // Same form as `status` above, and for the same reason — see the comment
+        // there. Both verbs are one probe with one deadline the caller sets.
+        signal: AbortSignal.timeout(
+          timeoutSecondsToMs(globals.timeout) ?? AUTH_PROBE_DEFAULT_TIMEOUT_MS
+        )
+      });
+      // `null`: `whoami` declares no `--no-verify` and has no way to skip the
+      // check — verifying live IS the command. Naming a flag it does not have
+      // would point the reader at an invocation commander rejects.
+      const whoamiRefusal = refusalForProbe(outcome, resolved.name, baseUrl, null);
+      if (whoamiRefusal) {
         process.exitCode = reportFailure(
-          "not-authenticated",
-          "API key is invalid or expired.",
-          "Run: nexus auth login"
-        );
-      };
-
-      let identity:
-        | { orgId?: string; orgName?: string; userEmail?: string; userName?: string; role?: string }
-        | undefined;
-      try {
-        const res = await fetch(`${baseUrl}/api/public/v1/me`, requestInit);
-
-        if (res.status === 401 || res.status === 403) {
-          invalidKey();
-          return;
-        }
-
-        if (res.ok) {
-          const json = (await res.json()) as {
-            data?: {
-              orgId?: string;
-              orgName?: string;
-              userEmail?: string;
-              userName?: string;
-              role?: string;
-            };
-          };
-          identity = json.data;
-
-          // Mirror the authoritative /me identity into the stored profile so
-          // `list`/`status` reflect reality. This is a SYNC, not a merge: a
-          // field the live response omits/nulls is cleared from the cache, so a
-          // stale org or email can't linger after the real value changes.
-          //
-          // Skip the write for an ephemeral `--api-key` / `NEXUS_API_KEY`
-          // override — `resolveProfile` names that result "override"; persisting
-          // it would write a bogus "override" profile into config.json.
-          if (identity && resolved.source !== "override") {
-            const synced: NexusProfile = { ...resolved.profile };
-            setOrClear(synced, "orgName", identity.orgName);
-            setOrClear(synced, "orgId", identity.orgId);
-            setOrClear(synced, "userEmail", identity.userEmail);
-            if (
-              synced.orgName !== resolved.profile.orgName ||
-              synced.orgId !== resolved.profile.orgId ||
-              synced.userEmail !== resolved.profile.userEmail
-            ) {
-              // Best-effort cache refresh: a write failure (read-only FS, disk
-              // full, permissions) must not fail whoami or surface as the outer
-              // catch's "could not reach the API" — auth already succeeded and
-              // the live identity is still shown below.
-              try {
-                saveProfile(resolved.name, synced);
-              } catch {
-                // ignore — caching is an optimization, not the command's purpose
-              }
-            }
-          }
-        } else if (res.status === 404) {
-          // Older backend without /me — fall back to a plain validity probe so
-          // whoami still works, just without live org/user identity.
-          const probe = await fetch(`${baseUrl}/api/public/v1/agents?limit=1`, requestInit);
-          if (probe.status === 401 || probe.status === 403) {
-            invalidKey();
-            return;
-          }
-          if (!probe.ok) {
-            process.exitCode = reportFailure(
-              "remote-error",
-              `Could not verify credentials (HTTP ${probe.status}). Try again.`
-            );
-            return;
-          }
-        } else {
-          process.exitCode = reportFailure(
-            "remote-error",
-            `Could not verify credentials (HTTP ${res.status}). Try again.`
-          );
-          return;
-        }
-      } catch {
-        process.exitCode = reportFailure(
-          "connection-failed",
-          "Could not reach the API to verify credentials. Check your connection and try again."
+          whoamiRefusal.cause,
+          whoamiRefusal.message,
+          whoamiRefusal.hint
         );
         return;
+      }
+
+      // `identity` is null on the legacy path: a backend with no `/me`, where the
+      // key is still PROVEN good by the fallback probe and there is simply no live
+      // identity to report. The stored profile answers for it below.
+      const identity = outcome.outcome === "verified" ? (outcome.identity ?? undefined) : undefined;
+
+      // Mirror the authoritative /me identity into the stored profile so
+      // `list`/`status` reflect reality. This is a SYNC, not a merge: a field the
+      // live response omits/nulls is cleared from the cache, so a stale org or
+      // email can't linger after the real value changes.
+      //
+      // Skip the write for an ephemeral `--api-key` / `NEXUS_API_KEY` override —
+      // `resolveProfile` names that result "override"; persisting it would write
+      // a bogus "override" profile into config.json.
+      if (identity && resolved.source !== "override") {
+        const synced: NexusProfile = { ...resolved.profile };
+        setOrClear(synced, "orgName", identity.orgName);
+        setOrClear(synced, "orgId", identity.orgId);
+        setOrClear(synced, "userEmail", identity.userEmail);
+        if (
+          synced.orgName !== resolved.profile.orgName ||
+          synced.orgId !== resolved.profile.orgId ||
+          synced.userEmail !== resolved.profile.userEmail
+        ) {
+          // Best-effort cache refresh: a write failure (read-only FS, disk full,
+          // permissions) must not fail whoami and must not be reported as a
+          // failure to reach the API — auth already succeeded and the live
+          // identity is still shown below.
+          try {
+            saveProfile(resolved.name, synced);
+          } catch {
+            // ignore — caching is an optimization, not the command's purpose
+          }
+        }
       }
 
       // Reaching here means the key was verified. When /me answered, its

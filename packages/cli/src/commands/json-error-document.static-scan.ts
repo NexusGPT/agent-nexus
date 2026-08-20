@@ -138,7 +138,23 @@ const DOCUMENT_EMITTERS = new Set([
   "printRecord",
   "printSuccess",
   "refuse",
-  "reportFailure"
+  "reportFailure",
+  // TWO DOMAIN HELPERS, and they are the only ones here. `reportNodeTestRefusal`
+  // (`node-test-verdict.ts`) and `reportRunRefusal` (`run-verdict.ts`) each
+  // decide which of `reportFailure` / `printFailure` their subject's verdict
+  // means, print it, and return the exit code — so
+  // `process.exitCode = reportNodeTestRefusal(verdict)` routes through the
+  // funnel exactly as `= reportFailure(…)` does.
+  //
+  // ⚠️ THEY ARE LISTED BY HAND BECAUSE THIS ONE CHECK IS NOT TRANSITIVE, unlike
+  // `proseOnlyHelpers` below. `exitCodeOf` asks `DOCUMENT_EMITTERS.has(name)`
+  // about the callee's own name and stops there, so a helper that emits its
+  // document one call down reads as prose-only at every call site. Each of these
+  // is shared by TWO commands precisely so the two cannot drift apart about what
+  // one response means; the alternative was copying a multi-arm decision into
+  // both command files, which is the drift this set would then be blind to.
+  "reportNodeTestRefusal",
+  "reportRunRefusal"
 ]);
 
 /** A file this scan deliberately does not read. */

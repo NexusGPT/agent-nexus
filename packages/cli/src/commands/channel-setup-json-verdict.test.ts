@@ -158,15 +158,29 @@ describe("nexus channel setup --json", () => {
     expect(doc.steps).toHaveLength(READY.steps.length);
   });
 
-  it("reports ready:false rather than omitting the key", async () => {
-    // A verdict that is present only when TRUE is a verdict a script cannot
-    // read: absent and false look identical to `jq -e '.ready'`, and only one
-    // of the two is a real answer.
+  it("answers the ERROR document, not a ready:false one, when it is not ready", async () => {
+    // 🚨 THE CONTRACT THIS CASE USED TO ASSERT IS GONE ON PURPOSE, AND ITS
+    // REPLACEMENT IS STRICTLY STRONGER.
+    //
+    // It read `ready: false` off stdout, because `channel setup` printed the
+    // setup document and exited 0 whatever it said. The exit code carries the
+    // verdict now, and a failure's one stdout document is the ERROR document —
+    // "under --json an error is a JSON document on STDOUT" is a STABLE promise,
+    // and `json-one-document.scan.ts` calls a payload sitting there instead
+    // `error-masked`, with a ceiling of 0.
+    //
+    // `ready: false` was never the load-bearing half anyway: reading it required
+    // parsing, which is what the deleted jq recipe below existed to do. A
+    // non-zero exit needs no parse at all.
     getSetupStatus.mockResolvedValue(NOT_READY);
     const { stdout } = await runJson(["channel", "setup", "--type", "WHATSAPP"]);
-    const doc = JSON.parse(stdout) as { ready?: unknown };
+    const doc = JSON.parse(stdout) as { error?: { code?: unknown; message?: unknown } };
 
-    expect(doc.ready).toBe(false);
+    expect(describeStdout(stdout)).toEqual({ documents: 1, prose: false });
+    expect(doc.error?.code).toBe("CLI_REMOTE_ERROR");
+    // The checklist moves INTO the message rather than being lost — the whole
+    // reason a caller ran this is to learn which prerequisite is missing.
+    expect(String(doc.error?.message)).toContain("WhatsApp Business Account");
   });
 
   it("diverts NO second document to stderr — the verdict is not exiled there", async () => {
@@ -186,60 +200,41 @@ describe("nexus channel setup --json", () => {
     expect(stderr).toBe("");
   });
 
-  it("EVALUATES the jq recipe the help ships, against the real document", async () => {
-    // 🚨 ASSERTING THE HELP CONTAINS ".ready" IS NOT THIS CHECK. A probe over
-    // the help text passes on a note that is present and WRONG — that is
-    // exactly how the aborting recipe shipped, green, for as long as it did.
-    // Only reading the recipe OUT of the shipped help and running it against
-    // real output can red when the two drift apart.
-    const filter = shippedJqFilter(setupHelp());
-    const { stdout } = await runJson(["channel", "setup", "--type", "WHATSAPP"]);
+  it("publishes NO jq workaround for the exit code any more", async () => {
+    // 🚨 THE CASE THAT REPLACES "EVALUATE THE SHIPPED RECIPE", AND IT IS THE
+    // SAME ARGUMENT POINTED THE OTHER WAY.
+    //
+    // The old case read `| jq -e '.ready'` out of the shipped help and ran it
+    // against real output, because a recipe that is present and WRONG is how the
+    // aborting filter shipped green for as long as it did. That recipe existed
+    // ONLY because the exit code answered 0 either way — `status-verdict.ledger`
+    // called a documented workaround for an exit code "this class's confession".
+    //
+    // The exit code answers now, so the recipe is deleted rather than corrected,
+    // and this asserts the deletion held. A helper that merely stopped LOOKING
+    // for the recipe would pass over one that came back; this fails the moment a
+    // `| jq` pipeline reappears in this command's help.
+    expect(setupHelp()).not.toMatch(/\|\s*jq\b/);
+    expect(setupHelp()).toContain("THE EXIT CODE CARRIES THAT VERDICT");
+  });
 
-    // `jq -e` exits 0 when the last output is neither false nor null. Ready
-    // means proceed, so the recipe published for the ready case must say so.
-    expect(evaluateFieldPath(JSON.parse(stdout), filter)).toBe(true);
+  it("exits 0 when ready and NON-ZERO when not — the thing the recipe stood in for", async () => {
+    // The pair, driven through the same harness the deleted recipe used, so the
+    // replacement is measured against real output rather than asserted.
+    const before = process.exitCode;
+    try {
+      getSetupStatus.mockResolvedValue(READY);
+      process.exitCode = undefined;
+      await runJson(["channel", "setup", "--type", "WHATSAPP"]);
+      expect(process.exitCode).toBeUndefined();
 
-    getSetupStatus.mockResolvedValue(NOT_READY);
-    const notReady = await runJson(["channel", "setup", "--type", "WHATSAPP"]);
-    expect(evaluateFieldPath(JSON.parse(notReady.stdout), filter)).toBe(false);
+      getSetupStatus.mockResolvedValue(NOT_READY);
+      process.exitCode = undefined;
+      await runJson(["channel", "setup", "--type", "WHATSAPP"]);
+      expect(process.exitCode).not.toBeUndefined();
+      expect(process.exitCode).not.toBe(0);
+    } finally {
+      process.exitCode = before;
+    }
   });
 });
-
-/**
- * The `jq` filter `channel setup --help` publishes, read out of the help text.
- *
- * Refuses rather than returns a default. A recipe this cannot find is a recipe
- * nobody is checking, and a helper that quietly answered `.ready` would keep
- * the caller's test green while the shipped note said something else entirely.
- */
-function shippedJqFilter(help: string): string {
-  const match = /\|\s*jq\s+(?:-\S+\s+)*'([^']+)'/.exec(help);
-  if (match?.[1] === undefined) {
-    throw new Error("no `| jq '<filter>'` recipe found in `channel setup --help`");
-  }
-  return match[1].trim();
-}
-
-/**
- * Evaluate a jq FIELD PATH — `.a`, `.a.b` — against one document.
- *
- * ⚠️ THIS IS NOT A jq IMPLEMENTATION AND MUST NEVER GROW INTO ONE. It handles
- * the one filter shape a verdict can honestly take, and THROWS on everything
- * else, including the `[.[] | select(…)]` pipeline this command used to
- * publish. Returning a default for an unrecognised filter is the failure mode
- * that matters: the suite would read green over a recipe nothing evaluated.
- */
-function evaluateFieldPath(document: unknown, filter: string): unknown {
-  if (!/^\.[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(filter)) {
-    throw new Error(
-      `the shipped recipe is not a plain field path and this spec cannot evaluate it: ${filter}`
-    );
-  }
-
-  let value: unknown = document;
-  for (const key of filter.slice(1).split(".")) {
-    if (typeof value !== "object" || value === null) return undefined;
-    value = (value as Record<string, unknown>)[key];
-  }
-  return value;
-}

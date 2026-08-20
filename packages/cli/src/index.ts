@@ -56,6 +56,7 @@ import { registerVibeCommands } from "./commands/vibe";
 import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
+import { applyDeprecationNotices } from "./deprecation-notice";
 import { registerHelpScopeFooter } from "./help-scope";
 import { applyJsonShapeHelpLine } from "./json-shape-help";
 import { installJsonTerminalContract } from "./json-terminal-contract";
@@ -507,6 +508,16 @@ export function buildRootProgram(version: string = VERSION): Command {
   // for the same reason as the line before it, and lands ABOVE the scope footer
   // so the global caveat stays last. See `probe-barrier.ts`.
   applyProbeBarrierHelpLine(program);
+
+  // The announcement half of a deprecation cycle: a line on the leaf's own
+  // `--help` and a warning on STDERR when it is invoked. Walks the FINISHED tree
+  // for the same reason as the three lines above, so deprecating a command needs
+  // no edit to the file that registers it. The stderr half is load-bearing —
+  // stdout under `--json` is ONE document and the notice must never become the
+  // breaking change it was meant to give a release of warning about. See
+  // `deprecation-notice.ts`; `deprecation-cycle.ts` is the half that refuses a
+  // removal which skipped this.
+  applyDeprecationNotices(program);
 
   // An argument refusal becomes a throw, so it reaches `handleError` and emits
   // the error document the root epilogue promises. Walks the FINISHED tree for

@@ -194,6 +194,25 @@ const GATED_PAIRS = [
  * declaration was read off the backend service instead, and its doc comment
  * names which one.
  */
+/**
+ * The most types this list may hold.
+ *
+ * 🚨 AN UPPER BOUND, NEVER A FLOOR. `toBeGreaterThanOrEqual(8)` stood here, and
+ * a floor on a DEBT list is the exact-pin defect wearing a friendlier matcher:
+ * it refuses the cure from one direction only, which makes it quieter and no
+ * less wrong. Every entry is a route the v1 contract declares with no `Response`
+ * schema; when one gains a schema the type becomes gatable and its row goes, and
+ * draining the list to zero is the goal. `GATED_PAIRS` above keeps its floor —
+ * it bounds the opposite population, which only grows.
+ *
+ * ⚠️ 9, MEASURED, NOT THE 8 THE OLD FLOOR NAMED. A floor and a ceiling are read
+ * off opposite ends: `>= 8` was satisfied by a list of any size at or above 8
+ * and said nothing about the live figure, so carrying the 8 across gave a
+ * ceiling one under the tree and a permanent red. Take a ceiling from a count,
+ * never from the number the floor happened to hold.
+ */
+const UNGATED_CEILING = 9;
+
 const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
   [
     "WorkflowArchiveResult",
@@ -247,7 +266,13 @@ describe("workflow types match the v1 contract", () => {
       expect(name.length, "an ungated type must be named").toBeGreaterThan(0);
       expect(reason.length, `${name} is ungated with no reason`).toBeGreaterThan(20);
     }
-    expect(UNGATED_WITH_REASON.length).toBeGreaterThanOrEqual(8);
+    expect(
+      UNGATED_WITH_REASON.length,
+      `${UNGATED_WITH_REASON.length} ungated type(s) against a ceiling of ` +
+        `${UNGATED_CEILING}. This can only fail by GROWING. A route that gains a ` +
+        `Response schema makes its type gatable, and dropping the row then passes here ` +
+        `in silence — lower the ceiling in the same commit.`
+    ).toBeLessThanOrEqual(UNGATED_CEILING);
   });
 
   it("compares every assertion against a real oracle, never a restated one", () => {

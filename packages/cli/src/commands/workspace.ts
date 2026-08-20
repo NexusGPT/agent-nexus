@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { resolveBaseUrl, type ResolvedProfile, resolveProfile } from "../config";
 import { bindCommand } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, reportFailure } from "../errors";
 import {
   color,
   type Column,
@@ -562,6 +562,52 @@ function writeClaudeMdNote(slug: string, mountPath: string, readOnly: boolean): 
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
+
+/**
+ * PRINT the refusal a dead mount means and RETURN its exit code.
+ *
+ * `local-failed`, and the category's own declaration is the whole argument: "a
+ * local operation this CLI performed failed … nothing about the caller's input
+ * is wrong and no retry against the API helps". No server is involved in this
+ * command at all — it reads the local registry — so `remote-error` would name a
+ * host that was never contacted.
+ *
+ * ⚠️ ASSIGN THE RETURN VALUE. `reportFailure` only writes the document; a bare
+ * call emits a perfect error and exits `0`, which is the class this change is
+ * draining.
+ */
+function reportDeadMounts(
+  dead: readonly {
+    readonly slug: string;
+    readonly orgName: string | null;
+    readonly orgId: string | null;
+    readonly mountPath: string;
+  }[]
+): number {
+  return reportFailure(
+    "local-failed",
+    [
+      // 🚨 THE MOUNT POINT, NEVER THE SLUG ALONE. The same slug can be mounted
+      // for several organizations — `workspace status` exists partly to show
+      // that — and under --json this document REPLACES the rows, so a message
+      // naming only the slug leaves a reader unable to tell WHICH of two mounts
+      // died. The path is the one field that is unique per mount by
+      // construction: `workspace mount` refuses a mount point another org
+      // already holds.
+      `${String(dead.length)} recorded mount(s) are NOT live:`,
+      ...dead.map(
+        (row) =>
+          `  ${row.slug}  [${firstNonBlankOr([row.orgName, row.orgId], "org not recorded")}]  ${row.mountPath}`
+      )
+    ].join("\n"),
+    // ⚠️ NO BARE "unmount <slug>" HERE. That verb RESOLVES BY ACTING ORG and
+    // takes no path, so on a slug mounted for two orgs it can detach the LIVE
+    // one and leave the dead row that caused this exit. Its own refusal lists
+    // the candidates when the acting org owns none of them, which is the safe
+    // route — so the reader is pointed at the path and told what decides.
+    'A row reading live:no means the LOCAL mount is gone; it says nothing about the workspace on the server. "workspace unmount" resolves by ACTING ORG and takes no path, so switch profile or pass --profile to reach the org named above before using it — on a slug mounted for two orgs it can otherwise detach the live one.'
+  );
+}
 
 export function registerWorkspaceCommands(program: Command): void {
   const ws = program
@@ -1495,7 +1541,12 @@ Notes:
   Mode is what the mount was CREATED with. It does not re-derive the scopes the
   key actually holds, so Mode rw on a key without workspaces:write is possible.
   "No workspaces mounted." means the registry is empty. It does not mean the OS
-  has nothing mounted.`
+  has nothing mounted, and it exits 0 — nothing is recorded, so nothing is wrong.
+  THE EXIT CODE CARRIES live. Any recorded mount reading no makes this exit
+  non-zero and names the slugs, so a script can gate on a drive it depends on
+  still being mounted. It is still a LOCAL check: a 0 means every recorded mount
+  is mounted, never that the server still has the workspace. Under --json a
+  non-zero exit REPLACES the rows with the error document.`
     )
     .action(() => {
       try {
@@ -1516,8 +1567,28 @@ Notes:
           live: isMountLive(m) ? "yes" : "no",
           mountedAt: m.mountedAt
         }));
+        // 🚨 `live` IS THE ONE FACT A SCRIPT COMES HERE FOR, and the exit code
+        // never said it. This command's own help already warns that a mount can
+        // read Live yes and still fail every read — so the exit code is the only
+        // cheap way a caller learns a drive it depends on is GONE, and it always
+        // said "fine".
+        //
+        // ⚠️ AN EMPTY REGISTRY IS NOT A FAILURE. "No workspaces mounted." means
+        // nothing is recorded here, which the help is careful to say is not a
+        // claim about what the OS has mounted. Exiting non-zero on it would
+        // refuse a machine that is doing exactly what was asked of it.
+        const dead = records.filter((r) => r.live === "no");
+
         if (isJsonMode()) {
-          console.log(JSON.stringify(records, null, 2));
+          // Under --json a failure is the error document and NOTHING else.
+          // Printing the rows and then refusing takes stdout with a document
+          // that parses cleanly and never says a mount is gone — `error-masked`
+          // in `json-one-document.scan.ts`.
+          if (dead.length === 0) {
+            console.log(JSON.stringify(records, null, 2));
+          } else {
+            process.exitCode = reportDeadMounts(dead);
+          }
           return;
         }
         if (records.length === 0) {
@@ -1544,6 +1615,12 @@ Notes:
           { key: "mountPath", label: "Mount point" },
           { key: "live", label: "Live" }
         ]);
+
+        // The table above already shows a human which row reads "no"; the exit
+        // code is the half a script reads, and it said nothing.
+        if (dead.length > 0) {
+          process.exitCode = reportDeadMounts(dead);
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

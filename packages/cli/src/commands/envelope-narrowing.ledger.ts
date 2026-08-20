@@ -17,6 +17,36 @@
  * that it cannot grow while nobody is looking, and that each survivor carries
  * the reason it survived instead of reading as an oversight nobody noticed.
  *
+ * ── DRAINING IS SILENTLY LEGAL, AND THAT IS A DESIGN DECISION ───────────────
+ *
+ * 🔴 THERE IS NO "THIS ENTRY IS STALE" ASSERTION, DELIBERATELY, AND THIS FILE
+ * SHIPPED WITH ONE UNTIL IT WAS TAKEN OUT.
+ *
+ * "every ledger key must still be a finding" is a LOWER BOUND on draining data.
+ * Under it, fixing one command reds the build until its entry is deleted in the
+ * same edit, and the person who fixes the LAST one deletes the gate. Every entry
+ * below marked `breaking` is ticketed to a separate pull request that moves one
+ * command's published envelope — a lower bound would turn each of those into a
+ * conflict with a red build attached, which is how a gate gets switched off.
+ *
+ * The two assertions that hold instead are safe under draining in both
+ * directions:
+ *
+ *   · **SUBSET** — every finding is a key here. A new one is red, by name.
+ *   · **NON-GROWTH** — the number of keys never exceeds
+ *     {@link ENVELOPE_NARROWING_LEDGER_CEILING}. Deleting entries only ever
+ *     moves it further under the ceiling.
+ *
+ * A key left behind after its command is cured is harmless: it exempts a site
+ * the scan no longer reports. Delete it when you notice; nothing forces you to,
+ * and nothing breaks if you do it in a later pass.
+ *
+ * ⚠️ ONE ASSERTION IS STILL EXACT, AND IT IS EXACT IN THE SAFE DIRECTION. The
+ * `lost` set below is compared against the scan's — but ONLY for a key the scan
+ * still reports. A cured command drops out of the comparison entirely; a command
+ * whose response GAINS a key while the printer still takes one is red, which is
+ * the widening case this gate is for.
+ *
  * ── WHY THESE WERE NOT FIXED IN THE SAME PASS ───────────────────────────────
  *
  * The cure is `printEnvelope`, and for every entry marked `breaking` it moves
@@ -43,6 +73,19 @@ export interface LedgeredNarrowing {
   /** One sentence a reviewer reads. */
   readonly note: string;
 }
+
+/**
+ * The most entries this ledger may hold. An UPPER bound, never an exact count.
+ *
+ * Lower it when a command is cured and its entry deleted — that is a one-line
+ * ratchet nobody has to make. Raising it is the single edit that lets this class
+ * grow, and it needs a reason a reviewer can read in the same diff.
+ *
+ * 🚨 NEVER ASSERT EQUALITY HERE. An unrelated merge that removes one entry would
+ * red a build with no defect in it, and the cure for the class would red every
+ * build until the number was chased down to match.
+ */
+export const ENVELOPE_NARROWING_LEDGER_CEILING = 11;
 
 export const ENVELOPE_NARROWING_LEDGER: readonly LedgeredNarrowing[] = [
   {

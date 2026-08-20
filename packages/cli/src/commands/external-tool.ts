@@ -514,7 +514,11 @@ Notes:
   TEST vs EXECUTE: test takes --operation-id and answers {status, output,
   executionTimeMs} — it is the liveness check. execute takes --action and
   answers {success, toolId, action, result} — it is the real invocation. Both
-  run the operation for real against the upstream API.`
+  run the operation for real against the upstream API.
+  THE EXIT CODE CARRIES status. A success exits 0 and an error exits non-zero,
+  which is what "test-auth" beside it has always done. Under --json a failure
+  REPLACES the result with the error document; its message carries the
+  platform's own reason.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -529,7 +533,24 @@ Notes:
           id,
           asRequestBody<TestExternalToolBody>(body)
         );
-        printRecord(result);
+        if (result.status === "success") {
+          printRecord(result);
+        } else {
+          // The cure was already written in this file, 145 lines above, on
+          // `test-auth` — the same SDK method, the same `status` field, the same
+          // taxonomy choice. `remote-error`, never a refusal: the invocation was
+          // ACCEPTED and the platform answered that the operation does not work.
+          //
+          // 🚨 THE RECORD IS NOT PRINTED FIRST, for the reason `test-auth` gives:
+          // under --json a failure is the error document and NOTHING else, and
+          // taking stdout with the payload leaves a document that parses cleanly
+          // and never says the test failed.
+          process.exitCode = reportFailure(
+            "remote-error",
+            `Tool test failed: ${result.error ?? "Unknown error"}`,
+            "This ran the operation for real against the upstream API. Check the tool's auth with \"external-tool test-auth\", then the operation's own input."
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }

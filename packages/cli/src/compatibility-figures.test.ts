@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { CLI_SURFACE_BASELINE } from "./cli-surface.baseline.generated";
 import {
   COMMAND_CLASSIFICATION,
   deriveCommandLeaves,
@@ -12,6 +13,7 @@ import {
   isHiddenCommand
 } from "./command-universe";
 import { EXEMPT_LEAVES } from "./commands/json-one-document.scan";
+import { DEPRECATIONS } from "./deprecations";
 import { JSON_SHAPES } from "./json-shape.generated";
 import { buildRootProgram, VERSION } from "./root-program";
 import { isConfirmable } from "./util/confirm";
@@ -132,7 +134,12 @@ beforeAll(async () => {
     shapeLines: Object.keys(JSON_SHAPES).length,
     exempt: EXEMPT_LEAVES.length,
     driven: leaves.length - EXEMPT_LEAVES.length,
-    writesItsOwnJson: selfJson === null ? -1 : Number(selfJson[1])
+    writesItsOwnJson: selfJson === null ? -1 : Number(selfJson[1]),
+    // The deprecation mechanism's two figures. ZERO IS A LEGITIMATE VALUE for
+    // the first and will be the value again after every cycle completes, so the
+    // control below treats `< 0` as "the derivation failed" and 0 as data.
+    declaredDeprecations: DEPRECATIONS.length,
+    baselineLeaves: CLI_SURFACE_BASELINE.leaves.length
   };
 });
 
@@ -236,6 +243,12 @@ const CLAIMS: readonly Claim[] = [
     claim: "the walk verified N top-level, M visible, H hidden",
     pattern: /Verified by walking the tree: (\d+) top-level commands, (\d+) visible, (\d+) hidden/,
     keys: ["topLevel", "visible", "hidden"]
+  },
+  {
+    claim: "N leaves are on a deprecation cycle, out of M promised paths",
+    pattern:
+      /\*\*(\d+) leaves are on a deprecation cycle today\*\*, out of the \*\*(\d+) paths\*\*/,
+    keys: ["declaredDeprecations", "baselineLeaves"]
   },
   {
     claim: "captureHelp renders all N nodes",

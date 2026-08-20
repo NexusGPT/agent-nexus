@@ -100,7 +100,7 @@
 import { Command, type Option } from "commander";
 
 import { deriveCommandLeaves } from "../command-universe";
-import { CliArgumentError, handleError } from "../errors";
+import { CLI_MINTED_CODES, CliArgumentError, handleError } from "../errors";
 import { setJsonMode } from "../output";
 
 /**
@@ -509,19 +509,21 @@ const REMOTE_ONLY_CODES = new Set([
   "CLI_SDK_ERROR"
 ]);
 
-/** Every code the CLI is allowed to put on the wire. A stray one is a typo. */
-const KNOWN_CODES = new Set([
-  "CLI_TIMEOUT",
-  "CLI_CONNECTION_FAILED",
-  "CLI_SDK_ERROR",
-  "CLI_UNKNOWN_ERROR",
-  "CLI_NOT_FOUND",
-  "CLI_INVALID_ARGUMENTS",
-  "CLI_NOT_AUTHENTICATED",
-  "CLI_REMOTE_ERROR",
-  "CLI_LOCAL_FAILED",
-  "CLI_ADMIN_ERROR"
-]);
+/**
+ * Every code the CLI is allowed to put on the wire. A stray one is a typo.
+ *
+ * 🚨 DERIVED FROM `CLI_CODES`, NEVER RETYPED. This was a hand-written list and
+ * it was already wrong: `CLI_UPGRADE_NOT_RESOLVED` and
+ * `CLI_UPGRADE_NOT_VERIFIED_FOR_YOU` were absent from the day they were minted,
+ * and it stayed green because neither reaches this driven scan. A hand list only
+ * fails for the next person to add a code that IS drivable, whose correct
+ * document is then reported as a typo — which is a gate red nobody can act on
+ * without editing the gate.
+ *
+ * `CLI_ADMIN_ERROR` is the one addition, and it is deliberate: the admin tree
+ * mints it in `util/admin-errors.ts`, outside `CLI_CODES`.
+ */
+const KNOWN_CODES = new Set([...CLI_MINTED_CODES, "CLI_ADMIN_ERROR"]);
 
 /**
  * The message the harness's network stub throws, verbatim.

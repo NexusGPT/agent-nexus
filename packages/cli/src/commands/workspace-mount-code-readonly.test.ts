@@ -153,6 +153,12 @@ function rcloneArgs(): string[] {
   return spawn.mock.calls[0][1] as string[];
 }
 
+// 🚨 THE SPAWNED rclone REPORTS THIS PROCESS'S OWN pid, SO THE MOUNT IT RECORDS
+// READS LIVE. It was 4242, which is not a running process here, and that stopped
+// working when `workspace status` began REFUSING on a dead mount: the status
+// assertions below read the ROWS, and a refusal replaces them with the error
+// document. Nothing in this file is about liveness — it is about the recorded
+// MODE — so the fixture is made live rather than the assertions weakened.
 describe("nexus workspace mount — a CODE workspace is mounted read-only", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -163,7 +169,7 @@ describe("nexus workspace mount — a CODE workspace is mounted read-only", () =
     listed = [];
     listFails = false;
     process.exitCode = undefined;
-    spawn.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
+    spawn.mockReturnValue({ pid: process.pid, once: vi.fn(), unref: vi.fn() });
     execFileSync.mockReturnValue("");
   });
   afterEach(() => {
@@ -258,7 +264,7 @@ describe("nexus workspace mount — a CODE workspace is mounted read-only", () =
     expect(bare.out).toMatchObject({ readOnly: true, storageKind: "CODE" });
 
     vi.clearAllMocks();
-    spawn.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
+    spawn.mockReturnValue({ pid: process.pid, once: vi.fn(), unref: vi.fn() });
     execFileSync.mockReturnValue("");
     registry = {};
 

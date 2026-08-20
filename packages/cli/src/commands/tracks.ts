@@ -1,9 +1,9 @@
-import type { AppendTrackEventBody, ImportTrackPlanBody } from "@agent-nexus/sdk";
+import type { AppendTrackEventBody, ImportTrackPlanBody, TrackNextOwner } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printEnvelope, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, resolveRequiredBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
@@ -16,6 +16,8 @@ import {
   TRACK_CLAIM_TASK_CONTRACT,
   TRACK_CLOSE_AGENT__BODY_STATE,
   TRACK_CLOSE_AGENT_CONTRACT,
+  TRACK_CREATE__BODY_NEXT_OWNER,
+  TRACK_CREATE_CONTRACT,
   TRACK_CREATE_DEPENDENCY_EDGE_CONTRACT,
   TRACK_CREATE_SECTION_CONTRACT,
   TRACK_CREATE_TASK_EDGE_CONTRACT,
@@ -31,9 +33,11 @@ import {
   TRACK_LIST_READY_TASKS_CONTRACT,
   TRACK_OPEN_AGENT_CONTRACT,
   TRACK_PUT_MEMORY_ENTRY_CONTRACT,
+  TRACK_READ_ROLLUP_CONTRACT,
   TRACK_READ_TASK_CONTRACT,
   TRACK_RENAME_SECTION_CONTRACT,
-  TRACK_TOGGLE_TASK_CONTRACT
+  TRACK_TOGGLE_TASK_CONTRACT,
+  TRACK_UPDATE_CURRENT_STEP_CONTRACT
 } from "./tracks.contract.generated";
 
 /**
@@ -79,6 +83,164 @@ import {
  */
 export function registerTracksCommands(program: Command): void {
   const tracks = program.command("tracks").description("Work with tracks, their tasks and agents");
+
+  // ── tracks create ─────────────────────────────────────────────────────────
+  const create = tracks
+    .command("create")
+    .description("Create one track")
+    .requiredOption("--slug <slug>", "1-64 chars of [a-z0-9-]. Unique in your organization")
+    .requiredOption("--title <title>", "What the track is called")
+    .option("--current-step <text>", "What happens next, one line, at most 400 characters")
+    .addOption(
+      enumOption(
+        "--next-owner <owner>",
+        "Who is waited on. USER when omitted",
+        TRACK_CREATE__BODY_NEXT_OWNER
+      )
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks create --slug billing-rewrite --title "Billing rewrite"
+  $ nexus tracks create --slug onboarding --title "Onboarding" \\
+      --current-step "waiting on the design review" --next-owner USER
+  $ nexus tracks create --slug agent-loop --title "Agent loop" --next-owner CUE --json
+
+Notes:
+  THE NUMBER IS ALLOCATED BY THE SERVER AND THERE IS NO FLAG FOR IT. It comes
+  from a per-organization sequence inside the same transaction that inserts the
+  row, so it runs from 1, never repeats and never gaps. Read it off the output.
+  THE SLUG IS UNIQUE PER ORGANIZATION, and a duplicate is a 409. It is the
+  human name for the track; nothing addresses a track by slug yet, so pick one
+  a person can read rather than one a script will parse.
+  A NEW TRACK IS PLANNED AND HAS NOTHING IN IT. It does not appear in
+  "nexus tracks ready" as work until it has tasks, and it has no sections until
+  you run "nexus tracks section create".
+  --next-owner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an
+  agent can proceed, USER means a person has to act, EVENT means something
+  outside has to happen first.
+  Needs the "tracks:write" scope.`
+    )
+    .action(
+      async (opts: { slug: string; title: string; currentStep?: string; nextOwner?: string }) => {
+        try {
+          const client = createClient(program.optsWithGlobals());
+          const track = await client.tracks.create({
+            slug: opts.slug,
+            title: opts.title,
+            ...(opts.currentStep !== undefined && { currentStep: opts.currentStep }),
+            ...(opts.nextOwner !== undefined && {
+              nextOwner: opts.nextOwner as TrackNextOwner
+            })
+          });
+
+          printSuccess("Track created.", {
+            id: track.id,
+            number: track.number,
+            slug: track.slug,
+            title: track.title
+          });
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
+      }
+    );
+  bindCommand(create, TRACK_CREATE_CONTRACT);
+
+  // ── tracks current-step ───────────────────────────────────────────────────
+  const currentStep = tracks
+    .command("current-step")
+    .description("Set — or clear — what is happening on this track now")
+    .argument("<trackId>", "The track to write the line on")
+    .option("--text <text>", "The line, one sentence. What is happening right now")
+    .option("--clear", "Clear the line instead of setting one")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks current-step 11111111-1111-4111-8111-111111111111 \\
+      --text "waiting on the design review"
+  $ nexus tracks current-step 11111111-1111-4111-8111-111111111111 --clear
+
+Notes:
+  EXACTLY ONE OF --text AND --clear. Neither is refused and both is refused,
+  because an omitted --text meaning "clear it" is a footgun: a shell variable
+  that expanded to nothing would silently wipe the line.
+  THIS IS THE LINE "nexus tracks ready" PRINTS. It is what a person scanning
+  the board reads first, and it is the only free-text field on the track that
+  says what is happening rather than what the work IS.
+  THE LINE IS AT MOST 400 CHARACTERS, and characters is the unit the database
+  actually counts — the same limit "nexus tracks create --current-step" states.
+  A whitespace-only line is refused.
+  THE LIMIT IS NOT CHECKED HERE. A longer line is refused by the server, so the
+  number above is what you can rely on rather than what this command enforces.
+  A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
+  exist. That is deliberate — the two must not be distinguishable.
+  Needs the "tracks:write" scope.`
+    )
+    .action(async (trackId: string, opts: { text?: string; clear?: boolean }) => {
+      try {
+        // Written as two named booleans rather than one clever comparison: this
+        // guard is the only thing standing between a shell variable that
+        // expanded to nothing and a silently wiped line.
+        const clearing = opts.clear === true;
+        const setting = opts.text !== undefined;
+        if (clearing === setting) {
+          process.exitCode = refuse("Pass exactly one of --text and --clear.");
+          return;
+        }
+
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.updateCurrentStep(trackId, {
+          currentStep: clearing ? null : (opts.text ?? null)
+        });
+
+        printSuccess(result.currentStep === null ? "Current step cleared." : "Current step set.", {
+          trackId: result.trackId,
+          currentStep: result.currentStep
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(currentStep, TRACK_UPDATE_CURRENT_STEP_CONTRACT);
+
+  // ── tracks rollup ─────────────────────────────────────────────────────────
+  const rollup = tracks
+    .command("rollup")
+    .description("The track's progress — leaves done, leaves total")
+    .argument("<trackId>", "The track to report on")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks rollup 11111111-1111-4111-8111-111111111111
+  $ nexus tracks rollup 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  COUNTS, NEVER A PERCENTAGE. Divide them yourself. A percentage is a display
+  decision, and a caller handed one cannot recover the counts.
+  IT COUNTS LEAVES ONLY, at any nesting depth. A parent task is structure
+  rather than work, so it is in neither number: one parent holding three
+  children reads 0/3, never 0/4.
+  0/0 IS NOT AN ERROR AND IS NOT A REFUSAL. A track with no tasks reads 0/0,
+  and so does a track that belongs to another organization — the read is
+  anchored on your key's organization, so a foreign id matches no rows. The two
+  are deliberately indistinguishable.
+  Needs the "tracks:read" scope.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const progress = await client.tracks.readRollup(trackId);
+
+        printRecord({ done: progress.done, total: progress.total });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(rollup, TRACK_READ_ROLLUP_CONTRACT);
 
   // ── tracks ready ──────────────────────────────────────────────────────────
   const ready = tracks

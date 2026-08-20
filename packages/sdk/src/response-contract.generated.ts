@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 470 routes: 352 with a checkable shape, 113 publishing no
+// 471 routes: 353 with a checkable shape, 113 publishing no
 // response schema, 5 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -60,6 +60,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "DELETE /skill-folders/:folderId": {name:"SkillFolderDelete",method:"DELETE",path:"/skill-folders/:folderId",payload:{kind:"object",fields:{"deleted":"b","id":"s"},required:["deleted","id"]}},
   "DELETE /skills/collections/:collectionId": {name:"SkillsDeleteCollection",method:"DELETE",path:"/skills/collections/:collectionId",payload:{kind:"undeclared",why:"noResponse"}},
   "DELETE /skills/collections/:collectionId/documents/:documentId": {name:"SkillsRemoveCollectionDocument",method:"DELETE",path:"/skills/collections/:collectionId/documents/:documentId",payload:{kind:"undeclared",why:"noResponse"}},
+  "DELETE /skills/document-templates/:templateId": {name:"SkillsDeleteDocumentTemplate",method:"DELETE",path:"/skills/document-templates/:templateId",payload:{kind:"object",fields:{"deleted":"b","id":"s"},required:["deleted","id"]}},
   "DELETE /skills/external-tools/:externalToolId": {name:"SkillsDeleteExternalTool",method:"DELETE",path:"/skills/external-tools/:externalToolId",payload:{kind:"object",fields:{"deleted":"b"},required:["deleted"]}},
   "DELETE /skills/tasks/:taskId": {name:"SkillsDeleteTask",method:"DELETE",path:"/skills/tasks/:taskId",payload:{kind:"object",fields:{"deleted":"b","id":"s"},required:["deleted","id"]}},
   "DELETE /skills/tasks/:taskId/evaluations/:sessionId": {name:"EvaluationDelete",method:"DELETE",path:"/skills/tasks/:taskId/evaluations/:sessionId",payload:{kind:"undeclared",why:"noResponse"}},

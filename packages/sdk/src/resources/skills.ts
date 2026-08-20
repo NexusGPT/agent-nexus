@@ -14,6 +14,7 @@ import type {
   CreateExternalToolBody,
   CreateTaskBody,
   DeleteCollectionResponse,
+  DeleteDocumentTemplateResponse,
   DeleteExternalToolResponse,
   DeleteTaskResponse,
   DocumentTemplateDetail,
@@ -63,6 +64,7 @@ import { BaseResource } from "./base-resource";
  * client.skills.getCollection(id)        — Get collection detail
  * client.skills.listDocumentTemplates()  — List org's document templates
  * client.skills.getDocumentTemplate(id)  — Get template detail with inputFormat
+ * client.skills.deleteDocumentTemplate(id) — Delete a template (409 while referenced)
  * ```
  *
  * Accessed via `client.skills`.
@@ -283,6 +285,36 @@ export class SkillsResource extends BaseResource {
       "POST",
       `/skills/document-templates/${templateId}/upload-file`,
       { body: formData }
+    );
+  }
+
+  /**
+   * Permanently delete a document template.
+   *
+   * Refuses with 409 while any AI task, agent task or agent skill still points
+   * at the template — `err.details` carries the dependent agents/tasks so they
+   * can be detached first.
+   *
+   * Deleting a template does NOT delete the documents it has already generated:
+   * `generateDocumentTemplate` writes no row and the URL it returned is the only
+   * reference that will ever exist.
+   *
+   * @param templateId - Document template UUID.
+   * @returns `{ id, deleted: true }` on success.
+   *
+   * @example
+   * ```ts
+   * try {
+   *   await client.skills.deleteDocumentTemplate("template-uuid");
+   * } catch (err) {
+   *   // 409 if referenced; inspect err.details.agents / err.details.aiTasks
+   * }
+   * ```
+   */
+  async deleteDocumentTemplate(templateId: string): Promise<DeleteDocumentTemplateResponse> {
+    return this.http.request<DeleteDocumentTemplateResponse>(
+      "DELETE",
+      `/skills/document-templates/${templateId}`
     );
   }
 

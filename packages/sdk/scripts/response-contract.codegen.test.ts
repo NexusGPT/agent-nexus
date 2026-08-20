@@ -307,6 +307,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "SkillsCreateDocumentTemplate",
   "SkillsCreateExternalTool",
   "SkillsCreateTask",
+  "SkillsDeleteDocumentTemplate",
   "SkillsDeleteExternalTool",
   "SkillsDeleteTask",
   "SkillsDuplicateTask",

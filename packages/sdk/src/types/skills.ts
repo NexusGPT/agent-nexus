@@ -608,6 +608,12 @@ export interface DeleteTaskResponse {
   deleted: true;
 }
 
+/** Response from `client.skills.deleteDocumentTemplate()`. */
+export interface DeleteDocumentTemplateResponse {
+  id: string;
+  deleted: true;
+}
+
 // ============================================================================
 // CREATE BODIES (continued)
 // ============================================================================

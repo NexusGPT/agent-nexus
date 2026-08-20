@@ -158,9 +158,14 @@ export interface DriftReport {
  *     turns the gate red rather than covering anything. `analytics export` and
  *     `cue export` are both this today.
  *   - A 403 the SKIP grep does not match. It matches "not configured",
- *     "feature is disabled" and "feature not enabled"; the `agent-eval` tree
- *     answers "This feature is not enabled", which matches none of the three
- *     and lands as a FAIL.
+ *     "feature is disabled" and "feature not enabled", and a feature-gated
+ *     namespace answers "This feature is not enabled" — none of the three. So a
+ *     leaf behind a gate the sweep organisation has not been granted lands as a
+ *     FAIL rather than a SKIP. The remedy is to enable the feature for that
+ *     organisation, never to broaden the grep: a wider grep turns a real outage
+ *     into a SKIP everywhere. The `agent-eval` reads below are swept because
+ *     `conversation_eval` IS granted to the sweep organisation, and they revert
+ *     to that FAIL the moment it is revoked.
  *   - AN EMPTY COLLECTION. It exercises auth, routing, tenancy scoping and the
  *     envelope, and it asserts nothing whatever about item shape. Six leaves
  *     already classified `safe` read empty against staging, so this is a REASON
@@ -224,19 +229,19 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ── agent-eval ─────────────────────────────────────────────────────────────
   "agent-eval batch create": "registration-only",
   "agent-eval batch get": "registration-only",
-  "agent-eval batch list": "registration-only",
+  "agent-eval batch list": "safe",
   "agent-eval run abort": "registration-only",
   "agent-eval run compare": "registration-only",
   "agent-eval run create": "registration-only",
   "agent-eval run delete": "registration-only",
   "agent-eval run execute": "registration-only",
   "agent-eval run get": "registration-only",
-  "agent-eval run list": "registration-only",
+  "agent-eval run list": "safe",
   "agent-eval run results": "registration-only",
   "agent-eval run transcript": "registration-only",
   "agent-eval schedule create": "registration-only",
   "agent-eval schedule delete": "registration-only",
-  "agent-eval schedule list": "registration-only",
+  "agent-eval schedule list": "safe",
   "agent-eval schedule pause": "registration-only",
   "agent-eval schedule resume": "registration-only",
   "agent-eval schedule update": "registration-only",
@@ -247,10 +252,10 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "agent-eval template detach": "registration-only",
   "agent-eval template get": "registration-only",
   "agent-eval template importable": "registration-only",
-  "agent-eval template list": "registration-only",
+  "agent-eval template list": "safe",
   "agent-eval template update": "registration-only",
   "agent-eval trigger delete": "registration-only",
-  "agent-eval trigger list": "registration-only",
+  "agent-eval trigger list": "safe",
   "agent-eval trigger upsert": "registration-only",
   "agent-eval webhook delete": "registration-only",
   "agent-eval webhook get": "registration-only",
@@ -648,6 +653,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
 
   // ── template ───────────────────────────────────────────────────────────────
   "template create": "registration-only",
+  "template delete": "registration-only",
   "template folder assign": "registration-only",
   "template folder create": "registration-only",
   "template folder delete": "registration-only",

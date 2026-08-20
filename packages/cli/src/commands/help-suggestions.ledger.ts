@@ -178,7 +178,7 @@ export interface HelpSuggestion {
  * number. That is the friction, and it is the feature — a figure nobody has to
  * update is a figure nobody can trust.
  */
-export const PLACED_COUNT = 212;
+export const PLACED_COUNT = 211;
 
 /**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
@@ -1625,9 +1625,9 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "template-05",
     target: "template (namespace)",
     summary: "say up front that create is irreversible.",
-    state: "placed",
-    leaf: "template",
-    probe: "A TEMPLATE CANNOT BE DELETED"
+    state: "obsolete",
+    reason:
+      'the premise died with NEX-3713, which is the ticket this row helped file. Creation is no longer irreversible: "nexus template delete <id>" exists and DELETE /public/v1/skills/document-templates/:templateId is behind it. The old note ("A TEMPLATE CANNOT BE DELETED ... a mistake is clutter nobody can clear") was the strongest argument in the tree FOR building the delete, and it argued itself out of existence. The namespace help now states what delete does and does not take — the row goes, the documents it generated stay — plus the 409 that refuses while an AI task, agent task or agent skill still points at it; that is template-04\'s subject, already covered at "template generate", not this row\'s.'
   },
   {
     id: "ticket-01",

@@ -149,6 +149,17 @@ Notes:
   a "required" array or "additionalProperties". A bare {"properties":{…}} falls
   through to the flat branch and stores ONE parameter named "properties", which
   makes the agent stop replying instead of erroring.
+  EVERY config.parameters ENTRY WITH handler "prompt" MUST APPEAR IN
+  agentInputSchema UNDER ITS OWN NAME, or the create is a 400 naming it. A prompt
+  parameter is filled by the AGENT, and the only thing that advertises it is the
+  schema — so one the schema never mentions is unfillable: the skill runs with it
+  empty and still reports success. That is how an object parameter described by a
+  prompt ("build the row from topic, question, …") inserted an all-null row at
+  201. The prompt is guidance for filling THAT parameter, never an instruction to
+  assemble it out of other inputs. Two ways to satisfy it: name the parameter in
+  agentInputSchema, or send {} and let the platform compute the schema from
+  config.parameters. Parameters with handler "manual" are supplied from the
+  config and are NOT expected in the schema.
   --config IS the nested config object, not a flatten-into-body alias, and every
   id inside it must be a real UUID. It is validated STRICTLY: an unknown key —
   credentialId, workflow, workflowVersionId, a typo — is a 400 naming the key,
@@ -263,6 +274,11 @@ Notes:
   NEVER SEND agentInputSchema: null HERE. Send {} to fall back to the schema
   derived from config.parameters, or send the schema whole — those are the two
   supported ways to change it. The same flat-vs-wrapped rule as create applies.
+  THE PROMPT-PARAMETER RULE APPLIES HERE TOO, AND A SCHEMA-ONLY UPDATE IS CHECKED
+  AGAINST THE STORED config.parameters. Sending a schema that drops a parameter
+  whose handler is "prompt" is a 400 naming it — leaving --config out does NOT
+  leave that parameter behind, it leaves it unfillable. An update that carries no
+  agentInputSchema at all (a rename, --no-fire-and-forget) is never re-checked.
   --fire-and-forget ends the agent's turn at the call and hides the tool's output
   from the model; --no-fire-and-forget is the way back to waiting for the result.
   This command prints only the id — confirm with "nexus agent-tool get".`

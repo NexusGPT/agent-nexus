@@ -229,6 +229,13 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["skills"]["createDocumentTemplate"]>
     >
   >,
+  // SkillsDeleteDocumentTemplate  DELETE /public/v1/skills/document-templates/:templateId  ->  client.skills.deleteDocumentTemplate()
+  Expect<
+    Equals<
+      ResponseOf<"SkillsDeleteDocumentTemplate">,
+      MethodResult<NexusClient["skills"]["deleteDocumentTemplate"]>
+    >
+  >,
   // SkillsUploadDocumentTemplateFile  POST /public/v1/skills/document-templates/:templateId/upload-file  ->  client.skills.uploadDocumentTemplateFile()
   Expect<
     Equals<
@@ -1541,6 +1548,7 @@ const GATED_ROUTES = [
   "SkillsGetDocumentTemplate",
   "SkillsCreateDocumentTemplate",
   "SkillsUploadDocumentTemplateFile",
+  "SkillsDeleteDocumentTemplate",
   "SkillsCreateCollection",
   "SkillsGenerateDocumentTemplate",
   "SkillsExecuteTask",

@@ -70,8 +70,8 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **50 top-level commands**, of which **50 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **616 command nodes**
-and **522 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+hidden — there are none at all (see INTERNAL). Under them sit **617 command nodes**
+and **523 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
@@ -211,7 +211,7 @@ than going through a printer — the `writes-its-own-json` count in the generate
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **515 of the 522 leaves** and parses each one's stdout, and
+gate, which drives **516 of the 523 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -247,7 +247,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 515 leaves the gate drives. And on every terminal path — `--help`,
+the 516 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -300,7 +300,7 @@ category a particular failure falls into is EVOLVING — see below.
 
 ### A destructive command with no terminal refuses
 
-**45 commands declare `--yes`**, and every one of them behaves identically:
+**46 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
 - No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
@@ -310,11 +310,11 @@ category a particular failure falls into is EVOLVING — see below.
 The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
 the prompt and `nexus … > log.txt` cannot delete silently.
 
-All 45 declare the flag through `confirmable()` and ask through
+All 46 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
 one helper, and no command parses `--yes` for itself.
 
-**All 45 refuse, and that is DRIVEN rather than asserted from the source.**
+**All 46 refuse, and that is DRIVEN rather than asserted from the source.**
 `destructive-confirmation.driven.test.ts` runs each one with `stdin.isTTY` forced
 false and no `--yes`, in a sandboxed `HOME` and working directory with the network
 seams stubbed, and requires the refusal. Its spy calls THROUGH to the real helper
@@ -331,13 +331,13 @@ Refusing costs one retry; proceeding costs the data.
 
 🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 21 DESTRUCTIVE
 COMMANDS DO NOT CONFIRM.** `destructiveCandidates()` in
-`destructive-confirmation.scan.ts` derives **71** candidates by verb —
+`destructive-confirmation.scan.ts` derives **72** candidates by verb —
 `delete`, `purge`, `revoke`, `rotate`, `wipe` and 18 more — and every one must
 appear in exactly one of three declared sets:
 
 | Set                       | Count | What it means                                             |
 | ------------------------- | ----- | --------------------------------------------------------- |
-| `CONFIRMS_BEFORE_ACTING`  | 45    | destroys, and confirms. The promise above covers these.   |
+| `CONFIRMS_BEFORE_ACTING`  | 46    | destroys, and confirms. The promise above covers these.   |
 | `NOT_DESTRUCTIVE`         | 5     | carries a destructive-sounding verb and destroys nothing. |
 | `UNCONFIRMED_DESTRUCTIVE` | 21    | **destroys and does NOT confirm.** Named debt.            |
 
@@ -380,7 +380,7 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**389 of the 522 leaves** carry a derived shape line on their `--help`, generated
+**390 of the 523 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
@@ -499,7 +499,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-522 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
+523 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -700,7 +700,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 616 nodes, and the root program is a 617th
+`src/command-universe.ts` renders all 617 nodes, and the root program is a 618th
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as

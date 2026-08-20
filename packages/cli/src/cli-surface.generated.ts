@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 616 command nodes; 522 invocable leaves.
+ * 617 command nodes; 523 invocable leaves.
  * 50 top-level commands — 50 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         465 STABLE, 57 UNSTABLE
- *   disposition  20 never-execute, 438 registration-only, 59 safe, 5 safe-with-fixture
- *   --yes        45 destructive — 45 confirmable
- *   --json       389 answered, 133 abstain
+ *   tier         466 STABLE, 57 UNSTABLE
+ *   disposition  20 never-execute, 434 registration-only, 64 safe, 5 safe-with-fixture
+ *   --yes        46 destructive — 46 confirmable
+ *   --json       390 answered, 133 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -103,19 +103,19 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "agent-collection list", tier: "STABLE", module: "agent-collection.ts", disposition: "registration-only", args: ["<agent-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "array", shape: "3ce5cf647daa" },
   { path: "agent-eval batch create", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "ef16936b9114" },
   { path: "agent-eval batch get", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<batch-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "6e250e1a060c" },
-  { path: "agent-eval batch list", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--status <status> {QUEUED|RUNNING|COMPLETED|PARTIAL|FAILED}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a70f83a85a14" },
+  { path: "agent-eval batch list", tier: "STABLE", module: "agent-eval.ts", disposition: "safe", args: [], flags: ["--status <status> {QUEUED|RUNNING|COMPLETED|PARTIAL|FAILED}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a70f83a85a14" },
   { path: "agent-eval run abort", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "57298315656d" },
   { path: "agent-eval run compare", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: ["!--baseline <baseline-run-id>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "792f65fb5a00" },
   { path: "agent-eval run create", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--body <json>", "--name <name>", "--source-mode <mode> {SIMULATED|INBOX}", "--target-deployment-id <id>", "--target-agent-id <id>", "--source-chat-id <id>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "cef03e4d46ac" },
   { path: "agent-eval run delete", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "41603a6f68a7" },
   { path: "agent-eval run execute", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "8b50c7c6037a" },
   { path: "agent-eval run get", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "57fb86dd7ac0" },
-  { path: "agent-eval run list", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--agent-id <id>", "--status <status> {DRAFT|QUEUED|INGESTING|SIMULATING|SIMULATED|JUDGING|SUMMARIZING|COMPLETED|FAILED|TIMED_OUT|BUDGET_EXCEEDED|ABORTED}", "--source-mode <mode> {SIMULATED|INBOX}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "96bb51df6d43" },
+  { path: "agent-eval run list", tier: "STABLE", module: "agent-eval.ts", disposition: "safe", args: [], flags: ["--agent-id <id>", "--status <status> {DRAFT|QUEUED|INGESTING|SIMULATING|SIMULATED|JUDGING|SUMMARIZING|COMPLETED|FAILED|TIMED_OUT|BUDGET_EXCEEDED|ABORTED}", "--source-mode <mode> {SIMULATED|INBOX}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "96bb51df6d43" },
   { path: "agent-eval run results", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "1052e2cf9c5a" },
   { path: "agent-eval run transcript", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<run-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f7c7147c8819" },
   { path: "agent-eval schedule create", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c78137bdcfb3" },
   { path: "agent-eval schedule delete", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<schedule-id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "496019ea5d0e" },
-  { path: "agent-eval schedule list", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--status <status> {ACTIVE|PAUSED}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "0482642ad033" },
+  { path: "agent-eval schedule list", tier: "STABLE", module: "agent-eval.ts", disposition: "safe", args: [], flags: ["--status <status> {ACTIVE|PAUSED}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "0482642ad033" },
   { path: "agent-eval schedule pause", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<schedule-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "55fc29abeae9" },
   { path: "agent-eval schedule resume", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<schedule-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "09800a2be001" },
   { path: "agent-eval schedule update", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<schedule-id>"], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c0461e65d48e" },
@@ -126,10 +126,10 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "agent-eval template detach", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<template-id>", "<agent-id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "602ac98775bc" },
   { path: "agent-eval template get", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<template-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "343066004b44" },
   { path: "agent-eval template importable", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["!--agent-id <id>", "--kind <kind> {TESTER_PERSONA|JUDGE_RUBRIC|SUMMARY_PROMPT}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "03bf57d94a00" },
-  { path: "agent-eval template list", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--agent-id <id>", "--kind <kind> {TESTER_PERSONA|JUDGE_RUBRIC|SUMMARY_PROMPT}", "--scope <scope> {GLOBAL|AGENT}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a2cef7bbca60" },
+  { path: "agent-eval template list", tier: "STABLE", module: "agent-eval.ts", disposition: "safe", args: [], flags: ["--agent-id <id>", "--kind <kind> {TESTER_PERSONA|JUDGE_RUBRIC|SUMMARY_PROMPT}", "--scope <scope> {GLOBAL|AGENT}", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a2cef7bbca60" },
   { path: "agent-eval template update", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<template-id>"], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "aadac118bcaa" },
   { path: "agent-eval trigger delete", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<trigger-id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "3f15481bf2ce" },
-  { path: "agent-eval trigger list", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["--agent-id <id>", "--deployment-id <id>", "--kind <kind> {AUTO_ON_CLOSE|SCHEDULED_SAMPLE}", "--enabled-only", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3b82cbbd8d59" },
+  { path: "agent-eval trigger list", tier: "STABLE", module: "agent-eval.ts", disposition: "safe", args: [], flags: ["--agent-id <id>", "--deployment-id <id>", "--kind <kind> {AUTO_ON_CLOSE|SCHEDULED_SAMPLE}", "--enabled-only", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3b82cbbd8d59" },
   { path: "agent-eval trigger upsert", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: [], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "cd8aee5b00b9" },
   { path: "agent-eval webhook delete", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<webhook-id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "6d5e2dad9e7a" },
   { path: "agent-eval webhook get", tier: "STABLE", module: "agent-eval.ts", disposition: "registration-only", args: ["<webhook-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "4f5bffaf3a91" },
@@ -432,6 +432,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "task-eval session get", tier: "STABLE", module: "evaluation.ts", disposition: "registration-only", args: ["<task-id>", "<session-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "026bc720a4c5" },
   { path: "task-eval session list", tier: "STABLE", module: "evaluation.ts", disposition: "registration-only", args: ["<task-id>"], flags: ["--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "0db2a49b707a" },
   { path: "template create", tier: "STABLE", module: "template.ts", disposition: "registration-only", args: [], flags: ["--name <name>", "--description <text>", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "dd9c017be4e2" },
+  { path: "template delete", tier: "STABLE", module: "template.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "5d08b19e4319" },
   { path: "template folder assign", tier: "STABLE", module: "template.ts", disposition: "registration-only", args: [], flags: ["--template-id <id>", "--folder-id <id>", "--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "c41eaed92232" },
   { path: "template folder create", tier: "STABLE", module: "template.ts", disposition: "registration-only", args: [], flags: ["--name <name>", "--parent-id <id>", "--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "9a9252ec3f84" },
   { path: "template folder delete", tier: "STABLE", module: "template.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "5facb94ecf57" },

@@ -8,7 +8,7 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 389 of 522 leaves are answered here. The
+ * 390 of 523 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
@@ -310,6 +310,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "task-eval session get": "record",
   "task-eval session list": "list",
   "template create": "success",
+  "template delete": "success",
   "template folder assign": "success",
   "template folder create": "success",
   "template folder delete": "success",

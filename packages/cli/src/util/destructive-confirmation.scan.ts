@@ -212,6 +212,7 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "skills update",
   "task delete",
   "task-eval session delete",
+  "template delete",
   "template folder delete",
   "tool delete-credential",
   "tracks memory delete",

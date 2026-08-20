@@ -222,6 +222,27 @@ export function buildRootProgram(version: string = VERSION): Command {
    * Facts that hold for MORE THAN ONE command belong here in the root epilogue
    * rather than being repeated per command; facts about one command belong on
    * that command, where the reader is when they need them.
+   *
+   * ── THE COMPATIBILITY LINK IS A URL, AND IT HAS TO BE ───────────────────────
+   *
+   * `COMPATIBILITY.md` is this package's stability contract, and until now the
+   * binary never named it. `git grep COMPATIBILITY -- packages/cli/src` is NOT
+   * empty — it returns 30 lines across 9 files — and every one of them is a
+   * comment, a test description, a test assertion message, a test's own path
+   * constant, or a ledger `note` that only a test reads. Not one is a string
+   * this program prints, so no help screen, no command and no error led anyone
+   * to the document. A promise the tool cannot lead you to is not a promise.
+   *
+   * 🚨 A REPO-RELATIVE PATH WOULD NAME A FILE THAT EXISTS ON NO INSTALLED COPY.
+   * `package.json` declares `files: ["dist"]`, so the published tarball carries
+   * the compiled binary and nothing else: `packages/cli/COMPATIBILITY.md` is
+   * absent from every `npm install -g` on earth, and the product repo the file
+   * really lives in is private. The public mirror named by `repository.url` is
+   * the one location a reader outside this machine can actually open, which is
+   * why the epilogue spells the whole URL.
+   *
+   * {@link compatibility-link-is-in-root-help.test.ts} pins the link to that
+   * `repository` field, so moving the mirror fails rather than rotting.
    */
   program.addHelpText(
     "after",
@@ -345,6 +366,14 @@ export function buildRootProgram(version: string = VERSION): Command {
     cross-org token it is NEXUS_ORGANIZATION_ID (this shell), else the orgId saved
     on the profile by "auth use-org" (every session on the machine).
     "nexus auth status" names the level in force, and the org with it.
+
+  WHAT YOU MAY SCRIPT AGAINST
+    NOT EVERY PART OF THIS SURFACE IS PROMISED. Four tiers — STABLE, EVOLVING,
+    UNSTABLE and INTERNAL — say which parts you may build on, which ones move,
+    and what counts as a breaking change for each. A field name you read out of
+    a --json payload is not covered by the same promise as the command that
+    printed it. Read the contract before you script any of it:
+    https://github.com/NexusGPT/agent-nexus/blob/main/packages/cli/COMPATIBILITY.md
 
   Tip: Run "nexus docs" for full documentation, gotchas, and recipes.
        Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).

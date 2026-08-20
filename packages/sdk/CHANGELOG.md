@@ -1,5 +1,400 @@
 # @agent-nexus/sdk
 
+## 0.26.0
+### Minor Changes
+
+- d33b8ce: A credential now says which tool it can actually be spent on
+  
+  `service` is a display LABEL, and for a tool credential it is the tool's public
+  name — which nothing makes unique. An organization held two ACTIVE credentials
+  reading `service: "Apify"`, both scoped to the Pipedream tool *named* Apify,
+  while the Apify-type tool that actually needed one ("Google Maps Reviews
+  Scraper") had none. Read off `credential list`, those two rows say "Apify is
+  already connected". They are not: executing the other tool with either answers
+  400 `Credential not found or does not belong to this tool/organization`.
+  
+  Every value in that payload was correct. It just did not contain the field that
+  separates the two tools, so no consumer could have reached the right answer
+  from it.
+  
+  ## What is new
+  
+  `Credential.toolId` — the external tool a credential is scoped to, and the same
+  id `tools.credentials(toolId)` takes. `null` for `oauth_connection` and
+  `api_key_connection`, which are organization-wide and belong to no single tool.
+  
+  `ListCredentialsParams.toolId` narrows the list to one tool, so an empty result
+  means NOT CONNECTED rather than "no label matched". This is not cosmetic: an
+  unimplemented query param is not inert — unknown keys were stripped, so a
+  `toolId` filter used to return the entire unfiltered page, which reads as
+  "every one of these matches".
+  
+  The filter matches tool credentials only. ORing in the organization-wide sources
+  would put credentials the tool cannot be executed with into the answer to "what
+  can I run this tool with" — the same false "already connected", behind a flag
+  that looks precise.
+  
+  ## CLI
+  
+  `nexus credential list` gains a `TOOL ID` column and a `--tool-id <id>` flag:
+  
+  ```
+  $ nexus credential list --tool-id bba3c3e2-7c56-4136-a2dd-4af480ad393f
+  No results.
+  ```
+  
+  The id is printed in full rather than abbreviated — it is the argument of
+  `nexus tool credentials` and of `--tool-id`, so a cut one is a value the reader
+  has to go and look up again.
+- 679a10e: A `doWhile` now says whether it converged or gave up at `maxIterations`
+  
+  `GET /workflows/executions/:executionId/nodes/:nodeId` — `client.workflowExecutions.getNodeResult()`,
+  `nexus execution node-result` — carries a new `terminationReason` field.
+  
+  A do-while that stopped because its continue-conditions went false and one that
+  stopped because it hit `maxIterations` produced identical results: node
+  `COMPLETED`, `output` = the array of pass results, `error: null`. With
+  `maxIterations` defaulting to 100, an unconverged retry loop read as a success.
+  Counting passes does not separate the two either — a loop capped at 3 that
+  converged on its third pass and one that gave up at the cap both report three.
+  
+  ```ts
+  const node = await nexus.workflowExecutions.getNodeResult(executionId, doWhileNodeId);
+  if (node.terminationReason === "max_iterations_reached") {
+    // the loop ran out of attempts; it did NOT converge
+  }
+  ```
+  
+  `condition_not_met` (the loop finished), `max_iterations_reached` (it did not),
+  `condition_error` (evaluating the conditions threw — previously swallowed and
+  indistinguishable from a satisfied condition), or `cancelled`. It is `null` on
+  every other node type, and `null` on a do-while recorded before this shipped —
+  absence means "not recorded", never "converged".
+  
+  The rest of the node result is unchanged: `output` still holds one entry per
+  pass, in order.
+- 384296f: A track can be finished, handed over, listed and read
+  
+  Four fields the tracks data model has carried since it shipped had no route
+  behind them, so the only way to write or read one was a direct database
+  statement.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.setStatus(trackId, { status })` — this is how a track FINISHES.**
+  `DONE` removes it from `tracks.listReady()` on the very next call, through the
+  one predicate that read already runs. There is nothing to invalidate.
+  
+  There is no delete, and that is the design rather than an omission: a track's
+  diary, its events and its memory ARE the record of how the work went, and all
+  three are children of the row that would be destroyed with it. Every status is
+  reachable from every other one, because work genuinely goes backwards — a track
+  marked `DONE` that turns out not to be takes one call, not an escape hatch.
+  `IN_REVIEW` deliberately stays in the ready set: work waiting on a reviewer is
+  still work somebody can pick up.
+  
+  **`tracks.setNextOwner(trackId, { nextOwner, nextOwnerRef })` — the per-turn
+  handover.** `nextOwner` is published on every row of the ready set and is what an
+  agent reads to decide whether it may proceed at all, and it was writable only at
+  `create` — the one moment a handover value is least interesting.
+  
+  🔴 **`nextOwnerRef` is written on every call and never merged.** Omit it and the
+  watcher reference is cleared in the same statement. That is what keeps the pair
+  legal: the server admits a ref only alongside `EVENT`, so a partial update that
+  left an `EVENT`-era ref behind while moving to `USER` would be refused for a
+  field you did not send. A ref sent with `CUE` or `USER` is a 400 that names the
+  field, rather than a database constraint name reaching you as a 500.
+  
+  **`tracks.list(params?)` and `tracks.get(trackId)`.** `listReady()` was the only
+  track-level list, and it is a FILTERED read — no `DONE`, no `BLOCKED`, nothing
+  held by a dependency. So a track you finished was a real, addressable row that no
+  method could list, and an empty ready set read exactly like an empty
+  organization. `list()` answers what EXISTS, in `number` order, optionally
+  narrowed to one `status`; `get()` answers one track, or 404 — the same answer a
+  foreign id gives, deliberately indistinguishable from it.
+  
+  **`slug` now travels on every ready row**, and on `list` and `get`. The row is
+  where a caller picks a track, and the only other short handle is the
+  `number`, which the server mints and which means nothing outside its own
+  organization.
+  
+  New exported types: `Track`, `TrackStatus`, `SetTrackStatusBody`,
+  `SetTrackStatusResponse`, `SetTrackNextOwnerBody`, `SetTrackNextOwnerResponse`,
+  `ListTracksParams`, `ListTracksResponse`. `ReadyTrack` gains `slug`.
+  
+  ## `@agent-nexus/cli`
+  
+  Four commands: `nexus tracks set-status <trackId> --to <status>`,
+  `nexus tracks set-next-owner <trackId> --to <owner> [--ref <ref>]`,
+  `nexus tracks list [--status <status>] [--limit <n>]` and
+  `nexus tracks get <trackId>`.
+  
+  `nexus tracks ready` prints a `SLUG` column.
+  
+  **`set-status` rather than `status`.** A leaf named `status` promises a verdict a
+  script can branch on and must carry that answer in its exit code; this is a
+  write, with no verdict to carry. `set-next-owner` follows it so the pair reads
+  the same way, and both match their SDK methods exactly.
+  
+  `--ref` is cleared whenever it is omitted, for the reason above — it is not a
+  convenience, it is what stops the next handover failing on a field nobody sent.
+- 78954ca: Deleting a loop says what it took, and takes all of it
+  
+  `DELETE /workflows/:id/nodes/:nodeId` answered `204 No Content`. On an ordinary
+  node that is the whole truth. On a `loop` or a `doWhile` it is not: the container
+  takes **every node scoped inside it**, and **every edge touching any of them** —
+  including its own inbound and outbound edges, which connect nodes *outside* the
+  container and leave them unconnected.
+  
+  Measured against a live stack: a workflow of 9 nodes and 6 edges, one `DELETE` on
+  the loop, and afterwards 3 nodes and 0 edges. The response was four keys, none of
+  which was a count. The only way to learn what had gone was to `get()` the
+  workflow before and after — and by then it is gone.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workflows.deleteNode()` returns `NodeDeleteResult` instead of `void`.** Three
+  arrays, answering three different questions:
+  
+  | field | answers |
+  |---|---|
+  | `deletedNodeIds` | what went — the requested node first, then its body in graph order |
+  | `deletedEdgeIds` | which connections went with them, boundary edges included |
+  | `severedNodeIds` | what is left holding a stump: nodes that SURVIVED and were the far end of a deleted edge |
+  
+  `severedNodeIds` is the half an enumeration of the casualties still cannot
+  answer. Those are exactly the nodes `validate()` will start reporting as
+  `DISCONNECTED_NODE`, and naming them is the difference between knowing the
+  deletion happened and knowing what to repair.
+  
+  The route now answers `200` with a body. That is additive: a caller who ignored
+  an empty body ignores this one, and `deleteNode()` already awaited a response it
+  threw away.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus workflow node delete` prints what it deleted.** It used to print a fixed
+  `Node deleted.` with `{workflowId, nodeId}` — a CLI confirmation, because there
+  was nothing from the server to report.
+  
+  ```
+  ✓ Deleted 6 node(s) and 6 edge(s).
+    workflowId: …
+    nodeId: …
+    deletedNodes: 6
+    deletedEdges: 6
+  ⚠ 2 surviving node(s) lost an edge to this deletion and are now unconnected on that side.
+    Severed: 58b3a655-…, fa124e18-…
+  ```
+  
+  Under `--json` the three id arrays are in the document. The severed-node line
+  goes to **stderr** and the exit code stays `0`: the deletion succeeded, and a
+  non-zero exit would claim a failure that did not happen — the same shape
+  `nexus asset delete` uses for `objectRemoved`.
+  
+  ## The cascade is now transitive, and it was not
+  
+  Both packages inherit a second fix. The cascade collected only DIRECT children,
+  so a container nested inside the deleted container was removed while its own body
+  stayed — carrying a `parentId` naming a node that no longer exists.
+  
+  That is not a miscount. An orphaned `doWhileStart` cannot be deleted directly
+  (`NODE_DO_WHILE_START_DELETE_FORBIDDEN` says "delete the parent doWhile node
+  instead") and the parent it names is the node that just went, so nothing in the
+  API could remove it, and `validate` did not report the dangling `parentId` at
+  all. Deleting a container now takes its descendants at every depth.
+
+### Patch Changes
+
+- 9430e73: A failed node test no longer publishes the failure as the node's contract
+  
+  `nexus workflow node test` (and `workflow test-node`, the same endpoint) writes
+  the run's output back onto the node: `testExecutionId`, `runOutput`, and an
+  `outputFormat` inferred from what the node emitted. That inferred schema is what
+  downstream nodes read to offer `{{upstream.field}}` variables, so it is the
+  node's published contract.
+  
+  The write-back ran on **every** settled run, including a failed one — and the
+  inner service does not throw on a failed node test, it *returns*
+  `{error, errorDetails, timestamp}`. So a run that failed published the shape of
+  its own failure:
+  
+  ```json
+  {"type":"object","properties":{"error":{"type":"string"},"timestamp":{"type":"string"},
+   "errorDetails":{"type":"object","properties":{"type":{"type":"string"},
+   "message":{"type":"string"},"nodeType":{"type":"string"}}}}}
+  ```
+  
+  Every downstream node was then wired against a schema that only exists when this
+  node breaks. The same response also reported `status: "COMPLETED"` for that run,
+  so nothing on the surface said the test had failed.
+  
+  **A failed run now writes back nothing but `testExecutionId`.** `outputFormat`
+  and `runOutput` keep whatever the last **successful** test left — an untested
+  node stays untested rather than acquiring a fictional contract — and
+  `testExecutionId` still moves, because pointing at the failed run is exactly
+  what a caller debugging it needs.
+  
+  **`status` now reports the outcome.** `"FAILED"` when the node threw (the error
+  envelope is still in `data`), `"COMPLETED"` when it ran, `"PENDING"` when the run
+  went asynchronous. `TestNodeResult.status` was previously documented as *not* an
+  outcome flag; it is one now.
+  
+  The discriminant is explicit rather than sniffed. `WorkflowNodeTestResponse`
+  gains a `failed: true` arm, so a real executor output that happens to carry
+  `error` / `errorDetails` / `timestamp` keys is still treated as output — the
+  shape alone never could tell the two apart.
+  
+  ## `@agent-nexus/cli`
+  
+  `workflow node test` and `workflow test-node` help now state what a failed run
+  writes back, and that `status` is `"FAILED"` for one.
+  
+  ## `@agent-nexus/sdk`
+  
+  `TestNodeResult`'s docstring documents the three `status` values and the failed
+  run's write-back behaviour.
+- 25cbc5c: A node write that cannot be applied is refused instead of reported as done
+  
+  Three writes through `PATCH /workflows/:id/nodes/:nodeId` answered 200 with
+  `configStatus: "complete"` and kept the previous value. One of them contradicted
+  itself inside the same response body. Nothing separated applied from discarded,
+  so a builder read the 200 as confirmation and then read several runs of the old
+  configuration as results from the new one.
+  
+  All three are now a 400 that names the constraint and the repair (NEX-4075).
+  
+  - **`branching.data.type` will not leave logic mode.** Switching to `prompt`
+    while `logic[]` held populated conditions answered 200 with `"type":"logic"` in
+    the same response. It is now `400 BRANCHING_TYPE_LOCKED`, and the message
+    carries the one-request repair — `{"data":{"type":"prompt","logic":[]}}`, since
+    a top-level array replaces wholesale.
+  - **`loop.iterationsSetup` discarded every non-`variable` handler.** The field is
+    stored as the node's `instructions` and only a variable reference survives that
+    conversion, so `handler: "manual"` left the previous iteration source in place.
+    It is now `400 ITERATIONS_SETUP_HANDLER_UNSUPPORTED`, naming both supported
+    ways to supply the list.
+  - **A top-level `type` was stripped by the request schema.** `{"type":
+  "manualTrigger","data":{…}}` returned 200 with the type unchanged, and a body
+    carrying only `type` failed with "At least one of 'data' or 'parentId' must be
+    provided" — an error about the envelope that never said `type` was unwritable.
+    It is now refused by name, and the message points at `nexus workflow trigger`.
+  
+  ## `@agent-nexus/sdk`
+  
+  `UpdateNodeBody` declares `type?: undefined`, so passing a node type to
+  `workflows.updateNode` is a compile error instead of a key the server discards.
+  `workflows.replaceTrigger` is where a trigger type changes. No runtime behaviour
+  changed.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus workflow node update --help` now states that a top-level `type` is refused
+  by name rather than silently dropped, and where a trigger type is actually
+  changed. No command, flag or output shape changed.
+  
+  Both refusals cover what a request WRITES and deliberately not what is already
+  stored: a node the canvas left in prompt mode with conditions, or one already
+  holding an unsupported handler, stays editable through this door.
+- fe1bfb7: `workflow get`'s `agentInputSchema` answers for the LIVE graph, not the draft trigger
+  
+  `agentInputSchema` is the field an operator reads to answer "what does my
+  published skill accept". It was the `Workflow.agentInputSchema` column, which
+  every graph write re-derives from the **draft** `agentInputTrigger` — while a
+  workflow skill is only ever invoked against `publishedNodes`. So a published
+  workflow whose trigger was edited without a republish advertised parameters no
+  caller could send, and `publish` refuses the republish that would have made them
+  real (`WORKFLOW_ALREADY_PUBLISHED` — "Unpublish first to re-publish").
+  
+  On a `PUBLISHED` workflow the three v1 read surfaces — `GET /workflows/:id`,
+  `GET /skills/workflows` and `GET /skills/workflows/:id` — now derive the field
+  from the published graph's own agent trigger. A published graph carrying no
+  agent trigger reports `null`: it accepts nothing, which is what every write door
+  already stores for that same graph. A `DRAFT` is unchanged — it has no published
+  graph to differ from — and so is a published workflow that was never snapshotted.
+  
+  **Nothing is hidden.** The draft's parameters are on the same response, under
+  `.nodes[] | select(.type=="agentInputTrigger") | .data.parameters`, beside the
+  `publishedNodes` snapshot they differ from. Only the workflow-level field moved.
+  
+  ## `@agent-nexus/cli`
+  
+  - `workflow get --json` reports the live contract in `agentInputSchema` for a
+    published workflow. A script that diffed it against `.publishedNodes` to detect
+    drift now finds them in agreement by construction; diff `.nodes` instead.
+  - The `workflow get` notes say which graph the field is read from, and where the
+    draft value lives on the same document.
+  
+  ## `@agent-nexus/sdk`
+  
+  No shape change. `WorkflowDetail.agentInputSchema` and
+  `WorkflowSkill.agentInputSchema` document which graph the value is read from, so
+  a consumer reading it in an editor is not told it echoes their last write.
+  
+  ## Also
+  
+  `GET /skills/workflows` is the attach surface: what it reports is what an
+  operator copies into `agent-tool create --type WORKFLOW`. Reporting the draft is
+  what made `LiveWorkflowSchemaGuardService` refuse a body this very endpoint had
+  just handed out — that refusal is now unreachable through a copy of a live read.
+- c6427d6: `nexus workflow node create --type <anyTrigger>` could put a second trigger into
+  a workflow, and nothing could take it out again.
+  
+  A workflow runs from ONE trigger: every start path takes the first trigger-typed
+  node it finds. The create door already refused a second REAL trigger — but the
+  `selectTrigger` placeholder every new workflow is born with was not counted, so
+  the create was accepted beside it, and `nexus workflow trigger` then replaced the
+  FIRST trigger-typed node, which was the placeholder. The workflow ended up
+  holding two live triggers, `node delete` answered `403
+  NODE_TRIGGER_DELETE_FORBIDDEN` on both, and `workflow validate` called the graph
+  `isValid: true, readyToPublish: true`. A test run reported COMPLETED while
+  `execution node-result` answered `NOT_FOUND` for every node in the second
+  trigger's subtree.
+  
+  ## What changed in the CLI's help
+  
+  - **`workflow node create`** now says a trigger type is refused with `409
+    NODE_DUPLICATE_TRIGGER` while the workflow's trigger slot is taken — and that
+    a new workflow's slot is taken from birth, by the placeholder. A trigger is
+    installed with `nexus workflow trigger`, never added beside it.
+  - **`workflow node delete`** now states the one exception to the trigger refusal:
+    a trigger-typed node CAN be deleted while another real trigger remains. That is
+    the repair for a workflow already holding two, and for a stale `selectTrigger`
+    left standing beside a real trigger. The 403 returns the moment the last real
+    trigger is the one being deleted.
+  - **`workflow validate`** lists all four `graphIssues` types instead of two, and
+    documents the new `MULTIPLE_TRIGGERS`, which reports each surplus trigger and
+    names the node to delete.
+  - **`workflow node-types`** notes that trigger types answer 409 at `node create`
+    while the slot is taken.
+  
+  ## SDK
+  
+  `ValidationReport.graphIssues[].type` gains `MULTIPLE_TRIGGERS`, and
+  `INVALID_EDGE`, which the report already produced and the union never listed.
+  
+  No CLI behaviour changes: every one of these is a server-side refusal or report
+  the CLI passes through.
+- 2153c80: The shipped response manifest learns the browser chat stream
+  
+  `response-contract.generated.ts` is a projection of every Public API v1 route, so
+  it moves whenever the contract does. `POST /public/v1/deployments/:deploymentId/chat`
+  joins it as `ChatSendMessageStream`, with `payload: { kind: "undeclared", why:
+  "rawResponse" }` — the same entry the emulator stream carries, and for the same
+  reason: the route sends `text/event-stream` rather than the `{success,data}`
+  envelope, so there is no payload shape for a caller to check.
+  
+  **No SDK method comes with it, deliberately.** That route is authenticated by a
+  chat-session token in `x-chat-session-token`, and `HttpClient.requestSSE`
+  hardcodes `"api-key": this.apiKey` — this SDK cannot present the credential the
+  route admits. Its client is the browser holding a token minted for it, reading
+  the stream through the AI SDK's own transport. The route is ledgered in
+  `v1-routes-have-an-sdk-method.test.ts` with that reason rather than left
+  unaccounted for.
+  
+  What a consumer of this package sees: one more row in the manifest, no new
+  method, no behaviour change to any existing call.
+
 ## 0.25.0
 ### Minor Changes
 

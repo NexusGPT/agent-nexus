@@ -1,5 +1,559 @@
 # @agent-nexus/cli
 
+## 0.34.0
+### Minor Changes
+
+- d33b8ce: A credential now says which tool it can actually be spent on
+  
+  `service` is a display LABEL, and for a tool credential it is the tool's public
+  name — which nothing makes unique. An organization held two ACTIVE credentials
+  reading `service: "Apify"`, both scoped to the Pipedream tool *named* Apify,
+  while the Apify-type tool that actually needed one ("Google Maps Reviews
+  Scraper") had none. Read off `credential list`, those two rows say "Apify is
+  already connected". They are not: executing the other tool with either answers
+  400 `Credential not found or does not belong to this tool/organization`.
+  
+  Every value in that payload was correct. It just did not contain the field that
+  separates the two tools, so no consumer could have reached the right answer
+  from it.
+  
+  ## What is new
+  
+  `Credential.toolId` — the external tool a credential is scoped to, and the same
+  id `tools.credentials(toolId)` takes. `null` for `oauth_connection` and
+  `api_key_connection`, which are organization-wide and belong to no single tool.
+  
+  `ListCredentialsParams.toolId` narrows the list to one tool, so an empty result
+  means NOT CONNECTED rather than "no label matched". This is not cosmetic: an
+  unimplemented query param is not inert — unknown keys were stripped, so a
+  `toolId` filter used to return the entire unfiltered page, which reads as
+  "every one of these matches".
+  
+  The filter matches tool credentials only. ORing in the organization-wide sources
+  would put credentials the tool cannot be executed with into the answer to "what
+  can I run this tool with" — the same false "already connected", behind a flag
+  that looks precise.
+  
+  ## CLI
+  
+  `nexus credential list` gains a `TOOL ID` column and a `--tool-id <id>` flag:
+  
+  ```
+  $ nexus credential list --tool-id bba3c3e2-7c56-4136-a2dd-4af480ad393f
+  No results.
+  ```
+  
+  The id is printed in full rather than abbreviated — it is the argument of
+  `nexus tool credentials` and of `--tool-id`, so a cut one is a value the reader
+  has to go and look up again.
+- 384296f: A track can be finished, handed over, listed and read
+  
+  Four fields the tracks data model has carried since it shipped had no route
+  behind them, so the only way to write or read one was a direct database
+  statement.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.setStatus(trackId, { status })` — this is how a track FINISHES.**
+  `DONE` removes it from `tracks.listReady()` on the very next call, through the
+  one predicate that read already runs. There is nothing to invalidate.
+  
+  There is no delete, and that is the design rather than an omission: a track's
+  diary, its events and its memory ARE the record of how the work went, and all
+  three are children of the row that would be destroyed with it. Every status is
+  reachable from every other one, because work genuinely goes backwards — a track
+  marked `DONE` that turns out not to be takes one call, not an escape hatch.
+  `IN_REVIEW` deliberately stays in the ready set: work waiting on a reviewer is
+  still work somebody can pick up.
+  
+  **`tracks.setNextOwner(trackId, { nextOwner, nextOwnerRef })` — the per-turn
+  handover.** `nextOwner` is published on every row of the ready set and is what an
+  agent reads to decide whether it may proceed at all, and it was writable only at
+  `create` — the one moment a handover value is least interesting.
+  
+  🔴 **`nextOwnerRef` is written on every call and never merged.** Omit it and the
+  watcher reference is cleared in the same statement. That is what keeps the pair
+  legal: the server admits a ref only alongside `EVENT`, so a partial update that
+  left an `EVENT`-era ref behind while moving to `USER` would be refused for a
+  field you did not send. A ref sent with `CUE` or `USER` is a 400 that names the
+  field, rather than a database constraint name reaching you as a 500.
+  
+  **`tracks.list(params?)` and `tracks.get(trackId)`.** `listReady()` was the only
+  track-level list, and it is a FILTERED read — no `DONE`, no `BLOCKED`, nothing
+  held by a dependency. So a track you finished was a real, addressable row that no
+  method could list, and an empty ready set read exactly like an empty
+  organization. `list()` answers what EXISTS, in `number` order, optionally
+  narrowed to one `status`; `get()` answers one track, or 404 — the same answer a
+  foreign id gives, deliberately indistinguishable from it.
+  
+  **`slug` now travels on every ready row**, and on `list` and `get`. The row is
+  where a caller picks a track, and the only other short handle is the
+  `number`, which the server mints and which means nothing outside its own
+  organization.
+  
+  New exported types: `Track`, `TrackStatus`, `SetTrackStatusBody`,
+  `SetTrackStatusResponse`, `SetTrackNextOwnerBody`, `SetTrackNextOwnerResponse`,
+  `ListTracksParams`, `ListTracksResponse`. `ReadyTrack` gains `slug`.
+  
+  ## `@agent-nexus/cli`
+  
+  Four commands: `nexus tracks set-status <trackId> --to <status>`,
+  `nexus tracks set-next-owner <trackId> --to <owner> [--ref <ref>]`,
+  `nexus tracks list [--status <status>] [--limit <n>]` and
+  `nexus tracks get <trackId>`.
+  
+  `nexus tracks ready` prints a `SLUG` column.
+  
+  **`set-status` rather than `status`.** A leaf named `status` promises a verdict a
+  script can branch on and must carry that answer in its exit code; this is a
+  write, with no verdict to carry. `set-next-owner` follows it so the pair reads
+  the same way, and both match their SDK methods exactly.
+  
+  `--ref` is cleared whenever it is omitted, for the reason above — it is not a
+  convenience, it is what stops the next handover failing on a field nobody sent.
+- 78954ca: Deleting a loop says what it took, and takes all of it
+  
+  `DELETE /workflows/:id/nodes/:nodeId` answered `204 No Content`. On an ordinary
+  node that is the whole truth. On a `loop` or a `doWhile` it is not: the container
+  takes **every node scoped inside it**, and **every edge touching any of them** —
+  including its own inbound and outbound edges, which connect nodes *outside* the
+  container and leave them unconnected.
+  
+  Measured against a live stack: a workflow of 9 nodes and 6 edges, one `DELETE` on
+  the loop, and afterwards 3 nodes and 0 edges. The response was four keys, none of
+  which was a count. The only way to learn what had gone was to `get()` the
+  workflow before and after — and by then it is gone.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workflows.deleteNode()` returns `NodeDeleteResult` instead of `void`.** Three
+  arrays, answering three different questions:
+  
+  | field | answers |
+  |---|---|
+  | `deletedNodeIds` | what went — the requested node first, then its body in graph order |
+  | `deletedEdgeIds` | which connections went with them, boundary edges included |
+  | `severedNodeIds` | what is left holding a stump: nodes that SURVIVED and were the far end of a deleted edge |
+  
+  `severedNodeIds` is the half an enumeration of the casualties still cannot
+  answer. Those are exactly the nodes `validate()` will start reporting as
+  `DISCONNECTED_NODE`, and naming them is the difference between knowing the
+  deletion happened and knowing what to repair.
+  
+  The route now answers `200` with a body. That is additive: a caller who ignored
+  an empty body ignores this one, and `deleteNode()` already awaited a response it
+  threw away.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus workflow node delete` prints what it deleted.** It used to print a fixed
+  `Node deleted.` with `{workflowId, nodeId}` — a CLI confirmation, because there
+  was nothing from the server to report.
+  
+  ```
+  ✓ Deleted 6 node(s) and 6 edge(s).
+    workflowId: …
+    nodeId: …
+    deletedNodes: 6
+    deletedEdges: 6
+  ⚠ 2 surviving node(s) lost an edge to this deletion and are now unconnected on that side.
+    Severed: 58b3a655-…, fa124e18-…
+  ```
+  
+  Under `--json` the three id arrays are in the document. The severed-node line
+  goes to **stderr** and the exit code stays `0`: the deletion succeeded, and a
+  non-zero exit would claim a failure that did not happen — the same shape
+  `nexus asset delete` uses for `objectRemoved`.
+  
+  ## The cascade is now transitive, and it was not
+  
+  Both packages inherit a second fix. The cascade collected only DIRECT children,
+  so a container nested inside the deleted container was removed while its own body
+  stayed — carrying a `parentId` naming a node that no longer exists.
+  
+  That is not a miscount. An orphaned `doWhileStart` cannot be deleted directly
+  (`NODE_DO_WHILE_START_DELETE_FORBIDDEN` says "delete the parent doWhile node
+  instead") and the parent it names is the node that just went, so nothing in the
+  API could remove it, and `validate` did not report the dangling `parentId` at
+  all. Deleting a container now takes its descendants at every depth.
+
+### Patch Changes
+
+- 679a10e: A `doWhile` now says whether it converged or gave up at `maxIterations`
+  
+  `GET /workflows/executions/:executionId/nodes/:nodeId` — `client.workflowExecutions.getNodeResult()`,
+  `nexus execution node-result` — carries a new `terminationReason` field.
+  
+  A do-while that stopped because its continue-conditions went false and one that
+  stopped because it hit `maxIterations` produced identical results: node
+  `COMPLETED`, `output` = the array of pass results, `error: null`. With
+  `maxIterations` defaulting to 100, an unconverged retry loop read as a success.
+  Counting passes does not separate the two either — a loop capped at 3 that
+  converged on its third pass and one that gave up at the cap both report three.
+  
+  ```ts
+  const node = await nexus.workflowExecutions.getNodeResult(executionId, doWhileNodeId);
+  if (node.terminationReason === "max_iterations_reached") {
+    // the loop ran out of attempts; it did NOT converge
+  }
+  ```
+  
+  `condition_not_met` (the loop finished), `max_iterations_reached` (it did not),
+  `condition_error` (evaluating the conditions threw — previously swallowed and
+  indistinguishable from a satisfied condition), or `cancelled`. It is `null` on
+  every other node type, and `null` on a do-while recorded before this shipped —
+  absence means "not recorded", never "converged".
+  
+  The rest of the node result is unchanged: `output` still holds one entry per
+  pass, in order.
+- 9430e73: A failed node test no longer publishes the failure as the node's contract
+  
+  `nexus workflow node test` (and `workflow test-node`, the same endpoint) writes
+  the run's output back onto the node: `testExecutionId`, `runOutput`, and an
+  `outputFormat` inferred from what the node emitted. That inferred schema is what
+  downstream nodes read to offer `{{upstream.field}}` variables, so it is the
+  node's published contract.
+  
+  The write-back ran on **every** settled run, including a failed one — and the
+  inner service does not throw on a failed node test, it *returns*
+  `{error, errorDetails, timestamp}`. So a run that failed published the shape of
+  its own failure:
+  
+  ```json
+  {"type":"object","properties":{"error":{"type":"string"},"timestamp":{"type":"string"},
+   "errorDetails":{"type":"object","properties":{"type":{"type":"string"},
+   "message":{"type":"string"},"nodeType":{"type":"string"}}}}}
+  ```
+  
+  Every downstream node was then wired against a schema that only exists when this
+  node breaks. The same response also reported `status: "COMPLETED"` for that run,
+  so nothing on the surface said the test had failed.
+  
+  **A failed run now writes back nothing but `testExecutionId`.** `outputFormat`
+  and `runOutput` keep whatever the last **successful** test left — an untested
+  node stays untested rather than acquiring a fictional contract — and
+  `testExecutionId` still moves, because pointing at the failed run is exactly
+  what a caller debugging it needs.
+  
+  **`status` now reports the outcome.** `"FAILED"` when the node threw (the error
+  envelope is still in `data`), `"COMPLETED"` when it ran, `"PENDING"` when the run
+  went asynchronous. `TestNodeResult.status` was previously documented as *not* an
+  outcome flag; it is one now.
+  
+  The discriminant is explicit rather than sniffed. `WorkflowNodeTestResponse`
+  gains a `failed: true` arm, so a real executor output that happens to carry
+  `error` / `errorDetails` / `timestamp` keys is still treated as output — the
+  shape alone never could tell the two apart.
+  
+  ## `@agent-nexus/cli`
+  
+  `workflow node test` and `workflow test-node` help now state what a failed run
+  writes back, and that `status` is `"FAILED"` for one.
+  
+  ## `@agent-nexus/sdk`
+  
+  `TestNodeResult`'s docstring documents the three `status` values and the failed
+  run's write-back behaviour.
+- 3f1ddc7: A marketplace tool answers with the page that connects it
+  
+  `nexus tool get <id>` now returns a **`dashboardUrl`**, the tool's page in the
+  dashboard — the same field `nexus external-tool get` has always returned, on the
+  command that answers for marketplace tools.
+  
+  That page is where a *person* connects a credential: it is the browser half of
+  `nexus tool connect`, and the only route offering both an OAuth button and an
+  API-key form. Before this, the path had to be assembled from a pattern written
+  down outside this repository — which is the drift `dashboard-url.ts` exists to
+  remove, and it had already bitten: an operator handed the documented
+  `{dashboardUrl}/app/my-tools/{toolId}` to a colleague and it did not work
+  (NEX-4021).
+  
+  It did not work because the page itself 404'd for a marketplace tool id, which
+  the same change repairs on the server. Two consequences worth stating:
+  
+  - **The URL this command prints is only openable against a backend carrying that
+    fix.** Printed against an older one it resolves to a spinner that never
+    settles, which is why the `--help` note says so rather than leaving the caller
+    to conclude their id was wrong.
+  - **Connecting a credential does not require owning the tool**, so the link is
+    the right thing to send to whoever actually holds the key. Editing, publishing
+    and deleting still do — those controls stay hidden on a tool the organization
+    did not create.
+  
+  No flag, argument, or output shape changed: `tool get` was already a flat record
+  and gains one more field.
+- 25cbc5c: A node write that cannot be applied is refused instead of reported as done
+  
+  Three writes through `PATCH /workflows/:id/nodes/:nodeId` answered 200 with
+  `configStatus: "complete"` and kept the previous value. One of them contradicted
+  itself inside the same response body. Nothing separated applied from discarded,
+  so a builder read the 200 as confirmation and then read several runs of the old
+  configuration as results from the new one.
+  
+  All three are now a 400 that names the constraint and the repair (NEX-4075).
+  
+  - **`branching.data.type` will not leave logic mode.** Switching to `prompt`
+    while `logic[]` held populated conditions answered 200 with `"type":"logic"` in
+    the same response. It is now `400 BRANCHING_TYPE_LOCKED`, and the message
+    carries the one-request repair — `{"data":{"type":"prompt","logic":[]}}`, since
+    a top-level array replaces wholesale.
+  - **`loop.iterationsSetup` discarded every non-`variable` handler.** The field is
+    stored as the node's `instructions` and only a variable reference survives that
+    conversion, so `handler: "manual"` left the previous iteration source in place.
+    It is now `400 ITERATIONS_SETUP_HANDLER_UNSUPPORTED`, naming both supported
+    ways to supply the list.
+  - **A top-level `type` was stripped by the request schema.** `{"type":
+  "manualTrigger","data":{…}}` returned 200 with the type unchanged, and a body
+    carrying only `type` failed with "At least one of 'data' or 'parentId' must be
+    provided" — an error about the envelope that never said `type` was unwritable.
+    It is now refused by name, and the message points at `nexus workflow trigger`.
+  
+  ## `@agent-nexus/sdk`
+  
+  `UpdateNodeBody` declares `type?: undefined`, so passing a node type to
+  `workflows.updateNode` is a compile error instead of a key the server discards.
+  `workflows.replaceTrigger` is where a trigger type changes. No runtime behaviour
+  changed.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus workflow node update --help` now states that a top-level `type` is refused
+  by name rather than silently dropped, and where a trigger type is actually
+  changed. No command, flag or output shape changed.
+  
+  Both refusals cover what a request WRITES and deliberately not what is already
+  stored: a node the canvas left in prompt mode with conditions, or one already
+  holding an unsupported handler, stays editable through this door.
+- fe1bfb7: `workflow get`'s `agentInputSchema` answers for the LIVE graph, not the draft trigger
+  
+  `agentInputSchema` is the field an operator reads to answer "what does my
+  published skill accept". It was the `Workflow.agentInputSchema` column, which
+  every graph write re-derives from the **draft** `agentInputTrigger` — while a
+  workflow skill is only ever invoked against `publishedNodes`. So a published
+  workflow whose trigger was edited without a republish advertised parameters no
+  caller could send, and `publish` refuses the republish that would have made them
+  real (`WORKFLOW_ALREADY_PUBLISHED` — "Unpublish first to re-publish").
+  
+  On a `PUBLISHED` workflow the three v1 read surfaces — `GET /workflows/:id`,
+  `GET /skills/workflows` and `GET /skills/workflows/:id` — now derive the field
+  from the published graph's own agent trigger. A published graph carrying no
+  agent trigger reports `null`: it accepts nothing, which is what every write door
+  already stores for that same graph. A `DRAFT` is unchanged — it has no published
+  graph to differ from — and so is a published workflow that was never snapshotted.
+  
+  **Nothing is hidden.** The draft's parameters are on the same response, under
+  `.nodes[] | select(.type=="agentInputTrigger") | .data.parameters`, beside the
+  `publishedNodes` snapshot they differ from. Only the workflow-level field moved.
+  
+  ## `@agent-nexus/cli`
+  
+  - `workflow get --json` reports the live contract in `agentInputSchema` for a
+    published workflow. A script that diffed it against `.publishedNodes` to detect
+    drift now finds them in agreement by construction; diff `.nodes` instead.
+  - The `workflow get` notes say which graph the field is read from, and where the
+    draft value lives on the same document.
+  
+  ## `@agent-nexus/sdk`
+  
+  No shape change. `WorkflowDetail.agentInputSchema` and
+  `WorkflowSkill.agentInputSchema` document which graph the value is read from, so
+  a consumer reading it in an editor is not told it echoes their last write.
+  
+  ## Also
+  
+  `GET /skills/workflows` is the attach surface: what it reports is what an
+  operator copies into `agent-tool create --type WORKFLOW`. Reporting the draft is
+  what made `LiveWorkflowSchemaGuardService` refuse a body this very endpoint had
+  just handed out — that refusal is now unreachable through a copy of a live read.
+- 23cc72b: An `outputNode` with nothing to output no longer reports itself ready
+  
+  The node that produces a workflow's FINAL output is created with
+  `{"outputType": "previous", "instructions": ""}` — and `instructions` is the only
+  field any of the three `outputType` branches reads. `previous` emits the value
+  that field REFERENCES (the incoming edge does not select it), `text` renders it as
+  a template, `custom` sends it to the model as the prompt. Empty, the node emits
+  `""` and the run finishes `COMPLETED` with the workflow's answer blank.
+  
+  `configStatus` called that node `complete` with `missingFields: []`, so every
+  surface that reports readiness agreed the node was ready while it was guaranteed
+  to produce nothing. Measured on production 2026-08-19: **54 published `previous`
+  output nodes across 36 workflows in 8 organisations** carry neither a reference
+  nor text.
+  
+  `computeConfigStatus` now reports `missingFields: ["instructions"]` when that
+  field is empty, under every `outputType`.
+  
+  ## `@agent-nexus/cli`
+  
+  Help text on three commands claimed the opposite and has been corrected:
+  
+  - **`workflow overview`** said an `outputNode` "has no required fields at all, so
+    they ALWAYS report complete". It now reports `missingFields: ["instructions"]`
+    when the field is empty; the three genuinely field-free types
+    (`webhookTrigger`, `agentInputTrigger`, `loopStart`) are unchanged.
+  - **`workflow`** carried the same claim in its shared preamble.
+  - **`execution poll` / `execution output`** said "Nothing validates this: publish,
+    validate and the node's own status all pass" about a `COMPLETED` run whose
+    output came back empty. `workflow validate`, `workflow overview` and the node's
+    own `configStatus` all report it now.
+  
+  ⚠️ **Advisory, not a new refusal.** `outputNode` is deliberately absent from the
+  publish gate's blocking map, so `POST /publish` still answers 200 and workflows
+  already carrying an unconfigured output node are not refused a re-publish —
+  verified on a running stack. `workflow validate` reports `readyToPublish: false`
+  for one, which is a report about the graph, not a gate on it. The canvas
+  validator is unchanged, so nothing here rejects a graph the dashboard accepts.
+  
+  The run itself is unchanged: an output node with no instructions still emits `""`.
+  Making `previous` fall back to the upstream node's output would change what 36
+  live workflows return and is left as a product decision (NEX-4055).
+- 2c80c7d: `tracks archive` help states that a track is never deleted, in words
+  
+  The note opened by naming a delete command in the same quoted form the help uses
+  for commands that exist. There is no such command, so the sentence read as a
+  pointer to one, and the help-claims gate — which resolves every quoted command in
+  help prose against the live command tree and cannot read a negation — reported it
+  as an unresolved citation.
+  
+  The note now says the same thing in words. Nothing else about `archive` changed.
+- b4992bf: `tool connect` and `agent-tool create` no longer tell you that the unified credential id is
+  the wrong one to put on a plugin node — because it no longer is.
+  
+  One connected account carries two ids and nothing about either says which it is:
+  `nexus tool credentials <toolId>` prints `ToolCredentials.id` under a column headed `ID`, and
+  `nexus credential list` prints `Credential.id` under a column headed `ID`. Both are UUIDs.
+  Pasting the second into a workflow plugin node's `toolCredentialId`, or into a PLUGIN agent
+  tool config, was accepted by `configStatus` and by `workflow validate` and then refused at
+  execution — with a message telling you to reconnect an account that was working.
+  
+  That is fixed on the platform: where a credential is SPENT, both ids now resolve to the same
+  connected account, within your own organization. `external-tool execute --credential` already
+  did; a workflow plugin node, a smart-action node and an agent PLUGIN config now do too. An id
+  that names neither space is still refused, and the refusal names both lists instead of the
+  account.
+  
+  The `--help` text catches up with it:
+  
+  - `tool connect` said "neither namespace accepts the other's — `external-tool execute
+    --credential` is the one place that takes either". Both halves were true when written and
+    the second is now wrong, so the note splits the two cases: the ADDRESSING commands
+    (`credential`, `access-card`, `tool delete-credential`) still hold you to one namespace,
+    while every place a credential is spent takes either.
+  - `agent-tool create` still points you at `tool credentials <toolId>` for the id, and now adds
+    that the unified id from `credential list` resolves there as well.
+  
+  The `plugin` and `smart-action` node-type guides — what `nexus workflow node-type` prints, and
+  what an agent reads before configuring a node — carried the same rule as a 🚨 gotcha quoting
+  the old run-time error verbatim. Both now state that either id is accepted, and keep the part
+  that is still true: `credential get` resolves only the unified one.
+- 66930dd: `tool create-credential --help` and `tool connection-status --help` now say which of the two
+  id spaces each one deals in, and `create-credential` says what it does with a tool it cannot
+  serve.
+  
+  `tool connection-status` answers `COMPLETED` with a `connectionId`, and that is the only id
+  the caller holds at that moment. `tool create-credential --account-id` wants a different
+  thing entirely: Pipedream's own account id, which looks like `apn_z8hD1b4` and never reaches
+  the caller through this CLI. Passing the connectionId was the obvious move, and it used to be
+  accepted — the server wrote it straight into the credential row, so the credential listed
+  fine and could never execute. The server refuses it by name now, and the help says so before
+  you get there:
+  
+  - `--account-id`'s one-line description names the shape (`apn_...`) and names what it is NOT.
+  - The examples stop showing `pd-acct-456`, an id of a shape Pipedream does not issue, and show
+    a real `apn_` one.
+  - A new note states that a COMPLETED handshake has ALREADY stored its credential — the thing
+    `connectionId` names exists, `nexus credential list` shows it, and there is nothing left for
+    `create-credential` to record.
+  - Another states that the command is Pipedream-only: a tool of any other type answers
+    `422 TOOL_NOT_PIPEDREAM` and names the flow that fits it,
+    `nexus tool connect <id> --auth-type http --api-key-value <key>`.
+  - `connection-status` states that its `connectionId` is a Nexus credential id rather than a
+    Pipedream account id, so the reader is warned in the command that produces the id as well as
+    in the one that refuses it.
+- f9882ee: `document upload` help no longer tells you to ignore mimeType
+  
+  The CLI sends a file's bytes with no content type declared, and the server used
+  to store that multipart default verbatim — so `nexus document download <id>`
+  answered `"mimeType": "application/octet-stream"` for a PDF, and this help text
+  told you to read `type` and never `mimeType` because of it.
+  
+  The server now resolves an undeclared content type from the filename before
+  storing it: a `.pdf` comes back `application/pdf`, a `.csv` `text/csv`. An
+  extension the server does not recognise still lands on
+  `application/octet-stream`, so `type` remains the answer to "what kind of
+  document is this" — but `mimeType` is no longer a constant.
+  
+  Help text only; no command, flag or output shape changed.
+- 865483f: `workflow branch create` help: a condition `field` that is a bare string is now refused at write (400 `VALIDATION_ERROR`) rather than accepted and failing silently at execution, and the example's `field.type` is corrected from the non-existent `"text"` to `"string"`.
+- c6427d6: `nexus workflow node create --type <anyTrigger>` could put a second trigger into
+  a workflow, and nothing could take it out again.
+  
+  A workflow runs from ONE trigger: every start path takes the first trigger-typed
+  node it finds. The create door already refused a second REAL trigger — but the
+  `selectTrigger` placeholder every new workflow is born with was not counted, so
+  the create was accepted beside it, and `nexus workflow trigger` then replaced the
+  FIRST trigger-typed node, which was the placeholder. The workflow ended up
+  holding two live triggers, `node delete` answered `403
+  NODE_TRIGGER_DELETE_FORBIDDEN` on both, and `workflow validate` called the graph
+  `isValid: true, readyToPublish: true`. A test run reported COMPLETED while
+  `execution node-result` answered `NOT_FOUND` for every node in the second
+  trigger's subtree.
+  
+  ## What changed in the CLI's help
+  
+  - **`workflow node create`** now says a trigger type is refused with `409
+    NODE_DUPLICATE_TRIGGER` while the workflow's trigger slot is taken — and that
+    a new workflow's slot is taken from birth, by the placeholder. A trigger is
+    installed with `nexus workflow trigger`, never added beside it.
+  - **`workflow node delete`** now states the one exception to the trigger refusal:
+    a trigger-typed node CAN be deleted while another real trigger remains. That is
+    the repair for a workflow already holding two, and for a stale `selectTrigger`
+    left standing beside a real trigger. The 403 returns the moment the last real
+    trigger is the one being deleted.
+  - **`workflow validate`** lists all four `graphIssues` types instead of two, and
+    documents the new `MULTIPLE_TRIGGERS`, which reports each surplus trigger and
+    names the node to delete.
+  - **`workflow node-types`** notes that trigger types answer 409 at `node create`
+    while the slot is taken.
+  
+  ## SDK
+  
+  `ValidationReport.graphIssues[].type` gains `MULTIPLE_TRIGGERS`, and
+  `INVALID_EDGE`, which the report already produced and the union never listed.
+  
+  No CLI behaviour changes: every one of these is a server-side refusal or report
+  the CLI passes through.
+- f55a5f3: `workflow node output-format` no longer tells you a `nodeType` schema proves nothing
+  
+  The note under `nexus workflow node output-format --help` read:
+  
+  > source "nodeType" — NOTHING HAS RUN. You are reading the static per-type default
+  > ({"type":"object"} for most types), which proves nothing about what this node
+  > will actually emit.
+  
+  That was true of every type when it was written, and it is now wrong for the types
+  that declare their output. The backend derives a `nodeType` schema from the node
+  type's own `runOutputSchema`, so `cueNode` answers its five fixed keys, `loop` and
+  `doWhile` answer an array, and `newsMonitorTrigger` answers the `events[]` shape it
+  already published on `GET /workflows/node-types/:type` — all before the node has
+  ever run.
+  
+  The help now separates the two cases: a declared shape is real and wirable, and a
+  bare `{"type":"object"}` is the one that still proves nothing. No behaviour change
+  in the CLI itself; the command sends the same request and prints the same record.
+- 60661a9: `nexus tracks --help` states what the routes do
+  
+  `tracks create --help` said a new track "does not appear in `nexus tracks ready`
+  as work until it has tasks". The ready set tests status, archival and dependency
+  edges and asks nothing about tasks, and `Track.status` defaults to `PLANNED`, so
+  a freshly created track is ready work from the very next call. Sixteen further
+  claims across the namespace were resolved to the code that decides them and
+  rewritten where they disagreed — among them: an un-tick erases a task's
+  evidence rather than preserving it, a non-OPEN agent answers 409 rather than
+  404, a task name passed to `--agent` is a 400 rather than a 409, an edge whose
+  blocker is already `DONE` removes nothing from the ready set, and a slug or a
+  memory key must start with a letter or a digit.
+
 ## 0.33.1
 ### Patch Changes
 

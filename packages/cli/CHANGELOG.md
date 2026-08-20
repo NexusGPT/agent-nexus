@@ -1,5 +1,38 @@
 # @agent-nexus/cli
 
+## 0.33.1
+### Patch Changes
+
+- 683ead5: The bundled skills gain `nexus-tracks`, so Cue can finally see the Tracks surface it is already authorized for
+  
+  Cue's base knowledge is baked from `NexusGPT/claude-code-skills-nexus` at the sha in
+  `packages/cli/skills-nexus.lock`. Tracks shipped upstream in that repo's PR #27 and the lock
+  never moved, so the bundle Cue reads had **zero** mention of it: `nexus tracks` occurred **0**
+  times across the payload, against **423** for `nexus workflow` and **125** for `nexus agent`.
+  `SKILL_LIST` named 19 skills and `nexus-tracks` was not among them.
+  
+  The result is an agent authorized for the Tracks routes in production that has never been told
+  they exist — it cannot route to them, because nothing it reads says they are there.
+  
+  After this bump: `nexus tracks` **15**, `SKILL_LIST` **20** with `nexus-tracks` in it, and both
+  controls unchanged at **423** and **125** — the payload delta is purely additive.
+  
+  **The lock points at `a64b45c`, not at upstream `main`, and that is deliberate.**
+  Upstream `main` still carries the registry regression that issue #25 recorded: a sync commit
+  overwrote PR #23, so the bundled `nexus-workspaces` runbook and the installed Python hooks
+  index `~/.nexus-mcp/workspace-mounts.json` by BARE SLUG again, while this CLI writes
+  `<kind>:<id>|<slug>` keys. Bumping to `main` turns
+  `src/workspace-registry-skill-compat.test.ts` red with 12 findings — measured, not inferred —
+  and shipping it would put a silently-wrong path resolver on every machine that runs
+  `nexus claude-code install`: `ws_path()` falls back to `/mnt/workspace/<slug>`, which does not
+  exist locally, and the WebDAV recipe PUTs to `null/api/dav/…`.
+  
+  So `a64b45c` is upstream PR #27's two commits plus PR #29's follow-up, cherry-picked onto the sha
+  the lock already pinned — the
+  same remedy #25 used for the branching-operator fix. The `nexus-tracks/SKILL.md` blob is
+  sha256-identical to `main`'s, and all three registry needles stay at 0 against `main`'s 1.
+  Upstream issue #28 tracks getting `main` green so the lock can return to it.
+
 ## 0.33.0
 ### Minor Changes
 

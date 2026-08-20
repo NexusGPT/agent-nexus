@@ -1,5 +1,348 @@
 # @agent-nexus/cli
 
+## 0.33.0
+### Minor Changes
+
+- 2ef56c8: `COMPATIBILITY.md` promised a deprecation cycle — "the old form keeps working, `--help` and the
+  changelog say it is going, and it is removed no sooner than the release after the one that
+  announced it" — and this package had no way to perform one. A command could be kept or it could be
+  deleted. Every removal therefore rested on a reviewer noticing, and the surface manifest added in
+  0.26.0 did not change that: deleting a command is a clean regeneration and a green build, and the
+  generated file simply describes a smaller CLI with generated authority behind it.
+  
+  **A command can now be retired, and a removal that skips the cycle fails the build.**
+  
+  **What you get as a caller.** From the release that announces a deprecation, the command still
+  works and tells you it is going — a `DEPRECATED:` line at the top of its own `--help`, and one
+  sentence on **stderr** every time you invoke it, naming what is going, what replaces it, and the
+  release it goes in. Under `--json`, stdout is byte-identical to what it was before the
+  announcement: the notice never touches it, because a notice on stdout would break every consumer
+  one release EARLY, which is the opposite of what announcing a removal is for. Nothing is deprecated
+  in this release — the declaration is `src/deprecations.ts` and it is empty, which is the ordinary
+  state.
+  
+  **What you get as an author.** A record in `DEPRECATIONS` is keyed by the leaf's `shape` from the
+  surface manifest — the rename-stable identity, which excludes the path — so renaming a command
+  cannot silently discharge a deprecation of it. `src/cli-surface.baseline.generated.ts` records what
+  the last release promised, and every promised path gets one of four verdicts: `present`, `aliased`,
+  `moved` or `removed`. **An alias is still the sanctioned rename and owes nothing** — `task-eval`
+  keeping `eval` is the shape to copy, and it stays green. A rename with no alias, and a removal, owe
+  a cycle on a STABLE leaf. `admin`, `api`, `vibe` and hidden commands owe none, because this document
+  promises them nothing.
+  
+  **The condition that cannot be satisfied in one commit.** A removal is permitted only when the
+  deprecation record was captured into the baseline BY A RELEASE, when its `announcedIn` is at or
+  before that release, and when the `CHANGELOG.md` entry for that version NAMES THE PATH. A version
+  heading is not an announcement — every past release already has one — so the gate reads the entry.
+  The baseline generator refuses to advance while the package version has not moved, which is what
+  stops an announcement being invented and spent in the same pull request.
+  
+  **What it cannot do, stated rather than implied.** A hand-edit of the generated baseline walks
+  around all of it, and no arrangement of a checked-in file prevents that; what the design buys is
+  that the walk-around is a deletion from a file marked GENERATED, in the same commit as the command
+  it excuses. A rename that changes a flag or the description at the same time moves the path and the
+  identity together and reads as a removal — keep the old name as an alias and the verdict is
+  `aliased` whatever the identity did. Two leaves sharing one `shape` cannot be told apart, so neither
+  can be deprecated by identity; there are none today and the manifest's header names any that appear.
+- 7cdc86d: `nexus tracks create` — a track can be made, can say what it is doing, and can
+  report how far along it is.
+  
+  The Tracks domain shipped twenty-one Public API v1 routes and no way to create a
+  track. Every one of those routes addressed a row nothing in the product could
+  produce: the writer existed in the store with integration-test callers and
+  nothing else. Two more fields were published and unreachable.
+  
+  ```bash
+  nexus tracks create --slug billing-rewrite --title "Billing rewrite"
+  nexus tracks current-step <trackId> --text "waiting on the design review"
+  nexus tracks rollup <trackId>
+  ```
+  
+  `client.tracks.create()`, `client.tracks.updateCurrentStep()` and
+  `client.tracks.readRollup()` back them.
+  
+  🔴 **The track's `number` comes back, it is never sent.** It is allocated from a
+  per-organization sequence inside the transaction that inserts the row, so it runs
+  from 1, never repeats and never gaps — a caller-supplied number would be handed
+  out again later and refused on somebody else's create. `slug` is unique per
+  organization; a duplicate is a 409.
+  
+  ⚠️ **`tracks current-step` takes exactly one of `--text` and `--clear`.** Neither
+  is refused and both is refused, deliberately: an omitted `--text` meaning "clear
+  it" is a footgun, because a shell variable that expanded to nothing would silently
+  wipe the line. `currentStep` is the line `nexus tracks ready` prints, and it was
+  the one column no route could write.
+  
+  ⚠️ **`tracks rollup` returns counts, never a percentage** — divide them yourself,
+  because a caller handed a percentage cannot recover the counts. It counts LEAVES
+  ONLY at any nesting depth, so one parent holding three children reads `0/3` and
+  never `0/4`. A track with no tasks reads `0/0`, and so does a track belonging to
+  another organization: the read is anchored on your key's organization, so a
+  foreign id matches no rows, and the two are deliberately indistinguishable.
+  
+  `tracks create` and `tracks current-step` need the `tracks:write` scope;
+  `tracks rollup` needs `tracks:read`.
+- a34f678: `nexus auth status` verifies the key against the API. It used to exit `0` over a dead one.
+  
+  **BREAKING: `auth status` now exits non-zero when the credential is bad.** It read local
+  config, found that a key was present, and exited `0` — over a key the API had already
+  stopped accepting. Measured: a stored key pointing at production reported success, and the
+  63 API calls behind that preflight then failed on auth. A verb named `status` that cannot
+  fail on the state it reports is worse than no verb at all, because it converts "your key is
+  dead" — one command to fix — into "something else is wrong", and the debugging time goes
+  somewhere the defect is not.
+  
+  Its own `--help` disclosed the gap at length ("IT READS LOCAL CONFIG AND MAKES NO NETWORK
+  CALL, SO IT IS NOT VERIFICATION"). A warning that survives is a repair that did not happen:
+  nothing reads a paragraph before branching on an exit code.
+  
+  **Five outcomes, five exit codes, because five different things need doing about them.**
+  
+  | exit | when                                     | what to do         |
+  | ---- | ---------------------------------------- | ------------------ |
+  | `0`  | the API accepted the key                 | nothing            |
+  | `2`  | no profile, or the profile stores no key | `nexus auth login` |
+  | `2`  | the server read the key and refused it   | `nexus auth login` |
+  | `7`  | the API could not be reached at all      | check your network |
+  | `8`  | the check ran out of time                | raise `--timeout`  |
+  | `6`  | the server was reached and errored       | try again          |
+  
+  ⚠️ **`7`, `8` and `6` mean the credential was NOT JUDGED.** They are not a verdict that the
+  key is bad. Collapsing an unreachable host into "your key is invalid" would be the same
+  defect one layer down — it sends the reader to replace a credential that is fine, when the
+  thing to fix is the network. The refusal message names which happened, and names the
+  profile and the base URL, because "some key is dead" is not actionable and "the key in
+  profile X, against host Y, is dead" is. A key that is dead against production and live
+  against staging is the confusion that removes.
+  
+  **`--no-verify` keeps the old local-only read**, for working offline or inspecting a profile
+  for a host you cannot reach. It exits `0` whatever the key's real state is and says so on
+  both channels: the human output prints `NOT VERIFIED`, and the `--json` document reports
+  `verified: null` rather than `false`. Three values, never two — a check nobody ran is
+  neither a pass nor a failure, and `false` would claim the key was judged.
+  
+  **A script that gated on `nexus auth status` succeeding was being carried by the defect.**
+  It kept running against a dead credential and failed later, somewhere else. It now stops at
+  the preflight, which is where it should have stopped. A script that genuinely wants the
+  local read and no network call adds `--no-verify`.
+  
+  `auth status --json` gains a `verified` field (`true` when checked and good, `null` under
+  `--no-verify`; a failed check is the error document, at a non-zero exit).
+  
+  **`auth whoami` shares the probe rather than keeping its own copy.** It was the only verb
+  that got this right, in a private implementation, while `status` had none — and two copies
+  of "is this key good" are two things to drift, silently, in the direction that reads as
+  fine. Its behaviour is unchanged with one narrowing its old bare `catch` could not express:
+  a TIMEOUT now exits `8` rather than `7`. A timeout may still be completing server-side; an
+  unreachable host is not, so a blind retry means different things.
+  
+  Both verbs now honour the global `--timeout <seconds>`. They pinned a 30-second deadline
+  that the flag existing for exactly that purpose could not move.
+- 33a04ff: **BREAKING FOR SCRIPTS THAT GATED ON `channel setup`, AND ITS `--help` PUBLISHED THE WORKAROUND.**
+  
+  `nexus channel setup --type WHATSAPP --json | jq -e '.ready'` was in the shipped help. A
+  documented workaround for an exit code is the admission, in the product's own documentation, that
+  the exit code cannot be believed: the command printed `ready` and exited `0` whichever way it went.
+  
+  **Ready exits `0`; not-ready exits non-zero.** So the gate is
+  `nexus channel setup --type WHATSAPP && nexus deployment create ...`, and the jq recipe is
+  **deleted** from the help rather than corrected. Both branches answer the same way — the plain
+  read and `--auto`.
+  
+  ⚠️ **A `0` STILL MEANS "NOTHING IS KNOWN TO BE MISSING", NEVER "EVERYTHING WAS VERIFIED."** Only
+  WHATSAPP, TWILIO_SMS and TWILIO_VOICE have real prerequisite checks; every other `--type` returns
+  the single always-action_needed deployment step and reports `ready: true` having checked nothing.
+  The help said so and still does. Nothing was added to the success path — only the refusal is new,
+  so the `0` makes exactly the claim it made before.
+  
+  **Under `--json` the not-ready path is now the ERROR document, not a `ready: false` one.** One
+  document on stdout is a promise this CLI keeps on every terminal path, and a failure's document is
+  the error one — printing the steps and then refusing leaves a document that parses cleanly and
+  never says the channel is not ready.
+  
+  **Nothing actionable is lost with them.** The checklist — every step with its status — is in the
+  error document's `message`, and the first blocking step's `action` (method, endpoint and hint
+  text) is in its `hint`. That is the one step worth reading: this command stops at the first gap,
+  so every step after it reads `pending` whatever its real state is. Run without `--json` for the
+  table.
+  
+  **A script that parsed `.ready` must change**, in one of two directions: branch on `$?`, which is
+  what the recipe stood in for, or keep parsing and read `.error` on the not-ready path. The ready
+  path is untouched and still answers `{ type, ready, steps }`.
+- 1ded4dd: **BREAKING FOR SCRIPTS THAT GATED ON `execution diagnose` OR `execution poll`.**
+  Both printed a run's status and exited `0` over every value of it. `poll --watch` was the sharp
+  one: it stops at COMPLETED, FAILED **or** CANCELLED and answered `0` on all three, so a wait loop
+  written around it could not tell a run that finished from one that failed without re-reading the
+  document it had just printed. `diagnose`'s help opens with START HERE, which makes it the first
+  thing a debugging script calls and the first thing that told it nothing.
+  
+  `COMPATIBILITY.md` calls a `0` that becomes non-zero a break in the STABLE tier — it does not move
+  a number, it changes what the command CONSIDERS a failure.
+  
+  **A FAILED run now exits non-zero. A COMPLETED run still exits `0`.** That is both commands, with
+  `--watch` and without, and by execution id or by `--token`.
+  
+  ⚠️ **A CANCELLED RUN DID NOT FAIL, AND IT NO LONGER READS AS A PASS EITHER.** Somebody stopped it,
+  so its nodes may have done everything, nothing, or half of it, and the platform never reached a
+  verdict. It exits under the `unmeasured` category — an existing member of the taxonomy, no new
+  exit code invented — which that category's own declaration describes as "NOT A FAILURE AND … NOT A
+  SUCCESS". Reporting it as a failure would send you to debug a workflow that was never given the
+  chance to be wrong.
+  
+  **A run that has not finished is UNMEASURED too.** `PENDING`, `RUNNING`, and any status a future
+  platform adds that this build does not know: `diagnose` on a live run, and a one-shot
+  `poll` of one, exit under the same category rather than `0`. That makes
+  
+  ```sh
+  until nexus execution poll <id>; do sleep 5; done
+  ```
+  
+  a wait loop whose exit code tells the three outcomes apart, where before every one of them was
+  `0`. A terminal state added upstream will not silently read as green here.
+  
+  **`CANCELLED` and `not finished` share an exit code and never share a `code`.** The document says
+  `CLI_RUN_CANCELLED` or `CLI_RUN_UNFINISHED`, because the reader's next move differs: one run is
+  over and one is not, and waiting helps for exactly one of them.
+  
+  **Under `--json` a failure is the error document and nothing else.** Both commands could
+  previously print their payload and then refuse, which takes stdout with a document that parses
+  cleanly and never says the run failed. On a refusal the error document is now the one document on
+  stdout. The success path is untouched — a COMPLETED run prints exactly what it printed before —
+  and in prose mode the full diagnosis or poll record is still shown above the error.
+  
+  **A gate fix rides along.** `json-one-document.scan.ts` decided whether an error `code` was one
+  this CLI mints by consulting a hand-written list, and that list had been missing
+  `CLI_UPGRADE_NOT_RESOLVED` and `CLI_UPGRADE_NOT_VERIFIED_FOR_YOU` since the day they were added.
+  It stayed green only because neither reaches the driven scan. It is derived from the declaration
+  now, so the next code cannot be missing from it.
+- 151386d: **BREAKING FOR SCRIPTS THAT GATED ON `tool test`, `external-tool test` OR `tool connection-status`.**
+  All three printed a verdict and exited `0` whichever way it went.
+  
+  `COMPATIBILITY.md` calls a `0` that becomes non-zero a break in the STABLE tier — it does not move
+  a number, it changes what the command CONSIDERS a failure.
+  
+  **`nexus tool test` and `nexus external-tool test` exit non-zero when the platform answers
+  `status: "error"`.** Both call the same shape as `external-tool test-auth`, which has always done
+  this; the two of them were the outliers sitting beside it. `tool test`'s own help calls a pass
+  "proof that this agent can run this tool with this credential" — the claim a post-credential-change
+  script gates on, and the exit code did not carry it. It does now, and the platform's own reason is
+  in the error document's message.
+  
+  **`nexus tool connection-status` answers all four handshake states in its exit code**, so an OAuth
+  poll loop never has to parse the document to decide whether to keep going:
+  
+  | status | exit | document `code` |
+  | --- | --- | --- |
+  | `COMPLETED` | `0` | — the record, with `connectionId`, is the document |
+  | `PENDING` | non-zero, **UNMEASURED** | `CLI_HANDSHAKE_PENDING` |
+  | `FAILED` | non-zero | `CLI_REMOTE_ERROR` |
+  | `EXPIRED` | non-zero | `CLI_HANDSHAKE_EXPIRED` |
+  
+  ⚠️ **PENDING IS NOT A FAILURE, and it is deliberately not the failure code.** This command's own
+  help calls PENDING the one state that means keep polling. A loop that read it as a failure would
+  abandon a handshake about to succeed; one that read it as a pass would proceed with a
+  `connectionId` of `null`. It exits under the `unmeasured` category — an existing member of the
+  taxonomy, no new exit code invented — which that category's declaration describes as "NOT A FAILURE
+  AND … NOT A SUCCESS".
+  
+  **`FAILED` and `EXPIRED` share an exit code and never a `code`.** A FAILED handshake is diagnosed
+  from its `errorCode` and the same connection can be retried; an EXPIRED one outlived `expiresAt`
+  and can only be replaced by a new `nexus tool connect`. `EXPIRED` is deliberately not `timed-out`,
+  whose declaration says the server may still be completing the request — an expired handshake
+  definitively is not.
+  
+  **Under `--json` a failure is the error document and nothing else** on all three commands.
+  Printing the payload and then refusing takes stdout with a document that parses cleanly and never
+  says the thing failed. The success paths are untouched: a passing test still prints its result, and
+  a COMPLETED handshake still prints the record carrying `connectionId`. In prose the handshake
+  record is still shown above the error.
+  
+  **What a script should do.** If you were parsing `status` to find out whether the thing worked, you
+  can branch on `$?` now and keep the parse for the detail. If you were relying on the `0`, these
+  commands were telling you nothing.
+- eee632e: **BREAKING FOR SCRIPTS THAT GATED ON `workflow validate`, `workflow test-node` OR `workflow node test`.**
+  All three printed an answer and exited `0` whichever way that answer went. A CI step written as
+  `nexus workflow validate <id> && nexus workflow publish <id>` passed over a workflow with errors,
+  and a node test that FAILED was indistinguishable, to `$?`, from one that passed.
+  
+  `COMPATIBILITY.md` calls a `0` that becomes non-zero a break in the STABLE tier — it does not
+  move a number, it changes what the command CONSIDERS a failure — so here is the old behaviour
+  and the new one, per command.
+  
+  **`nexus workflow validate <id>` now exits non-zero when `isValid` is false.**
+  
+  `isValid` is exactly "the `errors` list is empty". Nothing else moved:
+  
+  - **A WARNING IS NOT A FAILURE.** A workflow whose report carries warnings and no errors still
+    exits `0`, because a warning does not block `workflow publish` and a `validate` that refused on
+    one is a `validate` nobody would run.
+  - **`readyToPublish: false` alone still exits `0`.** That field additionally demands a trigger and
+    a fully configured graph, and this command's own `--help` records that a workflow failing it
+    publishes anyway. Gating on it would refuse work the platform accepts.
+  
+  **`nexus workflow test-node` and `nexus workflow node test` now exit on the NODE's outcome — not
+  on `status`.** They are two spellings of one endpoint and they answer identically; a single module
+  decides for both, so they cannot drift apart.
+  
+  ⚠️ **`status` was already the wrong verdict, and that is the more expensive half of this.** The
+  platform catches a failing node, stores it, and returns normally with the failure inside `data` —
+  leaving no status on that arm, which the API layer then defaults to `"COMPLETED"`. So the field
+  these commands printed read COMPLETED for a run whose node threw. Mapping it to an exit code as it
+  stood would have shipped a gate that says PASS on a failure. The outcome is read from `data`
+  instead, by the same rule the workflow builder's own test panel uses, so the CLI and the screen
+  cannot disagree about whether the same node test failed.
+  
+  **A node test that goes to the background exits UNMEASURED, which is neither a pass nor a
+  failure.** A plugin, an `aiTask`, a `loop`, a `cueNode`, a `firecrawl`, an `exaai`, a `sixtyfour`
+  and most `parallelai` actions answer `status: "PENDING"` with `data: null` — the run has been
+  dispatched and nothing has been measured. That used to exit `0`, which told a script the node
+  works. It now exits with the `unmeasured` category and a distinct `code`
+  (`CLI_NODE_TEST_NOT_MEASURED`), kept apart from the failure code on purpose: a caller must not go
+  and debug a node that has not run yet.
+  
+  **Under `--json` a failure is the error document and nothing else.** All three commands used to be
+  able to print their payload and then refuse, which takes stdout with a document that parses
+  cleanly and never says the thing failed — a consumer reading stdout would see a report and never
+  learn the workflow was invalid. On a refusal the error document is now the one document on stdout.
+  The success path is untouched: a valid report, and a node test that passed, still print exactly
+  what they printed before. In prose mode the record is still shown above the error, because
+  `data.errorDetails` has nowhere else to go for a human.
+  
+  **What a script should do.** If you were parsing the document to find out whether the thing
+  passed, you can now branch on `$?` and keep the parse for the detail. If you were relying on the
+  `0`, these commands were telling you nothing and the exit code is what changed to say so.
+  
+  Every `--help` for the three states the new behaviour, in the CLI's own wording: a failure is
+  described as NON-ZERO, and `nexus --help` holds the code table.
+- 8a66334: **BREAKING FOR SCRIPTS THAT GATED ON `workspace status`.** It printed `live: yes|no` per recorded
+  mount and exited `0` either way. Its own help already warns that a mount deleted server-side still
+  appears in this list, which makes the exit code the only cheap way a script learns that a drive it
+  depends on is GONE — and it always said "fine".
+  
+  **Any recorded mount reading `live: no` now exits non-zero, and the error names the slugs.** One
+  dead row is enough: a script gates on the drive it depends on and cannot know which row that is.
+  
+  ⚠️ **AN EMPTY REGISTRY STILL EXITS `0`.** "No workspaces mounted." means nothing is recorded, which
+  the help is careful to say is not a claim about what the OS has mounted. A machine with no mounts
+  is doing exactly what was asked of it.
+  
+  **The exit code is `local-failed`, and that is deliberate.** No server is involved in this command
+  at all — it reads the local mount registry. Nothing about your input is wrong and no retry against
+  the API helps, which is that category's own definition. A remote code would name a host that was
+  never contacted.
+  
+  ⚠️ **A `0` STILL MEANS "EVERY RECORDED MOUNT IS MOUNTED", NEVER "THE WORKSPACE IS THERE."** This is
+  a PID check for rclone and a mount-table check for the native engine. A row can read live and still
+  fail every read when the gateway refuses, the key was revoked, or the workspace was deleted — the
+  help said so and still does. Confirm by reading one known file.
+  
+  **Under `--json` a refusal replaces the rows with the error document**, because one document on
+  stdout is a promise this CLI keeps on every terminal path and a failure's document is the error
+  one. The dead slugs are named inside it. When every mount is live the rows are exactly what they
+  were, and an empty registry still answers `[]`.
+  
+  This is the last entry in the `status-verdict` ledger. The class is drained.
+
 ## 0.32.0
 ### Minor Changes
 

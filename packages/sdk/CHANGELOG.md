@@ -1,5 +1,47 @@
 # @agent-nexus/sdk
 
+## 0.25.0
+### Minor Changes
+
+- 7cdc86d: `nexus tracks create` — a track can be made, can say what it is doing, and can
+  report how far along it is.
+  
+  The Tracks domain shipped twenty-one Public API v1 routes and no way to create a
+  track. Every one of those routes addressed a row nothing in the product could
+  produce: the writer existed in the store with integration-test callers and
+  nothing else. Two more fields were published and unreachable.
+  
+  ```bash
+  nexus tracks create --slug billing-rewrite --title "Billing rewrite"
+  nexus tracks current-step <trackId> --text "waiting on the design review"
+  nexus tracks rollup <trackId>
+  ```
+  
+  `client.tracks.create()`, `client.tracks.updateCurrentStep()` and
+  `client.tracks.readRollup()` back them.
+  
+  🔴 **The track's `number` comes back, it is never sent.** It is allocated from a
+  per-organization sequence inside the transaction that inserts the row, so it runs
+  from 1, never repeats and never gaps — a caller-supplied number would be handed
+  out again later and refused on somebody else's create. `slug` is unique per
+  organization; a duplicate is a 409.
+  
+  ⚠️ **`tracks current-step` takes exactly one of `--text` and `--clear`.** Neither
+  is refused and both is refused, deliberately: an omitted `--text` meaning "clear
+  it" is a footgun, because a shell variable that expanded to nothing would silently
+  wipe the line. `currentStep` is the line `nexus tracks ready` prints, and it was
+  the one column no route could write.
+  
+  ⚠️ **`tracks rollup` returns counts, never a percentage** — divide them yourself,
+  because a caller handed a percentage cannot recover the counts. It counts LEAVES
+  ONLY at any nesting depth, so one parent holding three children reads `0/3` and
+  never `0/4`. A track with no tasks reads `0/0`, and so does a track belonging to
+  another organization: the read is anchored on your key's organization, so a
+  foreign id matches no rows, and the two are deliberately indistinguishable.
+  
+  `tracks create` and `tracks current-step` need the `tracks:write` scope;
+  `tracks rollup` needs `tracks:read`.
+
 ## 0.24.0
 ### Minor Changes
 

@@ -50,6 +50,26 @@ export const TRACK_CREATE__BODY_NEXT_OWNER = {
   ]
 } as const satisfies ContractEnum;
 
+export const TRACK_LIST__PARAMS_STATUS = {
+  path: "TrackList.Params.status",
+  contractValues: [
+    "PLANNED",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "IN_REVIEW",
+    "DONE"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACK_LIST__PARAMS_ARCHIVED = {
+  path: "TrackList.Params.archived",
+  contractValues: [
+    "exclude",
+    "only",
+    "include"
+  ]
+} as const satisfies ContractEnum;
+
 export const TRACK_LIST_AGENTS__PARAMS_STATE = {
   path: "TrackListAgents.Params.state",
   contractValues: [
@@ -71,6 +91,26 @@ export const TRACK_LIST_DIARY_ENTRIES__PARAMS_KIND = {
     "QUESTION",
     "KILLED",
     "NOTE"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACK_SET_NEXT_OWNER__BODY_NEXT_OWNER = {
+  path: "TrackSetNextOwner.Body.nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACK_SET_STATUS__BODY_STATUS = {
+  path: "TrackSetStatus.Body.status",
+  contractValues: [
+    "PLANNED",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "IN_REVIEW",
+    "DONE"
   ]
 } as const satisfies ContractEnum;
 
@@ -98,6 +138,16 @@ export const TRACK_APPEND_EVENT_CONTRACT = {
     { path: "Body.type", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.payload", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
     { path: "Body.actorAgentId", slot: "Body", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_ARCHIVE_CONTRACT = {
+  name: "TrackArchive",
+  method: "POST",
+  route: "/public/v1/tracks/:trackId/archive",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.archived", slot: "Body", type: "boolean", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 
@@ -219,6 +269,17 @@ export const TRACK_IMPORT_PLAN_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const TRACK_LIST_CONTRACT = {
+  name: "TrackList",
+  method: "GET",
+  route: "/public/v1/tracks",
+  fields: [
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PLANNED", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE"] },
+    { path: "Params.archived", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["exclude", "only", "include"] }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const TRACK_LIST_AGENTS_CONTRACT = {
   name: "TrackListAgents",
   method: "GET",
@@ -304,6 +365,15 @@ export const TRACK_PUT_MEMORY_ENTRY_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const TRACK_READ_CONTRACT = {
+  name: "TrackRead",
+  method: "GET",
+  route: "/public/v1/tracks/:trackId",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const TRACK_READ_ROLLUP_CONTRACT = {
   name: "TrackReadRollup",
   method: "GET",
@@ -330,6 +400,27 @@ export const TRACK_RENAME_SECTION_CONTRACT = {
     { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "PathVars.sectionId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "Body.newSlug", slot: "Body", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_SET_NEXT_OWNER_CONTRACT = {
+  name: "TrackSetNextOwner",
+  method: "POST",
+  route: "/public/v1/tracks/:trackId/next-owner",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.nextOwner", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["CUE", "USER", "EVENT"] },
+    { path: "Body.nextOwnerRef", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_SET_STATUS_CONTRACT = {
+  name: "TrackSetStatus",
+  method: "POST",
+  route: "/public/v1/tracks/:trackId/status",
+  fields: [
+    { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.status", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["PLANNED", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

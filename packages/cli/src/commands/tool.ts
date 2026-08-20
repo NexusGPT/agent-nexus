@@ -12,6 +12,7 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
+import { dashboardUrlFor } from "../dashboard-url";
 import {
   CLI_HANDSHAKE_EXPIRED,
   CLI_HANDSHAKE_PENDING,
@@ -165,13 +166,24 @@ Notes:
   back is all of it.
 
   remoteOptions true means the values are NOT in this response — fetch them with
-  "nexus tool resolve-options <id>".`
+  "nexus tool resolve-options <id>".
+
+  dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is this tool's
+  page, and it is where a PERSON connects their own credential — the browser
+  half of "nexus tool connect", and the only route that offers an OAuth button
+  and an API-key form. Send it to whoever holds the key instead of assembling a
+  URL from a path pattern that can be renamed underneath you.
+  IT WORKS FOR A MARKETPLACE TOOL ID, WHICH IT DID NOT BEFORE NEX-4021: the page
+  answered 404 for every tool published by another organization, which is every
+  marketplace tool. A dashboardUrl printed against an older backend opens a
+  spinner that never resolves.`
     )
     .action(async (id: string) => {
       try {
-        const client = createClient(program.optsWithGlobals());
+        const globals = program.optsWithGlobals();
+        const client = createClient(globals);
         const detail = await client.tools.get(id);
-        printRecord(detail);
+        printRecord({ ...detail, dashboardUrl: dashboardUrlFor("externalTool", id, globals) });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -279,9 +291,13 @@ Notes:
   "nexus tool credentials <tool-id>" and "nexus tool delete-credential" take.
   The "nexus credential" and "nexus access-card" commands take the UNIFIED id
   for the same connected account, and that one comes from
-  "nexus credential list". Two ids, one account, and neither namespace accepts
-  the other's — "nexus external-tool execute --credential" is the one place that
-  takes either.`
+  "nexus credential list". Two ids, one account, and a command that names one
+  namespace does not accept the other's.
+  WHERE A CREDENTIAL IS SPENT, BOTH IDS RESOLVE: "nexus external-tool execute
+  --credential", a workflow plugin node's toolCredentialId, and an agent PLUGIN
+  config's toolCredentialId all take either id for the same account. It is the
+  ADDRESSING commands above — "credential", "access-card", "tool
+  delete-credential" — that hold you to one namespace.`
     )
     .action(async (id: string, opts) => {
       try {
@@ -592,6 +608,12 @@ Notes:
   connectionId IS null UNTIL COMPLETED. Do not read its absence as a failure
   while status is still PENDING.
 
+  connectionId IS A NEXUS CREDENTIAL ID, NOT A PIPEDREAM ACCOUNT ID. COMPLETED
+  means the credential is ALREADY STORED — this id names it, "nexus credential
+  list" shows it, and no further command is needed to record it. In particular
+  it is NOT what "tool create-credential --account-id" takes; that one wants
+  Pipedream's own apn_ id, and passing this uuid there is refused.
+
   THE EXIT CODE SAYS WHICH OF THE FOUR, so a poll loop never has to parse this
   document to decide whether to keep going. COMPLETED exits 0. FAILED and EXPIRED
   exit non-zero, with different codes on the document: one is diagnosed from
@@ -671,22 +693,37 @@ Notes:
     .command("create-credential")
     .description("Create a Pipedream credential after OAuth via connect link")
     .argument("<id>", "Tool ID")
-    .requiredOption("--account-id <id>", "Pipedream account ID")
+    .requiredOption("--account-id <id>", "Pipedream account ID (apn_...), NOT a connectionId")
     .option("--name <name>", "Credential name")
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id pd-acct-456
-  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id pd-acct-456 --name "Production Gmail"
+  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id apn_z8hD1b4
+  $ nexus tool create-credential 11111111-1111-4111-8111-111111111111 --account-id apn_z8hD1b4 --name "Production Gmail"
 
 Notes:
   THIS IS THE STEP AFTER THE BROWSER, NOT INSTEAD OF IT. The OAuth happens at a
   Pipedream connect link; this records the account it produced against the tool.
   Running it before that consent has nothing to record.
-  --account-id IS PIPEDREAM'S ID, not a Nexus one, and it is the one identifier
-  here that does not come from this CLI — read it back from the connect flow.
+
+  --account-id IS PIPEDREAM'S ID AND IT LOOKS LIKE apn_z8hD1b4. It is the one
+  identifier here that does not come from this CLI, and it is NOT the
+  connectionId "tool connection-status" hands back — that one is a Nexus uuid,
+  a different namespace, and this command now refuses it by name rather than
+  storing a credential that could never execute.
+
+  A COMPLETED HANDSHAKE HAS ALREADY STORED ITS CREDENTIAL. When
+  "tool connection-status" answers COMPLETED, connectionId names a credential
+  that EXISTS — list it with "nexus credential list". There is nothing left for
+  this command to record, so reach for it only when you hold an apn_ id from
+  Pipedream itself.
+
+  THIS COMMAND IS PIPEDREAM-ONLY. A tool of any other type (APIFY, MANIFEST,
+  CUSTOM_MANIFEST, ...) answers 422 TOOL_NOT_PIPEDREAM and names the flow that
+  does fit it: "nexus tool connect <id> --auth-type http --api-key-value <key>".
+
   --name is what tells two credentials on the same tool apart in
   "nexus tool credentials". Skip it and you get a list you cannot choose from.
   It answers with the new credential's own id, which is the handle

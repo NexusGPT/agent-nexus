@@ -750,11 +750,55 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // has stopped watching, which is the silent half of this disposition rather
   // than a tidy backlog item.
   "tracks ready": "safe",
+  // 🔴 PARKED, AND `safe` IS THE WRONG ANSWER TODAY EVEN THOUGH THE SHAPE FITS.
+  // It is read-only, takes no required argument and emits `--json` — every
+  // property `safe` asks for. What `safe` actually claims is that the sweep can
+  // RUN it against staging, and `GET /public/v1/tracks` does not exist there
+  // until this branch deploys. Measured: `CLI: Sweep` on #4146 reported
+  // `FAIL tracks list exit=4: Not found: Cannot GET /api/public/v1/tracks`.
+  //
+  // A disposition is a claim about a LIVE ROUTE, never about the command's
+  // shape. Promote it when the route answers, with the probe this block's
+  // header specifies and a control beside it:
+  //
+  //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
+  //     pnpm exec tsx src/index.ts api GET /public/v1/tracks
+  //   # control — must be 404, or the probe would report 200 for anything
+  //   … api GET /public/v1/tracks-not-a-real-route
+  //
+  // On 200: flip to `safe`, re-run `gen:cli-surface`, and raise
+  // `COMPATIBILITY.md`'s `classified safe` count, which a test derives.
+  //
+  // Until then the sweep watches `tracks ready` and not this one — the silent
+  // half of the disposition, recorded here rather than left to be noticed.
+  "tracks list": "registration-only",
   // A mutation. Every one of the three creates or rewrites a row, so the sweep
   // proves they are REGISTERED and never runs them — `tracks rollup` is the one
   // read among them and it still needs a track id, which the sweep has none of.
   "tracks create": "registration-only",
   "tracks current-step": "registration-only",
+  // Both write a column the ready set publishes, so both are mutations. The
+  // status write is also how a track ENDS, which is the last thing a sweep
+  // should perform against a live organization.
+  "tracks set-status": "registration-only",
+  // A MUTATION, and the one that takes a track OUT of the ready set entirely.
+  // It is also parked for the reason `tracks list` is: `POST
+  // /public/v1/tracks/:trackId/archive` does not exist on staging until this
+  // branch deploys, and a disposition is a claim about a LIVE route rather than
+  // about a command's shape. Both facts point the same way here, so this stays
+  // `registration-only` permanently — the sweep must never archive a real track.
+  //
+  //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
+  //     pnpm exec tsx src/index.ts api GET /public/v1/tracks
+  //   # control — must be 404, or the probe would report 200 for anything
+  //   … api GET /public/v1/tracks-not-a-real-route
+  //
+  // On 200, promote `tracks list` (see its entry above). This one does not move.
+  "tracks archive": "registration-only",
+  "tracks set-next-owner": "registration-only",
+  // A read, and still existence-only: it takes a track id and the sweep has
+  // none. Same reasoning as `tracks rollup` below.
+  "tracks get": "registration-only",
   "tracks rollup": "registration-only",
   "tracks dependency add": "registration-only",
   "tracks section create": "registration-only",

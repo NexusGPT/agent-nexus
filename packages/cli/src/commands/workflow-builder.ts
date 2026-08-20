@@ -14,7 +14,7 @@ import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
 import { judgeNodeTest, reportNodeTestRefusal } from "../node-test-verdict";
-import { isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { isJsonMode, printList, printRecord, printSuccess, printWarning } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
@@ -90,6 +90,11 @@ Notes:
   Creating a loop or doWhile ALSO creates its start child, returned as children[].
   loopStart, doWhileStart and selectTrigger cannot be created directly; install a
   trigger with "nexus workflow trigger" instead.
+  A TRIGGER TYPE IS REFUSED HERE WITH 409 NODE_DUPLICATE_TRIGGER while the
+  workflow's trigger slot is taken — and a new workflow's slot is taken from
+  birth, by the selectTrigger placeholder it is created with. A trigger REPLACES
+  that node ("nexus workflow trigger <wf-id> --type <type>"); it is never added
+  beside it. The refusal names the occupant.
   Answers 201 with {id, type, configStatus} — configStatus is shape only.`
     )
     .action(async (wfId: string, opts) => {
@@ -174,6 +179,11 @@ Notes:
   rather than accepted as a no-op. The silent drop applies only ALONGSIDE a real
   field: send data AND a top-level "label" and the label goes without comment
   while the data lands.
+  A TOP-LEVEL "type" IS THE ONE EXCEPTION — IT IS REFUSED BY NAME, WITH OR
+  WITHOUT data. A node's type is fixed when it is created. To change the
+  workflow's trigger use "nexus workflow trigger <wf-id> --type <triggerType>",
+  which replaces the trigger node and reconnects its edges; any other node's type
+  is changed by creating the replacement and deleting the old one.
   parentId MOVES THE NODE'S LOOP SCOPE: an id puts it inside that loop, null takes
   it out, and omitting it leaves the scope alone. A cycle, or a loopStart /
   doWhileStart / trigger node, is refused.
@@ -225,18 +235,30 @@ Examples:
   $ nexus workflow node delete 11111111-1111-4111-8111-111111111111 node-456 --yes
 
 Notes:
-  DELETING A LOOP OR doWhile DELETES EVERY NODE INSIDE IT. The whole body goes,
-  in one 204, and nothing in the response enumerates what went — read the body
-  with "nexus workflow get" before you run this.
-  EVERY EDGE TOUCHING A DELETED NODE GOES TOO, so the nodes either side are left
-  unconnected and validate will report them as DISCONNECTED_NODE.
+  DELETING A LOOP OR doWhile DELETES EVERY NODE INSIDE IT, and every node inside
+  a loop nested in that one. The whole body goes in one call.
+  EVERY EDGE TOUCHING A DELETED NODE GOES TOO — INCLUDING THE CONTAINER'S OWN
+  INBOUND AND OUTBOUND EDGES, which connect nodes OUTSIDE it. Those nodes stay
+  but are left unconnected, and validate will report them as DISCONNECTED_NODE.
+  THE OUTPUT IS THE ONLY ACCOUNT OF WHAT WENT, and it is a server response, not
+  a CLI confirmation: the verdict line counts the casualties and
+  deletedNodeIds / deletedEdgeIds name them, on both channels. severedNodeIds is
+  the third list and the one you act on — the SURVIVING nodes an edge was taken
+  from, i.e. the repair list; a warning on stderr repeats it. Nothing else
+  reports the cascade; before this existed the only way to see it was to diff
+  "nexus workflow get" before and after.
   A TRIGGER CANNOT BE DELETED: 403 NODE_TRIGGER_DELETE_FORBIDDEN. Replace it with
   "nexus workflow trigger <wf-id> --type <triggerType>".
+  THE ONE EXCEPTION REPAIRS A DAMAGED GRAPH: a trigger-typed node CAN be deleted
+  while another REAL trigger remains. That covers a workflow left holding two
+  triggers — it runs only the first and silently skips the rest, and "nexus
+  workflow validate" names the extras as graphIssues MULTIPLE_TRIGGERS — and a
+  stale selectTrigger placeholder left beside a real trigger, which blocks test
+  and publish forever. The 403 returns the moment the last real trigger is what
+  you are deleting. Both still read deletable:false; that field records the node
+  type, not this repair path.
   A loopStart / doWhileStart cannot be deleted either (400) — delete its parent
   loop, which takes the start node with it.
-  The API answers 204 with an empty body; this command prints its own
-  {success, workflowId, nodeId} line, so --json is a CLI confirmation and never a
-  server response — there is nothing from the server to parse.
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
   and exits non-zero rather than acting.`
     )
@@ -247,8 +269,60 @@ Notes:
         if (!(await confirmDestructive(`Delete node ${nodeId} from workflow ${wfId}?`, opts)))
           return;
 
-        await client.workflows.deleteNode(wfId, nodeId);
-        printSuccess("Node deleted.", { workflowId: wfId, nodeId });
+        const result = await client.workflows.deleteNode(wfId, nodeId);
+
+        // A server that has not shipped the enumeration yet answers 204, and the
+        // transport synthesizes `{}` for an empty body — so these three arrays
+        // are typed present and CAN be absent across a version skew, which is
+        // the one direction a published CLI cannot control. Reading `.length`
+        // off `undefined` would throw AFTER the delete already happened, which
+        // reads as a failed command and invites a retry of a destructive call.
+        // Printing zeroes instead would be the exact lie this command was fixed
+        // for, so the fallback says the server did not report rather than
+        // reporting nothing removed.
+        if (!Array.isArray(result.deletedNodeIds)) {
+          printSuccess("Node deleted.", { workflowId: wfId, nodeId });
+          printWarning(
+            "This server did not report what the deletion removed.",
+            "Deleting a loop or doWhile takes its whole body and the edges either side of it.",
+            `Check with "nexus workflow get ${wfId}".`
+          );
+          return;
+        }
+
+        // The enumeration is carried out rather than dropped: one call on a loop
+        // removes its whole body and the edges either side of it, and this used
+        // to print a fixed "Node deleted." over a 204 with nothing in it
+        // (NEX-4047) — the same defect `asset delete` had with objectRemoved.
+        //
+        // The counts live in the MESSAGE, which `printSuccess` carries into the
+        // JSON document too, so no `deletedNodes` key restates what
+        // `deletedNodeIds.length` already answers. The ids themselves are printed
+        // on both channels rather than only under --json: this is a one-shot
+        // destructive command, the nodes are gone by the time it prints, and a
+        // human asking "what did I just lose?" has no second place to look.
+        printSuccess(
+          `Deleted ${result.deletedNodeIds.length} node(s) and ${result.deletedEdgeIds.length} edge(s).`,
+          {
+            workflowId: wfId,
+            nodeId,
+            deletedNodeIds: result.deletedNodeIds,
+            deletedEdgeIds: result.deletedEdgeIds,
+            severedNodeIds: result.severedNodeIds
+          }
+        );
+
+        if (result.severedNodeIds.length > 0) {
+          // STDERR, exit code stays 0 — the deletion succeeded. This is the half
+          // of the damage that is NOT in the deleted lists: nodes that are still
+          // there and just lost a connection, which is what leaves the graph
+          // severed rather than merely shortened.
+          printWarning(
+            `${result.severedNodeIds.length} surviving node(s) lost an edge to this deletion and are now unconnected on that side.`,
+            `Severed: ${result.severedNodeIds.join(", ")}`,
+            'Re-wire them with "nexus workflow edge create", or check the damage with "nexus workflow validate".'
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -285,6 +359,9 @@ Notes:
   It WRITES BACK this node's testExecutionId and inferred outputFormat — that is
   what lets downstream nodes see this node's shape, and it overwrites the previous
   test's pointer. Mock data itself is never persisted.
+  A FAILED RUN WRITES BACK NOTHING BUT testExecutionId. status is "FAILED" and the
+  error envelope is in data; outputFormat and runOutput keep whatever the last
+  SUCCESSFUL test left, so a broken run never becomes this node's contract.
   runOutput IS NOT KEPT ON MOST NODES, AND A null THERE IS NOT A FAILED TEST. The
   test result is stored only for an agentInputTrigger, a humanInput or a
   newsMonitorTrigger; on every other node type — customScript, aiTask, plugin —
@@ -387,9 +464,12 @@ Notes:
   Answers {schema, source}, and SOURCE IS THE FIELD THAT MATTERS.
   source "manual" — the node's stored outputFormat, which a test run writes from
   the real output. This is a schema you can trust.
-  source "nodeType" — NOTHING HAS RUN. You are reading the static per-type default
-  ({"type":"object"} for most types), which proves nothing about what this node
-  will actually emit. A downstream node tested against it runs on schema defaults.
+  source "nodeType" — NOTHING HAS RUN; you are reading the node TYPE's own
+  declaration. Where the type declares what it emits — cueNode's five keys, a
+  loop's array, a trigger's payload — that schema is real and can be wired before
+  the first run. Where it declares nothing you get {"type":"object"}, which proves
+  nothing about what this node will actually emit, and a downstream node tested
+  against it runs on schema defaults.
   An outputNode has no output schema at all, so its schema is null.`
     )
     .action(async (wfId: string, nodeId: string) => {
@@ -644,11 +724,14 @@ Notes:
   {branchId, id, operator: "and" | "or", conditions: []}, and a condition is:
 
     {"id":"<any>","operator":"equals","value":"vip",
-     "field":{"id":"<upstream-node>.tier","label":"Tier","type":"text"}}
+     "field":{"id":"<upstream-node>.tier","label":"Tier","type":"string"}}
 
-  🚨 field IS AN OBJECT, NEVER A STRING, and a bare string is ACCEPTED here and
-  fails only at execution — the branch then matches nothing, at run time, with
-  nothing having refused the write.
+  🚨 field IS AN OBJECT, NEVER A STRING. A bare string, an object missing
+  id or label, and an unrecognised type are all 400 VALIDATION_ERROR at every
+  write door now. Write one of string|number|boolean|object|array|null. A
+  malformed field already stored on the node is passed through unchanged so an
+  unrelated edit is not refused — "nexus workflow validate <wf>" reports that
+  one as a critical error.
   Answers the new branch, including the br-NNN id an edge's --source-handle needs.
   The branch reaches nothing until an edge leaves it, and an unreached branch is a
   silent dead end at run time.
@@ -779,7 +862,8 @@ Notes:
   Names are camelCase and specific — aiTask, branching, loop, doWhile, customScript,
   plugin, outputNode, humanInput — never the generic "action", "condition" or "llm".
   loopStart, doWhileStart and selectTrigger appear here but cannot be created
-  directly; trigger types are installed with "nexus workflow trigger".
+  directly; trigger types are installed with "nexus workflow trigger", and
+  "node create --type <anyTrigger>" answers 409 while the trigger slot is taken.
   Read one type's full schema, including its required fields and connection rules,
   with "nexus workflow node-type <type>".`
     )
@@ -910,11 +994,16 @@ Notes:
   A SHAPE REPORT, NOT A READINESS REPORT. configStatus "complete" means the node's
   own required fields are filled. It says nothing about whether its inputs are
   wired, whether {{upstream.field}} resolves, or whether any value is correct.
-  An outputNode, a webhookTrigger, an agentInputTrigger and a loopStart have no
-  required fields at all, so they ALWAYS report complete.
-  readyToTest / readyToPublish here are derived from configStatus alone —
-  "nexus workflow validate" computes the same two flags with the graph and variable
-  checks included, so its answer is the one to trust before publishing.
+  A webhookTrigger, an agentInputTrigger and a loopStart have no required fields
+  at all, so they ALWAYS report complete. An outputNode used to be in that list;
+  it now reports missingFields ["instructions"] when that field is empty, because
+  it is the only field the node reads and it emits "" without one. Advisory only —
+  publish is not refused for it.
+  readyToTest / readyToPublish here are derived from configStatus and the trigger
+  COUNT alone — both go false on a workflow holding more than one trigger, since a
+  run starts from one of them and skips the rest, and readyToPublish also wants
+  exactly one. "nexus workflow validate" computes the same two flags with the graph
+  and variable checks included, so its answer is the one to trust before publishing.
   missingFields per node is what to fix; nodeCount / edgeCount are the totals.`
     )
     .action(async (wfId: string) => {

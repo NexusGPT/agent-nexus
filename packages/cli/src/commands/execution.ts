@@ -348,8 +348,10 @@ Notes:
   outputData is null until the run finishes, AND STAYS NULL ON A FINISHED RUN
   WHOSE GRAPH WROTE NOTHING. It is filled from the outputNode's own result, so a
   workflow with no outputNode, or one whose outputNode has no data.instructions
-  to render, completes with outputData null and no error anywhere. Read the node
-  results with "execution diagnose" when a COMPLETED run polls back empty.
+  to render, completes with outputData empty and no error on the run. That second
+  case is now visible BEFORE the run: the node reports configStatus incomplete
+  with missingFields ["instructions"]. Read the node results with "execution
+  diagnose" when a COMPLETED run polls back empty.
   THE EXIT CODE CARRIES status, WITH OR WITHOUT --watch. A COMPLETED run exits 0
   and a FAILED one exits non-zero. CANCELLED exits non-zero under the UNMEASURED
   category — --watch treats it as terminal, and it is NOT a failure: somebody
@@ -530,11 +532,12 @@ Notes:
   name — previous|custom|text — use "nexus workflow node get" and look at the
   outputNode's data.outputType. That one is real and writable.
   A THIRD CASE READS THE SAME, AND IT IS THE ONE THAT WASTES AN AFTERNOON: a
-  COMPLETED run whose outputNode also COMPLETED still answers null when that node
-  had nothing to render. That SETTING defaults to "previous", which substitutes
-  the upstream value into data.instructions — with no instructions set there is
-  nothing to substitute into and nothing is written. Nothing validates this:
-  publish, validate and the node's own status all pass. Set the outputNode's
+  COMPLETED run whose outputNode also COMPLETED still answers empty when that node
+  had nothing to render. That SETTING defaults to "previous", which emits the
+  value data.instructions REFERENCES — the incoming edge does not select it — so
+  with no instructions set there is nothing to emit. "workflow validate", the
+  node's own configStatus and "workflow overview" all report it now
+  (missingFields ["instructions"]); publish still accepts it. Set the outputNode's
   data.instructions with "nexus workflow node update", then run again.
   For a node's output use "execution node-result" or "execution diagnose --verbose".`
     )
@@ -695,6 +698,15 @@ Notes:
   so the two commands agree on a node's duration. They used to come back null on
   every healthy completed node — read off property names no column supplies — and
   this text used to describe that as normal.
+  terminationReason IS THE ONLY THING THAT SEPARATES A CONVERGED doWhile FROM ONE
+  THAT GAVE UP. On a doWhile node it reads condition_not_met (the conditions went
+  false — it finished), max_iterations_reached (still true at the maxIterations
+  cap, default 100 — it did NOT converge), condition_error (evaluating the
+  conditions threw) or cancelled. The node is COMPLETED either way and output
+  holds one entry per pass, so counting passes cannot tell the two apart: a loop
+  capped at 3 that converged on its third pass reads exactly like one that gave
+  up at 3. It is null on every other node type, and null on a doWhile that ran
+  before the reason was recorded — never read null as "converged".
   THERE IS NO logs FIELD, AND LOOKING FOR ONE IS THE WASTED STEP THIS LINE SAVES.
   One was published until it was removed as unfillable — nothing in the platform
   stores a per-node log array. A node that captures console output (Browserbase,

@@ -199,7 +199,8 @@ Notes:
   A PLUGIN config REQUIRES config.toolId, and the credential goes in
   config.toolCredentialId. CREDENTIAL IDS ARE PER-TOOL: take the id from
   "nexus tool credentials <toolId>" for THIS tool — an id from another tool's
-  list is not found.
+  list is not found. The UNIFIED id from "nexus credential list" also resolves
+  here, for the same connected account.
   --fire-and-forget ENDS THE AGENT'S TURN AT THE CALL. The model receives only
   "Tool … has been triggered successfully", never the output, so never use it for
   a tool whose result the agent has to read. Off by default.

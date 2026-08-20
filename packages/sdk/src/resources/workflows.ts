@@ -14,6 +14,7 @@ import type {
   ExecutionStatus,
   IconResult,
   ListWorkflowsParams,
+  NodeDeleteResult,
   NodeExecutionResult,
   NodeResponse,
   NodeTypeSchema,
@@ -267,12 +268,23 @@ export class WorkflowsResource extends BaseResource {
   /**
    * Delete a node from a workflow. Connected edges are also removed.
    *
+   * 🔴 DELETING A `loop` OR `doWhile` DELETES ITS WHOLE BODY, recursively, and
+   * every edge touching any of it — the container's own inbound and outbound
+   * edges included, so the nodes either side of it are left unconnected. Read
+   * the returned {@link NodeDeleteResult} to learn what actually went; it is the
+   * only account of the cascade, and the route used to answer `204` with none of
+   * it (NEX-4047).
+   *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * @returns Nothing — the endpoint replies `204 No Content`.
+   * @returns The ids of every node and edge removed, and of the surviving nodes
+   *          an edge was removed from.
    */
-  async deleteNode(workflowId: string, nodeId: string): Promise<void> {
-    await this.http.request<void>("DELETE", `/workflows/${workflowId}/nodes/${nodeId}`);
+  async deleteNode(workflowId: string, nodeId: string): Promise<NodeDeleteResult> {
+    return this.http.request<NodeDeleteResult>(
+      "DELETE",
+      `/workflows/${workflowId}/nodes/${nodeId}`
+    );
   }
 
   /**

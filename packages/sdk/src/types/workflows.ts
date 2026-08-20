@@ -145,9 +145,18 @@ export interface WorkflowDetail {
   triggerType: string | null;
   iconUrl: string | null;
   /**
-   * JSON Schema for the inputs an agent must supply when it runs this workflow.
-   * Opaque to the API, which stores and returns it verbatim. `null` when the
-   * workflow takes no agent input — the key is always present.
+   * The inputs an agent must supply when it runs this workflow.
+   *
+   * On a PUBLISHED workflow this is the LIVE contract — derived from the
+   * `agentInputTrigger` in {@link publishedNodes}, the graph a calling agent
+   * actually invokes — so a trigger edit made after publishing does NOT appear
+   * here until the workflow is unpublished and published again. That edit is on
+   * this same payload, under the trigger node's `data.parameters` in
+   * {@link nodes}. On a DRAFT there is no published graph, so this tracks the
+   * draft trigger.
+   *
+   * Opaque to the API otherwise, which returns it verbatim. `null` when the
+   * workflow accepts no agent input — the key is always present.
    */
   agentInputSchema: unknown;
   nodes: WorkflowNode[];
@@ -232,6 +241,47 @@ export interface CreateNodeBody {
 export interface UpdateNodeBody {
   data?: Record<string, unknown>;
   parentId?: string | null;
+  /**
+   * NOT WRITABLE — declared only so that sending one is a compile error rather
+   * than a discarded key (NEX-4075).
+   *
+   * A node's type is fixed when it is created. This body used to STRIP a
+   * top-level `type`: `{type: "manualTrigger", data: {…}}` answered 200 with the
+   * old type in the same response, so the request reported success for the one
+   * thing it did not do. The server now refuses it by name; `type?: undefined`
+   * is the same refusal a release earlier, at the keyboard.
+   *
+   * To change the workflow's trigger, call `workflows.replaceTrigger` —
+   * `PUT /workflows/:id/trigger` — which replaces the node and reconnects its
+   * edges. Any other node's type is changed by creating the replacement and
+   * deleting the old one.
+   */
+  type?: undefined;
+}
+
+/**
+ * What `DELETE /workflows/:id/nodes/:nodeId` returns — an enumeration of the
+ * damage, because on a container the damage is not one node.
+ *
+ * Deleting a `loop` or `doWhile` deletes every node scoped inside it (and
+ * inside any container nested in it), plus every edge touching any of them —
+ * the container's own inbound and outbound edges included, and those connect
+ * nodes that are still there. The route used to answer `204` with no body, so
+ * six nodes and six edges could go and the only way to find out was to `get()`
+ * the workflow before and after (NEX-4047).
+ *
+ * Producer: `NodeDeleteResultSchema` in `@nexus/types/public-api-v1`.
+ */
+export interface NodeDeleteResult {
+  /** Every node removed, the requested one first, then its body in graph order. */
+  deletedNodeIds: string[];
+  /** Every edge removed, including the ones crossing the container's boundary. */
+  deletedEdgeIds: string[];
+  /**
+   * Nodes that SURVIVED and lost an edge to this deletion — the graph either
+   * side of what was removed. `validate()` may now call these `DISCONNECTED_NODE`.
+   */
+  severedNodeIds: string[];
 }
 
 /** Trigger node types installable through the public API. */
@@ -487,7 +537,13 @@ export interface ValidationReport {
   /** Keyed by node id. */
   nodeStatuses: Record<string, ValidationNodeStatus>;
   graphIssues: Array<{
-    type: "DISCONNECTED_NODE" | "ORPHANED_NODE";
+    /**
+     * `MULTIPLE_TRIGGERS` names a workflow holding more than one live trigger:
+     * a run starts from one of them and silently skips the rest (NEX-4062).
+     * `INVALID_EDGE` names an edge publish refuses; it was already produced here
+     * and missing from this union.
+     */
+    type: "DISCONNECTED_NODE" | "ORPHANED_NODE" | "INVALID_EDGE" | "MULTIPLE_TRIGGERS";
     nodeId: string;
     message: string;
   }>;
@@ -744,9 +800,12 @@ export interface TestWorkflowBody {
 /**
  * Result of a single-node test.
  *
- * ⚠️ `status` is `"COMPLETED"` for any run that FINISHED, including one whose
- * node failed — the failure is inside `data`. It is not an outcome flag.
- * `"PENDING"` means the run went asynchronous and `data` is `null`.
+ * `status` is the outcome: `"COMPLETED"` when the node ran, `"FAILED"` when it
+ * threw (the error envelope is then in `data` as `{error, errorDetails,
+ * timestamp}`), and `"PENDING"` when the run went asynchronous and `data` is
+ * `null`. A `"FAILED"` run leaves the node's stored `outputFormat` and
+ * `runOutput` untouched — only `testExecutionId` moves — so the node keeps
+ * whatever contract its last successful test published (NEX-4066).
  *
  * Producer: `WorkflowTestingService.testNode` (no v1 response schema).
  */

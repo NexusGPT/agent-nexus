@@ -8,7 +8,7 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 393 of 526 leaves are answered here. The
+ * 398 of 531 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
@@ -350,6 +350,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tracks agent close": "success",
   "tracks agent list": "envelope",
   "tracks agent open": "success",
+  "tracks archive": "success",
   "tracks create": "success",
   "tracks current-step": "success",
   "tracks dependency add": "success",
@@ -357,6 +358,8 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tracks diary list": "envelope",
   "tracks event append": "success",
   "tracks event list": "envelope",
+  "tracks get": "record",
+  "tracks list": "envelope",
   "tracks memory delete": "success",
   "tracks memory list": "envelope",
   "tracks memory put": "success",
@@ -365,6 +368,8 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tracks rollup": "record",
   "tracks section create": "success",
   "tracks section rename": "success",
+  "tracks set-next-owner": "success",
+  "tracks set-status": "success",
   "tracks task claim": "success",
   "tracks task edge": "success",
   "tracks task get": "record",

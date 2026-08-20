@@ -1,3 +1,5 @@
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
 import { describe, expect, it } from "vitest";
 
 import { roleHelpText as helpText, roleSubcommands } from "./role-help.testkit";
@@ -75,6 +77,20 @@ const COVERAGE_WORD = /\bcover(age|s|ed|ing)?\b/i;
  * decoration: they are what stops the next reader adding an entry to make a red
  * go away.
  */
+/**
+ * THE MOST COMMANDS THIS LIST MAY ALLOW, AS A LITERAL SOMEBODY RAISES BY HAND.
+ *
+ * The header above says the reasons are what stops the next reader adding an
+ * entry to make a red go away — and a well-written reason does not stop it, it
+ * satisfies it. The offender arm exempts whatever is in this map, so the command
+ * and the entry that allows it land in one commit with everything green.
+ *
+ * This list is the measure of how many places the word is allowed to mean the
+ * automation figure. An UPPER BOUND, so removing the word from a command's help
+ * takes its entry and this figure down together, in silence.
+ */
+const MAY_NAME_THE_FIGURE_CEILING = 12;
+
 const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
   coverage: "it IS the figure",
   "automation-settings": "reads the one coverage input this API can write",
@@ -121,25 +137,48 @@ describe("nexus role — the coverage word names the automation figure and nothi
     ).toEqual([]);
   });
 
-  it("no other command's help uses the word at all", () => {
-    const offenders = subcommands
-      .filter((cmd) => !(cmd.name() in MAY_NAME_THE_FIGURE))
-      .filter((cmd) => COVERAGE_WORD.test(helpText(cmd)))
-      .map((cmd) => {
-        const line = helpText(cmd)
-          .split("\n")
-          .find((l) => COVERAGE_WORD.test(l));
-        return `nexus role ${cmd.name()} — ${(line ?? "").trim()}`;
-      });
-
-    expect(
-      offenders,
-      offenders.length === 0
-        ? ""
-        : "These commands cannot reach the automation figure, so the word means something else " +
-            "in them and a reader has no way to tell which:\n  " +
-            offenders.join("\n  ")
-    ).toEqual([]);
+  it.each(
+    eachOrRefuse(
+      shrinkOnlyLedger({
+        // EVERY registered subcommand is the drain-proof control, never the ones
+        // that name the word: a command whose help stops naming it is still a
+        // command, so this population survives the cure and its coverage arm gets
+        // stronger with every scrub.
+        population: "`nexus role` commands whose help names the automation figure",
+        findings: subcommands.filter((cmd) => COVERAGE_WORD.test(helpText(cmd))),
+        keyOf: (cmd) => cmd.name(),
+        locate: (cmd) => {
+          const line = helpText(cmd)
+            .split("\n")
+            .find((l) => COVERAGE_WORD.test(l));
+          return `nexus role ${cmd.name()} — ${(line ?? "").trim()}`;
+        },
+        ledgerKeys: Object.keys(MAY_NAME_THE_FIGURE),
+        ceiling: MAY_NAME_THE_FIGURE_CEILING,
+        remedy:
+          "This command cannot reach the automation figure, so the word means something else\n" +
+          "  in its help and a reader has no way to tell which. Say what it actually means, in\n" +
+          "  its own words.\n" +
+          "  A row here is a deliberate second sense, and its reason has to say what the\n" +
+          "  command's relationship to the figure IS.",
+        drainProofControl: {
+          name: "`nexus role` subcommands the CLI registers",
+          keys: subcommands.map((cmd) => cmd.name()),
+          floor: 30
+        },
+        rowCheck: {
+          name: "every allowed command carries a reason",
+          offender: (name) => {
+            const reason = MAY_NAME_THE_FIGURE[name];
+            if (reason === undefined) return `${name} — no reason at all`;
+            return reason.trim().length === 0 ? `${name} — reason is blank` : null;
+          }
+        }
+      }).checks.map((check) => [check.name, check] as const),
+      "the checks shrinkOnlyLedger builds — a FIXED set of rows, never derived from the ledger, so it cannot empty when the ledger does"
+    )
+  )("%s", (_name, check) => {
+    expect(check.actual, check.message).toEqual(check.expected);
   });
 
   it("every allowed command's help still uses it — a blanket scrub must fail", () => {

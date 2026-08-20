@@ -1,6 +1,8 @@
 import type {
   AppendTrackDiaryEntryBody,
   AppendTrackEventBody,
+  ArchiveTrackBody,
+  ArchiveTrackResponse,
   ClaimTrackTaskBody,
   ClaimTrackTaskResponse,
   CloseTrackAgentBody,
@@ -21,14 +23,21 @@ import type {
   ListTrackEventsParams,
   ListTrackEventsResponse,
   ListTrackMemoryEntriesResponse,
+  ListTracksParams,
+  ListTracksResponse,
   OpenTrackAgentBody,
   PutTrackMemoryEntryBody,
   PutTrackMemoryEntryResponse,
   ReadySetParams,
   RenameTrackSectionBody,
   RenameTrackSectionResponse,
+  SetTrackNextOwnerBody,
+  SetTrackNextOwnerResponse,
+  SetTrackStatusBody,
+  SetTrackStatusResponse,
   ToggleTrackTaskBody,
   ToggleTrackTaskResponse,
+  Track,
   TrackAgent,
   TrackDiaryEntry,
   TrackEdgeCreated,
@@ -96,6 +105,83 @@ export class TracksResource extends BaseResource {
       `/tracks/${trackId}/current-step`,
       { body }
     );
+  }
+
+  /**
+   * Move a track to a status. THIS IS HOW A TRACK FINISHES.
+   *
+   * 🔴 `DONE` TAKES IT OUT OF `listReady()` ON THE VERY NEXT CALL, through the
+   * one predicate the ready query already runs. There is nothing to invalidate
+   * and no second rule anywhere.
+   *
+   * There is no delete, deliberately: the track's diary, events and memory ARE
+   * the record of how the work went, and all three are children of the row under
+   * `ON DELETE CASCADE`. A track that does not resolve in your organization
+   * answers 404.
+   */
+  async setStatus(trackId: string, body: SetTrackStatusBody): Promise<SetTrackStatusResponse> {
+    return this.http.request<SetTrackStatusResponse>("POST", `/tracks/${trackId}/status`, { body });
+  }
+
+  /**
+   * Put a track away, or bring it back. THE ANSWER TO "DELETE A TRACK".
+   *
+   * 🔴 THERE IS NO DELETE METHOD ON THIS RESOURCE AND THAT IS DELIBERATE. The
+   * track's diary, events and memory are children of the row under
+   * `ON DELETE CASCADE`; deleting it destroys the record of how the work went.
+   * Archiving removes it from `listReady()` and from the default page of
+   * `list()`, and leaves all of it readable.
+   *
+   * Reversible: send `archived: false`. Find what was put away with
+   * `list({ archived: "only" })`. A track that does not resolve in your
+   * organization answers 404.
+   */
+  async archive(trackId: string, body: ArchiveTrackBody): Promise<ArchiveTrackResponse> {
+    return this.http.request<ArchiveTrackResponse>("POST", `/tracks/${trackId}/archive`, {
+      body
+    });
+  }
+
+  /**
+   * Say who acts next on this track — the per-turn handover.
+   *
+   * 🔴 `nextOwnerRef` IS WRITTEN ON EVERY CALL, NEVER MERGED. Omit it and the
+   * watcher reference is cleared in the same statement, which is what keeps the
+   * pair legal — the server admits a ref only alongside `EVENT`. Sending one with
+   * `CUE` or `USER` is a 400 that says so, rather than a constraint violation.
+   *
+   * A track that does not resolve in your organization answers 404.
+   */
+  async setNextOwner(
+    trackId: string,
+    body: SetTrackNextOwnerBody
+  ): Promise<SetTrackNextOwnerResponse> {
+    return this.http.request<SetTrackNextOwnerResponse>("POST", `/tracks/${trackId}/next-owner`, {
+      body
+    });
+  }
+
+  /**
+   * Every track in the organization, in `number` order.
+   *
+   * 🔴 THIS IS NOT `listReady()`. That one answers "what can be worked on" and
+   * hides everything `DONE` or `BLOCKED`; this answers "what exists". A caller
+   * that finished a track has no other way to see it again.
+   */
+  async list(params?: ListTracksParams): Promise<ListTracksResponse> {
+    return this.http.request<ListTracksResponse>("GET", `/tracks`, {
+      query: params as Record<string, string | number | undefined>
+    });
+  }
+
+  /**
+   * One track by id.
+   *
+   * A track in another organization answers 404 — the same answer an absent id
+   * gives, and deliberately indistinguishable from it.
+   */
+  async get(trackId: string): Promise<Track> {
+    return this.http.request<Track>("GET", `/tracks/${trackId}`);
   }
 
   /**

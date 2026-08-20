@@ -8,6 +8,7 @@ import { printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { nonBlankOr } from "../util/present-text";
 import {
   CREDENTIAL_LIST__PARAMS_SORT_BY,
   CREDENTIAL_LIST__PARAMS_SORT_ORDER,
@@ -37,6 +38,10 @@ export function registerCredentialCommands(program: Command): void {
         enumOption("--status <status>", "Filter by status", CREDENTIAL_LIST__PARAMS_STATUS)
       )
       .option("--service <service>", "Filter by service name")
+      .option(
+        "--tool-id <id>",
+        "Only credentials scoped to this tool — the exact 'is it connected' check"
+      )
       .option("--search <query>", "Case-insensitive substring over several fields — see Notes")
       .addOption(enumOption("--sort-by <field>", "Sort by field", CREDENTIAL_LIST__PARAMS_SORT_BY))
       .addOption(
@@ -49,6 +54,7 @@ Examples:
   $ nexus credential list
   $ nexus credential list --source oauth_connection --status CONNECTED
   $ nexus credential list --service Gmail --sort-by name
+  $ nexus credential list --tool-id 11111111-1111-4111-8111-111111111111
   $ nexus credential list --search "production" --json
 
 Notes:
@@ -57,6 +63,20 @@ Notes:
   "credential delete" has to tear down on the way out.
   The ID printed here is the one "access-card list --credential-id" wants and
   the one "external-tool execute --credential" accepts.
+  🔴 SERVICE IS A LABEL AND DOES NOT SAY A TOOL IS CONNECTED. For a tool
+  credential it is the tool's public name, and nothing makes that unique — one
+  organization held two rows reading SERVICE "Apify" that belonged to the
+  Pipedream tool NAMED Apify, while the Apify-type tool that needed a
+  credential had none. Both readings of that table are wrong in the same
+  direction: "Apify is connected" was reported, and executing the other tool
+  answered 400 "Credential not found or does not belong to this tool".
+  TOOL ID is the column that settles it, and --tool-id is the question asked
+  precisely: it returns only the credentials that tool can actually be executed
+  with, so an EMPTY RESULT MEANS NOT CONNECTED rather than "no label matched".
+  TOOL ID is "—" for oauth_connection and api_key_connection rows — those are
+  organization-wide and belong to no single tool, so --tool-id never returns
+  one. It is also the id "nexus tool credentials <id>" takes, which is the
+  other half of the same answer.
   --search MATCHES MORE THAN THE NAME, AND NOT THE SERVICE. It is a
   case-insensitive substring over the connected account's email and name, an
   API-key connection's name and DESCRIPTION, and a tool credential's name — so
@@ -73,6 +93,7 @@ Notes:
         source: opts.source,
         status: opts.status,
         service: opts.service,
+        toolId: opts.toolId,
         search: opts.search,
         sortBy: opts.sortBy,
         sortOrder: opts.sortOrder
@@ -82,8 +103,15 @@ Notes:
         { key: "id", label: "ID", width: 36 },
         { key: "service", label: "SERVICE", width: 20 },
         { key: "name", label: "NAME", width: 25 },
-        { key: "source", label: "SOURCE", width: 20 },
-        { key: "status", label: "STATUS", width: 15 }
+        { key: "source", label: "SOURCE", width: 18 },
+        { key: "status", label: "STATUS", width: 15 },
+        // SERVICE alone was read as an answer to "is this tool connected" and
+        // it is not one — see the note in this command's --help. Full width, not
+        // an abbreviation: this id is the argument of "nexus tool credentials"
+        // and of --tool-id, so a cut one is a value the reader has to go and
+        // look up again. "—" rather than a blank cell for the org-wide sources,
+        // so "no tool" reads as an answer rather than as missing data.
+        { key: "toolId", label: "TOOL ID", width: 36, format: (v) => nonBlankOr(v, "—") }
       ]);
     } catch (err) {
       process.exitCode = handleError(err);

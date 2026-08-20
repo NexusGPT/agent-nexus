@@ -154,6 +154,21 @@ export interface ExecutionPollResponse {
   finishedAt: string | null;
 }
 
+/**
+ * Why a `doWhile` node stopped looping (NEX-4036).
+ *
+ * - `condition_not_met` — the continue-conditions went false; the loop converged.
+ * - `max_iterations_reached` — the conditions were still true at the
+ *   `maxIterations` cap (default 100). The work did NOT converge.
+ * - `condition_error` — evaluating the conditions threw; the engine stops on it.
+ * - `cancelled` — the run was cancelled and no further pass was spawned.
+ */
+export type DoWhileTerminationReason =
+  | "condition_not_met"
+  | "max_iterations_reached"
+  | "condition_error"
+  | "cancelled";
+
 /** Response from `client.workflowExecutions.getNodeResult()`. */
 export interface ExecutionNodeResult {
   /** Graph node id. Not a UUID — it is the id carried in the workflow graph. */
@@ -181,6 +196,16 @@ export interface ExecutionNodeResult {
   completedAt: string | null;
   /** Failure message, or `null` when the node did not fail. */
   error: string | null;
+  /**
+   * Why a `doWhile` stopped looping, and `null` on every other node type.
+   *
+   * `output.length` counts the passes; only this says why they stopped. A loop
+   * capped at 3 that converged on its third pass and one that gave up at the cap
+   * both report three results and both report `COMPLETED` — before this field
+   * they were the same observable (NEX-4036). `null` on a `doWhile` means the
+   * node ran before the reason was recorded, never that it converged.
+   */
+  terminationReason: DoWhileTerminationReason | null;
 }
 
 /** Response from `client.workflowExecutions.getOutput()`. */

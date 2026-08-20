@@ -66,6 +66,7 @@ export const CREDENTIAL_LIST_CONTRACT = {
     { path: "Params.service", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["CONNECTED", "EXPIRING_SOON", "NEEDS_REAUTH", "DISCONNECTED"] },
     { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.toolId", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["name", "service", "status", "createdAt"] },
     { path: "Params.sortOrder", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] }
   ]

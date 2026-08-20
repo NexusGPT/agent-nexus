@@ -447,6 +447,11 @@ export const GENERATED_NAMESPACE_LEDGER = [
     descriptors: [
       "TrackCreate",
       "TrackUpdateCurrentStep",
+      "TrackArchive",
+      "TrackSetStatus",
+      "TrackSetNextOwner",
+      "TrackList",
+      "TrackRead",
       "TrackReadRollup",
       "TrackListReady",
       "TrackListReadyTasks",

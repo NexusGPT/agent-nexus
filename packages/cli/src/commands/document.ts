@@ -215,11 +215,12 @@ Notes:
   THE UPLOAD LANDS IN THE KNOWLEDGE BASE, NOT IN A COLLECTION. Attach it with
   "nexus collection attach-documents <collection-id> --document-ids <id>".
 
-  READ type, NEVER mimeType. This CLI sends the bytes with no content type
-  declared, so mimeType comes back as the multipart default —
-  "application/octet-stream" — on a .md, a .pdf and a .csv alike. It is not a
-  content signal and branching on it will misroute every file. The server
-  classifies the document itself and reports that as type.
+  READ type; mimeType IS RESOLVED FROM THE FILENAME. This CLI sends the bytes
+  with no content type declared, so the server resolves mimeType from the
+  file's extension — a .pdf comes back "application/pdf", a .csv "text/csv".
+  An extension it does not recognise still lands on the multipart default,
+  "application/octet-stream", so mimeType is a hint and type is the answer:
+  the server classifies the document itself and reports that as type.
 
   Metadata set here is what "collection query --filter" matches on. Adding it
   later needs a "document reprocess" to take effect, so set it now.`

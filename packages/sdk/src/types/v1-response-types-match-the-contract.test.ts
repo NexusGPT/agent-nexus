@@ -46,10 +46,20 @@ import type { Equals, Expect, Received } from "../v1-contract-equality";
  *
  * It cannot see any of these, and the list is the point:
  *
- * - **A route with no `Response`.** 112 of 434 descriptors declare none, so no
- *   contract-derived gate can ever compare them. That population is roughly
- *   eleven times the size of the drift ledger below, and declaring `Response` on
- *   those routes is a prerequisite for covering them rather than an alternative.
+ * - **A route with no `Response`.** Around a fifth of the descriptors declare
+ *   none, so no contract-derived gate can ever compare them. That population is
+ *   several times the size of the drift ledger below, and declaring `Response`
+ *   on those routes is a prerequisite for covering them rather than an
+ *   alternative. The figure is deliberately not written here — it moves with
+ *   every route that gains a schema (`WorkflowNodeDelete` was the last, NEX-4047)
+ *   and a stale count reads as a measurement. Re-derive it the way
+ *   `descriptor.ts` says to:
+ *
+ *   ```sh
+ *   cd packages/types/src/api/public/v1/contract
+ *   grep -ohE '^  [A-Za-z0-9_]+: \{' *.ts | wc -l   # descriptors
+ *   grep -ohE '^    noResponse: \{'  *.ts | wc -l   # the declared-absence arm
+ *   ```
  * - **A route with no SDK method.** Ledgered by
  *   `../resources/v1-routes-have-an-sdk-method.test.ts`, which owns that seam.
  * - **Whether the HANDLER agrees with the schema.** This compares the contract to
@@ -79,7 +89,7 @@ import type { Equals, Expect, Received } from "../v1-contract-equality";
  * 🚨 That leaves one way for the whole file to go quietly vacuous: if
  * `ResponseOf` or `MethodResult` ever resolved to `never` — a moved export, a
  * changed descriptor shape — every `Equals<never, never>` would be `true` and
- * 246 assertions would pass having compared nothing. {@link V1ResponseDrift}
+ * every assertion above would pass having compared nothing. {@link V1ResponseDrift}
  * closes that: it asserts 33 pairs are NOT equal, so a machinery failure that
  * collapses both sides to `never` turns those 33 RED. A gate whose green depends
  * on its own reds is one that cannot be satisfied by breaking it.
@@ -685,6 +695,10 @@ export type V1ResponseAssertions = [
   >,
   // WorkflowNodeGet  GET /public/v1/workflows/:workflowId/nodes/:nodeId  ->  client.workflows.getNode()
   Expect<Equals<ResponseOf<"WorkflowNodeGet">, MethodResult<NexusClient["workflows"]["getNode"]>>>,
+  // WorkflowNodeDelete  DELETE /public/v1/workflows/:workflowId/nodes/:nodeId  ->  client.workflows.deleteNode()
+  Expect<
+    Equals<ResponseOf<"WorkflowNodeDelete">, MethodResult<NexusClient["workflows"]["deleteNode"]>>
+  >,
   // WorkflowNodeUpdate  PATCH /public/v1/workflows/:workflowId/nodes/:nodeId  ->  client.workflows.updateNode()
   Expect<
     Equals<ResponseOf<"WorkflowNodeUpdate">, MethodResult<NexusClient["workflows"]["updateNode"]>>
@@ -1437,6 +1451,18 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["tracks"]["updateCurrentStep"]>
     >
   >,
+  // TrackArchive  POST /public/v1/tracks/:trackId/archive  ->  client.tracks.archive()
+  Expect<Equals<ResponseOf<"TrackArchive">, MethodResult<NexusClient["tracks"]["archive"]>>>,
+  // TrackSetStatus  POST /public/v1/tracks/:trackId/status  ->  client.tracks.setStatus()
+  Expect<Equals<ResponseOf<"TrackSetStatus">, MethodResult<NexusClient["tracks"]["setStatus"]>>>,
+  // TrackSetNextOwner  POST /public/v1/tracks/:trackId/next-owner  ->  client.tracks.setNextOwner()
+  Expect<
+    Equals<ResponseOf<"TrackSetNextOwner">, MethodResult<NexusClient["tracks"]["setNextOwner"]>>
+  >,
+  // TrackList  GET /public/v1/tracks  ->  client.tracks.list()
+  Expect<Equals<ResponseOf<"TrackList">, MethodResult<NexusClient["tracks"]["list"]>>>,
+  // TrackRead  GET /public/v1/tracks/:trackId  ->  client.tracks.get()
+  Expect<Equals<ResponseOf<"TrackRead">, MethodResult<NexusClient["tracks"]["get"]>>>,
   // TrackReadRollup  GET /public/v1/tracks/:trackId/rollup  ->  client.tracks.readRollup()
   Expect<Equals<ResponseOf<"TrackReadRollup">, MethodResult<NexusClient["tracks"]["readRollup"]>>>,
   // TrackListReady  GET /public/v1/tracks/ready  ->  client.tracks.listReady()
@@ -1641,6 +1667,7 @@ const GATED_ROUTES = [
   "PhoneNumberGet",
   "CustomerAddNote",
   "WorkflowNodeCreate",
+  "WorkflowNodeDelete",
   "WorkflowNodeGet",
   "WorkflowNodeUpdate",
   "WorkflowExecutionPollByToken",
@@ -1788,6 +1815,11 @@ const GATED_ROUTES = [
   // tracks — the seven scope resources of one work item
   "TrackCreate",
   "TrackUpdateCurrentStep",
+  "TrackArchive",
+  "TrackSetStatus",
+  "TrackSetNextOwner",
+  "TrackList",
+  "TrackRead",
   "TrackReadRollup",
   "TrackListReady",
   "TrackListReadyTasks",
@@ -2255,7 +2287,7 @@ export type V1ResponseDrift = [
  * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
  * assertion deriving both sides from one source passes vacuously.
  */
-const GATED_ROUTE_FLOOR = 269;
+const GATED_ROUTE_FLOOR = 275;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

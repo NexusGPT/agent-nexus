@@ -18,6 +18,14 @@
 export type TrackNextOwner = "CUE" | "USER" | "EVENT";
 
 /**
+ * Where a track is in its life.
+ *
+ * 🔴 `DONE` AND `BLOCKED` ARE THE TWO THAT LEAVE THE READY SET. `IN_REVIEW` does
+ * not — work waiting on a reviewer is still work somebody can pick up.
+ */
+export type TrackStatus = "PLANNED" | "IN_PROGRESS" | "BLOCKED" | "IN_REVIEW" | "DONE";
+
+/**
  * Create one track.
  *
  * 🔴 `number` IS NOT A FIELD HERE AND MAY NEVER BE SENT. The server allocates it
@@ -72,6 +80,128 @@ export interface UpdateTrackCurrentStepResponse {
 }
 
 /**
+ * Move a track to a status — this is how a track FINISHES.
+ *
+ * There is no delete. A track that is over is `DONE`; its diary, its events and
+ * its memory are the record of how the work went, and all three are children of
+ * the row under `ON DELETE CASCADE`.
+ *
+ * ⚠️ EVERY STATUS IS REACHABLE FROM EVERY OTHER ONE. There is no transition
+ * table, because work genuinely goes backwards — a track marked `DONE` that
+ * turns out not to be needs one call, not an escape hatch.
+ */
+export interface SetTrackStatusBody {
+  status: TrackStatus;
+}
+
+/** What the track now says, echoed back so you need no second read. */
+export interface SetTrackStatusResponse {
+  trackId: string;
+  status: TrackStatus;
+}
+
+/**
+ * Put a track away, or bring it back. THE ANSWER TO "DELETE A TRACK".
+ *
+ * 🔴 THERE IS NO DELETE, AND ARCHIVING IS NOT A SOFTER ONE — IT IS THE POINT. A
+ * track's diary, events and memory are children of the row under
+ * `ON DELETE CASCADE`, so deleting it destroys the record of how the work went.
+ * Archiving takes it out of `listReady()` and out of the default page of
+ * `list()`, and leaves the journal readable.
+ *
+ * 🔴 REVERSIBLE. `archived: false` brings it back, and `list({ archived: "only" })`
+ * is how you find what was put away. An archive nobody can undo is a delete whose
+ * damage is only harder to see.
+ *
+ * ⚠️ IT DOES NOT TOUCH `status`. `DONE` says the work finished; archived says the
+ * track was put away, which a `PLANNED` mistake also is.
+ */
+export interface ArchiveTrackBody {
+  /** `true` puts it away, `false` brings it back. */
+  archived: boolean;
+}
+
+/** The timestamp the track now carries, or `null` once it is back. */
+export interface ArchiveTrackResponse {
+  trackId: string;
+  archivedAt: string | null;
+}
+
+/**
+ * Say who acts next on a track — the per-turn handover.
+ *
+ * 🔴 `nextOwnerRef` IS WRITTEN ON EVERY CALL, NEVER MERGED. Omit it and the
+ * watcher reference is cleared. That is what keeps the pair legal: the server
+ * admits a ref only alongside `EVENT`, so a partial update that left an old ref
+ * behind while moving to `USER` would be refused for a field you did not send.
+ *
+ * A ref sent with `CUE` or `USER` is a 400 that says so.
+ */
+export interface SetTrackNextOwnerBody {
+  nextOwner: TrackNextOwner;
+  /** Only with `EVENT`. Omitted or `null` clears it. */
+  nextOwnerRef?: string | null;
+}
+
+/** Both columns, echoed back — including the ref this call may have cleared. */
+export interface SetTrackNextOwnerResponse {
+  trackId: string;
+  nextOwner: TrackNextOwner;
+  nextOwnerRef: string | null;
+}
+
+/**
+ * One track, in full.
+ *
+ * A projection, never the stored row: `memoryBytes` and `createdByUserId` are
+ * absent from it and from the ready-set row, so a column added to the table later
+ * cannot join this response without somebody deciding it should.
+ */
+export interface Track {
+  id: string;
+  /** Per-organization, from 1, gapless. Allocated by the server. */
+  number: number;
+  slug: string;
+  title: string;
+  status: TrackStatus;
+  /** One line, at most 400 characters. `null` until somebody sets one. */
+  currentStep: string | null;
+  nextOwner: TrackNextOwner;
+  /** Only ever set with `nextOwner: "EVENT"`. */
+  nextOwnerRef: string | null;
+  /** When the track was put away, or `null` while it is live. */
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Every track in the organization — what EXISTS, not what is ready.
+ *
+ * 🔴 THIS IS NOT THE READY SET. `listReady()` answers "what can be worked on";
+ * a `DONE` track is absent from it and present here, which is the only way a
+ * caller that finished a track can see it again.
+ */
+export interface ListTracksParams {
+  /** How many rows, 1-200. */
+  limit?: number;
+  /** Narrow the page to one status. Every status when omitted. */
+  status?: TrackStatus;
+  /**
+   * What to do about archived tracks. `"exclude"` when omitted.
+   *
+   * 🔴 `"only"` IS THE RECOVERY PATH. An archived track is absent from
+   * `listReady()` AND from this list's default page, so this is how you find one
+   * to hand back to `archive(id, { archived: false })`.
+   */
+  archived?: "exclude" | "only" | "include";
+}
+
+export interface ListTracksResponse {
+  tracks: Track[];
+}
+
+/**
  * A track's progress: leaves done, leaves total.
  *
  * 🔴 COUNTS, NEVER A PERCENTAGE. Rounding is a display decision and a caller
@@ -100,6 +230,8 @@ export interface TrackRollup {
 export interface ReadyTrack {
   id: string;
   number: number;
+  /** The name a person types and reads. The number means nothing outside your org. */
+  slug: string;
   title: string;
   /** One line, at most 400 characters. `null` until somebody sets one. */
   currentStep: string | null;

@@ -53,8 +53,10 @@ Two facts that decide whether a build works:
   • A GREEN configStatus PROVES SHAPE ONLY. "workflow overview" reports complete
     once a node's own required fields are filled — not that its inputs are wired,
     that {{upstream.field}} resolves, or that any value is right. Use
-    "workflow validate" for the graph and variable checks, and remember an
-    outputNode has no required fields, so it always reports complete.
+    "workflow validate" for the graph and variable checks. An outputNode with an
+    empty data.instructions now reports incomplete rather than complete — it is
+    the only field it reads and it emits "" without one — but that is advisory:
+    publish is not refused for it.
 
 PUBLISH DOES NOT RUN "workflow validate", AND THAT IS THE GAP THAT BITES. Publish
 checks required fields, parameter setups and the outputNode's outputType — it
@@ -172,9 +174,16 @@ Notes:
   not [] — until the first publish. Comparing them with nodes / edges is how you
   learn whether the live version still matches the draft you are editing, and it
   is the check to run right after "workflow publish": an edit made after a
-  publish leaves the snapshot behind, with nothing reporting the drift.
-  agentInputSchema is DERIVED from the agentInputTrigger node's parameters. It is
-  read-only here and not writable through "workflow update".
+  publish leaves the snapshot behind, and nothing flags it — the comparison is
+  yours to make.
+  agentInputSchema IS THE LIVE CONTRACT ON A PUBLISHED WORKFLOW, NOT YOUR DRAFT.
+  It is derived from the agentInputTrigger in publishedNodes — the graph a
+  calling agent actually invokes — so a parameter you add after publishing does
+  NOT appear here until you unpublish and publish again. Your edit is not lost:
+  it is on this same document at
+  .nodes[] | select(.type=="agentInputTrigger") | .data.parameters. On a DRAFT
+  there is no published graph, so the field tracks the draft trigger. Read-only
+  either way, and not writable through "workflow update".
   dashboardUrl IS ADDED BY THIS CLI AND IS NOT AN API FIELD. It is the canvas
   for this workflow, so nothing has to assemble a URL from a path pattern that
   can be renamed underneath it.`
@@ -468,9 +477,13 @@ Notes:
   variableIssues[]. Read readyToPublish, not isValid.
   WARNINGS DO NOT BLOCK. isValid is just "errors is empty"; a workflow with no
   trigger and no output node collects warnings only, and still publishes.
-  graphIssues names the two structural faults: DISCONNECTED_NODE (no incoming
-  edges) and ORPHANED_NODE (inside a loop with no connections at all, so it is
-  invisible on the canvas and will never run).
+  graphIssues names the structural faults: DISCONNECTED_NODE (no incoming edges),
+  ORPHANED_NODE (inside a loop with no connections at all, so it is invisible on
+  the canvas and will never run), INVALID_EDGE (an edge publish refuses) and
+  MULTIPLE_TRIGGERS (the workflow holds more than one trigger, so a run starts
+  from one of them and silently skips every other trigger's subtree — delete the
+  surplus with "nexus workflow node delete", which is allowed while more than one
+  remains). Each of these also blocks readyToTest and readyToPublish.
   variableIssues names every {{node.field}} that no upstream node exposes, AND
   THIS IS THE ONLY COMMAND IN THE CLI THAT MAKES THAT CHECK. "node create",
   "node update", "node get", "workflow overview" and "workflow publish" all pass
@@ -681,6 +694,9 @@ Notes:
   IT WRITES BACK. The node's testExecutionId, runOutput and inferred outputFormat
   are persisted, which is what lets downstream nodes see this node's shape — and
   which overwrites the previous test's pointer.
+  A FAILED RUN WRITES BACK NOTHING BUT testExecutionId. status is "FAILED" and the
+  error envelope is in data; outputFormat and runOutput keep whatever the last
+  SUCCESSFUL test left, so a broken run never becomes this node's contract.
   The returned executionId is a per-node test id, so "nexus execution get" on it
   fails. The output you want is already in this response's data field.
   THE EXIT CODE CARRIES THE NODE'S OUTCOME, NOT status. status reads COMPLETED for

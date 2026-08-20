@@ -37,6 +37,15 @@ export interface Credential {
   linkedDeployments: CredentialLinkedDeployment[];
   createdBy: CredentialCreator | null;
   serviceImageUrl?: string | null;
+  /**
+   * The external tool this credential is scoped to, or null for the
+   * organization-wide sources (`oauth_connection`, `api_key_connection`).
+   *
+   * `service` is a display label and two tools can share one, so it cannot
+   * answer "is THIS tool connected" — this can. It is the id
+   * `tools.credentials(toolId)` takes.
+   */
+  toolId?: string | null;
 }
 
 // ============================================================================
@@ -59,6 +68,8 @@ export interface ListCredentialsParams {
   service?: string;
   status?: CredentialStatus;
   search?: string;
+  /** Only the credentials scoped to this external tool. */
+  toolId?: string;
   sortBy?: CredentialSortField;
   sortOrder?: "asc" | "desc";
 }

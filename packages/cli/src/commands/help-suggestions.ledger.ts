@@ -1014,7 +1014,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "document the accepted file types and what happens to mimeType.",
     state: "placed",
     leaf: "document upload",
-    probe: "READ type, NEVER mimeType"
+    probe: "mimeType IS RESOLVED FROM THE FILENAME"
   },
   {
     id: "document-05",

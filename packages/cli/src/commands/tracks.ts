@@ -1,4 +1,9 @@
-import type { AppendTrackEventBody, ImportTrackPlanBody, TrackNextOwner } from "@agent-nexus/sdk";
+import type {
+  AppendTrackEventBody,
+  ImportTrackPlanBody,
+  TrackNextOwner,
+  TrackStatus
+} from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { createClient } from "../client";
@@ -12,6 +17,7 @@ import {
   TRACK_APPEND_DIARY_ENTRY__BODY_KIND,
   TRACK_APPEND_DIARY_ENTRY_CONTRACT,
   TRACK_APPEND_EVENT_CONTRACT,
+  TRACK_ARCHIVE_CONTRACT,
   TRACK_BEAT_AGENT_CONTRACT,
   TRACK_CLAIM_TASK_CONTRACT,
   TRACK_CLOSE_AGENT__BODY_STATE,
@@ -23,8 +29,11 @@ import {
   TRACK_CREATE_TASK_EDGE_CONTRACT,
   TRACK_DELETE_MEMORY_ENTRY_CONTRACT,
   TRACK_IMPORT_PLAN_CONTRACT,
+  TRACK_LIST__PARAMS_ARCHIVED,
+  TRACK_LIST__PARAMS_STATUS,
   TRACK_LIST_AGENTS__PARAMS_STATE,
   TRACK_LIST_AGENTS_CONTRACT,
+  TRACK_LIST_CONTRACT,
   TRACK_LIST_DIARY_ENTRIES__PARAMS_KIND,
   TRACK_LIST_DIARY_ENTRIES_CONTRACT,
   TRACK_LIST_EVENTS_CONTRACT,
@@ -33,9 +42,14 @@ import {
   TRACK_LIST_READY_TASKS_CONTRACT,
   TRACK_OPEN_AGENT_CONTRACT,
   TRACK_PUT_MEMORY_ENTRY_CONTRACT,
+  TRACK_READ_CONTRACT,
   TRACK_READ_ROLLUP_CONTRACT,
   TRACK_READ_TASK_CONTRACT,
   TRACK_RENAME_SECTION_CONTRACT,
+  TRACK_SET_NEXT_OWNER__BODY_NEXT_OWNER,
+  TRACK_SET_NEXT_OWNER_CONTRACT,
+  TRACK_SET_STATUS__BODY_STATUS,
+  TRACK_SET_STATUS_CONTRACT,
   TRACK_TOGGLE_TASK_CONTRACT,
   TRACK_UPDATE_CURRENT_STEP_CONTRACT
 } from "./tracks.contract.generated";
@@ -88,7 +102,10 @@ export function registerTracksCommands(program: Command): void {
   const create = tracks
     .command("create")
     .description("Create one track")
-    .requiredOption("--slug <slug>", "1-64 chars of [a-z0-9-]. Unique in your organization")
+    .requiredOption(
+      "--slug <slug>",
+      "1-64 chars of [a-z0-9-], starting with a letter or digit. Unique in your organization"
+    )
     .requiredOption("--title <title>", "What the track is called")
     .option("--current-step <text>", "What happens next, one line, at most 400 characters")
     .addOption(
@@ -114,9 +131,10 @@ Notes:
   THE SLUG IS UNIQUE PER ORGANIZATION, and a duplicate is a 409. It is the
   human name for the track; nothing addresses a track by slug yet, so pick one
   a person can read rather than one a script will parse.
-  A NEW TRACK IS PLANNED AND HAS NOTHING IN IT. It does not appear in
-  "nexus tracks ready" as work until it has tasks, and it has no sections until
-  you run "nexus tracks section create".
+  A NEW TRACK IS PLANNED, EMPTY, AND ALREADY READY. "nexus tracks ready" tests
+  status, archival and dependency edges and never tasks, so a track created with
+  nothing in it comes back as ready work on the very next call. It has no
+  sections until you run "nexus tracks section create".
   --next-owner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an
   agent can proceed, USER means a person has to act, EVENT means something
   outside has to happen first.
@@ -172,7 +190,8 @@ Notes:
   says what is happening rather than what the work IS.
   THE LINE IS AT MOST 400 CHARACTERS, and characters is the unit the database
   actually counts — the same limit "nexus tracks create --current-step" states.
-  A whitespace-only line is refused.
+  A WHITESPACE-ONLY LINE IS REFUSED. A line of only zero-width characters is not
+  whitespace, so it is accepted and then renders as an empty line.
   THE LIMIT IS NOT CHECKED HERE. A longer line is refused by the server, so the
   number above is what you can rely on rather than what this command enforces.
   A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
@@ -205,6 +224,321 @@ Notes:
       }
     });
   bindCommand(currentStep, TRACK_UPDATE_CURRENT_STEP_CONTRACT);
+
+  // ── tracks set-status ─────────────────────────────────────────────────────
+  //
+  // 🔴 `set-status` RATHER THAN `status`, AND THE NAME IS NOT A PREFERENCE.
+  // `status` is in `CHECK_VERBS` (`status-verdict.scan.ts`): a leaf with that
+  // name PROMISES A VERDICT a script can branch on, and must therefore carry its
+  // answer in its exit code. This is a WRITE — it has no verdict to carry — so
+  // the honest fix is to stop wearing the name, not to ledger an exemption. It
+  // also matches the SDK method (`tracks.setStatus`) exactly.
+  const setStatus = tracks
+    .command("set-status")
+    .description("Move the track to a status — this is how a track finishes")
+    .argument("<trackId>", "The track to move")
+    .addOption(
+      enumOption(
+        "--to <status>",
+        "Where the track is now",
+        TRACK_SET_STATUS__BODY_STATUS
+      ).makeOptionMandatory()
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks set-status 11111111-1111-4111-8111-111111111111 --to DONE
+  $ nexus tracks set-status 11111111-1111-4111-8111-111111111111 --to BLOCKED
+  $ nexus tracks set-status 11111111-1111-4111-8111-111111111111 --to IN_PROGRESS --json
+
+Notes:
+  DONE IS HOW A TRACK ENDS, AND THERE IS NO DELETE. A finished track keeps its
+  diary, its events and its memory — those ARE the record of how the work went,
+  and every one of them would be destroyed with the row.
+  DONE AND BLOCKED LEAVE "nexus tracks ready" ON THE VERY NEXT CALL. Nothing has
+  to be refreshed and there is no cache. IN_REVIEW does NOT leave it: work
+  waiting on a reviewer is still work somebody can pick up.
+  A DONE TRACK IS STILL IN "nexus tracks list". That is the difference between
+  the two reads — ready answers what can be worked on, list answers what exists.
+  EVERY STATUS IS REACHABLE FROM EVERY OTHER ONE. A track marked DONE that turns
+  out not to be takes one call to move back; there is no transition table and no
+  escape hatch to find.
+  A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
+  exist. That is deliberate — the two must not be distinguishable.
+  Needs the "tracks:write" scope.`
+    )
+    .action(async (trackId: string, opts: { to: string }) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.setStatus(trackId, {
+          status: opts.to as TrackStatus
+        });
+
+        printSuccess("Status set.", { trackId: result.trackId, status: result.status });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(setStatus, TRACK_SET_STATUS_CONTRACT);
+
+  // ── tracks set-next-owner ─────────────────────────────────────────────────
+  //
+  // `set-next-owner` to sit beside `set-status` above and to match the SDK
+  // method (`tracks.setNextOwner`). `next-owner` alone would pass every gate —
+  // it is not a check verb — and two writes landing together under two naming
+  // schemes is a thing to get wrong later.
+  const setNextOwner = tracks
+    .command("set-next-owner")
+    .description("Say who acts next on this track")
+    .argument("<trackId>", "The track to hand over")
+    .addOption(
+      enumOption(
+        "--to <owner>",
+        "Who is waited on",
+        TRACK_SET_NEXT_OWNER__BODY_NEXT_OWNER
+      ).makeOptionMandatory()
+    )
+    .option("--ref <ref>", "The watcher or agent being waited on. Only with EVENT")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks set-next-owner 11111111-1111-4111-8111-111111111111 --to CUE
+  $ nexus tracks set-next-owner 11111111-1111-4111-8111-111111111111 --to USER
+  $ nexus tracks set-next-owner 11111111-1111-4111-8111-111111111111 \\
+      --to EVENT --ref deploy-watcher-7
+
+Notes:
+  THIS IS THE PER-TURN HANDOVER, and it is what "nexus tracks ready" prints
+  under WAITING ON. CUE means an agent can proceed, USER means a person has to
+  act, EVENT means something outside has to happen first.
+  --ref IS CLEARED WHENEVER YOU OMIT IT. It is written on every call and never
+  merged, so moving a track from EVENT to USER drops the watcher in the same
+  statement. That is not a convenience: the server admits a ref only alongside
+  EVENT, so a leftover one would make the next handover fail for a field you did
+  not send.
+  --ref WITH CUE OR USER IS REFUSED WITH A 400 that names the field. Send it
+  with EVENT, or send --to on its own.
+  A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
+  exist.
+  Needs the "tracks:write" scope.`
+    )
+    .action(async (trackId: string, opts: { to: string; ref?: string }) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.setNextOwner(trackId, {
+          nextOwner: opts.to as TrackNextOwner,
+          // Always sent, never conditional. An omitted --ref MEANS null here,
+          // and that is what clears the watcher; spreading it only when present
+          // would leave the old value in place and break the next handover.
+          nextOwnerRef: opts.ref ?? null
+        });
+
+        printSuccess(
+          result.nextOwnerRef === null ? "Next owner set." : "Next owner set, watching an event.",
+          {
+            trackId: result.trackId,
+            nextOwner: result.nextOwner,
+            nextOwnerRef: result.nextOwnerRef
+          }
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(setNextOwner, TRACK_SET_NEXT_OWNER_CONTRACT);
+
+  // ── tracks archive ────────────────────────────────────────────────────────
+  //
+  // 🔴 THIS IS THE NAMESPACE'S ANSWER TO "DELETE A TRACK", AND THERE IS NO
+  // `tracks delete`. A track's diary, events and memory are children of the row
+  // under ON DELETE CASCADE, so a real delete destroys the record of how the
+  // work went. This writes one nullable column instead.
+  //
+  // ONE COMMAND, BOTH DIRECTIONS, on `tracks task toggle`'s established shape —
+  // an `archive`/`unarchive` pair would be two commands onto one column, which
+  // is how they drift.
+  //
+  // THE NOTE BELOW SAYS THERE IS NO DELETE WITHOUT SPELLING ONE. `help-claims`
+  // rule C1 is TOTAL — every `nexus <words>` string in help PROSE must resolve
+  // against the live commander tree, and it has no way to read a negation. So a
+  // sentence denying a command still cites it, and the gate is right to red.
+  // State the absence in words; keep the quoted form for commands that exist.
+  const archive = tracks
+    .command("archive")
+    .description("Put the track away, or bring it back — this is instead of deleting it")
+    .argument("<trackId>", "The track to put away")
+    .option("--undo", "Bring it back instead of putting it away")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks archive 11111111-1111-4111-8111-111111111111
+  $ nexus tracks archive 11111111-1111-4111-8111-111111111111 --undo
+  $ nexus tracks list --archived only
+
+Notes:
+  A TRACK IS NEVER DELETED, AND THIS IS WHY. A track's diary, its
+  events and its memory are the record of how the work went, and every one of
+  them is destroyed with the row. Archiving takes the track out of the way and
+  leaves all of it readable.
+  IT IS REVERSIBLE. Run it again with --undo. An archive nobody can undo is a
+  delete whose damage is only harder to see.
+  FIND WHAT YOU PUT AWAY WITH "nexus tracks list --archived only". An archived
+  track is absent from "nexus tracks ready" and from the default page of
+  "nexus tracks list", so that flag is the only way back to it.
+  IT DOES NOT TOUCH THE STATUS. DONE says the work finished; archived says the
+  track was put away, which a PLANNED track that turned out to be a mistake
+  also is. Use "nexus tracks set-status" for the other one.
+  A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
+  exist.
+  Needs the "tracks:write" scope.`
+    )
+    .action(async (trackId: string, opts: { undo?: boolean }) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        // `--undo` is the ONLY spelling of the reverse, and its absence means
+        // archive. A `--archived <bool>` flag would put a querystring boolean in
+        // a human's hands, where "false" reads as true to more than one parser.
+        const archived = opts.undo !== true;
+        const result = await client.tracks.archive(trackId, { archived });
+
+        printSuccess(archived ? "Track archived." : "Track restored.", {
+          trackId: result.trackId,
+          archivedAt: result.archivedAt
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(archive, TRACK_ARCHIVE_CONTRACT);
+
+  // ── tracks list ───────────────────────────────────────────────────────────
+  const list = tracks
+    .command("list")
+    .description("Every track in your organization — what exists, not what is ready")
+    .option("--limit <n>", "How many rows, 1-200", (value: string) => Number(value))
+    .addOption(enumOption("--status <status>", "Narrow to one status", TRACK_LIST__PARAMS_STATUS))
+    .addOption(
+      enumOption(
+        "--archived <mode>",
+        "What to do about archived tracks. exclude when omitted",
+        TRACK_LIST__PARAMS_ARCHIVED
+      )
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks list
+  $ nexus tracks list --status DONE
+  $ nexus tracks list --limit 200 --json
+
+Notes:
+  THIS IS NOT "nexus tracks ready". That one answers what can be worked on and
+  hides everything DONE, BLOCKED or blocked by a dependency. This answers what
+  EXISTS, so a track you finished is here and nowhere else.
+  IT IS ORDERED BY NUMBER AND NOTHING ELSE. Nothing in a track can rank it —
+  there is no priority, no estimate and no due date — so any other order would
+  assert a ranking the product does not hold.
+  ARCHIVED TRACKS ARE HIDDEN BY DEFAULT. Run with --archived only to find one
+  you put away, and --archived include to see both at once. That is the entire
+  recovery path for "nexus tracks archive", and it is why archiving is not a
+  delete.
+  AN EMPTY LIST MEANS THE ORGANIZATION HAS NO TRACKS, not that the read failed.
+  Run with --json and check for an empty array rather than reading the dimmed
+  "No results." line as an error.
+  Needs the "tracks:read" scope.`
+    )
+    .action(async (opts: { limit?: number; status?: string; archived?: string }) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.list({
+          limit: opts.limit,
+          ...(opts.status !== undefined && { status: opts.status as TrackStatus }),
+          ...(opts.archived !== undefined && {
+            archived: opts.archived as "exclude" | "only" | "include"
+          })
+        });
+
+        printEnvelope(result, () =>
+          // 🔴 `ARCHIVED` IS A COLUMN RATHER THAN A FLAG-CONDITIONAL ONE.
+          // Under `--archived include` the page mixes live and archived rows,
+          // and without this column they are indistinguishable — which would
+          // make the one mode that exists for recovery the one that cannot tell
+          // you what to recover. A column that appears only under some flags is
+          // worse: the header moves, and a script reading a fixed layout breaks
+          // on a flag it did not pass. `CURRENT STEP` gives up 10 characters to
+          // pay for it. Found by bugbot on #4146.
+          printTable(result.tracks, [
+            { key: "number", label: "#", width: 6 },
+            { key: "slug", label: "SLUG", width: 28 },
+            { key: "title", label: "TITLE", width: 40 },
+            { key: "status", label: "STATUS", width: 13 },
+            { key: "archivedAt", label: "ARCHIVED", width: 12 },
+            { key: "nextOwner", label: "WAITING ON", width: 12 },
+            { key: "currentStep", label: "CURRENT STEP", width: 30 },
+            { key: "id", label: "ID", width: 38 }
+          ])
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(list, TRACK_LIST_CONTRACT);
+
+  // ── tracks get ────────────────────────────────────────────────────────────
+  const get = tracks
+    .command("get")
+    .description("One track by id")
+    .argument("<trackId>", "The track to read")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks get 11111111-1111-4111-8111-111111111111
+  $ nexus tracks get 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  A TRACK THAT IS NOT YOURS IS A 404, the same answer as one that does not
+  exist. The two are deliberately indistinguishable, so this cannot be used to
+  find out whether an id belongs to somebody else.
+  nextOwnerRef IS ONLY EVER SET ALONGSIDE nextOwner EVENT. On a CUE or USER
+  track it reads null, and that is the only legal pair.
+  THIS DOES NOT REPORT PROGRESS. Run "nexus tracks rollup <trackId>" for the
+  done/total counts over the task tree.
+  Needs the "tracks:read" scope.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const track = await client.tracks.get(trackId);
+
+        // 🔴 EVERY FIELD THE PAYLOAD CARRIES, AND THE LIST IS HAND-BUILT, SO A
+        // NEW ONE IS INVISIBLE UNTIL SOMEBODY ADDS IT HERE. `archivedAt` was
+        // published on the wire precisely so a caller holding an id could tell a
+        // live track from one that was put away — and this record rebuilt the
+        // object without it, so both the terminal view and `--json` hid the one
+        // fact the archive route exists to expose. Found by bugbot on #4146.
+        printRecord({
+          id: track.id,
+          number: track.number,
+          slug: track.slug,
+          title: track.title,
+          status: track.status,
+          currentStep: track.currentStep,
+          nextOwner: track.nextOwner,
+          nextOwnerRef: track.nextOwnerRef,
+          archivedAt: track.archivedAt,
+          createdAt: track.createdAt,
+          updatedAt: track.updatedAt
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(get, TRACK_READ_CONTRACT);
 
   // ── tracks rollup ─────────────────────────────────────────────────────────
   const rollup = tracks
@@ -260,9 +594,13 @@ Notes:
   is a join over the dependency edges, so marking a blocker done makes its
   dependents appear in the very next call. There is no readyAt column, no cache
   and no invalidation step to run first.
-  AN EMPTY LIST MEANS EVERY TRACK IS BLOCKED OR DONE, not that the read failed.
-  Run "nexus tracks ready --json" and check for an empty array rather than
-  reading the dimmed "No results." line as an error.
+  THE ORDER IS THE TRACK NUMBER, ASCENDING, so the oldest track comes first.
+  AN EMPTY LIST IS AN ANSWER, NOT A FAILED READ. A track is absent when it is
+  DONE or BLOCKED, when it is archived, or when any track it waits on has not
+  reached DONE — a blocker still PLANNED, IN_PROGRESS or IN_REVIEW holds it
+  exactly as hard as one that is BLOCKED. An organization with no tracks at all
+  reads the same. Run "nexus tracks ready --json" and check for an empty array
+  rather than reading the dimmed "No results." line as an error.
   nextOwner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an agent
   can proceed, USER means a person has to act, EVENT means something outside
   has to happen first.
@@ -282,11 +620,22 @@ Notes:
         // copy-paste: the table wants one array, so the action takes one array,
         // and the document silently inherits the table's taste.
         printEnvelope(result, () =>
+          // 🔴 THE SAME COLUMNS AS `tracks list`, IN THE SAME ORDER, MINUS
+          // `STATUS` — which `ready` cannot vary usefully, since a DONE or
+          // BLOCKED track is not in this set by construction. Two reads of the
+          // same rows printing different columns is how a person learns to
+          // trust one and re-run the other.
+          //
+          // SLUG is the column this table shipped without, and the omission
+          // survived putting `slug` on the wire: the row carried it, the human
+          // view did not, so the only handle on screen was a number the server
+          // mints and an id nobody types. Found by bugbot on #4146.
           printTable(result.tracks, [
             { key: "number", label: "#", width: 6 },
-            { key: "title", label: "TITLE", width: 48 },
+            { key: "slug", label: "SLUG", width: 28 },
+            { key: "title", label: "TITLE", width: 40 },
             { key: "nextOwner", label: "WAITING ON", width: 12 },
-            { key: "currentStep", label: "CURRENT STEP", width: 48 },
+            { key: "currentStep", label: "CURRENT STEP", width: 40 },
             { key: "id", label: "ID", width: 38 }
           ])
         );
@@ -316,13 +665,16 @@ Notes:
   AN EDGE THAT WOULD CLOSE A CIRCLE IS REFUSED WITH 409, and the refusal names
   the circle in traversal order. A two-node circle says so in those words,
   because "you already said B blocks A" is a thing a person can fix without
-  reading a graph.
+  reading a graph. When the names cannot be resolved inside the refusing
+  transaction the circle comes back empty and the message says to re-read the
+  dependencies.
   THE LOCK THIS TAKES IS ORGANISATION-WIDE, not per track. A track-level circle
   can run through any track in the organisation, so two inserts on two different
   tracks that jointly close one would otherwise never meet.
-  ADDING AN EDGE CHANGES THE READY SET IMMEDIATELY. "nexus tracks ready" is
-  derived on every read, so the blocked track disappears from it on the very
-  next call.
+  ADDING AN EDGE CHANGES THE READY SET IMMEDIATELY, because "nexus tracks ready"
+  is derived on every read. Only a blocker that has NOT reached DONE removes the
+  blocked track from that set: an edge whose blocker is already DONE changes
+  nothing.
   Needs the "tracks:write" scope.`
     )
     .action(async (opts: { blocker: string; blocked: string }) => {
@@ -347,7 +699,10 @@ Notes:
     .command("create")
     .description("Create one section, at a chosen index among its siblings")
     .argument("<trackId>", "The track to create the section in")
-    .requiredOption("--slug <slug>", "1-64 chars of [a-z0-9-]. The last segment of the path")
+    .requiredOption(
+      "--slug <slug>",
+      "1-64 chars of [a-z0-9-], starting with a letter or digit. The last segment of the path"
+    )
     .requiredOption("--title <title>", "What the section is called")
     .option("--parent <sectionId>", "Nest it under this section. Omit to create at the root")
     .option("--body-text <text>", "The section's prose")
@@ -365,10 +720,11 @@ Notes:
   THE PATH IS THE ADDRESS, AND THE SLUG IS ITS LAST SEGMENT. A section nested
   under "discovery" with slug "notes" has the path "discovery/notes". A sibling
   already holding that path is a 409.
-  --body-text FILLS THE SECTION'S PROSE, NOT THE REQUEST BODY. The global
-  --body flag spelling is not used here; every field of this write has its own
-  flag.
-  AN OUT-OF-RANGE --position CLAMPS RATHER THAN FAILING. Omitting it appends.
+  --body-text FILLS THE SECTION'S PROSE, NOT THE REQUEST BODY. This command
+  declares no --body flag, and neither does the root program; every field of
+  this write has its own flag.
+  A --position PAST THE END CLAMPS TO THE APPEND INDEX. A negative one is
+  refused with a 400, and omitting it appends.
   THE WHOLE WRITE HOLDS THE TRACK'S ROW LOCK. Two sections created at the root
   at the same index would otherwise both be stored — Postgres treats NULL
   parents as distinct, so the sibling uniqueness index does not cover the root.
@@ -412,7 +768,10 @@ Notes:
     .description("Re-slug one section; its whole subtree follows")
     .argument("<trackId>", "The track the section belongs to")
     .argument("<sectionId>", "The section to re-slug")
-    .requiredOption("--slug <slug>", "The new slug, 1-64 chars of [a-z0-9-]")
+    .requiredOption(
+      "--slug <slug>",
+      "The new slug, 1-64 chars of [a-z0-9-], starting with a letter or digit"
+    )
     .addHelpText(
       "after",
       `
@@ -422,7 +781,8 @@ Examples:
 
 Notes:
   ONE STATEMENT REWRITES THE WHOLE SUBTREE. rowsRewritten counts the section
-  plus every descendant, so 1 means it was a leaf. Nothing walks the tree, and
+  plus every descendant whose path actually changed, so 1 means it was a leaf
+  and 0 means the new slug is the one it already had. Nothing walks the tree, and
   that is deliberate: a walk would leave a window in which some paths describe
   the new tree and some the old, and path is the column every lookup reads.
   A SIBLING ALREADY HOLDING THE NEW PATH IS A 409, and nothing is written.
@@ -467,7 +827,9 @@ Notes:
   gate: true MEANS THE TASK WILL REFUSE ITS OWN COMPLETION WITHOUT EVIDENCE.
   It travels with the row so you know before you start, not at the moment you
   tick the box.
-  THIS LIST DOES NOT SAY WHO IS ON A TASK. Read the task itself with
+  A TASK ANOTHER AGENT HOLDS IS STILL IN THIS LIST, and the rows do not say so.
+  The query tests done, leaf and blocker state and never reads the claim, so
+  READY means unblocked rather than unattended. Read the task itself with
   "nexus tracks task get <taskId>" — its banner is the only place that
   instruction lives.
   Needs the "track_tasks:read" scope.`
@@ -540,14 +902,16 @@ Examples:
       --agent 33333333-3333-4333-8333-333333333333
 
 Notes:
-  A CLAIM REFUSES NOTHING AND TAKES NO LOCK. Claiming a task another agent
-  holds succeeds and overwrites it — claiming and taking over are the same
-  operation, which is why there is no separate take-over command. The next
-  agent to read the task is told who holds it and how long ago that agent was
-  last heard from, and decides for itself.
+  A CLAIM TAKES NO LOCK AND NEVER REFUSES BECAUSE SOMEBODY ELSE HOLDS THE TASK.
+  It succeeds and overwrites — claiming and taking over are the same operation,
+  which is why there is no separate take-over command. It still answers 404 for
+  a task you cannot reach and 409 when that agent is not OPEN on this task's
+  track. The next agent to read the task is told who holds it and how long ago
+  that agent was last heard from, and decides for itself.
   --agent IS AN ID, NOT A NAME. The banner names the HOLDER by name so a person
   can recognise it; the value here is your own agent's id, which the route
-  resolves against the OPEN agents of this task's track. A name gets a 409.
+  resolves against the OPEN agents of this task's track. A name is a 400 — the
+  field is validated as a UUID before the route runs.
   THE BANNER ON EVERY TASK READ NAMES THIS COMMAND, and that string is
   generated from this registration. It is not a copy you may edit.
   Needs the "track_tasks:write" scope.`
@@ -585,8 +949,10 @@ Notes:
   refused with 422, and the refusal names up to five of the blocking gates — a
   reader who sees five knows the shape of the problem and the sixth adds
   nothing.
-  --evidence IS IGNORED ON AN UN-TICK. Setting done to false clears the tick;
-  it does not clear or rewrite the evidence already recorded.
+  AN UN-TICK ERASES THE EVIDENCE, AND IT DOES NOT ASK FIRST. Setting done to
+  false clears doneAt, doneByUserId and evidence in one statement — the three go
+  to NULL together, because the database refuses evidence on an unticked task —
+  so a re-tick has to supply its proof again. --evidence itself is ignored here.
   THIS DOES NOT CLAIM THE TASK. Ticking a task somebody else holds succeeds —
   the claim is coordination, never a lock.
   Needs the "track_tasks:write" scope.`
@@ -675,6 +1041,8 @@ Notes:
   id of the task at index 3 of your plan.
   parentTaskId HANGS THE PLAN'S ROOTS UNDER AN EXISTING TASK. Omit it to hang
   them under the track itself.
+  THE PLAN NESTS FOUR LEVELS DEEP AT MOST. A fifth level of children is refused
+  by the schema, not truncated.
   Needs the "track_tasks:write" scope.`
     )
     .action(async (trackId: string, opts: { body: string }) => {
@@ -714,9 +1082,9 @@ Notes:
   AN AGENT HERE IS A RECORD OF A CONTRACT, NEVER A RUNNING PROCESS. Nothing in
   this domain starts an agent, spawns a sandbox or calls a model, and an OPEN
   row does not mean anything is executing right now.
-  lastHeardAt IS THE ONLY LIVENESS SIGNAL, and it moves only when somebody runs
-  "nexus tracks agent beat". An OPEN agent that has not beaten in hours is what
-  a dead worker looks like.
+  lastHeardAt IS THE ONLY LIVENESS SIGNAL. Opening an agent sets it to that
+  instant, and after that only "nexus tracks agent beat" moves it. An OPEN agent
+  that has not beaten in hours is what a dead worker looks like.
   THE NAME IS UNIQUE AMONG OPEN AGENTS ONLY. Closing an agent frees its name for
   reuse, so two rows in this list can share a name when one of them is terminal.
   Needs the "track_agents:read" scope.`
@@ -747,7 +1115,7 @@ Notes:
     .command("open")
     .description("Open one agent on this track")
     .argument("<trackId>", "The track to open the agent on")
-    .requiredOption("--name <name>", "Unique among this track's OPEN agents")
+    .requiredOption("--name <name>", "1-128 chars. Unique among this track's OPEN agents")
     .option("--depends-on <names...>", "Other agents in this track, BY NAME")
     .option("--acceptance <text>", "What finishing this agent's work means")
     .option("--output-path <path>", "Where the agent is expected to write")
@@ -816,13 +1184,14 @@ Examples:
 
 Notes:
   THIS WRITES lastHeardAt AND NOTHING ELSE. It is the one last-heard clock in
-  this domain: every collision banner's staleness is derived from it, and so is
-  the stale-agent sweep.
+  this domain, and every collision banner's staleness is derived from it. No
+  sweep reads it — nothing closes an agent for going quiet.
   AN AGENT THAT STOPS BEATING IS NOT CLOSED. Its claims stay on their tasks and
   its row stays OPEN — what changes is that the banner starts telling the next
   reader how long ago it was last heard from, and they decide.
-  A NON-OPEN AGENT IS A 404 HERE. Beating a closed, dead or retired agent does
-  not reopen it.
+  A CLOSED, DEAD OR RETIRED AGENT IS A 409 HERE, and an id you cannot see is a
+  404. Beating a terminal agent does not reopen it, and the refusal is the point:
+  refreshing the clock would make the banner report a finished agent as live.
   Needs the "track_agents:write" scope.`
     )
     .action(async (trackId: string, agentId: string) => {
@@ -1025,8 +1394,9 @@ Examples:
   $ nexus tracks memory list 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
-  THE BUDGET IS BYTES, NOT CHARACTERS. valueBytes is UTF-8 length, so a short
-  string of CJK or emoji can cost three or four times its visible length.
+  THE BUDGET IS BYTES, NOT CHARACTERS: 8000 per track and 2000 per entry.
+  valueBytes is UTF-8 length, so a short string of CJK or emoji can cost three
+  or four times its visible length.
   trackMemoryBytes IS SUMMED FROM THE ROWS THIS READ RETURNED, not taken from
   the counter column. That is deliberate: it makes any divergence between the
   two visible here instead of hiding it behind the counter that is supposed to
@@ -1058,7 +1428,7 @@ Notes:
     .command("put")
     .description("Create or replace one memory entry")
     .argument("<trackId>", "The track to write to")
-    .requiredOption("--key <key>", "1-128 chars of [A-Za-z0-9._-]")
+    .requiredOption("--key <key>", "1-128 chars of [A-Za-z0-9._-], starting with a letter or digit")
     .requiredOption("--value <text>", "What to remember")
     .addHelpText(
       "after",
@@ -1071,8 +1441,8 @@ Notes:
   THE KEY IS A SLUG BECAUSE THE DELETE ROUTE ADDRESSES IT AS A PATH SEGMENT. A
   key holding a slash could be written and never removed, which is the shape
   that silently consumes the budget for ever.
-  THE BUDGET IS BYTES AND A WRITE WITH NO ROOM IS A 409. Nothing is truncated
-  and nothing is evicted to make space.
+  THE BUDGET IS BYTES AND A WRITE WITH NO ROOM IS A 409: 8000 per track, 2000
+  per entry. Nothing is truncated and nothing is evicted to make space.
   PUT REPLACES. Writing an existing key overwrites its value and re-counts its
   bytes; there is no append.
   Needs the "track_memory:write" scope.`
@@ -1112,8 +1482,10 @@ Notes:
   the two apart.
   THE BYTES ARE REFUNDED IN THE SAME TRANSACTION, so the trackMemoryBytes this
   returns is already the new total.
-  THIS IS THE ONLY DESTRUCTIVE VERB IN THE TRACKS NAMESPACE. The diary and the
-  event stream deliberately have none.
+  THIS IS THE ONLY VERB THAT REMOVES A ROW. The diary and the event stream
+  deliberately have none. It is not the only destructive one:
+  "nexus tracks task toggle --done false" erases a task's evidence, and it does
+  not ask first.
   --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
   and exits non-zero rather than acting.
   Needs the "track_memory:delete" scope.`

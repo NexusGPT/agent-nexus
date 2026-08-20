@@ -9,6 +9,7 @@ import {
   CreateWorkflowBodySchema,
   FilterFieldDefSchema,
   ListWorkflowsParamsSchema,
+  NodeDeleteResultSchema,
   NodeResponseSchema,
   NodeTypeSchemaResponseSchema,
   NodeTypeSummarySchema,
@@ -32,6 +33,7 @@ import type {
   CreateNodeBody,
   CreateWorkflowBody,
   ListWorkflowsParams,
+  NodeDeleteResult,
   NodeResponse,
   NodeTypeSchema,
   NodeTypeSummary,
@@ -117,6 +119,7 @@ export type WorkflowContractAssertions = [
 
   // ── nodes ── /public/v1/workflows/:id/nodes
   Expect<Equals<NodeResponse, Received<typeof NodeResponseSchema>>>,
+  Expect<Equals<NodeDeleteResult, Received<typeof NodeDeleteResultSchema>>>,
   Expect<Equals<CreateNodeBody, Sent<typeof CreateNodeBodySchema>>>,
   Expect<Equals<UpdateNodeBody, Sent<typeof UpdateNodeBodySchema>>>,
   Expect<Equals<ReplaceTriggerBody, Sent<typeof ReplaceTriggerBodySchema>>>,
@@ -171,6 +174,7 @@ const GATED_PAIRS = [
   "WorkflowNode ↔ WorkflowGraphNodeSchema",
   "WorkflowEdge ↔ WorkflowGraphEdgeSchema",
   "NodeResponse ↔ NodeResponseSchema",
+  "NodeDeleteResult ↔ NodeDeleteResultSchema",
   "CreateNodeBody ↔ CreateNodeBodySchema",
   "UpdateNodeBody ↔ UpdateNodeBodySchema",
   "ReplaceTriggerBody ↔ ReplaceTriggerBodySchema",
@@ -257,7 +261,7 @@ describe("workflow types match the v1 contract", () => {
     // The floor is a literal. Deleting an assertion above without deleting its
     // name here leaves this green; deleting BOTH takes it red, which is the
     // point — a shrinking gate has to be a deliberate act.
-    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(20);
+    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(21);
     expect(new Set(GATED_PAIRS).size).toBe(GATED_PAIRS.length);
   });
 

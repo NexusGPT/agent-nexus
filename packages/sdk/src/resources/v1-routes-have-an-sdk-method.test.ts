@@ -1,3 +1,5 @@
+import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
 import { describe, expect, it } from "vitest";
 
 import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
@@ -101,6 +103,31 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * deleted from it in the same change, or this gate fails in its second
  * direction.
  */
+/**
+ * THE MOST ROUTES THIS LEDGER MAY HOLD, AS A LITERAL SOMEBODY RAISES BY HAND.
+ *
+ * The header above says "the ledger's SIZE is a fact this gate keeps true rather
+ * than a measurement that rots", and what kept it true was an equality asserted
+ * in both directions. An equality refuses DIVERGENCE, never GROWTH: a new route
+ * with no SDK method, plus the row that ledgers it, land in one commit and do
+ * not diverge. So the list could reach the whole v1 surface one row at a time
+ * with every arm green — which is how it reached 58, over half of them one
+ * domain, before anybody measured it.
+ *
+ * A ledgered route is a route this gate has STOPPED WATCHING, so this figure is
+ * how much of the surface is unwatched. An UPPER BOUND, so writing the SDK
+ * method takes its row and this figure down together, in silence.
+ *
+ * 58 → 59 for `ChatSendMessageStream`, and that raise is the honest ending
+ * rather than the lazy one. Every other row here is a route whose SDK method has
+ * not been WRITTEN YET, so the row is debt and this figure falls when somebody
+ * writes it. That one cannot fall: the route is authenticated by a chat-session
+ * token in `x-chat-session-token` and `HttpClient.requestSSE` hardcodes
+ * `"api-key": this.apiKey`, so a method there could not present the credential
+ * the route admits. Writing one would be writing a method that cannot succeed.
+ */
+const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 59;
+
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Conversation evals: an entire domain, no SDK surface at all ──────────
   // 34 routes. Not a deliberate omission — the domain shipped on the public API
@@ -181,6 +208,14 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   DeploymentVoiceSessionCreate: "voice session handshake is driven by the realtime client",
   DeploymentChatSessionCreate:
     "browser chat-session handshake — the SDK resource lands with the streaming surface it credentials",
+  // Not an omission. This route is authenticated by a chat-session token in
+  // `x-chat-session-token`, and `HttpClient.requestSSE` hardcodes `"api-key":
+  // this.apiKey` — so this SDK cannot present the credential the route admits.
+  // Its client is the browser, holding a token this SDK's caller minted for it,
+  // and the frames are Vercel AI SDK chunks read by that library's own
+  // transport rather than by a typed resource method.
+  ChatSendMessageStream:
+    "browser-authenticated SSE — the caller is a chat-session token in a browser, not this server-side SDK",
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };
@@ -248,13 +283,46 @@ describe("every Public API v1 route has an SDK method", () => {
     expect(reachedBySdk("GET", "/public/v1/agents/:agentId", wrongVerb)).toBe(false);
   });
 
-  it("every route is reached by the SDK, or ledgered with a reason", () => {
-    const unreached = routes
-      .filter((route) => !reachedBySdk(route.method, route.path))
-      .filter((route) => !(route.name in V1_ROUTES_WITHOUT_AN_SDK_METHOD))
-      .map((route) => `${route.name}  (${route.method} ${route.path})`);
-
-    expect(unreached).toEqual([]);
+  it.each(
+    eachOrRefuse(
+      shrinkOnlyLedger({
+        // EVERY v1 route is the drain-proof control, never the unreached ones: a
+        // route that gains an SDK method is still a route, so this population
+        // survives the cure and its coverage arm — at least one route IS reached —
+        // gets stronger with every method written.
+        population: "Public API v1 routes with no SDK method that calls them",
+        findings: routes.filter((route) => !reachedBySdk(route.method, route.path)),
+        keyOf: (route) => route.name,
+        locate: (route) => `${route.name}  (${route.method} ${route.path})`,
+        ledgerKeys: Object.keys(V1_ROUTES_WITHOUT_AN_SDK_METHOD),
+        ceiling: V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING,
+        remedy:
+          "Write the SDK method. A route can ship on the server, be absent from the SDK and\n" +
+          "  be unreachable from the terminal with `tsc`, ESLint and every suite green — the\n" +
+          "  type gate only compares the types that EXIST, so a route with no method has\n" +
+          "  nothing to disagree with.\n" +
+          "  A row here is a route this gate has STOPPED WATCHING: deleting its method later\n" +
+          "  would go unnoticed.",
+        drainProofControl: {
+          name: "routes the Public API v1 contract declares",
+          keys: routes.map((route) => route.name),
+          floor: 300
+        },
+        rowCheck: {
+          name: "every ledger entry carries a reason",
+          offender: (name) => {
+            const reason = V1_ROUTES_WITHOUT_AN_SDK_METHOD[name];
+            if (reason === undefined) return `${name} — no reason at all`;
+            return reason.trim().length === 0 ? `${name} — reason is blank` : null;
+          }
+        }
+      }).checks.map((check) => [check.name, check] as const),
+      "the checks shrinkOnlyLedger builds — a FIXED set of rows, never derived from the ledger, so it cannot empty when the ledger does"
+    )
+  )("%s", (_name, check) => {
+    // vitest's `expect` takes a second message argument, unlike jest's — this
+    // package runs under vitest, so the primitive's own idiom is used directly.
+    expect(check.actual, check.message).toEqual(check.expected);
   });
 
   it("the ledger names only routes that still exist and are still unreached", () => {
@@ -270,13 +338,5 @@ describe("every Public API v1 route has an SDK method", () => {
     expect(nowReached, "ledger entries that have since gained an SDK method — delete them").toEqual(
       []
     );
-  });
-
-  it("every ledger entry carries a reason", () => {
-    const blank = Object.entries(V1_ROUTES_WITHOUT_AN_SDK_METHOD)
-      .filter(([, reason]) => reason.trim().length === 0)
-      .map(([name]) => name);
-
-    expect(blank).toEqual([]);
   });
 });

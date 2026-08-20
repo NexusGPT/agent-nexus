@@ -38,8 +38,13 @@ export interface WorkflowSummary {
   /** URL to the workflow's icon, if any. */
   iconUrl: string | null;
   /**
-   * JSON Schema describing the input the agent must provide when triggering
-   * this workflow. `null` if the workflow takes no structured input.
+   * The parameters the agent must provide when triggering this workflow — copy
+   * it into `agentInputSchema` on `agentTools.create()`.
+   *
+   * On a PUBLISHED workflow this is the LIVE contract, read off the published
+   * graph a WORKFLOW skill is invoked against, so whatever it reports is
+   * accepted at attach time; on a DRAFT it is the draft trigger. `null` if the
+   * workflow takes no structured input.
    */
   agentInputSchema: unknown | null;
   /** Folder the workflow belongs to, or `null` if unassigned. */

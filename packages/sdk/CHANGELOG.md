@@ -1,5 +1,157 @@
 # @agent-nexus/sdk
 
+## 0.24.0
+### Minor Changes
+
+- b53c3c2: `nexus template delete <id>` exists, and the namespace help no longer says it cannot.
+  
+  A document template could be created and never removed. `nexus template --help` listed
+  `create`, `folder`, `generate`, `get`, `list` and `upload` and no `delete`, and both
+  plausible routes answered `Cannot DELETE` — while the dashboard has deleted templates the
+  whole time through `DELETE /api/document-templates/:id`. So this was a v1/SDK/CLI parity
+  gap, never a retention policy: every template a script or a test created stayed in a
+  surface users browse, and stayed a live source of generatable documents.
+  
+  - `nexus template delete <id> [--yes]`, following the sibling pattern — `confirmable()`
+    for the flag, `confirmDestructive()` for the refusal, so a script without `--yes` and no
+    terminal refuses rather than destroying.
+  - `client.skills.deleteDocumentTemplate(id)` on the SDK, behind
+    `DELETE /public/v1/skills/document-templates/:templateId`.
+  - **Refused with `409` while anything still points at the template** — an AI task rendering
+    its output through it, an agent task, or an agent carrying it as a skill. `err.details`
+    names the dependents, because "detach it first" is only actionable if the caller is told
+    from what. Detaching an agent skill needs `agent_skills:delete`, which `skills:delete`
+    does not imply; the help says so before you start.
+  - The namespace help block that read _"A TEMPLATE CANNOT BE DELETED … a mistake is clutter
+    nobody can clear, carrying whatever customer data it was filled with"_ is replaced by what
+    delete does and does not take. It does not take the documents already generated from the
+    template: generation writes no row and the URL it returned is the only reference that will
+    ever exist, so those files stay in storage exactly as they did before.
+- ad7060b: `nexus tracks` — the whole track loop reaches the terminal.
+  
+  A track is a unit of work with a dependency graph, a section tree, a task tree,
+  the agents working it, an append-only log and a byte-budgeted memory. The domain
+  shipped across eight phases with no public door: the only way in was a single
+  `tracks task claim` registration posting to a route that did not exist yet, which
+  was there so the collision banner had a command to name.
+  
+  Twenty-one Public API v1 routes now back `client.tracks` and the `nexus tracks`
+  namespace. The loop is four calls:
+  
+  ```
+  nexus tracks ready
+    → nexus tracks task ready <trackId>
+    → nexus tracks task get <taskId>
+    → nexus tracks task claim <taskId> --agent <agentId>
+  ```
+  
+  then `tracks task toggle` when the work is done, `tracks diary append` for what
+  happened, and `tracks agent beat` in between to say the agent is still alive.
+  `tracks section`, `tracks plan import`, `tracks memory` and `tracks event` cover
+  the rest.
+  
+  🔴 **Read `banner` on every task you read.** Nothing in this domain reserves a
+  region of a track or refuses a second worker — collision avoidance is a live
+  instruction riding in the task payload, and it is the FIRST field on the wire so
+  an agent acting top-down sees it before it acts. A claim on a task another agent
+  holds SUCCEEDS and overwrites: claiming and taking over are one operation, which
+  is why there is no take-over command to look for.
+  
+  ⚠️ `--agent` on `tracks task claim` took `<name>` and the route resolves an OPEN
+  agent BY ID, so an agent that pasted the holder's name out of the banner's own
+  "another agent is working on this" line got a 409 that named nothing. The
+  placeholder says `<agentId>` now. The command, its parents and the flag are
+  unchanged, so nothing that scripted it breaks.
+  
+  Seven scope resources rather than one — `tracks`, `track_sections`,
+  `track_tasks`, `track_agents`, `track_diary`, `track_memory`, `track_events` — so
+  a key can read the ready set and append to the log without being able to
+  restructure a plan.
+
+### Patch Changes
+
+- e563bdb: A 429 is honoured instead of being thrown at the user
+  
+  The transport already retried a proxy 5xx and a dropped connection with jittered
+  exponential backoff. It did not retry a **429**, and it read `Retry-After` on no
+  code path at all — so the one failure the server tells you how to recover from
+  was the one the client gave straight back to the user, with the server's own
+  answer discarded.
+  
+  That server DOES state an answer. `PublicApiThrottlerGuard` ends with
+  `res.header("Retry-After", timeToBlockExpire)` before it throws, and the value is
+  whole seconds until the block lifts.
+  
+  ## `@agent-nexus/sdk`
+  
+  **A 429 is now retried, and the server's `Retry-After` decides the wait.**
+  
+  Both forms RFC 9110 permits are read: `delay-seconds` (what this API sends) and
+  an HTTP-date (what a CDN in front of it may send). A header that is neither —
+  absent, empty, `later`, `12abc`, `-5`, `1.5` — falls back to the existing
+  backoff curve. It never falls back to **zero**, which would turn a rate-limit
+  response into a hot loop against the server that just asked for room.
+  
+  **A 429 is replayed for every method, POST and PATCH included.** This is the one
+  place the idempotent-method restriction does not apply, and it is safe for a
+  structural reason rather than a convention: the 429 is thrown from a NestJS
+  *guard*, and a guard runs to completion before the route handler is entered. No
+  handler ran, so there is no effect to duplicate. A 502 is different in kind — an
+  ambiguous *outcome* where the upstream may have applied the request — so it stays
+  restricted to `GET`/`HEAD`/`OPTIONS`/`PUT`/`DELETE`, unchanged.
+  
+  **No idempotency keys, deliberately.** The Public API v1 does not read an
+  `Idempotency-Key` header. The only inbound reader anywhere in the server is
+  `POST /broker/v1/cards/:handle/invoke`, a surface this SDK never calls. Sending
+  the header would be a protocol the server ignores, so the method restriction
+  above is the whole safety argument.
+  
+  **The retry sequence is bounded twice, and the two bounds are independent:**
+  
+  | Option | Default | Bounds |
+  |---|---|---|
+  | `maxRetries` | `2` (three attempts) | how many times we ask |
+  | `maxTotalRetryWaitMs` | `60_000` | how long we are prepared to wait in total |
+  
+  A `Retry-After` that **does not fit the remaining budget is refused, not
+  capped**. A capped wait would send the next attempt while the block is provably
+  still live — a guaranteed second 429 that also spends the budget — and would hide
+  from the user that the real wait was an hour. The error instead carries the
+  number the server actually asked for, in `retryAfterMs` and in its message.
+  
+  A budget that is already spent fits **nothing**, including a stated wait of `0` —
+  which is why `maxTotalRetryWaitMs: 0` accepts no server-stated wait at all. A
+  zero-length wait subtracts nothing from the budget, so honouring one would leave
+  `maxRetries` as the only bound on a sequence the second bound is supposed to
+  stop.
+  
+  `NexusApiError` gains two optional fields: `attempts`, present once a request was
+  retried, and `retryAfterMs`, present only on that refusal.
+  
+  `NexusClientOptions` gains `maxRetries`, `maxTotalRetryWaitMs` and `onRetry`;
+  none were forwarded to the transport before, so a consumer could not configure
+  retrying or observe it.
+  
+  ## `@agent-nexus/cli`
+  
+  **A command that spends forty seconds waiting now says so**, on **stderr**:
+  
+  ```
+    Retrying in 2s — HTTP 429, requested by the server (attempt 2 of 3)
+  ```
+  
+  Never on stdout, and not suppressed under `--json`: `--json` promises exactly one
+  parseable document on stdout, and the caller most likely to be running unattended
+  in a script is the one that most needs to know why a command took a minute.
+- 6fc78c3: Publish the shipped response contract for `POST /deployments/:deploymentId/chat-session`.
+  
+  The SDK's `V1_RESPONSE_CONTRACT` is a projection of the v1 schemas and is regenerated
+  whenever a route declares one. This adds the browser chat-session mint's payload shape
+  (`token`, `sessionId`, `chatId`, `expiresInSeconds`), so a caller validating responses
+  against the manifest recognises the route instead of falling through the unknown arm.
+  
+  No SDK method yet — the `chat` resource lands with the streaming surface it credentials.
+
 ## 0.23.0
 ### Minor Changes
 

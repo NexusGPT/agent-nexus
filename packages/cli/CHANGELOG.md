@@ -1,5 +1,393 @@
 # @agent-nexus/cli
 
+## 0.32.0
+### Minor Changes
+
+- b53c3c2: `nexus template delete <id>` exists, and the namespace help no longer says it cannot.
+  
+  A document template could be created and never removed. `nexus template --help` listed
+  `create`, `folder`, `generate`, `get`, `list` and `upload` and no `delete`, and both
+  plausible routes answered `Cannot DELETE` — while the dashboard has deleted templates the
+  whole time through `DELETE /api/document-templates/:id`. So this was a v1/SDK/CLI parity
+  gap, never a retention policy: every template a script or a test created stayed in a
+  surface users browse, and stayed a live source of generatable documents.
+  
+  - `nexus template delete <id> [--yes]`, following the sibling pattern — `confirmable()`
+    for the flag, `confirmDestructive()` for the refusal, so a script without `--yes` and no
+    terminal refuses rather than destroying.
+  - `client.skills.deleteDocumentTemplate(id)` on the SDK, behind
+    `DELETE /public/v1/skills/document-templates/:templateId`.
+  - **Refused with `409` while anything still points at the template** — an AI task rendering
+    its output through it, an agent task, or an agent carrying it as a skill. `err.details`
+    names the dependents, because "detach it first" is only actionable if the caller is told
+    from what. Detaching an agent skill needs `agent_skills:delete`, which `skills:delete`
+    does not imply; the help says so before you start.
+  - The namespace help block that read _"A TEMPLATE CANNOT BE DELETED … a mistake is clutter
+    nobody can clear, carrying whatever customer data it was filled with"_ is replaced by what
+    delete does and does not take. It does not take the documents already generated from the
+    template: generation writes no row and the URL it returned is the only reference that will
+    ever exist, so those files stay in storage exactly as they did before.
+- fffae18: Fifteen hidden commands that silently reinstalled the CLI are removed. `nexus update`, `nexus latest` and `nexus up` keep working.
+  
+  `upgrade.ts` registered eighteen `{ hidden: true }` top-level commands so that "any intuitive word triggers the upgrade". That rule has no stopping point, and it reached words this CLI already uses for something else:
+  
+  | Word       | What the CLI otherwise means by it                                                  |
+  | ---------- | ----------------------------------------------------------------------------------- |
+  | `get`      | ends 40 leaves — `agent get`, `role get`, …                                         |
+  | `update`   | ends 29 leaves                                                                      |
+  | `install`  | a leaf under `mcp` and under `claude-code`, AND a declared alias of `skills update` |
+  | `sync`     | a declared alias of `skills update`                                                 |
+  | `download` | ends 2 leaves                                                                       |
+  | `pull`     | ends 1 leaf                                                                         |
+  
+  Typed bare, every one of them replaced the running binary instead. They were absent from every `--help` by construction, and they carried no description, no flag and no argument — there was nothing in the CLI you could read to find out. `nexus skills update`'s own help already warns that `nexus skills install` and `nexus claude-code install` are "one word apart and resolve" to different things; a third, invisible meaning for `install` was the CLI arguing with itself.
+  
+  **Removed:** `get`, `new`, `install`, `sync`, `fetch`, `pull`, `download`, `refresh`, `reinstall`, `patch`, `bump`, `self-update`, `selfupdate`, `self-upgrade`, `selfupgrade`.
+  
+  **Kept:** `update`, `latest` and `up`, now declared aliases on `upgrade` rather than separate hidden commands. They appear in `--help` as `upgrade|update` and on the generated docs page, which is the first time any of these has been discoverable from the CLI itself. These three are the ones the published documentation already instructs you to type; adding a fourth means writing it down there first.
+  
+  **What you see if you typed one of the fifteen:** `unknown command`, exit 1, and a pointer to `nexus --help` — the same refusal `nexus get abc-123` already produced, because an alias with an operand was never able to reach the installer. `nexus upgrade` is the command, and it always was.
+  
+  These were the INTERNAL tier, which promises nothing: "You may rely on nothing here. Any of these names may be reclaimed for a real command, or removed." That is what makes this a removal rather than a deprecation cycle.
+- f0f9741: `--json` answered prose at exit 0 on four paths, and on one of them a TYPO read as success
+  
+  `nexus --help` promises that `--json` prints one JSON document on stdout. Four
+  invocations broke it in the direction a script cannot detect — a zero exit beside
+  output that does not parse. Measured on the built binary at 0.26.0:
+  
+  ```
+  $ nexus --json zzznope --help
+    ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗      # 14915 bytes of ROOT HELP
+    …
+  $ echo $?
+  0
+  ```
+  
+  `zzznope` is not a command. The CLI printed the root help and reported success.
+  
+  | Invocation                    | before                | after                                                   |
+  | ----------------------------- | --------------------- | ------------------------------------------------------- |
+  | `nexus --json --help`         | prose, exit 0         | `{"help":{"command":"nexus","text":"…"}}`, exit 0       |
+  | `nexus --json --version`      | `0.26.0`, exit 0      | `{"version":"0.26.0"}`, exit 0                          |
+  | `nexus --json docs`           | prose, exit 0         | `{"docs":{"web":…,"llmsIndex":…,"llmsFull":…}}`, exit 0 |
+  | `nexus --json zzznope --help` | root help, exit **0** | the error document, exit **1**                          |
+  
+  ## Why
+  
+  JSON mode was decided inside the root program's `preAction` hook, so every path
+  that ends BEFORE an action runs never learned about `--json`. The refusal funnel
+  could not close it: it returns on `exitCode === 0` by construction, because
+  turning `--help` into an error would be worse than the defect.
+  
+  The typo is a separate mechanism and it was never a `--json` bug. Commander
+  renders a requested help screen before it reports an unknown command, so
+  `nexus zzznope --help` exited 0 in prose mode too.
+  
+  ## What changes
+  
+  JSON mode is now resolved from argv before the parse, and every byte commander
+  puts on stdout under `--json` becomes a document. A stray operand on a namespace
+  is refused where the help would have rendered, keeping commander's "did you mean"
+  suggestion.
+  
+  Two commands that print their own output are fixed with it:
+  
+  - **`nexus docs`** printed its links as prose under `--json`. It is the one
+    command that is invocable AND a namespace, so the leaf-driven gate never
+    reached it.
+  - **`nexus vibe deploy`**, refused by the spend soft-limit under `--json`,
+    printed the raw `confirmation_required` payload on stdout — a document in the
+    shape a SUCCESSFUL deploy uses, for a deploy that did not happen. It now emits
+    the error document, with the cost-safety status and the exact
+    `--confirm-overage` re-run in the hint.
+  
+  ## ⚠️ Two behaviour changes a script can see
+  
+  **`nexus <typo> --help` exits 1 instead of 0**, with or without `--json`. A script
+  that ran a misspelled command with `--help` and read the status as success now
+  learns it was wrong. That is the point of the change; it is called out here
+  because the old behaviour was, technically, a zero exit somebody could have been
+  depending on.
+  
+  **`nexus --json --help` and `nexus --json --version` no longer print bare text.**
+  A script that piped either into `grep` gets JSON now. Drop `--json` for the old
+  output — prose mode is byte-identical to before on every help screen.
+  
+  `packages/cli/COMPATIBILITY.md` moves this guarantee into STABLE: `--json` yields
+  one parseable document on every terminal path.
+- f34b46a: 🔴 **BREAKING — every non-zero exit code `nexus upgrade` documented has moved.** It is the
+  one command whose `--help` published an exit-code contract, and this release breaks it:
+  
+  | Was | Is   | Outcome                                                         |
+  | --- | ---- | --------------------------------------------------------------- |
+  | `1` | `7`  | the registry was unreachable                                    |
+  | `1` | `9`  | the install command failed                                      |
+  | `2` | `10` | installed, and your shell still resolves the old copy           |
+  | `3` | `11` | installed, and it could not be checked FOR you (ran under sudo) |
+  
+  If you branch on `1`, `2` or `3` from `nexus upgrade`, update the script. No number
+  changed MEANING anywhere else.
+  
+  `nexus --help` said "EVERY failure exits 1". That was true of one of the four exit maps this
+  binary carried, and false of the other three. `handleError` returned 1 on every branch at 467
+  call sites; the admin tree mapped HTTP status to 2/3/4/5/6 at 21 call sites; `nexus upgrade`
+  published 2 and 3 in its own `--help` meaning "installed but your shell still resolves the old
+  copy" and "installed but I could not check it for you" — the same two numbers the admin tree
+  spends on "not authenticated" and "permission denied"; and `vibe app-logs --follow` exited 130.
+  
+  There is now ONE taxonomy, and every exit path in the binary reads it:
+  
+  | Code  | Meaning                                                                  |
+  | ----- | ------------------------------------------------------------------------ |
+  | `0`   | the command completed                                                    |
+  | `1`   | a failure with no more specific category                                 |
+  | `2`   | not authenticated — no usable credential, or one the server rejected     |
+  | `3`   | permission denied — the credential is good and is not allowed to do this |
+  | `4`   | not found                                                                |
+  | `5`   | invalid input — bad flags, or the server refused the payload             |
+  | `6`   | the server failed                                                        |
+  | `7`   | could not connect. RETRYABLE                                             |
+  | `8`   | timed out — THE SERVER MAY STILL BE COMPLETING THE REQUEST               |
+  | `9`   | a local operation failed — an install, a config write, a spawn           |
+  | `10`  | the operation RAN and the outcome did not happen. Retrying is the trap   |
+  | `11`  | the operation ran and its result COULD NOT BE MEASURED                   |
+  | `130` | interrupted (SIGINT)                                                     |
+  
+  **2 through 6 keep the meanings the admin tree already had**, because 21 call sites and a
+  published table used them and those five meanings are general enough to be the whole binary's.
+  7 through 11 are new. `nexus upgrade`'s two outcomes moved to 10 and 11 — one command's private
+  vocabulary does not get to squat on numbers that mean something else everywhere else in the same
+  binary — and that is the one break in this release.
+  
+  **Two other commands' `--help` named an exit code that changed.** `nexus mcp call` on a
+  failing tool documented `1` and now exits `6` (or `5` when the input was refused), and
+  `nexus admin`'s table said "every other command in this CLI exits 0 or 1 and nothing
+  else" — which was true when it was written and is not now. Both help texts are corrected,
+  and the admin table's `1  network or malformed response` row is now `7`.
+  
+  **Most failures now exit something specific instead of 1.** A 404 exits 4, a validation refusal
+  exits 5, an unreachable API exits 7, a client-side timeout exits 8. Those 467 sites all said 1
+  before, so there was nothing to branch on and nothing to break; `if nexus …; then` is unaffected,
+  and a failure that exits non-zero today still exits non-zero. The admin tree's one change is that
+  a network failure moved off the generic 1 onto 7, because a network failure is retryable and the
+  generic failure is not knowably anything.
+  
+  **An auth refusal was coded `CLI_UNKNOWN_ERROR`.** "No profiles configured" and "no active profile
+  set" — the two most common first-run failures — threw a bare `Error`, so a script could not tell
+  "you are not logged in" from a crash, on the one failure with a one-command remedy. Both now carry
+  `CLI_NOT_AUTHENTICATED` and exit 2.
+  
+  `nexus --help` prints the table above instead of the sentence it was breaking, and a test asserts
+  the screen and the code agree. `packages/cli/COMPATIBILITY.md` moves exit codes out of UNSTABLE:
+  what each number MEANS is now stable, while WHICH category a given failure lands in is evolving
+  and moves only from 1 toward something more specific.
+- ad7060b: `nexus tracks` — the whole track loop reaches the terminal.
+  
+  A track is a unit of work with a dependency graph, a section tree, a task tree,
+  the agents working it, an append-only log and a byte-budgeted memory. The domain
+  shipped across eight phases with no public door: the only way in was a single
+  `tracks task claim` registration posting to a route that did not exist yet, which
+  was there so the collision banner had a command to name.
+  
+  Twenty-one Public API v1 routes now back `client.tracks` and the `nexus tracks`
+  namespace. The loop is four calls:
+  
+  ```
+  nexus tracks ready
+    → nexus tracks task ready <trackId>
+    → nexus tracks task get <taskId>
+    → nexus tracks task claim <taskId> --agent <agentId>
+  ```
+  
+  then `tracks task toggle` when the work is done, `tracks diary append` for what
+  happened, and `tracks agent beat` in between to say the agent is still alive.
+  `tracks section`, `tracks plan import`, `tracks memory` and `tracks event` cover
+  the rest.
+  
+  🔴 **Read `banner` on every task you read.** Nothing in this domain reserves a
+  region of a track or refuses a second worker — collision avoidance is a live
+  instruction riding in the task payload, and it is the FIRST field on the wire so
+  an agent acting top-down sees it before it acts. A claim on a task another agent
+  holds SUCCEEDS and overwrites: claiming and taking over are one operation, which
+  is why there is no take-over command to look for.
+  
+  ⚠️ `--agent` on `tracks task claim` took `<name>` and the route resolves an OPEN
+  agent BY ID, so an agent that pasted the holder's name out of the banner's own
+  "another agent is working on this" line got a 409 that named nothing. The
+  placeholder says `<agentId>` now. The command, its parents and the flag are
+  unchanged, so nothing that scripted it breaks.
+  
+  Seven scope resources rather than one — `tracks`, `track_sections`,
+  `track_tasks`, `track_agents`, `track_diary`, `track_memory`, `track_events` — so
+  a key can read the ready set and append to the log without being able to
+  restructure a plan.
+
+### Patch Changes
+
+- e563bdb: A 429 is honoured instead of being thrown at the user
+  
+  The transport already retried a proxy 5xx and a dropped connection with jittered
+  exponential backoff. It did not retry a **429**, and it read `Retry-After` on no
+  code path at all — so the one failure the server tells you how to recover from
+  was the one the client gave straight back to the user, with the server's own
+  answer discarded.
+  
+  That server DOES state an answer. `PublicApiThrottlerGuard` ends with
+  `res.header("Retry-After", timeToBlockExpire)` before it throws, and the value is
+  whole seconds until the block lifts.
+  
+  ## `@agent-nexus/sdk`
+  
+  **A 429 is now retried, and the server's `Retry-After` decides the wait.**
+  
+  Both forms RFC 9110 permits are read: `delay-seconds` (what this API sends) and
+  an HTTP-date (what a CDN in front of it may send). A header that is neither —
+  absent, empty, `later`, `12abc`, `-5`, `1.5` — falls back to the existing
+  backoff curve. It never falls back to **zero**, which would turn a rate-limit
+  response into a hot loop against the server that just asked for room.
+  
+  **A 429 is replayed for every method, POST and PATCH included.** This is the one
+  place the idempotent-method restriction does not apply, and it is safe for a
+  structural reason rather than a convention: the 429 is thrown from a NestJS
+  *guard*, and a guard runs to completion before the route handler is entered. No
+  handler ran, so there is no effect to duplicate. A 502 is different in kind — an
+  ambiguous *outcome* where the upstream may have applied the request — so it stays
+  restricted to `GET`/`HEAD`/`OPTIONS`/`PUT`/`DELETE`, unchanged.
+  
+  **No idempotency keys, deliberately.** The Public API v1 does not read an
+  `Idempotency-Key` header. The only inbound reader anywhere in the server is
+  `POST /broker/v1/cards/:handle/invoke`, a surface this SDK never calls. Sending
+  the header would be a protocol the server ignores, so the method restriction
+  above is the whole safety argument.
+  
+  **The retry sequence is bounded twice, and the two bounds are independent:**
+  
+  | Option | Default | Bounds |
+  |---|---|---|
+  | `maxRetries` | `2` (three attempts) | how many times we ask |
+  | `maxTotalRetryWaitMs` | `60_000` | how long we are prepared to wait in total |
+  
+  A `Retry-After` that **does not fit the remaining budget is refused, not
+  capped**. A capped wait would send the next attempt while the block is provably
+  still live — a guaranteed second 429 that also spends the budget — and would hide
+  from the user that the real wait was an hour. The error instead carries the
+  number the server actually asked for, in `retryAfterMs` and in its message.
+  
+  A budget that is already spent fits **nothing**, including a stated wait of `0` —
+  which is why `maxTotalRetryWaitMs: 0` accepts no server-stated wait at all. A
+  zero-length wait subtracts nothing from the budget, so honouring one would leave
+  `maxRetries` as the only bound on a sequence the second bound is supposed to
+  stop.
+  
+  `NexusApiError` gains two optional fields: `attempts`, present once a request was
+  retried, and `retryAfterMs`, present only on that refusal.
+  
+  `NexusClientOptions` gains `maxRetries`, `maxTotalRetryWaitMs` and `onRetry`;
+  none were forwarded to the transport before, so a consumer could not configure
+  retrying or observe it.
+  
+  ## `@agent-nexus/cli`
+  
+  **A command that spends forty seconds waiting now says so**, on **stderr**:
+  
+  ```
+    Retrying in 2s — HTTP 429, requested by the server (attempt 2 of 3)
+  ```
+  
+  Never on stdout, and not suppressed under `--json`: `--json` promises exactly one
+  parseable document on stdout, and the caller most likely to be running unattended
+  in a script is the one that most needs to know why a command took a minute.
+- 737729c: `agent-tool create/update` now says which prompt-handled parameters `agentInputSchema` has to name
+  
+  A skill parameter with `handler: "prompt"` is filled by the AGENT, under its own
+  name, and the only thing that advertises it is `agentInputSchema` — the flat map
+  that becomes the tool's `input_schema.properties` verbatim. A parameter's
+  `prompt` is the description the agent reads while filling that one parameter; it
+  is never an instruction the platform executes to assemble it out of other inputs.
+  
+  So a caller-supplied `agentInputSchema` that omits a prompt-handled parameter
+  makes it unfillable, and nothing said so: the action ran with the parameter
+  empty and still answered `success`. A `supabase-insert-row` skill whose `data`
+  object was prompt-handled, attached with a flat schema naming only the scalars
+  the prompt referred to, inserted an all-null row and returned HTTP 201.
+  
+  The API now refuses that at create and at update with a `400` naming the
+  parameter. `nexus agent-tool create --help` and `nexus agent-tool update --help`
+  carry the rule and both ways to satisfy it — name the parameter in
+  `agentInputSchema`, or send `{}` and let the platform compute the schema from
+  `config.parameters`. The update note also states that a schema-only update is
+  checked against the STORED `config.parameters`: leaving `--config` out does not
+  leave the parameter behind, it leaves it unfillable.
+  
+  No CLI behaviour changes — this is help text plus the API refusal it describes.
+  An update that carries no `agentInputSchema` at all (a rename,
+  `--no-fire-and-forget`) is never re-checked, so an existing config cannot be
+  stranded behind the new error.
+- 4213812: `nexus --help` now leads a reader to the stability contract, which nothing in
+  the binary pointed at.
+  
+  `COMPATIBILITY.md` states what a script may rely on — four tiers, and what
+  counts as a breaking change for each. No command, no help screen and no error
+  named it. The document IS mentioned 30 times inside `packages/cli/src`, and
+  every one of those is a comment, a test, or a ledger note only a test reads —
+  never a string the program prints. The only pointers a user could reach were two
+  links inside `README.md`, a file you open after you already went looking for the
+  repository. A contract nobody can find FROM THE TOOL is worse than an absent
+  one: the tiers exist, so a maintainer believes scripting expectations are set,
+  while the person writing the script has never been shown them.
+  
+  The root epilogue gains a `WHAT YOU MAY SCRIPT AGAINST` block naming the four
+  tiers and linking the document.
+  
+  The link is an absolute URL rather than `packages/cli/COMPATIBILITY.md`, because
+  a repo-relative path names a file that is on no installed copy of this CLI:
+  `files` ships `dist` and nothing else, so the document is absent from every
+  `npm install -g @agent-nexus/cli`. The public mirror named by `repository.url`
+  is the one place a reader can open it, and it is already what `homepage` points
+  at.
+  
+  No behaviour changes.
+- e427a8e: `nexus tracks task claim <taskId> --agent <name>` — say you are working on a
+  track task, taking it over if another agent already was.
+  
+  A claim refuses nothing and takes no lock. Claiming a task another agent holds
+  SUCCEEDS and overwrites it, because claiming and taking over are the same
+  operation — which is why there is no separate take-over verb. The next agent to
+  read the task is told who holds it and how long ago that agent was last heard
+  from, and decides for itself.
+  
+  The registration is also the SOURCE of a generated string. Every read of a track
+  task carries a banner naming this command, and that string is read off this
+  command node rather than typed — the parent chain supplies the words, the
+  declared argument and required option supply the placeholders. Renaming the
+  command therefore breaks the build rather than the banner: the generator exits
+  non-zero naming the action, a build-time test refuses a banner naming a command
+  the CLI does not register, and a fifth generated-drift target catches a committed
+  map that stopped matching the tree.
+- 0bacbb2: `tracks ready` is swept now that its route answers on staging
+  
+  `GET /public/v1/tracks/ready` shipped after the sweep disposition for
+  `tracks ready` was written, so the leaf was parked `registration-only` — the
+  sweep asserted the command still existed and never ran it. The route now answers
+  `200` on staging, so the leaf is `safe` and the sweep executes it again.
+  
+  The classified command set moves from 58 `safe` leaves to 59. `COMPATIBILITY.md`
+  records the new figure; nothing else about the command tree changed, and no
+  command's flags, output or exit codes are affected.
+  
+  **It is `safe` rather than `safe-with-fixture`, deliberately.** Staging holds no
+  ready tracks, so the route answers `{"tracks":[]}` — and `safe-with-fixture`
+  additionally asserts a non-empty response, which would score that `EMPTY` and
+  fail. An empty list is the correct answer for this leaf: it proves the route is
+  alive, authorized and shaped like JSON, and it was never going to prove anything
+  about item shape.
+  
+  The parking rule that governed this leaf is now stated once, in the present
+  tense, as a rule carrying its own probe rather than as a note about somebody's
+  intention to remember. `cue conversations` sat under the note form and its prose
+  went stale — the leaf had already been flipped to `safe` while the comment above
+  it still asked a reader to flip it. Both comments now describe what is true.
+
 ## 0.31.0
 ### Minor Changes
 

@@ -64,19 +64,19 @@ cleanup() {
   # system has a paper trail; the exit code is preserved.
   if [[ -n "${TOOL_ID}" && -n "${AGENT_ID}" ]]; then
     stamp "cleanup: deleting agent-tool ${TOOL_ID}"
-    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --json >/dev/null; then
+    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --yes --json >/dev/null; then
       echo "cleanup: agent-tool delete failed for ${TOOL_ID}" >&2
     fi
   fi
   if [[ -n "${WORKFLOW_ID}" ]]; then
     stamp "cleanup: deleting workflow ${WORKFLOW_ID}"
-    if ! nx workflow delete "${WORKFLOW_ID}" --json >/dev/null; then
+    if ! nx workflow delete "${WORKFLOW_ID}" --yes --json >/dev/null; then
       echo "cleanup: workflow delete failed for ${WORKFLOW_ID}" >&2
     fi
   fi
   if [[ -n "${AGENT_ID}" ]]; then
     stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --json >/dev/null; then
+    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
       echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
     fi
   fi
@@ -136,8 +136,10 @@ nx workflow trigger "${WORKFLOW_ID}" --type agentInputTrigger --json > "${TRIGGE
 # ---------------------------------------------------------------------------
 # Workflow validation rejects single-trigger graphs as DISCONNECTED_NODE —
 # a publishable workflow needs at least one connected non-trigger node.
-# outputNode is the leanest option: defaultData covers its required fields
-# (outputType=previous), connectionRules require exactly 1 input edge.
+# outputNode is the leanest option: near-empty defaultData plus the
+# instructions PATCH below covers its required fields
+# (outputType=previous; instructions set in the follow-up node update),
+# and connectionRules require exactly 1 input edge.
 stamp "fetching workflow to resolve trigger node id"
 nx workflow get "${WORKFLOW_ID}" --json > "${WORKFLOW_GET_JSON}"
 TRIGGER_NODE_ID=$(jq -r '.nodes[] | select(.type == "agentInputTrigger") | .id' "${WORKFLOW_GET_JSON}")
@@ -159,6 +161,15 @@ nx workflow edge create "${WORKFLOW_ID}" \
   --source "${TRIGGER_NODE_ID}" \
   --target "${OUTPUT_NODE_ID}" \
   --json > "${EDGE_JSON}"
+
+# Since NEX-4055 an outputNode with empty `instructions` reports
+# configStatus=incomplete / missingFields=["instructions"], and `workflow
+# validate` counts that as an error — defaultData alone is no longer
+# publish-complete. Static, reference-free text satisfies the contract.
+stamp "setting outputNode instructions"
+nx workflow node update "${WORKFLOW_ID}" "${OUTPUT_NODE_ID}" \
+  --body '{"data":{"instructions":"Return the previous node output unchanged."}}' \
+  --json > /dev/null
 
 # ---------------------------------------------------------------------------
 # Step 3c — declare the agent input parameter on the trigger, BEFORE publish

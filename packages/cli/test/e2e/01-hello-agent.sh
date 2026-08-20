@@ -58,13 +58,13 @@ cleanup() {
   fi
   if [[ -n "${DEPLOYMENT_ID}" ]]; then
     stamp "cleanup: deleting deployment ${DEPLOYMENT_ID}"
-    if ! nx deployment delete "${DEPLOYMENT_ID}" --json >/dev/null; then
+    if ! nx deployment delete "${DEPLOYMENT_ID}" --yes --json >/dev/null; then
       echo "cleanup: deployment delete failed for ${DEPLOYMENT_ID}" >&2
     fi
   fi
   if [[ -n "${AGENT_ID}" ]]; then
     stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --json >/dev/null; then
+    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
       echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
     fi
   fi

@@ -75,31 +75,31 @@ cleanup() {
   fi
   if [[ -n "${DEPLOYMENT_ID}" ]]; then
     stamp "cleanup: deleting deployment ${DEPLOYMENT_ID}"
-    if ! nx deployment delete "${DEPLOYMENT_ID}" --json >/dev/null; then
+    if ! nx deployment delete "${DEPLOYMENT_ID}" --yes --json >/dev/null; then
       echo "cleanup: deployment delete failed for ${DEPLOYMENT_ID}" >&2
     fi
   fi
   if [[ -n "${TOOL_ID}" && -n "${AGENT_ID}" ]]; then
     stamp "cleanup: deleting agent-tool ${TOOL_ID}"
-    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --json >/dev/null; then
+    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --yes --json >/dev/null; then
       echo "cleanup: agent-tool delete failed for ${TOOL_ID}" >&2
     fi
   fi
   if [[ -n "${AGENT_ID}" ]]; then
     stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --json >/dev/null; then
+    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
       echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
     fi
   fi
   if [[ -n "${COLL_ID}" ]]; then
     stamp "cleanup: deleting collection ${COLL_ID}"
-    if ! nx collection delete "${COLL_ID}" --json >/dev/null; then
+    if ! nx collection delete "${COLL_ID}" --yes --json >/dev/null; then
       echo "cleanup: collection delete failed for ${COLL_ID}" >&2
     fi
   fi
   if [[ -n "${DOC_ID}" ]]; then
     stamp "cleanup: deleting document ${DOC_ID}"
-    if ! nx document delete "${DOC_ID}" --json >/dev/null; then
+    if ! nx document delete "${DOC_ID}" --yes --json >/dev/null; then
       echo "cleanup: document delete failed for ${DOC_ID}" >&2
     fi
   fi

@@ -1398,11 +1398,11 @@ export interface AddRolePermissionSetMemberBody {
  * Response from `client.roles.addPermissionSetMember()`.
  *
  * `added: false` IS A SUCCESS — a second add of somebody already in the set
- * answers 201 with `false` rather than 409, because the caller asked for a state
+ * answers 200 with `false` rather than 409, because the caller asked for a state
  * that already holds.
  *
- * ⚠️ THE STATUS CODE IS NOT THE DISCRIMINANT. Every POST on this surface answers
- * 201, `upsertMember()` included when it merely moves a tier and creates nothing.
+ * ⚠️ THE STATUS CODE IS NOT THE DISCRIMINANT. This route answers 200 whether or
+ * not a row was written, as does `upsertMember()` when it merely moves a tier.
  * This boolean is where "did anything move" lives.
  */
 export interface RolePermissionSetMemberAddedResult {

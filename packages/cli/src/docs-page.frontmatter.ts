@@ -112,6 +112,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "List and install the Claude Code skills bundled with your Nexus CLI version into your project — no network calls, no API key required."
   },
+  chat: {
+    title: "Chat CLI",
+    icon: "message-circle",
+    description:
+      "Mint a browser chat session and stream an agent turn from the terminal — the same two-hop credential flow a customer-built chat UI uses, in the Vercel AI SDK UI Message Stream format."
+  },
   "cloud-import": {
     title: "Cloud Import CLI",
     icon: "cloud-download",

@@ -15,15 +15,35 @@ that shape-only sweeps cannot catch.
 | `03-knowledge-attach.sh` | document + collection + agent + RAG      | KB ingestion, retrieval, agent-KB binding                                 |
 
 Sequentially independent — failure in one does not poison the next. Each
-script provisions, asserts, then unconditionally cleans up via `trap`.
+script provisions, asserts, then cleans up via `trap`.
+
+**The trap is not the only line of defence, and it cannot be.** A trap is a
+promise a process makes about its own death, and a runner eviction, a
+`timeout-minutes` cut and a SIGKILL are three deaths it never gets to observe.
+So there are two layers:
+
+- `cleanup_delete` records every delete that fails, and `cleanup_verdict` exits
+  `3` when a flow PASSED and still left something behind. A leak on a passing
+  flow is red; a leak on an already-failing flow is printed and does not rewrite
+  the more informative failure.
+- `scripts/cli-e2e-reap-orphans.mjs` runs as a workflow step on every outcome
+  and vacuums prefixed rows older than 120 minutes. That covers the deaths a
+  trap cannot.
 
 ## Naming convention
 
 Every artifact a flow creates is prefixed `nexus_e2e_` (override via
 `E2E_PREFIX`) and suffixed with a per-run id (`$(date +%s)-$$`). Reasoning:
 the flows run in a **shared CI organization**, not a dedicated test org, so
-auditability + reaper-friendliness matter. A future reaper job can match the
-prefix to vacuum orphans from failed cleanups.
+auditability and reaper-friendliness matter. `scripts/cli-e2e-reap-orphans.mjs`
+matches the prefix to vacuum orphans from failed cleanups.
+
+🚨 **The prefix is the ONLY thing separating test data from real data in that
+org, and the reaper deletes in bulk.** It matches on `startsWith`, never
+`includes`; it counts two control prefixes that must match nothing and aborts
+without deleting if either fires; it prints every row it will KEEP by name; and
+it refuses a production base URL outright. A name that does not carry the prefix
+is invisible to the reaper and will accumulate forever.
 
 ## Required environment
 

@@ -118,15 +118,46 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * how much of the surface is unwatched. An UPPER BOUND, so writing the SDK
  * method takes its row and this figure down together, in silence.
  *
- * 58 → 59 for `ChatSendMessageStream`, and that raise is the honest ending
- * rather than the lazy one. Every other row here is a route whose SDK method has
- * not been WRITTEN YET, so the row is debt and this figure falls when somebody
- * writes it. That one cannot fall: the route is authenticated by a chat-session
- * token in `x-chat-session-token` and `HttpClient.requestSSE` hardcodes
- * `"api-key": this.apiKey`, so a method there could not present the credential
- * the route admits. Writing one would be writing a method that cannot succeed.
+ * 59 → 57. Two rows left together — `DeploymentChatSessionCreate` and
+ * `ChatSendMessageStream` — because `client.chat` now writes both hops.
+ *
+ * 🔑 **THE ROW FOR `ChatSendMessageStream` WAS ARGUED AS PERMANENT AND IT WAS
+ * NOT.** Its reason read: *"the route is authenticated by a chat-session token
+ * in `x-chat-session-token` and `HttpClient.requestSSE` hardcodes `"api-key":
+ * this.apiKey`, so a method there could not present the credential the route
+ * admits."* Every clause was true when it was written. The conclusion was a
+ * property of ONE LINE OF THIS SDK, not of the route — `credentialHeaders()`
+ * resolves the credential in one place now and returns exactly one header, so
+ * the method that "cannot succeed" is four lines and streams.
+ *
+ * The lesson is about the LEDGER, not about chat: a reason that reads
+ * "impossible" and is really "our client cannot do it yet" retires the route
+ * from this gate for ever, and nothing re-tests it. Prefer a reason naming what
+ * would have to change.
+ *
+ * 57 → 58. `DeploymentAnonymousChatSessionCreate` is one row up, and the
+ * argument is deliberately NOT "no caller yet". `NexusClient`'s constructor
+ * throws without an API key — `opts.apiKey ?? getEnv("NEXUS_API_KEY")`, then
+ * `if (!apiKey) throw` — and the whole contract of that route is a caller who
+ * presents none. So this SDK cannot represent its principal at all, and a
+ * method here would be an inferior duplicate of `chat.createSession`: same
+ * credential in the constructor, same response, and strictly less capability,
+ * since the anonymous door can neither resume a conversation nor carry an
+ * identity.
+ *
+ * Per the lesson directly above, the row names what would have to change: a
+ * `NexusClient` constructible with NO credential. On the day that exists the
+ * method is three lines and this figure comes back down.
+ *
+ * 58 → 61 for `ChatResumeStream`, `ChatStopTurn` and `ChatTurnStatus`, the
+ * resume half of the browser chat surface. THREE ORDINARY DEBT ROWS, and the
+ * lesson above is why they are written that way: the branch that added them
+ * first ledgered them as browser-authenticated and therefore impossible, which
+ * is the exact reason this gate had just finished retiring.
+ * `credentialHeaders()` presents `x-chat-session-token` today, so the only
+ * thing missing is the method — and this figure falls when somebody writes it.
  */
-const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 59;
+const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 61;
 
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Conversation evals: an entire domain, no SDK surface at all ──────────
@@ -206,16 +237,22 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Individually unreached ───────────────────────────────────────────────
   VibeRegisterAppAsTool: "vibe app surface is driven by the vibe SDK, not this one",
   DeploymentVoiceSessionCreate: "voice session handshake is driven by the realtime client",
-  DeploymentChatSessionCreate:
-    "browser chat-session handshake — the SDK resource lands with the streaming surface it credentials",
-  // Not an omission. This route is authenticated by a chat-session token in
-  // `x-chat-session-token`, and `HttpClient.requestSSE` hardcodes `"api-key":
-  // this.apiKey` — so this SDK cannot present the credential the route admits.
-  // Its client is the browser, holding a token this SDK's caller minted for it,
-  // and the frames are Vercel AI SDK chunks read by that library's own
-  // transport rather than by a typed resource method.
-  ChatSendMessageStream:
-    "browser-authenticated SSE — the caller is a chat-session token in a browser, not this server-side SDK",
+  DeploymentAnonymousChatSessionCreate:
+    "the route's principal is a browser presenting NO credential, and NexusClient throws " +
+    "without an API key — so this SDK cannot construct the caller it is for. Writable when a " +
+    "credential-less client exists; until then a method would duplicate chat.createSession " +
+    "with less capability.",
+  // `DeploymentChatSessionCreate` and `ChatSendMessageStream` were both here and
+  // are both gone: `ChatResource.createSession` / `.stream` / `.streamRaw` reach
+  // them. Do not re-add either — see the ceiling's docblock for why the second
+  // row's "impossible" reason was a fact about this client, not about the route.
+  //
+  // The resume half of the same surface has no method YET, which is a different
+  // sentence. `credentialHeaders()` presents `x-chat-session-token`, so each of
+  // these is four lines away and its row leaves when they are written.
+  ChatResumeStream: "no `ChatResource.resume` yet — replay + live tail over the same session token",
+  ChatStopTurn: "no `ChatResource.stop` yet — same session token as the send route",
+  ChatTurnStatus: "no `ChatResource.status` yet — same session token as the send route",
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };

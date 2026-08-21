@@ -156,6 +156,84 @@ nx() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Cleanup accounting
+# ---------------------------------------------------------------------------
+#
+# 🚨 A CLEANUP DELETE IS WRITTEN HERE, NEVER AT A CALL SITE. #3664 made every
+# destructive CLI command REFUSE without `--yes` when stdin is not a terminal.
+# Ten call sites each had to remember the flag; every one of them stopped
+# deleting on 2026-08-15 and nothing went red, because a cleanup failure only
+# ever printed to stderr. Five days later the staging org held 4363 orphan
+# `nexus_e2e_*` rows. A call site cannot forget a flag it does not write, so
+# `--yes --json` is appended HERE and the ledger below is fed automatically.
+#
+# `packages/cli/test/unit/e2e-cleanup-is-accounted.test.ts` refuses a delete
+# that bypasses this helper. That gate is the rule; this comment is not.
+
+E2E_LEAK_COUNT=0
+E2E_LEAK_LIST=""
+
+# Exit code for "the flow passed and the org is dirty". Distinct from 1 (an
+# assertion failed) and from 2 (a precondition failed) so a reader — and a
+# `::error::` consumer — can tell a CONTRACT failure from a LEAK without
+# parsing prose.
+E2E_LEAK_EXIT=3
+
+# Run one cleanup delete and account for it.
+#   cleanup_delete <label> <id> <nx args...>
+# The `--yes --json` suffix and the >/dev/null are this helper's, not the
+# caller's.
+cleanup_delete() {
+  local label="$1"; shift
+  local id="$1"; shift
+  stamp "cleanup: deleting ${label} ${id}"
+  if ! nx "$@" --yes --json >/dev/null; then
+    echo "cleanup: ${label} delete failed for ${id}" >&2
+    E2E_LEAK_COUNT=$((E2E_LEAK_COUNT + 1))
+    E2E_LEAK_LIST="${E2E_LEAK_LIST}
+  ${label} ${id}"
+  fi
+}
+
+# Decide the flow's exit code from its own status and the cleanup ledger.
+# Echoes the code; the caller exits with it.
+#
+# A LEAK ONLY TURNS A PASSING FLOW RED, and that asymmetry is the whole design.
+#
+#  * rc == 0 and a delete failed — the flow created every resource, asserted
+#    against it, and could not remove it. There is no benign reading, the org
+#    is measurably dirtier than before the run, and this is the ONLY signal
+#    that fires in hours rather than days. It goes red.
+#  * rc != 0 and a delete failed — the flow aborted partway, so a resource it
+#    never finished creating legitimately fails to delete. Reporting the leak
+#    over the assertion failure would bury the informative half under the
+#    derived one. The leak is printed; the flow's own code is kept.
+#
+# ⚠️ THIS DOES NOT MAKE THE SUITE LEAK-PROOF AND MUST NOT BE READ AS THOUGH IT
+# DOES. A trap cannot run when the runner is evicted, when `timeout-minutes`
+# cuts the job, or on SIGKILL. Those leaks are bounded by the reaper step in
+# cli-e2e.yml, not by this function.
+cleanup_verdict() {
+  local rc="$1"
+  if [[ "${E2E_LEAK_COUNT}" -eq 0 ]]; then
+    echo "${rc}"
+    return
+  fi
+  {
+    echo ""
+    echo "=== E2E LEAK: ${E2E_LEAK_COUNT} resource(s) survived cleanup ==="
+    echo "${E2E_LEAK_LIST}"
+  } >&2
+  if [[ "${rc}" -eq 0 ]]; then
+    echo "::error title=E2E leak::The flow PASSED but ${E2E_LEAK_COUNT} ${E2E_PREFIX}_* resource(s) could not be deleted from the staging org. The CLI contract is fine; the org is dirty." >&2
+    echo "${E2E_LEAK_EXIT}"
+  else
+    echo "cleanup: the flow already failed (exit ${rc}); the leak above is reported but the flow failure is the headline." >&2
+    echo "${rc}"
+  fi
+}
+
 # Arm a cleanup function on EXIT and on the cancellation signals bash does
 # not fire EXIT for by default. Each signal handler maps to its conventional
 # 128+N exit code and then exit-s, which triggers the EXIT trap exactly once.

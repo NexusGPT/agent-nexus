@@ -353,6 +353,18 @@ export const GENERATED_NAMESPACE_LEDGER = [
     ]
   },
   {
+    // The headless chat surface. Two descriptors, one per HOP: the mint spends
+    // the org API key, the stream spends the token it returns. `chat send`
+    // performs both, so it binds the STREAM descriptor — the one whose body a
+    // caller composes — and `chat session` binds the mint.
+    //
+    // `ChatSendMessageStream` is a `rawResponse` route. The binding is about the
+    // REQUEST slots (route, required fields, `--print-contract`), which a stream
+    // has exactly like any other route; nothing here describes the response.
+    namespace: "chat",
+    descriptors: ["ChatSendMessageStream", "DeploymentChatSessionCreate"]
+  },
+  {
     namespace: "docs",
     descriptors: ["DocsSearch"]
   },

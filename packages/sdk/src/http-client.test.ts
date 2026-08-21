@@ -13,8 +13,15 @@ import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
  * NEX-3021 — the client decided success from the BODY (`json.success`) instead
  * of the HTTP status, so every 2xx response that is not a v1 envelope was
  * reported as `Request failed with status 201` and its body thrown away. That
- * made `POST /mcp` — JSON-RPC 2.0, answered 201 by Nest, and the only endpoint
- * with no typed command — unreachable through `nexus api`.
+ * made `POST /mcp` — JSON-RPC 2.0, and the only endpoint with no typed command
+ * — unreachable through `nexus api`.
+ *
+ * 🔑 THE 201 FIXTURES BELOW ARE THE POINT AND MUST NOT BE RELAXED TO 200.
+ * `POST /mcp` answers 200 now, but a NestJS POST answers 201 unless its handler
+ * carries `@HttpCode`, and most other v1 POSTs still do. The claim under test is
+ * that ANY 2xx is honoured, and 200 is the one status that cannot demonstrate
+ * it — a client keyed off `json.success` would have failed these cases at 201
+ * and passed them at 200.
  */
 
 /** A stub `fetch` that answers once with the given status/body. */
@@ -751,6 +758,42 @@ describe("requestSSE", () => {
       { type: "token", delta: "hi" },
       { type: "done" }
     ]);
+  });
+
+  /**
+   * 🔴 THE BACKEND WRITES AN `id:` FIELD ON EVERY FRAME OF THE BROWSER CHAT
+   * STREAM, AND THIS CLIENT MUST NOT SEE IT.
+   *
+   * That field is the resume cursor a browser hands back as `Last-Event-ID`. It
+   * is part of the SSE wire format rather than of our payload, so a reader that
+   * tried to parse the record as one JSON document would throw on every frame —
+   * and it would throw only against the real server, never against a fixture
+   * written before the field existed.
+   *
+   * Asserted rather than assumed: `parseSSEData` filters to lines starting with
+   * `data:` and joins those, so an `id:` line contributes nothing. This pins
+   * that behaviour so a future "simplify the parser" cannot quietly remove it.
+   */
+  it("ignores an `id:` field — the resume cursor is not part of the payload", async () => {
+    const { http } = streamingClient([
+      'id: turn-1:0\ndata: {"type":"start"}\n\n',
+      'id: turn-1:1\ndata: {"type":"text-delta","delta":"hi"}\n\n'
+    ]);
+
+    await expect(collect(http.requestSSE("GET", "/stream"))).resolves.toEqual([
+      { type: "start" },
+      { type: "text-delta", delta: "hi" }
+    ]);
+  });
+
+  it("ignores an `id:` field written AFTER the data line", async () => {
+    // The SSE grammar applies the id to the event dispatched by the blank line
+    // that ends the record, so the field order is a convention rather than a
+    // rule. A parser that keyed on position rather than on the field name would
+    // pass the case above and fail this one.
+    const { http } = streamingClient(['data: {"type":"start"}\nid: turn-1:0\n\n']);
+
+    await expect(collect(http.requestSSE("GET", "/stream"))).resolves.toEqual([{ type: "start" }]);
   });
 
   it("ignores keepalive comments", async () => {

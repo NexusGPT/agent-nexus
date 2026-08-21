@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 625 command nodes; 531 invocable leaves.
- * 50 top-level commands — 50 visible, 0 hidden.
+ * 628 command nodes; 533 invocable leaves.
+ * 51 top-level commands — 51 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         474 STABLE, 57 UNSTABLE
- *   disposition  20 never-execute, 442 registration-only, 64 safe, 5 safe-with-fixture
+ *   tier         476 STABLE, 57 UNSTABLE
+ *   disposition  22 never-execute, 442 registration-only, 64 safe, 5 safe-with-fixture
  *   --yes        46 destructive — 46 confirmable
- *   --json       398 answered, 133 abstain
+ *   --json       399 answered, 134 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -183,6 +183,8 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "channel whatsapp-template list", tier: "STABLE", module: "channel.ts", disposition: "safe", args: [], flags: ["--connection-id <id>"], aliases: [], hidden: false, confirm: null, json: "array", shape: "81243a0e370b" },
   { path: "channel whatsapp-template submit-approval", tier: "STABLE", module: "channel.ts", disposition: "registration-only", args: [], flags: ["!--connection-id <id>", "!--template-id <id>", "!--name <name>", "!--category <category> {UTILITY|MARKETING|AUTHENTICATION}", "--wait", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "16f944ced1a6" },
   { path: "channel whatsapp-template test-send", tier: "STABLE", module: "channel.ts", disposition: "registration-only", args: [], flags: ["!--connection-id <id>", "!--template-id <id>", "!--to <phone>", "--variables <json>", "--wait"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "699894480862" },
+  { path: "chat send", tier: "STABLE", module: "chat.ts", disposition: "never-execute", args: ["<deployment-id>"], flags: ["-m, --message <text-or->", "--session-token <token>", "--chat-id <uuid>", "--external-user-id <id>", "--identity-hash <hex>", "--knowledge-id <uuid...>", "--image <url...>", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3609d9836cb0" },
+  { path: "chat session", tier: "STABLE", module: "chat.ts", disposition: "never-execute", args: ["<deployment-id>"], flags: ["--chat-id <uuid>", "--external-user-id <id>", "--identity-hash <hex>", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "b8847c9f9e3b" },
   { path: "claude-code install", tier: "STABLE", module: "claude-code.ts", disposition: "never-execute", args: ["[skills...]"], flags: ["--yes", "--dir <path>", "--force", "--dry-run", "--no-claude-md", "--no-settings"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "bd0b8a7536ed" },
   { path: "claude-code list", tier: "STABLE", module: "claude-code.ts", disposition: "safe", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "ac174d8f4ee9" },
   { path: "cloud-import browse", tier: "STABLE", module: "cloud-import.ts", disposition: "registration-only", args: ["<provider>"], flags: ["!--connection-id <id>", "!--folder-id <id>", "--site-id <id>", "--page-token <token>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "81a33a38ce88" },

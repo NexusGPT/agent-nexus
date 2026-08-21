@@ -324,6 +324,18 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "channel whatsapp-template submit-approval": "registration-only",
   "channel whatsapp-template test-send": "registration-only",
 
+  // ── chat ───────────────────────────────────────────────────────────────────
+  // `chat send` runs the REAL agent on a REAL deployment: a model call, real
+  // tools, real cost, and a message written into a customer conversation. It is
+  // the emulator's production twin and is never swept.
+  //
+  // `chat session` looks read-only and is not swept either. It MINTS A LIVE
+  // CREDENTIAL — a bearer token for a deployment — and a sweep's output is a CI
+  // log. "writes no row" is true and is the wrong question; the answer belongs
+  // to nobody once it is printed.
+  "chat send": "never-execute",
+  "chat session": "never-execute",
+
   // ── claude-code ────────────────────────────────────────────────────────────
   "claude-code install": "never-execute", // writes files into the caller's ~/.claude
   "claude-code list": "safe",

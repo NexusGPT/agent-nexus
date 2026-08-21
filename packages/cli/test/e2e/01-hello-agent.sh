@@ -51,28 +51,24 @@ cleanup() {
   # Cleanup failures are surfaced to stderr so the nexus_e2e_* reaper has a
   # paper trail; the script's exit code is preserved.
   if [[ -n "${SESSION_ID}" && -n "${DEPLOYMENT_ID}" ]]; then
-    stamp "cleanup: deleting emulator session ${SESSION_ID}"
-    if ! nx emulator session delete "${DEPLOYMENT_ID}" "${SESSION_ID}" --yes --json >/dev/null; then
-      echo "cleanup: emulator session delete failed for ${SESSION_ID}" >&2
-    fi
+    cleanup_delete "emulator session" "${SESSION_ID}" \
+      emulator session delete "${DEPLOYMENT_ID}" "${SESSION_ID}"
   fi
   if [[ -n "${DEPLOYMENT_ID}" ]]; then
-    stamp "cleanup: deleting deployment ${DEPLOYMENT_ID}"
-    if ! nx deployment delete "${DEPLOYMENT_ID}" --yes --json >/dev/null; then
-      echo "cleanup: deployment delete failed for ${DEPLOYMENT_ID}" >&2
-    fi
+    cleanup_delete "deployment" "${DEPLOYMENT_ID}" \
+      deployment delete "${DEPLOYMENT_ID}"
   fi
   if [[ -n "${AGENT_ID}" ]]; then
-    stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
-      echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
-    fi
+    cleanup_delete "agent" "${AGENT_ID}" \
+      agent delete "${AGENT_ID}"
   fi
   if [[ ${rc} -ne 0 ]]; then
     dump_diagnostics
   fi
   rm -rf "${WORKDIR}"
-  exit "${rc}"
+  # The ledger can turn a PASSING flow red; it never rewrites a failure.
+  # lib.sh's cleanup_verdict owns that rule.
+  exit "$(cleanup_verdict "${rc}")"
 }
 arm_traps cleanup
 

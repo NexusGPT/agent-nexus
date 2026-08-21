@@ -63,28 +63,24 @@ cleanup() {
   # link. Agent last. Failures surface to stderr so the reaper-prefix
   # system has a paper trail; the exit code is preserved.
   if [[ -n "${TOOL_ID}" && -n "${AGENT_ID}" ]]; then
-    stamp "cleanup: deleting agent-tool ${TOOL_ID}"
-    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --yes --json >/dev/null; then
-      echo "cleanup: agent-tool delete failed for ${TOOL_ID}" >&2
-    fi
+    cleanup_delete "agent-tool" "${TOOL_ID}" \
+      agent-tool delete "${AGENT_ID}" "${TOOL_ID}"
   fi
   if [[ -n "${WORKFLOW_ID}" ]]; then
-    stamp "cleanup: deleting workflow ${WORKFLOW_ID}"
-    if ! nx workflow delete "${WORKFLOW_ID}" --yes --json >/dev/null; then
-      echo "cleanup: workflow delete failed for ${WORKFLOW_ID}" >&2
-    fi
+    cleanup_delete "workflow" "${WORKFLOW_ID}" \
+      workflow delete "${WORKFLOW_ID}"
   fi
   if [[ -n "${AGENT_ID}" ]]; then
-    stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
-      echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
-    fi
+    cleanup_delete "agent" "${AGENT_ID}" \
+      agent delete "${AGENT_ID}"
   fi
   if [[ ${rc} -ne 0 ]]; then
     dump_diagnostics
   fi
   rm -rf "${WORKDIR}"
-  exit "${rc}"
+  # The ledger can turn a PASSING flow red; it never rewrites a failure.
+  # lib.sh's cleanup_verdict owns that rule.
+  exit "$(cleanup_verdict "${rc}")"
 }
 arm_traps cleanup
 

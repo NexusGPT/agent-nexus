@@ -21,6 +21,7 @@ export { AnalyticsResource } from "./analytics";
 export { ApiKeyConnectionsResource } from "./api-key-connections";
 export { AssetsResource } from "./assets";
 export { ChannelsResource } from "./channels";
+export { ChatResource } from "./chat";
 export { CloudImportsResource } from "./cloud-imports";
 export { ConversationsResource } from "./conversations";
 export { CredentialsResource } from "./credentials";

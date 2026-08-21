@@ -17,6 +17,7 @@ import { registerAssetCommands } from "./commands/asset";
 // Commands
 import { registerAuthCommands } from "./commands/auth";
 import { registerChannelCommands } from "./commands/channel";
+import { registerChatCommands } from "./commands/chat";
 import { registerClaudeCodeCommands } from "./commands/claude-code";
 import { registerCloudImportCommands } from "./commands/cloud-import";
 import { registerCollectionCommands } from "./commands/collection";
@@ -466,6 +467,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerCustomModelCommands(program);
   registerPhoneNumberCommands(program);
   registerChannelCommands(program);
+  registerChatCommands(program);
   registerTracingCommands(program);
   registerTracksCommands(program);
   registerCueCommands(program);

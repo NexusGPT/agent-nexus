@@ -99,7 +99,7 @@ export const LEDGER_CEILING = 0;
  * {@link NAMESPACE_TOTAL} namespaces and the two agree — which is exactly when a
  * dropped filter stops being visible in the number.
  */
-export const NAMESPACE_TOTAL = 50;
+export const NAMESPACE_TOTAL = 51;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -208,6 +208,10 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "asset",
   "auth",
   "channel",
+  // `chat` arrives clean rather than being cleaned. Both leaves carry a Notes
+  // block written from the route, and every example names an id the route's own
+  // schema accepts — the id-class defect the batches above spent themselves on.
+  "chat",
   "claude-code",
   "cloud-import",
   // `collection remove-document` types its documentId as a UUID while

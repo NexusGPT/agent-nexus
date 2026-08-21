@@ -613,6 +613,13 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"DeploymentUpdate">, MethodResult<NexusClient["deployments"]["update"]>>
   >,
+  // DeploymentChatSessionCreate  POST /public/v1/deployments/:deploymentId/chat-session  ->  client.chat.createSession()
+  Expect<
+    Equals<
+      ResponseOf<"DeploymentChatSessionCreate">,
+      MethodResult<NexusClient["chat"]["createSession"]>
+    >
+  >,
   // DeploymentStatistics  GET /public/v1/deployments/:deploymentId/statistics  ->  client.deployments.getStatistics()
   Expect<
     Equals<
@@ -1653,6 +1660,7 @@ const GATED_ROUTES = [
   "DeploymentCreate",
   "DeploymentGet",
   "DeploymentUpdate",
+  "DeploymentChatSessionCreate",
   "DeploymentStatistics",
   "DeploymentGetEmbedConfig",
   "DeploymentUpdateEmbedConfig",
@@ -2287,7 +2295,7 @@ export type V1ResponseDrift = [
  * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
  * assertion deriving both sides from one source passes vacuously.
  */
-const GATED_ROUTE_FLOOR = 275;
+const GATED_ROUTE_FLOOR = 276;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

@@ -645,7 +645,7 @@ export class RolesResource extends BaseResource {
    * same body a set that does not exist gets.
    *
    * IDEMPOTENT, AND `added: false` IS A SUCCESS — read the boolean, never the
-   * status code, which is 201 either way.
+   * status code, which is 200 either way.
    *
    * Unlike {@link RolesResource.updatePermissionSet} this is NOT refused on a set
    * that ships with Nexus. A seeded set's DEFINITION is owned by code; its

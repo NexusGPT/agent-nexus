@@ -35,6 +35,12 @@ export * from "./resources";
 export type { HttpClientOptions, RequestOptions, RetryNotice, RetryRefusal } from "./http-client";
 export { HttpClient } from "./http-client";
 
+// The browser door — a chat-only client for a page holding a session token and
+// no organization API key. See `./browser-chat.ts` for why `NexusClient` is the
+// wrong shape for that case and must stay the wrong shape for it.
+export type { BrowserChatClientOptions } from "./browser-chat";
+export { createBrowserChatClient } from "./browser-chat";
+
 // Response-contract checking — the seam that lets a caller SEE a payload that
 // no longer matches the shape its route publishes. Off unless a reporter is
 // installed; see `./response-contract.ts` for why it never alters a payload.

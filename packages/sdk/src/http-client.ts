@@ -2,6 +2,7 @@ import {
   NexusApiError,
   NexusAuthenticationError,
   NexusConnectionError,
+  NexusError,
   NexusTimeoutError
 } from "./errors";
 import {
@@ -31,8 +32,29 @@ import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/c
 export interface HttpClientOptions {
   /** Base URL of the Nexus API (e.g. `"https://api.nexusgpt.io"`). */
   baseUrl: string;
-  /** API key for authentication. */
-  apiKey: string;
+  /**
+   * Organization API key.
+   *
+   * OPTIONAL, and the one case that needs it absent is the one this SDK exists
+   * to serve: a BROWSER holding only a chat-session token. Every chat route
+   * takes its credential from {@link RequestOptions.chatSessionToken}, which
+   * REPLACES this key rather than accompanying it, so a client that will only
+   * ever stream a chat has nothing to put here — and putting a placeholder
+   * there instead is worse than leaving it out, because a placeholder is
+   * indistinguishable from a real key that has been revoked.
+   *
+   * 🔴 ABSENT IS NOT "UNAUTHENTICATED". A request that resolves to no
+   * credential at all is refused HERE, by name, before a byte leaves the
+   * process — see {@link HttpClient.credentialHeaders}. The failure a caller
+   * gets is *"this client holds no organization API key"*, at the call site,
+   * rather than a 401 from a route they then go and debug.
+   *
+   * `NexusClient` still requires one: it wires 40 resources, 38 of which have
+   * no other credential, so a key-less `NexusClient` would be a client that
+   * throws on almost everything. Use {@link createBrowserChatClient} for the
+   * browser case.
+   */
+  apiKey?: string;
   /** Custom `fetch` implementation. Defaults to the global `fetch`. */
   fetch?: typeof globalThis.fetch;
   /** Additional headers sent with every request. */
@@ -221,6 +243,25 @@ function annotate(
   return error;
 }
 
+/**
+ * The header a browser chat-session token travels in.
+ *
+ * Mirrors `CHAT_SESSION_TOKEN_HEADER` in the backend's chat-session decorator.
+ * Spelled here rather than imported because this package publishes standalone
+ * and depends on `@nexus/types` at build time only.
+ */
+export const CHAT_SESSION_TOKEN_HEADER = "x-chat-session-token";
+
+/**
+ * The response header a UI Message Stream carries, and its only value in `ai@7`.
+ *
+ * A stream that omits it is still readable frame by frame, so this is a WARNING
+ * signal rather than a refusal: something between the pod and the client
+ * rewrote the response, and a stock `useChat` transport will notice before you
+ * do.
+ */
+export const UI_MESSAGE_STREAM_PROTOCOL_HEADER = "x-vercel-ai-ui-message-stream";
+
 /** Options for a single HTTP request. */
 export interface RequestOptions {
   /** Request body (will be JSON-serialized unless it's a `FormData` instance). */
@@ -242,6 +283,30 @@ export interface RequestOptions {
    * wins. See `./timeouts.ts` for why the two classes cannot share one number.
    */
   timeoutMs?: number;
+  /**
+   * Present a chat-session token INSTEAD of the organization API key.
+   *
+   * ══════════════════════════════════════════════════════════════════════════
+   * 🔴 IT REPLACES THE API KEY. IT DOES NOT ACCOMPANY IT.
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * The server's `CompositeAuthGuard` tries its credentials in a fixed order and
+   * the FIRST branch that matches short-circuits — api-key is tried before the
+   * chat session. So a request carrying both authenticates as the API key,
+   * `request.chatSession` is never written, and the handler's
+   * `@CurrentChatSession()` throws `401 "Chat session is not valid."` — a
+   * refusal that reads exactly like an expired token while the token is perfect.
+   *
+   * Measured on the live staging route 2026-08-20: a token that streamed
+   * seconds earlier on its own answered 401 the moment an `api-key` header rode
+   * along. That is why this is a REPLACEMENT rather than an extra header a
+   * caller could add through {@link RequestOptions.headers}, and why
+   * `chat-credential-is-exclusive.test.ts` asserts the absence of `api-key`
+   * rather than the presence of this one.
+   *
+   * Mint one with `client.chat.createSession()`, which uses the org API key.
+   */
+  chatSessionToken?: string;
 }
 
 interface ApiSuccessEnvelope<T> {
@@ -382,7 +447,7 @@ function parseSSEData<T>(record: string): T | undefined {
  */
 export class HttpClient {
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private readonly apiKey: string | undefined;
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly defaultHeaders: Record<string, string>;
   /**
@@ -414,7 +479,29 @@ export class HttpClient {
   constructor(opts: HttpClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.apiKey = opts.apiKey;
-    this.fetchFn = opts.fetch ?? globalThis.fetch;
+    // 🔴 `.bind(globalThis)` IS LOAD-BEARING IN A BROWSER AND INERT IN NODE, SO
+    // EVERY NODE TEST PASSES WITHOUT IT.
+    //
+    // Stored unbound, `this.fetchFn(...)` invokes with `this` set to the
+    // HttpClient. Node's `fetch` does not care what its receiver is. The DOM's
+    // does: it is defined on `Window`/`WorkerGlobalScope` and REJECTS with
+    // `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`.
+    //
+    // 🔴 IT REJECTS, IT DOES NOT THROW SYNCHRONOUSLY, and that distinction is
+    // how this defect hides. `fetch` returns a Promise on every path, so a
+    // probe that classifies by `try`/`catch` around the CALL sees nothing wrong
+    // — the rejection arrives later, on a Promise nobody awaited. Only a
+    // NON-nullish foreign receiver is refused; `undefined` and `null` coerce to
+    // the global, which is why a bare `fetch(url)` is safe and an instance
+    // method holding an unbound reference is not.
+    //
+    // So this line separates "works in jest, vitest, tsx, the CLI and the MCP
+    // server" from "works in a browser", and nothing in the type system, the
+    // conformance suite or the response-contract manifest can see the
+    // difference — the signature is identical either way. Found 2026-08-20 by
+    // rendering a real staging turn in chromium through `apps/chat-embed`,
+    // which is the first browser consumer this client has ever had.
+    this.fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultHeaders = opts.defaultHeaders ?? {};
     this.timeout = opts.timeout;
     this.maxRetries = Math.max(0, opts.maxRetries ?? DEFAULT_MAX_RETRIES);
@@ -480,6 +567,39 @@ export class HttpClient {
    */
   private deadlineFor(opts: RequestOptions): number {
     return this.timeout ?? opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  /**
+   * The ONE credential this request presents.
+   *
+   * Exactly one header comes back, never two, and that exclusivity is the whole
+   * point — see {@link RequestOptions.chatSessionToken} for the 401 that a
+   * request carrying both earns.
+   *
+   * It lives in one method so every door — `request`, `requestRaw`,
+   * `requestWithMeta`, `requestSSE`, `openStream` — resolves the credential the
+   * same way. Four copies of `"api-key": this.apiKey` is exactly how one of them
+   * came to be unable to present anything else.
+   */
+  private credentialHeaders(opts: RequestOptions): Record<string, string> {
+    if (opts.chatSessionToken !== undefined) {
+      return { [CHAT_SESSION_TOKEN_HEADER]: opts.chatSessionToken };
+    }
+    if (this.apiKey === undefined) {
+      // 🔴 REFUSE HERE, NEVER SEND AN UNCREDENTIALLED REQUEST. `apiKey` became
+      // optional so a browser can hold a chat-session token and nothing else
+      // (see HttpClientOptions.apiKey). The cost of that is a client which can
+      // reach a route it cannot authenticate, and the two ways that could
+      // surface are not equal: sending the request earns a 401 that reads like
+      // an expired credential and sends the caller to the server, while this
+      // throw names the actual cause at the line that caused it.
+      throw new NexusError(
+        "This client holds no organization API key, so it can only call routes that " +
+          "take a chat-session token. Construct it with `apiKey`, or use " +
+          "`createBrowserChatClient()` and stay on the chat routes."
+      );
+    }
+    return { "api-key": this.apiKey };
   }
 
   /**
@@ -672,7 +792,7 @@ export class HttpClient {
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       ...opts.headers,
-      "api-key": this.apiKey
+      ...this.credentialHeaders(opts)
     };
 
     // `RequestOptions` advertises a body, so send it. It used to be dropped
@@ -711,45 +831,36 @@ export class HttpClient {
   }
 
   /**
-   * Make a request and yield each `data:` frame of a `text/event-stream`
-   * response as it arrives.
+   * Open a streaming response and hand back the `Response` ITSELF, unread.
    *
-   * ## Why this is not `requestRaw`
+   * ## Why a `Response` and not frames
    *
-   * `requestRaw` awaits `res.text()`, which resolves only when the server closes
-   * the body. On an endpoint that streams a live agent turn that is the exact
-   * behaviour the caller is trying to escape: it would buffer every token and
-   * hand them over at the end, indistinguishable from the blocking POST.
+   * `requestSSE` decodes and parses, which is what a terminal or a bespoke
+   * renderer wants. A customer proxying our chat route to their own browser
+   * wants the OPPOSITE: the bytes untouched, so `ai`'s own transport reads the
+   * stream it was written against — including the headers, which
+   * `x-vercel-ai-ui-message-stream` lives in and which a frame iterator has
+   * already thrown away.
    *
-   * ## Timeouts
+   * ```ts
+   * // A Next.js route handler proxying to Nexus, in five lines.
+   * const upstream = await client.chat.streamRaw(deploymentId, body, { token });
+   * return new Response(upstream.body, { headers: upstream.headers });
+   * ```
    *
-   * The per-attempt timeout bounds the WAIT FOR HEADERS only — `attempt` clears
-   * its timer as soon as `fetch` resolves, which for a streaming response is
-   * before the first frame. A turn may then run for minutes without tripping the
-   * client's 30s default, which is what makes this usable; the server's own
-   * keepalive comments are what keep intermediaries from closing it.
+   * ## What it does and does not do for you
    *
-   * That deadline still has to be HANDED to `send`. Left off, the timer is armed
-   * as `setTimeout(…, undefined)` — it fires on the next tick and aborts the
-   * request before its headers can arrive, so every stream fails as a timeout on
-   * a real network while a stub `fetch` that resolves instantly wins the race.
+   * A non-2xx is mapped and THROWN, exactly as every other door maps one — a
+   * refusal happens before the stream opens, so its body is ordinary JSON and
+   * handing the caller an un-inspected error `Response` would make them
+   * re-implement `toApiError`. A 2xx comes back verbatim: no decoding, no
+   * `getReader`, nothing consumed.
    *
-   * ## Termination
-   *
-   * The generator ends when the server closes the body. A caller that leaves the
-   * loop early (`break`, `return`, a throw) cancels the underlying reader
-   * through the generator's `finally`, so abandoning a stream does not leak the
-   * connection — the turn keeps running server-side and its result is still
-   * persisted to the conversation.
-   *
-   * Malformed frames are SKIPPED rather than thrown on: one unparseable line in
-   * a long stream should not destroy the turn a caller has already half-rendered.
+   * 🔴 **THE CALLER OWNS THE BODY FROM HERE.** Nothing in this client cancels
+   * it. A caller that abandons the response without reading or cancelling it
+   * pins the connection in the undici pool until the process exits.
    */
-  async *requestSSE<T>(
-    method: string,
-    path: string,
-    opts: RequestOptions = {}
-  ): AsyncGenerator<T, void, undefined> {
+  async openStream(method: string, path: string, opts: RequestOptions = {}): Promise<Response> {
     const url = new URL(`${this.baseUrl}/api/public/v1${path}`);
 
     if (opts.query) {
@@ -759,7 +870,7 @@ export class HttpClient {
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       ...opts.headers,
-      "api-key": this.apiKey,
+      ...this.credentialHeaders(opts),
       Accept: "text/event-stream"
     };
 
@@ -812,6 +923,57 @@ export class HttpClient {
       path,
       "the route streams server-sent events, and the contract publishes no per-frame schema"
     );
+
+    return res;
+  }
+
+  /**
+   * Make a request and yield each `data:` frame of a `text/event-stream`
+   * response as it arrives.
+   *
+   * ## Why this is not `requestRaw`
+   *
+   * `requestRaw` awaits `res.text()`, which resolves only when the server closes
+   * the body. On an endpoint that streams a live agent turn that is the exact
+   * behaviour the caller is trying to escape: it would buffer every token and
+   * hand them over at the end, indistinguishable from the blocking POST.
+   *
+   * ## Timeouts
+   *
+   * The per-attempt timeout bounds the WAIT FOR HEADERS only — `attempt` clears
+   * its timer as soon as `fetch` resolves, which for a streaming response is
+   * before the first frame. A turn may then run for minutes without tripping the
+   * client's 30s default, which is what makes this usable; the server's own
+   * keepalive comments are what keep intermediaries from closing it.
+   *
+   * That deadline still has to be HANDED to `send`. Left off, the timer is armed
+   * as `setTimeout(…, undefined)` — it fires on the next tick and aborts the
+   * request before its headers can arrive, so every stream fails as a timeout on
+   * a real network while a stub `fetch` that resolves instantly wins the race.
+   *
+   * ## Termination
+   *
+   * The generator ends when the server closes the body. A caller that leaves the
+   * loop early (`break`, `return`, a throw) cancels the underlying reader
+   * through the generator's `finally`, so abandoning a stream does not leak the
+   * connection — the turn keeps running server-side and its result is still
+   * persisted to the conversation.
+   *
+   * Malformed frames are SKIPPED rather than thrown on: one unparseable line in
+   * a long stream should not destroy the turn a caller has already half-rendered.
+   */
+  async *requestSSE<T>(
+    method: string,
+    path: string,
+    opts: RequestOptions = {}
+  ): AsyncGenerator<T, void, undefined> {
+    const res = await this.openStream(method, path, opts);
+
+    // `openStream` refuses a body-less response, so this is a narrowing for the
+    // compiler rather than a second check.
+    if (!res.body) {
+      throw new NexusConnectionError("Streaming response carried no body");
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -870,7 +1032,7 @@ export class HttpClient {
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       ...opts.headers,
-      "api-key": this.apiKey,
+      ...this.credentialHeaders(opts),
       Accept: "application/json"
     };
 
@@ -902,7 +1064,7 @@ export class HttpClient {
 
     // An empty body is not a parse failure. A 2xx that sends nothing succeeded
     // with nothing to report — POST /mcp answers a JSON-RPC *notification*
-    // exactly that way: 201 with no body, by protocol.
+    // exactly that way: 200 with no body, by protocol.
     if (rawBody.trim() === "") {
       if (res.ok) {
         this.reportUnread(method, path, "the response body was empty");
@@ -939,9 +1101,14 @@ export class HttpClient {
     // This client used to key that decision off `json.success`, which made every
     // 2xx response that is not a v1 envelope look like an error: the body was
     // discarded and the caller got `Request failed with status 201`. That closed
-    // off POST /mcp entirely (JSON-RPC 2.0 has its own response shape, and NestJS
-    // answers a POST with 201), so `nexus api` could not reach the one endpoint
-    // that has no typed command at all. See NEX-3021.
+    // off POST /mcp entirely (JSON-RPC 2.0 has its own response shape, and a
+    // NestJS POST answers 201 unless the handler carries `@HttpCode`), so
+    // `nexus api` could not reach the one endpoint that has no typed command at
+    // all. See NEX-3021.
+    //
+    // POST /mcp answers 200 today, and that is exactly why the 201 fixtures in
+    // this client's tests must stay: most other v1 POSTs still answer 201, so
+    // the status this client must tolerate is any 2xx, never a list of numbers.
     if (res.ok) {
       if (isSuccessEnvelope<T>(json)) {
         this.reportContract(method, path, json.data);

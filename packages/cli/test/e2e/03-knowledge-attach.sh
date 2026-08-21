@@ -68,46 +68,36 @@ cleanup() {
   # → document. Each failure goes to stderr; nothing in cleanup is
   # allowed to swallow the script's exit code.
   if [[ -n "${SESSION_ID}" && -n "${DEPLOYMENT_ID}" ]]; then
-    stamp "cleanup: deleting emulator session ${SESSION_ID}"
-    if ! nx emulator session delete "${DEPLOYMENT_ID}" "${SESSION_ID}" --yes --json >/dev/null; then
-      echo "cleanup: emulator session delete failed for ${SESSION_ID}" >&2
-    fi
+    cleanup_delete "emulator session" "${SESSION_ID}" \
+      emulator session delete "${DEPLOYMENT_ID}" "${SESSION_ID}"
   fi
   if [[ -n "${DEPLOYMENT_ID}" ]]; then
-    stamp "cleanup: deleting deployment ${DEPLOYMENT_ID}"
-    if ! nx deployment delete "${DEPLOYMENT_ID}" --yes --json >/dev/null; then
-      echo "cleanup: deployment delete failed for ${DEPLOYMENT_ID}" >&2
-    fi
+    cleanup_delete "deployment" "${DEPLOYMENT_ID}" \
+      deployment delete "${DEPLOYMENT_ID}"
   fi
   if [[ -n "${TOOL_ID}" && -n "${AGENT_ID}" ]]; then
-    stamp "cleanup: deleting agent-tool ${TOOL_ID}"
-    if ! nx agent-tool delete "${AGENT_ID}" "${TOOL_ID}" --yes --json >/dev/null; then
-      echo "cleanup: agent-tool delete failed for ${TOOL_ID}" >&2
-    fi
+    cleanup_delete "agent-tool" "${TOOL_ID}" \
+      agent-tool delete "${AGENT_ID}" "${TOOL_ID}"
   fi
   if [[ -n "${AGENT_ID}" ]]; then
-    stamp "cleanup: deleting agent ${AGENT_ID}"
-    if ! nx agent delete "${AGENT_ID}" --yes --json >/dev/null; then
-      echo "cleanup: agent delete failed for ${AGENT_ID}" >&2
-    fi
+    cleanup_delete "agent" "${AGENT_ID}" \
+      agent delete "${AGENT_ID}"
   fi
   if [[ -n "${COLL_ID}" ]]; then
-    stamp "cleanup: deleting collection ${COLL_ID}"
-    if ! nx collection delete "${COLL_ID}" --yes --json >/dev/null; then
-      echo "cleanup: collection delete failed for ${COLL_ID}" >&2
-    fi
+    cleanup_delete "collection" "${COLL_ID}" \
+      collection delete "${COLL_ID}"
   fi
   if [[ -n "${DOC_ID}" ]]; then
-    stamp "cleanup: deleting document ${DOC_ID}"
-    if ! nx document delete "${DOC_ID}" --yes --json >/dev/null; then
-      echo "cleanup: document delete failed for ${DOC_ID}" >&2
-    fi
+    cleanup_delete "document" "${DOC_ID}" \
+      document delete "${DOC_ID}"
   fi
   if [[ ${rc} -ne 0 ]]; then
     dump_diagnostics
   fi
   rm -rf "${WORKDIR}"
-  exit "${rc}"
+  # The ledger can turn a PASSING flow red; it never rewrites a failure.
+  # lib.sh's cleanup_verdict owns that rule.
+  exit "$(cleanup_verdict "${rc}")"
 }
 arm_traps cleanup
 

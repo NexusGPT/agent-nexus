@@ -58,6 +58,12 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   "channels.buyPhoneNumber": "duplicated by phoneNumbers.buy",
   "channels.listPhoneNumbers": "duplicated by phoneNumbers.list",
   "channels.getPhoneNumber": "duplicated by phoneNumbers.get",
+  // The RAW streaming door. `nexus chat send` drives `chat.stream`, which parses
+  // frames — a terminal renders text, not headers. `streamRaw` hands back the
+  // undecoded `Response` so a customer can forward it to a browser's `useChat`,
+  // and there is nothing a CLI verb would do with one that `stream` does not do
+  // better.
+  "chat.streamRaw": "raw Response for a browser proxy — the CLI drives chat.stream instead",
   // Reading one connection by id: `nexus channel list-connections` covers the
   // discovery case, and nothing in the CLI takes a connection id yet.
   "channels.getConnection": "no command takes a connection id",

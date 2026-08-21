@@ -6,6 +6,7 @@ import { AnalyticsResource } from "./resources/analytics";
 import { ApiKeyConnectionsResource } from "./resources/api-key-connections";
 import { AssetsResource } from "./resources/assets";
 import { ChannelsResource } from "./resources/channels";
+import { ChatResource } from "./resources/chat";
 import { CloudImportsResource } from "./resources/cloud-imports";
 import { ConversationsResource } from "./resources/conversations";
 import { CredentialsResource } from "./resources/credentials";
@@ -300,6 +301,15 @@ export class NexusClient {
   /** Set up deployment channels: connections, phone numbers, WhatsApp senders, and setup orchestrator. */
   public readonly channels: ChannelsResource;
 
+  /**
+   * The headless chat surface — mint a browser session, then stream a turn.
+   *
+   * Two hops on purpose: `createSession` spends the ORG API KEY and belongs on a
+   * server; `stream` / `streamRaw` spend the SESSION TOKEN and send no api-key
+   * at all. See {@link ChatResource}.
+   */
+  public readonly chat: ChatResource;
+
   /** View LLM traces, generations, analytics, and export data. */
   public readonly tracing: TracingResource;
 
@@ -412,6 +422,7 @@ export class NexusClient {
     this.phoneNumbers = new PhoneNumbersResource(http);
     this.tickets = new TicketsResource(http);
     this.channels = new ChannelsResource(http);
+    this.chat = new ChatResource(http);
     this.tracing = new TracingResource(http);
     this.tracks = new TracksResource(http);
     this.cueTranscripts = new CueTranscriptsResource(http);

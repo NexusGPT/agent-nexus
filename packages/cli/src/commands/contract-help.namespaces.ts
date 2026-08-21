@@ -9,6 +9,7 @@ import { registerAgentToolCommands } from "./agent-tool";
 import { registerAnalyticsCommands } from "./analytics";
 import { registerAssetCommands } from "./asset";
 import { registerChannelCommands } from "./channel";
+import { registerChatCommands } from "./chat";
 import { registerCloudImportCommands } from "./cloud-import";
 import { registerCollectionCommands } from "./collection";
 import { GENERATED_NAMESPACE_LEDGER, type GeneratedNamespaceName } from "./contract-help.ledger";
@@ -466,6 +467,7 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   asset: registerAssetCommands,
   "cloud-import": registerCloudImportCommands,
   cue: registerCueCommands,
+  chat: registerChatCommands,
   docs: registerDocsCommand,
   emulator: registerEmulatorCommands,
   "html-template": registerHtmlMessageTemplateCommands,

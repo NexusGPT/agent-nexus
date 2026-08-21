@@ -208,7 +208,9 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "admin vibe-deployment mark-rolled-back": "registration-only",
   "admin vibe-deployment-runner tick": "registration-only",
   "admin vibe-rollback-sweep trigger": "registration-only",
+  "admin vibe-tenant-cluster complete-teardown": "registration-only",
   "admin vibe-tenant-cluster disable": "registration-only",
+  "admin vibe-tenant-cluster force-converge": "registration-only",
   "admin vibe-tenant-cluster provision": "registration-only",
 
   // ── agent ──────────────────────────────────────────────────────────────────

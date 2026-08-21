@@ -142,6 +142,33 @@ export type VibeTenantClusterDisableOutcome =
   | { kind: "not_found" }
   | { kind: "not_disablable"; status: VibeTenantClusterStatus };
 
+/**
+ * Discriminated outcome of an operator-triggered force-converge. Mirrors
+ * `AdminVibeTenantClusterForceConvergeOutcomeSchema` in
+ * `packages/types/src/api/domains/admin/zadmin-vibe-tenant-cluster.ts` — see
+ * that file for what each variant means. `forced` is the only variant where a
+ * converge will actually run: `already_converging` covers PROVISIONING /
+ * UPDATING / DEGRADED, all of which the reconcile loop already retries every
+ * tick, so this lever is a genuine no-op on a cluster already stuck DEGRADED.
+ */
+export type VibeTenantClusterForceConvergeOutcome =
+  | { kind: "forced"; reason: string }
+  | { kind: "already_converging"; status: VibeTenantClusterStatus }
+  | { kind: "reconcile_paused"; status: VibeTenantClusterStatus; pausedReason: string | null }
+  | { kind: "not_converging"; status: VibeTenantClusterStatus }
+  | { kind: "not_found" };
+
+/**
+ * Discriminated outcome of an operator completing a wedged teardown. Mirrors
+ * `AdminVibeTenantClusterCompleteTeardownOutcomeSchema` — only ever moves a
+ * cluster already DESTROYING to DESTROYED; it never starts a teardown.
+ */
+export type VibeTenantClusterCompleteTeardownOutcome =
+  | { kind: "destroyed"; confirmation: string }
+  | { kind: "already_destroyed" }
+  | { kind: "not_destroying"; status: VibeTenantClusterStatus }
+  | { kind: "not_found" };
+
 export interface AdminVibeBuildJobResponse {
   id: string;
   vibeDeploymentId: string;

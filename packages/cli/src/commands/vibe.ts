@@ -229,9 +229,11 @@ function registerClusterCommands(vibe: Command, program: Command): void {
       "after",
       `
 Notes:
-No cluster is not an error: apps still build and deploy on shared
-infrastructure, and a git project created with --git-url needs no cluster
-at all. A cluster is what lets Nexus HOST your code (the tenant git host)
+No cluster is not an error for every project shape: a git project created
+with --git-url (bring-your-own-git) builds and deploys on shared
+infrastructure and needs no cluster at all. A Nexus-hosted git project
+(no --git-url) DOES need one — it stays PENDING until a healthy cluster
+exists. A cluster is what lets Nexus HOST your code (the tenant git host)
 and hold your secrets.
 
 Examples:
@@ -314,7 +316,7 @@ function printVibeCluster(data: GetVibeClusterResponse): void {
     console.log(color.dim("No dedicated cluster."));
     console.log(
       color.dim(
-        "Apps still build and deploy on shared infrastructure. Provision one to have\nNexus host your code: nexus vibe cluster provision --region <region>"
+        'A git project created with --git-url (bring-your-own-git) still builds and\ndeploys on shared infrastructure with no cluster required. A Nexus-hosted git\nproject ("git-project create" with no --git-url) needs a healthy dedicated\ncluster and stays PENDING until one exists. Provision one: nexus vibe cluster provision --region <region>'
       )
     );
     return;
@@ -340,7 +342,21 @@ function printVibeCluster(data: GetVibeClusterResponse): void {
 const ALREADY_ACTIVE_ADVICE: Record<VibeTenantClusterStatus, string> = {
   HEALTHY: "Nothing to do — it is serving.",
   UPDATING: "It is converging; nothing to do.",
-  DEGRADED: "It is up but drifted, and converges on its own. Check: nexus vibe cluster status",
+  // NOT a universal "converges on its own" — that claim is only true for
+  // ordinary drift. The reconcile loop retries the SAME failing apply every
+  // tick regardless of cause, so a cluster blocked on something outside its
+  // own control (e.g. an AWS account quota) retries identically forever with
+  // no self-heal possible until that external condition changes. Re-running
+  // "provision" here is a deliberate no-op (see the backend use case) —
+  // there is no tenant-side lever to force a different outcome, only the
+  // reason the loop keeps hitting.
+  DEGRADED:
+    "It is degraded and the platform retries automatically every few minutes — " +
+    "that clears ordinary drift on its own, but NOT a blocker outside the " +
+    "cluster's control (e.g. a cloud-provider capacity limit). Run \"nexus vibe " +
+    'cluster status" for the actual reason (Reason:); if it names a capacity or ' +
+    "quota limit, it self-heals once that is raised and needs no action from you " +
+    "— contact support if it persists.",
   DISABLING: "It is being torn down. Wait for it to finish, then run this again to revive it.",
   DESTROYING: "It is being destroyed. Wait for it to finish, then run this again for a fresh one.",
   PROVISIONING: "It is already being provisioned — poll with: nexus vibe cluster status",

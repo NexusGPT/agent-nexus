@@ -70,8 +70,8 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **51 top-level commands**, of which **51 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **628 command nodes**
-and **533 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+hidden — there are none at all (see INTERNAL). Under them sit **630 command nodes**
+and **535 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
@@ -212,7 +212,7 @@ than going through a printer — the `writes-its-own-json` count in the generate
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **526 of the 533 leaves** and parses each one's stdout, and
+gate, which drives **528 of the 535 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -248,7 +248,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 526 leaves the gate drives. And on every terminal path — `--help`,
+the 528 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -381,7 +381,7 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**399 of the 533 leaves** carry a derived shape line on their `--help`, generated
+**401 of the 535 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
@@ -520,7 +520,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-533 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
+535 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -721,7 +721,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 628 nodes, and the root program is a 629th
+`src/command-universe.ts` renders all 630 nodes, and the root program is a 631st
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as

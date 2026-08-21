@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 628 command nodes; 533 invocable leaves.
+ * 630 command nodes; 535 invocable leaves.
  * 51 top-level commands — 51 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         476 STABLE, 57 UNSTABLE
- *   disposition  22 never-execute, 442 registration-only, 64 safe, 5 safe-with-fixture
+ *   tier         476 STABLE, 59 UNSTABLE
+ *   disposition  22 never-execute, 444 registration-only, 64 safe, 5 safe-with-fixture
  *   --yes        46 destructive — 46 confirmable
- *   --json       399 answered, 134 abstain
+ *   --json       401 answered, 134 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -88,7 +88,9 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "admin vibe-deployment mark-rolled-back", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--org <orgId>", "!--error-reason <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "1d78550bbb88" },
   { path: "admin vibe-deployment-runner tick", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "2270ec680883" },
   { path: "admin vibe-rollback-sweep trigger", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "5fb2e7ee17bc" },
+  { path: "admin vibe-tenant-cluster complete-teardown", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--confirmation <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "111cf7bc58c6" },
   { path: "admin vibe-tenant-cluster disable", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "bfa787b98a85" },
+  { path: "admin vibe-tenant-cluster force-converge", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--reason <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "cc41f495c1fa" },
   { path: "admin vibe-tenant-cluster provision", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--region <region>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c3c1782649e6" },
   { path: "agent create", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: [], flags: ["--first-name <name>", "--last-name <name>", "--role <role>", "--bio <text>", "--short-bio <text>", "--model <model> {DEFAULT|GPT_4_TURBO|GPT_4|GPT_4_5|GPT_4_1|GPT_4_1_MINI|GPT_4_1_NANO|GPT_3_5_TURBO|GPT_3_5_TURBO_16K|MISTRAL_LARGE|OPENAI_O1|OPENAI_O1_MINI|OPENAI_O3_MINI|OPENAI_O3|OPENAI_O3_PRO|OPENAI_O4_MINI}", "--model-name <name>", "--model-provider <provider> {OPEN_AI|ANTHROPIC|GOOGLE_AI|KIMI}", "--custom-model-id <id>", "--prompt <file-or-->", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "b957247eba24" },
   { path: "agent delete", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes", "--dry-run"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "1d1b32b62f25" },

@@ -209,10 +209,6 @@ export interface DocumentSummary {
   isFolder: boolean;
   /** UUID of the containing folder, or `null` at the root. */
   parentId: string | null;
-  /** Chunks the document was split into, or `null` before processing. */
-  chunkCount: number | null;
-  /** Embedding status, or `null` before processing. */
-  embeddingStatus: string | null;
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   /** ISO 8601 last-updated timestamp. */

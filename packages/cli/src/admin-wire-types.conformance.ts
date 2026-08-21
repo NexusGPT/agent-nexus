@@ -56,7 +56,9 @@ import type {
   VibeOrgConsumptionCapResponse,
   VibeOrgCostSafetyStateListItem,
   VibeOrgCostSafetyStateResponse,
+  VibeTenantClusterCompleteTeardownOutcome,
   VibeTenantClusterDisableOutcome,
+  VibeTenantClusterForceConvergeOutcome,
   VibeTenantClusterProvisionOutcome
 } from "./admin-wire-types";
 
@@ -373,6 +375,76 @@ const _disableComplete: NoUnmodelledArm<
   WireDisable
 > = true;
 
+type WireForceConverge = Data<"AdminVibeTenantCluster", "ForceConverge">;
+
+const _forceConvergeForced: ArmsAgree<
+  "VibeTenantClusterForceConvergeOutcome.forced",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge,
+  "forced"
+> = ARMS_AGREE;
+const _forceConvergeAlreadyConverging: ArmsAgree<
+  "VibeTenantClusterForceConvergeOutcome.already_converging",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge,
+  "already_converging"
+> = ARMS_AGREE;
+const _forceConvergeReconcilePaused: ArmsAgree<
+  "VibeTenantClusterForceConvergeOutcome.reconcile_paused",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge,
+  "reconcile_paused"
+> = ARMS_AGREE;
+const _forceConvergeNotConverging: ArmsAgree<
+  "VibeTenantClusterForceConvergeOutcome.not_converging",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge,
+  "not_converging"
+> = ARMS_AGREE;
+const _forceConvergeNotFound: ArmsAgree<
+  "VibeTenantClusterForceConvergeOutcome.not_found",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge,
+  "not_found"
+> = ARMS_AGREE;
+const _forceConvergeComplete: NoUnmodelledArm<
+  "VibeTenantClusterForceConvergeOutcome",
+  VibeTenantClusterForceConvergeOutcome,
+  WireForceConverge
+> = true;
+
+type WireCompleteTeardown = Data<"AdminVibeTenantCluster", "CompleteTeardown">;
+
+const _completeTeardownDestroyed: ArmsAgree<
+  "VibeTenantClusterCompleteTeardownOutcome.destroyed",
+  VibeTenantClusterCompleteTeardownOutcome,
+  WireCompleteTeardown,
+  "destroyed"
+> = ARMS_AGREE;
+const _completeTeardownAlreadyDestroyed: ArmsAgree<
+  "VibeTenantClusterCompleteTeardownOutcome.already_destroyed",
+  VibeTenantClusterCompleteTeardownOutcome,
+  WireCompleteTeardown,
+  "already_destroyed"
+> = ARMS_AGREE;
+const _completeTeardownNotDestroying: ArmsAgree<
+  "VibeTenantClusterCompleteTeardownOutcome.not_destroying",
+  VibeTenantClusterCompleteTeardownOutcome,
+  WireCompleteTeardown,
+  "not_destroying"
+> = ARMS_AGREE;
+const _completeTeardownNotFound: ArmsAgree<
+  "VibeTenantClusterCompleteTeardownOutcome.not_found",
+  VibeTenantClusterCompleteTeardownOutcome,
+  WireCompleteTeardown,
+  "not_found"
+> = ARMS_AGREE;
+const _completeTeardownComplete: NoUnmodelledArm<
+  "VibeTenantClusterCompleteTeardownOutcome",
+  VibeTenantClusterCompleteTeardownOutcome,
+  WireCompleteTeardown
+> = true;
+
 // The module exists to be compiled. Exporting the bindings keeps `noUnusedLocals`
 // from deleting the gate by complaining about it.
 export {
@@ -382,6 +454,11 @@ export {
   _buildTickDispatched,
   _buildTickIdle,
   _buildTickRaceLost,
+  _completeTeardownAlreadyDestroyed,
+  _completeTeardownComplete,
+  _completeTeardownDestroyed,
+  _completeTeardownNotDestroying,
+  _completeTeardownNotFound,
   _consumptionCap,
   _costSafetyItem,
   _costSafetyList,
@@ -398,6 +475,12 @@ export {
   _disableNotDisablable,
   _disableNotFound,
   _disableRetained,
+  _forceConvergeAlreadyConverging,
+  _forceConvergeComplete,
+  _forceConvergeForced,
+  _forceConvergeNotConverging,
+  _forceConvergeNotFound,
+  _forceConvergeReconcilePaused,
   _provisionAlreadyActive,
   _provisionComplete,
   _provisionProvisioning

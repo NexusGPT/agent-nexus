@@ -1,5 +1,93 @@
 # @agent-nexus/sdk
 
+## 1.0.1
+### Patch Changes
+
+- 66aaa85: A chat turn can be stopped, watched and picked back up
+  
+  Three routes have been live since the browser chat surface shipped, and neither
+  package could reach any of them:
+  
+  ```
+  POST /public/v1/deployments/:deploymentId/chat/stop
+  GET  /public/v1/deployments/:deploymentId/chat/status
+  GET  /public/v1/deployments/:deploymentId/chat/stream
+  ```
+  
+  They are the Stop button, "is a turn still running", and the reconnect after a
+  reload — most of what separates a chat demo from a chat product. All three take
+  the same **chat-session token** as `chat/chat`, so a browser holding one already
+  has the credential for every one of them.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.chat` gains four methods.**
+  
+  ```ts
+  const auth = { token };
+  
+  // The Stop button.
+  const { accepted, turnId } = await client.chat.stop(deploymentId, {}, auth);
+  
+  // The fact the stop route deliberately does not claim.
+  const { running, outcome } = await client.chat.status(deploymentId, auth);
+  
+  // Reattach — parsed frames, or the raw Response for a proxy.
+  for await (const chunk of client.chat.resume(deploymentId, auth, { lastEventId })) { … }
+  const upstream = await client.chat.resumeRaw(deploymentId, auth, { lastEventId });
+  ```
+  
+  **`accepted` is not "the turn has stopped".** The abort reaches the pod running
+  the generation through a fire-and-forget publish, so no value the stop request
+  can compute knows whether it landed. Deltas keep arriving for a few hundred
+  milliseconds afterwards and the terminal frames land about a second and a half
+  later. `status()` is where the fact lives, as `outcome: "stopped"` — the stream's
+  own `finish` frame says `finishReason: "other"`, which cannot tell a stop from
+  anything else that ended a turn early.
+  
+  **`RequestOptions` gains `onEventId`, and it is what makes resume usable
+  twice.** A frame iterator yields parsed `data:` payloads, so the SSE `id:` field
+  — which on this API IS the resume cursor — was dropped on the floor; a caller
+  could only reattach from the start of a turn, and a text block accumulates by
+  APPENDING, so that reprints the answer. `stream()` and `resume()` both take it,
+  and it fires after each frame has been consumed.
+  
+  **Two properties of a resumed stream that a client has to know about.**
+  
+  - **The cursor is exclusive.** `lastEventId: "<turn>:13"` replays from `:14`, so
+    the two halves of the answer join with no overlap and no gap. Omit it and the
+    whole turn replays, which is right for a page that reloaded and holds nothing.
+  - **The first frame reopens a block you are already inside.** A cursor lands
+    mid-block, so the server synthesises a `text-start` with the SAME block id and
+    no `id:` line of its own. It carries no cursor because it is not a log entry,
+    and the SDK does not filter it out: a stock reader THROWS on a `text-delta`
+    whose opener it never saw.
+  
+  `ChatTurnStatus.lastEventId` is the newest frame **recorded**, not the newest you
+  received, so it is the wrong value to reattach with after a drop — it would skip
+  everything written in between. Use the cursor you kept.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus chat` gains three verbs.**
+  
+  ```
+  nexus chat stop   <deployment-id> --chat-id <uuid> [--turn-id <id>]
+  nexus chat status <deployment-id> --chat-id <uuid>
+  nexus chat resume <deployment-id> --chat-id <uuid> [--last-event-id <id>]
+  ```
+  
+  Each names its conversation with `--chat-id` (a session is minted for it) or with
+  `--session-token` (an existing one is reused). **Neither is optional**: a mint
+  with no chat id reserves a NEW conversation, so all three would answer
+  truthfully about a conversation that has never had a turn — `status` all-null,
+  `stop` `accepted:false`, `resume` empty — and none of those looks like a mistake.
+  
+  `chat send` and `chat resume` now print the cursor of the last frame they
+  received when the stream ends, as `last-event-id <id>` or as the `lastEventId`
+  field under `--json`. That is the value `--last-event-id` takes, so a turn cut
+  short by a dropped connection can be picked up exactly where it stopped.
+
 ## 1.0.0
 ### Major Changes
 

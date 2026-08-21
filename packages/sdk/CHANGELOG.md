@@ -1,5 +1,175 @@
 # @agent-nexus/sdk
 
+## 0.27.0
+### Minor Changes
+
+- c257b1b: Add `createBrowserChatClient()` and fix `fetch` losing its receiver in a browser.
+  
+  A page holding only a chat-session token now has a supported way to reach the
+  chat routes. `NexusClient` requires an organization API key and must keep
+  requiring one — it wires forty resources and thirty-eight of them have no other
+  credential — so the browser case was previously served only by constructing
+  `HttpClient` with a placeholder key, which is indistinguishable from a real key
+  that has been revoked. `HttpClientOptions.apiKey` is now optional, and a request
+  that resolves to NO credential is refused by name before it is built rather than
+  being sent unauthenticated.
+  
+  `HttpClient` also now binds the global `fetch` to `globalThis`. Stored unbound,
+  `this.fetchFn(...)` invoked it with the client as its receiver. Node does not
+  care what a `fetch` receiver is; the DOM does, and in a browser the first
+  request came back as a REJECTED PROMISE carrying `TypeError: Failed to execute
+  'fetch' on 'Window': Illegal invocation`.
+  
+  The rejection is the part worth stating precisely, because it decides how the
+  failure is detected. `fetch` returns a Promise on every path, so this never
+  surfaces as a synchronous throw — a receiver check that reports by rejecting is
+  invisible to any probe that classifies by `try`/`catch` around the call alone.
+  A nullish receiver is fine: `undefined` and `null` coerce to the global, so a
+  bare `fetch(url)` is safe and only a NON-nullish foreign receiver — an object
+  or a class instance, which is exactly what `this` is here — is refused.
+  
+  Every Node-based test passed either way, so the defect was invisible to this
+  package's whole suite, to `tsc` and to the response-contract manifest.
+
+### Patch Changes
+
+- c829d24: A browser can mint its own chat session, without a key reaching it
+  
+  `POST /public/v1/deployments/{deploymentId}/chat-session/anonymous` is a second
+  mint for the same short-lived browser credential, for the caller the first one
+  has no answer for: a first-party embed served from a static host, where no
+  server of ours or theirs is in the request path and there is nobody to hold an
+  API key.
+  
+  The deployment opts in, per deployment, with
+  `securitySettings.allowAnonymousChatSessions`. It is absent on every existing
+  deployment and absent means off, so no widget in the estate gained a door — and
+  it is deliberately separate from `visibility`, which is `"public"` by default on
+  every new embed and would have opened all of them at once.
+  
+  Every refusal is the same refusal. Unknown deployment, wrong channel, inactive,
+  not opted in, private, and an Origin outside the owner's allowlist all answer
+  `404 Deployment not found`, byte for byte. A distinguishable one would let
+  anyone sweep ids and keep whichever answered differently.
+  
+  The anonymous door is narrower than the org-key one on every axis: it takes no
+  body, so it cannot resume a conversation somebody else is in, and cannot claim
+  an `externalUserId` — the identity HMAC is over a server-side secret a browser
+  cannot hold. Use `chat.createSession` from a server whenever you have one; it
+  can do both of those and this cannot.
+  
+  ## `@agent-nexus/sdk`
+  
+  **No new method, and the response contract moves.** The generated response
+  contract carries every v1 route, so this one is now projected in it. The SDK has
+  no method for it because `NexusClient` throws without an API key and this
+  route's principal presents none — so this client cannot construct the caller the
+  route exists for. A method would be `chat.createSession` with the same
+  credential and less capability. It becomes writable when a credential-less
+  client exists.
+- f219c72: A browser chat session can be minted and streamed
+  
+  `POST /public/v1/deployments/:deploymentId/chat` ships an agent turn as a Vercel
+  AI SDK 7 **UI Message Stream** — the format `useChat` reads with no
+  configuration. Neither package could reach it. Both can now.
+  
+  The route is authenticated by a short-lived **chat-session token**, not by the
+  organization API key, and that is the whole shape of the feature: a customer's
+  SERVER mints a token scoped to one deployment and one conversation, and the
+  BROWSER holds only that. An API key can read every conversation in the
+  organization and must never ship to a browser.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.chat` — both hops.**
+  
+  ```ts
+  // on your server
+  const session = await client.chat.createSession(deploymentId, {
+    externalUserId: user.id,
+    identityHash: hmac(user.id)
+  });
+  
+  // wherever the token is held
+  for await (const chunk of client.chat.stream(deploymentId, { content: "hi" }, { token })) {
+    if (chunk.type === "text-delta") process.stdout.write(chunk.delta);
+  }
+  ```
+  
+  `stream()` yields parsed `ChatStreamChunk` frames. `streamRaw()` hands back the
+  `Response` **unread**, which is the `useChat` door: `ai`'s own transport reads
+  the response HEADERS, and a frame iterator has already discarded them. A Next.js
+  route handler proxying to Nexus is three lines:
+  
+  ```ts
+  const upstream = await client.chat.streamRaw(deploymentId, await req.json(), { token });
+  return new Response(upstream.body, { headers: upstream.headers });
+  ```
+  
+  **`RequestOptions` gains `chatSessionToken`, and it REPLACES the api-key rather
+  than accompanying it.** The server tries the api-key credential first and
+  short-circuits on it, so a request carrying both authenticates as the api-key and
+  is then refused `401 "Chat session is not valid."` — a message that reads like an
+  expired token while the token is perfect. Every door of the transport now
+  resolves its credential through one method that returns exactly one header, so
+  the two cannot be sent together.
+  
+  `ChatStreamChunk` is exported as the SDK's whole 28-member union rather than the
+  subset this API emits today, so a `switch` written against it stays exhaustive
+  when a producer appears. What a turn actually carries is documented on the type.
+  
+  **Treat any 401 from the streaming route as "this credential is finished"** and
+  mint a fresh session. Expired, revoked, wrong deployment and forged all answer
+  identically, deliberately, so the refusal cannot be used to learn which ids are
+  real.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus chat` — two verbs.**
+  
+  ```
+  nexus chat session <deployment-id>        # mint a token for a browser
+  nexus chat send <deployment-id> -m "hi"   # mint + stream one turn, rendered live
+  ```
+  
+  `chat send` performs both hops in one command, so the split is visible in
+  `--help` rather than described somewhere: it mints with the API key and streams
+  with the TOKEN. Text arrives delta by delta as the model produces it — there is
+  no second call and no "processing" handoff, unlike `nexus emulator send`.
+  
+  Under `--json` one document is printed when the turn ends,
+  `{"session":{…},"chunks":[…]}`, holding every frame in order. A turn that streams
+  an `error` frame, or finishes with `finishReason: "error"`, exits non-zero
+  through the ordinary error funnel — the stream opening successfully says nothing
+  about whether the turn worked.
+  
+  **This runs the real agent on a real deployment**: real tools, real side effects,
+  real cost. It is the production door the embedded widget uses, not the emulator.
+- a775efd: The shipped response contract learns the browser chat resume, stop and status routes
+  
+  `src/response-contract.generated.ts` is a projection of the published v1 schemas,
+  so three new routes on the browser chat surface move it. Regenerated with
+  `pnpm --filter @agent-nexus/sdk run gen:response-contract`; the diff is exactly
+  those three rows and no existing route's shape changed.
+  
+  | route                                        | payload                                                 |
+  | -------------------------------------------- | ------------------------------------------------------- |
+  | `GET /deployments/:deploymentId/chat/stream` | `undeclared` — `rawResponse`, an SSE stream             |
+  | `POST /deployments/:deploymentId/chat/stop`  | `{ accepted, turnId }`                                  |
+  | `GET /deployments/:deploymentId/chat/status` | `{ turnId, running, outcome, lastEventId, frameCount }` |
+  
+  **No SDK method accompanies them, and that is permanent rather than pending.**
+  All three are authenticated by a chat-session token in `x-chat-session-token` — a
+  credential minted for a BROWSER. `HttpClient` sets `"api-key": this.apiKey` on
+  every request, so a method here could not present the credential the route
+  admits. `V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING` rises 59 → 62 for them, and
+  its docblock now separates the four rows that can never fall from the rest of
+  the ledger, which is ordinary debt.
+  
+  Teaching `HttpClient` a second credential is explicitly the wrong fix: this is a
+  server-side SDK whose threat model is that its key never leaves a server, and
+  the two-hop chat-session design exists so an org key does not ship to a browser.
+
 ## 0.26.0
 ### Minor Changes
 

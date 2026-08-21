@@ -1,5 +1,87 @@
 # @agent-nexus/cli
 
+## 0.34.2
+### Patch Changes
+
+- f219c72: A browser chat session can be minted and streamed
+  
+  `POST /public/v1/deployments/:deploymentId/chat` ships an agent turn as a Vercel
+  AI SDK 7 **UI Message Stream** — the format `useChat` reads with no
+  configuration. Neither package could reach it. Both can now.
+  
+  The route is authenticated by a short-lived **chat-session token**, not by the
+  organization API key, and that is the whole shape of the feature: a customer's
+  SERVER mints a token scoped to one deployment and one conversation, and the
+  BROWSER holds only that. An API key can read every conversation in the
+  organization and must never ship to a browser.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.chat` — both hops.**
+  
+  ```ts
+  // on your server
+  const session = await client.chat.createSession(deploymentId, {
+    externalUserId: user.id,
+    identityHash: hmac(user.id)
+  });
+  
+  // wherever the token is held
+  for await (const chunk of client.chat.stream(deploymentId, { content: "hi" }, { token })) {
+    if (chunk.type === "text-delta") process.stdout.write(chunk.delta);
+  }
+  ```
+  
+  `stream()` yields parsed `ChatStreamChunk` frames. `streamRaw()` hands back the
+  `Response` **unread**, which is the `useChat` door: `ai`'s own transport reads
+  the response HEADERS, and a frame iterator has already discarded them. A Next.js
+  route handler proxying to Nexus is three lines:
+  
+  ```ts
+  const upstream = await client.chat.streamRaw(deploymentId, await req.json(), { token });
+  return new Response(upstream.body, { headers: upstream.headers });
+  ```
+  
+  **`RequestOptions` gains `chatSessionToken`, and it REPLACES the api-key rather
+  than accompanying it.** The server tries the api-key credential first and
+  short-circuits on it, so a request carrying both authenticates as the api-key and
+  is then refused `401 "Chat session is not valid."` — a message that reads like an
+  expired token while the token is perfect. Every door of the transport now
+  resolves its credential through one method that returns exactly one header, so
+  the two cannot be sent together.
+  
+  `ChatStreamChunk` is exported as the SDK's whole 28-member union rather than the
+  subset this API emits today, so a `switch` written against it stays exhaustive
+  when a producer appears. What a turn actually carries is documented on the type.
+  
+  **Treat any 401 from the streaming route as "this credential is finished"** and
+  mint a fresh session. Expired, revoked, wrong deployment and forged all answer
+  identically, deliberately, so the refusal cannot be used to learn which ids are
+  real.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus chat` — two verbs.**
+  
+  ```
+  nexus chat session <deployment-id>        # mint a token for a browser
+  nexus chat send <deployment-id> -m "hi"   # mint + stream one turn, rendered live
+  ```
+  
+  `chat send` performs both hops in one command, so the split is visible in
+  `--help` rather than described somewhere: it mints with the API key and streams
+  with the TOKEN. Text arrives delta by delta as the model produces it — there is
+  no second call and no "processing" handoff, unlike `nexus emulator send`.
+  
+  Under `--json` one document is printed when the turn ends,
+  `{"session":{…},"chunks":[…]}`, holding every frame in order. A turn that streams
+  an `error` frame, or finishes with `finishReason: "error"`, exits non-zero
+  through the ordinary error funnel — the stream opening successfully says nothing
+  about whether the turn worked.
+  
+  **This runs the real agent on a real deployment**: real tools, real side effects,
+  real cost. It is the production door the embedded widget uses, not the emulator.
+
 ## 0.34.1
 ### Patch Changes
 

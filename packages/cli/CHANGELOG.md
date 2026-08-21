@@ -1,5 +1,20 @@
 # @agent-nexus/cli
 
+## 0.35.0
+### Minor Changes
+
+- 7dbfba3: `nexus admin vibe-tenant-cluster` gains `force-converge` and `complete-teardown` —
+  the two operator recovery levers the admin backend already had with no CLI path
+  to reach them. Also fixes `nexus vibe cluster provision`'s advice on an
+  already-DEGRADED cluster, which previously claimed unconditionally that it
+  "converges on its own" — true for ordinary drift, false for a cluster blocked
+  on something outside its control (an AWS account quota, for instance); the new
+  text points at `nexus vibe cluster status`'s `Reason:` field instead. And
+  `nexus vibe cluster status`'s "no dedicated cluster" copy now correctly scopes
+  its shared-infrastructure claim to `--git-url` (bring-your-own-git) projects —
+  a Nexus-hosted git project genuinely needs the cluster and stays PENDING
+  without one.
+
 ## 0.34.2
 ### Patch Changes
 

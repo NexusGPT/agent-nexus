@@ -1,5 +1,51 @@
 # @agent-nexus/sdk
 
+## 1.0.0
+### Major Changes
+
+- 68f9438: `DocumentSummary.chunkCount` and `.embeddingStatus` are removed — they never had
+  a source
+  
+  Both were declared on `DocumentSummary` and answered `null` on every response
+  since the day each shipped. Not sometimes, not before processing finished — on
+  every request, for every organization, for the whole life of both fields.
+  
+  Neither had a source anywhere in the platform. `chunkCount` and
+  `embeddingStatus` are field names on NO model in the schema, and no writer
+  exists for either; the backend filled both with a literal `null`. The only other
+  place either name appeared was a pair of Swagger EXAMPLE payloads on an
+  internal, non-v1 controller, sitting beside other invented keys — which is the
+  likeliest provenance of the declaration, and which made the fields read as real
+  to anyone who went looking. Those are deleted too.
+  
+  The two doc comments were the sharpest part of the problem: _"or `null` before
+  processing"_ on both promised a value that arrives later, and none ever did.
+  
+  There were two honest endings — read the right column, or stop publishing the
+  field. There is no right column. `Document.zeroEntropyStatus` is adjacent and is
+  NOT the same thing (it is the ZeroEntropy index state, not an embedding status),
+  and no chunk count exists on the model to pair with it, so filling them would
+  have published a guess as a fact.
+  
+  ## What changes for a caller
+  
+  Both routes serving this shape lose a key:
+  
+  - `GET /api/public/v1/documents`
+  - `GET /api/public/v1/documents/:documentId/children`
+  
+  - the JSON responses lose two keys, so `doc.chunkCount === null` was true and is
+    now false, and `"chunkCount" in doc` was true and is now false
+  - TypeScript consumers get a compile error, which is the good direction
+  - a JS consumer reading `doc.chunkCount` moves from `null` to `undefined`
+  
+  No caller can be relying on a value, because there has never been one.
+  
+  This is the same call NEX-3864 took on `ExecutionNodeResult.logs` and
+  `ExecutionOutput.outputType`, on different endpoints, for the same reason: a
+  published field teaches every consumer to handle a value, write a branch for it,
+  and wait for it.
+
 ## 0.27.0
 ### Minor Changes
 

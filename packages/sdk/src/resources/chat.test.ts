@@ -301,3 +301,279 @@ describe("chat.streamRaw — the useChat door", () => {
     ).rejects.toBeInstanceOf(NexusApiError);
   });
 });
+
+/**
+ * A RESUMED stream, verbatim in shape from a live staging capture.
+ *
+ * 🔑 THE FIRST FRAME IS THE WHOLE POINT. It reopens block `m1` — the SAME id
+ * the original opener used — and it carries NO `id:` line, because it is a
+ * SYNTHESISED frame rather than a log entry. A reader that recorded a cursor
+ * for it would resume next time at a position the log does not contain.
+ *
+ * Everything after it is the real log, replayed from the frame AFTER the
+ * cursor: the client asked from `t1:13` and got `t1:14` onwards.
+ */
+const A_RESUMED_TURN = [
+  'data: {"type":"text-start","id":"m1"}',
+  "",
+  "id: t1:14",
+  'data: {"type":"text-delta","id":"m1","delta":" WORLD"}',
+  "",
+  "id: t1:15",
+  'data: {"type":"text-end","id":"m1"}',
+  "",
+  "id: t1:16",
+  'data: {"type":"finish","finishReason":"stop"}',
+  "",
+  "data: [DONE]",
+  "",
+  ""
+].join("\n");
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify({ success: true, data }), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
+
+describe("chat.stop — the Stop button", () => {
+  it("POSTs the stop route with the session token and NO api-key", async () => {
+    const { chat, seen } = chatFor(() => jsonResponse({ accepted: true, turnId: "t1" }));
+
+    const result = await chat.stop(DEPLOYMENT, {}, { token: TEST_SESSION_TOKEN });
+
+    expect(result).toEqual({ accepted: true, turnId: "t1" });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe(
+      `https://api-staging.gpt.nexus/api/public/v1/deployments/${DEPLOYMENT}/chat/stop`
+    );
+    expect(seen[0].headers["x-chat-session-token"]).toBe(TEST_SESSION_TOKEN);
+    expect(seen[0].headers).not.toHaveProperty("api-key");
+  });
+
+  it("sends turnId when the caller names the turn, and an empty body when it does not", async () => {
+    const { chat, seen } = chatFor(() => jsonResponse({ accepted: true, turnId: "t9" }));
+
+    await chat.stop(DEPLOYMENT, { turnId: "t9" }, { token: TEST_SESSION_TOKEN });
+    await chat.stop(DEPLOYMENT, {}, { token: TEST_SESSION_TOKEN });
+
+    expect(JSON.parse(seen[0].body ?? "null")).toEqual({ turnId: "t9" });
+    // `{}` rather than no body: the route's schema is `.strict()` and its own
+    // handler has two arms for exactly this, so `{}` is the shape it validates.
+    expect(JSON.parse(seen[1].body ?? "null")).toEqual({});
+  });
+
+  it("reports accepted:false with a null turn rather than throwing when nothing is running", async () => {
+    // The route answers 200 either way. `accepted` is a FACT about what was
+    // found, never an error — a caller pressing Stop on a finished turn has not
+    // done anything wrong.
+    const { chat } = chatFor(() => jsonResponse({ accepted: false, turnId: null }));
+
+    await expect(chat.stop(DEPLOYMENT, {}, { token: TEST_SESSION_TOKEN })).resolves.toEqual({
+      accepted: false,
+      turnId: null
+    });
+  });
+});
+
+describe("chat.status — the fact the stop route deliberately does not claim", () => {
+  it("GETs the status route with the session token and NO api-key", async () => {
+    const { chat, seen } = chatFor(() =>
+      jsonResponse({
+        turnId: "t1",
+        running: false,
+        outcome: "stopped",
+        lastEventId: "t1:16",
+        frameCount: 17
+      })
+    );
+
+    const status = await chat.status(DEPLOYMENT, { token: TEST_SESSION_TOKEN });
+
+    expect(status.outcome).toBe("stopped");
+    expect(status.running).toBe(false);
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].url).toBe(
+      `https://api-staging.gpt.nexus/api/public/v1/deployments/${DEPLOYMENT}/chat/status`
+    );
+    expect(seen[0].headers["x-chat-session-token"]).toBe(TEST_SESSION_TOKEN);
+    expect(seen[0].headers).not.toHaveProperty("api-key");
+  });
+
+  it("carries the all-null shape a conversation with no turn answers", async () => {
+    const { chat } = chatFor(() =>
+      jsonResponse({
+        turnId: null,
+        running: false,
+        outcome: null,
+        lastEventId: null,
+        frameCount: 0
+      })
+    );
+
+    await expect(chat.status(DEPLOYMENT, { token: TEST_SESSION_TOKEN })).resolves.toEqual({
+      turnId: null,
+      running: false,
+      outcome: null,
+      lastEventId: null,
+      frameCount: 0
+    });
+  });
+});
+
+describe("chat.resume — reattaching, and the cursor that makes it possible twice", () => {
+  it("sends Last-Event-ID when given a cursor and omits the header entirely without one", async () => {
+    const { chat, seen } = chatFor(() => sseResponse(A_RESUMED_TURN));
+
+    for await (const _chunk of chat.resume(
+      DEPLOYMENT,
+      { token: TEST_SESSION_TOKEN },
+      { lastEventId: "t1:13" }
+    )) {
+      // drained
+    }
+    for await (const _chunk of chat.resume(DEPLOYMENT, { token: TEST_SESSION_TOKEN })) {
+      // drained
+    }
+
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].url).toBe(
+      `https://api-staging.gpt.nexus/api/public/v1/deployments/${DEPLOYMENT}/chat/stream`
+    );
+    expect(seen[0].headers["last-event-id"]).toBe("t1:13");
+    expect(seen[0].headers).not.toHaveProperty("api-key");
+
+    // No cursor must mean NO header, not an empty one: an empty `Last-Event-ID`
+    // is a value the server would have to interpret, and "replay everything" is
+    // what the absent header already means.
+    expect(seen[1].headers).not.toHaveProperty("last-event-id");
+  });
+
+  it("yields the synthesised opener as an ordinary frame, so a client reopens the block", async () => {
+    // The reader that this SDK's frames feed THROWS on a `text-delta` whose
+    // opener it never saw. Swallowing the synthetic `text-start` here — as a
+    // dedupe on block id would — is what would make that throw happen.
+    const { chat } = chatFor(() => sseResponse(A_RESUMED_TURN));
+
+    const chunks: ChatStreamChunk[] = [];
+    for await (const chunk of chat.resume(
+      DEPLOYMENT,
+      { token: TEST_SESSION_TOKEN },
+      { lastEventId: "t1:13" }
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.map((c) => c.type)).toEqual(["text-start", "text-delta", "text-end", "finish"]);
+    expect(chunks[0]).toEqual({ type: "text-start", id: "m1" });
+  });
+
+  it("🔴 does NOT move the cursor for the synthesised opener", async () => {
+    // The load-bearing assertion of this whole surface. The opener carries no
+    // `id:`, so a reader that recorded one would resume the NEXT time from a
+    // position the log does not hold. Asserting the recorded list is exactly the
+    // three real ids proves both halves at once: the opener contributed nothing,
+    // and every real frame did.
+    const { chat } = chatFor(() => sseResponse(A_RESUMED_TURN));
+
+    const cursors: string[] = [];
+    for await (const _chunk of chat.resume(
+      DEPLOYMENT,
+      { token: TEST_SESSION_TOKEN },
+      { lastEventId: "t1:13", onEventId: (id) => cursors.push(id) }
+    )) {
+      // drained
+    }
+
+    expect(cursors).toEqual(["t1:14", "t1:15", "t1:16"]);
+  });
+
+  it("reports each id only after its own frame has been handed to the caller", async () => {
+    // A cursor that advanced BEFORE the frame was consumed would skip that frame
+    // on the next resume, which is the same data loss the exclusive cursor
+    // exists to avoid.
+    const { chat } = chatFor(() => sseResponse(A_RESUMED_TURN));
+
+    const trace: string[] = [];
+    for await (const chunk of chat.resume(
+      DEPLOYMENT,
+      { token: TEST_SESSION_TOKEN },
+      { lastEventId: "t1:13", onEventId: (id) => trace.push(`id:${id}`) }
+    )) {
+      trace.push(`frame:${chunk.type}`);
+    }
+
+    expect(trace).toEqual([
+      "frame:text-start",
+      "frame:text-delta",
+      "id:t1:14",
+      "frame:text-end",
+      "id:t1:15",
+      "frame:finish",
+      "id:t1:16"
+    ]);
+  });
+
+  it("keeps the cursor on the LIVE send route too, so a drop mid-turn is resumable", async () => {
+    const withIds = [
+      "id: t2:0",
+      'data: {"type":"start"}',
+      "",
+      "id: t2:1",
+      'data: {"type":"text-start","id":"m2"}',
+      "",
+      "data: [DONE]",
+      "",
+      ""
+    ].join("\n");
+    const { chat } = chatFor(() => sseResponse(withIds));
+
+    const cursors: string[] = [];
+    for await (const _chunk of chat.stream(
+      DEPLOYMENT,
+      { content: "hi" },
+      { token: TEST_SESSION_TOKEN },
+      { onEventId: (id) => cursors.push(id) }
+    )) {
+      // drained
+    }
+
+    expect(cursors).toEqual(["t2:0", "t2:1"]);
+  });
+});
+
+describe("chat.resumeRaw — the useChat resume door", () => {
+  it("hands back the Response unread, with the cursor forwarded", async () => {
+    const { chat, seen } = chatFor(() => sseResponse(A_RESUMED_TURN));
+
+    const response = await chat.resumeRaw(
+      DEPLOYMENT,
+      { token: TEST_SESSION_TOKEN },
+      { lastEventId: "t1:13" }
+    );
+
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].headers["last-event-id"]).toBe("t1:13");
+    expect(ChatResource.isUiMessageStream(response)).toBe(true);
+    expect(response.bodyUsed).toBe(false);
+    // The `id:` lines survive verbatim, which is what lets the browser's own
+    // reader keep the cursor this door cannot report.
+    expect(await response.text()).toContain("id: t1:14");
+  });
+
+  it("throws on a refusal instead of handing back an error Response", async () => {
+    const { chat } = chatFor(
+      () =>
+        new Response(
+          JSON.stringify({ success: false, error: { code: "UNAUTHORIZED", message: "nope" } }),
+          { status: 401, headers: { "content-type": "application/json" } }
+        )
+    );
+
+    await expect(chat.resumeRaw(DEPLOYMENT, { token: TEST_SESSION_TOKEN })).rejects.toBeInstanceOf(
+      NexusApiError
+    );
+  });
+});

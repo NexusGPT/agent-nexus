@@ -64,6 +64,11 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   // and there is nothing a CLI verb would do with one that `stream` does not do
   // better.
   "chat.streamRaw": "raw Response for a browser proxy — the CLI drives chat.stream instead",
+  // Same door, resume side. `nexus chat resume` drives `chat.resume`, which
+  // parses frames and prints the cursor; `resumeRaw` exists so a customer can
+  // forward the undecoded body to `useChat({ resume: true })` from their own GET
+  // handler. There is nothing a terminal would do with the bytes.
+  "chat.resumeRaw": "raw Response for a browser proxy — the CLI drives chat.resume instead",
   // Reading one connection by id: `nexus channel list-connections` covers the
   // discovery case, and nothing in the CLI takes a connection id yet.
   "channels.getConnection": "no command takes a connection id",

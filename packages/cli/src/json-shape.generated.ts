@@ -8,12 +8,12 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 401 of 535 leaves are answered here. The
+ * 403 of 538 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
  *      1  ambiguous
- *    102  writes-its-own-json
+ *    103  writes-its-own-json
  *      4  no-printer
  *     17  branches
  *
@@ -98,6 +98,8 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "channel whatsapp-template get": "record",
   "channel whatsapp-template list": "array",
   "chat session": "record",
+  "chat status": "record",
+  "chat stop": "record",
   "cloud-import browse": "list",
   "cloud-import google-drive import": "list",
   "cloud-import google-drive list-files": "list",

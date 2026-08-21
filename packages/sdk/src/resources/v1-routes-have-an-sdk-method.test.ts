@@ -151,13 +151,19 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  *
  * 58 → 61 for `ChatResumeStream`, `ChatStopTurn` and `ChatTurnStatus`, the
  * resume half of the browser chat surface. THREE ORDINARY DEBT ROWS, and the
- * lesson above is why they are written that way: the branch that added them
+ * lesson above is why they were written that way: the branch that added them
  * first ledgered them as browser-authenticated and therefore impossible, which
  * is the exact reason this gate had just finished retiring.
- * `credentialHeaders()` presents `x-chat-session-token` today, so the only
- * thing missing is the method — and this figure falls when somebody writes it.
+ * `credentialHeaders()` presents `x-chat-session-token`, so the only thing
+ * missing was the method.
+ *
+ * 61 → 58. Somebody wrote it. `ChatResource.resume` / `.resumeRaw` / `.stop` /
+ * `.status` reach all three, and all three rows left in the same commit — which
+ * is the whole shape this ledger was arguing for: a row whose reason names what
+ * would have to change is a row that can be retired, and one that says
+ * "impossible" never is.
  */
-const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 61;
+const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 58;
 
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Conversation evals: an entire domain, no SDK surface at all ──────────
@@ -247,12 +253,9 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // them. Do not re-add either — see the ceiling's docblock for why the second
   // row's "impossible" reason was a fact about this client, not about the route.
   //
-  // The resume half of the same surface has no method YET, which is a different
-  // sentence. `credentialHeaders()` presents `x-chat-session-token`, so each of
-  // these is four lines away and its row leaves when they are written.
-  ChatResumeStream: "no `ChatResource.resume` yet — replay + live tail over the same session token",
-  ChatStopTurn: "no `ChatResource.stop` yet — same session token as the send route",
-  ChatTurnStatus: "no `ChatResource.status` yet — same session token as the send route",
+  // `ChatResumeStream`, `ChatStopTurn` and `ChatTurnStatus` were here too and
+  // are gone: `ChatResource.resume` / `.resumeRaw` / `.stop` / `.status` reach
+  // them, on the same chat-session token.
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };

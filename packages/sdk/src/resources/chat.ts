@@ -1,12 +1,33 @@
 import { UI_MESSAGE_STREAM_PROTOCOL_HEADER } from "../http-client";
 import type {
+  ChatResumeCursor,
+  ChatResumeOptions,
   ChatSession,
+  ChatStopResult,
   ChatStreamAuth,
   ChatStreamChunk,
+  ChatStreamOptions,
+  ChatTurnStatus,
   CreateChatSessionBody,
-  SendChatMessageBody
+  SendChatMessageBody,
+  StopChatTurnBody
 } from "../types/chat";
 import { BaseResource } from "./base-resource";
+
+/**
+ * The `Last-Event-ID` request header, spelled once.
+ *
+ * A HEADER rather than a query parameter because that is the name the SSE wire
+ * format already gives this value: the frames this surface emits carry an `id:`
+ * field, so a client that kept the last one is holding a `Last-Event-ID`
+ * without having been told to.
+ */
+const LAST_EVENT_ID_HEADER = "Last-Event-ID";
+
+/** The `Last-Event-ID` header for a cursor, or no headers at all for none. */
+function cursorHeaders(lastEventId: string | undefined): Record<string, string> | undefined {
+  return lastEventId === undefined ? undefined : { [LAST_EVENT_ID_HEADER]: lastEventId };
+}
 
 /**
  * Chat resource. Accessed via `client.chat`.
@@ -16,15 +37,29 @@ import { BaseResource } from "./base-resource";
  * Message Stream format.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * WHY THE TWO METHODS TAKE DIFFERENT CREDENTIALS
+ * ONE METHOD TAKES THE API KEY. THE OTHER FIVE TAKE THE SESSION TOKEN.
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * {@link createSession} authenticates with the org API key this client was
  * constructed with — it is a privileged act and belongs on a server.
- * {@link stream} and {@link streamRaw} authenticate with the SESSION TOKEN and
- * send NO api-key at all, because the server refuses a request that carries
- * both. That asymmetry is the security property, not an inconvenience: the
- * token names one deployment and one conversation, and holds no scopes.
+ * {@link stream}, {@link streamRaw}, {@link resume}, {@link resumeRaw},
+ * {@link stop} and {@link status} authenticate with the SESSION TOKEN and send
+ * NO api-key at all, because the server refuses a request that carries both.
+ * That asymmetry is the security property, not an inconvenience: the token
+ * names one deployment and one conversation, and holds no scopes.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE CONTROL SURFACE — what turns a demo into a product
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A turn is not only started. It is stopped, dropped, and picked back up.
+ *
+ * | want | call |
+ * |---|---|
+ * | send a message | {@link stream} · {@link streamRaw} |
+ * | a Stop button | {@link stop} |
+ * | "is it still running" | {@link status} |
+ * | reconnect after a reload or a dropped socket | {@link resume} · {@link resumeRaw} |
  *
  * @example A server minting for a browser
  * ```ts
@@ -35,9 +70,38 @@ import { BaseResource } from "./base-resource";
  * return Response.json({ token: session.token, chatId: session.chatId });
  * ```
  *
- * @example A terminal rendering the turn as it arrives
+ * @example A terminal rendering the turn as it arrives, keeping its cursor
  * ```ts
- * for await (const chunk of client.chat.stream(deploymentId, { content: "hi" }, { token })) {
+ * let cursor: string | undefined;
+ * const auth = { token };
+ * for await (const chunk of client.chat.stream(
+ *   deploymentId,
+ *   { content: "hi" },
+ *   auth,
+ *   { onEventId: (id) => void (cursor = id) }
+ * )) {
+ *   if (chunk.type === "text-delta") process.stdout.write(chunk.delta);
+ * }
+ * ```
+ *
+ * @example Stop, then confirm it landed
+ * ```ts
+ * await client.chat.stop(deploymentId, {}, auth);
+ * // `accepted` says a live turn was found, never that it has stopped.
+ * let state = await client.chat.status(deploymentId, auth);
+ * while (state.running) {
+ *   await new Promise((r) => setTimeout(r, 250));
+ *   state = await client.chat.status(deploymentId, auth);
+ * }
+ * console.log(state.outcome); // "stopped"
+ * ```
+ *
+ * @example Pick the turn back up where the socket died
+ * ```ts
+ * for await (const chunk of client.chat.resume(deploymentId, auth, {
+ *   ...(cursor !== undefined && { lastEventId: cursor }),
+ *   onEventId: (id) => void (cursor = id)
+ * })) {
  *   if (chunk.type === "text-delta") process.stdout.write(chunk.delta);
  * }
  * ```
@@ -101,14 +165,171 @@ export class ChatResource extends BaseResource {
    * @param body - The turn. A stock `useChat` body works unchanged; a plain
    *   caller sends `{ content }`.
    * @param auth - The session token. See {@link ChatStreamAuth}.
+   * @param opts - Pass `onEventId` to keep this turn's resume cursor. Without
+   *   it a dropped connection can only be reattached with {@link resume} from
+   *   the START of the turn, which re-renders text the caller already has.
    */
   stream(
     deploymentId: string,
     body: SendChatMessageBody,
-    auth: ChatStreamAuth
+    auth: ChatStreamAuth,
+    opts: ChatStreamOptions = {}
   ): AsyncGenerator<ChatStreamChunk, void, undefined> {
     return this.http.requestSSE<ChatStreamChunk>("POST", `/deployments/${deploymentId}/chat`, {
       body,
+      chatSessionToken: auth.token,
+      ...(opts.onEventId !== undefined && { onEventId: opts.onEventId })
+    });
+  }
+
+  /**
+   * Reattach to the newest turn of this conversation and stream what is left.
+   *
+   * ══════════════════════════════════════════════════════════════════════════
+   * WHAT A RESUMED STREAM OPENS WITH, AND WHY IT IS NOT A BUG
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * A cursor lands wherever the connection died, which is usually INSIDE a text
+   * block — between its `text-start` and its `text-end`. A client that has been
+   * reloaded holds no block, and the AI SDK's own reader THROWS
+   * (`UIMessageStreamError`) on a `text-delta` whose opener it never saw.
+   *
+   * So the server synthesises an opener for EVERY block still open at the
+   * cursor, carrying the SAME block id as the original and NO `id:` line of its
+   * own — it re-announces a block rather than recording a new event, so it must
+   * not move the reader's cursor. Measured on a turn dropped while both a text
+   * and a reasoning block were open: the resumed stream opened `text-start`,
+   * `reasoning-start`, and those were the ONLY two of its 20 frames that
+   * carried no cursor. Everything after them is the real log, replayed from the
+   * frame AFTER the cursor.
+   *
+   * 🔴 **THE CURSOR IS EXCLUSIVE AND TEXT ACCUMULATES BY APPENDING.** Resuming
+   * at `<turn>:13` replays from `<turn>:14`, so the two halves of the answer
+   * join with no overlap and no gap. Resuming from a cursor EARLIER than what
+   * you rendered duplicates text instead of correcting it, which is why
+   * {@link ChatTurnStatus.lastEventId} is the wrong value to reattach with
+   * after a drop: it is the newest frame RECORDED, not the newest you received.
+   *
+   * With no cursor at all the whole turn replays from its first frame — right
+   * for a page that reloaded and holds nothing, wrong for a client that only
+   * lost its socket.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param auth - The session token. The conversation is the token's own claim;
+   *   there is no parameter that can name a different one.
+   * @param opts - `lastEventId` is the cursor; `onEventId` keeps the next one.
+   */
+  resume(
+    deploymentId: string,
+    auth: ChatStreamAuth,
+    opts: ChatResumeOptions = {}
+  ): AsyncGenerator<ChatStreamChunk, void, undefined> {
+    return this.http.requestSSE<ChatStreamChunk>(
+      "GET",
+      `/deployments/${deploymentId}/chat/stream`,
+      {
+        chatSessionToken: auth.token,
+        ...(cursorHeaders(opts.lastEventId) !== undefined && {
+          headers: cursorHeaders(opts.lastEventId)
+        }),
+        ...(opts.onEventId !== undefined && { onEventId: opts.onEventId })
+      }
+    );
+  }
+
+  /**
+   * Reattach to the newest turn and hand back the `Response` ITSELF, unread.
+   *
+   * The resume half of {@link streamRaw}, and the door `useChat({ resume:
+   * true })` needs: the AI SDK issues a GET at the same endpoint it POSTs to,
+   * so a customer proxying Nexus forwards this body verbatim from their own
+   * `GET` handler exactly as they forward {@link streamRaw} from their `POST`.
+   *
+   * ```ts
+   * // app/api/chat/route.ts
+   * export async function GET(req: Request) {
+   *   const upstream = await client.chat.resumeRaw(deploymentId, { token }, {
+   *     ...(req.headers.get("last-event-id") && {
+   *       lastEventId: req.headers.get("last-event-id") as string
+   *     })
+   *   });
+   *   return new Response(upstream.body, { headers: upstream.headers });
+   * }
+   * ```
+   *
+   * 🔴 **THE CALLER OWNS THE BODY.** Nothing here reads or cancels it.
+   */
+  async resumeRaw(
+    deploymentId: string,
+    auth: ChatStreamAuth,
+    opts: ChatResumeCursor = {}
+  ): Promise<Response> {
+    return this.http.openStream("GET", `/deployments/${deploymentId}/chat/stream`, {
+      chatSessionToken: auth.token,
+      ...(cursorHeaders(opts.lastEventId) !== undefined && {
+        headers: cursorHeaders(opts.lastEventId)
+      })
+    });
+  }
+
+  /**
+   * Stop the agent turn running on this conversation.
+   *
+   * 🔴 **THE RESPONSE REPORTS ACCEPTANCE, NEVER EFFECT, AND THAT IS FORCED BY
+   * THE TRANSPORT RATHER THAN CHOSEN.** The abort reaches the pod running the
+   * generation through a fire-and-forget publish, so nothing this request can
+   * compute knows whether it landed. Measured on the live route: deltas kept
+   * arriving for a few hundred milliseconds after the 200 and the terminal
+   * frames landed about 1.4 s later.
+   *
+   * 🔴 **THE WIRE SHAPE OF A STOP IS NOT ONE SHAPE, WHICH IS WHY
+   * {@link status} EXISTS.** Measured on two staging deployments in the same
+   * session: one ended `abort {"reason":"user-stop"}` → `finish
+   * {"finishReason":"other"}`, the other ended `data-nexus-error` → `error`
+   * carrying an upstream 500 — the provider surfaced the cancellation as a
+   * failure. Even the clean shape's `finishReason: "other"` cannot tell a stop
+   * from anything else that ended a turn early.
+   *
+   * `status().outcome === "stopped"` was identical across both, and it is the
+   * only reading that was. Do not branch on the frames.
+   *
+   * Nothing is deleted: the turn keeps its messages, its billing and its place
+   * in the conversation. It stops generating.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param body - Optional. Naming `turnId` is strictly safer than omitting it:
+   *   a stop that raced a turn ending cannot then reach the turn that started
+   *   after the client last looked.
+   * @param auth - The session token. The conversation is its own claim.
+   */
+  async stop(
+    deploymentId: string,
+    body: StopChatTurnBody,
+    auth: ChatStreamAuth
+  ): Promise<ChatStopResult> {
+    return this.http.request<ChatStopResult>("POST", `/deployments/${deploymentId}/chat/stop`, {
+      body,
+      chatSessionToken: auth.token
+    });
+  }
+
+  /**
+   * What is happening on this conversation right now.
+   *
+   * Read from the durable stream log rather than from a pod's in-process
+   * execution slot, so every replica answers the same. This is the door for
+   * "did my stop land" (`outcome === "stopped"`) and for "is a turn still
+   * running" after a page reload.
+   *
+   * ⚠️ `running: true` is a statement about the RECORD. A turn whose pod died
+   * before it could settle reads `true` for ever, and nothing on this surface
+   * can tell that from a turn that is genuinely still thinking.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param auth - The session token. The conversation is its own claim.
+   */
+  async status(deploymentId: string, auth: ChatStreamAuth): Promise<ChatTurnStatus> {
+    return this.http.request<ChatTurnStatus>("GET", `/deployments/${deploymentId}/chat/status`, {
       chatSessionToken: auth.token
     });
   }

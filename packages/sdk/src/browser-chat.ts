@@ -23,7 +23,8 @@ import { ChatResource } from "./resources/chat";
  * ## What it can and cannot do
  *
  * It returns a {@link ChatResource} and no client, deliberately: the type is
- * the boundary. `stream()` and `streamRaw()` take a token per call and work.
+ * the boundary. Every method that takes a token per call works — `stream()`,
+ * `streamRaw()`, `resume()`, `resumeRaw()`, `stop()` and `status()`.
  * `createSession()` is on the same object and will THROW by name — it mints
  * with the org API key, which is the one credential that must never reach a
  * browser, so the refusal is the contract rather than a gap.
@@ -36,6 +37,13 @@ import { ChatResource } from "./resources/chat";
  *   if (chunk.type === "text-delta") append(chunk.delta);
  * }
  * ```
+ *
+ * ## The three a real chat UI needs beyond `stream()`
+ *
+ * A page is reloaded, a tab sleeps, a visitor changes their mind. `stop()` is
+ * the Stop button, `status()` answers "is a turn still running" after a
+ * reload, and `resume()` reattaches to a turn already in flight — all on the
+ * same session token, all reachable from the browser.
  *
  * 🔴 A 401 from a chat route means the session is finished — expired, revoked,
  * wrong deployment or forged all answer identically, on purpose. Ask your own

@@ -358,11 +358,22 @@ export const GENERATED_NAMESPACE_LEDGER = [
     // performs both, so it binds the STREAM descriptor — the one whose body a
     // caller composes — and `chat session` binds the mint.
     //
-    // `ChatSendMessageStream` is a `rawResponse` route. The binding is about the
-    // REQUEST slots (route, required fields, `--print-contract`), which a stream
-    // has exactly like any other route; nothing here describes the response.
+    // `ChatSendMessageStream` and `ChatResumeStream` are `rawResponse` routes.
+    // The binding is about the REQUEST slots (route, required fields,
+    // `--print-contract`), which a stream has exactly like any other route;
+    // nothing here describes the response.
+    //
+    // The control half — stop, status, resume — takes the same session token as
+    // the stream, so its three descriptors sit here rather than in a namespace
+    // of their own: they address one conversation named by one credential.
     namespace: "chat",
-    descriptors: ["ChatSendMessageStream", "DeploymentChatSessionCreate"]
+    descriptors: [
+      "ChatSendMessageStream",
+      "ChatResumeStream",
+      "ChatStopTurn",
+      "ChatTurnStatus",
+      "DeploymentChatSessionCreate"
+    ]
   },
   {
     namespace: "docs",

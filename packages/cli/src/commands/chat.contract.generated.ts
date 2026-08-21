@@ -17,6 +17,15 @@
 
 import type { ProjectedDescriptor } from "../contract-help.render";
 
+export const CHAT_RESUME_STREAM_CONTRACT = {
+  name: "ChatResumeStream",
+  method: "GET",
+  route: "/public/v1/deployments/:deploymentId/chat/stream",
+  fields: [
+    { path: "PathVars.deploymentId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const CHAT_SEND_MESSAGE_STREAM_CONTRACT = {
   name: "ChatSendMessageStream",
   method: "POST",
@@ -35,6 +44,25 @@ export const CHAT_SEND_MESSAGE_STREAM_CONTRACT = {
     { path: "Body.messageId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.knowledgeIds", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.images", slot: "Body", type: "array", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const CHAT_STOP_TURN_CONTRACT = {
+  name: "ChatStopTurn",
+  method: "POST",
+  route: "/public/v1/deployments/:deploymentId/chat/stop",
+  fields: [
+    { path: "PathVars.deploymentId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.turnId", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const CHAT_TURN_STATUS_CONTRACT = {
+  name: "ChatTurnStatus",
+  method: "GET",
+  route: "/public/v1/deployments/:deploymentId/chat/status",
+  fields: [
+    { path: "PathVars.deploymentId", slot: "PathVars", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

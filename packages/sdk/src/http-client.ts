@@ -307,6 +307,24 @@ export interface RequestOptions {
    * Mint one with `client.chat.createSession()`, which uses the org API key.
    */
   chatSessionToken?: string;
+  /**
+   * Called with an SSE record's `id:` field once that record's frame has been
+   * consumed. `requestSSE` only.
+   *
+   * A frame iterator yields parsed `data:` payloads, so `id:` is otherwise
+   * dropped — and on this API that field is the RESUME CURSOR, which makes its
+   * absence the difference between a stream you can reattach to and one you can
+   * only replay from the beginning.
+   *
+   * Two properties are deliberate and both are load-bearing:
+   *
+   * - **A record with no `id:` does not call this.** A resumed stream opens
+   *   with a SYNTHESISED frame that reopens the block the cursor landed inside;
+   *   it is not a log entry and must not move the reader's position.
+   * - **It fires AFTER the frame is yielded**, so a consumer that throws mid
+   *   frame has not advanced its own cursor past a frame it never handled.
+   */
+  onEventId?: (eventId: string) => void;
 }
 
 interface ApiSuccessEnvelope<T> {
@@ -422,6 +440,49 @@ function parseSSEData<T>(record: string): T | undefined {
     return JSON.parse(payload) as T;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * The `id:` field of one SSE record, or `undefined` when it carries none.
+ *
+ * `undefined` is a real answer here rather than a parse failure: the chat
+ * resume stream deliberately opens with a synthesised frame that carries NO
+ * `id:`, because it re-announces a block the reader is already inside and must
+ * not move the reader's cursor. Defaulting a missing field to anything would
+ * turn that design into a replayed opener.
+ *
+ * The LAST `id:` line wins, as the SSE specification requires — unlike `data:`,
+ * which accumulates.
+ */
+function parseSSEEventId(record: string): string | undefined {
+  let eventId: string | undefined;
+
+  for (const line of record.split("\n")) {
+    if (line.startsWith("id:")) eventId = line.slice("id:".length).trimStart();
+  }
+
+  return eventId;
+}
+
+/**
+ * Hand one record's `id:` to the caller's cursor sink, if it has one.
+ *
+ * A throwing sink must not destroy a stream a caller has already half-rendered
+ * — the same reason `parseSSEData` skips a malformed frame instead of throwing
+ * on it — so the callback's own failure is swallowed here. It is a bookkeeping
+ * hook, not a step in delivering the turn.
+ */
+function reportEventId(record: string, sink: ((eventId: string) => void) | undefined): void {
+  if (sink === undefined) return;
+
+  const eventId = parseSSEEventId(record);
+  if (eventId === undefined) return;
+
+  try {
+    sink(eventId);
+  } catch {
+    // Deliberately ignored — see above.
   }
 }
 
@@ -996,12 +1057,17 @@ export class HttpClient {
 
         for (const record of records) {
           const frame = parseSSEData<T>(record);
-          if (frame !== undefined) yield frame;
+          if (frame === undefined) continue;
+          yield frame;
+          reportEventId(record, opts.onEventId);
         }
       }
 
       const last = parseSSEData<T>(buffer);
-      if (last !== undefined) yield last;
+      if (last !== undefined) {
+        yield last;
+        reportEventId(buffer, opts.onEventId);
+      }
     } finally {
       await reader.cancel().catch(() => undefined);
     }

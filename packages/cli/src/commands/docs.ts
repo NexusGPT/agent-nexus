@@ -172,6 +172,23 @@ Notes:
       const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl, globals.profile).replace(/\/+$/, "")}/docs`;
       const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
 
+      // ══════════════════════════════════════════════════════════════════════
+      // 🚨 `docs/cli`, NOT `docs/api-reference/cli/overview` — THAT SLUG 404s.
+      // ══════════════════════════════════════════════════════════════════════
+      // `content/docs/navigation.json` declares three tabs — `user-manual`,
+      // `cli` and `api-reference` — and the CLI pages live under `content/docs/cli/`.
+      // `content/docs/api-reference/cli/` has never existed, so the link this
+      // command printed resolved to nothing:
+      //
+      //   GET /api/docs/page/api-reference/cli/overview  ->  404
+      //   GET /api/docs/page/cli                         ->  200
+      //
+      // Measured against production 2026-08-21. Nothing catches a bad slug here:
+      // these are strings this command prints, so no gate reads them and the
+      // dashboard host answers 200 for every path anyway.
+      const cliReferenceUrl = `${docsUrl}/cli`;
+      const apiReferenceUrl = `${docsUrl}/api-reference/authentication`;
+
       // THE SAME LINKS, AS A DOCUMENT. This branch printed prose unconditionally
       // — `nexus --json docs` answered 412 bytes of ANSI-coloured text at exit 0,
       // on a command whose whole output is five URLs a script would happily use.
@@ -182,8 +199,8 @@ Notes:
         emitDocument({
           docs: {
             web: docsUrl,
-            cliReference: `${docsUrl}/api-reference/cli/overview`,
-            apiReference: `${docsUrl}/api-reference/authentication`,
+            cliReference: cliReferenceUrl,
+            apiReference: apiReferenceUrl,
             llmsIndex: feeds.index,
             llmsFull: feeds.full
           }
@@ -193,8 +210,8 @@ Notes:
 
       console.log(color.bold("Nexus Documentation\n"));
       console.log(`  Full docs:     ${color.cyan(docsUrl)}`);
-      console.log(`  CLI reference: ${color.cyan(`${docsUrl}/api-reference/cli/overview`)}`);
-      console.log(`  API reference: ${color.cyan(`${docsUrl}/api-reference/authentication`)}`);
+      console.log(`  CLI reference: ${color.cyan(cliReferenceUrl)}`);
+      console.log(`  API reference: ${color.cyan(apiReferenceUrl)}`);
       console.log(`  LLM index:     ${color.cyan(feeds.index)}`);
       console.log(`  LLM full:      ${color.cyan(feeds.full)}`);
       console.log();

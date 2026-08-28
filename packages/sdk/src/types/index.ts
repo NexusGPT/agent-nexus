@@ -22,6 +22,7 @@
 
 export type * from "./access-cards";
 export type * from "./agent-collections";
+export type * from "./agent-evals";
 export type * from "./agent-skills";
 export type * from "./agent-tools";
 export type * from "./agents";
@@ -51,6 +52,7 @@ export type * from "./models";
 export type * from "./permissions";
 export type * from "./phone-numbers";
 export type * from "./roles";
+export type * from "./scores";
 export type * from "./skill-folders";
 export type * from "./skills";
 export type * from "./tickets";

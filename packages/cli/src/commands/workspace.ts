@@ -3,7 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { WorkspaceKind } from "@agent-nexus/sdk";
+import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  type WorkspaceKind
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -323,11 +328,43 @@ interface MountTarget {
  * read-write silently. The write still fails at the gateway; all that is lost
  * is the warning.
  */
+/**
+ * What the list call did, for a caller that must tell "could not ask" apart
+ * from "asked and the slug is not shared".
+ *
+ * 🚨 A NULL `target` ALWAYS MEANS THE LIST CALL FAILED. A successful list
+ * yields an object on every path, so `target === null` is never "not found" —
+ * it is only ever "nobody asked the server". `listError` is that failure,
+ * carried out rather than swallowed, so the caller can rethrow it and let the
+ * CLI's own taxonomy name the cause. Swallowing it is what made `workspace
+ * mount` report a network failure as CLI_UNKNOWN_ERROR.
+ */
+export type MountTargetResolution = {
+  target: MountTarget | null;
+  /** The error `workspaces.list()` threw, or `null` when it succeeded. */
+  listError: unknown;
+};
+
+/**
+ * The degrading wrapper, kept for callers that genuinely do not care WHY the
+ * list was unavailable — the default bare-slug mount path, which is documented
+ * above as best-effort. Anything that REPORTS a failure to the user must use
+ * {@link resolveMountTargetDetailed} instead, or it will report a cause it
+ * never looked at.
+ */
 export async function resolveMountTarget(
   client: ReturnType<typeof createClient>,
   slug: string,
   wantShared: boolean
 ): Promise<MountTarget | null> {
+  return (await resolveMountTargetDetailed(client, slug, wantShared)).target;
+}
+
+export async function resolveMountTargetDetailed(
+  client: ReturnType<typeof createClient>,
+  slug: string,
+  wantShared: boolean
+): Promise<MountTargetResolution> {
   // `kind` is on the wire (`WorkspaceItemSchema`) and was missing from this
   // annotation AND from the SDK's own `Workspace` interface, so no compiler
   // anywhere could see that the mount path never read it. Both are widened
@@ -336,18 +373,21 @@ export async function resolveMountTarget(
   let workspaces: { id: string; slug: string; isShared: boolean; kind: WorkspaceKind }[];
   try {
     ({ workspaces } = await client.workspaces.list());
-  } catch {
-    return null;
+  } catch (listError) {
+    return { target: null, listError };
   }
   const matches = workspaces.filter((w) => w.slug === slug);
   const shared = matches.find((w) => w.isShared);
   const orgOwned = matches.find((w) => !w.isShared);
   const chosen = wantShared ? shared : (orgOwned ?? shared);
   return {
-    shared: !!shared,
-    orgOwned: !!orgOwned,
-    workspaceId: chosen?.id,
-    kind: chosen?.kind
+    target: {
+      shared: !!shared,
+      orgOwned: !!orgOwned,
+      workspaceId: chosen?.id,
+      kind: chosen?.kind
+    },
+    listError: null
   };
 }
 
@@ -372,10 +412,50 @@ function ensureEmptyMountDir(mountPath: string): void {
 // ── Native WebDAV (macOS `mount_webdav`) ──────────────────────────────────────
 
 /** Mint a scoped, expiring mount token from the API key (header auth). */
+/**
+ * 🚨 THIS IS A RAW `fetch`, SO IT INHERITS NONE OF THE SDK'S ERROR TAXONOMY —
+ * AND `handleError` CODES BY CLASS, NOT BY MESSAGE.
+ *
+ * A bare `fetch` rejection is a `TypeError`. It matches no branch in
+ * `handleError`, so it fell all the way through to `CLI_UNKNOWN_ERROR` — a plain
+ * unreachable-API failure reported as "something unknown happened", on a command
+ * that had already diagnosed it. A non-2xx was the same story one line down: a
+ * plain `Error` carrying the status only inside its message, where nothing reads
+ * it.
+ *
+ * So every throw below raises the error the SDK transport would have raised for
+ * the same failure. `workspace mount` then reports the same cause under the same
+ * code as every command that goes through the client, and the mount route stops
+ * being the one place in the CLI where a network failure is anonymous.
+ *
+ * The cause's own message is folded into the connection error rather than
+ * dropped: the code is what the caller branches on, but the text is what a human
+ * debugs with.
+ */
 async function mintMountToken(baseUrl: string, apiKey: string): Promise<string> {
-  const res = await fetch(`${baseUrl}/api/dav/_token`, { headers: { "api-key": apiKey } });
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/api/dav/_token`, { headers: { "api-key": apiKey } });
+  } catch (cause) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    throw new NexusConnectionError(
+      `Could not reach ${baseUrl} to mint a mount token${detail}`,
+      cause instanceof Error ? cause : undefined
+    );
+  }
   if (!res.ok) {
-    throw new Error(`Failed to mint a mount token (HTTP ${res.status}): ${await res.text()}`);
+    // MIRROR `http-client.ts`'s OWN MAPPING, never a code this file invents.
+    // `handleError` prints `NexusApiError.code` as-is, so a CLI-minted
+    // `MOUNT_TOKEN_FAILED` would read as a code the SERVER sent. Worse, it
+    // routes by CLASS first: a 401 raised as a plain `NexusApiError` skips the
+    // `NexusAuthenticationError` branch entirely and loses the "run nexus auth
+    // login" hint — the one remedy that matters for the failure most likely
+    // here. `HTTP_${status}` is the SDK's default for every other status, so
+    // this route reports exactly what the same failure reports everywhere else.
+    const message = `Failed to mint a mount token: ${await res.text()}`;
+    throw res.status === 401
+      ? new NexusAuthenticationError(message)
+      : new NexusApiError(`HTTP_${res.status}`, message, res.status);
   }
   const body = (await res.json()) as { token?: string };
   if (!body.token) throw new Error("The mount-token endpoint returned no token.");
@@ -1266,7 +1346,11 @@ Notes:
           // can silently mount the wrong drive (NEX-2362). Best-effort: a list
           // hiccup degrades to the legacy bare-slug mount rather than blocking.
           const client = createClient(program.optsWithGlobals());
-          const target = await resolveMountTarget(client, slug, !!opts.shared);
+          const { target, listError } = await resolveMountTargetDetailed(
+            client,
+            slug,
+            !!opts.shared
+          );
 
           // `--shared` is an explicit request, so never proceed unverified: a
           // missing list (target === null) means we couldn't confirm the shared
@@ -1276,9 +1360,19 @@ Notes:
           // (bare-slug) path still degrades gracefully when the list is missing.
           if (opts.shared) {
             if (!target) {
-              throw new Error(
-                `Couldn't verify workspaces for "${slug}" — fetching the workspace list failed. ` +
-                  `Retry, or run \`nexus workspace list\` to confirm the admin-shared workspace exists.`
+              // RETHROW THE LIST'S OWN ERROR, never a fresh one. A null target
+              // only ever means `workspaces.list()` threw, and that error already
+              // knows what it was — unreachable API, a 401, a 5xx. Replacing it
+              // with a plain `Error` here erased that: `handleError` had nothing
+              // left to classify and stamped CLI_UNKNOWN_ERROR on a failure the
+              // CLI had just diagnosed, which is the one thing an error document's
+              // `code` must never do. The message below is worth less than the
+              // cause, so the cause wins.
+              throw (
+                listError ??
+                new Error(
+                  `Couldn't verify workspaces for "${slug}" — fetching the workspace list failed.`
+                )
               );
             }
             if (!target.shared) {

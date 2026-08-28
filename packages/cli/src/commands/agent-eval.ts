@@ -1,16 +1,24 @@
-import { HttpClient } from "@agent-nexus/sdk";
+import type {
+  CreateAgentEvalBatchBody,
+  CreateAgentEvalRunBody,
+  CreateAgentEvalScheduleBody,
+  CreateAgentEvalTemplateBody,
+  UpdateAgentEvalScheduleBody,
+  UpdateAgentEvalTemplateBody,
+  UpsertAgentEvalTriggerBody,
+  UpsertAgentEvalWebhookBody
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 
-import { timeoutSecondsToMs } from "../client";
-import { resolveApiKey, resolveBaseUrl } from "../config";
+import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { createContractReporter } from "../contract-warnings";
 import { handleError } from "../errors";
 import { isJsonMode, printSuccess } from "../output";
-import { mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
+  CONVERSATION_EVAL_BATCH_CREATE_CONTRACT,
   CONVERSATION_EVAL_BATCH_LIST__PARAMS_STATUS,
   CONVERSATION_EVAL_BATCH_LIST_CONTRACT,
   CONVERSATION_EVAL_RUN_CREATE__BODY_SOURCE_MODE,
@@ -18,26 +26,52 @@ import {
   CONVERSATION_EVAL_RUN_LIST__PARAMS_SOURCE_MODE,
   CONVERSATION_EVAL_RUN_LIST__PARAMS_STATUS,
   CONVERSATION_EVAL_RUN_LIST_CONTRACT,
+  CONVERSATION_EVAL_SCHEDULE_CREATE_CONTRACT,
   CONVERSATION_EVAL_SCHEDULE_LIST__PARAMS_STATUS,
   CONVERSATION_EVAL_SCHEDULE_LIST_CONTRACT,
+  CONVERSATION_EVAL_SCHEDULE_UPDATE_CONTRACT,
+  CONVERSATION_EVAL_TEMPLATE_CREATE_CONTRACT,
   CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_KIND,
   CONVERSATION_EVAL_TEMPLATE_LIST__PARAMS_SCOPE,
   CONVERSATION_EVAL_TEMPLATE_LIST_CONTRACT,
   CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE__PARAMS_KIND,
   CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE_CONTRACT,
   CONVERSATION_EVAL_TRIGGER_LIST__PARAMS_KIND,
-  CONVERSATION_EVAL_TRIGGER_LIST_CONTRACT
+  CONVERSATION_EVAL_TRIGGER_LIST_CONTRACT,
+  CONVERSATION_EVAL_TRIGGER_UPSERT_CONTRACT,
+  CONVERSATION_EVAL_WEBHOOK_UPSERT_CONTRACT
 } from "./agent-eval.contract.generated";
 
 /**
  * `nexus agent-eval` — LLM-as-judge for multi-turn agent conversations.
  *
- * Thin wrapper over the Public API v1 `/agent-evals/*` surface. Every resource
- * (runs, batches, templates, schedules, triggers, webhooks) maps to one HTTP
- * call via the shared {@link HttpClient}; mutating commands take a `--body`
- * JSON blob (string, .json file, or `-` for stdin) plus a few convenience
- * flags. This keeps the command self-contained — no dedicated SDK resource
- * client is required.
+ * Every command here is one call on `client.agentEvals` — the SDK resource that
+ * owns this surface. Mutating commands take a `--body` JSON blob (string, .json
+ * file, or `-` for stdin) plus a few convenience flags.
+ *
+ * ## Why there is no `HttpClient` in this file any more (NEX-3909)
+ *
+ * This namespace used to build its own transport and name paths as strings.
+ * That was not a shortcut past an SDK method — there was no `/agent-evals`
+ * resource at all, and this file was the only client the domain had. It is what
+ * the `--help` truth gate reported as its one `SDK-BYPASS`: the contract existed
+ * and the CLI reached it without going through the SDK, so the arm that resolves
+ * a command to a route by reading `client.x.y(` found nothing here and every
+ * path operand in the namespace went unjudged.
+ *
+ * Routing through `createClient` also fixed two things the hand-rolled transport
+ * silently did without, because it constructed `HttpClient` directly and passed
+ * only four options:
+ *
+ *   - **the `organization-id` header.** A personal (cross-org) token selects its
+ *     acting org with that header, and nothing here sent one — so every command
+ *     in this namespace acted on whatever org the server defaulted to rather
+ *     than the profile's selected one. Org-scoped keys were unaffected, which is
+ *     why it went unnoticed.
+ *   - **retry notices.** A rate-limited command waited in silence.
+ *
+ * Both come from `createClient` and neither is agent-eval-specific, which is the
+ * argument for having no second transport in the tree at all.
  */
 export function registerAgentEvalCommands(program: Command): void {
   const root = program
@@ -88,37 +122,32 @@ Two facts about reading a finished run:
     is in the same unit.`
   );
 
-  // Build an HttpClient from resolved global options.
-  const http = () => {
-    const globals = program.optsWithGlobals();
-    return new HttpClient({
-      baseUrl: resolveBaseUrl(globals.baseUrl, globals.profile),
-      apiKey: resolveApiKey(globals.apiKey, globals.profile),
-      timeout: timeoutSecondsToMs(globals.timeout),
-      onResponseContract: createContractReporter()
-    });
+  /**
+   * Print a value as this namespace has always printed one: raw JSON, indented
+   * two spaces unless `--json` asked for the compact single-line form.
+   *
+   * ⚠️ The SHAPE is a compatibility surface, not a formatting choice.
+   * `json-shape.generated.ts` pins it and `cli-surface.codegen.test.ts` has this
+   * namespace at STABLE tier, so what reaches stdout must be byte-identical to
+   * what the hand-rolled transport produced. A paginated list arrives from the
+   * SDK already shaped `{ data, meta }`, which is exactly what it printed
+   * before.
+   */
+  const emit = (value: unknown): void => {
+    console.log(JSON.stringify(value, null, isJsonMode() ? undefined : 2));
   };
 
-  // Run a request and pretty-print the unwrapped data (record or list).
-  const send = async (
-    method: string,
-    path: string,
-    opts: { body?: unknown; query?: Record<string, string> } = {}
-  ) => {
-    const { data, meta } = await http().requestWithMeta<unknown>(method, path, opts);
-    if (Array.isArray(data)) {
-      console.log(JSON.stringify({ data, meta }, null, isJsonMode() ? undefined : 2));
-    } else {
-      console.log(JSON.stringify(meta ? { data, meta } : data, null, isJsonMode() ? undefined : 2));
-    }
-  };
-
-  // Collect repeatable query pairs (key=value) into an object.
-  const queryFrom = (pairs: Record<string, string | undefined>): Record<string, string> => {
-    const q: Record<string, string> = {};
-    for (const [k, v] of Object.entries(pairs)) if (v !== undefined) q[k] = String(v);
-    return q;
-  };
+  /**
+   * Print a route that serves a BARE ARRAY.
+   *
+   * It has always gone out under a `data` key with no `meta` — the old
+   * transport took the `Array.isArray(data)` branch and `JSON.stringify` dropped
+   * the undefined `meta` beside it. Three routes are in this class and they are
+   * not an oversight: `run transcript`, `run compare` and `trigger list` are
+   * served by handlers that pass no pagination meta. Wrapping them in a page
+   * would invent a `meta` no payload ever carried.
+   */
+  const emitList = (data: readonly unknown[]): void => emit({ data });
 
   // ─────────────────────────────────────────────────────────────────────────
   // Runs
@@ -144,8 +173,8 @@ Two facts about reading a finished run:
       "after",
       `
 Examples:
-  $ nexus agent-eval run create --name "Refund flow" --source-mode SIMULATED --target-agent-id <agent-uuid> --target-deployment-id <deployment-uuid> --body '{"testerConfig":{"templateId":"<tester-template-uuid>"},"judgeConfigs":[{"templateId":"<rubric-template-uuid>","kRepetitions":3}],"summaryConfig":{"templateId":"<summary-template-uuid>"}}'
-  $ nexus agent-eval run create --name "Inbox spot check" --source-mode INBOX --source-chat-id <chat-uuid> --body '{"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
+  $ nexus agent-eval run create --name "Refund flow" --source-mode SIMULATED --target-agent-id 55555555-5555-4555-8555-555555555555 --target-deployment-id 99999999-9999-4999-8999-999999999999 --body '{"testerConfig":{"templateId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"},"judgeConfigs":[{"templateId":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","kRepetitions":3}],"summaryConfig":{"templateId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"}}'
+  $ nexus agent-eval run create --name "Inbox spot check" --source-mode INBOX --source-chat-id aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa --body '{"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
   $ nexus agent-eval run create --body run.json
 
 Notes:
@@ -215,6 +244,7 @@ Notes:
     )
     .action(async (opts) => {
       try {
+        const client = createClient(program.optsWithGlobals());
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           name: opts.name,
@@ -223,7 +253,7 @@ Notes:
           targetAgentId: opts.targetAgentId,
           sourceChatId: opts.sourceChatId
         });
-        await send("POST", "/agent-evals/runs", { body });
+        emit(await client.agentEvals.runs.create(asRequestBody<CreateAgentEvalRunBody>(body)));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -253,7 +283,7 @@ Notes:
         `
 Examples:
   $ nexus agent-eval run list
-  $ nexus agent-eval run list --agent-id <agent-uuid> --status COMPLETED
+  $ nexus agent-eval run list --agent-id 55555555-5555-4555-8555-555555555555 --status COMPLETED
   $ nexus agent-eval run list --source-mode SIMULATED --limit 5
 
 Notes:
@@ -267,13 +297,15 @@ Notes:
       )
   ).action(async (opts) => {
     try {
-      const query = queryFrom({
-        ...(getPaginationParams(opts) as Record<string, string>),
-        agentId: opts.agentId,
-        status: opts.status,
-        sourceMode: opts.sourceMode
-      });
-      await send("GET", "/agent-evals/runs", { query });
+      const client = createClient(program.optsWithGlobals());
+      emit(
+        await client.agentEvals.runs.list({
+          ...getPaginationParams(opts),
+          agentId: opts.agentId,
+          status: opts.status,
+          sourceMode: opts.sourceMode
+        })
+      );
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -287,7 +319,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run get <run-uuid>
+  $ nexus agent-eval run get 11111111-1111-4111-8111-111111111111
 
 Notes:
   The poll target for a queued run: read status until it reaches COMPLETED,
@@ -301,7 +333,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/runs/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.runs.get(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -314,8 +347,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run delete <run-uuid>
-  $ nexus agent-eval run delete <run-uuid> --yes
+  $ nexus agent-eval run delete 11111111-1111-4111-8111-111111111111
+  $ nexus agent-eval run delete 11111111-1111-4111-8111-111111111111 --yes
 
 Notes:
   IT TAKES THE TRANSCRIPT AND THE SCORES WITH IT. Every turn of the conversation,
@@ -329,7 +362,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         if (!(await confirmDestructive(`Delete run ${id}?`, opts))) return;
-        await http().request("DELETE", `/agent-evals/runs/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.runs.delete(id);
         printSuccess(`Deleted run ${id}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -344,7 +378,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run execute <run-uuid>
+  $ nexus agent-eval run execute 11111111-1111-4111-8111-111111111111
 
 Notes:
   IT ONLY ENQUEUES. The call returns as soon as the run is QUEUED — the
@@ -360,7 +394,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("POST", `/agent-evals/runs/${id}/execute`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.runs.execute(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -374,7 +409,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run abort <run-uuid>
+  $ nexus agent-eval run abort 11111111-1111-4111-8111-111111111111
 
 Notes:
   Stops a run in flight and records terminationReason ABORTED. It does NOT refund
@@ -385,7 +420,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("POST", `/agent-evals/runs/${id}/abort`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.runs.abort(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -399,7 +435,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run transcript <run-uuid>
+  $ nexus agent-eval run transcript 11111111-1111-4111-8111-111111111111
 
 Notes:
   The conversation the judges scored, turn by turn, with each role: TESTER and
@@ -411,7 +447,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/runs/${id}/transcript`);
+        const client = createClient(program.optsWithGlobals());
+        emitList(await client.agentEvals.runs.transcript(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -425,7 +462,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run results <run-uuid>
+  $ nexus agent-eval run results 11111111-1111-4111-8111-111111111111
 
 Notes:
   Answers {run, judgeResults, rollups, baselineDiffs}. rollups is the per-criterion
@@ -444,7 +481,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/runs/${id}/results`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.runs.results(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -459,7 +497,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval run compare <run-uuid> --baseline <baseline-run-uuid>
+  $ nexus agent-eval run compare 11111111-1111-4111-8111-111111111111 --baseline 22222222-2222-4222-8222-222222222222
 
 Notes:
   Both runs must have been judged on the SAME criteria — a comparison across
@@ -472,9 +510,8 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        await send("GET", `/agent-evals/runs/${id}/compare`, {
-          query: { baselineRunId: opts.baseline }
-        });
+        const client = createClient(program.optsWithGlobals());
+        emitList(await client.agentEvals.runs.compare(id, opts.baseline));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -485,7 +522,7 @@ Notes:
   // ─────────────────────────────────────────────────────────────────────────
   const batch = root.command("batch").description("Manage batch evaluations");
 
-  batch
+  const batchCreate = batch
     .command("create")
     .description("Create + enqueue a batch over a conversation filter")
     .requiredOption("--body <json>", "Batch config JSON (string, .json file, or '-' for stdin)")
@@ -493,7 +530,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval batch create --body '{"name":"Weekly sample","filterJson":{"agentId":"<agent-uuid>","dateRange":{"from":"2026-08-01","to":"2026-08-07"}},"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
+  $ nexus agent-eval batch create --body '{"name":"Weekly sample","filterJson":{"agentId":"55555555-5555-4555-8555-555555555555","dateRange":{"from":"2026-08-01","to":"2026-08-07"}},"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
   $ nexus agent-eval batch create --body batch.json
 
 Notes:
@@ -511,7 +548,12 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        await send("POST", "/agent-evals/batches", { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.batches.create(
+            asRequestBody<CreateAgentEvalBatchBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -543,11 +585,13 @@ Notes:
       )
   ).action(async (opts) => {
     try {
-      const query = queryFrom({
-        ...(getPaginationParams(opts) as Record<string, string>),
-        status: opts.status
-      });
-      await send("GET", "/agent-evals/batches", { query });
+      const client = createClient(program.optsWithGlobals());
+      emit(
+        await client.agentEvals.batches.list({
+          ...getPaginationParams(opts),
+          status: opts.status
+        })
+      );
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -561,7 +605,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval batch get <batch-uuid>
+  $ nexus agent-eval batch get 33333333-3333-4333-8333-333333333333
 
 Notes:
   Carries the batch plus the aggregate scorecard across its child runs. The
@@ -574,7 +618,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/batches/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.batches.get(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -624,7 +669,7 @@ Two facts about ownership:
         `
 Examples:
   $ nexus agent-eval template list
-  $ nexus agent-eval template list --agent-id <agent-uuid> --kind JUDGE_RUBRIC
+  $ nexus agent-eval template list --agent-id 55555555-5555-4555-8555-555555555555 --kind JUDGE_RUBRIC
   $ nexus agent-eval template list --scope GLOBAL
 
 Notes:
@@ -637,13 +682,15 @@ Notes:
       )
   ).action(async (opts) => {
     try {
-      const query = queryFrom({
-        ...(getPaginationParams(opts) as Record<string, string>),
-        agentId: opts.agentId,
-        kind: opts.kind,
-        scope: opts.scope
-      });
-      await send("GET", "/agent-evals/templates", { query });
+      const client = createClient(program.optsWithGlobals());
+      emit(
+        await client.agentEvals.templates.list({
+          ...getPaginationParams(opts),
+          agentId: opts.agentId,
+          kind: opts.kind,
+          scope: opts.scope
+        })
+      );
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -665,8 +712,8 @@ Notes:
         "after",
         `
 Examples:
-  $ nexus agent-eval template importable --agent-id <agent-uuid>
-  $ nexus agent-eval template importable --agent-id <agent-uuid> --kind TESTER_PERSONA
+  $ nexus agent-eval template importable --agent-id 55555555-5555-4555-8555-555555555555
+  $ nexus agent-eval template importable --agent-id 55555555-5555-4555-8555-555555555555 --kind TESTER_PERSONA
 
 Notes:
   Other agents' templates that this agent could import, with the ones already
@@ -679,12 +726,14 @@ Notes:
       )
   ).action(async (opts) => {
     try {
-      const query = queryFrom({
-        ...(getPaginationParams(opts) as Record<string, string>),
-        agentId: opts.agentId,
-        kind: opts.kind
-      });
-      await send("GET", "/agent-evals/templates/importable", { query });
+      const client = createClient(program.optsWithGlobals());
+      emit(
+        await client.agentEvals.templates.listImportable({
+          ...getPaginationParams(opts),
+          agentId: opts.agentId,
+          kind: opts.kind
+        })
+      );
     } catch (err) {
       process.exitCode = handleError(err);
     }
@@ -698,7 +747,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template get <template-uuid>
+  $ nexus agent-eval template get 44444444-4444-4444-8444-444444444444
 
 Notes:
   The prompt text is systemPrompt for all three kinds.
@@ -709,13 +758,14 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/templates/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.templates.get(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
     });
 
-  template
+  const templateCreate = template
     .command("create")
     .description("Create an agent-scoped template")
     .requiredOption("--body <json>", "Template JSON (string, .json file, or '-' for stdin)")
@@ -723,8 +773,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template create --body '{"agentId":"<agent-uuid>","kind":"TESTER_PERSONA","name":"Impatient shopper","systemPrompt":"You are a hurried customer…","endSignal":"DONE"}'
-  $ nexus agent-eval template create --body '{"agentId":"<agent-uuid>","kind":"JUDGE_RUBRIC","name":"Helpfulness","criterion":"helpfulness","systemPrompt":"Score 1-5 where…"}'
+  $ nexus agent-eval template create --body '{"agentId":"55555555-5555-4555-8555-555555555555","kind":"TESTER_PERSONA","name":"Impatient shopper","systemPrompt":"You are a hurried customer…","endSignal":"DONE"}'
+  $ nexus agent-eval template create --body '{"agentId":"55555555-5555-4555-8555-555555555555","kind":"JUDGE_RUBRIC","name":"Helpfulness","criterion":"helpfulness","systemPrompt":"Score 1-5 where…"}'
   $ nexus agent-eval template create --body template.json
 
 Notes:
@@ -743,7 +793,12 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        await send("POST", "/agent-evals/templates", { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.templates.create(
+            asRequestBody<CreateAgentEvalTemplateBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -758,8 +813,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template update <template-uuid> --body '{"systemPrompt":"Revised rubric…"}'
-  $ nexus agent-eval template update <template-uuid> --body '{"endConversationSchema":null}'
+  $ nexus agent-eval template update 44444444-4444-4444-8444-444444444444 --body '{"systemPrompt":"Revised rubric…"}'
+  $ nexus agent-eval template update 44444444-4444-4444-8444-444444444444 --body '{"endConversationSchema":null}'
 
 Notes:
   A GLOBAL SEED IS IMMUTABLE — 403. Clone it first, then update the clone.
@@ -773,7 +828,13 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        await send("PATCH", `/agent-evals/templates/${id}`, { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.templates.update(
+            id,
+            asRequestBody<UpdateAgentEvalTemplateBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -786,8 +847,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template delete <template-uuid>
-  $ nexus agent-eval template delete <template-uuid> --yes
+  $ nexus agent-eval template delete 44444444-4444-4444-8444-444444444444
+  $ nexus agent-eval template delete 44444444-4444-4444-8444-444444444444 --yes
 
 Notes:
   A GLOBAL seed cannot be deleted (403).
@@ -802,7 +863,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         if (!(await confirmDestructive(`Delete template ${id}?`, opts))) return;
-        await http().request("DELETE", `/agent-evals/templates/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.templates.delete(id);
         printSuccess(`Deleted template ${id}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -819,8 +881,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template clone <seed-template-uuid> --agent-id <agent-uuid>
-  $ nexus agent-eval template clone <seed-template-uuid> --agent-id <agent-uuid> --name "Helpfulness, strict"
+  $ nexus agent-eval template clone eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee --agent-id 55555555-5555-4555-8555-555555555555
+  $ nexus agent-eval template clone eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee --agent-id 55555555-5555-4555-8555-555555555555 --name "Helpfulness, strict"
 
 Notes:
   THE ONLY WAY TO EDIT A GLOBAL SEED: clone it, then update the copy. The clone is
@@ -831,9 +893,13 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        await send("POST", `/agent-evals/templates/${id}/clone`, {
-          body: { agentId: opts.agentId, ...(opts.name ? { name: opts.name } : {}) }
-        });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.templates.clone(id, {
+            agentId: opts.agentId,
+            ...(opts.name ? { name: opts.name } : {})
+          })
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -848,7 +914,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template attach <template-uuid> --agent-id <agent-uuid>
+  $ nexus agent-eval template attach 44444444-4444-4444-8444-444444444444 --agent-id 55555555-5555-4555-8555-555555555555
 
 Notes:
   ATTACH SHARES THE ROW, IT DOES NOT COPY IT. The owning agent's later edits apply
@@ -860,9 +926,8 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        await send("POST", `/agent-evals/templates/${id}/attach`, {
-          body: { agentId: opts.agentId }
-        });
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.templates.attach(id, { agentId: opts.agentId }));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -876,8 +941,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval template detach <template-uuid> <agent-uuid>
-  $ nexus agent-eval template detach <template-uuid> <agent-uuid> --yes
+  $ nexus agent-eval template detach 44444444-4444-4444-8444-444444444444 55555555-5555-4555-8555-555555555555
+  $ nexus agent-eval template detach 44444444-4444-4444-8444-444444444444 55555555-5555-4555-8555-555555555555 --yes
 
 Notes:
   Takes the template away from ONE agent and leaves it intact for the others —
@@ -895,7 +960,8 @@ Notes:
       try {
         if (!(await confirmDestructive(`Detach template ${id} from agent ${agentId}?`, opts)))
           return;
-        await http().request("DELETE", `/agent-evals/templates/${id}/agents/${agentId}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.templates.detach(id, agentId);
         printSuccess(`Detached template ${id} from agent ${agentId}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -907,7 +973,7 @@ Notes:
   // ─────────────────────────────────────────────────────────────────────────
   const schedule = root.command("schedule").description("Manage recurring (cron) evaluations");
 
-  schedule
+  const scheduleCreate = schedule
     .command("create")
     .description("Create a cron schedule")
     .requiredOption("--body <json>", "Schedule JSON (string, .json file, or '-' for stdin)")
@@ -915,7 +981,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval schedule create --body '{"sourceMode":"SIMULATED","cronExpression":"0 9 * * 1","timezone":"Europe/Brussels","runConfig":{"name":"Weekly refund check","targetAgentId":"<agent-uuid>","targetDeploymentId":"<deployment-uuid>","testerConfig":{"resolvedSystemPrompt":"You are a hurried customer…","endSignal":"DONE"},"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}}'
+  $ nexus agent-eval schedule create --body '{"sourceMode":"SIMULATED","cronExpression":"0 9 * * 1","timezone":"Europe/Brussels","runConfig":{"name":"Weekly refund check","targetAgentId":"55555555-5555-4555-8555-555555555555","targetDeploymentId":"99999999-9999-4999-8999-999999999999","testerConfig":{"resolvedSystemPrompt":"You are a hurried customer…","endSignal":"DONE"},"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}}'
   $ nexus agent-eval schedule create --body schedule.json
 
 Notes:
@@ -937,7 +1003,12 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        await send("POST", "/agent-evals/schedules", { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.schedules.create(
+            asRequestBody<CreateAgentEvalScheduleBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -970,17 +1041,19 @@ Notes:
       )
   ).action(async (opts) => {
     try {
-      const query = queryFrom({
-        ...(getPaginationParams(opts) as Record<string, string>),
-        status: opts.status
-      });
-      await send("GET", "/agent-evals/schedules", { query });
+      const client = createClient(program.optsWithGlobals());
+      emit(
+        await client.agentEvals.schedules.list({
+          ...getPaginationParams(opts),
+          status: opts.status
+        })
+      );
     } catch (err) {
       process.exitCode = handleError(err);
     }
   });
 
-  schedule
+  const scheduleUpdateCmd = schedule
     .command("update")
     .description("Update a schedule")
     .argument("<schedule-id>")
@@ -989,8 +1062,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval schedule update <schedule-uuid> --body '{"cronExpression":"0 6 * * *"}'
-  $ nexus agent-eval schedule update <schedule-uuid> --body '{"status":"PAUSED"}'
+  $ nexus agent-eval schedule update 66666666-6666-4666-8666-666666666666 --body '{"cronExpression":"0 6 * * *"}'
+  $ nexus agent-eval schedule update 66666666-6666-4666-8666-666666666666 --body '{"status":"PAUSED"}'
 
 Notes:
   Writable: status (ACTIVE | PAUSED), cronExpression, timezone and runConfig.
@@ -1003,7 +1076,13 @@ Notes:
     )
     .action(async (id: string, opts) => {
       try {
-        await send("PATCH", `/agent-evals/schedules/${id}`, { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.schedules.update(
+            id,
+            asRequestBody<UpdateAgentEvalScheduleBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1016,8 +1095,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval schedule delete <schedule-uuid>
-  $ nexus agent-eval schedule delete <schedule-uuid> --yes
+  $ nexus agent-eval schedule delete 66666666-6666-4666-8666-666666666666
+  $ nexus agent-eval schedule delete 66666666-6666-4666-8666-666666666666 --yes
 
 Notes:
   THE RECIPE GOES WITH THE TIMER. The whole runConfig — tester, judges, summary —
@@ -1032,7 +1111,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         if (!(await confirmDestructive(`Delete schedule ${id}?`, opts))) return;
-        await http().request("DELETE", `/agent-evals/schedules/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.schedules.delete(id);
         printSuccess(`Deleted schedule ${id}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -1047,7 +1127,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval schedule pause <schedule-uuid>
+  $ nexus agent-eval schedule pause 66666666-6666-4666-8666-666666666666
 
 Notes:
   THE WAY TO STOP RECURRING SPEND without losing the recipe. Status becomes PAUSED
@@ -1057,7 +1137,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("POST", `/agent-evals/schedules/${id}/pause`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.schedules.pause(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1071,7 +1152,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval schedule resume <schedule-uuid>
+  $ nexus agent-eval schedule resume 66666666-6666-4666-8666-666666666666
 
 Notes:
   Back to ACTIVE, firing from the NEXT matching cron time — missed ticks are not
@@ -1081,7 +1162,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("POST", `/agent-evals/schedules/${id}/resume`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.schedules.resume(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1092,7 +1174,7 @@ Notes:
   // ─────────────────────────────────────────────────────────────────────────
   const trigger = root.command("trigger").description("Manage opt-in automation triggers");
 
-  trigger
+  const triggerUpsert = trigger
     .command("upsert")
     .description("Upsert a trigger config (AUTO_ON_CLOSE | SCHEDULED_SAMPLE)")
     .requiredOption("--body <json>", "Trigger JSON (string, .json file, or '-' for stdin)")
@@ -1100,7 +1182,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval trigger upsert --body '{"kind":"AUTO_ON_CLOSE","agentId":"<agent-uuid>","enabled":true,"sampleRate":0.1,"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
+  $ nexus agent-eval trigger upsert --body '{"kind":"AUTO_ON_CLOSE","agentId":"55555555-5555-4555-8555-555555555555","enabled":true,"sampleRate":0.1,"judgeConfigs":[{"criterion":"helpfulness","resolvedRubric":"Score 1-5…","provider":"OPEN_AI","model":"gpt-4o","kRepetitions":3}],"summaryConfig":{"resolvedPrompt":"Summarize…","provider":"OPEN_AI","model":"gpt-4o"}}'
   $ nexus agent-eval trigger upsert --body trigger.json
 
 Notes:
@@ -1119,7 +1201,12 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        await send("PUT", "/agent-evals/triggers", { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.triggers.upsert(
+            asRequestBody<UpsertAgentEvalTriggerBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1144,7 +1231,7 @@ Notes:
 Examples:
   $ nexus agent-eval trigger list
   $ nexus agent-eval trigger list --enabled-only
-  $ nexus agent-eval trigger list --agent-id <agent-uuid> --kind AUTO_ON_CLOSE
+  $ nexus agent-eval trigger list --agent-id 55555555-5555-4555-8555-555555555555 --kind AUTO_ON_CLOSE
 
 Notes:
   "trigger list --enabled-only" IS THE AUDIT: it names every automation currently
@@ -1156,13 +1243,18 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        const query = queryFrom({
-          agentId: opts.agentId,
-          deploymentId: opts.deploymentId,
-          kind: opts.kind,
-          enabledOnly: opts.enabledOnly ? "true" : undefined
-        });
-        await send("GET", "/agent-evals/triggers", { query });
+        const client = createClient(program.optsWithGlobals());
+        emitList(
+          await client.agentEvals.triggers.list({
+            agentId: opts.agentId,
+            deploymentId: opts.deploymentId,
+            kind: opts.kind,
+            // Only ever sent when the flag is present. `false` would narrow the
+            // listing to nothing rather than leaving it unfiltered, which is what
+            // the absent flag has always meant here.
+            enabledOnly: opts.enabledOnly ? true : undefined
+          })
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1175,8 +1267,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval trigger delete <trigger-uuid>
-  $ nexus agent-eval trigger delete <trigger-uuid> --yes
+  $ nexus agent-eval trigger delete 77777777-7777-4777-8777-777777777777
+  $ nexus agent-eval trigger delete 77777777-7777-4777-8777-777777777777 --yes
 
 Notes:
   THIS IS THE HARD STOP FOR AUTOMATIC EVALUATION, and it is silent: conversations
@@ -1190,7 +1282,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         if (!(await confirmDestructive(`Delete trigger ${id}?`, opts))) return;
-        await http().request("DELETE", `/agent-evals/triggers/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.triggers.delete(id);
         printSuccess(`Deleted trigger ${id}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -1202,7 +1295,7 @@ Notes:
   // ─────────────────────────────────────────────────────────────────────────
   const webhook = root.command("webhook").description("Manage run/batch webhooks");
 
-  webhook
+  const webhookUpsert = webhook
     .command("upsert")
     .description("Upsert a webhook config")
     .requiredOption("--body <json>", "Webhook JSON (string, .json file, or '-' for stdin)")
@@ -1231,7 +1324,12 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        await send("PUT", "/agent-evals/webhooks", { body: await resolveBody(opts.body) });
+        const client = createClient(program.optsWithGlobals());
+        emit(
+          await client.agentEvals.webhooks.upsert(
+            asRequestBody<UpsertAgentEvalWebhookBody>(await resolveRequiredBody(opts.body))
+          )
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1245,7 +1343,7 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval webhook get <webhook-uuid>
+  $ nexus agent-eval webhook get 88888888-8888-4888-8888-888888888888
 
 Notes:
   THE SECRET IS REDACTED HERE and there is no read-back anywhere: if you have lost
@@ -1254,7 +1352,8 @@ Notes:
     )
     .action(async (id: string) => {
       try {
-        await send("GET", `/agent-evals/webhooks/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        emit(await client.agentEvals.webhooks.get(id));
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1267,8 +1366,8 @@ Notes:
       "after",
       `
 Examples:
-  $ nexus agent-eval webhook delete <webhook-uuid>
-  $ nexus agent-eval webhook delete <webhook-uuid> --yes
+  $ nexus agent-eval webhook delete 88888888-8888-4888-8888-888888888888
+  $ nexus agent-eval webhook delete 88888888-8888-4888-8888-888888888888 --yes
 
 Notes:
   RUNS, BATCHES AND SCHEDULES STILL NAMING IT KEEP RUNNING and simply stop
@@ -1283,7 +1382,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         if (!(await confirmDestructive(`Delete webhook ${id}?`, opts))) return;
-        await http().request("DELETE", `/agent-evals/webhooks/${id}`);
+        const client = createClient(program.optsWithGlobals());
+        await client.agentEvals.webhooks.delete(id);
         printSuccess(`Deleted webhook ${id}`);
       } catch (err) {
         process.exitCode = handleError(err);
@@ -1309,4 +1409,36 @@ Notes:
   bindCommand(templateImportable, CONVERSATION_EVAL_TEMPLATE_LIST_IMPORTABLE_CONTRACT);
   bindCommand(scheduleList, CONVERSATION_EVAL_SCHEDULE_LIST_CONTRACT);
   bindCommand(triggerList, CONVERSATION_EVAL_TRIGGER_LIST_CONTRACT);
+
+  // The `--body`-only writers. Every enum these declare lives INSIDE the JSON
+  // blob rather than behind a flag, so each one is overridden with where to put
+  // it — an unexplained enum here would read as a flag that does not exist.
+  bindCommand(batchCreate, CONVERSATION_EVAL_BATCH_CREATE_CONTRACT, {
+    "Body.judgeConfigs[].provider": "--body only; judgeConfigs is an array of objects",
+    "Body.summaryConfig.provider": "--body only; summaryConfig is a nested object"
+  });
+  bindCommand(templateCreate, CONVERSATION_EVAL_TEMPLATE_CREATE_CONTRACT, {
+    "Body.kind": "--body only; picks which half of the pipeline the template feeds",
+    "Body.defaultProvider": "--body only; used when the template is resolved without one"
+  });
+  bindCommand(scheduleCreate, CONVERSATION_EVAL_SCHEDULE_CREATE_CONTRACT, {
+    "Body.sourceMode": "--body only; simulate a conversation, or ingest an inbox chat",
+    "Body.runConfig.targetVersionMode": "--body only; runConfig is the frozen run recipe",
+    "Body.runConfig.judgeConfigs[].provider":
+      "--body only; runConfig.judgeConfigs is an array of objects",
+    "Body.runConfig.summaryConfig.provider": "--body only; nested inside runConfig"
+  });
+  bindCommand(scheduleUpdateCmd, CONVERSATION_EVAL_SCHEDULE_UPDATE_CONTRACT, {
+    "Body.status": "--body only; ACTIVE or PAUSED — prefer the pause/resume verbs",
+    "Body.runConfig.targetVersionMode": "--body only; runConfig is replaced wholesale",
+    "Body.runConfig.judgeConfigs[].provider":
+      "--body only; runConfig.judgeConfigs is an array of objects",
+    "Body.runConfig.summaryConfig.provider": "--body only; nested inside runConfig"
+  });
+  bindCommand(triggerUpsert, CONVERSATION_EVAL_TRIGGER_UPSERT_CONTRACT, {
+    "Body.kind": "--body only; what causes the trigger to fire"
+  });
+  bindCommand(webhookUpsert, CONVERSATION_EVAL_WEBHOOK_UPSERT_CONTRACT, {
+    "Body.events[]": "--body only; events is an array of strings"
+  });
 }

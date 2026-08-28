@@ -275,6 +275,7 @@ export const TRACK_LIST_CONTRACT = {
   route: "/public/v1/tracks",
   fields: [
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.cursor", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PLANNED", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE"] },
     { path: "Params.archived", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["exclude", "only", "include"] }
   ]
@@ -317,6 +318,18 @@ export const TRACK_LIST_MEMORY_ENTRIES_CONTRACT = {
   route: "/public/v1/tracks/:trackId/memory",
   fields: [
     { path: "PathVars.trackId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const TRACK_LIST_ORGANIZATION_EVENTS_CONTRACT = {
+  name: "TrackListOrganizationEvents",
+  method: "GET",
+  route: "/public/v1/track-events",
+  fields: [
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.cursor", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.since", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

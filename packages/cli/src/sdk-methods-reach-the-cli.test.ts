@@ -92,12 +92,22 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   "skills.getWorkflow": "duplicated by workflows.get",
   // A blocking client-side poll loop over pollStatus. `nexus tool
   // poll-handshake` exposes the single-shot call, so the CLI never blocks.
+  "credentials.waitForConnection": "CLI exposes the single-shot connectStatus",
   "toolConnection.waitForConnection": "CLI exposes the single-shot pollStatus",
   // The workflows resource repeats three execution reads that the dedicated
   // workflowExecutions resource also carries; `nexus execution` drives that one.
   "workflows.getExecutionStatus": "duplicated by workflowExecutions.get",
   "workflows.getNodeExecutionResult": "duplicated by workflowExecutions.getNodeResult",
-  "workflows.stopExecution": "duplicated by workflowExecutions.cancel"
+  "workflows.stopExecution": "duplicated by workflowExecutions.cancel",
+  // The BATCHED roll-up. `nexus tracks rollup <trackId>` drives `readRollups`'
+  // single-track sibling, which is the shape a person at a terminal asks for.
+  // This one exists to collapse a BOARD's `1 + N` requests into two, so its
+  // caller is a UI rendering many tracks at once; a CLI flag taking a
+  // comma-separated id list would be a second spelling of a command that
+  // already exists, for a caller that is not at a terminal. Deliberate, not
+  // forgotten — if a `nexus tracks list` ever grows a progress column, that
+  // column is this method's CLI caller and this line comes out.
+  "tracks.readRollups": "the single-track readRollup is the CLI shape; this batches for a UI"
 };
 
 const isScannableCliFile = (file: string): boolean =>

@@ -10,7 +10,11 @@ export interface MarketplaceToolItem {
   name: string;
   /** Short description of what the tool does. */
   description: string;
-  /** Tool type (e.g. "PLUGIN" for Pipedream-backed tools). */
+  /**
+   * The integration kind: `"PIPEDREAM"`, `"CUSTOM_MANIFEST"`, `"API"`,
+   * `"MANIFEST"`, `"WEBHOOK"` or `"APIFY"`. Send it straight back as
+   * {@link SearchMarketplaceToolsParams.type} to filter on it.
+   */
   type: string;
   /** URL to the tool's icon/logo, if available. */
   imageUrl: string | null;
@@ -24,7 +28,16 @@ export interface SearchMarketplaceToolsParams {
   q?: string;
   /** Filter by category (e.g. "Communication"). */
   category?: string;
-  /** Filter by tool type (e.g. "PLUGIN"). */
+  /**
+   * Filter by integration kind — one of `"PIPEDREAM"`, `"CUSTOM_MANIFEST"`,
+   * `"API"`, `"MANIFEST"`, `"WEBHOOK"` or `"APIFY"`. Anything else is refused
+   * with `400 VALIDATION_ERROR` naming the whole set.
+   *
+   * This is the same closed set {@link MarketplaceToolItem.type} carries, so a
+   * value read off a result can be sent straight back. It is NOT the skill kind
+   * — `"WORKFLOW"`, `"TASK"` and `"COLLECTION"` belong to
+   * {@link ListSkillsParams.type} on `client.tools.skills()`.
+   */
   type?: string;
   /** Max results to return (default 20, max 100). */
   limit?: number;
@@ -121,7 +134,7 @@ export interface MarketplaceToolDetail {
   name: string | null;
   /** Description of the tool. */
   description: string;
-  /** Tool type (e.g. "PLUGIN"). */
+  /** The integration kind — the same closed set as {@link MarketplaceToolItem.type}. */
   type: string;
   /** URL to the tool's icon/logo. */
   imageUrl: string | null;

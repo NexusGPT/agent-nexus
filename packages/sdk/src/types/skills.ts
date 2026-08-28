@@ -214,7 +214,13 @@ export interface CollectionSummary {
   displayName: string | null;
   /** Description of the collection's contents. */
   description: string | null;
-  /** Number of documents in the collection. */
+  /**
+   * Documents in the collection, read from the STORED `Collection.documentCount`
+   * counter rather than counted live on this request. It excludes soft-deleted
+   * documents and folders, and it can read high until the collection's next
+   * attach or remove when a recount after a delete fails. Use
+   * `skills.getCollectionStatistics()` for a count taken live.
+   */
   documentCount: number;
   /** Whether the collection is active. */
   isActive: boolean;
@@ -744,7 +750,12 @@ export interface RemoveCollectionDocumentResponse {
 
 /** Response from `client.skills.getCollectionStatistics()`. */
 export interface CollectionStatistics {
-  /** Documents in the collection. */
+  /**
+   * Documents in the collection, counted LIVE from the surviving links on this
+   * request, excluding soft-deleted documents. This is the live counterpart of
+   * the stored `documentCount` on `CollectionSummary` and `AgentCollection`, and
+   * the two can disagree while a collection's stored counter is stale.
+   */
   documentCount: number;
   /** Combined size of those documents, in bytes. */
   totalSizeBytes: number;

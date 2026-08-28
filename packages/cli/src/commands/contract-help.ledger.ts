@@ -124,11 +124,17 @@ export const GENERATED_NAMESPACE_LEDGER = [
     descriptors: [
       "ConversationEvalRunCreate",
       "ConversationEvalRunList",
+      "ConversationEvalBatchCreate",
       "ConversationEvalBatchList",
+      "ConversationEvalTemplateCreate",
       "ConversationEvalTemplateList",
       "ConversationEvalTemplateListImportable",
+      "ConversationEvalScheduleCreate",
       "ConversationEvalScheduleList",
-      "ConversationEvalTriggerList"
+      "ConversationEvalScheduleUpdate",
+      "ConversationEvalTriggerList",
+      "ConversationEvalTriggerUpsert",
+      "ConversationEvalWebhookUpsert"
     ]
   },
   {
@@ -495,6 +501,7 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "TrackListMemoryEntries",
       "TrackPutMemoryEntry",
       "TrackDeleteMemoryEntry",
+      "TrackListOrganizationEvents",
       "TrackListEvents",
       "TrackAppendEvent"
     ]
@@ -507,6 +514,10 @@ export const GENERATED_NAMESPACE_LEDGER = [
     // polices enums and is total over DESCRIPTORS, never over namespaces.
     namespace: "known-issues",
     descriptors: ["KnownIssuesForRoute"]
+  },
+  {
+    namespace: "score",
+    descriptors: ["ScoreList", "ScoreRecord"]
   }
 ] as const satisfies readonly LedgerEntry[];
 

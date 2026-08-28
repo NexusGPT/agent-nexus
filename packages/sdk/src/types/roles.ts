@@ -1,4 +1,4 @@
-import type { PermissionRelation, PermissionSubjectType } from "./permissions";
+import type { PermissionRelation } from "./permissions";
 
 /**
  * Roles — the READ surface, and the vocabulary it is stated in.
@@ -108,8 +108,18 @@ export type RoleAccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
  * There is no ownership-transfer member. Handing `Role.ownerUserId` over is
  * authorised by identity — the current owner, or an organisation admin — so no
  * permission set can carry it and no capability names it.
+ *
+ * ⚠️ `role.create` IS IN THIS UNION AND CANNOT BE GRANTED THROUGH A PERMISSION
+ * SET. It is the one ORGANISATION-SCOPED capability: it names no Role, because
+ * the Role does not exist yet, so it is held org-wide rather than inside a Role.
+ * A permission set's `capabilities` are keyed to ONE Role, so sending it on
+ * `POST`/`PATCH /roles/:roleId/permission-sets` is refused with `400
+ * ORG_SCOPED_ONLY_ROLE_CAPABILITY` — it would be a row nothing could ever read.
+ * It is in the union because the union mirrors the server's CATALOG, which is
+ * what `GET /roles/:roleId/capabilities` answers from.
  */
 export type RoleCapability =
+  | "role.create"
   | "role.view"
   | "role.update"
   | "role.delete"
@@ -160,6 +170,7 @@ export type RolePermissionSetSurface =
   | "ultimate_cue"
   | "customer_views"
   | "workspaces"
+  | "apps"
   | "overview"
   | "*";
 
@@ -832,6 +843,33 @@ export interface UnmodelledRoleSystem {
   reason: "NO_IMPACT_MODEL";
 }
 
+/**
+ * Whether a coverage figure rests on measurements, on estimates, or on both.
+ *
+ * 🚨 NOT the PERIOD basis. A coverage input's `perPeriod` states the WINDOW a
+ * magnitude accumulates over; this states WHERE THE MAGNITUDE CAME FROM. The
+ * two share a word and nothing else.
+ *
+ * - `ESTIMATED` — every magnitude behind the figure was typed by a person. Also
+ *   the answer when nothing was evaluated at all, which is the arm that cannot
+ *   overstate.
+ * - `MIXED` — some measured, some not.
+ * - `MEASURED` — every input the figure CONSUMED came from a measurement.
+ *
+ * It is all-or-nothing because a coverage model is a PRODUCT of its inputs: one
+ * guessed factor is a factor of the answer, not a fraction of it. And it is a
+ * claim about the MAGNITUDES only — a measurement replaces a number, never the
+ * expression a person wrote around it, and never the organisation's stated
+ * working day, week and year, which are reported separately on `workingTime`
+ * with their own origin.
+ *
+ * It describes the COVERAGE model — the org's automation settings, the Role's
+ * workload and one impact per held system. It says nothing about the job model
+ * (`jobTypes`, `scopeLines`, `workingYear`), which shares this feature's
+ * vocabulary and is evaluated elsewhere.
+ */
+export type CoverageBasis = "ESTIMATED" | "MIXED" | "MEASURED";
+
 /** One system's contribution to the coverage numerator. */
 export interface RoleCoverageContribution {
   /** The `RoleResource` row id — what every warning's `subject.id` refers to. */
@@ -854,6 +892,13 @@ export interface RoleCoverageContribution {
   failure: CoverageEvaluationFailure | null;
   /** Every input key a real measurement replaced. */
   measuredInputKeys: readonly string[];
+  /**
+   * What THIS ROW's figures rest on.
+   *
+   * Narrower than `measuredInputKeys` beside it: a model that evaluated and was
+   * then refused appears there and not here, because it reached no figure.
+   */
+  basis: CoverageBasis;
   /** Money this system generates per year, in the Role's one currency. */
   revenue: CoverageMoneyTerm;
   /** Money this system costs per year, in the Role's one currency. */
@@ -906,6 +951,8 @@ export interface RoleCoverage {
   contributions: readonly RoleCoverageContribution[];
   /** Every input key a measurement replaced, across every model evaluated. */
   measuredInputKeys: readonly string[];
+  /** What this Role's published figures rest on. */
+  basis: CoverageBasis;
   /** Whether the figure can be trusted, and why not. */
   integrity: CoverageIntegrity;
   /** The assumptions the figure rests on, or `null` when none were ever stated. */
@@ -1495,20 +1542,17 @@ export type RoleManagementAction =
   | "MANAGE_GROUP_GRANTS"
   | "MANAGE_RESOURCES";
 
-/** One allow-list row for one action. */
-export interface RoleManagementGrant {
-  /** The kind of principal allowed. */
-  subjectType: PermissionSubjectType;
-  /** The principal's id — `null` exactly when `subjectType` is `"organization"`. */
-  subjectId: string | null;
-}
-
-/** One action's governance settings. */
+/**
+ * One action's governance settings.
+ *
+ * Only the actions that HAVE an approval queue get a row — `CREATE_ROLE` and
+ * `DELETE_ROLE`. The other three `RoleManagementAction` values name no live
+ * decision on the server, so a row for them would report a setting nothing
+ * consults.
+ */
 export interface RoleManagementActionSettings {
-  /** Which action this row governs. */
+  /** Which action this row governs. Always `CREATE_ROLE` or `DELETE_ROLE`. */
   action: RoleManagementAction;
-  /** Who may perform it. */
-  grants: RoleManagementGrant[];
   /**
    * Whether performing it files a request instead of doing it.
    *

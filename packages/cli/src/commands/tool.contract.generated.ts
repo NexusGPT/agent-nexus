@@ -21,18 +21,12 @@ import type { ProjectedDescriptor } from "../contract-help.render";
 export const TOOL_DISCOVERY_SEARCH__PARAMS_TYPE = {
   path: "ToolDiscoverySearch.Params.type",
   contractValues: [
-    "TASK",
-    "INTERNAL_TOOL",
-    "COLLECTION",
-    "EXTERNAL_TOOL",
-    "FLOW",
-    "WORKFLOW",
-    "IMAGE_GENERATION",
-    "WHATSAPP",
-    "PIPEDREAM",
-    "PLUGIN",
-    "END_CONVERSATION",
-    "DOCUMENT_TEMPLATE"
+    "WEBHOOK",
+    "API",
+    "MANIFEST",
+    "CUSTOM_MANIFEST",
+    "APIFY",
+    "PIPEDREAM"
   ]
 } as const satisfies ContractEnum;
 
@@ -52,7 +46,7 @@ export const TOOL_DISCOVERY_SEARCH_CONTRACT = {
   fields: [
     { path: "Params.q", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.category", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["TASK", "INTERNAL_TOOL", "COLLECTION", "EXTERNAL_TOOL", "FLOW", "WORKFLOW", "IMAGE_GENERATION", "WHATSAPP", "PIPEDREAM", "PLUGIN", "END_CONVERSATION", "DOCUMENT_TEMPLATE"] },
+    { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["WEBHOOK", "API", "MANIFEST", "CUSTOM_MANIFEST", "APIFY", "PIPEDREAM"] },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.offset", slot: "Params", type: "integer", required: false, depth: 0 }
   ]

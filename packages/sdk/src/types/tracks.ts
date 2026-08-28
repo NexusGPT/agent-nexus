@@ -171,6 +171,20 @@ export interface Track {
   nextOwnerRef: string | null;
   /** When the track was put away, or `null` while it is live. */
   archivedAt: string | null;
+  /**
+   * When the track entered its current `DONE` state, `null` at every other
+   * status. A non-null value always travels with `status: "DONE"` — the database
+   * refuses the other combination.
+   *
+   * 🔴 CURRENT STATE, NOT HISTORY. Re-opening a track clears this, so a track
+   * counted as finished last week leaves that window retroactively and nothing
+   * records that it was ever in it.
+   *
+   * ⚠️ `null` on a `DONE` track is legal, not an error: tracks that finished
+   * before this field existed carry no completion time. Treat it as absent —
+   * never as zero, and never as epoch.
+   */
+  doneAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -185,6 +199,15 @@ export interface Track {
 export interface ListTracksParams {
   /** How many rows, 1-200. */
   limit?: number;
+  /**
+   * Resume after a previous page. Pass `nextCursor` back VERBATIM.
+   *
+   * 🔴 IT IS SERVER-ISSUED AND ITS SHAPE IS NOT PART OF THE PROMISE. Do not
+   * build one from a track's `number`: the token carries the filters it was
+   * issued under, and a cursor used with a different `status` or `archived` is
+   * REFUSED rather than quietly resuming inside a different list.
+   */
+  cursor?: string;
   /** Narrow the page to one status. Every status when omitted. */
   status?: TrackStatus;
   /**
@@ -199,6 +222,18 @@ export interface ListTracksParams {
 
 export interface ListTracksResponse {
   tracks: Track[];
+  /**
+   * Every track matching `status` and `archived`, ignoring `limit` and `cursor`.
+   *
+   * Not the size of this page — `tracks.length` is that. The page and this count
+   * are built from one filter expression on the server, so a total you cannot
+   * page to is not a state this API can reach.
+   */
+  total: number;
+  /** `true` when a further page exists under the same filters. */
+  hasMore: boolean;
+  /** Pass back as `cursor`. `null` when `hasMore` is false. */
+  nextCursor: string | null;
 }
 
 /**
@@ -217,6 +252,24 @@ export interface ListTracksResponse {
 export interface TrackRollup {
   done: number;
   total: number;
+}
+
+/** One track's progress inside a batched answer. */
+export interface TrackRollupEntry extends TrackRollup {
+  trackId: string;
+}
+
+/**
+ * Progress for several tracks in ONE call.
+ *
+ * 🔴 `rollups` HOLDS ONE ENTRY PER ID YOU ASKED FOR, IN THE ORDER YOU ASKED, so
+ * you can zip it against your own list. A track that does not resolve in your
+ * organization is PRESENT with `0/0` rather than omitted — the same answer
+ * `readRollup()` gives it, and for the same reason: a missing key would tell you
+ * which ids exist in somebody else's organization.
+ */
+export interface ListTrackRollupsResponse {
+  rollups: TrackRollupEntry[];
 }
 
 /**
@@ -304,6 +357,15 @@ export interface TrackTask {
   evidence: string | null;
   /** ISO-8601, or `null` while the task is open. */
   doneAt: string | null;
+  /**
+   * Who ticked it, or `null`.
+   *
+   * ⚠️ `null` FOR EVERY MACHINE CALLER. Ticking a task is reachable with an org
+   * API key that resolves no owning human, and this API writes `null` rather
+   * than a fabricated author — so an absence means "nobody is attributed", never
+   * "a person is missing".
+   */
+  doneByUserId: string | null;
   claimedByAgentId: string | null;
 }
 
@@ -431,6 +493,19 @@ export interface TrackEvent {
 
 export interface ListTrackEventsResponse {
   events: TrackEvent[];
+}
+
+export interface ListOrganizationTrackEventsResponse {
+  events: TrackEvent[];
+  /**
+   * Feed back as `cursor` for the next page. `null` at the end of the stream.
+   *
+   * ⚠️ A FULL PAGE ALWAYS CARRIES ONE, EVEN WHEN IT WAS THE LAST — "full" and
+   * "full and final" are indistinguishable without counting, so a caller walking
+   * to the end makes one extra call that returns no events. Loop until this is
+   * `null`; do not stop on a short page, and do not stop on a full one.
+   */
+  nextCursor: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -574,6 +649,31 @@ export interface PutTrackMemoryEntryBody {
 
 export interface ListTrackEventsParams {
   limit?: number;
+}
+
+export interface ListOrganizationTrackEventsParams {
+  /** 1-200, default 50. */
+  limit?: number;
+  /**
+   * A page boundary the SERVER issued — round-trip `nextCursor`, never build one.
+   *
+   * 🔴 IT CARRIES THE FILTERS IT WAS ISSUED UNDER, and replaying it with a
+   * different `since` or `type` is a 400. That is deliberate: a cursor is a
+   * position inside a filtered set, so honouring it across a filter change would
+   * return a correctly-scoped page that STARTS IN THE MIDDLE, with nothing for a
+   * caller to notice. Changing filters means starting from the first page.
+   *
+   * `limit` is NOT bound into it — a bigger page mid-walk is legitimate.
+   */
+  cursor?: string;
+  /**
+   * Inclusive lower bound on `createdAt`. A FULL ISO-8601 instant
+   * (`2026-08-01T10:00:00.000Z`), not a date — the server refuses anything
+   * ambiguous rather than guessing a window.
+   */
+  since?: string;
+  /** Exact event `type`. Omitted returns every type. */
+  type?: string;
 }
 
 export interface AppendTrackEventBody {

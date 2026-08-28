@@ -74,14 +74,6 @@ export const DEPLOYMENT_LIST__PARAMS_TYPE = {
   ]
 } as const satisfies ContractEnum;
 
-export const DEPLOYMENT_UPDATE_EMBED_CONFIG__BODY_FORMAT = {
-  path: "DeploymentUpdateEmbedConfig.Body.format",
-  contractValues: [
-    "bubble",
-    "classic"
-  ]
-} as const satisfies ContractEnum;
-
 export const DEPLOYMENT_UPDATE_EMBED_CONFIG__BODY_BUBBLE_POSITION = {
   path: "DeploymentUpdateEmbedConfig.Body.bubblePosition",
   contractValues: [
@@ -210,10 +202,7 @@ export const DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT = {
     { path: "Body.supportedLanguages", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.suggestedMessages", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.localizedSuggestedMessages", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
-    { path: "Body.format", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["bubble", "classic"] },
     { path: "Body.showTimestamp", slot: "Body", type: "boolean", required: false, depth: 0 },
-    { path: "Body.autoShowInitialMessagePopup", slot: "Body", type: "boolean", required: false, depth: 0 },
-    { path: "Body.autoShowInitialMessagePopupDelay", slot: "Body", type: "number", required: false, depth: 0 },
     { path: "Body.bubblePosition", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["bottom-right", "bottom-left", "top-right", "top-left"] },
     { path: "Body.bubbleBorderRadius", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["none", "sm", "md", "lg", "full"] },
     { path: "Body.bubbleBackgroundColor", slot: "Body", type: "string", required: false, depth: 0 },

@@ -69,6 +69,39 @@ export function detectPackageManager(): PackageManager {
   return "npm";
 }
 
+/**
+ * The one command that moves a global install onto `@tag`, for every manager.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THERE IS NO SECOND BUILDER HERE, AND THAT IS THE POINT. AN `update` VERB
+ *    CANNOT CROSS A 0.x MINOR, AND IT REPORTS SUCCESS WHEN IT DOES NOT MOVE.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This file used to carry a second function that built the string the update
+ * NAG printed, spelled with each manager's `update`/`upgrade` verb. The two were
+ * introduced by one commit (c592c54154) and disagreed from that commit on: the
+ * nag never named the command `nexus upgrade` runs. Those verbs
+ * resolve within the range a global root already recorded, and npm/pnpm/yarn all
+ * record `^0.x.y` — a caret on a `0.` major, which by semver does not admit the
+ * next minor. So the nag told users to run a command that stops one minor short
+ * of the version the same nag had just told them existed, exits 0, and prints a
+ * line that reads like it worked. The banner then reappears forever.
+ *
+ * Measured against the live registry, from 0.34.x with `^0.34.0` recorded, at a
+ * time when `latest` was 0.35.1 — each manager's own verb, then this command as
+ * the control:
+ *
+ *     npm update  @agent-nexus/cli   -> 0.34.2, exit 0   (control -> 0.35.1)
+ *     pnpm update @agent-nexus/cli   -> 0.34.2, exit 0   (control -> 0.35.1)
+ *     yarn upgrade @agent-nexus/cli  -> 0.34.2, exit 0   (control -> 0.35.1)
+ *
+ * A tag is an exact resolution, so it is not subject to a recorded range at all
+ * and is the only spelling that is right for every manager and every layout.
+ * `nexus upgrade` has always run this; the nag is what disagreed with it.
+ *
+ * Every caller that tells a user how to move versions calls THIS. Do not add a
+ * variant — a second string is what drifted, and it drifted inside one file.
+ */
 export function getGlobalInstallCommand(pkg: string, tag = "latest"): string {
   const pm = detectPackageManager();
   switch (pm) {
@@ -78,17 +111,5 @@ export function getGlobalInstallCommand(pkg: string, tag = "latest"): string {
       return `yarn global add ${pkg}@${tag}`;
     default:
       return `npm install -g ${pkg}@${tag}`;
-  }
-}
-
-export function getGlobalUpdateHint(pkg: string): string {
-  const pm = detectPackageManager();
-  switch (pm) {
-    case "pnpm":
-      return `pnpm update -g ${pkg}`;
-    case "yarn":
-      return `yarn global upgrade ${pkg}`;
-    default:
-      return `npm update -g ${pkg}`;
   }
 }

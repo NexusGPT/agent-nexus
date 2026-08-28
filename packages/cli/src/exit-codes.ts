@@ -17,7 +17,7 @@
  *     the old copy" and `3` for "installed and I could not check it FOR you".
  *     Those are the SAME NUMBERS the admin tree spends on auth and permission,
  *     meaning something unrelated, and `nexus upgrade --help` published them.
- *   - `commands/vibe-app-logs.ts` exited `130` on a second Ctrl-C.
+ *   - `commands/vibe-app-logs.ts` exited `130` on a second signal.
  *
  * And the root `--help` epilogue said "EVERY failure exits 1", which was true of
  * exactly one of the four.
@@ -130,8 +130,24 @@ export type ExitCategory =
    */
   | "unmeasured"
   /**
-   * Killed by SIGINT. `128 + 2`, the shell's own encoding — see the file header.
-   * Declared so nothing else takes the number; never chosen as a verdict.
+   * The caller stopped the command. `128 + 2`, the shell's own encoding of
+   * "killed by signal 2" — see the file header for why the band above `126` is
+   * not ours to assign.
+   *
+   * 🚨 THE CLI DOES CHOOSE THIS ONE, FROM EXACTLY ONE PLACE, AND NOT ON THE
+   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in `commands/vibe-app-logs.ts`
+   * counts signals and exits here on the SECOND. ONE counter serves both
+   * `SIGINT` and `SIGTERM`, so the pair that reaches it is usually MIXED — a
+   * user presses Ctrl-C, a supervisor then sends `SIGTERM` into the same
+   * process, and that is the second. THE FIRST SIGNAL OF EITHER KIND ABORTS THE
+   * STREAM AND THE COMMAND EXITS `success`, which is why "Ctrl-C gives you 130"
+   * is the wrong thing to script against.
+   *
+   * ⚠️ A FOLLOW ENDED BY TWO `SIGTERM`s ALSO REPORTS `128 + 2`, NEVER
+   * `128 + 15`. Deliberate: this taxonomy declares ONE code in the shell's band
+   * and {@link exitCodeTaxonomyViolations} refuses a second, so "the caller
+   * stopped it" is one category here rather than one per signal. Read this
+   * number as INTERRUPTED, never as WHICH SIGNAL ARRIVED.
    */
   | "interrupted";
 

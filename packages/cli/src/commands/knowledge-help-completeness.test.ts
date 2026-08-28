@@ -86,12 +86,12 @@ interface HelpClaim {
 const CLAIMS: readonly HelpClaim[] = [
   // ── collection (NEX-3643) ────────────────────────────────────────────────
   {
-    what: "collection attach-documents names the folder drop",
+    what: "collection attach-documents names the folder expansion",
     register: registerCollectionCommands,
     namespace: "collection",
     path: ["attach-documents"],
     phrases: [
-      "SILENTLY DROPS FOLDER DOCUMENTS",
+      "A FOLDER ID EXPANDS TO ITS CONTENTS",
       "ALL OR NOTHING ON EXISTENCE",
       "ATTACH DOCUMENTS THAT ARE READY"
     ]
@@ -354,7 +354,7 @@ describe("knowledge & content --help carries the behavioural facts", () => {
   /**
    * A warning on the wrong sibling is the failure mode this guards. Both pairs
    * below read as interchangeable from the command list and are not: only
-   * ATTACHING drops folders, and the two verbs lag retrieval in OPPOSITE
+   * ATTACHING expands folders, and the two verbs lag retrieval in OPPOSITE
    * directions.
    *
    * Removing is immediate — it clears the cached membership every query is
@@ -363,9 +363,9 @@ describe("knowledge & content --help carries the behavioural facts", () => {
    * READY" note covers. Putting either sentence on the other command would be
    * exactly backwards.
    */
-  it("puts the folder-drop warning on attach-documents, not on remove-document", () => {
+  it("puts the folder-expansion note on attach-documents, not on remove-document", () => {
     const remove = helpFor(registerCollectionCommands, "collection", "remove-document");
-    expect(remove).not.toContain("SILENTLY DROPS FOLDER DOCUMENTS");
+    expect(remove).not.toContain("A FOLDER ID EXPANDS TO ITS CONTENTS");
   });
 
   it("says removal is immediate on remove-document and nowhere else", () => {

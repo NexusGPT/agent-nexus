@@ -60,9 +60,10 @@ answer to almost every "why does retrieval find nothing".
     loop waiting for either can only exit by timing out.
   • THREE COMMANDS PRODUCE A FOLDER, NOT A DOCUMENT. add-website,
     create-google-sheet and create-folder each return a FOLDER whose pages, tabs
-    or files are its CHILDREN. The folder itself carries no text, and
-    "collection attach-documents" silently drops folder ids — attach the
-    children, listed by "nexus document children <folder-id>".
+    or files are its CHILDREN. The folder itself carries no text;
+    "collection attach-documents" expands a folder id to every document under
+    it (recursively) at attach time — a snapshot, so children added later must
+    be attached themselves. List them with "nexus document children <folder-id>".
   • A 2xx MEANS THE WORK WAS ACCEPTED, NOT FINISHED. Poll the returned id with
     "nexus document get <id>" — and poll the field that moves for that shape.
     For a LEAF (a page, a tab, an uploaded file, a text document) poll status
@@ -382,8 +383,10 @@ Notes:
   --metadata is inherited by every crawled page, which is what makes
   "collection query --filter" usable across a whole site.
 
-  The pages land in the KNOWLEDGE BASE, not in a collection. Attach the CHILDREN
-  to one afterwards — attaching the folder id is silently dropped.`
+  The pages land in the KNOWLEDGE BASE, not in a collection. Attach the folder
+  to one afterwards — "collection attach-documents" expands a folder id to all
+  the pages under it at attach time. Pages crawled later are not pulled in;
+  re-attach the folder to pick them up.`
     )
     .action(async (opts) => {
       try {
@@ -614,8 +617,10 @@ Examples:
   $ nexus document children 11111111-1111-4111-8111-111111111111 --limit 20 --json
 
 Notes:
-  THIS IS THE LIST YOU ATTACH TO A COLLECTION. The folder id itself is silently
-  dropped by "collection attach-documents"; these ids are what carry content.
+  THESE IDS ARE WHAT CARRY CONTENT. "collection attach-documents" accepts the
+  folder id too — it expands to every document under the folder (recursively)
+  at attach time. Use this list to attach a subset, or to see what a folder
+  attach will expand to.
 
   ONE LEVEL ONLY. A nested folder appears as a row here, not as its contents —
   recurse if the tree is deeper than one level.
@@ -708,9 +713,9 @@ Examples:
 
 Notes:
   A FOLDER IS A DOCUMENT WITH NO CONTENT. It organizes the knowledge base and
-  nothing else. It carries no text, so it retrieves nothing, and
-  "collection attach-documents" silently drops folder ids — attach the
-  documents inside it instead.
+  nothing else. It carries no text, so it retrieves nothing itself;
+  "collection attach-documents" expands a folder id to the documents inside it
+  (recursively) at attach time.
 
   add-website, create-google-sheet and create-folder all produce a FOLDER whose
   pages, tabs or files are its children. Only create-folder makes an empty one
@@ -763,9 +768,9 @@ Notes:
   connected. Share it "anyone with the link can view" first. (To import a
   private file instead, connect Drive and use "nexus cloud-import".)
 
-  THE RESULT IS A FOLDER PLUS ONE DOCUMENT PER TAB. The folder holds no content
-  and cannot be attached to a collection; attach the tabs, listed by
-  "nexus document children <folder-id>".
+  THE RESULT IS A FOLDER PLUS ONE DOCUMENT PER TAB. The folder holds no content;
+  attaching it to a collection expands to the tab documents under it at attach
+  time. The tabs are listed by "nexus document children <folder-id>".
 
   THE FOLDER IS MARKED READY IMMEDIATELY. The tabs are indexed in the
   background afterwards, so a READY folder says nothing about whether the rows

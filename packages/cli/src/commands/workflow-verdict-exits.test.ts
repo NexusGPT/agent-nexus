@@ -89,11 +89,17 @@ const NODE_PASSED = {
 };
 
 /**
- * The sync FAILURE arm, byte-shaped as `WorkflowNodeTestingService` returns it.
+ * The sync FAILURE arm, carrying `status: "COMPLETED"` DELIBERATELY.
  *
- * `status` is absent on that arm, so the v1 layer's `result.status ?? "COMPLETED"`
- * stamps COMPLETED on it. That is the double false green: the run-level field
- * says the run finished, and the node threw.
+ * A current server reports `"FAILED"` here (NEX-4066), so this fixture is the
+ * older shape on purpose, and it is kept for two reasons. A published CLI talks
+ * to whatever server an organization runs, so the shape that stamped COMPLETED
+ * on a thrown node is still reachable in the field. And it is the sharpest
+ * possible check that the verdict is read from `data`: the run-level field says
+ * the run finished, the node threw, and this must still exit non-zero.
+ *
+ * Do not "modernise" this to `"FAILED"` — that would make the case pass for the
+ * wrong reason and delete the only test that pins the rule.
  */
 const NODE_FAILED = {
   executionId: "exec-2",
@@ -359,7 +365,8 @@ describe("judgeNodeTest", () => {
       judgeNodeTest({
         executionId: "e",
         status: "COMPLETED",
-        data: { errorDetails: { message: "boom" } }
+        data: { errorDetails: { message: "boom" } },
+        metadata: null
       })
     ).toEqual({ outcome: "node-failed", message: "boom" });
   });
@@ -371,7 +378,8 @@ describe("judgeNodeTest", () => {
     const verdict = judgeNodeTest({
       executionId: "e",
       status: "COMPLETED",
-      data: { errorDetails: {} }
+      data: { errorDetails: {} },
+      metadata: null
     });
 
     expect(verdict.outcome).toBe("node-failed");
@@ -391,10 +399,20 @@ describe("judgeNodeTest", () => {
     // not by any mutation here — every mutation drove the shape the author had
     // already thought of.
     expect(
-      judgeNodeTest({ executionId: "e", status: "COMPLETED", data: { error: value } })
+      judgeNodeTest({
+        executionId: "e",
+        status: "COMPLETED",
+        data: { error: value },
+        metadata: null
+      })
     ).toEqual({ outcome: "passed" });
     expect(
-      judgeNodeTest({ executionId: "e", status: "COMPLETED", data: { errorDetails: value } })
+      judgeNodeTest({
+        executionId: "e",
+        status: "COMPLETED",
+        data: { errorDetails: value },
+        metadata: null
+      })
     ).toEqual({ outcome: "passed" });
   });
 
@@ -405,22 +423,29 @@ describe("judgeNodeTest", () => {
       judgeNodeTest({
         executionId: "e",
         status: "COMPLETED",
-        data: { error: null, errorDetails: { message: "boom" } }
+        data: { error: null, errorDetails: { message: "boom" } },
+        metadata: null
       })
     ).toEqual({ outcome: "node-failed", message: "boom" });
   });
 
   it("does not invent a failure from a node whose OUTPUT is not an object", () => {
-    expect(judgeNodeTest({ executionId: "e", status: "COMPLETED", data: "some text" })).toEqual({
+    expect(
+      judgeNodeTest({ executionId: "e", status: "COMPLETED", data: "some text", metadata: null })
+    ).toEqual({
       outcome: "passed"
     });
-    expect(judgeNodeTest({ executionId: "e", status: "COMPLETED", data: [1, 2, 3] })).toEqual({
+    expect(
+      judgeNodeTest({ executionId: "e", status: "COMPLETED", data: [1, 2, 3], metadata: null })
+    ).toEqual({
       outcome: "passed"
     });
   });
 
   it("treats a status this CLI does not know as UNMEASURED, never as a pass", () => {
-    expect(judgeNodeTest({ executionId: "e", status: "QUEUED", data: null })).toEqual({
+    expect(
+      judgeNodeTest({ executionId: "e", status: "QUEUED", data: null, metadata: null })
+    ).toEqual({
       outcome: "not-finished",
       status: "QUEUED"
     });

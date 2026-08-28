@@ -395,6 +395,8 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "conversation update-topic": "registration-only",
 
   // ── credential ─────────────────────────────────────────────────────────────
+  "credential connect": "registration-only", // starts an OAuth flow / stores a key
+  "credential connect-status": "registration-only", // needs a live handshake id
   "credential delete": "registration-only",
   "credential get": "registration-only",
   "credential list": "safe",
@@ -577,6 +579,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role automation-settings": "safe",
   "role collection-grants": "registration-only",
   "role coverage": "registration-only",
+  // Both score verbs take REQUIRED anchors (`--scorable-type`, `--scorable-id`),
+  // so neither can be swept — the read is no exception, exactly as `role boards`
+  // above. `record` is a mutation as well.
+  "score record": "registration-only",
+  "score list": "registration-only",
   "role create": "registration-only",
   "role create-job-type": "registration-only",
   "role create-permission-set": "registration-only",
@@ -843,6 +850,12 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracks memory put": "registration-only",
   "tracks memory delete": "registration-only",
   "tracks event list": "registration-only",
+  // Takes no argument and emits `--json`, which is the shape of a "safe" leaf —
+  // but the sweep RUNS a safe one, and this reads a live organisation's event
+  // stream over an authenticated API. `tracks list` is the same shape and is
+  // classified the same way for the same reason: the absence of a required
+  // positional is not the absence of a precondition.
+  "tracks event feed": "registration-only",
   "tracks event append": "registration-only",
 
   // ── upgrade ────────────────────────────────────────────────────────────────

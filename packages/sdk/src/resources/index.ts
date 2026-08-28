@@ -14,6 +14,13 @@
  */
 export { AccessCardsResource } from "./access-cards";
 export { AgentCollectionsResource } from "./agent-collections";
+export { AgentEvalBatchesResource } from "./agent-eval-batches";
+export { AgentEvalRunsResource } from "./agent-eval-runs";
+export { AgentEvalSchedulesResource } from "./agent-eval-schedules";
+export { AgentEvalTemplatesResource } from "./agent-eval-templates";
+export { AgentEvalTriggersResource } from "./agent-eval-triggers";
+export { AgentEvalWebhooksResource } from "./agent-eval-webhooks";
+export { AgentEvalsResource } from "./agent-evals";
 export { AgentSkillsResource } from "./agent-skills";
 export { AgentToolsResource } from "./agent-tools";
 export { AgentsResource } from "./agents";
@@ -44,11 +51,13 @@ export { PermissionsResource } from "./permissions";
 export { PhoneNumbersResource } from "./phone-numbers";
 export { PromptAssistantResource } from "./prompt-assistant";
 export { RolesResource } from "./roles";
+export { ScoresResource } from "./scores";
 export { SkillFoldersResource } from "./skill-folders";
 export { SkillsResource } from "./skills";
 export { TicketsResource } from "./tickets";
 export { ToolConnectionResource } from "./tool-connection";
 export { ToolDiscoveryResource } from "./tool-discovery";
+export { TracingResource } from "./tracing";
 export { TracksResource } from "./tracks";
 export { UserGroupsResource } from "./user-groups";
 export { VersionsResource } from "./versions";

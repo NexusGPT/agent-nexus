@@ -10,6 +10,7 @@ import {
   NAMESPACE_TOTAL
 } from "./help-truth.ledger";
 import { deriveCommandLeaves, runHelpTruthScan, type ScanReport } from "./help-truth-rules";
+import { descriptorFor, descriptorIndex, transportCallsIn } from "./help-truth-scan";
 
 /**
  * THE `--help` TRUTH GATE — every namespace, every command, one shrink-only ledger.
@@ -514,12 +515,54 @@ test("PROGRESS 4: a namespace declared clean was MEASURED, not abstained on", ()
   // CONTROL: the SDK-BYPASS detector RAN. Without this, a regex that stops
   // matching empties the gap bucket and every namespace it held is reported as
   // correct and permanent — the gap total reads 0 and looks like finished work.
-  // 6 resolved when this landed; the floor is 1 because it is proving the arm is
-  // alive, not pinning a number that moves whenever a command is rewired.
+  //
+  // 🚨 THIS CONTROL USED TO READ `report.transportRoutesResolved > 0`, AND THAT
+  // FORM WAS SATISFIED BY THE DEFECT IT EXISTS TO CATCH.
+  //
+  // Those resolved routes were a property of the TREE, not of the detector. All
+  // six of them were `agent-eval`'s — measured, by breaking the count down per
+  // namespace before anything was changed: `run delete`, `template delete`,
+  // `template detach`, `schedule delete`, `trigger delete`, `webhook delete`,
+  // and nothing else in 540 leaves. `agent-eval` was also the only SDK-BYPASS
+  // namespace, so CLOSING the gap took the count to 0 and turned this assertion
+  // red for having succeeded. A control whose green depends on the defect still
+  // being there is one that gets deleted the day the defect is fixed, and it
+  // takes the real check with it.
+  //
+  // So it is asserted against a FIXTURE instead. The literal below is not read
+  // from any file, and the question it asks is the one this control was always
+  // meant to ask: can the raw-transport arm still recognise a call and resolve
+  // it to a v1 descriptor? That stays answerable when the tree has zero
+  // bypasses left — which is the SUCCESS state and must not read as a broken
+  // detector.
+  //
+  // Same reasoning, and the same fix, as the fixture cases in
+  // `packages/sdk/src/resources/v1-routes-have-an-sdk-method.test.ts`: assert
+  // about the MATCHER using a literal, not about whatever the tree happens to
+  // contain today.
+  const detectorFixture = 'http().request("GET", `/agents/${agentId}`)';
+  const detectorSawIt = transportCallsIn(detectorFixture);
+  const [detectedCall] = detectorSawIt;
+  assert.equal(
+    detectorSawIt.length,
+    1,
+    `the raw-transport scan no longer recognises a transport call at all, so ` +
+      `SDK-BYPASS cannot be detected and its namespaces would be reported as ` +
+      `permanently blind`
+  );
+  assert.ok(detectedCall, `the raw-transport scan returned no call for the fixture`);
   assert.ok(
-    report.transportRoutesResolved > 0,
-    `the raw-transport scan resolved no v1 route at all, so SDK-BYPASS cannot be ` +
-      `detected and its namespaces are being reported as permanently blind`
+    descriptorFor(descriptorIndex(), detectedCall) !== undefined,
+    `the raw-transport scan recognised a call but could not resolve it to a v1 ` +
+      `descriptor, so every bypass would be misread as a namespace with no contract`
+  );
+
+  // The live count is REPORTED rather than asserted. Zero is the goal state, so
+  // there is no floor to put under it — but a jump upward is somebody adding a
+  // second transport beside the SDK, which is worth seeing in the log.
+  console.log(
+    `    raw-transport routes resolving to a v1 descriptor: ${report.transportRoutesResolved} ` +
+      `(0 is the goal — every namespace reaching v1 through the SDK)`
   );
 
   const leaked = permanent.filter((ns) => addressable.includes(ns));

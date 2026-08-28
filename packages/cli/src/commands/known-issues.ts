@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
-import { color, isJsonMode, printTable } from "../output";
+import { color, printEnvelope, printTable } from "../output";
 import { KNOWN_ISSUES_FOR_ROUTE_CONTRACT } from "./known-issues.contract.generated";
 
 /**
@@ -25,13 +25,15 @@ import { KNOWN_ISSUES_FOR_ROUTE_CONTRACT } from "./known-issues.contract.generat
  * would be queried, and an empty answer would read as "nothing is broken".
  * The argument goes on the wire exactly as typed and the server decides.
  *
- * ## Why `--json` is guarded here rather than left to the printer
+ * ## Why the whole response is the `--json` document
  *
- * `printTable` under `--json` prints the ISSUE ARRAY and nothing else, which
- * would drop `polled` — the one field that separates "this route is clean" from
- * "we have not asked yet". So this action returns its own single document
- * early. Two printers in one action is also two concatenated JSON documents,
- * which `JSON.parse` refuses and a script silently truncates.
+ * `printTable` under `--json` would print the ISSUE ARRAY and nothing else,
+ * dropping `polled` — the one field that separates "this route is clean" from
+ * "we have not asked yet" — and `capturedAt`, which is how old the snapshot is.
+ * So the action hands the whole response to `printEnvelope` and renders the
+ * table inside its callback, which runs on the human channel only. One document
+ * per invocation: two printers in one action is two concatenated JSON
+ * documents, which `JSON.parse` refuses and a script silently truncates.
  */
 export function registerKnownIssuesCommand(program: Command): void {
   const knownIssues = program
@@ -77,37 +79,34 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.knownIssues.forRoute(routeId);
 
-        if (isJsonMode()) {
-          console.log(JSON.stringify(result, null, 2));
-          return;
-        }
+        printEnvelope(result, () => {
+          if (!result.polled) {
+            console.log(
+              color.yellow(
+                `Not checked yet — the server has not read the ticket provider since it started.`
+              )
+            );
+            console.log(color.dim(`This is NOT a clean bill of health for ${result.route}.`));
+            return;
+          }
 
-        if (!result.polled) {
-          console.log(
-            color.yellow(
-              `Not checked yet — the server has not read the ticket provider since it started.`
-            )
-          );
-          console.log(color.dim(`This is NOT a clean bill of health for ${result.route}.`));
-          return;
-        }
+          if (result.issues.length === 0) {
+            console.log(`No published issues for ${result.route}.`);
+            console.log(
+              color.dim(
+                "Only issues a human marked publishable appear here, so this is not proof the command works."
+              )
+            );
+            return;
+          }
 
-        if (result.issues.length === 0) {
-          console.log(`No published issues for ${result.route}.`);
-          console.log(
-            color.dim(
-              "Only issues a human marked publishable appear here, so this is not proof the command works."
-            )
-          );
-          return;
-        }
-
-        printTable(result.issues, [
-          { key: "identifier", label: "ID", width: 12 },
-          { key: "status", label: "STATUS", width: 16 },
-          { key: "title", label: "TITLE", width: 60 },
-          { key: "url", label: "URL", width: 48 }
-        ]);
+          printTable(result.issues, [
+            { key: "identifier", label: "ID", width: 12 },
+            { key: "status", label: "STATUS", width: 16 },
+            { key: "title", label: "TITLE", width: 60 },
+            { key: "url", label: "URL", width: 48 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

@@ -14,6 +14,8 @@ import type {
   DeleteTrackMemoryEntryResponse,
   ImportTrackPlanBody,
   ImportTrackPlanResponse,
+  ListOrganizationTrackEventsParams,
+  ListOrganizationTrackEventsResponse,
   ListReadyTracksResponse,
   ListReadyTrackTasksResponse,
   ListTrackAgentsParams,
@@ -23,6 +25,7 @@ import type {
   ListTrackEventsParams,
   ListTrackEventsResponse,
   ListTrackMemoryEntriesResponse,
+  ListTrackRollupsResponse,
   ListTracksParams,
   ListTracksResponse,
   OpenTrackAgentBody,
@@ -192,6 +195,25 @@ export class TracksResource extends BaseResource {
    */
   async readRollup(trackId: string): Promise<TrackRollup> {
     return this.http.request<TrackRollup>("GET", `/tracks/${trackId}/rollup`);
+  }
+
+  /**
+   * Progress for several tracks in ONE request.
+   *
+   * 🔴 USE THIS FOR A BOARD. Reading `readRollup()` once per track is `1 + N`
+   * round trips AND `1 + N` queries; this is one of each, because the server
+   * reads every named track's tasks in a single statement.
+   *
+   * At most 100 ids per call — the bound is the URL length, not the work. A full
+   * 200-track page from `list()` is therefore two calls.
+   *
+   * One entry per id ASKED FOR, in the order asked. A track that is not yours is
+   * present with `0/0`; see {@link ListTrackRollupsResponse}.
+   */
+  async readRollups(trackIds: readonly string[]): Promise<ListTrackRollupsResponse> {
+    return this.http.request<ListTrackRollupsResponse>("GET", `/tracks/rollup`, {
+      query: { trackIds: trackIds.join(",") }
+    });
   }
 
   /** The tracks whose blockers are all done. */
@@ -380,6 +402,27 @@ export class TracksResource extends BaseResource {
     params?: ListTrackEventsParams
   ): Promise<ListTrackEventsResponse> {
     return this.http.request<ListTrackEventsResponse>("GET", `/tracks/${trackId}/events`, {
+      query: params as Record<string, string | number | undefined>
+    });
+  }
+
+  /**
+   * The ORGANISATION'S event stream — every track at once, plus the events that
+   * name no track. Newest first, one keyset page at a time.
+   *
+   * Its own resource path (`/track-events`), not a segment under `/tracks`,
+   * because it names no track — and `tracks/events` would collide with
+   * `tracks/:trackId` on the server's router.
+   *
+   * ⚠️ WALK IT WITH `nextCursor`, AND STOP ONLY WHEN IT IS `null`. An offset would
+   * be wrong here rather than merely slower: the stream is append-only and read
+   * newest-first, so events landing between two calls shift an offset window —
+   * re-serving rows and silently skipping others.
+   */
+  async listOrganizationEvents(
+    params?: ListOrganizationTrackEventsParams
+  ): Promise<ListOrganizationTrackEventsResponse> {
+    return this.http.request<ListOrganizationTrackEventsResponse>("GET", "/track-events", {
       query: params as Record<string, string | number | undefined>
     });
   }

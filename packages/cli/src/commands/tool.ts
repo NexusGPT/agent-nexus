@@ -22,7 +22,14 @@ import {
   reportFailure
 } from "../errors";
 import { EXIT_CODES } from "../exit-codes";
-import { isJsonMode, printRecord, printSuccess, printTable, type RecordField } from "../output";
+import {
+  isJsonMode,
+  printEnvelope,
+  printRecord,
+  printSuccess,
+  printTable,
+  type RecordField
+} from "../output";
 import {
   asRequestBody,
   mergeBodyWithFlags,
@@ -91,28 +98,32 @@ Examples:
   $ nexus tool search --query "slack" --json
 
 Notes:
-  THERE IS NO SECOND PAGE HERE, AND A TRUNCATED RESULT LOOKS COMPLETE. This
-  command exposes no --offset and no --page, and it prints the rows ALONE —
-  --json is a bare array, not an envelope. Narrow with --query or --category
-  rather than paging; a short result is the only evidence you have seen
-  everything.
+  THERE IS NO SECOND PAGE HERE. This command exposes no --offset and no --page,
+  so narrow with --query or --category rather than paging — but a truncated
+  result no longer LOOKS complete: compare .tools|length against .total.
 
-  THE SERVER DOES SEND total AND facets; THIS COMMAND DISCARDS THEM. The route
-  answers {tools, facets, total} and takes an offset, so the ceiling is this
-  client's, not the API's. Reach the whole answer with
-  "nexus api GET /tools/search" when you need to page or to count.
+  --json ANSWERS THE ROUTE'S OWN OBJECT: {tools, facets, total}. The rows are
+  under .tools — jq '.[]' selects nothing — .total is how many matched, and
+  .facets is the breakdown described below. Reach past --limit with
+  "nexus api GET /tools/search", which takes an offset.
 
   --query IS OPTIONAL, AND OMITTING IT BROWSES. It defaults to the empty string
   rather than being required, so "nexus tool search --limit 20" walks the
-  catalogue and "--type WORKFLOW" alone filters it. There is no separate list
-  command in this namespace; this is it.
+  catalogue and "--type CUSTOM_MANIFEST" alone filters it. There is no separate
+  list command in this namespace; this is it.
+
+  --type IS THE INTEGRATION KIND, AND IT IS THE SAME VALUE THE TYPE COLUMN
+  PRINTS. Read one off a result row and send it straight back. It is NOT the
+  skill kind: "--type WORKFLOW" belongs to "nexus tool skills" beside it, and
+  used to be accepted here — it returned an empty table every time, because no
+  marketplace tool can carry it.
 
   --category IS FREE TEXT AND VALIDATES NOTHING, unlike --type beside it.
   Tool.categories is a string array with no closed set, so a misspelled category
   is not refused — it returns an empty result that reads exactly like "no tools
   in that category". The real values come back as facets on the same response:
-  "nexus api GET /tools/search" shows every category with its count. Read one
-  from there before you filter on it.`
+  run this command with --json and read .facets, which names every category
+  with its count. Read one from there before you filter on it.`
     )
     .action(async (opts) => {
       try {
@@ -125,12 +136,17 @@ Notes:
         });
 
         const tools = result.tools ?? [];
-        printTable(tools, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 25 },
-          { key: "type", label: "TYPE", width: 12 },
-          { key: "description", label: "DESCRIPTION", width: 40 }
-        ]);
+        // `facets` is the category/type breakdown, and it is reachable from no
+        // other command — a caller who wants to know which categories exist
+        // used to have to drop to `nexus api GET /tools/search`.
+        printEnvelope(result, () => {
+          printTable(tools, [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 25 },
+            { key: "type", label: "TYPE", width: 12 },
+            { key: "description", label: "DESCRIPTION", width: 40 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -435,7 +451,11 @@ Notes:
   sitting under "tool", it returns the workflows, AI tasks and collections your
   organization has built — the things you attach to an agent alongside a
   marketplace tool. It lives here because that is the catalogue an agent picks
-  from. For marketplace tools use "nexus tool search".`
+  from. For marketplace tools use "nexus tool search".
+
+  --json ANSWERS THE ROUTE'S OWN OBJECT: {skills, total}. The rows are under
+  .skills — jq '.[]' selects nothing — and .total is how many exist against how
+  many --limit returned.`
     )
     .action(async (opts) => {
       try {
@@ -446,12 +466,14 @@ Notes:
           limit: opts.limit
         });
         const skills = result.skills ?? [];
-        printTable(skills, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "type", label: "TYPE", width: 14 },
-          { key: "description", label: "DESCRIPTION", width: 40 }
-        ]);
+        printEnvelope(result, () => {
+          printTable(skills, [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "type", label: "TYPE", width: 14 },
+            { key: "description", label: "DESCRIPTION", width: 40 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

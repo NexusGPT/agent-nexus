@@ -42,6 +42,7 @@ import { registerPermissionsCommands } from "./commands/permissions";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
 import { registerPromptAssistantCommands } from "./commands/prompt-assistant";
 import { registerRoleCommands } from "./commands/role";
+import { registerScoreCommands } from "./commands/score";
 import { registerSkillFolderCommands } from "./commands/skill-folder";
 import { registerSkillsCommands } from "./commands/skills";
 import { registerTaskCommands } from "./commands/task";
@@ -292,7 +293,9 @@ export function buildRootProgram(version: string = VERSION): Command {
       8  timed out              9  a local operation failed
       10 the operation ran and the outcome did not happen (retrying is the trap)
       11 the operation ran and the result COULD NOT BE MEASURED
-      130 interrupted (SIGINT — the shell's number, not ours)
+      130 interrupted (128 + 2 — the shell's number, not ours). ONLY
+          "vibe app logs --follow" emits it, and only on the SECOND signal;
+          the first Ctrl-C ends that follow at 0.
     Under --json an error is a JSON document on STDOUT:
     {"error":{"message","hint","code"}}, all three keys ALWAYS present, hint null
     when there is none. Without --json the code is printed dim in brackets after
@@ -459,6 +462,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerTemplateCommands(program);
   registerHtmlMessageTemplateCommands(program);
   registerKnownIssuesCommand(program);
+  registerScoreCommands(program);
   registerMcpCommands(program);
   registerExternalToolCommands(program);
   registerPromptAssistantCommands(program);

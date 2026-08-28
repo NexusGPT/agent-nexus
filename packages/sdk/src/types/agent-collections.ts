@@ -12,7 +12,13 @@ export interface AgentCollection {
   displayName: string | null;
   /** Free-text description, or `null`. */
   description: string | null;
-  /** Documents currently in the collection. */
+  /**
+   * Documents in the collection, read from the STORED `Collection.documentCount`
+   * counter rather than counted live on this request. It excludes soft-deleted
+   * documents and folders, and it can read high until the collection's next
+   * attach or remove when a recount after a delete fails. Use
+   * `skills.getCollectionStatistics()` for a count taken live.
+   */
   documentCount: number;
   /** Whether the agent may query this collection. */
   isActive: boolean;

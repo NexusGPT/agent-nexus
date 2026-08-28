@@ -11,7 +11,14 @@ import { createClient, seconds } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
 import { handleError } from "../errors";
-import { formatFolder, isJsonMode, printRecord, printSuccess, printTable } from "../output";
+import {
+  formatFolder,
+  isJsonMode,
+  printEnvelope,
+  printRecord,
+  printSuccess,
+  printTable
+} from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { resolveInputValue } from "../util/stdin";
@@ -127,14 +134,13 @@ Notes:
   This list carries no prompt and no schemas; "nexus task get <id> --json" does.
   --search matches the NAME only, not the prompt.
 
-  --json IS A BARE ARRAY WITH NO ENVELOPE AND NO meta. "workflow list" answers
-  {"data":[…],"meta":{…}} and this one answers [ … ], so one parser cannot read
-  both — index the array directly here.
+  --json ANSWERS THE ROUTE'S OWN OBJECT: {items, total}. "workflow list"
+  answers {"data":[…],"meta":{…}}, so one parser still cannot read both — the
+  rows are under .items here, and jq '.[]' and jq '.data[]' both select nothing.
   THERE IS NO --page AND NO --offset, only --limit (default 20, max 100). The
-  route itself pages and reports a total; this command exposes neither, and the
-  total is dropped from the output. So a result exactly the size of --limit
-  means "at least that many", never "that is all of them". Raise --limit, or
-  read the count with "nexus api GET /skills/tasks" → .data.total.`
+  route pages and this command does not, so a result exactly the size of
+  --limit means "at least that many" — compare .items|length against .total to
+  know whether you have all of them, and raise --limit if you do not.`
     )
     .action(async (opts) => {
       try {
@@ -146,14 +152,16 @@ Notes:
         });
 
         const items = result.items ?? [];
-        printTable(items, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "category", label: "CATEGORY", width: 15 },
-          { key: "inputFormat", label: "INPUT", width: 10 },
-          { key: "outputFormat", label: "OUTPUT", width: 10 },
-          { key: "folder", label: "FOLDER", width: 20, format: formatFolder }
-        ]);
+        printEnvelope(result, () => {
+          printTable(items, [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "category", label: "CATEGORY", width: 15 },
+            { key: "inputFormat", label: "INPUT", width: 10 },
+            { key: "outputFormat", label: "OUTPUT", width: 10 },
+            { key: "folder", label: "FOLDER", width: 20, format: formatFolder }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

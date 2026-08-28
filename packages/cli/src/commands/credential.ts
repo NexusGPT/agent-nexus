@@ -1,11 +1,11 @@
-import type { UpdateCredentialBody } from "@agent-nexus/sdk";
+import type { ConnectCredentialBody, UpdateCredentialBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError } from "../errors";
+import { handleError, refuse } from "../errors";
 import { printList, printRecord, printSuccess } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readStringField, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { nonBlankOr } from "../util/present-text";
@@ -21,6 +21,201 @@ export function registerCredentialCommands(program: Command): void {
   const credential = program
     .command("credential")
     .description("Manage credentials (OAuth, API keys, tool credentials)");
+
+  // ── connect ───────────────────────────────────────────────────────────
+  credential
+    .command("connect")
+    .description("Connect an external app (OAuth or API key)")
+    .option("--service <service>", "OAuth service or Pipedream app slug to authorize")
+    .option("--api-key-value <key>", "API key to store (API-key branch)")
+    .option("--tool <id>", "Marketplace tool the API key belongs to (API-key branch)")
+    .option("--name <name>", "Label for the credential the API-key branch creates")
+    .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus credential connect --service GMAIL
+  $ nexus credential connect --service google_sheets --json
+  $ nexus credential connect --tool 11111111-1111-4111-8111-111111111111 --api-key-value sk-abc123 --name "Production key"
+
+Notes:
+  THIS IS THE WHOLE FLOW, NOT A STEP INSIDE ONE. No workflow, no agent, no node,
+  and on the OAuth branch no tool id — the account is the subject. "nexus tool
+  connect" reaches the same machinery through a tool, and its OAuth branch never
+  reads the tool id it demands, which is why that path made connecting an app
+  look like a tool operation.
+
+  THE BRANCH IS CHOSEN BY WHICH FLAG YOU PASS, and passing both is refused
+  rather than resolved: --service is OAuth, --api-key-value is the API key. --tool is
+  required with --api-key-value and is REJECTED with --service, because the key is
+  stored against that tool's auth block while the OAuth flow has no tool at all.
+
+  --service NAMES AN ACCOUNT, NOT A TOOL. Use a built-in OAuth service name
+  (GMAIL, GOOGLE_SHEETS, NOTION, ...) or a Pipedream app slug (google_sheets).
+  Built-in names are matched case-insensitively; anything else falls through to
+  the Pipedream catalog, so a typo comes back as a Pipedream failure rather than
+  as "no such service".
+
+  THE TWO BRANCHES ANSWER TWO DIFFERENT SHAPES, and authType says which:
+    "oauth"    {authorizationUrl, handshakeId, expiresAt} — NOTHING IS CONNECTED
+               YET. Open authorizationUrl, then poll with
+               "nexus credential connect-status <handshake-id>".
+    "api_key"  {credentialId, toolCredentialId, name, type, status, createdAt} —
+               the credential exists as of this answer.
+
+  ON THE API-KEY BRANCH, credentialId IS THE ID THIS NAMESPACE TAKES.
+  toolCredentialId is the OTHER id space — the one "nexus tool credentials"
+  lists and "nexus tool delete-credential" takes. Both are UUIDs and neither
+  namespace accepts the other's, so pasting the wrong one is well-formed and
+  still refused. "credential get", "credential update", "credential delete" and
+  "access-card list --credential-id" all want credentialId.
+
+  A SECOND KEY FOR THE SAME TOOL IS A SECOND CREDENTIAL, not a replacement.
+  Re-running this to "try another key" leaves you with two, both live. Remove
+  the one you do not want with "nexus tool delete-credential".
+
+  credentialId CAN BE null, and that is a real state rather than a failure: a
+  tool-credential row that carries no unified credential row. Nothing in this
+  namespace can address such a credential; delete it through the tool commands.`
+    )
+    .action(async (opts) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const base = await resolveBody(opts.body);
+
+        const service = readStringField(opts.service, base, "service");
+        const apiKey = readStringField(opts.apiKeyValue, base, "apiKey");
+        const toolId = readStringField(opts.tool, base, "toolId");
+
+        if (service !== undefined && apiKey !== undefined) {
+          process.exitCode = refuse(
+            // 🚨 EVERY REFUSAL HERE KEEPS `--body` IN ITS FIRST STRING LITERAL, and
+            // that is a constraint on the WRAP, not only on the words.
+            // `util/required-field-refusals-name-both-paths.test.ts` reads the first
+            // literal of the `refuse()` call, so a message whose mention of `--body`
+            // prettier pushes into the second half reads as naming only the flag —
+            // which is how this reddened in CI after passing locally.
+            "Pass --service or --api-key-value, not both — as flags or inside --body. " +
+              "--service selects OAuth; --api-key-value selects the API key.",
+            "nexus credential connect --service GMAIL\n" +
+              "  nexus credential connect --tool <tool-id> --api-key-value <key>"
+          );
+          return;
+        }
+
+        // Each arm is built as a TYPED member of the server's own discriminated
+        // union, and the arm is chosen by testing the field that arm REQUIRES —
+        // so the compiler carries the narrowing and no cast stands in for it.
+        let body: ConnectCredentialBody;
+        if (apiKey !== undefined) {
+          if (toolId === undefined) {
+            process.exitCode = refuse(
+              "--tool is required with --api-key-value, as a flag or in --body. " +
+                "The key is stored against that tool's auth block, so this branch names a " +
+                "tool where the OAuth one has none.",
+              "nexus credential connect --tool <tool-id> --api-key-value <key>\n" +
+                "  Resolve the tool id with: nexus tool search --query <name>"
+            );
+            return;
+          }
+          const name = readStringField(opts.name, base, "name");
+          body = {
+            authType: "api_key",
+            toolId,
+            apiKey,
+            ...(name !== undefined && { name })
+          };
+        } else if (service !== undefined) {
+          if (toolId !== undefined) {
+            // Not silently dropped: a caller who passed --tool believes the
+            // account is being authorized FOR that tool, and it is not.
+            process.exitCode = refuse(
+              "--tool is not accepted with --service, as a flag or in --body. " +
+                "An OAuth connection belongs to the account, not to a tool.",
+              "nexus credential connect --service GMAIL"
+            );
+            return;
+          }
+          body = { authType: "oauth", service };
+        } else {
+          process.exitCode = refuse(
+            "One of --service or --api-key-value is required, as a flag or in --body. " +
+              "--service selects OAuth; --api-key-value selects the API key (a flag wins " +
+              "over --body).",
+            "nexus credential connect --service GMAIL\n" +
+              "  nexus credential connect --tool <tool-id> --api-key-value <key>\n" +
+              "  e.g. --service GMAIL (built-in OAuth) or --service google_sheets (Pipedream app slug)"
+          );
+          return;
+        }
+
+        const result = await client.credentials.connect(body);
+
+        if (result.authType === "oauth") {
+          printSuccess("OAuth flow initiated.", result);
+          return;
+        }
+        printSuccess("App connected.", result);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
+  // ── connect-status ────────────────────────────────────────────────────
+  credential
+    .command("connect-status")
+    .description('Poll a connection started by "credential connect"')
+    .argument("<handshake-id>", "Handshake ID from the connect response")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus credential connect-status 22222222-2222-4222-8222-222222222222
+  $ nexus credential connect-status ctok_dac4453f92a54ae7ac45e23694cc4a78 --json
+
+Notes:
+  THE ID IS NOT ALWAYS A UUID. A built-in OAuth handshake id is one; a Pipedream
+  connection's is its connect token, "ctok_...". Both are accepted here, and
+  nothing else is — this is not a credential id.
+
+  FOUR STATES, AND ONLY ONE OF THEM MEANS KEEP POLLING:
+    PENDING    the browser flow has not finished. Poll again.
+    COMPLETED  terminal, and connectionId is now set — that is the connection.
+    FAILED     terminal. Read errorMessage, and branch on errorCode.
+    EXPIRED    terminal. The handshake outlived expiresAt; start again with
+               "nexus credential connect".
+  There is no timeout here and no retry budget, so the loop is yours to bound —
+  expiresAt, returned by "credential connect", is the deadline to bound it with.
+
+  errorCode IS THE FIELD TO BRANCH ON, NEVER errorMessage. It is
+  ORG_HAS_NO_MEMBERS, PIPEDREAM_TOOL_NOT_IN_MARKETPLACE or
+  PIPEDREAM_INVALID_ACCOUNT, and it is null on PENDING and COMPLETED — and also
+  null on a FAILED outcome nobody has classified yet, so a null errorCode beside
+  FAILED means "read errorMessage", never "no error".
+
+  connectionId IS null UNTIL COMPLETED. Do not read its absence as a failure
+  while status is still PENDING.
+
+  A COMPLETED connection is not yet addressable by connectionId in this
+  namespace — find the new row with "nexus credential list", which is the
+  unified inventory this id space belongs to.`
+    )
+    .action(async (handshakeId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.credentials.connectStatus(handshakeId);
+        printRecord(result, [
+          { key: "status", label: "Status" },
+          { key: "connectionId", label: "Connection ID" },
+          { key: "errorCode", label: "Error Code" },
+          { key: "errorMessage", label: "Error" },
+          { key: "expiresAt", label: "Expires At" }
+        ]);
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
 
   // ── list ──────────────────────────────────────────────────────────────
   const credentialList = addPaginationOptions(

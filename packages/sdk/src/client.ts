@@ -1,6 +1,7 @@
 import { NexusError } from "./errors";
 import { HttpClient, type RetryNotice } from "./http-client";
 import { AgentCollectionsResource } from "./resources/agent-collections";
+import { AgentEvalsResource } from "./resources/agent-evals";
 import { AgentsResource } from "./resources/agents";
 import { AnalyticsResource } from "./resources/analytics";
 import { ApiKeyConnectionsResource } from "./resources/api-key-connections";
@@ -29,6 +30,7 @@ import { PermissionsResource } from "./resources/permissions";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
 import { PromptAssistantResource } from "./resources/prompt-assistant";
 import { RolesResource } from "./resources/roles";
+import { ScoresResource } from "./resources/scores";
 import { SkillFoldersResource } from "./resources/skill-folders";
 import { SkillsResource } from "./resources/skills";
 import { TicketsResource } from "./resources/tickets";
@@ -277,6 +279,16 @@ export class NexusClient {
   /** Attach knowledge collections to agents. */
   public readonly agentCollections: AgentCollectionsResource;
 
+  /**
+   * Agent conversation evaluations — LLM-as-judge scoring of multi-turn
+   * conversations: runs, batches, templates, schedules, triggers and webhooks.
+   *
+   * 🔴 `runs.execute`, `batches.create`, `schedules.create` and an enabled
+   * `triggers.upsert` all start model spend, and the last two spend REPEATEDLY
+   * and unattended. Read {@link AgentEvalsResource}'s header before any write.
+   */
+  public readonly agentEvals: AgentEvalsResource;
+
   /** View and debug workflow execution history. */
   public readonly workflowExecutions: WorkflowExecutionsResource;
 
@@ -321,6 +333,15 @@ export class NexusClient {
    * locks or refuses a second worker.
    */
   public readonly tracks: TracksResource;
+
+  /**
+   * Scores: attach a measured value to a scorable entity, and read one entity's scores.
+   *
+   * 🔴 Append-only from out here, and `emitterType` is NOT settable — every
+   * public write is stamped `CUSTOM_KPI` server-side so an external caller
+   * cannot forge a judge or CSAT score.
+   */
+  public readonly scores: ScoresResource;
 
   /** Read and bulk-export full Cue conversation transcripts, including subagent traces. */
   public readonly cueTranscripts: CueTranscriptsResource;
@@ -414,6 +435,7 @@ export class NexusClient {
     this.htmlMessageTemplates = new HtmlMessageTemplatesResource(http);
     this.analytics = new AnalyticsResource(http);
     this.agentCollections = new AgentCollectionsResource(http);
+    this.agentEvals = new AgentEvalsResource(http);
     this.workflowExecutions = new WorkflowExecutionsResource(http);
     this.evaluations = new EvaluationsResource(http);
     this.cloudImports = new CloudImportsResource(http);
@@ -425,6 +447,7 @@ export class NexusClient {
     this.chat = new ChatResource(http);
     this.tracing = new TracingResource(http);
     this.tracks = new TracksResource(http);
+    this.scores = new ScoresResource(http);
     this.cueTranscripts = new CueTranscriptsResource(http);
     this.conversations = new ConversationsResource(http);
     this.credentials = new CredentialsResource(http);

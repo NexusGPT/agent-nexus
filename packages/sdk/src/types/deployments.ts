@@ -236,14 +236,7 @@ export interface EmbedConfig {
   /** Prompt chips offered to the visitor. */
   suggestedMessages: string[];
   localizedSuggestedMessages?: EmbedLocalizedTextList;
-  /** Launcher style. */
-  format: "bubble" | "classic";
   showTimestamp?: boolean;
-
-  // -- Opening popup ---------------------------------------------------------
-  autoShowInitialMessagePopup: boolean;
-  /** Delay in seconds before the popup appears. */
-  autoShowInitialMessagePopupDelay: number;
 
   // -- Bubble ----------------------------------------------------------------
   bubblePosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";

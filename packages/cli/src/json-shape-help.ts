@@ -10,10 +10,11 @@ import { JSON_SHAPES } from "./json-shape.generated";
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `--json` is not uniformly wrapped, and the wrapping is not derivable from a
- * command's name: `agent list` answers `{data, meta}`, `task list` answers a
- * bare array, `agent create` answers `{success, …}` and `agent get` answers the
- * resource flat. So a caller who probes one command's shape has learned nothing
- * about the next.
+ * command's name: `agent list` answers `{data, meta}`, `agent-tool list` answers
+ * a bare array, `task list` answers the route's own `{items, total}`, `agent
+ * create` answers `{success, …}` and `agent get` answers the resource flat. Two
+ * commands that both end in `list` land on three different shapes, so a caller
+ * who probes one command's shape has learned nothing about the next.
  *
  * The cost of getting it wrong is SILENT, which is what makes it worth a line on
  * every screen rather than a rule on one. A `jq` path against the wrong pattern

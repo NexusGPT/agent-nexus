@@ -367,17 +367,25 @@ Notes:
   newsMonitorTrigger; on every other node type — customScript, aiTask, plugin —
   the snapshot is stripped before the graph is saved, so "workflow get" shows
   runOutput null right after a green test. testExecutionId is the pointer that
-  survives; read the actual output from this command's own response.
+  survives, and it is what the execution verbs below resolve.
   A trigger node is refused with 400 NODE_IS_TRIGGER; use "nexus workflow test".
-  The returned executionId is a per-node test id, so "nexus execution get" on it
-  fails — the output is already in this response.
-  THE EXIT CODE CARRIES THE NODE'S OUTCOME, NOT status. status reads COMPLETED for
-  a run whose node threw, so the outcome is read from data instead: a node that
-  failed exits non-zero and its error is in data.errorDetails. A node type that
-  runs in the background answers status PENDING with data null — nothing was
-  measured, so that exits non-zero under the UNMEASURED category, which is
-  neither a pass nor a failure. Identical to "nexus workflow test-node", which is
-  the same endpoint.`
+  The returned executionId is a per-node test id — a WorkflowExecutionNode key, not
+  a WorkflowExecution one — and every "nexus execution" verb RESOLVES it: get, poll,
+  diagnose, node-result, output, retry, cancel and export all accept it and answer
+  for the parent execution, reporting that execution's own canonical id. It stays
+  out of "nexus execution list" until you pass --include-test-runs, which is a
+  separate filter on wasTestExecution.
+  THE OUTPUT IS IN data ONLY FOR A SYNCHRONOUS NODE TYPE. plugin, firecrawl, exaai,
+  sixtyfour, aiTask, cueNode, loop, and parallelai on any action but search or chat
+  are dispatched to the background: they answer status PENDING with data null, and
+  their result is read back later through the id above.
+  status REPORTS THE OUTCOME — COMPLETED when the node ran, FAILED when it threw
+  (the error envelope is then in data), PENDING when the run went to the background.
+  THE EXIT CODE IS READ FROM data RATHER THAN status, so this CLI and the console's
+  own test panel cannot disagree about the same run: a node that failed exits
+  non-zero and its error is in data.errorDetails. A background run measured nothing,
+  so it exits under the UNMEASURED category, which is neither a pass nor a failure.
+  Identical to "nexus workflow test-node", which is the same endpoint.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {
       try {

@@ -51,9 +51,10 @@ Three facts decide whether a call does what you think:
     retrieval your agents run. Reaching for "search" to test whether a collection
     can answer a question returns nothing and looks like an empty collection.
     "search-multiple" is the multi-collection form of SEARCH — names, not content.
-  • "attach-documents" SILENTLY DROPS FOLDER DOCUMENTS. A website folder, an
-    imported Google Sheet folder or a plain folder is filtered out server-side
-    and the call still reports success. Attach the child documents instead.
+  • "attach-documents" EXPANDS A FOLDER TO ITS CONTENTS. A website folder, an
+    imported Google Sheet folder or a plain folder attaches every document
+    under it (recursively) as of that moment — the folder row itself is never
+    linked, and documents added to the folder later are not pulled in.
   • Attaching and removing reach retrieval at DIFFERENT moments, and only one of
     them lags. Removing is immediate — it clears the cached document list every
     query is filtered by. Attaching is not, because the document still has to
@@ -618,16 +619,17 @@ Notes:
   of being named at the edge — it lands in the all-or-nothing 404 below, which
   names no id.
 
-  SILENTLY DROPS FOLDER DOCUMENTS. Any id naming a folder — FOLDER, a website
-  folder from "document add-website", the folder an imported Google Sheet or a
-  Google Drive import produces — is filtered out server-side, and the call still
-  succeeds. Attach the CHILDREN instead: "nexus document children <folder-id>".
-  Passing only folder ids attaches nothing at all and still succeeds.
+  A FOLDER ID EXPANDS TO ITS CONTENTS. Any id naming a folder — FOLDER, a
+  website folder from "document add-website", the folder an imported Google
+  Sheet or a Google Drive import produces — attaches every document under it,
+  recursively, as of that moment. The folder row itself is never linked, and
+  documents added to the folder later are not pulled in; re-attach the folder
+  to pick them up. An EMPTY folder attaches nothing and still succeeds.
 
-  THE RESPONSE COUNTS NOTHING, SO IT CANNOT TELL YOU WHAT WAS DROPPED. It
-  carries the collection id and nothing else — no attached count, no rejected
-  list — so "it worked" and "every id I sent was a folder" print the same line.
-  The only proof is the read: "nexus collection documents <id>".
+  THE RESPONSE COUNTS NOTHING, SO IT CANNOT TELL YOU WHAT AN EXPANSION LINKED.
+  It carries the collection id and nothing else — no attached count, no
+  per-folder breakdown. The only proof is the read:
+  "nexus collection documents <id>".
 
   ALL OR NOTHING ON EXISTENCE. If any id is unknown, deleted, or owned by
   another organization the whole call is a 404 and nothing is attached. The

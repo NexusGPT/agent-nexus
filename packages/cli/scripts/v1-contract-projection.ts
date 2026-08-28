@@ -226,6 +226,50 @@ function stripUnion(node: JsonSchemaNode): JsonSchemaNode {
   return rest;
 }
 
+/**
+ * Merge an `allOf` node's object arms into one node.
+ *
+ * `z.intersection` is emitted as `allOf`, and `allOf` carries NO top-level
+ * `properties` — every field lives inside an arm. {@link walk} reads
+ * `resolved.properties`, so before this an intersection projected to ZERO
+ * FIELDS: `ScoreRecord`, whose body is
+ * `ScoreDescriptorSchema.omit({emitterType:true})` intersected with
+ * `ScoreValueSchema`, produced `fields: []` and `--print-contract` showed a POST
+ * that appeared to take nothing. `allOf` was declared on {@link JsonSchemaNode}
+ * and read by nothing, which is why it failed silently rather than throwing.
+ *
+ * 🔴 A MULTI-ARM UNION INSIDE AN INTERSECTION STILL CONTRIBUTES NOTHING, and
+ * that is this file's existing policy rather than a shortcoming of the merge:
+ * {@link unwrapSingleArm} leaves a genuine two-or-more-arm union alone because
+ * "guessing which arm a reader meant is how a generator starts inventing". A
+ * discriminated value union is exactly that shape, so its members are declared
+ * at the flag in the command file and printed in `--help`, where a human wrote
+ * which flag pairs with which discriminant.
+ *
+ * Later arms win on a key collision, matching how the arms were intersected.
+ */
+function flattenAllOf(node: JsonSchemaNode): JsonSchemaNode {
+  if (!node.allOf) return node;
+
+  const properties: Record<string, JsonSchemaNode> = { ...(node.properties ?? {}) };
+  const required = new Set(node.required ?? []);
+
+  for (const rawArm of node.allOf) {
+    const arm = unwrapSingleArm(rawArm);
+    // An arm that is still a multi-arm union has no properties of its own; it is
+    // skipped rather than guessed at. See this function's docblock.
+    for (const [key, child] of Object.entries(arm.properties ?? {})) properties[key] = child;
+    for (const key of arm.required ?? []) required.add(key);
+  }
+
+  const { allOf: _all, ...rest } = node;
+  return {
+    ...rest,
+    properties,
+    ...(required.size > 0 ? { required: [...required] } : {})
+  };
+}
+
 const MAX_DEPTH = 4;
 
 function walk(
@@ -236,11 +280,11 @@ function walk(
   out: ProjectedField[]
 ): void {
   if (depth > MAX_DEPTH) return;
-  const resolved = unwrapSingleArm(node);
+  const resolved = flattenAllOf(unwrapSingleArm(node));
   const required = new Set(resolved.required ?? []);
 
   for (const [key, rawChild] of Object.entries(resolved.properties ?? {})) {
-    const child = unwrapSingleArm(rawChild);
+    const child = flattenAllOf(unwrapSingleArm(rawChild));
     const path = prefix === "" ? `${slot}.${key}` : `${prefix}.${key}`;
     const type = Array.isArray(child.type) ? child.type.join("|") : (child.type ?? "unknown");
 

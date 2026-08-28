@@ -238,6 +238,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "Use the AI-powered prompt-writing assistant from the command line to draft and refine agent and AI-task prompts through multi-turn conversations."
   },
+  score: {
+    title: "Scores CLI",
+    icon: "gauge",
+    description:
+      "Record a measured value against a chat, message, trace or workflow execution, and read back everything scored on one entity — the universal score store, from the command line."
+  },
   "skill-folder": {
     title: "Skill Folders CLI",
     icon: "folder-tree",

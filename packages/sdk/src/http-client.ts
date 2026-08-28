@@ -560,8 +560,12 @@ export class HttpClient {
     // server" from "works in a browser", and nothing in the type system, the
     // conformance suite or the response-contract manifest can see the
     // difference — the signature is identical either way. Found 2026-08-20 by
-    // rendering a real staging turn in chromium through `apps/chat-embed`,
-    // which is the first browser consumer this client has ever had.
+    // rendering a real staging turn in chromium through the standalone chat
+    // widget, the first browser consumer this client has ever had. That widget
+    // now lives in `NexusGPT/nexus-chat-embed` and takes this SDK from npm, so
+    // NOTHING in this repository exercises the browser path any more — the
+    // regression is unreachable from every gate here, which is why the reason
+    // is written at the line rather than left to a test.
     this.fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultHeaders = opts.defaultHeaders ?? {};
     this.timeout = opts.timeout;

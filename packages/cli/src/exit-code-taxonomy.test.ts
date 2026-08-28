@@ -358,6 +358,28 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
  * with EACH OTHER. This is the scan that makes a fifth one impossible to add
  * quietly.
  */
+/**
+ * EVERY `process.exitCode = 1` THE TAXONOMY HAS NOT REACHED YET, BY FILE.
+ *
+ * One entry per occurrence, sorted, so the list states the COUNT as well as the
+ * set — `commands/auth.ts` three times is three sites, and dropping one of them
+ * to a category fails the comparison until this list follows.
+ *
+ * ⚠️ THIS IS AN EXEMPTION LIST AND IT MUST ONLY EVER SHRINK. Adding a name to
+ * it to unblock a build reopens the hole. The remedy for a new red here is to
+ * give the site a category from `EXIT_CODES`, not to write its file down.
+ */
+const EXPECTED_BARE_ONE_SITES: readonly string[] = [
+  "commands/auth.ts",
+  "commands/auth.ts",
+  "commands/auth.ts",
+  "commands/channel.ts",
+  "commands/channel.ts",
+  "commands/skills.ts",
+  "commands/vibe.ts",
+  "commands/vibe.ts"
+];
+
 describe("no exit code is written as a number outside the taxonomy module", () => {
   it("finds no integer literal in a process.exit(...) call", () => {
     const offenders: string[] = [];
@@ -380,14 +402,28 @@ describe("no exit code is written as a number outside the taxonomy module", () =
         offenders.push(`${relative(SRC_DIR, file)}: ${line}`);
       }
     }
-    // ⚠️ 15 SITES SPELL `process.exitCode = 1` TODAY and are NOT covered here —
-    // they are inside command actions that print their own message and never
-    // reach `handleError`. Each needs a category decided by reading what it
-    // failed at, which is a separate change. Until then this assertion would be
-    // a false red, so it is scoped to the value the taxonomy has replaced
-    // everywhere it reaches. The scoping is stated rather than hidden in a
-    // regex nobody reads.
+    // A BARE `process.exitCode = 1` IS STILL EXEMPT, AND THE EXEMPTION IS A
+    // NAMED LIST RATHER THAN A COUNT IN A COMMENT.
+    //
+    // These sites sit inside command actions that print their own message and
+    // never reach `handleError`, so each needs a category decided by reading
+    // what it failed at — a separate change. The exemption used to be a prose
+    // figure ("15 SITES SPELL …") beside a filter that let ANY `= 1` through.
+    // The figure was wrong the day it was written — the scan finds 8 — and a
+    // wrong count beside a blanket filter is the shape this whole file exists
+    // to remove: a number nothing derives, guarding a hole nothing bounds.
+    //
+    // Now the hole is enumerated. A NEW `= 1` fails here by file name, and a
+    // site that gets its category fails the staleness case below, so the list
+    // can only shrink. It is by FILE, not by line: a line number moves under an
+    // unrelated edit and would make this a maintenance tax rather than a gate.
     expect(offenders.filter((o) => !o.endsWith("= 1;"))).toEqual([]);
+
+    const bare = offenders
+      .filter((o) => o.endsWith("= 1;"))
+      .map((o) => o.split(":")[0] ?? "")
+      .sort();
+    expect(bare).toEqual(EXPECTED_BARE_ONE_SITES);
   });
 
   it("leaves no bare `return <int>` inside errors.ts or admin-errors.ts", () => {
@@ -861,14 +897,102 @@ describe("no per-command help promises an exit code the taxonomy may refine", ()
         if (anchor === null) continue;
         const after = line.slice(anchor.index, anchor.index + 60);
         // Not an HTTP status, and not a number carrying a unit.
-        const named =
-          /(?:^|[^\w.-])(?<!HTTP )([1-9]\d*)(?![\w.-])(?!\s*(?:%|m?s\b|min|sec|hour|day|[KMG]B))/.exec(
-            after
-          );
-        if (named === null) continue;
+        const named = [
+          ...after.matchAll(
+            /(?:^|[^\w.-])(?<!HTTP )([1-9]\d*)(?![\w.-])(?!\s*(?:%|m?s\b|min|sec|hour|day|[KMG]B))/g
+          )
+        ].map((match) => match[1]);
+        // `130` IS EXEMPT ON THE SAME GROUND AS `0`, AND FOR THE SAME ONE LINE
+        // OF REASONING: the rule exists because a per-command help promising a
+        // number goes false when the taxonomy refines that failure into a more
+        // specific category. `0` cannot be refined, and neither can `130` —
+        // `exitCodeTaxonomyViolations()` pins it to `128 + 2` and refuses any
+        // other declared code in the shell's band, so the one command that
+        // produces it may say so. Filtered rather than skipped: a line naming
+        // `130` AND a refinable number is still a finding.
+        const refinable = named.filter((value) => value !== "130");
+        if (refinable.length === 0) continue;
         offenders.push(`nexus ${path}: ${line.trim()}`);
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * THE `130` CONTRACT IS STATED, AND STATED THE SAME WAY, ON EVERY SURFACE.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 FOUR SHIPPED SENTENCES DESCRIBED THIS NUMBER AND ALL FOUR WERE WRONG IN THE
+ *    SAME DIRECTION.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The root table said "SIGINT". `COMPATIBILITY.md` said "reserved rather than
+ * chosen". The taxonomy's own docblock said "never chosen as a verdict". And the
+ * one command that produces it said "Ctrl-C ends one cleanly and exits 0" and
+ * stopped there. Read together they promise a script author two false things:
+ * that a Ctrl-C yields `130`, and that nothing but a Ctrl-C can.
+ *
+ * The truth is narrow and none of them carried it: ONE command produces `130`,
+ * on the SECOND signal, of EITHER kind, because one counter serves `SIGINT` and
+ * `SIGTERM`. `vibe-app-logs-interrupt.test.ts` drives that behaviour; this
+ * checks that the three places a caller READS it agree with it.
+ *
+ * ⚠️ Asserted as SUBSTRINGS of prose, which is the weakest form of check in this
+ * file and is used deliberately: the alternative is generating four sentences
+ * from one constant, and prose that reads as generated is prose nobody reads.
+ * What each case pins is the CLAIM — the second signal, and either kind — not
+ * the wording around it.
+ */
+const COMPATIBILITY_DOC = join(SRC_DIR, "..", "COMPATIBILITY.md");
+
+describe("every surface that describes 130 describes the same 130", () => {
+  it("has exactly ONE producer in the whole package — the claim the prose rests on", () => {
+    const producers = productionSources().filter((file) =>
+      withoutComments(readFileSync(file, "utf8")).includes("process.exit(EXIT_CODES.interrupted)")
+    );
+    expect(producers.map((file) => relative(SRC_DIR, file))).toEqual([
+      join("commands", "vibe-app-logs.ts")
+    ]);
+  });
+
+  it("the root --help says which command emits it and that the first Ctrl-C does not", () => {
+    const root = renderedHelp().find(([path]) => path === "nexus")?.[1] ?? "";
+    expect(root).toContain("vibe app logs --follow");
+    expect(root).toContain("SECOND signal");
+  });
+
+  it("the producing command's own --help names the second signal and both kinds", () => {
+    const help = renderedHelp().find(([path]) => path === "vibe app logs")?.[1] ?? "";
+    // The anti-vacuity control: the epilogue is where every one of these lives,
+    // and `helpInformation()` renders a complete-looking screen without it.
+    expect(help).toContain("--follow and --until are mutually exclusive");
+    expect(help).toContain("SECOND SIGNAL");
+    expect(help).toContain("130");
+    expect(help).toContain("SIGTERM");
+  });
+
+  it("COMPATIBILITY.md names the producer, the second signal and both kinds", () => {
+    const doc = readFileSync(COMPATIBILITY_DOC, "utf8");
+    expect(doc).toContain("nexus vibe app logs --follow");
+    expect(doc).toContain("SECOND");
+    expect(doc).toContain("SIGTERM");
+  });
+
+  it("no surface still calls 130 something the CLI never chooses", () => {
+    const dead = [
+      "reserved rather than chosen",
+      "never chosen as a verdict",
+      "interrupted (SIGINT — the shell's number, not ours)"
+    ];
+    const surfaces: readonly (readonly [string, string])[] = [
+      ["COMPATIBILITY.md", readFileSync(COMPATIBILITY_DOC, "utf8")],
+      ["exit-codes.ts", readFileSync(join(SRC_DIR, "exit-codes.ts"), "utf8")],
+      ["nexus --help", renderedHelp().find(([path]) => path === "nexus")?.[1] ?? ""]
+    ];
+    const found = surfaces.flatMap(([name, text]) =>
+      dead.filter((phrase) => text.includes(phrase)).map((phrase) => `${name}: ${phrase}`)
+    );
+    expect(found).toEqual([]);
   });
 });

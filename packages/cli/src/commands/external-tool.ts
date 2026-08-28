@@ -20,7 +20,7 @@ import type {
   ToolHasAttachmentsDetails,
   ToolSpecBreakingChangeDetails
 } from "../external-tool-wire-types";
-import { printList, printRecord, printSuccess } from "../output";
+import { printEnvelope, printList, printRecord, printSuccess } from "../output";
 import {
   asRequestBody,
   mergeBodyWithFlags,
@@ -58,11 +58,11 @@ Examples:
   $ nexus external-tool list --json
 
 Notes:
-  --json PRINTS {data: [...]} AND NO meta KEY. Unlike the paginated lists in
-  this CLI there is no total and no hasMore here, so a full-looking answer is
-  not evidence that you have them all.
-  THERE IS NO --page EITHER. --limit caps the answer and nothing walks past it,
-  so a --limit below your tool count hides the rest with nothing saying so.
+  --json ANSWERS THE ROUTE'S OWN OBJECT: {items, total}. The rows are under
+  .items — jq '.data[]' and jq '.[]' both select nothing — and .total is how
+  many exist against how many --limit returned. There is no hasMore.
+  THERE IS NO --page. --limit caps the answer and nothing walks past it, so a
+  --limit below .total hides the rest; raise it, or read .total first.
   THE TABLE IS ID / NAME / DESCRIPTION / CREATED. It carries no auth type, no
   endpointUrl and no actionsCount — read those per tool with
   "nexus external-tool get <id>".`
@@ -74,12 +74,14 @@ Notes:
           search: opts.search,
           limit: opts.limit
         });
-        printList(result.items, undefined, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "description", label: "DESCRIPTION", width: 40 },
-          { key: "createdAt", label: "CREATED", width: 26 }
-        ]);
+        printEnvelope(result, () => {
+          printList(result.items, undefined, [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "description", label: "DESCRIPTION", width: 40 },
+            { key: "createdAt", label: "CREATED", width: 26 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

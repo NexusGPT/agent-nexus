@@ -167,7 +167,7 @@ export type ChatStreamProviderMetadata = Record<string, Record<string, unknown>>
  * 🚨 THE UNION IS THE SDK'S WHOLE UNION, NOT THE SUBSET NEXUS EMITS TODAY
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Twelve of these members have no producer on the Nexus side yet. They are
+ * Several of these members have no producer on the Nexus side yet. They are
  * declared anyway, for the same reason the server's schema declares them: a
  * member left out is a member this SDK's consumers cannot handle the day a
  * producer appears, and a `switch` written against a narrower union silently
@@ -177,7 +177,7 @@ export type ChatStreamProviderMetadata = Record<string, Record<string, unknown>>
  * What a Nexus turn actually emits, observed on the wire: `start`,
  * `text-start`, `text-delta`, `text-end`, `finish`, `tool-input-start`,
  * `tool-input-available`, `tool-output-available`, `tool-output-error`,
- * `data-nexus-*` and `error`. `finish` carries `finishReason` and nothing else —
+ * `source-url`, `source-document`, `data-nexus-*` and `error`. `finish` carries `finishReason` and nothing else —
  * usage is billed server-side and is not on this bus.
  *
  * Branch on `type` and treat an unrecognised one as inert; the wire is

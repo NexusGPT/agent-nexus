@@ -909,7 +909,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "(EMBED --body top-level shape)",
     state: "placed",
     leaf: "deployment create",
-    probe: 'THOSE FIVE OBJECTS NEST UNDER A TOP-LEVEL "settings" KEY'
+    probe: 'THOSE FOUR OBJECTS NEST UNDER A TOP-LEVEL "settings" KEY'
   },
   {
     id: "deployment-02",
@@ -1177,7 +1177,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "(--json envelope unstated on both)",
     state: "placed",
     leaf: "external-tool list",
-    probe: "--json PRINTS {data: [...]} AND NO meta KEY"
+    probe: "--json ANSWERS THE ROUTE'S OWN OBJECT: {items, total}"
   },
   {
     id: "external-tool-03",
@@ -1357,7 +1357,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "the thread and promptResult field shapes.",
     state: "placed",
     leaf: "prompt-assistant get-thread",
-    probe: "THE SHAPE, SINCE --json PRINTS THE RECORD BARE"
+    probe: "THE SHAPE, read from the top level without --wait"
   },
   {
     id: "prompt-assistant-02",
@@ -1525,10 +1525,10 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "task-04",
     target: "task list",
     summary:
-      "document that --json returns a BARE ARRAY with no envelope and no meta, and that there is no --page (only --limit).",
+      "document the --json envelope this command answers, and that there is no --page (only --limit).",
     state: "placed",
     leaf: "task list",
-    probe: "--json IS A BARE ARRAY WITH NO ENVELOPE AND NO meta"
+    probe: "--json ANSWERS THE ROUTE'S OWN OBJECT: {items, total}"
   },
   {
     id: "task-05",
@@ -1705,7 +1705,14 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "--type <type> Filter by type",
     state: "placed",
     leaf: "tool search",
-    probe: "TASK, INTERNAL_TOOL"
+    // Anchored on the AUTHORED sentence about the flag, never on the enum's own
+    // values. The previous probe was "TASK, INTERNAL_TOOL" — the first two
+    // members of the value list — so NEX-4314 moving `--type` from `ToolType` to
+    // `AgentExternalToolType` deleted the anchor along with the values, and this
+    // row failed for a reason that had nothing to do with the note still being
+    // placed. A probe that is a slice of a generated list re-breaks on every
+    // legitimate change to that list.
+    probe: "--type IS THE INTEGRATION KIND"
   },
   {
     id: "tool-02",

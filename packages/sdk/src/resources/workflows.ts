@@ -515,9 +515,9 @@ export class WorkflowsResource extends BaseResource {
    *
    * @param workflowId - Workflow UUID.
    * @param nodeId - Node UUID.
-   * A run that FAILED still reports `status: "COMPLETED"` — the failure is
-   * inside `data`. `"PENDING"` means the run went asynchronous; poll
-   * {@link getNodeExecutionResult} for the outcome.
+   * `status` reports the outcome: `"FAILED"` when the executor threw, with the
+   * error envelope in `data`. `"PENDING"` means the run went asynchronous and
+   * `data` is null; poll {@link getNodeExecutionResult} for the outcome.
    *
    * @param body - Optional input data for the node.
    * @returns The execution id, its status, and the result when one is ready.

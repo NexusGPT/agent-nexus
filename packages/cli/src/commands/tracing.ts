@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError } from "../errors";
-import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { color, isJsonMode, printEnvelope, printList, printRecord, printSuccess } from "../output";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import {
   TRACING_ANALYTICS_COST_BREAKDOWN__PARAMS_BUCKET,
@@ -614,6 +614,9 @@ Notes:
   LIST, but this flag is not repeatable, so "--group-by model --group-by agent"
   returns the agent grouping alone, with nothing saying model was discarded. Ask
   for one grouping per call.
+  --json ANSWERS THE ROUTE'S OWN OBJECT: the rows are under .entries and
+  .dimensions echoes what the server grouped by, in order. Read .dimensions
+  before splitting a composite KEY — it names which half is which.
   LABEL IS EMPTY WHENEVER THE THING IT NAMES IS GONE, LEAVING A BARE UUID IN KEY.
   Every dimension except model resolves its label by a lookup — agent,
   workflow, deployment and customer alike — so a deleted referent, or one in
@@ -656,26 +659,32 @@ Notes:
           bucket: opts.bucket
         });
         const entries = result.entries ?? [];
-        printList(entries, undefined, [
-          { key: "groupKey", label: "KEY", width: 36 },
-          { key: "groupLabel", label: "LABEL", width: 25 },
-          // Only when asked for. Unbucketed, every row's `bucket` is null, and a
-          // column of dashes reads as missing data rather than as not-requested.
-          ...(opts.bucket ? [{ key: "bucket" as const, label: "BUCKET", width: 22 }] : []),
-          {
-            key: "totalCostUsd",
-            label: "COST ($)",
-            width: 12,
-            format: (v) => `$${Number(v).toFixed(4)}`
-          },
-          { key: "traceCount", label: "TRACES", width: 8 },
-          { key: "generationCount", label: "GENS", width: 8 },
-          // A table cannot carry the caveat the summary's single value can, so
-          // the Notes above own the sentence and this column owns the number.
-          { key: "unpricedGenerationCount", label: "UNPRICED", width: 9 },
-          { key: "totalInputTokens", label: "IN TOKENS", width: 12 },
-          { key: "totalOutputTokens", label: "OUT TOKENS", width: 12 }
-        ]);
+        // `dimensions` echoes what the breakdown was grouped BY, in order. On a
+        // multi-dimension request every row's `groupKey` is a composite
+        // `value0|value1`, so without it a consumer cannot say which half is
+        // the model and which is the deployment.
+        printEnvelope(result, () => {
+          printList(entries, undefined, [
+            { key: "groupKey", label: "KEY", width: 36 },
+            { key: "groupLabel", label: "LABEL", width: 25 },
+            // Only when asked for. Unbucketed, every row's `bucket` is null, and a
+            // column of dashes reads as missing data rather than as not-requested.
+            ...(opts.bucket ? [{ key: "bucket" as const, label: "BUCKET", width: 22 }] : []),
+            {
+              key: "totalCostUsd",
+              label: "COST ($)",
+              width: 12,
+              format: (v) => `$${Number(v).toFixed(4)}`
+            },
+            { key: "traceCount", label: "TRACES", width: 8 },
+            { key: "generationCount", label: "GENS", width: 8 },
+            // A table cannot carry the caveat the summary's single value can, so
+            // the Notes above own the sentence and this column owns the number.
+            { key: "unpricedGenerationCount", label: "UNPRICED", width: 9 },
+            { key: "totalInputTokens", label: "IN TOKENS", width: 12 },
+            { key: "totalOutputTokens", label: "OUT TOKENS", width: 12 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

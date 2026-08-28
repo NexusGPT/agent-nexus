@@ -80,6 +80,9 @@ export class AdminCliError extends Error {
   }
 }
 
+/** Provenance for an admin failure the CLI decided itself. See `errors.ts`. */
+const ADMIN_CLI_CODE = "CLI_ADMIN_ERROR";
+
 /**
  * Print an `AdminCliError` and return its exit code.
  *
@@ -100,9 +103,6 @@ export class AdminCliError extends Error {
  * caller can have the document without having the verdict — the resource tree's
  * `refuse` and `reportFailure` decide their own code, this tree carries one.
  */
-/** Provenance for an admin failure the CLI decided itself. See `errors.ts`. */
-const ADMIN_CLI_CODE = "CLI_ADMIN_ERROR";
-
 export function handleAdminError(err: unknown): number {
   const write = (message: string, code: string, exitCode: number): number => {
     if (isJsonMode()) {

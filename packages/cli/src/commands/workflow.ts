@@ -48,8 +48,9 @@ agent can use it as a tool.
 
 Two facts that decide whether a build works:
   • DELETING A LOOP DELETES ITS BODY. "workflow node delete" on a loop or doWhile
-    removes every node inside it, and every edge touching any of them, in one
-    204. Nothing enumerates what went.
+    removes every node inside it, and every edge touching any of them, and the
+    200 ENUMERATES WHAT WENT: deletedNodeIds, deletedEdgeIds, and severedNodeIds
+    for the survivors that lost an edge.
   • A GREEN configStatus PROVES SHAPE ONLY. "workflow overview" reports complete
     once a node's own required fields are filled — not that its inputs are wired,
     that {{upstream.field}} resolves, or that any value is right. Use
@@ -110,8 +111,9 @@ Notes:
   Newest-updated first.
   --json IS {data: [...], meta: {total, page, hasMore}}, NOT A BARE ARRAY, and
   "nexus task list" — the other list you are most likely to read beside this
-  one — IS a bare array. One parser cannot read both. Read meta.hasMore here
-  rather than counting rows.`
+  one — answers {items, total}. Both are objects and NEITHER is a bare array, so
+  jq '.[]' selects nothing on either; the rows are under .data here and .items
+  there. Read meta.hasMore here rather than counting rows.`
       )
   ).action(async (opts) => {
     try {
@@ -151,7 +153,7 @@ Notes:
   --json is ONE FLAT OBJECT — the workflow's own fields at the top level, no
   {data, meta} envelope and no {success} wrapper. It carries the whole graph:
   nodes, edges, publishedNodes, publishedEdges, agentInputSchema and the
-  editor's data blob. The table shows six fields.
+  editor's data blob. The table shows seven fields.
   🚨 A NODE'S CONFIGURATION IS ONE LEVEL DOWN, UNDER THE NODE'S OWN "data" KEY.
   A node object carries id, type and data — plus parentId inside a loop, and
   deletable only when it cannot be deleted. Everything you configured is inside
@@ -579,9 +581,14 @@ Notes:
     manualTrigger       — takes no input at all
     newsMonitorTrigger  — your input, else the stored runOutput, else a synthesized
                           {events: […]} sample
-  A WEBHOOK OR PLUGIN TRIGGER WITH NO INPUT IS REFUSED, not silently parked: 422
-  TRIGGER_NOT_SYNC_TESTABLE. Pass --input, or put exampleData on the trigger node,
-  or publish and fire the real event.
+    pluginTrigger       — IGNORES --input entirely. Its sample payload is the node's
+                          own exampleData, captured from a real event in the Test tab
+  A WEBHOOK OR PLUGIN TRIGGER WITH NOTHING TO RUN ON IS REFUSED, not silently
+  parked: 422 TRIGGER_NOT_SYNC_TESTABLE. For a webhook, pass --input, or put
+  exampleData on the trigger node, or publish and fire the real event. For a
+  plugin, only exampleData or publishing will do — and testing one deploys NO
+  third-party subscription: the chain runs from exampleData, and the source is
+  registered at "workflow publish", not here.
   --input wins over --body and is the trigger payload verbatim. A flat --body is
   treated as that payload; a --body carrying triggerData / sampleConfig is used as
   given. An EMPTY object is treated as absent, so the node's stored runOutput
@@ -691,20 +698,33 @@ Notes:
   RESULT. An upstream that has never run exposes nothing, so the node under test
   runs on empty values and a green result proves only that it did not crash.
   A trigger node is refused here with 400 NODE_IS_TRIGGER — use "workflow test".
-  IT WRITES BACK. The node's testExecutionId, runOutput and inferred outputFormat
-  are persisted, which is what lets downstream nodes see this node's shape — and
-  which overwrites the previous test's pointer.
+  IT WRITES BACK the node's testExecutionId and inferred outputFormat, which is
+  what lets downstream nodes see this node's shape — and which overwrites the
+  previous test's pointer.
+  runOutput IS ONLY PERSISTED FOR agentInputTrigger, humanInput AND
+  newsMonitorTrigger. On every other type the snapshot is stripped before the
+  graph is saved, so "workflow get" shows runOutput null right after a green
+  test. That null is not a failed test.
   A FAILED RUN WRITES BACK NOTHING BUT testExecutionId. status is "FAILED" and the
   error envelope is in data; outputFormat and runOutput keep whatever the last
   SUCCESSFUL test left, so a broken run never becomes this node's contract.
-  The returned executionId is a per-node test id, so "nexus execution get" on it
-  fails. The output you want is already in this response's data field.
-  THE EXIT CODE CARRIES THE NODE'S OUTCOME, NOT status. status reads COMPLETED for
-  a run whose node threw, so the outcome is read from data instead: a node that
-  failed exits non-zero and its error is in data.errorDetails. A node type that
-  runs in the background answers status PENDING with data null — nothing was
-  measured, so that exits non-zero under the UNMEASURED category, which is
-  neither a pass nor a failure. "nexus --help" holds the code table.`
+  The returned executionId is a per-node test id — a WorkflowExecutionNode key, not
+  a WorkflowExecution one — and every "nexus execution" verb RESOLVES it: get, poll,
+  diagnose, node-result, output, retry, cancel and export all accept it and answer
+  for the parent execution, reporting that execution's own canonical id. It stays
+  out of "nexus execution list" until you pass --include-test-runs, which is a
+  separate filter on wasTestExecution.
+  THE OUTPUT IS IN data ONLY FOR A SYNCHRONOUS NODE TYPE. plugin, firecrawl, exaai,
+  sixtyfour, aiTask, cueNode, loop, and parallelai on any action but search or chat
+  are dispatched to the background: they answer status PENDING with data null, and
+  their result is read back later through the id above.
+  status REPORTS THE OUTCOME — COMPLETED when the node ran, FAILED when it threw
+  (the error envelope is then in data), PENDING when the run went to the background.
+  THE EXIT CODE IS READ FROM data RATHER THAN status, so this CLI and the console's
+  own test panel cannot disagree about the same run: a node that failed exits
+  non-zero and its error is in data.errorDetails. A background run measured nothing,
+  so it exits under the UNMEASURED category, which is neither a pass nor a failure.
+  "nexus --help" holds the code table.`
     )
     .action(async (workflowId: string, nodeId: string, opts) => {
       try {
@@ -717,8 +737,8 @@ Notes:
         const result = await client.workflows.testNode(workflowId, nodeId, body);
         // `node-test-verdict.ts` owns what this response MEANS, because
         // `workflow node test` sends the identical request and must reach the
-        // identical exit code. `status` alone is the wrong verdict — it reads
-        // COMPLETED for a run whose node threw.
+        // identical exit code. `status` is the RUN's status; the NODE's outcome
+        // is in `data`, which is what `judgeNodeTest` reads.
         const verdict = judgeNodeTest(result);
         if (verdict.outcome === "passed") {
           printRecord(result);
@@ -781,7 +801,8 @@ Notes:
   then selectedAction (which populates the parameters), verify with
   "workflow node get", and only then toolCredentialId. Configuring parameters
   before the action is accepted and silently produces nothing.
-  Created ids arrive at data.created.{nodes,edges,branches}, keyed by your refs.
+  Created ids arrive at created.{nodes,edges,branches}, keyed by your refs — the
+  SDK already unwrapped the envelope, so jq '.data.created' selects null here.
   The default table output prints only the three counts — use --json for the ids.`
     )
     .action(async (id: string, opts) => {
@@ -823,7 +844,9 @@ Examples:
 Notes:
   The file is read locally first, so a missing path fails before any request.
   Maximum 2 MB — larger is a 413, with the upload aborted mid-flight.
-  It REPLACES the current icon and answers {id, iconUrl}.`
+  It REPLACES the current icon. The API answers {iconUrl} alone; this command's
+  --json document is {success, message, id, iconUrl}, where id is the argument you
+  passed rather than anything the route returned.`
     )
     .action(async (id: string, opts) => {
       try {

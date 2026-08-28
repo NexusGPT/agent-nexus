@@ -291,18 +291,18 @@ Examples:
 Notes:
   FIVE TYPES REJECT A CREATE THAT CARRIES NO SETTINGS: EMBED, TELEGRAM,
   TWILIO_VOICE, GOOGLE_SHEETS and OUTLOOK_ADDIN. The 400 lists every missing
-  field — build --body from that error. EMBED alone needs five objects
-  (embedSettings, securitySettings, leadsSettings, assistantSettings,
-  advancedSettings), which is why the example above passes a file.
+  field — build --body from that error. EMBED alone needs four objects
+  (embedSettings, securitySettings, assistantSettings, advancedSettings),
+  which is why the example above passes a file.
 
-  THOSE FIVE OBJECTS NEST UNDER A TOP-LEVEL "settings" KEY. The contract
+  THOSE FOUR OBJECTS NEST UNDER A TOP-LEVEL "settings" KEY. The contract
   declares exactly one place for them, and a Zod object strips what it does
   not declare — so --body '{"embedSettings":{...},"securitySettings":{...}}'
   parses clean, loses every one of those keys, and reaches the route as a
   create with no settings at all. It then answers the same 400 an empty body
   gets. A correct body missing one level therefore reads as an empty body.
   The shape is '{"settings":{"embedSettings":{...},"securitySettings":{...},
-  "leadsSettings":{...},"assistantSettings":{},"advancedSettings":{}}}'.
+  "assistantSettings":{},"advancedSettings":{}}}'.
   "--print-contract" renders it as
   'Body.settings [optional, opaque; shape not described by the contract]' —
   that is the contract declining to describe the inside, not a gap here.
@@ -310,14 +310,13 @@ Notes:
   THE ENUM-VALUED LEAVES INSIDE settings ARE PRINTABLE, JUST NOT FROM HERE.
   Because settings is opaque on this route, "--print-contract" stops at the
   wrapper. The embedSettings half is fully described by the sibling verb:
-  "nexus deployment embed-config-update --print-contract" renders format
-  bubble|classic, bubblePosition bottom-right|bottom-left|top-right|top-left,
+  "nexus deployment embed-config-update --print-contract" renders
+  bubblePosition bottom-right|bottom-left|top-right|top-left,
   bubbleBorderRadius none|sm|md|lg|full, bubbleSize small|medium|large,
   uiAppearance system|light|dark, uiRadius sm|md|lg and uiContainerRadius
   sm|md|lg|none. securitySettings is the one that bites and no command prints
   it: visibility is REQUIRED and is exactly public|private. assistantSettings
-  and advancedSettings default every field, so {} is a valid value for both,
-  and leadsSettings is optional throughout.
+  and advancedSettings default every field, so {} is a valid value for both.
 
   WHATSAPP: pass --body '{"whatsappSenderId":"<id>"}' and phoneNumberId plus
   apiKeyConnectionId are resolved from it. A number another ACTIVE WhatsApp
@@ -1326,13 +1325,12 @@ Notes:
   bindCommand(list, DEPLOYMENT_LIST_CONTRACT);
   bindCommand(create, DEPLOYMENT_CREATE_CONTRACT);
   bindCommand(update, DEPLOYMENT_UPDATE_CONTRACT);
-  // A pure `--body` PATCH: every one of these seven enums is reachable, and none
+  // A pure `--body` PATCH: every one of these six enums is reachable, and none
   // has a flag. Naming them keeps the gate honest, and the contract block above
   // is now the ONLY place their values are written down — the Notes below this
   // command say to read them off a prior `embed-config`, which is a round trip
   // an operator should not have to make to learn a closed list.
   bindCommand(embedConfigUpdate, DEPLOYMENT_UPDATE_EMBED_CONFIG_CONTRACT, {
-    "Body.format": "--body only; embed-config-update takes no flags at all",
     "Body.bubblePosition": "--body only; embed-config-update takes no flags at all",
     "Body.bubbleBorderRadius": "--body only; embed-config-update takes no flags at all",
     "Body.bubbleSize": "--body only; embed-config-update takes no flags at all",

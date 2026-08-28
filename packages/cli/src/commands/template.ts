@@ -85,6 +85,8 @@ Examples:
   $ nexus template list --json
 
 Notes:
+  --json ANSWERS THE ROUTE'S OWN OBJECT: {items, total}. The rows are under
+  .items, and .total is how many exist against how many --limit returned.
   THE TABLE HIDES type AND status; --json carries both. Neither view carries the
   template's VARIABLES, and neither does "template get" — nothing in this API
   ever writes that list. Read the placeholder names out of the file you
@@ -106,12 +108,14 @@ Notes:
           limit: opts.limit
         });
 
-        printList(result.items, undefined, [
-          { key: "id", label: "ID", width: 36 },
-          { key: "name", label: "NAME", width: 30 },
-          { key: "description", label: "DESCRIPTION", width: 40 },
-          { key: "createdAt", label: "CREATED", width: 26 }
-        ]);
+        printEnvelope(result, () => {
+          printList(result.items, undefined, [
+            { key: "id", label: "ID", width: 36 },
+            { key: "name", label: "NAME", width: 30 },
+            { key: "description", label: "DESCRIPTION", width: 40 },
+            { key: "createdAt", label: "CREATED", width: 26 }
+          ]);
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

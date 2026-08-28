@@ -188,6 +188,16 @@ export interface ExecutionNodeResult {
    * because no model stores a per-node log array.
    */
   output: unknown;
+  /**
+   * What the node reported ABOUT the run, beside `output` rather than inside it.
+   *
+   * A `smartAction` node names the candidate it chose here — `chosenTool`,
+   * `chosenToolId`, `chosenAction`. Until NEX-4065 it merged those keys INTO
+   * `output`, which both polluted the chosen tool's own result and overwrote a
+   * tool's own `chosenTool` field. A loop node's iteration ids live here too.
+   * `null` for the node types that record nothing about a run, which is most.
+   */
+  metadata: unknown;
   /** Node duration in milliseconds, or `null` while unfinished. */
   duration: number | null;
   /** ISO 8601 start timestamp, or `null` while unstarted. */

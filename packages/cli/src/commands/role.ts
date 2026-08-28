@@ -2073,7 +2073,12 @@ Notes:
   organization's policy for the action, not a verdict about your key: with
   REQUIRES APPROVAL yes on CREATE_ROLE, an org-admin key still creates the role
   outright and files no request. The branch a write actually took is in the
-  STATUS the write itself returns — read that, never this table.`
+  STATUS the write itself returns — read that, never this table.
+
+  TWO ROWS, NOT FIVE. Only CREATE_ROLE and DELETE_ROLE have an approval queue.
+  The other RoleManagementAction values are what remains of a retired org-wide
+  allow-list; nothing on the server reads a policy for them, so they are absent
+  rather than reported as configurable.`
     )
     .action(async () => {
       try {
@@ -2082,23 +2087,7 @@ Notes:
 
         printList(settings, undefined, [
           { key: "action", label: "ACTION", width: 22 },
-          { key: "requiresApproval", label: "REQUIRES APPROVAL", width: 18 },
-          {
-            key: "grants",
-            label: "ALLOWED",
-            width: 44,
-            format: (val) =>
-              Array.isArray(val) && val.length > 0
-                ? val
-                    .map((g) => {
-                      const grant = g as { subjectType: string; subjectId: string | null };
-                      return grant.subjectId === null
-                        ? grant.subjectType
-                        : `${grant.subjectType}:${grant.subjectId}`;
-                    })
-                    .join(", ")
-                : "(nobody)"
-          }
+          { key: "requiresApproval", label: "REQUIRES APPROVAL", width: 18 }
         ]);
       } catch (err) {
         process.exitCode = handleError(err);

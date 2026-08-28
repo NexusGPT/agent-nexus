@@ -12,10 +12,11 @@
  * argue for it here in a sentence a reviewer reads.
  *
  * 🚨 A LEDGER IS NOT A FIX, AND THE DISTINCTION IS THE WHOLE POINT OF WRITING
- * ONE. These commands still answer `--json` documents that are missing a field.
- * What the ledger buys is that the number is MEASURED rather than remembered,
- * that it cannot grow while nobody is looking, and that each survivor carries
- * the reason it survived instead of reading as an oversight nobody noticed.
+ * ONE. What the ledger buys is that the number is MEASURED rather than
+ * remembered, that it cannot grow while nobody is looking, and that each
+ * survivor carries the reason it survived instead of reading as an oversight
+ * nobody noticed. The defects it measured are cured; what is left below is the
+ * one site that was never a defect.
  *
  * ── DRAINING IS SILENTLY LEGAL, AND THAT IS A DESIGN DECISION ───────────────
  *
@@ -47,19 +48,28 @@
  * whose response GAINS a key while the printer still takes one is red, which is
  * the widening case this gate is for.
  *
- * ── WHY THESE WERE NOT FIXED IN THE SAME PASS ───────────────────────────────
+ * ── WHAT IS LEFT, AND WHY IT IS NOT A DEFECT ────────────────────────────────
  *
- * The cure is `printEnvelope`, and for every entry marked `breaking` it moves
- * that command's published `--json` envelope — from a bare array or from
- * `{data, meta}` to the response object itself. `COMPATIBILITY.md` puts the
- * per-command envelope in the EVOLVING tier: it may change, and it changes with
- * a changelog entry that names the old shape and the new one. That is one
- * deliberate act per command, not a sweep, so they are ticketed rather than
- * bundled into a release note nobody can read.
+ * The cure is `printEnvelope`, and it moved each cured command's published
+ * `--json` envelope — from a bare array, or from `{data, meta}`, to the
+ * response object itself. `COMPATIBILITY.md` puts the per-command envelope in
+ * the EVOLVING tier: it may change, and it changes with a changelog entry
+ * naming the old shape and the new one.
  *
- * The entries marked `by-design` are not defects at all. They are here because
- * the scan cannot tell them from one, and deleting them from the ledger would
- * make the gate red over correct code.
+ * An entry marked `by-design` is not a defect at all. It is here because the
+ * scan cannot tell it from one, and deleting it would make the gate red over
+ * correct code.
+ *
+ * ⚠️ THE SCAN ALSO REPORTED TWO SITES THAT WERE ALREADY COMPLETE, AND THE
+ * LEDGER RECORDED KEYS THEY NEVER LOST. `known-issues` and `vibe`'s trigger
+ * printer both opened with `if (isJsonMode()) { console.log(JSON.stringify(x));
+ * return; }` — the whole response reached `--json` and the printer below was
+ * the human branch, which is the shape `json-shape.scan.ts` needs
+ * `SELF_JSON_MARKERS` to see and this walk does not model. Both now call
+ * `printEnvelope` instead, which produces the same bytes and is a shape both
+ * scans read correctly. So a `lost` set here is what the WALK computes, never
+ * an observation of the shipped document: `envelope-restored-fields.test.ts`
+ * is the half that reads stdout.
  */
 
 /** One surviving narrowing, keyed as `narrowingKey()` spells it. */
@@ -85,18 +95,9 @@ export interface LedgeredNarrowing {
  * red a build with no defect in it, and the cure for the class would red every
  * build until the number was chased down to match.
  */
-export const ENVELOPE_NARROWING_LEDGER_CEILING = 11;
+export const ENVELOPE_NARROWING_LEDGER_CEILING = 1;
 
 export const ENVELOPE_NARROWING_LEDGER: readonly LedgeredNarrowing[] = [
-  {
-    key: "commands/analytics.ts printList rows",
-    verdict: "breaking",
-    lost: ["executionTimeMs", "rowCount", "truncated"],
-    note:
-      "`truncated` says the answer is PARTIAL and only the terminal is told — a " +
-      "script reads a short result as a complete one. Two leaves, both `{data, meta}` " +
-      "today, so the cure moves a published envelope."
-  },
   {
     key: "commands/conversation.ts printRecord metadata",
     verdict: "by-design",
@@ -126,74 +127,5 @@ export const ENVELOPE_NARROWING_LEDGER: readonly LedgeredNarrowing[] = [
       "`conversation metadata set` answers with the metadata it just wrote. The " +
       "conversation around it is the SUBJECT of the request, not its result — echoing " +
       "twenty unrelated fields back would be the surprise, not the omission."
-  },
-  {
-    key: "commands/external-tool.ts printList items",
-    verdict: "breaking",
-    lost: ["total"],
-    note:
-      "`total` is how many exist against how many `--limit` returned. It belongs in " +
-      "`meta`, and `meta` is `undefined` here — filling it would change what the shared " +
-      "`list` help sentence promises for 53 commands, so it goes with the envelope work."
-  },
-  {
-    key: "commands/known-issues.ts printTable issues",
-    verdict: "breaking",
-    lost: ["capturedAt"],
-    note: "`capturedAt` is the freshness of the published-issues snapshot. Bare array today."
-  },
-  {
-    key: "commands/prompt-assistant.ts printRecord thread",
-    verdict: "breaking",
-    lost: ["outcome", "waitedMs"],
-    note:
-      "`outcome` is what the wait actually did — completed, timed out, still generating " +
-      "— and it survives only as the process exit code. Two leaves, flat-record today."
-  },
-  {
-    key: "commands/task.ts printTable items",
-    verdict: "breaking",
-    lost: ["total"],
-    note:
-      "The command's own help already tells a reader to run `nexus api GET /skills/tasks` " +
-      "for the count. A documented workaround is what this class looks like from inside."
-  },
-  {
-    key: "commands/template.ts printList items",
-    verdict: "breaking",
-    lost: ["total"],
-    note: "Same shape as `external-tool list`: `total` exists, `meta` is undefined."
-  },
-  {
-    key: "commands/tool.ts printTable tools",
-    verdict: "breaking",
-    lost: ["facets", "total"],
-    note:
-      "`facets` is the category/type breakdown a caller would narrow the next search by, " +
-      "and it is reachable from no other command. Bare array today."
-  },
-  {
-    key: "commands/tool.ts printTable skills",
-    verdict: "breaking",
-    lost: ["total"],
-    note: "Bare array today; `total` against `--limit` is the same gap as the two above."
-  },
-  {
-    key: "commands/tracing.ts printList entries",
-    verdict: "breaking",
-    lost: ["dimensions"],
-    note:
-      "`dimensions` echoes what the breakdown was grouped BY, in order. On a " +
-      "multi-dimension request every row's `groupKey` is a composite `value0|value1` " +
-      "key, so without `dimensions` a consumer cannot say which half is the model and " +
-      "which is the deployment. `{data, meta}` today."
-  },
-  {
-    key: "commands/vibe.ts printRecord deployment",
-    verdict: "breaking",
-    lost: ["buildJob"],
-    note:
-      "`vibe` is UNSTABLE in COMPATIBILITY.md, so this one is cheap to move — it waits " +
-      "only because it is in the same class and should move with it."
   }
 ];

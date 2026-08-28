@@ -32,6 +32,7 @@ import { registerPermissionsCommands } from "./permissions";
 import { registerPhoneNumberCommands } from "./phone-number";
 import { registerPromptAssistantCommands } from "./prompt-assistant";
 import { registerRoleCommands } from "./role";
+import { registerScoreCommands } from "./score";
 import { registerSkillFolderCommands } from "./skill-folder";
 import { registerTaskCommands } from "./task";
 import { registerTemplateCommands } from "./template";
@@ -475,7 +476,8 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   customer: registerCustomerCommands,
   execution: registerExecutionCommands,
   vibe: registerVibeCommands,
-  "known-issues": registerKnownIssuesCommand
+  "known-issues": registerKnownIssuesCommand,
+  score: registerScoreCommands
 };
 
 /**

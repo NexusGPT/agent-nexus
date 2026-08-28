@@ -1,6 +1,6 @@
 # @agent-nexus/sdk
 
-Official TypeScript SDK for the [Nexus](https://nexusgpt.io) Public API. Manage agents, tools, folders, and prompt versions programmatically.
+Official TypeScript SDK for the [Nexus](https://nexusgpt.io) Public API. Manage agents, tools, folders, and prompt versions programmatically, and stream an agent chat into a browser.
 
 - Zero runtime dependencies (uses native `fetch`)
 - Full TypeScript support with detailed types
@@ -86,6 +86,167 @@ whether the first attempt landed.
 | `NEXUS_BASE_URL` | Base URL (used if `baseUrl` option is not provided) |
 
 ## API Reference
+
+### Chat (`client.chat`)
+
+Stream an agent turn into a browser, without the browser ever holding your API key.
+
+**The wire format is the Vercel AI SDK 7 UI Message Stream.** Responses announce
+`x-vercel-ai-ui-message-stream: v1` and end with `data: [DONE]`, so a stock `useChat()`
+renders a Nexus agent with no custom transport and no `prepareSendMessagesRequest`.
+
+#### The two hops
+
+An organization API key can read every conversation in the organization, so it can never
+ship to a browser. `createSession` is the only chat call that uses it:
+
+| hop | runs on     | credential                                 | calls           |
+| --- | ----------- | ------------------------------------------ | --------------- |
+| 1   | your server | org API key, `chat_sessions:execute` scope | `createSession` |
+| 2   | the browser | the session token hop 1 minted             | everything else |
+
+The token names one deployment and one conversation and carries no scopes. It expires —
+read `expiresInSeconds` rather than hardcoding the number.
+
+```typescript
+// ── 1. YOUR SERVER ────────────────────────────────────────────────────────────
+import { NexusClient } from "@agent-nexus/sdk";
+
+const server = new NexusClient({ apiKey: "nxs_..." });
+
+const session = await server.chat.createSession(deploymentId, {
+  externalUserId: user.id // optional — omit for an anonymous visitor
+});
+// → { token, sessionId, chatId, expiresInSeconds }
+// Send `token` to the browser. Never the API key.
+```
+
+```typescript
+// ── 2. THE BROWSER ────────────────────────────────────────────────────────────
+import { createBrowserChatClient } from "@agent-nexus/sdk";
+
+const chat = createBrowserChatClient({ baseUrl: "https://api.nexusgpt.io" });
+const auth = { token }; // the token your server minted
+
+let cursor: string | undefined;
+for await (const chunk of chat.stream(
+  deploymentId,
+  { content: "What are your opening hours?" },
+  auth,
+  { onEventId: (id) => void (cursor = id) } // keep the resume cursor
+)) {
+  if (chunk.type === "text-delta") append(chunk.delta);
+}
+```
+
+`createBrowserChatClient` holds no API key by construction, so `createSession` on it throws
+at the call site instead of earning a 401 you have to diagnose. `new NexusClient()` without
+a key throws too — it wires forty resources and thirty-eight have no other credential.
+
+#### The `useChat` door
+
+`streamRaw` hands back the `Response` **unread**, headers included, which is what `ai`'s own
+transport needs — `stream()` has already thrown the headers away by the time it yields a
+frame. Forward it from your own backend and point `useChat` at that route:
+
+```typescript
+// app/api/chat/route.ts
+export async function POST(req: Request) {
+  const upstream = await client.chat.streamRaw(deploymentId, await req.json(), { token });
+  return new Response(upstream.body, { headers: upstream.headers });
+}
+
+// useChat({ resume: true }) issues a GET at the same path.
+export async function GET(req: Request) {
+  const lastEventId = req.headers.get("last-event-id");
+  const upstream = await client.chat.resumeRaw(
+    deploymentId,
+    { token },
+    { ...(lastEventId !== null && { lastEventId }) }
+  );
+  return new Response(upstream.body, { headers: upstream.headers });
+}
+```
+
+🔴 **The caller owns the body.** Nothing in the SDK reads or cancels it — forward it, read
+it, or cancel it. Abandoning it pins a connection.
+`ChatResource.isUiMessageStream(response)` reports whether the protocol header survived the
+hop; its absence is a warning, not a failure.
+
+#### The control surface
+
+A turn is not only started. It is stopped, watched, and picked back up.
+
+| want                                         | call                   |
+| -------------------------------------------- | ---------------------- |
+| send a message                               | `stream` · `streamRaw` |
+| a Stop button                                | `stop`                 |
+| "is it still running"                        | `status`               |
+| reconnect after a reload or a dropped socket | `resume` · `resumeRaw` |
+
+```typescript
+// The Stop button. `accepted` says a live turn was FOUND, never that it has stopped.
+const { accepted, turnId } = await chat.stop(deploymentId, {}, auth);
+
+// The fact `stop` deliberately does not claim.
+let state = await chat.status(deploymentId, auth);
+while (state.running) {
+  await new Promise((r) => setTimeout(r, 250));
+  state = await chat.status(deploymentId, auth);
+}
+state.outcome; // "completed" | "failed" | "stopped"
+
+// Reattach exactly where the socket died.
+for await (const chunk of chat.resume(deploymentId, auth, {
+  lastEventId: cursor,
+  onEventId: (id) => void (cursor = id)
+})) {
+  if (chunk.type === "text-delta") append(chunk.delta);
+}
+```
+
+#### Four things to get right
+
+**1. Branch on `status().outcome`, never on the frames.** A stopped turn has no single wire
+shape — it is the provider's. Measured on two deployments, same build, same prompt, same
+stop: one ended `abort {"reason":"user-stop"}` → `finish {"finishReason":"other"}`, the
+other ended `data-nexus-error` → `error`, with no `abort` frame at all, because the provider
+surfaced the cancellation as a failure. `outcome` read `"stopped"` on both and was the only
+reading that did. `finishReason: "other"` is not a synonym either — it is the union's bucket
+for anything that ended a turn early.
+
+**2. `stop` reports acceptance, not effect.** The abort reaches the pod running the
+generation through a fire-and-forget publish, so nothing the request can compute knows
+whether it landed. Measured: `accepted: true` returned while `status` still read
+`running: true` at `frameCount: 17`, settling about 1.8 s later at
+`outcome: "stopped", frameCount: 21` — four frames written after the acceptance. Poll
+`status`.
+
+**3. The resume cursor is exclusive, and a resumed stream opens with a frame that is not a
+log entry.** `lastEventId: "<turn>:13"` replays from `:14`, so the two halves of the answer
+join with no overlap and no gap; omit it and the whole turn replays, which is what a page
+that reloaded and holds nothing wants. Because a cursor lands mid-block, the server
+synthesises an opener for **every block still open** — one per open block, not one
+`text-start` — carrying the original block id and no `id:` line of its own, so it must not
+move your cursor. A client that special-cases "the first frame" throws on the second.
+`onEventId` is deliberately not called for them.
+
+`ChatTurnStatus.lastEventId` is the newest frame **recorded**, not the newest you received,
+so it is the wrong value to reattach with after a drop. Use the cursor you kept.
+
+**4. One credential, never two.** A request carrying both an API key and a session token
+authenticates as the API key and is then refused `401 "Chat session is not valid."` — a
+message that reads like an expired token and sends you hunting the wrong thing. The SDK
+presents exactly one, session token first; a hand-rolled `fetch` has to.
+
+Two more worth knowing:
+
+- **A mint with no `chatId` writes no row.** The conversation id is reserved and created by
+  the first message, so minting is safe to call speculatively — but minting _again_ with
+  that reserved id answers `404 Chat not found`. Keep the token from the first mint.
+- **Any 401 from a chat route means the session is finished.** Expired, revoked, wrong
+  deployment and forged all answer identically, on purpose. Ask your server for a fresh
+  token; never retry the same one.
 
 ### Agents
 
@@ -288,7 +449,22 @@ import type {
   ToolCredential,
   RemoteOption,
   SkillItem,
-  TestAgentToolResponse
+  TestAgentToolResponse,
+  // Chat types
+  ChatSession,
+  ChatStreamAuth,
+  ChatStreamChunk,
+  ChatStreamFinishReason,
+  ChatStopResult,
+  ChatTurnOutcome,
+  ChatTurnStatus,
+  ChatResumeCursor,
+  ChatResumeOptions,
+  ChatStreamOptions,
+  CreateChatSessionBody,
+  SendChatMessageBody,
+  StopChatTurnBody,
+  BrowserChatClientOptions
 } from "@agent-nexus/sdk";
 ```
 

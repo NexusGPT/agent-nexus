@@ -95,11 +95,11 @@ export const LEDGER_CEILING = 0;
  *
  * ⚠️ VISIBLE namespaces. `deriveCommandNamespaces()` drops a hidden command, so
  * one would be outside this count: a hidden command is a top-level command NAME
- * and never a namespace. The tree carries none today, so 49 top-level names are
+ * and never a namespace. The tree carries none today, so 52 top-level names are
  * {@link NAMESPACE_TOTAL} namespaces and the two agree — which is exactly when a
  * dropped filter stops being visible in the number.
  */
-export const NAMESPACE_TOTAL = 51;
+export const NAMESPACE_TOTAL = 52;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -259,6 +259,7 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "phone-number",
   "prompt-assistant",
   "role",
+  "score",
   "skill-folder",
   "skills",
   "task",

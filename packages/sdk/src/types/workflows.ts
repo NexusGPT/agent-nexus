@@ -813,6 +813,13 @@ export interface TestNodeResult {
   executionId: string;
   status: string;
   data: unknown;
+  /**
+   * What the node reported ABOUT the run, beside `data` rather than inside it
+   * (NEX-4065) — a `smartAction` node's `chosenTool` / `chosenToolId` /
+   * `chosenAction`. `null` on the async arm, and for every node type that
+   * records nothing about a run.
+   */
+  metadata: unknown;
 }
 
 /**
@@ -892,6 +899,12 @@ export interface NodeExecutionResult {
   status: string;
   input: unknown;
   output: unknown;
+  /**
+   * What the node reported ABOUT the run, beside `output` rather than inside it
+   * (NEX-4065) — a `smartAction` node's chosen candidate, a loop node's
+   * iteration ids. `null` when the node recorded nothing about its run.
+   */
+  metadata: unknown;
   error: { message: string } | null;
   /** Always empty — the handler does not collect node logs. */
   logs: string[];

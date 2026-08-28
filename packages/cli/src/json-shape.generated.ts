@@ -8,13 +8,13 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 403 of 538 leaves are answered here. The
+ * 409 of 543 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
  *      1  ambiguous
- *    103  writes-its-own-json
- *      4  no-printer
+ *    101  writes-its-own-json
+ *      5  no-printer
  *     17  branches
  *
  * `json-shape.codegen.test.ts` recomputes this file and fails on any
@@ -135,6 +135,8 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "conversation update-metadata": "record",
   "conversation update-status": "record",
   "conversation update-topic": "record",
+  "credential connect": "success",
+  "credential connect-status": "record",
   "credential delete": "success",
   "credential get": "record",
   "credential list": "list",
@@ -202,7 +204,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "external-tool execute": "record",
   "external-tool get": "record",
   "external-tool initiate-oauth": "success",
-  "external-tool list": "list",
+  "external-tool list": "envelope",
   "external-tool test": "record",
   "external-tool update": "success",
   "external-tool update-auth": "success",
@@ -220,6 +222,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "html-template list": "list",
   "html-template render": "record",
   "html-template update": "success",
+  "known-issues": "envelope",
   "model list": "list",
   "permissions access": "envelope",
   "permissions grant": "success",
@@ -230,10 +233,10 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "phone-number list": "list",
   "phone-number release": "success",
   "phone-number search": "array",
-  "prompt-assistant await-thread": "record",
+  "prompt-assistant await-thread": "envelope",
   "prompt-assistant chat": "record",
   "prompt-assistant delete-thread": "success",
-  "prompt-assistant get-thread": "record",
+  "prompt-assistant get-thread": "envelope",
   "prompt-assistant list-threads": "list",
   "role access-requests": "list",
   "role add-board": "success",
@@ -293,6 +296,8 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "role update-permission-set": "success",
   "role variables": "list",
   "role workspace-grants": "list",
+  "score list": "envelope",
+  "score record": "envelope",
   "skill-folder create": "success",
   "skill-folder delete": "success",
   "skill-folder list": "envelope",
@@ -301,7 +306,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "task delete": "success",
   "task duplicate": "success",
   "task get": "record",
-  "task list": "array",
+  "task list": "envelope",
   "task update": "success",
   "task-eval dataset add": "record",
   "task-eval dataset list": "list",
@@ -323,7 +328,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "template folder update": "success",
   "template generate": "success",
   "template get": "record",
-  "template list": "list",
+  "template list": "envelope",
   "template upload": "success",
   "ticket attach": "success",
   "ticket attachments": "list",
@@ -342,10 +347,10 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tool execute": "record",
   "tool get": "record",
   "tool resolve-options": "record",
-  "tool search": "array",
-  "tool skills": "array",
+  "tool search": "envelope",
+  "tool skills": "envelope",
   "tool test": "record",
-  "tracing cost-breakdown": "list",
+  "tracing cost-breakdown": "envelope",
   "tracing delete": "success",
   "tracing generation": "record",
   "tracing summary": "record",
@@ -362,6 +367,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "tracks diary append": "success",
   "tracks diary list": "envelope",
   "tracks event append": "success",
+  "tracks event feed": "envelope",
   "tracks event list": "envelope",
   "tracks get": "record",
   "tracks list": "envelope",

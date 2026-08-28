@@ -31,21 +31,49 @@ import { setJsonMode } from "../output";
  * the answer was.
  */
 
-const { request, question } = vi.hoisted(() => ({
-  request: vi.fn(),
+const { destructiveCall, question } = vi.hoisted(() => ({
+  destructiveCall: vi.fn(),
   question: vi.fn()
 }));
 
-vi.mock("@agent-nexus/sdk", () => ({
-  HttpClient: class {
-    request = request;
-    requestWithMeta = async (...args: unknown[]) => ({ data: await request(...args) });
-  }
-}));
-
-vi.mock("../config", () => ({
-  resolveBaseUrl: () => "https://api.test.invalid",
-  resolveApiKey: () => "test-key"
+/**
+ * The seam is `createClient`, and it MOVED — this file used to stub the SDK's
+ * `HttpClient` because the namespace built one itself. NEX-3909 put every leaf
+ * on `client.agentEvals`, so a stub of the raw transport binds to nothing.
+ *
+ * 🚨 THAT FAILURE MODE IS THE REASON THIS FILE OPENS WITH CONTROLS. Sixteen of
+ * the assertions below are "the delete did NOT happen", and an unbound stub
+ * satisfies every one of them for the wrong reason — the command could have
+ * deleted six rows and the suite would still have been green on those arms. The
+ * `--yes` controls are what actually went red on the migration, which is the
+ * design working: a negative assertion is only worth what its positive control
+ * is worth.
+ *
+ * ── The division of labour, stated so neither half looks like the whole ──────
+ *
+ * This file asks: **did the confirmation gate the destructive call?** It records
+ * the SDK METHOD each leaf reaches and the arguments it passes.
+ *
+ * It does NOT ask whether that method sends the right verb to the right path —
+ * a stub cannot know, and asserting a path this file itself spells would only
+ * prove one author typed a string twice.
+ * `packages/sdk/src/resources/agent-evals.test.ts` owns that half, executes all
+ * 33 methods against a recording transport, and derives the expected route from
+ * the v1 contract rather than restating it.
+ */
+vi.mock("../client", () => ({
+  createClient: () => ({
+    agentEvals: {
+      runs: { delete: (id: string) => destructiveCall("runs.delete", [id]) },
+      schedules: { delete: (id: string) => destructiveCall("schedules.delete", [id]) },
+      templates: {
+        delete: (id: string) => destructiveCall("templates.delete", [id]),
+        detach: (id: string, agentId: string) => destructiveCall("templates.detach", [id, agentId])
+      },
+      triggers: { delete: (id: string) => destructiveCall("triggers.delete", [id]) },
+      webhooks: { delete: (id: string) => destructiveCall("webhooks.delete", [id]) }
+    }
+  })
 }));
 
 // The confirmation reaches readline through a DYNAMIC import, so the mock has to
@@ -72,16 +100,17 @@ const AGENT_ID = "7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44";
  * times so a seventh verb is one row, and so the count below cannot silently
  * shrink to one command's worth of coverage.
  */
-const DESTRUCTIVE: ReadonlyArray<{ argv: string[]; path: string }> = [
-  { argv: ["agent-eval", "run", "delete", ID], path: `/agent-evals/runs/${ID}` },
-  { argv: ["agent-eval", "schedule", "delete", ID], path: `/agent-evals/schedules/${ID}` },
-  { argv: ["agent-eval", "template", "delete", ID], path: `/agent-evals/templates/${ID}` },
+const DESTRUCTIVE: ReadonlyArray<{ argv: string[]; call: string; args: string[] }> = [
+  { argv: ["agent-eval", "run", "delete", ID], call: "runs.delete", args: [ID] },
+  { argv: ["agent-eval", "schedule", "delete", ID], call: "schedules.delete", args: [ID] },
+  { argv: ["agent-eval", "template", "delete", ID], call: "templates.delete", args: [ID] },
   {
     argv: ["agent-eval", "template", "detach", ID, AGENT_ID],
-    path: `/agent-evals/templates/${ID}/agents/${AGENT_ID}`
+    call: "templates.detach",
+    args: [ID, AGENT_ID]
   },
-  { argv: ["agent-eval", "trigger", "delete", ID], path: `/agent-evals/triggers/${ID}` },
-  { argv: ["agent-eval", "webhook", "delete", ID], path: `/agent-evals/webhooks/${ID}` }
+  { argv: ["agent-eval", "trigger", "delete", ID], call: "triggers.delete", args: [ID] },
+  { argv: ["agent-eval", "webhook", "delete", ID], call: "webhooks.delete", args: [ID] }
 ];
 
 describe("every agent-eval delete asks before it acts", () => {
@@ -90,9 +119,9 @@ describe("every agent-eval delete asks before it acts", () => {
   const exitCodeWas = process.exitCode;
 
   beforeEach(() => {
-    request.mockReset();
+    destructiveCall.mockReset();
     question.mockReset();
-    request.mockResolvedValue({ deleted: true });
+    destructiveCall.mockResolvedValue({ id: ID, deleted: true });
     process.exitCode = undefined;
   });
 
@@ -116,22 +145,22 @@ describe("every agent-eval delete asks before it acts", () => {
   // ───────────────────────────────────────────────────────────────────────────
   it("CONTROL: the table covers six distinct leaves", () => {
     expect(DESTRUCTIVE).toHaveLength(6);
-    expect(new Set(DESTRUCTIVE.map((c) => c.path)).size).toBe(6);
+    expect(new Set(DESTRUCTIVE.map((c) => c.call)).size).toBe(6);
   });
 
   it.each(DESTRUCTIVE)(
-    "CONTROL: --yes on a terminal deletes $path, and asks nothing",
-    async ({ argv, path }) => {
+    "CONTROL: --yes on a terminal deletes via $call, and asks nothing",
+    async ({ argv, call, args }) => {
       setTty(true, true);
 
       await run([...argv, "--yes"]);
 
       expect(question).not.toHaveBeenCalled();
-      expect(request).toHaveBeenCalledWith("DELETE", path);
+      expect(destructiveCall).toHaveBeenCalledWith(call, args);
     }
   );
 
-  it.each(DESTRUCTIVE)("REFUSES $path with no terminal and no --yes", async ({ argv }) => {
+  it.each(DESTRUCTIVE)("REFUSES $call with no terminal and no --yes", async ({ argv }) => {
     // The defect, in the environment where nobody is watching. Before the fix
     // this deleted and printed a success line.
     setTty(false, false);
@@ -139,42 +168,45 @@ describe("every agent-eval delete asks before it acts", () => {
     await run(argv);
 
     expect(question).not.toHaveBeenCalled();
-    expect(request).not.toHaveBeenCalled();
+    expect(destructiveCall).not.toHaveBeenCalled();
     expect(process.exitCode).not.toBe(0);
   });
 
-  it.each(DESTRUCTIVE)("ASKS before $path when stdin is a terminal", async ({ argv, path }) => {
-    // The half that is specific to THIS ticket. NEX-3879's commands already
-    // asked and only decided on the wrong stream; these asked nothing at all, so
-    // an operator sitting at the keyboard lost the row with no question.
-    setTty(true, true);
-    question.mockResolvedValue("y");
+  it.each(DESTRUCTIVE)(
+    "ASKS before $call when stdin is a terminal",
+    async ({ argv, call, args }) => {
+      // The half that is specific to THIS ticket. NEX-3879's commands already
+      // asked and only decided on the wrong stream; these asked nothing at all, so
+      // an operator sitting at the keyboard lost the row with no question.
+      setTty(true, true);
+      question.mockResolvedValue("y");
 
-    await run(argv);
+      await run(argv);
 
-    expect(question).toHaveBeenCalledTimes(1);
-    expect(request).toHaveBeenCalledWith("DELETE", path);
-  });
+      expect(question).toHaveBeenCalledTimes(1);
+      expect(destructiveCall).toHaveBeenCalledWith(call, args);
+    }
+  );
 
-  it.each(DESTRUCTIVE)("ABORTS $path when the operator answers n", async ({ argv }) => {
+  it.each(DESTRUCTIVE)("ABORTS $call when the operator answers n", async ({ argv }) => {
     setTty(true, true);
     question.mockResolvedValue("n");
 
     await run(argv);
 
     expect(question).toHaveBeenCalledTimes(1);
-    expect(request).not.toHaveBeenCalled();
+    expect(destructiveCall).not.toHaveBeenCalled();
   });
 
   it.each(DESTRUCTIVE)(
-    "ABORTS $path on a bare Enter — the capital in [y/N] is a promise",
+    "ABORTS $call on a bare Enter — the capital in [y/N] is a promise",
     async ({ argv }) => {
       setTty(true, true);
       question.mockResolvedValue("");
 
       await run(argv);
 
-      expect(request).not.toHaveBeenCalled();
+      expect(destructiveCall).not.toHaveBeenCalled();
     }
   );
 
@@ -187,7 +219,7 @@ describe("every agent-eval delete asks before it acts", () => {
     await run(["agent-eval", "run", "delete", ID]);
 
     expect(question).not.toHaveBeenCalled();
-    expect(request).not.toHaveBeenCalled();
+    expect(destructiveCall).not.toHaveBeenCalled();
     expect(process.exitCode).not.toBe(0);
   });
 
@@ -207,7 +239,7 @@ describe("every agent-eval delete asks before it acts", () => {
       console.log = log;
     }
 
-    expect(request).not.toHaveBeenCalled();
+    expect(destructiveCall).not.toHaveBeenCalled();
     const parsed = JSON.parse(chunks.join("\n"));
     expect(parsed.error?.message).toContain("refusing without a terminal");
     expect(String(parsed.error?.hint ?? "")).toContain("--yes");

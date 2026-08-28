@@ -159,6 +159,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "ConversationUpdateStatuses",
   "ConversationUpdateTopic",
   "CredentialDelete",
+  "CredentialConnectStatus",
   "CredentialGet",
   "CredentialList",
   "CredentialUpdate",
@@ -414,6 +415,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "TrackSetStatus",
   "TrackSetNextOwner",
   "TrackList",
+  "TrackListRollups",
   "TrackRead",
   "TrackReadRollup",
   "TrackListReady",
@@ -436,7 +438,19 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "TrackPutMemoryEntry",
   "TrackDeleteMemoryEntry",
   "TrackListEvents",
-  "TrackAppendEvent"
+  "TrackListOrganizationEvents",
+  "TrackAppendEvent",
+  // ── wired by #4521: these declared a Response for the first time ──
+  "ConversationEvalRunTranscript",
+  "EvaluationCreate",
+  "EvaluationList",
+  "EvaluationGet",
+  "EvaluationDatasetRows",
+  "EvaluationResults",
+  "EvaluationFormats",
+  "EvaluationJudges",
+  "WorkflowEdgeCreate",
+  "WorkflowTestingStopExecution"
 ];
 
 const projection = projectResponseContract();

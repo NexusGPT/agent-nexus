@@ -439,6 +439,17 @@ export type V1ResponseAssertions = [
       PageItems<MethodResult<NexusClient["credentials"]["list"]>>
     >
   >,
+  // CredentialConnect  POST /public/v1/credentials/connect  ->  client.credentials.connect()
+  Expect<
+    Equals<ResponseOf<"CredentialConnect">, MethodResult<NexusClient["credentials"]["connect"]>>
+  >,
+  // CredentialConnectStatus  GET /public/v1/credentials/connect/:handshakeId  ->  client.credentials.connectStatus()
+  Expect<
+    Equals<
+      ResponseOf<"CredentialConnectStatus">,
+      MethodResult<NexusClient["credentials"]["connectStatus"]>
+    >
+  >,
   // CredentialGet  GET /public/v1/credentials/:credentialId  ->  client.credentials.get()
   Expect<Equals<ResponseOf<"CredentialGet">, MethodResult<NexusClient["credentials"]["get"]>>>,
   // CredentialUpdate  PATCH /public/v1/credentials/:credentialId  ->  client.credentials.update()
@@ -1033,6 +1044,8 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"KnownIssuesForRoute">, MethodResult<NexusClient["knownIssues"]["forRoute"]>>
   >,
+  // ScoreRecord  POST /public/v1/scores  ->  client.scores.record()
+  Expect<Equals<ResponseOf<"ScoreRecord">, MethodResult<NexusClient["scores"]["record"]>>>,
   // PromptAssistantChat  POST /public/v1/prompt-assistant/chat  ->  client.promptAssistant.chat()
   Expect<
     Equals<ResponseOf<"PromptAssistantChat">, MethodResult<NexusClient["promptAssistant"]["chat"]>>
@@ -1476,6 +1489,10 @@ export type V1ResponseAssertions = [
   Expect<Equals<ResponseOf<"TrackRead">, MethodResult<NexusClient["tracks"]["get"]>>>,
   // TrackReadRollup  GET /public/v1/tracks/:trackId/rollup  ->  client.tracks.readRollup()
   Expect<Equals<ResponseOf<"TrackReadRollup">, MethodResult<NexusClient["tracks"]["readRollup"]>>>,
+  // TrackListRollups  GET /public/v1/tracks/rollup  ->  client.tracks.readRollups()
+  Expect<
+    Equals<ResponseOf<"TrackListRollups">, MethodResult<NexusClient["tracks"]["readRollups"]>>
+  >,
   // TrackListReady  GET /public/v1/tracks/ready  ->  client.tracks.listReady()
   Expect<Equals<ResponseOf<"TrackListReady">, MethodResult<NexusClient["tracks"]["listReady"]>>>,
   // TrackListReadyTasks  GET /public/v1/tracks/:trackId/tasks/ready  ->  client.tracks.listReadyTasks()
@@ -1551,8 +1568,232 @@ export type V1ResponseAssertions = [
   >,
   // TrackListEvents  GET /public/v1/tracks/:trackId/events  ->  client.tracks.listEvents()
   Expect<Equals<ResponseOf<"TrackListEvents">, MethodResult<NexusClient["tracks"]["listEvents"]>>>,
+
+  // TrackListOrganizationEvents  GET /public/v1/track-events  ->  client.tracks.listOrganizationEvents()
+  Expect<
+    Equals<
+      ResponseOf<"TrackListOrganizationEvents">,
+      MethodResult<NexusClient["tracks"]["listOrganizationEvents"]>
+    >
+  >,
   // TrackAppendEvent  POST /public/v1/tracks/:trackId/events  ->  client.tracks.appendEvent()
-  Expect<Equals<ResponseOf<"TrackAppendEvent">, MethodResult<NexusClient["tracks"]["appendEvent"]>>>
+  Expect<
+    Equals<ResponseOf<"TrackAppendEvent">, MethodResult<NexusClient["tracks"]["appendEvent"]>>
+  >,
+  // ── agent-evals (NEX-3909) ────────────────────────────────────────────────
+  // Six of these are `[paged]`: the contract's `Response` is the bare array, and
+  // `requestPage` wraps it in the SDK's own `{ data, meta }`. Which form each
+  // takes is read off the HELPER the method calls, never guessed — and
+  // `triggers.list` is the control for that rule inside this block: it is the
+  // one list route the backend serves with NO pagination meta
+  // (`createApiSuccess(triggers)` with no second argument), so it calls
+  // `request` and is compared WITHOUT `PageItems`. Wrapping it would be a
+  // silent lie about the payload's shape.
+  // ConversationEvalRunCreate  POST /public/v1/agent-evals/runs  ->  client.agentEvals.runs.create()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalRunCreate">,
+      MethodResult<NexusClient["agentEvals"]["runs"]["create"]>
+    >
+  >,
+  // ConversationEvalRunList  GET /public/v1/agent-evals/runs  ->  client.agentEvals.runs.list()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalRunList">,
+      PageItems<MethodResult<NexusClient["agentEvals"]["runs"]["list"]>>
+    >
+  >,
+  // ConversationEvalRunGet  GET /public/v1/agent-evals/runs/:id  ->  client.agentEvals.runs.get()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalRunGet">,
+      MethodResult<NexusClient["agentEvals"]["runs"]["get"]>
+    >
+  >,
+  // ConversationEvalRunResults  GET /public/v1/agent-evals/runs/:id/results  ->  client.agentEvals.runs.results()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalRunResults">,
+      MethodResult<NexusClient["agentEvals"]["runs"]["results"]>
+    >
+  >,
+  // ConversationEvalBatchCreate  POST /public/v1/agent-evals/batches  ->  client.agentEvals.batches.create()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalBatchCreate">,
+      MethodResult<NexusClient["agentEvals"]["batches"]["create"]>
+    >
+  >,
+  // ConversationEvalBatchList  GET /public/v1/agent-evals/batches  ->  client.agentEvals.batches.list()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalBatchList">,
+      PageItems<MethodResult<NexusClient["agentEvals"]["batches"]["list"]>>
+    >
+  >,
+  // ConversationEvalBatchGet  GET /public/v1/agent-evals/batches/:id  ->  client.agentEvals.batches.get()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalBatchGet">,
+      MethodResult<NexusClient["agentEvals"]["batches"]["get"]>
+    >
+  >,
+  // ConversationEvalTemplateList  GET /public/v1/agent-evals/templates  ->  client.agentEvals.templates.list()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateList">,
+      PageItems<MethodResult<NexusClient["agentEvals"]["templates"]["list"]>>
+    >
+  >,
+  // ConversationEvalTemplateListImportable  GET /public/v1/agent-evals/templates/importable  ->  client.agentEvals.templates.listImportable()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateListImportable">,
+      PageItems<MethodResult<NexusClient["agentEvals"]["templates"]["listImportable"]>>
+    >
+  >,
+  // ConversationEvalTemplateCreate  POST /public/v1/agent-evals/templates  ->  client.agentEvals.templates.create()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateCreate">,
+      MethodResult<NexusClient["agentEvals"]["templates"]["create"]>
+    >
+  >,
+  // ConversationEvalTemplateGet  GET /public/v1/agent-evals/templates/:id  ->  client.agentEvals.templates.get()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateGet">,
+      MethodResult<NexusClient["agentEvals"]["templates"]["get"]>
+    >
+  >,
+  // ConversationEvalTemplateUpdate  PATCH /public/v1/agent-evals/templates/:id  ->  client.agentEvals.templates.update()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateUpdate">,
+      MethodResult<NexusClient["agentEvals"]["templates"]["update"]>
+    >
+  >,
+  // ConversationEvalTemplateClone  POST /public/v1/agent-evals/templates/:id/clone  ->  client.agentEvals.templates.clone()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateClone">,
+      MethodResult<NexusClient["agentEvals"]["templates"]["clone"]>
+    >
+  >,
+  // ConversationEvalTemplateAttach  POST /public/v1/agent-evals/templates/:id/attach  ->  client.agentEvals.templates.attach()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTemplateAttach">,
+      MethodResult<NexusClient["agentEvals"]["templates"]["attach"]>
+    >
+  >,
+  // ConversationEvalScheduleCreate  POST /public/v1/agent-evals/schedules  ->  client.agentEvals.schedules.create()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalScheduleCreate">,
+      MethodResult<NexusClient["agentEvals"]["schedules"]["create"]>
+    >
+  >,
+  // ConversationEvalScheduleList  GET /public/v1/agent-evals/schedules  ->  client.agentEvals.schedules.list()  [paged]
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalScheduleList">,
+      PageItems<MethodResult<NexusClient["agentEvals"]["schedules"]["list"]>>
+    >
+  >,
+  // ConversationEvalScheduleUpdate  PATCH /public/v1/agent-evals/schedules/:id  ->  client.agentEvals.schedules.update()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalScheduleUpdate">,
+      MethodResult<NexusClient["agentEvals"]["schedules"]["update"]>
+    >
+  >,
+  // ConversationEvalSchedulePause  POST /public/v1/agent-evals/schedules/:id/pause  ->  client.agentEvals.schedules.pause()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalSchedulePause">,
+      MethodResult<NexusClient["agentEvals"]["schedules"]["pause"]>
+    >
+  >,
+  // ConversationEvalScheduleResume  POST /public/v1/agent-evals/schedules/:id/resume  ->  client.agentEvals.schedules.resume()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalScheduleResume">,
+      MethodResult<NexusClient["agentEvals"]["schedules"]["resume"]>
+    >
+  >,
+  // ConversationEvalTriggerUpsert  PUT /public/v1/agent-evals/triggers  ->  client.agentEvals.triggers.upsert()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTriggerUpsert">,
+      MethodResult<NexusClient["agentEvals"]["triggers"]["upsert"]>
+    >
+  >,
+  // ConversationEvalTriggerList  GET /public/v1/agent-evals/triggers  ->  client.agentEvals.triggers.list()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalTriggerList">,
+      MethodResult<NexusClient["agentEvals"]["triggers"]["list"]>
+    >
+  >,
+  // ConversationEvalWebhookUpsert  PUT /public/v1/agent-evals/webhooks  ->  client.agentEvals.webhooks.upsert()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalWebhookUpsert">,
+      MethodResult<NexusClient["agentEvals"]["webhooks"]["upsert"]>
+    >
+  >,
+  // ConversationEvalWebhookGet  GET /public/v1/agent-evals/webhooks/:id  ->  client.agentEvals.webhooks.get()
+  Expect<
+    Equals<
+      ResponseOf<"ConversationEvalWebhookGet">,
+      MethodResult<NexusClient["agentEvals"]["webhooks"]["get"]>
+    >
+  >,
+  // EvaluationCreate  POST /public/v1/skills/tasks/:taskId/evaluations  ->  client.evaluations.createSession()
+  Expect<
+    Equals<
+      ResponseOf<"EvaluationCreate">,
+      MethodResult<NexusClient["evaluations"]["createSession"]>
+    >
+  >,
+  // EvaluationList  GET /public/v1/skills/tasks/:taskId/evaluations  ->  client.evaluations.listSessions()
+  Expect<
+    Equals<
+      ResponseOf<"EvaluationList">,
+      PageItems<MethodResult<NexusClient["evaluations"]["listSessions"]>>
+    >
+  >,
+  // EvaluationGet  GET /public/v1/skills/tasks/:taskId/evaluations/:sessionId  ->  client.evaluations.getSession()
+  Expect<
+    Equals<ResponseOf<"EvaluationGet">, MethodResult<NexusClient["evaluations"]["getSession"]>>
+  >,
+  // EvaluationDatasetRows  GET /public/v1/skills/tasks/:taskId/evaluations/:sessionId/dataset  ->  client.evaluations.getDatasetRows()
+  Expect<
+    Equals<
+      ResponseOf<"EvaluationDatasetRows">,
+      PageItems<MethodResult<NexusClient["evaluations"]["getDatasetRows"]>>
+    >
+  >,
+  // EvaluationFormats  GET /public/v1/skills/evaluations/formats  ->  client.evaluations.listFormats()
+  Expect<
+    Equals<ResponseOf<"EvaluationFormats">, MethodResult<NexusClient["evaluations"]["listFormats"]>>
+  >,
+  // EvaluationJudges  GET /public/v1/skills/evaluations/judges  ->  client.evaluations.listJudges()
+  Expect<
+    Equals<ResponseOf<"EvaluationJudges">, MethodResult<NexusClient["evaluations"]["listJudges"]>>
+  >,
+  // WorkflowEdgeCreate  POST /public/v1/workflows/:workflowId/edges  ->  client.workflows.createEdge()
+  Expect<
+    Equals<ResponseOf<"WorkflowEdgeCreate">, MethodResult<NexusClient["workflows"]["createEdge"]>>
+  >,
+  // WorkflowTestingStopExecution  POST /public/v1/workflows/:workflowId/executions/:executionId/stop  ->  client.workflows.stopExecution()
+  Expect<
+    Equals<
+      ResponseOf<"WorkflowTestingStopExecution">,
+      MethodResult<NexusClient["workflows"]["stopExecution"]>
+    >
+  >
 ];
 
 /**
@@ -1563,6 +1804,30 @@ export type V1ResponseAssertions = [
  * source makes it agree with itself for free.
  */
 const GATED_ROUTES = [
+  // ── agent-evals (NEX-3909) ──
+  "ConversationEvalRunCreate",
+  "ConversationEvalRunList",
+  "ConversationEvalRunGet",
+  "ConversationEvalRunResults",
+  "ConversationEvalBatchCreate",
+  "ConversationEvalBatchList",
+  "ConversationEvalBatchGet",
+  "ConversationEvalTemplateList",
+  "ConversationEvalTemplateListImportable",
+  "ConversationEvalTemplateCreate",
+  "ConversationEvalTemplateGet",
+  "ConversationEvalTemplateUpdate",
+  "ConversationEvalTemplateClone",
+  "ConversationEvalTemplateAttach",
+  "ConversationEvalScheduleCreate",
+  "ConversationEvalScheduleList",
+  "ConversationEvalScheduleUpdate",
+  "ConversationEvalSchedulePause",
+  "ConversationEvalScheduleResume",
+  "ConversationEvalTriggerUpsert",
+  "ConversationEvalTriggerList",
+  "ConversationEvalWebhookUpsert",
+  "ConversationEvalWebhookGet",
   "ChatStopTurn",
   "ChatTurnStatus",
   "CueTranscriptsListConversations",
@@ -1633,6 +1898,8 @@ const GATED_ROUTES = [
   "TicketUploadAttachment",
   "TicketListAttachments",
   "CredentialList",
+  "CredentialConnect",
+  "CredentialConnectStatus",
   "CredentialGet",
   "CredentialUpdate",
   "CredentialDelete",
@@ -1742,6 +2009,7 @@ const GATED_ROUTES = [
   "HtmlMessageTemplateRender",
   "HtmlMessageTemplateFill",
   "KnownIssuesForRoute",
+  "ScoreRecord",
   "PromptAssistantChat",
   "PromptAssistantListThreads",
   "PromptAssistantGetThread",
@@ -1833,6 +2101,7 @@ const GATED_ROUTES = [
   "TrackSetStatus",
   "TrackSetNextOwner",
   "TrackList",
+  "TrackListRollups",
   "TrackRead",
   "TrackReadRollup",
   "TrackListReady",
@@ -1855,7 +2124,17 @@ const GATED_ROUTES = [
   "TrackPutMemoryEntry",
   "TrackDeleteMemoryEntry",
   "TrackListEvents",
-  "TrackAppendEvent"
+  "TrackListOrganizationEvents",
+  "TrackAppendEvent",
+  // ── wired by #4521; gated here because the types measured EQUAL ──
+  "EvaluationCreate",
+  "EvaluationList",
+  "EvaluationGet",
+  "EvaluationDatasetRows",
+  "EvaluationFormats",
+  "EvaluationJudges",
+  "WorkflowEdgeCreate",
+  "WorkflowTestingStopExecution"
 ] as const;
 
 /**
@@ -1908,6 +2187,15 @@ const GATED_ROUTES = [
  *   `string | null` type, so a `=== null` check misses it.
  */
 const V1_RESPONSE_DRIFT: Record<string, string> = {
+  // GET /public/v1/agent-evals/runs/:id/transcript  ->  client.agentEvals.runs.transcript()
+  ConversationEvalRunTranscript:
+    "Measured with the checker in BOTH directions, and it fails both ways on two different properties. SDK -> contract: `Types of property 'createdAt' are incompatible. Type 'string' is not assignable to type 'Date'.` The contract's `_output` infers `Date` because the schema spells it `z.date()`, while the SDK types the wire, where it is an ISO string — JSON has no Date. Contract -> SDK: `Types of property 'speakerLabel' are incompatible. Type 'string | null | undefined' is not assignable to type 'string | undefined'.` The SDK cannot represent the `null` the contract permits, so a null arrives as a value no caller can name. NOT a rename and not a transcription slip: both sides describe the same field under the same name and disagree about its type. Fixing it is two contract decisions — whether the schema should spell the timestamp as a string on the wire, and whether the SDK should widen to accept null.",
+  // GET /public/v1/skills/tasks/:taskId/evaluations/:sessionId/results  ->  client.evaluations.getResults()
+  EvaluationResults:
+    "Measured with the checker: `Types of property 'status' are incompatible. Type 'string' is not assignable to type 'EvalRowStatus'.` The contract leaves `status` an unconstrained `string`; the SDK publishes the narrower named union `EvalRowStatus`. The SDK is NARROWER than the server, the same shape as the `AgentGet`/`AgentCreate` entries above: a legacy or newly-added status arrives as a value no caller can name and an exhaustive switch falls through silently. `judgeStatus` is `string` on both sides today but carries the same latent asymmetry; the checker stops at the first incompatible property, so it is unmeasured rather than known-equal. Fixing it is a decision about whether the contract should narrow or this package should widen, not a type edit.",
+  // GET /public/v1/scores  ->  client.scores.list()
+  ScoreList:
+    '`valueType`, `scorableType` and `emitterType` are `z.nativeEnum(DbEnum.X)` in the contract, so they resolve to TS STRING-ENUM MEMBER types (`DbEnum.ScoreValueType.NUMERIC`), and this package publishes with empty dependencies and may not import `@nexus/types` (see `types/chat.ts`). A hand-written literal union is assignable to a string enum but NOT type-node equal to it, so `Equals` is false however the union is spelled — measured directly: `Expect<Equals<"NUMERIC"|"CATEGORICAL"|"BOOLEAN", DbEnum.ScoreValueType>>` does not compile. NOT a transcription slip and not a narrower/wider mismatch: the SDK type describes exactly the right values. Fixing it means either the contract spelling these as `z.enum([...])` like `TicketType` (which IS gated on a hand-written union), or this package gaining a way to mirror an enum nominally — both contract decisions rather than type edits. `ScoreRecord` is unaffected and IS gated, because its response is `{ scoreId: string }` and carries no enum.',
   // GET /public/v1/agents/:agentId  ->  client.agents.get()
   AgentGet:
     "`model` is `string | null` in the contract and `AgentModel | null` here. The SDK is NARROWER than the server: it publishes a closed 16-member union over a field the schema does not constrain, so a legacy or newly-added identifier arrives as a value no caller can name and an exhaustive switch falls through silently. Fixing it is a decision about whether the server should narrow or this package should widen, not a type edit.",
@@ -2292,6 +2580,26 @@ export type V1ResponseDrift = [
       Equals<ResponseOf<"MeListOrganizations">, MethodResult<NexusClient["me"]["organizations"]>>,
       false
     >
+  >,
+  // ConversationEvalRunTranscript  ->  client.agentEvals.runs.transcript()
+  Expect<
+    Equals<
+      Equals<
+        ResponseOf<"ConversationEvalRunTranscript">,
+        MethodResult<NexusClient["agentEvals"]["runs"]["transcript"]>
+      >,
+      false
+    >
+  >,
+  // EvaluationResults  ->  client.evaluations.getResults()
+  Expect<
+    Equals<
+      Equals<
+        ResponseOf<"EvaluationResults">,
+        PageItems<MethodResult<NexusClient["evaluations"]["getResults"]>>
+      >,
+      false
+    >
   >
 ];
 
@@ -2300,8 +2608,23 @@ export type V1ResponseDrift = [
  *
  * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
  * assertion deriving both sides from one source passes vacuously.
+ *
+ * WHEN TWO BRANCHES RAISE THIS, THE MERGE ADDS BOTH RAISES — it never takes the
+ * larger. Each branch raises the floor by the number of names it added to
+ * `GATED_ROUTES`, so the raises are independent and taking `max()` silently
+ * discards the smaller one, unratcheting exactly as far as that branch had
+ * gained. The assertion is `toBeGreaterThanOrEqual`, so a floor left too low
+ * still passes — nothing here will report the loss. This value is 278 + 23
+ * (agent-evals, NEX-3909) + 1 (`ScoreRecord`) + 16 (raises that landed without
+ * moving the floor) + 8 (the routes #4521 gave a Response and #4525 gated).
+ *
+ * 🚨 THE 16 IS THE POINT. `toBeGreaterThanOrEqual` means a floor left behind
+ * never reports itself, so this drifted 302-against-318 on staging while every
+ * run stayed green. A floor that only ever passes is not a ratchet; it is a
+ * number. Raise it in the same commit that adds a name, or it silently stops
+ * protecting the names added since.
  */
-const GATED_ROUTE_FLOOR = 278;
+const GATED_ROUTE_FLOOR = 326;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

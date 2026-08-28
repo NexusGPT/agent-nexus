@@ -43,9 +43,12 @@ export function registerExecutionCommands(program: Command): void {
   execution.addHelpText(
     "after",
     `
-An execution id is a WorkflowExecution UUID. It is NOT what a node test hands
-back: "workflow node test" returns a per-node test id, so "execution get" on that
-value answers 404 — and the node's output is already in the test response.
+An execution id is a WorkflowExecution UUID. "workflow node test" hands back a
+different key — a per-node test id — and EVERY VERB HERE THAT TAKES AN EXECUTION
+ID ACCEPTS IT: get, poll, follow, diagnose, node-result, output, retry, cancel and
+export resolve it to the parent execution and answer for that, reporting the
+execution's own canonical id. So the id a node test returned is a usable argument,
+not a 404. ("list" takes no id; --include-test-runs is what surfaces the row.)
 
 Two facts that decide whether you are reading the right thing:
   • THE PER-NODE STATUS ENUM IS NOT THE EXECUTION ENUM. An execution is PENDING,
@@ -97,11 +100,12 @@ Notes:
   --page defaults to 1 and --limit to 20; above 100 is a 400, not a clamp.
   --sort-by defaults to createdAt and --order to desc, so the default is newest
   first. Both defaults live on the SERVER: unset, the CLI sends neither.
-  THIS IS HOW YOU RECOVER A REAL EXECUTION ID after a test: the id a node test
-  returns is a per-node test id that "execution get" cannot resolve. Reading the
-  most recent row is the usual trick, and it is only safe while nothing else is
-  running — two concurrent tests on the same workflow and you read the other one's
-  result. Use --include-test-runs and check the TYPE column.
+  --include-test-runs IS ONLY NEEDED TO LIST A NODE TEST, never to address one.
+  The id a node test returns resolves directly through "execution get", "poll",
+  "diagnose", "node-result" and the rest, so recovering an id by reading the most
+  recent row is not something you have to do — and never something to do while
+  anything else is running, since two concurrent tests on one workflow make the
+  newest row a coin flip. Check the TYPE column to tell the rows apart.
   nodeStatusCounts in --json counts nodes by status. status COMPLETED with
   nodeStatusCounts.completed == 0 means an execution row exists and NOTHING RAN.
   THE TYPE COLUMN IS "executionType" IN --json, NOT "type". Reading .type gets
@@ -155,8 +159,9 @@ Examples:
   $ nexus execution get 11111111-1111-4111-8111-111111111111 --json
 
 Notes:
-  A 404 here usually means the id is not an execution id at all — a node test's
-  return value is a per-node test id, not this.
+  A per-node test id is accepted here and resolves to its parent execution, so a
+  404 means the id names nothing this organization can reach — a wrong id, or one
+  belonging to somebody else. The two are deliberately indistinguishable.
   Type names what the row is: run, loop_iteration or node_test. On a
   loop_iteration, "Loop node" is the graph node whose body this pass ran, so a
   handful of nodes and no trigger is the expected shape rather than a truncated run.

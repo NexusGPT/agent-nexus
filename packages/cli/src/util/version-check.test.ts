@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { detectPackageManager, getGlobalInstallCommand } from "./package-manager";
+
 // A failed install (e.g. EACCES on a root-owned global dir) is simulated by
 // making execSync throw. We also assert the installer output is captured, not
 // inherited, so npm's multi-line error stack never reaches the terminal.
@@ -85,6 +87,64 @@ describe("formatUpdateMessage", () => {
     const msg = formatUpdateMessage("0.2.19", "0.2.21");
     expect(msg).toContain("Update available: 0.2.19 → 0.2.21");
     expect(msg).not.toMatch(FORBIDDEN);
+  });
+
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * 🚨 THE GUARD AGAINST A SECOND BUILDER. THE NAG AND `nexus upgrade` NAMED
+   *    DIFFERENT COMMANDS FROM THE COMMIT THAT INTRODUCED BOTH (c592c54154).
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * The banner printed each manager's `update`/`upgrade` verb while `nexus
+   * upgrade` ran `getGlobalInstallCommand` — `…@latest`. Those are not the same
+   * command: an `update` verb resolves inside the range a global root already
+   * recorded, and a caret on a `0.` major does not admit the next minor. From
+   * 0.34.x with `^0.34.0` recorded, and 0.35.1 published, every manager stopped
+   * at 0.34.2 and exited 0, so the banner kept printing after the user had done
+   * exactly what it asked.
+   *
+   * `argv[1]` is what `detectPackageManager` reads, so each case below is a real
+   * per-manager run rather than an assertion about npm three times.
+   */
+  describe("names the command `nexus upgrade` itself runs, for every manager", () => {
+    const LAYOUTS: ReadonlyArray<readonly [string, string]> = [
+      ["npm", "/usr/local/lib/node_modules/@agent-nexus/cli/dist/index.js"],
+      ["pnpm", "/Users/x/Library/pnpm/global/v11/node_modules/@agent-nexus/cli/dist/index.js"],
+      ["yarn", "/Users/x/.config/yarn/global/node_modules/@agent-nexus/cli/dist/index.js"]
+    ];
+
+    let savedArgv1: string;
+    beforeEach(() => {
+      savedArgv1 = process.argv[1];
+    });
+    afterEach(() => {
+      process.argv[1] = savedArgv1;
+    });
+
+    /** The command the banner actually tells the user to run. */
+    function quotedCommand(message: string): string {
+      const quoted = /Run "([^"]+)" to update\./.exec(message);
+      if (quoted === null) throw new Error(`no quoted command in banner: ${message}`);
+      return quoted[1];
+    }
+
+    for (const [manager, entryPoint] of LAYOUTS) {
+      it(`${manager}: the banner's command is exactly getGlobalInstallCommand`, () => {
+        process.argv[1] = entryPoint;
+        expect(detectPackageManager()).toBe(manager);
+
+        const printed = quotedCommand(formatUpdateMessage("0.34.0", "0.35.1"));
+
+        // THE RED. Before the fix this was `npm update -g …` / `pnpm update -g
+        // …` / `yarn global upgrade …` while `nexus upgrade` ran the other one.
+        expect(printed).toBe(getGlobalInstallCommand("@agent-nexus/cli"));
+
+        // The tag is the half that crosses a 0.x minor: an `update`/`upgrade`
+        // verb resolves inside the recorded range and stops one minor short.
+        expect(printed).toContain("@agent-nexus/cli@latest");
+        expect(printed).not.toMatch(/\b(?:update|upgrade)\b/);
+      });
+    }
   });
 });
 

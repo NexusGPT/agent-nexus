@@ -126,17 +126,28 @@ const STDERR_PROSE = new Set(["console.error", "console.warn", "printWarning"]);
  * counted too — around forty commands build their document that way rather than
  * through a printer, and a rule that ignored them would report every one of
  * those commands as a violation.
+ *
+ * 🚨 THE PAYLOAD PRINTERS ARE EVERY FUNCTION IN `output.ts` WITH AN
+ * `if (_jsonMode) { emitDocument(…); return; }` BRANCH — read that file, never
+ * this list from memory. `printEnvelope` and `printTable` were both absent, and
+ * an omission here is a FALSE VIOLATION rather than a missed one: the scan
+ * concludes the command exited non-zero having written nothing to stdout, when
+ * it wrote the whole document. It surfaced the moment a command that exits on a
+ * verdict adopted `printEnvelope` — `prompt-assistant await-thread` and
+ * `get-thread --wait`, which print the wait and then exit on its `outcome`.
  */
 const DOCUMENT_EMITTERS = new Set([
   "emitDocument",
   "handleError",
   "printDryRun",
+  "printEnvelope",
   "printFailure",
   "printList",
   "printNotFound",
   "printPage",
   "printRecord",
   "printSuccess",
+  "printTable",
   "refuse",
   "reportFailure",
   // TWO DOMAIN HELPERS, and they are the only ones here. `reportNodeTestRefusal`

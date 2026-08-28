@@ -9,7 +9,7 @@ import {
   enumOption
 } from "../contract-binding";
 import { handleError, reportFailure } from "../errors";
-import { isJsonMode, printList, printRecord } from "../output";
+import { printEnvelope, printList, printRecord } from "../output";
 import { parseFeedbackScore } from "../util/feedback-score";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { parseTimePeriod, TIME_PERIOD_HELP, TIME_PERIOD_SHORTHANDS } from "../util/time-period";
@@ -325,14 +325,17 @@ Notes:
         }
 
         const columns = result.fields.map((f) => ({ key: f.name, label: f.name, width: 28 }));
-        printList(result.rows, undefined, columns);
-
-        if (!isJsonMode()) {
+        // `truncated` says the answer is PARTIAL, and until NEX-4139 only the
+        // terminal was ever told: a script read a short result as a complete
+        // one. The whole response is the document now, and the row count, the
+        // elapsed time and the truncation flag ride with it.
+        printEnvelope(result, () => {
+          printList(result.rows, undefined, columns);
           const note = result.truncated ? " (truncated)" : "";
           process.stderr.write(
             `\n${result.rowCount} row(s) in ${result.executionTimeMs}ms${note}\n`
           );
-        }
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -475,14 +478,16 @@ Notes:
           if (opts.showSql) process.stderr.write(`SQL: ${result.generatedSql}\n`);
 
           const columns = result.fields.map((f) => ({ key: f.name, label: f.name, width: 28 }));
-          printList(result.rows, undefined, columns);
-
-          if (!isJsonMode()) {
+          // Same envelope as `analytics query` above, and for the same reason:
+          // `truncated` is the field that separates a partial answer from a
+          // complete one, and a `--json` caller could not see it.
+          printEnvelope(result, () => {
+            printList(result.rows, undefined, columns);
             const note = result.truncated ? " (truncated)" : "";
             process.stderr.write(
               `\n${result.rowCount} row(s) in ${result.executionTimeMs}ms${note}\n`
             );
-          }
+          });
         } catch (err) {
           process.exitCode = handleError(err);
         }

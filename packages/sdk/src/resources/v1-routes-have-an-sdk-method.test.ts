@@ -24,12 +24,17 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * The unreached routes are ledgered below, and the ledger's SIZE is a fact this
  * gate keeps true rather than a measurement that rots: it is asserted in both
  * directions, so a route that gains a method or disappears reds this file. They
- * are not evenly spread — over half carry one reason, `agent-evals`, an entire
- * domain (runs, batches, templates, schedules, triggers, webhooks) that shipped
- * on the public API and never reached the SDK or the CLI. That is the drift this
- * ticket was filed about, and it was already this large before anyone measured
- * it. Group the ledger by its reason string to see the spread; nothing asserts
- * that breakdown, so read it rather than trusting a figure.
+ * are not evenly spread: the rows cluster by reason, several of them naming a
+ * whole domain the SDK never grew a resource for. Group the ledger by its reason
+ * string to see the spread; nothing asserts that breakdown, so read it rather
+ * than trusting a figure.
+ *
+ * The largest cluster this gate ever held was `agent-evals` — 33 rows, one
+ * reason, an entire domain that shipped on the public API and reached neither
+ * the SDK nor the CLI. It is gone: `client.agentEvals` reaches all 33. Kept here
+ * because it is the worked example of what the ceiling below is FOR — the block
+ * arrived one row at a time with every arm green, and an equality asserted in
+ * both directions cannot refuse that.
  *
  * **The size of the v1 surface, and how much of it the SDK reaches, are
  * deliberately NOT written here.** Both grow with every route landed, so a
@@ -55,8 +60,9 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * /agents` are different routes at one path. It proves a call site exists that
  * names this verb and this path; it cannot prove the call is reachable from a
  * public method, and it cannot see a path assembled from fragments. So it
- * catches the route with no call site at all — which is the shape all 57 have —
- * and claims nothing beyond it.
+ * catches the route with no call site at all — the shape every ledgered row has
+ * — and claims nothing beyond it. The count is deliberately not written here:
+ * it is the ledger's own length, which the ceiling below already pins.
  *
  * There is no CLI generator to regenerate from: the CLI's 91 command files are
  * hand-written `commander` registrations, and the only generator scripts in
@@ -162,48 +168,45 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * is the whole shape this ledger was arguing for: a row whose reason names what
  * would have to change is a row that can be retired, and one that says
  * "impossible" never is.
+ *
+ * 58 → 56. `ScoreRecord` and `ScoreList` left together: `client.scores.record` /
+ * `.list` reach both. Their reason ended in "yet", which is what marked them as
+ * a pending gap rather than a decision — the distinction this ledger's reasons
+ * exist to carry, and the one that told a sweep which of its candidates were
+ * actually buildable.
+ *
+ * 56 → 23. THE `agent-evals` BLOCK, ALL OF IT (NEX-3909). `client.agentEvals`
+ * reaches all 33 routes — runs, batches, templates, schedules, triggers and
+ * webhooks — so every row left in one commit and this figure fell by the same
+ * 33. It was the largest single block this ledger ever held and the reason the
+ * ceiling existed: 33 rows, one reason, landed one at a time with every arm
+ * green, which is exactly the growth an equality cannot refuse.
+ *
+ * ⚠️ The deleted block's own comment read "34 routes" against 33 rows. The rows
+ * were right — `grep -oE '"(GET|POST|PATCH|PUT|DELETE) /agent-evals[^"]*"'` over
+ * `../response-contract.generated.ts` returns 33 distinct routes, and all 33 are
+ * now reached. A prose count beside a list nothing sums is a count that drifts;
+ * this note is the last one, because the list is gone.
+ *
+ * ⚠️ AND THE ROW COUNT IS THE ONLY THING THAT SETTLES THIS FIGURE, BECAUSE TWO
+ * REDUCTIONS COMPOSED HERE. Both entries above deleted rows from the same
+ * baseline of 58, so neither branch's own arithmetic survives the merge: 25 and
+ * 56 are each true of one side alone and false of the tree. Write the count, not
+ * the subtraction — and count key-anchored (`^\s{2}[A-Za-z0-9_]+\s*:`), because
+ * a line-based `key: "value"` scan reads 57 against 58:
+ * `DeploymentAnonymousChatSessionCreate`'s reason is a concatenated string
+ * prettier wrapped onto the following lines.
+ *
+ * `shrinkOnlyLedger` does hold both directions — too high throws at
+ * construction, too low reds its "the ledger never grows" arm — so the merge
+ * cannot land a wrong number here in silence. It is the FLOOR in
+ * `../types/v1-response-types-match-the-contract.test.ts` that has no such
+ * second direction, and the same two-lane composition applies to it; that file
+ * carries the rule at its own literal.
  */
-const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 58;
+const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 23;
 
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
-  // ── Conversation evals: an entire domain, no SDK surface at all ──────────
-  // 34 routes. Not a deliberate omission — the domain shipped on the public API
-  // and the SDK was never extended to it, so none of it is reachable from the
-  // CLI. Tracked as the largest single block of drift this gate found.
-  ConversationEvalRunCreate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunList: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunGet: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunDelete: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunExecute: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunAbort: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunTranscript: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunResults: "agent-evals domain has no SDK resource yet",
-  ConversationEvalRunCompare: "agent-evals domain has no SDK resource yet",
-  ConversationEvalBatchCreate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalBatchList: "agent-evals domain has no SDK resource yet",
-  ConversationEvalBatchGet: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateList: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateListImportable: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateCreate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateGet: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateUpdate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateDelete: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateClone: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateAttach: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTemplateDetach: "agent-evals domain has no SDK resource yet",
-  ConversationEvalScheduleCreate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalScheduleList: "agent-evals domain has no SDK resource yet",
-  ConversationEvalScheduleUpdate: "agent-evals domain has no SDK resource yet",
-  ConversationEvalScheduleDelete: "agent-evals domain has no SDK resource yet",
-  ConversationEvalSchedulePause: "agent-evals domain has no SDK resource yet",
-  ConversationEvalScheduleResume: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTriggerUpsert: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTriggerList: "agent-evals domain has no SDK resource yet",
-  ConversationEvalTriggerDelete: "agent-evals domain has no SDK resource yet",
-  ConversationEvalWebhookUpsert: "agent-evals domain has no SDK resource yet",
-  ConversationEvalWebhookGet: "agent-evals domain has no SDK resource yet",
-  ConversationEvalWebhookDelete: "agent-evals domain has no SDK resource yet",
-
   // ── Analytics reports: scheduled-report CRUD, no SDK resource ────────────
   AnalyticsReportCreate: "analytics report scheduling has no SDK resource yet",
   AnalyticsReportList: "analytics report scheduling has no SDK resource yet",
@@ -224,10 +227,6 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   AgentWorkspaceList: "agent workspace attachment has no SDK resource yet",
   AgentWorkspaceAttach: "agent workspace attachment has no SDK resource yet",
   AgentWorkspaceDetach: "agent workspace attachment has no SDK resource yet",
-
-  // ── Scores ───────────────────────────────────────────────────────────────
-  ScoreRecord: "score recording has no SDK resource yet",
-  ScoreList: "score recording has no SDK resource yet",
 
   // ── Claude Code skill delivery ───────────────────────────────────────────
   // Served to the `claude-code` toolchain over HTTP, not driven by a CLI verb.

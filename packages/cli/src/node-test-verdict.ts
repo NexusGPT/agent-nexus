@@ -7,8 +7,7 @@ import { EXIT_CODES } from "./exit-codes";
  * THE ONE PLACE THIS CLI DECIDES WHETHER A SINGLE-NODE TEST PASSED.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 `status` READS `"COMPLETED"` FOR A RUN WHOSE NODE FAILED. THE FIELD THIS
- *    COMMAND PRINTS IS ALREADY THE WRONG VERDICT.
+ * 🚨 THE VERDICT IS READ FROM `data`, NEVER FROM `status`.
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `workflow test-node` and `workflow node test` are TWO SPELLINGS OF ONE
@@ -16,12 +15,12 @@ import { EXIT_CODES } from "./exit-codes";
  * both printed `TestNodeResult` and exited `0` whatever it said. That is a double
  * false green, and the exit code is the cheaper half:
  *
- *   · `status` is the RUN's status, not the node's. `WorkflowNodeTestingService`
- *     catches the executor's throw, stores the node as `SKIPPED`, and RETURNS
- *     normally with `{ data: { error, errorDetails, timestamp } }` and no status
- *     at all — so the v1 layer's `result.status ?? "COMPLETED"` stamps
- *     `"COMPLETED"` on a failure. Mapping `status` to an exit code AS IT STANDS
- *     would ship a gate that says PASS on a broken node;
+ *   · `status` is the RUN's status, not the node's. It is a truthful field —
+ *     `"FAILED"` when the executor threw, `"PENDING"` when the run went to the
+ *     background, `"COMPLETED"` when it settled clean (NEX-4066) — but it
+ *     describes the row the platform wrote, and a caller wants to know what the
+ *     NODE did. Reading `data` answers that question directly and keeps working
+ *     whatever the run-level enum grows next;
  *   · the outcome that matters is inside `data`, and the console reads it exactly
  *     the way this module does — `runOutput?.error || runOutput?.errorDetails`
  *     is the frontend's own test panel condition

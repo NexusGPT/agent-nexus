@@ -8,7 +8,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { createClient, MAX_TIMEOUT_SECONDS, seconds, timeoutSecondsToMs } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, reportFailure } from "../errors";
-import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
+import { color, isJsonMode, printEnvelope, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
@@ -414,8 +414,13 @@ Notes:
   promptResult IS ABSENT UNTIL status IS completed. Its absence is "not ready",
   never "no prompt was produced".
 
-  THE SHAPE, SINCE --json PRINTS THE RECORD BARE — no "data" wrapper, so every
-  path below is read from the top level:
+  --wait MOVES THE PATHS DOWN ONE LEVEL. Without it the document is the thread
+  itself; with it the document is {thread, outcome, waitedMs} and the thread's
+  own fields are under .thread. outcome is terminal, assistant-replied,
+  generating or timed-out — the same verdict the exit code carries, readable
+  without inspecting $?.
+
+  THE SHAPE, read from the top level without --wait and from .thread with it:
     thread          {threadId, status, messages, promptResult}
     messages[]      {role, content, timestamp}   role is "user" or "assistant"
     promptResult    {prompt, name, description, …}
@@ -448,14 +453,26 @@ Notes:
 
         if (!opts.wait) {
           const t = await client.promptAssistant.getThread(threadId);
-          printRecord(t, GET_THREAD_FIELDS);
+          // The thread IS the response here, so this envelope narrows nothing
+          // and the document is byte-for-byte what `printRecord` emitted. It is
+          // `printEnvelope` so that BOTH branches answer one derivable shape —
+          // otherwise the `--wait` branch below would leave this command with
+          // two, and the generated `--help` line would describe one of them.
+          printEnvelope(t, () => {
+            printRecord(t, GET_THREAD_FIELDS);
+          });
           return;
         }
 
         // No `afterMessageCount`: no turn was sent here, so a terminal status is
         // the whole answer and there is no reply to settle on.
         const waited = await client.promptAssistant.waitForThread(threadId, waitOptions(opts));
-        printRecord(waited.thread, GET_THREAD_FIELDS);
+        // `outcome` is what the wait actually DID — settled, still generating,
+        // or out of time — and until NEX-4139 it survived only as the process
+        // exit code, which a pipeline reads long after it has parsed stdout.
+        printEnvelope(waited, () => {
+          printRecord(waited.thread, GET_THREAD_FIELDS);
+        });
         const code = waitExitCode(waited, threadId);
         if (code !== 0) process.exitCode = code;
       } catch (err) {
@@ -503,7 +520,12 @@ Notes:
   --after-message-count MATTERS AFTER A REPLY. A thread left completed by an
   earlier turn still reads completed the moment you send the next message, so
   without this flag the wait returns the PREVIOUS turn's prompt instantly. Pass
-  the message count you read before sending.`
+  the message count you read before sending.
+
+  READ .outcome, NOT ONLY THE EXIT CODE. The document is {thread, outcome,
+  waitedMs}, so the thread's own fields are under .thread. outcome is terminal,
+  assistant-replied or timed-out; timed-out is the resume signal above and not
+  a failure.`
     )
     .action(async (threadId: string, opts) => {
       try {
@@ -513,7 +535,12 @@ Notes:
           afterMessageCount: opts.afterMessageCount
         });
 
-        printRecord(result.thread, GET_THREAD_FIELDS);
+        // The server's own wait response: {thread, outcome, waitedMs}. `outcome`
+        // is the answer to "did it finish", and a `--json` caller could not read
+        // it before NEX-4139 — it existed only as this process's exit code.
+        printEnvelope(result, () => {
+          printRecord(result.thread, GET_THREAD_FIELDS);
+        });
         // The hint carries the FLAGS BACK, not just the id. Resuming without
         // `--after-message-count` reopens the stale-verdict trap the flag
         // closes, and resuming without `--wait-timeout` silently changes the

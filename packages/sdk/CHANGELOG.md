@@ -1,5 +1,698 @@
 # @agent-nexus/sdk
 
+## 2.0.0
+### Major Changes
+
+- d41c13b: `format`, `autoShowInitialMessagePopup` and `autoShowInitialMessagePopupDelay`
+  are removed from the embed config — none of them ever had a consumer
+  
+  All three were declared on `EmbedSettingsSchema`, served on every response, and
+  accepted on every `PATCH`. No code has ever read any of them.
+  
+  `format` is declared `"bubble" | "classic"` and nothing in the platform branches
+  on the value. The widget has one layout. The `bubble format only` notes on the
+  bubble fields and on the landing screen described an intent that was never
+  enforced — those sections are gated by `landingScreenEnabled`, or by nothing.
+  
+  The other two name a popup that does not exist. No auto-shown initial-message
+  popup has ever been implemented in the widget, at any value of either field. The
+  symptom that follows is the reason this is a removal and not a doc note: an
+  operator could set a five-second popup delay through the CLI, read it back
+  unchanged, and no popup would ever appear. Storing and returning a number that
+  governs nothing teaches every caller to configure a feature that is not there.
+  
+  There were two honest endings — build the thing, or stop publishing the fields.
+  Building a `classic` layout and an opening popup is product work nobody has
+  asked for; publishing a control surface for neither is what was actually
+  shipping.
+  
+  ## What changes for a caller
+  
+  Both routes serving this shape lose three keys:
+  
+  - `GET /api/public/v1/deployments/:deploymentId/embed-config`
+  - `PATCH /api/public/v1/deployments/:deploymentId/embed-config`
+  
+  - the JSON response loses three keys, so `config.format === "bubble"` was true
+    and is now false, and `"format" in config` was true and is now false
+  - TypeScript consumers get a compile error, which is the good direction
+  - a JS consumer reading `config.autoShowInitialMessagePopupDelay` moves from `3`
+    to `undefined`
+  - a `PATCH` body carrying any of the three is now an **undeclared key**, and this
+    endpoint strips undeclared keys rather than rejecting them — so such a call
+    still returns `200` and simply does not write those fields. That is the
+    endpoint's existing documented behaviour for undeclared keys, not a new one,
+    but it is the shape a caller migrating off these fields will meet first.
+  
+  No caller can be relying on an effect, because there has never been one. A
+  caller relying on the field's mere presence is the case the major bump is for.
+  
+  This is the same call NEX-3864 took on `ExecutionNodeResult.logs` and
+  `ExecutionOutput.outputType`, and the document-summary removal took on
+  `DocumentSummary.chunkCount` and `.embeddingStatus`: a published field teaches
+  every consumer to handle a value, write a branch for it, and wait for it.
+  
+  `uiBgPattern` is deliberately NOT removed. It has a live reader — the widget
+  resolves it into a `backgroundImage` — and no dashboard control, so its docs
+  entry now says it is API-only instead.
+
+### Minor Changes
+
+- 880a36b: A coverage figure says whether it rests on measurements or on estimates
+  
+  `client.roles.getCoverage(roleId)` now returns a `basis` — `"ESTIMATED"`,
+  `"MIXED"` or `"MEASURED"` — and every row in `contributions` carries its own.
+  Until now a Role's coverage percentage, its person-hour totals, its money
+  figures and its EUR savings projection all arrived with nothing saying where the
+  numbers behind them came from, and a hand-authored model was indistinguishable
+  from an observed one.
+  
+  ```ts
+  const coverage = await client.roles.getCoverage(roleId);
+  
+  if (coverage.basis === "ESTIMATED") {
+    // every magnitude behind this figure was typed by a person
+  }
+  ```
+  
+  ## What the three arms mean
+  
+  Over the inputs a published figure actually CONSUMED:
+  
+  | | |
+  |---|---|
+  | `ESTIMATED` | no consumed input came from a measurement |
+  | `MIXED` | some did, some did not |
+  | `MEASURED` | every one did |
+  
+  It is all-or-nothing rather than a proportion, and that is deliberate. A
+  coverage model is a PRODUCT of its inputs — tickets × handling time × headcount
+  — so one guessed factor is a factor of the answer rather than a fraction of it,
+  and its error is not diluted by the measured terms beside it. A threshold would
+  let a guess hide behind its siblings.
+  
+  ⚠️ **`ESTIMATED` is also the answer when nothing was evaluated at all** — a Role
+  with no workload model, or a row whose stored model could not be read. It is the
+  arm that cannot overstate, and there is deliberately no fourth arm for "no
+  figure": `coverage` and each money term already say that in their own unions.
+  
+  ## Today every Role answers `ESTIMATED`, and that is correct rather than broken
+  
+  Nothing populates the measurement channel yet, so `MEASURED` is currently
+  unreachable through the product. A client rendering this should treat a constant
+  `ESTIMATED` as a true statement about hand-authored inputs — not as a missing
+  value, a placeholder, or a fault.
+  
+  ## Three things worth knowing before you read it
+  
+  ⚠️ **`basis` is not a period basis.** A coverage input's `perPeriod` states the
+  WINDOW a magnitude accumulates over. This states where the magnitude came from.
+  The two share a word and nothing else.
+  
+  ⚠️ **`basis` is NARROWER than the `measuredInputKeys` published beside it, and
+  you must not derive one from the other.** A model that evaluated cleanly and was
+  then refused — wrong dimension, an inadmissible window, a window disagreeing
+  with the denominator — reports its keys in `measuredInputKeys` and reaches no
+  basis, because it reached no published figure. Reading `basis` off those keys
+  prints `MIXED` over a set of numbers containing no measurement at all.
+  
+  ⚠️ **`MEASURED` is a claim about the MAGNITUDES, never about the model.** A
+  measurement replaces a number; the dimension, the unit and the expression a
+  person wrote around it are unchanged. It does not mean the model is right, and
+  it says nothing about the organisation's stated working day, week and year,
+  which travel separately on `workingTime` with their own per-field `origin`.
+  
+  ## Types
+  
+  `CoverageBasis` is exported. `basis` is required on `RoleCoverage` and on
+  `RoleCoverageContribution`, so every producer of one owes a value and a client
+  narrowing on it is exhaustive.
+  
+  ⚠️ **If you CONSTRUCT either of those types — a test fixture, a mock, a stub
+  response — it now needs the new field.** Reading one is unaffected. The shipped
+  response manifest gains `basis` on `GET /roles/:roleId/coverage` as a required
+  key; it is an opt-in observer that never alters a payload, so an older server
+  omitting the field is reported to a contract reporter if you installed one and
+  changes nothing otherwise.
+- c71fc83: A `smartAction` node's result no longer carries the node's own bookkeeping
+  
+  The node picked a tool, ran it, and then wrote its own two fields INTO that
+  tool's response before publishing it:
+  
+  ```ts
+  { data: { ...toolResult, chosenTool, chosenToolId } }
+  ```
+  
+  Both keys were written after the spread, so they won a collision: a tool whose
+  response already carried a field called `chosenTool` had **its** value replaced
+  by the node's — the tool's data lost, not shadowed. And every tool the node can
+  ever call had those two names reserved, whether or not it used them.
+  
+  The tool's response is now published exactly as the tool produced it. What the
+  node chose travels beside it.
+  
+  ## `@agent-nexus/sdk`
+  
+  `ExecutionNodeResult` (`client.workflowExecutions.getNodeResult`) and
+  `TestNodeResult` (`client.workflows.testNode`) each gain a `metadata` field,
+  beside `output` / `data` rather than inside it. For a `smartAction` node it
+  carries `chosenTool`, `chosenToolId` and `chosenAction`; for a loop node, its
+  iteration ids; `null` for the node types that record nothing about a run, which
+  is most of them.
+  
+  ⚠️ **Additive on the wire, and it changes no existing field** — but a caller
+  reading `output.chosenTool` off a `smartAction` node result is reading a key
+  that is no longer there. It moved to `metadata.chosenTool`. The tool's own
+  fields (`output.members`, `output.channels`) are untouched, which is why the
+  metadata went into a column of its own rather than nesting the result one level
+  deeper: that alternative would have moved every field instead of these two.
+  
+  `chosenToolId` also changed source. It was the tool CONFIG's own entry id — a
+  field the schema declares required and nothing enforces, absent on nodes built
+  through the API, where it resolved to `undefined` and dropped out of the JSON
+  silently. It now carries `toolId`, the identifier the node actually resolves the
+  tool with, so it is present on every run. `chosenAction` is new and is what
+  tells two candidates apart when they share one `toolId` and differ only by the
+  action they call.
+- 86940d7: A track list can be paged, counted, and rolled up in one call
+  
+  `GET /tracks` answered with a page and nothing else. There was no cursor and no
+  offset, so an organization past the 200-track ceiling could not enumerate its own
+  tracks at all, and there was no total, so a caller reading 200 rows could not tell
+  200 from 2,000. Progress was worse: `GET /tracks/:trackId/rollup` takes one track,
+  so a board of N tracks cost `1 + N` requests and `1 + N` queries.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.list()` takes a `cursor` and answers with `total`, `hasMore` and
+  `nextCursor`.**
+  
+  The cursor is a **keyset** over `Track.number`, not an offset — `number` is unique
+  per organization, so it is a total order and needs no tiebreaker. That is what
+  makes paging safe while the list changes underneath a reader: with `LIMIT/OFFSET`,
+  one track archived above your position shifts every later row up by one and the
+  next page silently skips one. A keyset cannot do that. A row that leaves the
+  filtered set simply stops appearing; no row is ever skipped or repeated.
+  
+  `total` counts the whole filtered set, ignoring `limit` and `cursor` — not what is
+  left, which would change on every page. The page and the count are built from one
+  filter expression on the server, so a total you cannot page to is not a state this
+  API can reach.
+  
+  **The cursor is server-issued and carries the filters it was issued under.**
+  Round-trip `nextCursor` verbatim. Passing a cursor from a `status=PLANNED` page
+  into a `status=DONE` request is refused with a 400 rather than served: honouring
+  it would return a correctly-scoped, correctly-counted page that starts in the
+  middle of a different list, with nothing to tell you so. Do not build a cursor
+  from a track's `number`; a hand-rolled token is refused too.
+  
+  **`tracks.readRollups(trackIds)` — progress for up to 100 tracks in one request.**
+  
+  One HTTP round trip and one database statement, not a server-side loop. Entries
+  come back one per id **asked for**, in the order asked, so you can zip the answer
+  against your own list. A track that does not resolve in your organization is
+  present with `0/0` rather than omitted — the same answer `readRollup()` gives it,
+  so this cannot be used to learn which ids exist elsewhere.
+  
+  The cap is 100 rather than the 200-track page size, and the bound is URL length:
+  200 uuids is ~7.4 KB of query string against the 8 KB single-buffer request line
+  some proxies default to. A full page is therefore two calls.
+  
+  **`TrackTask` now carries `doneByUserId`.**
+  
+  The column has been written since the domain shipped and no route returned it, so
+  no client could say who closed a task. Read `null` as "nobody is attributed",
+  never as "a person is missing": ticking a task is reachable with an org API key
+  that resolves no owning human, and the API writes `null` rather than a fabricated
+  author.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. `cursor` is optional and omitting it reads the first page exactly
+  as before; `total`, `hasMore`, `nextCursor` and `doneByUserId` are additions to
+  responses. A caller that ignores all four keeps its current behaviour, including
+  the 200-row ceiling it already had.
+  
+  ## `@agent-nexus/cli`
+  
+  No command changed. The version moves with its SDK dependency.
+- 1fbcba2: Agent conversation evaluations reach the SDK
+  
+  `client.agentEvals` is new, and it covers the whole `/agent-evals` surface: 33
+  routes across runs, batches, templates, schedules, triggers and webhooks. Until
+  now the domain shipped on the Public API with no SDK resource at all — not a
+  method that was skipped, but an entire family the SDK had never been extended
+  to, and the largest single block in the gate that tracks exactly that.
+  
+  ```ts
+  const run = await client.agentEvals.runs.create({
+    /* … */
+  });
+  await client.agentEvals.runs.execute(run.id);
+  const { rollups, run: finished } = await client.agentEvals.runs.results(run.id);
+  ```
+  
+  **Read the resource's header before any write.** `runs.execute`,
+  `batches.create`, `schedules.create` and an enabled `triggers.upsert` all start
+  model spend, and the last two spend repeatedly and unattended. Every cost field
+  is in ten-thousandths of a USD cent.
+  
+  **Nothing about the CLI's surface changed.** `nexus agent-eval` has the same
+  commands, the same flags, the same help and the same JSON on stdout. What
+  changed underneath is that it no longer builds its own HTTP client, which fixed
+  two things that transport silently did without:
+  
+  - **the `organization-id` header.** A personal (cross-org) token selects its
+    acting org with that header and this namespace never sent one, so every
+    `nexus agent-eval` command acted on whatever org the server defaulted to
+    rather than the profile's selected one. Org-scoped keys were unaffected,
+    which is why it went unnoticed.
+  - **retry notices.** A rate-limited command waited in silence.
+  
+  **One naming note for anyone reading the contract beside the SDK.** The v1
+  descriptors are spelled `ConversationEval*` while every route they declare is
+  under `/agent-evals`. The SDK follows the route: `client.agentEvals`,
+  `AgentEvalRun`, `AgentEvalTemplate`. `client.evaluations` is a different family
+  — AI-TASK evaluations, on `/evaluations` — and is unchanged.
+  
+  **One derived figure in `COMPATIBILITY.md` moved, and no command's output did.**
+  It now reads 101 leaves building their own JSON document rather than 102. The
+  leaf that moved is `mcp serve`, in a file this change never touched: the
+  json-shape scanner resolves its call graph by BARE FUNCTION NAME across every
+  file at once, so `mcp.ts`'s `transport.send(...)` was resolving to the
+  file-scope `send` helper `agent-eval.ts` used to declare — one that did write a
+  JSON document. Deleting that helper removed the collision, and `mcp serve` is
+  now classified as what it is: a stdio server that emits no document. Both the
+  old and the new classification are "unclassified", so the published shape map is
+  byte-identical and no `--help` line or stdout shape changed.
+  
+  **Two response types are transcribed rather than gated, and say so.** The
+  `transcript` and `compare` routes declare no response schema in the contract, so
+  no contract-derived gate compares their types to anything. They are read off the
+  handlers instead, and a server-side rename cannot turn any test red.
+  
+  `AgentEvalScoreDiff` is the worked example of what that costs. Transcribing it
+  recorded a real defect: `compare` was serving `current` / `baseline` while
+  `ConversationEvalScoreDiffSchema` — the declared response of that same route on
+  the internal contract — spelled them `currentScore` / `baselineScore`, so the
+  dashboard's own parse stripped both keys and every score column rendered blank.
+  The value object has been corrected and this type spells both fields
+  `currentScore` / `baselineScore`, matching the column, the entity and the
+  published API reference.
+- f324a77: Connecting an external app is its own flow, not a step inside tool configuration
+  
+  Connecting an app had exactly one door — `POST /public/v1/tools/:toolId/connect` —
+  and **its OAuth branch never reads `:toolId`**. Measured on a dev stack: tool id
+  `12df363b…` (Finmei) paired with `service: "expofp"` returns a live ExpoFP
+  connect link. The path parameter names a tool the handler ignores, so a caller
+  who wants to connect Gmail must first find _some_ marketplace tool's UUID to put
+  in a segment nothing looks at. That is what made connecting an account read as a
+  step inside tool and workflow building (NEX-3929).
+  
+  Two additive routes now address it as what it is:
+  
+  ```
+  POST /public/v1/credentials/connect
+  GET  /public/v1/credentials/connect/:handshakeId
+  ```
+  
+  The behaviour is shared with the tool-scoped route rather than copied — both
+  delegate to the same use case. What changes is the address. The tool route stays
+  supported and unchanged.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`credentials.connect()`, `credentials.connectStatus()` and
+  `credentials.waitForConnection()`.**
+  
+  ```typescript
+  const started = await client.credentials.connect({ authType: "oauth", service: "GMAIL" });
+  // no tool id anywhere
+  if (started.authType === "oauth") {
+    const done = await client.credentials.waitForConnection(started.handshakeId);
+  }
+  ```
+  
+  The API-key arm carries its tool in the BODY, because that arm genuinely has one —
+  the key is stored against that tool's auth block:
+  
+  ```typescript
+  const created = await client.credentials.connect({
+    authType: "api_key",
+    toolId: "tool-uuid",
+    apiKey: "sk-…"
+  });
+  ```
+  
+  **It answers with BOTH ids and says which is which.** A connected account is
+  addressed by two different UUIDs — the unified `Credential.id` that
+  `credentials.get/update/delete` take, and the tool-scoped `ToolCredentials.id`
+  that `tools.credentials()` lists. Neither namespace accepts the other's, and both
+  are well-formed UUIDs. The tool route returns only the second; this one returns
+  `credentialId` **and** `toolCredentialId`.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus credential connect` and `nexus credential connect-status`**, so the
+  namespace is a complete lifecycle instead of browse-and-delete:
+  
+  ```bash
+  nexus credential connect --service GMAIL
+  nexus credential connect --tool <tool-id> --api-key-value <key> --name "Production key"
+  nexus credential connect-status <handshake-id>
+  ```
+  
+  The branch is inferred from which flag arrived, and every ambiguous combination
+  is refused rather than resolved: `--service` with `--api-key-value`, `--tool`
+  with `--service`, `--api-key-value` without `--tool`, and neither.
+  
+  `--api-key-value`, not `--api-key`: the latter is a global flag on this CLI, so a
+  subcommand declaring it would have the root parser swallow the operator's
+  _provider_ key and apply it as Nexus transport auth.
+- 8bb4662: Read every track event in the organisation, not one track at a time.
+  
+  `client.tracks.listOrganizationEvents()` and `nexus tracks event feed` reach `GET /track-events` —
+  every track's events at once, plus the ones that name no track, newest first. The server has been
+  able to answer this since the domain shipped; nothing could ask, because both event routes were
+  mounted under `tracks/:trackId` and parsed a track id off the path before reading.
+  
+  **It pages by CURSOR, and there is deliberately no offset.** The stream is append-only and read
+  newest-first, so rows arrive at the head of the page you are walking: an offset window would
+  re-serve rows and silently skip others, and every response would still be a well-formed page of
+  real events. Feed `nextCursor` back as `cursor` and stop only when it is `null` — including after a
+  full page, which always carries one, because "full" and "full and final" are indistinguishable
+  without counting.
+  
+  `--since` takes a full ISO-8601 instant rather than a date, and refuses anything ambiguous: a
+  mistyped bound that silently returns a different window is worse than an error. `--type` filters on
+  an exact event type. There is no total.
+- d81294b: Role governance settings report only what the server enforces
+  
+  **Breaking.** `client.roles.getManagementSettings()` and `nexus role governance`
+  now return **two** rows — `CREATE_ROLE` and `DELETE_ROLE` — and each row carries
+  `action` and `requiresApproval` only. The `grants` array is gone, the
+  `RoleManagementGrant` type is removed from the SDK, and the CLI's `ALLOWED`
+  column is gone with it.
+  
+  Both removals report a control that had stopped controlling anything.
+  
+  `grants` reported the org-wide `RoleManagementAction` allow-list. That was a
+  second authorization axis in front of the per-Role capability layer, and it is
+  retired: it was keyed on the organization with no Role, so it could not express
+  "on this Role"; nothing populated it; and its documented no-rows policy was "org
+  admins only" — so on every Roles write it refused every permission set an
+  administrator had granted through a Role group, before the capability layer ran.
+  Measured on production: zero grant rows across every organization, so the entries
+  this field reported granted nothing in any tenant. Authorization on the Roles
+  surface is now `RoleCapability` alone, over a Role scope and an organization
+  scope. Its organization-scoped grants have no public editor yet; when they get
+  one it is a new contract rather than this field returning.
+  
+  The three extra rows — `MANAGE_MEMBERS`, `MANAGE_GROUP_GRANTS`,
+  `MANAGE_RESOURCES` — reported a `requiresApproval` that no code path reads. Only
+  creating and deleting a Role can file a request for review instead of acting, so
+  a caller who set the flag on the others was configuring an outcome that cannot
+  occur, with nothing failing to say so. `PATCH /api/roles/management/:action/policy`
+  now refuses those three with a 400 naming the reason, where it used to store the
+  value and answer 200.
+  
+  `RoleManagementAction` keeps all five values: it mirrors a Postgres enum, which
+  cannot have a value dropped without recreating the type and rewriting every
+  dependent column under an exclusive lock.
+
+### Patch Changes
+
+- 51155dd: A chat turn now cites the knowledge it retrieved
+  
+  `source-url` and `source-document` were declared in this SDK's chunk union and
+  had no producer on the Nexus side. They have one now, so the docblock that
+  listed what a turn actually emits was about to become wrong.
+  
+  Nothing in the SDK's runtime changed. The union already carried both members —
+  that is the whole reason it declares the SDK's whole union rather than the
+  subset Nexus emits — so a consumer whose `switch` already handled them starts
+  receiving them with no code change.
+  
+  **What arrives.** One frame per retrieval hit, before the first text delta.
+  A hit with a durable URL — a website page, a Notion page or row, a Google Sheet
+  — arrives as `source-url`. Everything else — uploads, Google Drive, SharePoint —
+  arrives as `source-document` carrying `mediaType` and `title`.
+  
+  **Branch on the member, or on `url`'s presence. Never on a source-type field.**
+  There isn't one, deliberately: `url` is required on `source-url`, so a citation
+  that has no URL is representable only as `source-document`, and the illegal
+  state cannot reach you.
+  
+  `providerMetadata.nexus` carries `{ score, excerpt?, pageNumber? }`. **`score` is
+  an unbounded reranker score, not a similarity** — do not render it as a
+  percentage, and do not validate it into `0..1`. `excerpt` and `pageNumber` are
+  absent rather than `null` when the retrieval row carried neither.
+  
+  ⚠️ **A citation is a document the answer was GIVEN, not one it used.** Nothing
+  asks the model which snippets it leant on and the model does not say. A UI
+  labelling these "the sources for this answer" overstates them.
+  
+  `providerMetadata.anthropic` remains the model's own web-search citation, on the
+  same members. The two namespaces have different trust properties and are never
+  merged.
+- b30dd9a: A node test's id is accepted by every `execution` verb, and `status` is truthful
+  
+  Nothing in the runtime moved here. What moved is what the CLI and the SDK **say
+  about the platform** — and both were describing a server that no longer exists,
+  in the direction that costs the caller work.
+  
+  ## The id was never a dead end
+  
+  `workflow node test` hands back a per-node test id — a `WorkflowExecutionNode`
+  key, not a `WorkflowExecution` one. Four screens of `--help` told you that
+  `execution get` on it answers `404` and that the output was already in the test
+  response, so the id was good for nothing.
+  
+  It resolves. `get`, `poll`, `follow`, `diagnose`, `node-result`, `output`,
+  `retry`, `cancel` and `export` all accept it, resolve it to the parent execution,
+  and answer for that execution under its own canonical id.
+  
+  ⚠️ **The recovery trick that help recommended is the thing to stop doing.**
+  `execution list` was documented as the way to "recover a real execution id" by
+  reading the most recent row — with its own caveat that it is only safe while
+  nothing else is running. It was never necessary, and two concurrent tests on one
+  workflow make the newest row a coin flip. `--include-test-runs` is a filter on
+  `wasTestExecution`, so it is what LISTS a node test; it was never needed to
+  ADDRESS one.
+  
+  A `404` from `execution get` therefore means the id names nothing this
+  organization can reach — a wrong id, or somebody else's. Those two are
+  deliberately indistinguishable.
+  
+  ## `status` reports the outcome (NEX-4066)
+  
+  Both packages carried a warning that a run whose node threw still reports
+  `status: "COMPLETED"`, because the service returned that arm with no status and
+  the v1 layer's `result.status ?? "COMPLETED"` stamped one on.
+  
+  The field is truthful now: `"FAILED"` when the executor threw, with the error
+  envelope in `data`; `"PENDING"` when the run went to the background and `data` is
+  `null`; `"COMPLETED"` when it settled clean. The SDK's `testNode` JSDoc said the
+  opposite and ships in the published `.d.ts`, so it was wrong on hover.
+  
+  🚨 **The exit code is still read from `data`, and that is not an oversight.** A
+  published CLI talks to whatever server an organization runs, so the older shape
+  that stamped COMPLETED on a thrown node is still reachable in the field. Reading
+  `data` also keeps the CLI and the console's own test panel deciding the same run
+  the same way. `workflow-verdict-exits.test.ts` keeps its failure fixture at the
+  OLD shape on purpose and now says so — modernising it to `"FAILED"` would make
+  the case pass for the wrong reason and delete the only test pinning the rule.
+  
+  **The output is in `data` only for a synchronous node type.** `plugin`,
+  `firecrawl`, `exaai`, `sixtyfour`, `aiTask`, `cueNode`, `loop`, and `parallelai`
+  on any action but `search` or `chat` are dispatched to the background: `status`
+  `PENDING`, `data` `null`, result read back later through the id above. That is
+  UNMEASURED — neither a pass nor a failure.
+  
+  ## Four `--json` shapes that were described wrong
+  
+  ⚠️ **`task list` is not a bare array.** `workflow list --help` offered it as the
+  contrast case — "one parser cannot read both" — and named it a bare array. It
+  answers the route's own `{items, total}`. Both are objects, so `jq '.[]'` selects
+  nothing on **either**: the rows are under `.data` here and `.items` there. The
+  same screen now separates three shapes rather than two, since `agent-tool list`
+  *is* bare and two commands ending in `list` can land on three different patterns.
+  
+  ⚠️ **`workflow node create` puts created ids at `created.{nodes,edges,branches}`,
+  not `data.created`.** The SDK has already unwrapped the envelope, so
+  `jq '.data.created'` selects `null`.
+  
+  ⚠️ **`workflow upload-icon --json` is `{success, message, id, iconUrl}` and the
+  API answers `{iconUrl}` alone** — `id` is the argument you passed, not something
+  the route returned.
+  
+  **Deleting a loop enumerates what it took.** The help said nothing did. The `200`
+  carries `deletedNodeIds`, `deletedEdgeIds`, and `severedNodeIds` for the
+  survivors that lost an edge.
+  
+  ## Also
+  
+  `workflow node test` writes back `testExecutionId` and the inferred
+  `outputFormat`. **`runOutput` is persisted only for `agentInputTrigger`,
+  `humanInput` and `newsMonitorTrigger`** — on every other type the snapshot is
+  stripped before the graph is saved, so `workflow get` shows `runOutput: null`
+  right after a green test. That null is not a failed test, and the help now says
+  so where it previously listed `runOutput` among the fields that survive.
+  
+  `workflow get`'s table prints seven fields; help claimed six.
+- 1ee3e83: A tool type read off a search result can be sent back as a filter
+  
+  `GET /tools/search` publishes `type` as the **integration kind** — `PIPEDREAM`,
+  `CUSTOM_MANIFEST`, `API`, `MANIFEST`, `WEBHOOK`, `APIFY` — and its `type` FILTER
+  was declared against a different Postgres enum entirely. The two sets share one
+  member, so the value a caller read off a result could not be sent back as a
+  filter, and the values that *were* accepted matched nothing.
+  
+  Measured against production: `APIFY` (1,283 rows) and `CUSTOM_MANIFEST` (154)
+  were refused with a 400, while every accepted value except `PIPEDREAM` selected
+  zero rows out of 4,184.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tool search --type` now offers the six values that can actually match**,
+  and refuses the twelve it used to offer. The flag's choices are generated from
+  the route contract, so this follows the server.
+  
+  The removed values were never useful here: `--type WORKFLOW` and its siblings
+  printed an empty table every time, because no marketplace tool can carry one.
+  `WORKFLOW` / `TASK` / `COLLECTION` remain correct on `nexus tool skills`, which
+  is a different list with a different enum — the help text now says so at the
+  flag.
+  
+  ## `@agent-nexus/sdk`
+  
+  **No runtime or type change** — `type` stays `string` on both the request and the
+  response. What changes is what your editor tells you it may hold: three doc
+  comments said `"PLUGIN"`, which is not a value this route can return under any
+  reading, and on `SearchMarketplaceToolsParams.type` it was an example that would
+  now answer `400`. They name the real closed set instead, and say that the
+  response value and the filter value are the same set.
+- 4699550: An agent's collection list reports the STORED document counter, not a live count of links
+  
+  `GET /api/public/v1/agents/:agentId/collections` published `documentCount` from
+  the LIVE junction aggregate — a count of `DocumentCollection` rows taken on every
+  request. It now publishes the stored `Collection.documentCount` column, which is
+  what `GET /api/public/v1/skills/collections` already serves for the same
+  collection. One published field named `documentCount` carried TWO definitions for
+  one collection across the v1 surface, and neither contract said which of them a
+  caller was holding.
+  
+  They were different definitions, not two readings of one number:
+  
+  - the junction aggregate counts LINK ROWS, and filters neither soft-deleted
+    documents nor folders;
+  - the stored column is written by `CollectionsService.updateStatistics`, which
+    counts the linked documents that are neither soft-deleted nor folders.
+  
+  On ordinary data the two agree, and that is why the split was never observable on
+  the wire: a folder link cannot be written, and a delete removes every link. **The
+  window where they part is real, narrow and named.** A document delete recounts
+  each collection it detached from, once, after the last link is gone — and a
+  recount that fails there is logged and swallowed BY DESIGN, per collection,
+  because the delete itself succeeded and a retry would 404. For as long as that
+  lasts, the links are gone and the stored column is still high. It closes on that
+  collection's next attach or remove.
+  
+  ## What changes for a caller
+  
+  - `documentCount` on this route can read HIGHER than the documents the collection
+    actually holds, for the length of that window. Its previous source, the live
+    link count, was taken fresh on each request and could not lag.
+  - **The type does not change.** `documentCount` was a `number` and still is, so
+    nothing moves in the shipped response contract, in codegen, or in a consumer's
+    typecheck. The VALUE is the only observable — which is the whole reason this
+    note exists instead of a gate.
+  - **No SDK version pins this.** The change is server-side. It took effect for
+    every caller on every version the moment it deployed, and neither upgrading nor
+    pinning the SDK restores the old number.
+  - Needing a count taken live, per request, is still served — by
+    `GET /api/public/v1/skills/collections/:collectionId/statistics`, which counts
+    the surviving links and excludes soft-deleted documents. That route is
+    deliberately the live one, it is unchanged, and it is the one remaining
+    `documentCount` on the v1 surface that is not the stored column. The stored
+    column is now the single definition for a collection OBJECT.
+  
+  ## `@agent-nexus/cli`
+  
+  - `nexus agent-collection list --json` is a bare array of this response, so
+    `.[].documentCount` moves with it. The table view has never shown the column,
+    so a human at a terminal sees nothing change.
+  - `nexus collection list` / `collection get` are unchanged: they already read the
+    stored counter, and their notes already send you to `nexus collection stats`
+    for the live number.
+  
+  ## `@agent-nexus/sdk`
+  
+  No shape change. `AgentCollection.documentCount`, `CollectionSummary.documentCount`
+  and `CollectionStatistics.documentCount` now each say which of the two definitions
+  they carry, so a consumer reading the field in an editor is told whether it is the
+  stored counter or a live count rather than left to assume.
+- 3132dc8: `RolePermissionSetSurface` accepts `apps`
+  
+  The feature catalog gained an `apps` key for the Vibe surface, so the SDK's
+  surface union carries it too. A permission set naming `apps` now type-checks
+  against the v1 contract instead of being rejected.
+- fce8836: `role.create` joins the RoleCapability union, and it is the first one a permission set cannot hold
+  
+  The server catalog gained an ORGANISATION-SCOPED capability. `role.create` names no
+  Role — the Role does not exist yet when you create one — so it is held org-wide
+  rather than inside a Role, and a permission set's `capabilities` are keyed to ONE
+  Role.
+  
+  It is in the union because the union mirrors the server's catalog, which is what
+  `GET /roles/:roleId/capabilities` answers from. Sending it on
+  `POST`/`PATCH /roles/:roleId/permission-sets` is refused with
+  `400 ORG_SCOPED_ONLY_ROLE_CAPABILITY`: the row would satisfy the column's
+  constraint and be read by nothing.
+  
+  Nothing else in the SDK changes. The union is wider by one member, so code that
+  switches exhaustively over `RoleCapability` will want a branch for it — a UI
+  offering it as a tickable permission-set row is the case worth checking, because
+  the server now refuses that write.
+- b55a52f: The SDK README documents `client.chat`
+  
+  `README.md` is in this package's `files` array, so it is the page npm renders for
+  `@agent-nexus/sdk`. Measured against the published `1.0.0` tarball: the whole README
+  scored **one** occurrence of the word "chat", and it was `promptAssistant.chat` in the
+  timeouts table — against 30 for "agents". A customer landing on the package page saw no
+  chat surface at all, while the package shipped a full one.
+  
+  `## API Reference` now opens with a Chat section covering:
+  
+  - **The headline** — the wire format is the Vercel AI SDK 7 UI Message Stream
+    (`x-vercel-ai-ui-message-stream: v1`, terminated by `data: [DONE]`), so a stock
+    `useChat()` renders a Nexus agent with no custom transport.
+  - **The two hops**, as a runnable pair: the customer's server mints with the org API key,
+    the browser streams with the short-lived token. The point of the split is that the API
+    key never reaches a browser, so it is stated as the reason rather than as a step.
+  - **`createBrowserChatClient`**, which is how a browser reaches these routes without
+    holding a placeholder API key.
+  - **The `useChat` door** — `streamRaw` from a `POST` handler and `resumeRaw` from a `GET`
+    handler, forwarded verbatim, which is what `useChat({ resume: true })` needs.
+  - **The control surface** — `stop`, `status`, `resume`, `resumeRaw`.
+  
+  And the four things a chat UI gets wrong without being told:
+  
+  1. **Branch on `status().outcome`, never on the frames.** A stopped turn has no single
+     wire shape — it is the provider's. One deployment ends `abort` → `finish`; another
+     ends `data-nexus-error` → `error`, with no `abort` frame at all, because the provider
+     surfaced the cancellation as a failure. `outcome` reads `"stopped"` on both.
+  2. **`stop` reports acceptance, not effect.** Frames keep being written after the 200.
+  3. **The resume cursor is exclusive**, and a resumed stream opens with a synthesised
+     opener per block still open — one per open block, not one `text-start` — carrying no
+     `id:` line, so it must not move the cursor.
+  4. **One credential, never two.** A request carrying both an API key and a session token
+     is refused with a message that reads like an expired token.
+  
+  Every TypeScript sample in the section is extracted from the README and typechecked
+  against the package's own declarations, and the two-hop example was run end to end
+  against a live deployment.
+
 ## 1.0.1
 ### Patch Changes
 

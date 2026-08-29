@@ -1,5 +1,828 @@
 # @agent-nexus/cli
 
+## 1.0.0
+### Major Changes
+
+- d41c13b: `format`, `autoShowInitialMessagePopup` and `autoShowInitialMessagePopupDelay`
+  are removed from the embed config — none of them ever had a consumer
+  
+  All three were declared on `EmbedSettingsSchema`, served on every response, and
+  accepted on every `PATCH`. No code has ever read any of them.
+  
+  `format` is declared `"bubble" | "classic"` and nothing in the platform branches
+  on the value. The widget has one layout. The `bubble format only` notes on the
+  bubble fields and on the landing screen described an intent that was never
+  enforced — those sections are gated by `landingScreenEnabled`, or by nothing.
+  
+  The other two name a popup that does not exist. No auto-shown initial-message
+  popup has ever been implemented in the widget, at any value of either field. The
+  symptom that follows is the reason this is a removal and not a doc note: an
+  operator could set a five-second popup delay through the CLI, read it back
+  unchanged, and no popup would ever appear. Storing and returning a number that
+  governs nothing teaches every caller to configure a feature that is not there.
+  
+  There were two honest endings — build the thing, or stop publishing the fields.
+  Building a `classic` layout and an opening popup is product work nobody has
+  asked for; publishing a control surface for neither is what was actually
+  shipping.
+  
+  ## What changes for a caller
+  
+  Both routes serving this shape lose three keys:
+  
+  - `GET /api/public/v1/deployments/:deploymentId/embed-config`
+  - `PATCH /api/public/v1/deployments/:deploymentId/embed-config`
+  
+  - the JSON response loses three keys, so `config.format === "bubble"` was true
+    and is now false, and `"format" in config` was true and is now false
+  - TypeScript consumers get a compile error, which is the good direction
+  - a JS consumer reading `config.autoShowInitialMessagePopupDelay` moves from `3`
+    to `undefined`
+  - a `PATCH` body carrying any of the three is now an **undeclared key**, and this
+    endpoint strips undeclared keys rather than rejecting them — so such a call
+    still returns `200` and simply does not write those fields. That is the
+    endpoint's existing documented behaviour for undeclared keys, not a new one,
+    but it is the shape a caller migrating off these fields will meet first.
+  
+  No caller can be relying on an effect, because there has never been one. A
+  caller relying on the field's mere presence is the case the major bump is for.
+  
+  This is the same call NEX-3864 took on `ExecutionNodeResult.logs` and
+  `ExecutionOutput.outputType`, and the document-summary removal took on
+  `DocumentSummary.chunkCount` and `.embeddingStatus`: a published field teaches
+  every consumer to handle a value, write a branch for it, and wait for it.
+  
+  `uiBgPattern` is deliberately NOT removed. It has a live reader — the widget
+  resolves it into a `backgroundImage` — and no dashboard control, so its docs
+  entry now says it is API-only instead.
+
+### Minor Changes
+
+- f324a77: Connecting an external app is its own flow, not a step inside tool configuration
+  
+  Connecting an app had exactly one door — `POST /public/v1/tools/:toolId/connect` —
+  and **its OAuth branch never reads `:toolId`**. Measured on a dev stack: tool id
+  `12df363b…` (Finmei) paired with `service: "expofp"` returns a live ExpoFP
+  connect link. The path parameter names a tool the handler ignores, so a caller
+  who wants to connect Gmail must first find _some_ marketplace tool's UUID to put
+  in a segment nothing looks at. That is what made connecting an account read as a
+  step inside tool and workflow building (NEX-3929).
+  
+  Two additive routes now address it as what it is:
+  
+  ```
+  POST /public/v1/credentials/connect
+  GET  /public/v1/credentials/connect/:handshakeId
+  ```
+  
+  The behaviour is shared with the tool-scoped route rather than copied — both
+  delegate to the same use case. What changes is the address. The tool route stays
+  supported and unchanged.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`credentials.connect()`, `credentials.connectStatus()` and
+  `credentials.waitForConnection()`.**
+  
+  ```typescript
+  const started = await client.credentials.connect({ authType: "oauth", service: "GMAIL" });
+  // no tool id anywhere
+  if (started.authType === "oauth") {
+    const done = await client.credentials.waitForConnection(started.handshakeId);
+  }
+  ```
+  
+  The API-key arm carries its tool in the BODY, because that arm genuinely has one —
+  the key is stored against that tool's auth block:
+  
+  ```typescript
+  const created = await client.credentials.connect({
+    authType: "api_key",
+    toolId: "tool-uuid",
+    apiKey: "sk-…"
+  });
+  ```
+  
+  **It answers with BOTH ids and says which is which.** A connected account is
+  addressed by two different UUIDs — the unified `Credential.id` that
+  `credentials.get/update/delete` take, and the tool-scoped `ToolCredentials.id`
+  that `tools.credentials()` lists. Neither namespace accepts the other's, and both
+  are well-formed UUIDs. The tool route returns only the second; this one returns
+  `credentialId` **and** `toolCredentialId`.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus credential connect` and `nexus credential connect-status`**, so the
+  namespace is a complete lifecycle instead of browse-and-delete:
+  
+  ```bash
+  nexus credential connect --service GMAIL
+  nexus credential connect --tool <tool-id> --api-key-value <key> --name "Production key"
+  nexus credential connect-status <handshake-id>
+  ```
+  
+  The branch is inferred from which flag arrived, and every ambiguous combination
+  is refused rather than resolved: `--service` with `--api-key-value`, `--tool`
+  with `--service`, `--api-key-value` without `--tool`, and neither.
+  
+  `--api-key-value`, not `--api-key`: the latter is a global flag on this CLI, so a
+  subcommand declaring it would have the root parser swallow the operator's
+  _provider_ key and apply it as Nexus transport auth.
+- 8bb4662: Read every track event in the organisation, not one track at a time.
+  
+  `client.tracks.listOrganizationEvents()` and `nexus tracks event feed` reach `GET /track-events` —
+  every track's events at once, plus the ones that name no track, newest first. The server has been
+  able to answer this since the domain shipped; nothing could ask, because both event routes were
+  mounted under `tracks/:trackId` and parsed a track id off the path before reading.
+  
+  **It pages by CURSOR, and there is deliberately no offset.** The stream is append-only and read
+  newest-first, so rows arrive at the head of the page you are walking: an offset window would
+  re-serve rows and silently skip others, and every response would still be a well-formed page of
+  real events. Feed `nextCursor` back as `cursor` and stop only when it is `null` — including after a
+  full page, which always carries one, because "full" and "full and final" are indistinguishable
+  without counting.
+  
+  `--since` takes a full ISO-8601 instant rather than a date, and refuses anything ambiguous: a
+  mistyped bound that silently returns a different window is worse than an error. `--type` filters on
+  an exact event type. There is no total.
+- d81294b: Role governance settings report only what the server enforces
+  
+  **Breaking.** `client.roles.getManagementSettings()` and `nexus role governance`
+  now return **two** rows — `CREATE_ROLE` and `DELETE_ROLE` — and each row carries
+  `action` and `requiresApproval` only. The `grants` array is gone, the
+  `RoleManagementGrant` type is removed from the SDK, and the CLI's `ALLOWED`
+  column is gone with it.
+  
+  Both removals report a control that had stopped controlling anything.
+  
+  `grants` reported the org-wide `RoleManagementAction` allow-list. That was a
+  second authorization axis in front of the per-Role capability layer, and it is
+  retired: it was keyed on the organization with no Role, so it could not express
+  "on this Role"; nothing populated it; and its documented no-rows policy was "org
+  admins only" — so on every Roles write it refused every permission set an
+  administrator had granted through a Role group, before the capability layer ran.
+  Measured on production: zero grant rows across every organization, so the entries
+  this field reported granted nothing in any tenant. Authorization on the Roles
+  surface is now `RoleCapability` alone, over a Role scope and an organization
+  scope. Its organization-scoped grants have no public editor yet; when they get
+  one it is a new contract rather than this field returning.
+  
+  The three extra rows — `MANAGE_MEMBERS`, `MANAGE_GROUP_GRANTS`,
+  `MANAGE_RESOURCES` — reported a `requiresApproval` that no code path reads. Only
+  creating and deleting a Role can file a request for review instead of acting, so
+  a caller who set the flag on the others was configuring an outcome that cannot
+  occur, with nothing failing to say so. `PATCH /api/roles/management/:action/policy`
+  now refuses those three with a 400 naming the reason, where it used to store the
+  value and answer 200.
+  
+  `RoleManagementAction` keeps all five values: it mirrors a Postgres enum, which
+  cannot have a value dropped without recreating the type and rewriting every
+  dependent column under an exclusive lock.
+- 4699550: Ten `--json` documents now carry a field the route sent and the printer dropped.
+  Each of these MOVES that command's published envelope, which `COMPATIBILITY.md`
+  puts in the EVOLVING tier — read the old and new shape per command below before
+  upgrading a script.
+  
+  | command                              | old `--json`     | new `--json`                                              | what you can now read                      |
+  | ------------------------------------ | ---------------- | --------------------------------------------------------- | ------------------------------------------ |
+  | `analytics query`                    | `{data, meta}`   | `{rows, fields, rowCount, executionTimeMs, truncated, …}` | `truncated`, `rowCount`, `executionTimeMs` |
+  | `analytics metrics`                  | `{data, meta}`   | the same, plus `generatedSql`                             | `truncated`, `rowCount`, `executionTimeMs` |
+  | `tool search`                        | bare array       | `{tools, facets, total}`                                  | `facets`, `total`                          |
+  | `tool skills`                        | bare array       | `{skills, total}`                                         | `total`                                    |
+  | `task list`                          | bare array       | `{items, total}`                                          | `total`                                    |
+  | `external-tool list`                 | `{data}`         | `{items, total}`                                          | `total`                                    |
+  | `template list`                      | `{data}`         | `{items, total}`                                          | `total`                                    |
+  | `tracing cost-breakdown`             | `{data, meta}`   | `{entries, dimensions}`                                   | `dimensions`                               |
+  | `prompt-assistant await-thread`      | the thread, flat | `{thread, outcome, waitedMs}`                             | `outcome`, `waitedMs`                      |
+  | `prompt-assistant get-thread --wait` | the thread, flat | `{thread, outcome, waitedMs}`                             | `outcome`, `waitedMs`                      |
+  
+  `prompt-assistant get-thread` WITHOUT `--wait` is unchanged: the response is the
+  thread, so the document is the same bytes it always was.
+  
+  The dropped fields were consequential rather than cosmetic. `truncated` says the
+  answer is PARTIAL and only the terminal was ever told, so a script read a short
+  result as a complete one. `outcome` is what a wait actually did — settled, still
+  generating, or out of time — and it survived only as the process exit code.
+  `facets` is the category breakdown `tool search --category` must be filtered
+  against, and it was reachable from no other command. `dimensions` names what a
+  cost breakdown was grouped by, in order, which is the only way to split a
+  composite `groupKey` of `value0|value1`. Every `total` is the count a caller
+  needs to know whether `--limit` hid the rest.
+  
+  The `--help` note on each of these commands is rewritten to the new shape, and
+  the derived `OUTPUT --json:` line follows the printer automatically.
+  
+  `known-issues` and `vibe deploy` / `vibe rollback` also adopt `printEnvelope`,
+  and their documents do NOT change — both already answered the whole response
+  through a hand-rolled `if (isJsonMode())` branch. `known-issues` gains a derived
+  shape line on its `--help` as a result.
+
+### Patch Changes
+
+- b30dd9a: A `workspace mount` that cannot reach the API stops reporting CLI_UNKNOWN_ERROR
+  
+  `workspace mount` was the one place in this CLI where a network failure was
+  anonymous. It had already diagnosed the cause and then threw it away, so the
+  error document's `code` — the field a script branches on — read
+  `CLI_UNKNOWN_ERROR` for a plainly unreachable API.
+  
+  Two separate holes, same symptom.
+  
+  ## The mount-token call is a raw `fetch`
+  
+  `mintMountToken` hits `/api/dav/_token` directly rather than through the SDK
+  client, so it inherits none of the transport's error taxonomy. **`handleError`
+  routes by CLASS, not by message.** A bare `fetch` rejection is a `TypeError`; it
+  matched no branch and fell all the way through to the unknown-error funnel. A
+  non-2xx was the same story one line down — a plain `Error` carrying the status
+  only inside its message, where nothing reads it.
+  
+  Every throw on that path now raises what the SDK transport would have raised for
+  the same failure:
+  
+  | failure | now raises |
+  |---|---|
+  | socket / DNS / refused | `NexusConnectionError`, with the cause's own message folded in |
+  | `401` | `NexusAuthenticationError` |
+  | any other non-2xx | `NexusApiError` with code `HTTP_<status>` |
+  
+  🚨 **`HTTP_<status>` is the SDK's own default and not a code this file invents.**
+  `handleError` prints `NexusApiError.code` verbatim, so a CLI-minted
+  `MOUNT_TOKEN_FAILED` would read as a code the SERVER sent. The `401` split
+  matters for the same reason class-routing does: a `401` raised as a plain
+  `NexusApiError` skips the authentication branch and loses the "run `nexus auth
+  login`" hint — the one remedy most likely to apply here.
+  
+  ## `--shared` replaced the list's error with a fresh one
+  
+  Resolving a mount target starts by listing workspaces. When that list call threw,
+  the resolver swallowed it and returned `null`, and the `--shared` path then threw
+  a **new** plain `Error` about being unable to verify the slug. The cause — which
+  already knew whether it was an unreachable API, a `401` or a `5xx` — was gone,
+  leaving `handleError` nothing to classify.
+  
+  The list's own error is carried out and rethrown instead. `resolveMountTarget`
+  keeps its signature and its degrading behaviour for the default bare-slug path,
+  which is documented as best-effort; `resolveMountTargetDetailed` is what anything
+  that REPORTS a failure must call, or it reports a cause it never looked at.
+  
+  ⚠️ **A `null` target always means the list call failed — it is never "not
+  found".** A successful list yields an object on every path, including the
+  no-match one. Reading `null` as absence is what made this bug survive a reading
+  of the code.
+  
+  ## What a script sees
+  
+  The success path is untouched, and so is every message a human reads. What
+  changed is the `code` on a failure: a mount that cannot reach the API, or is
+  refused by it, now reports the same code as every other command that goes through
+  the client. A script matching `CLI_UNKNOWN_ERROR` to detect a failed mount will
+  stop matching — it was matching a bug.
+- b30dd9a: A node test's id is accepted by every `execution` verb, and `status` is truthful
+  
+  Nothing in the runtime moved here. What moved is what the CLI and the SDK **say
+  about the platform** — and both were describing a server that no longer exists,
+  in the direction that costs the caller work.
+  
+  ## The id was never a dead end
+  
+  `workflow node test` hands back a per-node test id — a `WorkflowExecutionNode`
+  key, not a `WorkflowExecution` one. Four screens of `--help` told you that
+  `execution get` on it answers `404` and that the output was already in the test
+  response, so the id was good for nothing.
+  
+  It resolves. `get`, `poll`, `follow`, `diagnose`, `node-result`, `output`,
+  `retry`, `cancel` and `export` all accept it, resolve it to the parent execution,
+  and answer for that execution under its own canonical id.
+  
+  ⚠️ **The recovery trick that help recommended is the thing to stop doing.**
+  `execution list` was documented as the way to "recover a real execution id" by
+  reading the most recent row — with its own caveat that it is only safe while
+  nothing else is running. It was never necessary, and two concurrent tests on one
+  workflow make the newest row a coin flip. `--include-test-runs` is a filter on
+  `wasTestExecution`, so it is what LISTS a node test; it was never needed to
+  ADDRESS one.
+  
+  A `404` from `execution get` therefore means the id names nothing this
+  organization can reach — a wrong id, or somebody else's. Those two are
+  deliberately indistinguishable.
+  
+  ## `status` reports the outcome (NEX-4066)
+  
+  Both packages carried a warning that a run whose node threw still reports
+  `status: "COMPLETED"`, because the service returned that arm with no status and
+  the v1 layer's `result.status ?? "COMPLETED"` stamped one on.
+  
+  The field is truthful now: `"FAILED"` when the executor threw, with the error
+  envelope in `data`; `"PENDING"` when the run went to the background and `data` is
+  `null`; `"COMPLETED"` when it settled clean. The SDK's `testNode` JSDoc said the
+  opposite and ships in the published `.d.ts`, so it was wrong on hover.
+  
+  🚨 **The exit code is still read from `data`, and that is not an oversight.** A
+  published CLI talks to whatever server an organization runs, so the older shape
+  that stamped COMPLETED on a thrown node is still reachable in the field. Reading
+  `data` also keeps the CLI and the console's own test panel deciding the same run
+  the same way. `workflow-verdict-exits.test.ts` keeps its failure fixture at the
+  OLD shape on purpose and now says so — modernising it to `"FAILED"` would make
+  the case pass for the wrong reason and delete the only test pinning the rule.
+  
+  **The output is in `data` only for a synchronous node type.** `plugin`,
+  `firecrawl`, `exaai`, `sixtyfour`, `aiTask`, `cueNode`, `loop`, and `parallelai`
+  on any action but `search` or `chat` are dispatched to the background: `status`
+  `PENDING`, `data` `null`, result read back later through the id above. That is
+  UNMEASURED — neither a pass nor a failure.
+  
+  ## Four `--json` shapes that were described wrong
+  
+  ⚠️ **`task list` is not a bare array.** `workflow list --help` offered it as the
+  contrast case — "one parser cannot read both" — and named it a bare array. It
+  answers the route's own `{items, total}`. Both are objects, so `jq '.[]'` selects
+  nothing on **either**: the rows are under `.data` here and `.items` there. The
+  same screen now separates three shapes rather than two, since `agent-tool list`
+  *is* bare and two commands ending in `list` can land on three different patterns.
+  
+  ⚠️ **`workflow node create` puts created ids at `created.{nodes,edges,branches}`,
+  not `data.created`.** The SDK has already unwrapped the envelope, so
+  `jq '.data.created'` selects `null`.
+  
+  ⚠️ **`workflow upload-icon --json` is `{success, message, id, iconUrl}` and the
+  API answers `{iconUrl}` alone** — `id` is the argument you passed, not something
+  the route returned.
+  
+  **Deleting a loop enumerates what it took.** The help said nothing did. The `200`
+  carries `deletedNodeIds`, `deletedEdgeIds`, and `severedNodeIds` for the
+  survivors that lost an edge.
+  
+  ## Also
+  
+  `workflow node test` writes back `testExecutionId` and the inferred
+  `outputFormat`. **`runOutput` is persisted only for `agentInputTrigger`,
+  `humanInput` and `newsMonitorTrigger`** — on every other type the snapshot is
+  stripped before the graph is saved, so `workflow get` shows `runOutput: null`
+  right after a green test. That null is not a failed test, and the help now says
+  so where it previously listed `runOutput` among the fields that survive.
+  
+  `workflow get`'s table prints seven fields; help claimed six.
+- 1ee3e83: A tool type read off a search result can be sent back as a filter
+  
+  `GET /tools/search` publishes `type` as the **integration kind** — `PIPEDREAM`,
+  `CUSTOM_MANIFEST`, `API`, `MANIFEST`, `WEBHOOK`, `APIFY` — and its `type` FILTER
+  was declared against a different Postgres enum entirely. The two sets share one
+  member, so the value a caller read off a result could not be sent back as a
+  filter, and the values that *were* accepted matched nothing.
+  
+  Measured against production: `APIFY` (1,283 rows) and `CUSTOM_MANIFEST` (154)
+  were refused with a 400, while every accepted value except `PIPEDREAM` selected
+  zero rows out of 4,184.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tool search --type` now offers the six values that can actually match**,
+  and refuses the twelve it used to offer. The flag's choices are generated from
+  the route contract, so this follows the server.
+  
+  The removed values were never useful here: `--type WORKFLOW` and its siblings
+  printed an empty table every time, because no marketplace tool can carry one.
+  `WORKFLOW` / `TASK` / `COLLECTION` remain correct on `nexus tool skills`, which
+  is a different list with a different enum — the help text now says so at the
+  flag.
+  
+  ## `@agent-nexus/sdk`
+  
+  **No runtime or type change** — `type` stays `string` on both the request and the
+  response. What changes is what your editor tells you it may hold: three doc
+  comments said `"PLUGIN"`, which is not a value this route can return under any
+  reading, and on `SearchMarketplaceToolsParams.type` it was an example that would
+  now answer `400`. They name the real closed set instead, and say that the
+  response value and the filter value are the same set.
+- 86940d7: A track list can be paged, counted, and rolled up in one call
+  
+  `GET /tracks` answered with a page and nothing else. There was no cursor and no
+  offset, so an organization past the 200-track ceiling could not enumerate its own
+  tracks at all, and there was no total, so a caller reading 200 rows could not tell
+  200 from 2,000. Progress was worse: `GET /tracks/:trackId/rollup` takes one track,
+  so a board of N tracks cost `1 + N` requests and `1 + N` queries.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.list()` takes a `cursor` and answers with `total`, `hasMore` and
+  `nextCursor`.**
+  
+  The cursor is a **keyset** over `Track.number`, not an offset — `number` is unique
+  per organization, so it is a total order and needs no tiebreaker. That is what
+  makes paging safe while the list changes underneath a reader: with `LIMIT/OFFSET`,
+  one track archived above your position shifts every later row up by one and the
+  next page silently skips one. A keyset cannot do that. A row that leaves the
+  filtered set simply stops appearing; no row is ever skipped or repeated.
+  
+  `total` counts the whole filtered set, ignoring `limit` and `cursor` — not what is
+  left, which would change on every page. The page and the count are built from one
+  filter expression on the server, so a total you cannot page to is not a state this
+  API can reach.
+  
+  **The cursor is server-issued and carries the filters it was issued under.**
+  Round-trip `nextCursor` verbatim. Passing a cursor from a `status=PLANNED` page
+  into a `status=DONE` request is refused with a 400 rather than served: honouring
+  it would return a correctly-scoped, correctly-counted page that starts in the
+  middle of a different list, with nothing to tell you so. Do not build a cursor
+  from a track's `number`; a hand-rolled token is refused too.
+  
+  **`tracks.readRollups(trackIds)` — progress for up to 100 tracks in one request.**
+  
+  One HTTP round trip and one database statement, not a server-side loop. Entries
+  come back one per id **asked for**, in the order asked, so you can zip the answer
+  against your own list. A track that does not resolve in your organization is
+  present with `0/0` rather than omitted — the same answer `readRollup()` gives it,
+  so this cannot be used to learn which ids exist elsewhere.
+  
+  The cap is 100 rather than the 200-track page size, and the bound is URL length:
+  200 uuids is ~7.4 KB of query string against the 8 KB single-buffer request line
+  some proxies default to. A full page is therefore two calls.
+  
+  **`TrackTask` now carries `doneByUserId`.**
+  
+  The column has been written since the domain shipped and no route returned it, so
+  no client could say who closed a task. Read `null` as "nobody is attributed",
+  never as "a person is missing": ticking a task is reachable with an org API key
+  that resolves no owning human, and the API writes `null` rather than a fabricated
+  author.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. `cursor` is optional and omitting it reads the first page exactly
+  as before; `total`, `hasMore`, `nextCursor` and `doneByUserId` are additions to
+  responses. A caller that ignores all four keeps its current behaviour, including
+  the 200-row ceiling it already had.
+  
+  ## `@agent-nexus/cli`
+  
+  No command changed. The version moves with its SDK dependency.
+- 1fbcba2: Agent conversation evaluations reach the SDK
+  
+  `client.agentEvals` is new, and it covers the whole `/agent-evals` surface: 33
+  routes across runs, batches, templates, schedules, triggers and webhooks. Until
+  now the domain shipped on the Public API with no SDK resource at all — not a
+  method that was skipped, but an entire family the SDK had never been extended
+  to, and the largest single block in the gate that tracks exactly that.
+  
+  ```ts
+  const run = await client.agentEvals.runs.create({
+    /* … */
+  });
+  await client.agentEvals.runs.execute(run.id);
+  const { rollups, run: finished } = await client.agentEvals.runs.results(run.id);
+  ```
+  
+  **Read the resource's header before any write.** `runs.execute`,
+  `batches.create`, `schedules.create` and an enabled `triggers.upsert` all start
+  model spend, and the last two spend repeatedly and unattended. Every cost field
+  is in ten-thousandths of a USD cent.
+  
+  **Nothing about the CLI's surface changed.** `nexus agent-eval` has the same
+  commands, the same flags, the same help and the same JSON on stdout. What
+  changed underneath is that it no longer builds its own HTTP client, which fixed
+  two things that transport silently did without:
+  
+  - **the `organization-id` header.** A personal (cross-org) token selects its
+    acting org with that header and this namespace never sent one, so every
+    `nexus agent-eval` command acted on whatever org the server defaulted to
+    rather than the profile's selected one. Org-scoped keys were unaffected,
+    which is why it went unnoticed.
+  - **retry notices.** A rate-limited command waited in silence.
+  
+  **One naming note for anyone reading the contract beside the SDK.** The v1
+  descriptors are spelled `ConversationEval*` while every route they declare is
+  under `/agent-evals`. The SDK follows the route: `client.agentEvals`,
+  `AgentEvalRun`, `AgentEvalTemplate`. `client.evaluations` is a different family
+  — AI-TASK evaluations, on `/evaluations` — and is unchanged.
+  
+  **One derived figure in `COMPATIBILITY.md` moved, and no command's output did.**
+  It now reads 101 leaves building their own JSON document rather than 102. The
+  leaf that moved is `mcp serve`, in a file this change never touched: the
+  json-shape scanner resolves its call graph by BARE FUNCTION NAME across every
+  file at once, so `mcp.ts`'s `transport.send(...)` was resolving to the
+  file-scope `send` helper `agent-eval.ts` used to declare — one that did write a
+  JSON document. Deleting that helper removed the collision, and `mcp serve` is
+  now classified as what it is: a stdio server that emits no document. Both the
+  old and the new classification are "unclassified", so the published shape map is
+  byte-identical and no `--help` line or stdout shape changed.
+  
+  **Two response types are transcribed rather than gated, and say so.** The
+  `transcript` and `compare` routes declare no response schema in the contract, so
+  no contract-derived gate compares their types to anything. They are read off the
+  handlers instead, and a server-side rename cannot turn any test red.
+  
+  `AgentEvalScoreDiff` is the worked example of what that costs. Transcribing it
+  recorded a real defect: `compare` was serving `current` / `baseline` while
+  `ConversationEvalScoreDiffSchema` — the declared response of that same route on
+  the internal contract — spelled them `currentScore` / `baselineScore`, so the
+  dashboard's own parse stripped both keys and every score column rendered blank.
+  The value object has been corrected and this type spells both fields
+  `currentScore` / `baselineScore`, matching the column, the entity and the
+  published API reference.
+- 4699550: An agent's collection list reports the STORED document counter, not a live count of links
+  
+  `GET /api/public/v1/agents/:agentId/collections` published `documentCount` from
+  the LIVE junction aggregate — a count of `DocumentCollection` rows taken on every
+  request. It now publishes the stored `Collection.documentCount` column, which is
+  what `GET /api/public/v1/skills/collections` already serves for the same
+  collection. One published field named `documentCount` carried TWO definitions for
+  one collection across the v1 surface, and neither contract said which of them a
+  caller was holding.
+  
+  They were different definitions, not two readings of one number:
+  
+  - the junction aggregate counts LINK ROWS, and filters neither soft-deleted
+    documents nor folders;
+  - the stored column is written by `CollectionsService.updateStatistics`, which
+    counts the linked documents that are neither soft-deleted nor folders.
+  
+  On ordinary data the two agree, and that is why the split was never observable on
+  the wire: a folder link cannot be written, and a delete removes every link. **The
+  window where they part is real, narrow and named.** A document delete recounts
+  each collection it detached from, once, after the last link is gone — and a
+  recount that fails there is logged and swallowed BY DESIGN, per collection,
+  because the delete itself succeeded and a retry would 404. For as long as that
+  lasts, the links are gone and the stored column is still high. It closes on that
+  collection's next attach or remove.
+  
+  ## What changes for a caller
+  
+  - `documentCount` on this route can read HIGHER than the documents the collection
+    actually holds, for the length of that window. Its previous source, the live
+    link count, was taken fresh on each request and could not lag.
+  - **The type does not change.** `documentCount` was a `number` and still is, so
+    nothing moves in the shipped response contract, in codegen, or in a consumer's
+    typecheck. The VALUE is the only observable — which is the whole reason this
+    note exists instead of a gate.
+  - **No SDK version pins this.** The change is server-side. It took effect for
+    every caller on every version the moment it deployed, and neither upgrading nor
+    pinning the SDK restores the old number.
+  - Needing a count taken live, per request, is still served — by
+    `GET /api/public/v1/skills/collections/:collectionId/statistics`, which counts
+    the surviving links and excludes soft-deleted documents. That route is
+    deliberately the live one, it is unchanged, and it is the one remaining
+    `documentCount` on the v1 surface that is not the stored column. The stored
+    column is now the single definition for a collection OBJECT.
+  
+  ## `@agent-nexus/cli`
+  
+  - `nexus agent-collection list --json` is a bare array of this response, so
+    `.[].documentCount` moves with it. The table view has never shown the column,
+    so a human at a terminal sees nothing change.
+  - `nexus collection list` / `collection get` are unchanged: they already read the
+    stored counter, and their notes already send you to `nexus collection stats`
+    for the live number.
+  
+  ## `@agent-nexus/sdk`
+  
+  No shape change. `AgentCollection.documentCount`, `CollectionSummary.documentCount`
+  and `CollectionStatistics.documentCount` now each say which of the two definitions
+  they carry, so a consumer reading the field in an editor is told whether it is the
+  stored counter or a live count rather than left to assume.
+- a1546d2: `collection attach-documents` expands a folder id to the documents inside it
+  
+  Attaching a folder to a collection was a silent no-op: the server filtered
+  folder ids out of the request and the call still reported success, so a
+  collection "created from a folder" held none of the folder's documents and
+  answered every query with no results (NEX-4410). The CLI's help documented the
+  drop as a fact of life across five commands.
+  
+  ## A folder id now attaches the folder's contents
+  
+  Any id naming a folder — a plain folder, a website folder from
+  `document add-website`, the folder an imported Google Sheet or Google Drive
+  import produces — expands server-side to every document under it, recursively,
+  as of that moment. The folder row itself is still never linked: it carries no
+  indexed content and does not count toward the collection's document count.
+  
+  Two edges worth knowing:
+  
+  - **The expansion is a snapshot.** Documents added to the folder later are not
+    pulled in; re-attach the folder to pick them up.
+  - **An empty folder attaches nothing and still succeeds.**
+    `nexus collection documents <id>` remains the proof of what a call linked.
+  
+  ## Help text follows the behavior
+  
+  The notes on `collection attach-documents`, `document children`,
+  `document create-folder`, `document add-website` and
+  `document create-google-sheet` now describe the expansion instead of telling
+  you to walk the children by hand.
+- a38e1bc: The bundled embed doc taught five settings keys the API deleted, and the API answers `200` to every one of them
+  
+  The CLI ships the `claude-code-skills-nexus` corpus inside its own package — `src/skills-content.generated.json`, read at runtime and published via `dist/`. `skills/nexus-deployments/channels/embed.md` in that corpus documented five keys that no longer exist on the deployment contract:
+  
+  | key | removed by | why |
+  |---|---|---|
+  | `leadsSettings` (whole settings block) | #4337 | no lead-capture form exists in the product |
+  | `format` (`"bubble"` \| `"classic"`) | #4358 | nothing branches on the value; the widget has one layout |
+  | `autoShowInitialMessagePopup` | #4358 | the popup it names was never implemented |
+  | `autoShowInitialMessagePopupDelay` | #4358 | delay for that same popup |
+  
+  **The endpoint strips undeclared keys rather than rejecting them.** So an agent following this content builds the settings body it was told to build, sends it, reads HTTP `200`, and has written nothing for those keys. There is no error at any layer — not a `400`, not a warning, not a log line the caller can reach. `deployment create --help` had already been corrected for `leadsSettings` (it says four settings objects, not five); the bundled doc still said five, and the bundled doc is what an agent reads before it acts.
+  
+  `EmbedSettingsSchema` is 59 keys now, was 62. The served embed-config response is 58, was 61.
+  
+  ## What moved
+  
+  Upstream, `NexusGPT/claude-code-skills-nexus#31`, one file, `-29 / +4`:
+  
+  - the create note said **five** settings blocks and named `leadsSettings` as one. EMBED needs **four** — `embedSettings`, `securitySettings`, `assistantSettings`, `advancedSettings`; `voiceSettings` is optional.
+  - `~30 required fields` is now the counted **32**, and the `Full EMBED settings example` body is exactly those 32 keys and nothing else. Verified by parsing the JSON block out of the doc and set-comparing its `embedSettings` keys against the non-`.optional()` members of `EmbedSettingsSchema` at `origin/staging`: 32 = 32, empty in both directions.
+  - the `Leads Capture` section and its worked `deployment update` example are deleted rather than annotated — the group no longer parses.
+  - the `format` row and both popup rows leave the Display Customization table.
+  - `Bubble format only.` on the Landing Screen was a claim about `format` and was never enforced. It now reads `Gated by landingScreenEnabled.`, matching the schema's own comment.
+  - one line is added stating the strip-not-reject behaviour, because that is what makes a stale key here expensive rather than merely wrong.
+  
+  Here, `skills-nexus.lock` moves `58028615b8` → `d28e9180e3` and both halves of the bundle are regenerated together.
+  
+  ## Regenerating alone would have fixed nothing
+  
+  `gen:skills` re-bundles from the tarball at the SHA the lock pins. Run against the old pin it reproduces the stale content byte-for-byte and exits `0`. The pin had to move first.
+  
+  ## Why the pin did not move to upstream `main`
+  
+  `main` still carries the mirror-sync regression that `NexusGPT/claude-code-skills-nexus#25` documented — a sync declaring the upstream primary authoritative overwrote the mount-registry fix from #23, and `src/workspace-registry-skill-compat.test.ts` goes red against it. Re-measured with #25's own needle:
+  
+  ```
+  git show 58028615b8:skills/nexus-workspaces/SKILL.md  | grep -c '\.\[\$s\]\.mountPath'   ->  0   (old pin)
+  git show 3af7f00:skills/nexus-workspaces/SKILL.md     | grep -c '\.\[\$s\]\.mountPath'   ->  0   (#23 merge)
+  git show origin/main:skills/nexus-workspaces/SKILL.md | grep -c '\.\[\$s\]\.mountPath'   ->  1   (main)
+  ```
+  
+  Control, so the zeros are readings rather than a broken grep: bare `mountPath` appears 14 times at the old pin and 12 on `main`.
+  
+  `main` is also 30 commits ahead of the pinned base on unrelated corpus content. So the fix is cherry-picked onto the pinned base (`NexusGPT/claude-code-skills-nexus#32`, the pin target, deliberately not merged) exactly as #24/#25 established, and the bundle moves by one file and nothing else.
+  
+  ## The blast radius, measured rather than asserted
+  
+  Both payloads were parsed and every bundled file compared by path and content:
+  
+  - 503 files before, 503 after. Nothing added, nothing removed.
+  - **exactly one file differs:** `SKILLS/nexus-deployments/channels/embed.md`.
+  - `SKILL_LIST` unchanged.
+  
+  Residual scan, taken on the regenerated payload's own copy of `channels/embed.md` — the file the comparison above names as the only one that moved:
+  
+  | needle | before | after |
+  |---|---|---|
+  | `autoShowInitialMessagePopup` | 4 | **0** |
+  | `leadsSettings` | 4 | **0** |
+  | `` `format` `` | 2 | **0** |
+  | `"format"` | 1 | **0** |
+  | `classic` | 1 | **0** |
+  | `Bubble format` | 1 | **0** |
+  | `primaryColor` *(control)* | 2 | **2** |
+  | `embed-config` *(control)* | 6 | **6** |
+  | `landingScreenActionButtons` *(control)* | 3 | **3** |
+  | `uiBgPattern` *(control)* | 1 | **1** |
+  | `securitySettings` *(control)* | 5 | **5** |
+  | `bubblePosition` *(control)* | 2 | **2** |
+  
+  Every control is non-zero and unchanged, so the scan can find things and the edit removed only what it aimed at. The file goes 18,505 → 17,388 bytes.
+  
+  **The scope is the file, not the payload, and that is deliberate.** `format` and `classic` are ordinary English inside a 9 MB corpus — across the whole payload they read 1312 → 1307 and 8 → 7, deltas that are correct and prove nothing about this file. Worse, `"format"` spelled with literal quotes matches **0** in the raw JSON at both ends, because the payload escapes them as `\"format\"` — a needle that measures nothing returns a zero indistinguishable from success.
+  
+  `check-skills-lock.ts` passes on the new pair, and its `--self-test` proves all 12 of its cases can still go red.
+- 6120bf1: `deployment create --help` stops naming a settings group the API no longer accepts
+  
+  The `Notes:` block on `deployment create` told you an EMBED deployment needs
+  **five** settings objects and named `leadsSettings` as one of them, in three
+  places: the count and the list, the worked `--body` shape, and the closing line
+  `and leadsSettings is optional throughout`.
+  
+  That group has been removed from `EmbedDeploymentSettingsSchema`. It was read by
+  nothing — no lead-capture form exists in the product — and `z.object` strips what
+  it does not declare, so a caller following the old help sends a key that is
+  silently dropped. The create still succeeds, which is what makes the stale help
+  expensive: nothing tells you the object you were told to send went nowhere.
+  
+  EMBED now needs four objects — `embedSettings`, `securitySettings`,
+  `assistantSettings`, `advancedSettings` — and the printed `--body` example carries
+  the same four.
+  
+  Help text only. No flag, argument, output shape or exit code moves.
+- 4699550: **`130` is documented where it is produced, and the first Ctrl-C is not it.**
+  
+  Four shipped surfaces described this exit code and all four were wrong in the same
+  direction. The root `--help` table called it "SIGINT". `COMPATIBILITY.md` called it
+  "reserved rather than chosen". The taxonomy's own declaration said it was "never chosen
+  as a verdict". And `nexus vibe app logs --help` — the one command that produces it — said
+  "Ctrl-C ends one cleanly and exits 0" and stopped there.
+  
+  Read together they promise a script author two false things: that a Ctrl-C yields `130`,
+  and that nothing but a Ctrl-C can.
+  
+  What actually happens: `nexus vibe app logs --follow` counts signals and exits `130` on
+  the SECOND, and it is the second signal of EITHER kind, because ONE counter serves
+  `SIGINT` and `SIGTERM`. So the pair that reaches it is usually MIXED — a user presses
+  Ctrl-C, a supervisor then sends `SIGTERM` into the same process, which is the ordinary
+  shape of a shutdown. The FIRST signal ends the follow cleanly at `0`. A `SIGTERM` pair
+  also reports `130` and never `143`: this CLI declares exactly one code in the shell's
+  signal band on purpose, so "the caller stopped it" is one category rather than one per
+  signal.
+  
+  **No exit code changed.** Every correction is to text a caller reads.
+  
+  Also in this release: `nexus admin`'s `handleAdminError` docblock now binds to
+  `handleAdminError`. A constant declared between the docblock and the function meant JSDoc
+  attached the warning to the constant, so an editor hovering the function showed none of
+  it.
+- 93a8860: `nexus role create-permission-set --capabilities` accepts `role.create`, and the server refuses it
+  
+  `--capabilities` on `role create-permission-set` and `role update-permission-set`
+  validates against the projected v1 contract, so the server catalog gaining
+  `role.create` widens what this CLI accepts by one value. Its `--help` and its
+  `--print-contract` output list it too.
+  
+  **Accepting it is not the same as it working.** `role.create` names no Role — the
+  Role does not exist yet when you create one — so it is held org-wide, while a
+  permission set's `capabilities` are keyed to ONE Role. Passing it produces
+  `400 ORG_SCOPED_ONLY_ROLE_CAPABILITY` from the server rather than a
+  client-side refusal. That is deliberate: the flag mirrors the catalog, and the
+  catalog is what `nexus role capabilities` answers from.
+  
+  A script that builds a capability list by reading the catalog and passing it
+  straight to `create-permission-set` therefore starts failing on the server where
+  it used to be rejected locally. Filter `role.create` out of such a list.
+- f91e47b: The update banner names the command that actually upgrades
+  
+  `Update available: X → Y` told you to run `npm update -g @agent-nexus/cli`. That
+  command exits 0, prints `changed 1 package`, and leaves the version where it
+  was — so the banner reappears on the next invocation, forever, having just been
+  obeyed.
+  
+  The `update`/`upgrade` verbs resolve within the range a global root already
+  recorded, and npm, pnpm and yarn all record `^0.x.y`. A caret on a `0.` major
+  does not admit the next minor by semver, so the verb stops one minor short of
+  the version the same banner had just said existed. All three arms were wrong,
+  not one of them.
+  
+  Measured against the live registry from 0.34.x with `^0.34.0` recorded, at a
+  time when `latest` was 0.35.1 — each manager's own verb, then the tag spelling
+  as the control:
+  
+  | command | reaches | exit |
+  | --- | --- | --- |
+  | `npm update -g @agent-nexus/cli` | 0.34.2 | 0 |
+  | `pnpm update -g @agent-nexus/cli` | 0.34.2 | 0 |
+  | `yarn global upgrade @agent-nexus/cli` | 0.34.2 | 0 |
+  | `npm install -g @agent-nexus/cli@latest` (control) | 0.35.1 | 0 |
+  
+  A tag is an exact resolution, so it is not subject to a recorded range at all,
+  and it is the only spelling that is right for every manager and every layout.
+  
+  ## What changes
+  
+  - **The banner prints `getGlobalInstallCommand`** — byte for byte the command
+    `nexus upgrade` already runs, and the same one the auto-update-failed message
+    prints. The contract is that this CLI never tells you to run a command it
+    would not run itself.
+  - **`getGlobalUpdateHint` is deleted, not corrected.** It was the second builder
+    of an upgrade string in one file, and the two disagreed from the commit that
+    introduced both of them. A corrected duplicate is a duplicate that can drift
+    again; there is now one builder, and every caller that tells a user how to
+    move versions calls it.
+  
+  Nothing about when the banner appears changes — same once-per-day check, same
+  cache, same opt-outs. Only the command it names is different.
+- c8f3d65: `workflow test` on a plugin trigger deploys nothing
+  
+  `nexus workflow test <wf>` on a workflow whose trigger is a `pluginTrigger`
+  performed a **real Pipedream source deployment** on the connected third-party
+  account before running anything — a live subscription on a real mailbox or CRM,
+  created by a verb named "test", with no dry-run flag and no confirmation. With no
+  account connected it did not even get that far: the deploy failed and the caller
+  received
+  
+  ```
+  API error (500): Trigger deployment failed (source=PIPEDREAM): Failed to deploy
+  Pipedream source for component "gmail-new-email-received": HTTP error! status:
+  404, body: {"error":"record not found"}
+  ```
+  
+  — an internal error quoting the provider's own 404 body, for a workflow that had
+  sample data sitting on the node ready to run.
+  
+  The server fix is in `@nexus/backend`: the endpoint now runs the chain from the
+  node's `exampleData` and deploys nothing, a missing account is refused as a 400
+  naming the parameter and the command that connects one, and a refused deployment
+  is a 4xx instead of `INTERNAL_ERROR`.
+  
+  ## `@agent-nexus/cli`
+  
+  **`workflow test --help` no longer offers advice that only holds for webhooks.**
+  The refusal note told every caller of a refused external-event trigger to "pass
+  `--input`". A `pluginTrigger` ignores `--input` entirely — its sample payload is
+  the node's own `exampleData` — so the one instruction a plugin caller was given
+  was the one that could not work. The per-trigger `--input` table now carries a
+  `pluginTrigger` row saying so, and the note splits its advice by type. It also
+  states the new guarantee: testing a plugin trigger registers no third-party
+  subscription; the source is deployed at `workflow publish`.
+  
+  No flags, arguments or output shapes changed.
+
 ## 0.35.1
 ### Patch Changes
 

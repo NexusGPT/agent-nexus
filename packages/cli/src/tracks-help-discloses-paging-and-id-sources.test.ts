@@ -140,12 +140,30 @@ describe("tracks help discloses its page and names the verbs that mint its ids",
   );
 
   it.each([["tracks ready"], ["tracks task ready"]])(
-    "`%s` says its own answer carries no total and no hasMore",
+    "`%s` says its answer reports a cut page, and points at the footer that shows it",
     (path) => {
-      // These two responses genuinely cannot tell you a page was cut: their
-      // schemas are `{ tracks }` and `{ tasks }`. Saying so is the whole of what
-      // the CLI can honestly offer until those schemas gain the fields.
-      expect({ path, admits: flatHelpAt(path).includes("no total and no hasMore") }).toEqual({
+      // Both responses carry `hasMore`, read one row past the page, and the
+      // footer under the table renders it. The help has to name the footer and
+      // not merely the field: the field is what `--json` sees, and the footer is
+      // the only place a person does.
+      const help = flatHelpAt(path);
+
+      expect({ path, names: help.includes("hasMore"), points: help.includes("footer") }).toEqual({
+        path,
+        names: true,
+        points: true
+      });
+    }
+  );
+
+  it.each([["tracks ready"], ["tracks task ready"]])(
+    "`%s` still says it has no total and no cursor, which remains true",
+    (path) => {
+      // The routes gained a truncation SIGNAL, not a paged surface. Reading the
+      // new field as "these are now pageable" is the misread this pins against:
+      // there is no total to divide by and no cursor to walk, and `tracks list`
+      // stays the paged surface.
+      expect({ path, admits: flatHelpAt(path).includes("no total and no cursor") }).toEqual({
         path,
         admits: true
       });

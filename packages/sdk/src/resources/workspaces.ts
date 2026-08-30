@@ -25,9 +25,16 @@ import { BaseResource } from "./base-resource";
  */
 export class WorkspacesResource extends BaseResource {
   /**
-   * List the organization's workspaces, each with aggregate stats. Pass
-   * `{ folderStats: true }` to additionally get a depth-1 per-folder breakdown
-   * under each workspace's `stats.folders`.
+   * List the workspaces THIS KEY can reach, each with aggregate stats.
+   *
+   * ⚠️ NOT THE ORGANIZATION'S WHOLE SET. A `RoleWorkspaceGrant` that narrows the
+   * caller drops the workspaces it narrows out, so this answer matches what the
+   * same caller could actually open — two keys in one organization legitimately
+   * receive different lists, and a shorter one is not evidence a workspace was
+   * deleted.
+   *
+   * Pass `{ folderStats: true }` to additionally get a depth-1 per-folder
+   * breakdown under each workspace's `stats.folders`.
    */
   async list(params?: ListWorkspacesParams): Promise<ListWorkspacesResponse> {
     return this.http.request<ListWorkspacesResponse>("GET", "/workspaces", {

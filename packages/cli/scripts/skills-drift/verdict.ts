@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { classifyFiles, surfaceDetail, type SurfaceReading } from "./surfaces";
 import { BRANCH, type GitHubReader, REPO } from "./upstream";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
@@ -255,6 +256,44 @@ export async function detectDrift(params: {
     };
   }
 
+  // ── what a bump would DROP ─────────────────────────────────────────────────
+  //
+  // The forward compare is MERGE-BASE-relative — measured, not assumed:
+  // `pin...tip` and `merge_base...tip` return byte-identical arrays. So it
+  // shows only what upstream ADDED since the fork point, and commits unique to
+  // the pin side are absent from it ENTIRELY rather than shown reversed. Live
+  // today that is 7 pin-only commits over 6 files, one of them a 416-line skill
+  // that exists at the pin and not on main: a bump would DELETE it, and a
+  // forward-only reading would never say so.
+  //
+  // `behind_by > 0` is the exact condition for that side being non-empty, so it
+  // is the gate — not the `status` STRING, which spells the same fact two ways
+  // ("behind" and "diverged") and would need both spellings kept in sync here.
+  //
+  // 🔴 THE INVARIANT: this is a SECOND, DECORATIVE call on a finding already in
+  // hand. The pin and the tip already disagree — established by a read that
+  // SUCCEEDED — and nothing here may take that away. Every failure lands on a
+  // `departing` refusal; none of them touches `state` or `code`. The try/catch
+  // is part of that: an unexpected throw would escape to the top-level handler,
+  // which exits CANNOT_CHECK, turning a measured drift into "unknown".
+  let departing: SurfaceReading = { kind: "none", reason: "BEHIND_BY_ZERO" };
+  if (comparison.behindBy > 0) {
+    try {
+      const reverse = await read(`/compare/${upstream.sha}...${pinned}`);
+      departing =
+        reverse.kind === "ok"
+          ? classifyFiles(reverse.body)
+          : { kind: "refused", reason: "COMPARE_FAILED" };
+    } catch {
+      departing = { kind: "refused", reason: "COMPARE_FAILED" };
+    }
+  }
+  const surfaces = surfaceDetail({
+    mergeBase: comparison.mergeBase,
+    arriving: comparison.arriving,
+    departing
+  });
+
   // `status` describes HEAD relative to BASE, and BASE is the pin. So `ahead`
   // means UPSTREAM has moved on and the LOCK IS BEHIND — the ordinary case, and
   // the one place a reversed reading would print a confident wrong number.
@@ -288,6 +327,7 @@ export async function detectDrift(params: {
           `and no bump-when-behind check would ever surface it. The other reading is that ` +
           `${BRANCH} was rewritten under the pin.`,
         ...pair,
+        ...surfaces,
         ...bumpRemedy()
       ]
     };
@@ -310,7 +350,7 @@ export async function detectDrift(params: {
       message:
         `skills-nexus.lock ${distance} — inside the ${maxAgeDays}-day review window. ` +
         `A pin behind by design is the intended state; this is the number to watch, not a fault.`,
-      detail: [...pair, ...bumpRemedy()]
+      detail: [...pair, ...surfaces, ...bumpRemedy()]
     };
   }
 
@@ -323,7 +363,7 @@ export async function detectDrift(params: {
         `skills-nexus.lock is ${comparison.aheadBy} commit(s) behind ${REPO}@${BRANCH}, ` +
         `but neither commit carried a readable date, so the ${maxAgeDays}-day window could ` +
         `not be applied. This fails closed rather than passing unmeasured.`,
-      detail: [...pair, ...bumpRemedy()]
+      detail: [...pair, ...surfaces, ...bumpRemedy()]
     };
   }
 
@@ -334,7 +374,7 @@ export async function detectDrift(params: {
       `skills-nexus.lock ${distance}, past the ${maxAgeDays}-day review window. ` +
       `Every agent this CLI installs is being taught the state of ${REPO} as of ` +
       `${comparison.baseDate ?? "an unknown date"}.`,
-    detail: [...pair, ...bumpRemedy()]
+    detail: [...pair, ...surfaces, ...bumpRemedy()]
   };
 }
 
@@ -384,6 +424,21 @@ interface Comparison {
   aheadBy: number;
   behindBy: number;
   baseDate: string | null;
+  /**
+   * The commit `files` is actually relative to — NOT the pin.
+   *
+   * `base_commit` echoes the left-hand ref you passed, so reading it hands the
+   * pin back and invites the conclusion that the diff is pin-relative. It is
+   * not: `pin...tip` and `merge_base...tip` were measured returning
+   * byte-identical 179-entry arrays. Only this field says what was diffed, so
+   * it is printed and the reading stays reproducible.
+   */
+  mergeBase: string | null;
+  /**
+   * WHICH surfaces a bump would bring IN. Never null and never a throw: an
+   * unrecognised shape is a refusal, which is a value the verdict can carry.
+   */
+  arriving: SurfaceReading;
 }
 
 function readComparison(body: unknown): Comparison | null {
@@ -392,12 +447,24 @@ function readComparison(body: unknown): Comparison | null {
   if (typeof status !== "string") return null;
   const aheadBy = (body as { ahead_by?: unknown }).ahead_by;
   const behindBy = (body as { behind_by?: unknown }).behind_by;
+  const mergeBase = (body as { merge_base_commit?: unknown }).merge_base_commit;
   return {
     status,
     aheadBy: typeof aheadBy === "number" ? aheadBy : 0,
     behindBy: typeof behindBy === "number" ? behindBy : 0,
-    baseDate: readCommitDate((body as { base_commit?: unknown }).base_commit)
+    baseDate: readCommitDate((body as { base_commit?: unknown }).base_commit),
+    mergeBase: readSha(mergeBase),
+    // The ONLY thing a files failure may do is make this a refusal. `status`,
+    // `ahead_by` and `behind_by` are read above and are untouched by it, so a
+    // classification that cannot be trusted cannot reach the verdict.
+    arriving: classifyFiles(body)
   };
+}
+
+function readSha(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const sha = (body as { sha?: unknown }).sha;
+  return typeof sha === "string" && SHA_PATTERN.test(sha) ? sha : null;
 }
 
 /**

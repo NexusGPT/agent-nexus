@@ -46,16 +46,48 @@ function compareBody(params: {
   aheadBy: number;
   behindBy: number;
   baseDate: string;
+  mergeBase?: string;
+  /**
+   * OMITTED means the `files` KEY IS ABSENT from the payload — which is a real
+   * shape, proven live on a paged compare where `status` and `ahead_by` stayed
+   * correct and `files` simply was not there. An empty array is a DIFFERENT and
+   * legitimate answer. Conflating the two is the likeliest bug in this
+   * classification, so the fixture has to be able to express both.
+   */
+  files?: unknown[];
 }): ReadResult {
-  return {
-    kind: "ok",
-    body: {
-      status: params.status,
-      ahead_by: params.aheadBy,
-      behind_by: params.behindBy,
-      base_commit: { commit: { committer: { date: params.baseDate } } }
-    }
+  const body: Record<string, unknown> = {
+    status: params.status,
+    ahead_by: params.aheadBy,
+    behind_by: params.behindBy,
+    base_commit: { commit: { committer: { date: params.baseDate } } }
   };
+  if (params.mergeBase !== undefined) body.merge_base_commit = { sha: params.mergeBase };
+  if (params.files !== undefined) body.files = params.files;
+  return { kind: "ok", body };
+}
+
+/**
+ * A `files` array with a known count per surface.
+ *
+ * Only `filename` is set, because only `filename` is read: `patch` is silently
+ * absent on 64 of 179 live entries with no flag, so a fixture carrying it would
+ * model a payload the real one does not always send.
+ */
+function fileEntries(spec: {
+  skills?: number;
+  hooks?: number;
+  agents?: number;
+  settings?: number;
+  other?: number;
+}): { filename: string }[] {
+  const out: { filename: string }[] = [];
+  for (let i = 0; i < (spec.skills ?? 0); i += 1) out.push({ filename: `skills/s${i}/SKILL.md` });
+  for (let i = 0; i < (spec.hooks ?? 0); i += 1) out.push({ filename: `hooks/h${i}.py` });
+  for (let i = 0; i < (spec.agents ?? 0); i += 1) out.push({ filename: `agents/a${i}.md` });
+  for (let i = 0; i < (spec.settings ?? 0); i += 1) out.push({ filename: "settings.json" });
+  for (let i = 0; i < (spec.other ?? 0); i += 1) out.push({ filename: `tools/t${i}.sh` });
+  return out;
 }
 
 /**
@@ -71,8 +103,14 @@ function compareBody(params: {
 export async function runSelfTest(): Promise<number> {
   const PIN = "a".repeat(40);
   const TIP = "b".repeat(40);
+  const BASE = "c".repeat(40);
   const HEAD_PATH = `/commits/${BRANCH}`;
   const COMPARE_PATH = "/compare/";
+  // The forward and reverse compares are two calls to the same endpoint,
+  // separated only by which sha comes first. A shared `/compare/` prefix
+  // answers both with one body, which would hide a direction swap entirely.
+  const FORWARD_PATH = `/compare/${PIN}...`;
+  const REVERSE_PATH = `/compare/${TIP}...`;
 
   const inSync = { [HEAD_PATH]: commitBody(PIN, "2026-08-30T00:00:00Z") };
 
@@ -91,6 +129,16 @@ export async function runSelfTest(): Promise<number> {
      * not a measurement — where a case carries a number, the number is asserted.
      */
     expect?: string[];
+    /**
+     * Substrings the rendered verdict must NOT contain.
+     *
+     * Presence-only assertions cannot tell an EMPTY `files` array from a
+     * MISSING `files` key, because both render *something*. The empty array is
+     * a real, correct answer and the missing key is a refusal, so the case that
+     * separates them has to be able to say "and it did not call this a
+     * refusal". Without this, that pair of cases is vacuous.
+     */
+    reject?: string[];
   }
 
   const cases: Case[] = [
@@ -270,6 +318,222 @@ export async function runSelfTest(): Promise<number> {
       // one anybody would compare a later run against, so it is worth no less
       // than the number on a failing one.
       expect: [`${PIN.slice(0, 12)} → ${TIP.slice(0, 12)}`, "11 commit(s) behind", PIN, TIP]
+    },
+
+    // ── WHICH surface drifted ────────────────────────────────────────────────
+    //
+    // Every case here breaks exactly ONE thing and demands a specific STATE and
+    // CODE back alongside the classification, because the whole risk of adding
+    // a second network call and a second parser is that one of them quietly
+    // becomes load-bearing for the verdict.
+    {
+      name: "diverged: both directions classified, and hooks/ counted",
+      state: "DRIFT",
+      code: "LOCK_DIVERGED",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        // Distinct prefixes, because the forward and reverse compares are two
+        // different calls to the same endpoint and a shared `/compare/` prefix
+        // would answer both with the same body — which would make a reversed
+        // reading of the two directions invisible here.
+        [FORWARD_PATH]: compareBody({
+          status: "diverged",
+          aheadBy: 66,
+          behindBy: 7,
+          baseDate: "2026-08-20T00:00:00Z",
+          mergeBase: BASE,
+          // The live shape on 2026-08-30, so the fixture is not a shape nobody
+          // has ever seen: 134 + 18 + 18 + 1 + 8 = 179.
+          files: fileEntries({ skills: 134, hooks: 18, agents: 18, settings: 1, other: 8 })
+        }),
+        [REVERSE_PATH]: compareBody({
+          status: "diverged",
+          aheadBy: 7,
+          behindBy: 66,
+          baseDate: "2026-08-20T00:00:00Z",
+          mergeBase: BASE,
+          // What a bump would DELETE. Live today this side holds a 416-line
+          // skill that exists at the pin and not on main, and the FORWARD
+          // compare cannot see it at all.
+          files: fileEntries({ skills: 5, other: 1 })
+        })
+      }),
+      expect: [
+        `merge base ${BASE}`,
+        "arriving  179 file(s) — skills/ 134 · hooks/ 18 · agents/ 18 · settings.json 1 · other 8",
+        "departing 6 file(s) — skills/ 5 · hooks/ 0 · agents/ 0 · settings.json 0 · other 1"
+      ]
+    },
+    {
+      name: "plain behind: departing is absent BY CONSTRUCTION, not refused",
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "ahead",
+          aheadBy: 64,
+          behindBy: 0,
+          baseDate: "2026-08-01T00:00:00Z",
+          mergeBase: BASE,
+          files: fileEntries({ skills: 3, hooks: 2, agents: 1, settings: 1 })
+        })
+      }),
+      expect: [
+        "arriving  7 file(s) — skills/ 3 · hooks/ 2 · agents/ 1 · settings.json 1 · other 0",
+        "departing NONE (BEHIND_BY_ZERO)"
+      ],
+      // The whole point of the case: `behind_by === 0` PROVES nothing is
+      // departing. Rendering that as a refusal would turn a measured absence
+      // into an unread surface, which reads as risk that is not there.
+      reject: ["departing NOT CLASSIFIED"]
+    },
+    {
+      name: "empty files array is a MEASUREMENT, not a refusal",
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "ahead",
+          aheadBy: 64,
+          behindBy: 0,
+          baseDate: "2026-08-01T00:00:00Z",
+          mergeBase: BASE,
+          files: []
+        })
+      }),
+      expect: ["arriving  0 file(s)"],
+      // The twin of the case below. `body.files ?? []` makes these two
+      // identical, and this pair is the only thing that can tell them apart.
+      reject: ["FILES_ABSENT", "arriving  NOT CLASSIFIED"]
+    },
+    {
+      name: 'the "files" KEY is absent — refusal renders, verdict untouched',
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "ahead",
+          aheadBy: 64,
+          behindBy: 0,
+          baseDate: "2026-08-01T00:00:00Z",
+          mergeBase: BASE
+        })
+      }),
+      // State and code are asserted as the ORDINARY drift verdict: a
+      // classification that could not be taken must not colour the finding.
+      expect: ["arriving  NOT CLASSIFIED (FILES_ABSENT)", "64 commit(s) behind"],
+      reject: ["arriving  0 file(s)"]
+    },
+    {
+      name: "files at the 300-entry page cap is indistinguishable from truncation",
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "ahead",
+          aheadBy: 400,
+          behindBy: 0,
+          baseDate: "2026-08-01T00:00:00Z",
+          mergeBase: BASE,
+          // 300 is written here as a LITERAL rather than imported from the
+          // implementation. Sharing the constant would make this case agree
+          // with whatever the code says, which is not a test of anything.
+          files: fileEntries({ skills: 300 })
+        })
+      }),
+      expect: ["arriving  NOT CLASSIFIED (FILES_TRUNCATED)"],
+      // No count may be printed off a list that might be cut off.
+      reject: ["skills/ 300"]
+    },
+    {
+      name: "reverse compare fails: arriving survives, departing refused, verdict untouched",
+      state: "DRIFT",
+      code: "LOCK_DIVERGED",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "diverged",
+          aheadBy: 66,
+          behindBy: 7,
+          baseDate: "2026-08-20T00:00:00Z",
+          mergeBase: BASE,
+          files: fileEntries({ skills: 2, hooks: 4 })
+        }),
+        [REVERSE_PATH]: { kind: "http", status: 502, statusText: "Bad Gateway" }
+      }),
+      expect: [
+        "arriving  6 file(s) — skills/ 2 · hooks/ 4",
+        "departing NOT CLASSIFIED (COMPARE_FAILED)"
+      ]
+    },
+    {
+      name: "an entry with no filename is a refusal, never a throw",
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: compareBody({
+          status: "ahead",
+          aheadBy: 64,
+          behindBy: 0,
+          baseDate: "2026-08-01T00:00:00Z",
+          mergeBase: BASE,
+          files: [{ filename: "skills/ok.md" }, { additions: 3 }]
+        })
+      }),
+      expect: ["arriving  NOT CLASSIFIED (FILES_UNREADABLE)"],
+      // A partial count off a list one entry of which could not be read is a
+      // confident wrong number, which is worse than no number.
+      reject: ["skills/ 1"]
+    },
+    {
+      name: "a transport that THROWS on the reverse compare is caught, not propagated",
+      state: "DRIFT",
+      code: "LOCK_DIVERGED",
+      // Not a `ReadResult` this transport is supposed to produce — which is the
+      // point. An unexpected throw escapes to the top-level handler, which
+      // exits CANNOT_CHECK, so a decorative second call would be able to erase
+      // a measured drift. Without this case the try/catch guarding it is itself
+      // untested code claiming to be protection.
+      read: async (apiPath) => {
+        if (apiPath.startsWith(REVERSE_PATH)) throw new Error("socket hang up");
+        if (apiPath.startsWith(HEAD_PATH)) return commitBody(TIP, "2026-08-30T00:00:00Z");
+        return compareBody({
+          status: "diverged",
+          aheadBy: 66,
+          behindBy: 7,
+          baseDate: "2026-08-20T00:00:00Z",
+          mergeBase: BASE,
+          files: fileEntries({ skills: 2, hooks: 4 })
+        });
+      },
+      expect: [
+        "arriving  6 file(s) — skills/ 2 · hooks/ 4",
+        "departing NOT CLASSIFIED (COMPARE_FAILED)"
+      ]
+    },
+    {
+      name: "files that is not an array is a refusal, never a throw",
+      state: "DRIFT",
+      code: "LOCK_BEHIND",
+      read: scriptedReader({
+        [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+        [FORWARD_PATH]: {
+          kind: "ok",
+          body: {
+            status: "ahead",
+            ahead_by: 64,
+            behind_by: 0,
+            base_commit: { commit: { committer: { date: "2026-08-01T00:00:00Z" } } },
+            files: "not an array"
+          }
+        }
+      }),
+      expect: ["arriving  NOT CLASSIFIED (FILES_UNREADABLE)"]
     }
   ];
 
@@ -292,6 +556,59 @@ export async function runSelfTest(): Promise<number> {
   }
   fs.rmSync(control, { recursive: true, force: true });
 
+  // 🔴 THE INVARIANT, asserted as an INVARIANCE rather than as a value.
+  //
+  // The classification is decoration on a finding already in hand. A case above
+  // pins one scenario's state and code, which a refactor could satisfy by
+  // changing BOTH the with-files and the without-files expectations together.
+  // This runs the identical scenario twice, differing only in whether `files`
+  // is present, and requires the two verdicts to be the SAME verdict — so a
+  // files failure that decayed the drift into CANNOT_CHECK reds here even if
+  // every literal expectation elsewhere was updated to match it.
+  //
+  // Degrading to CANNOT_CHECK on a failed decorative call is the specific
+  // regression: it discards a measured drift and reports "unknown", which is
+  // the three-state contract collapsing in the one direction that hides a
+  // finding.
+  const invariance = fs.mkdtempSync(path.join(os.tmpdir(), "skills-drift-invariance-"));
+  writeLockFixture(invariance, PIN);
+  const scenario = (files?: unknown[]): GitHubReader =>
+    scriptedReader({
+      [HEAD_PATH]: commitBody(TIP, "2026-08-30T00:00:00Z"),
+      [FORWARD_PATH]: compareBody({
+        status: "ahead",
+        aheadBy: 64,
+        behindBy: 0,
+        baseDate: "2026-08-01T00:00:00Z",
+        mergeBase: BASE,
+        files
+      })
+    });
+  const withFiles = await detectDrift({
+    cliRoot: invariance,
+    read: scenario(fileEntries({ skills: 1, hooks: 1 }))
+  });
+  const withoutFiles = await detectDrift({ cliRoot: invariance, read: scenario() });
+  fs.rmSync(invariance, { recursive: true, force: true });
+
+  if (
+    withFiles.state === withoutFiles.state &&
+    withFiles.code === withoutFiles.code &&
+    withoutFiles.state !== "CANNOT_CHECK"
+  ) {
+    console.log(
+      `  ok    a files failure changes the DETAIL and not the VERDICT ` +
+        `(${withoutFiles.state}/${withoutFiles.code} either way)`
+    );
+  } else {
+    failed += 1;
+    console.error(
+      `  FAIL  a files failure MOVED the verdict: with files ${withFiles.state}/` +
+        `${withFiles.code}, without files ${withoutFiles.state}/${withoutFiles.code}. ` +
+        `A decorative classification must never take away a finding already in hand.`
+    );
+  }
+
   for (const testCase of cases) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-drift-selftest-"));
     writeLockFixture(root, PIN);
@@ -299,11 +616,13 @@ export async function runSelfTest(): Promise<number> {
     const verdict = await detectDrift({ cliRoot: root, read: testCase.read });
     const rendered = [verdict.message, ...verdict.detail].join("\n");
     const missing = (testCase.expect ?? []).filter((needle) => !rendered.includes(needle));
+    const forbidden = (testCase.reject ?? []).filter((needle) => rendered.includes(needle));
 
     if (
       verdict.state === testCase.state &&
       verdict.code === testCase.code &&
-      missing.length === 0
+      missing.length === 0 &&
+      forbidden.length === 0
     ) {
       console.log(`  ok    ${testCase.name} → ${verdict.state}/${verdict.code}`);
     } else if (verdict.state !== testCase.state || verdict.code !== testCase.code) {
@@ -312,13 +631,19 @@ export async function runSelfTest(): Promise<number> {
         `  FAIL  ${testCase.name} → expected ${testCase.state}/${testCase.code}, ` +
           `got ${verdict.state}/${verdict.code}`
       );
-    } else {
+    } else if (missing.length > 0) {
       failed += 1;
       console.error(
         `  FAIL  ${testCase.name} → ${verdict.state}/${verdict.code} is right but the ` +
           `verdict never said: ${missing.map((m) => JSON.stringify(m)).join(", ")}`
       );
       console.error(`        rendered: ${rendered.split("\n")[0]}`);
+    } else {
+      failed += 1;
+      console.error(
+        `  FAIL  ${testCase.name} → ${verdict.state}/${verdict.code} is right but the ` +
+          `verdict said what it must not: ${forbidden.map((m) => JSON.stringify(m)).join(", ")}`
+      );
     }
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -337,6 +662,8 @@ export async function runSelfTest(): Promise<number> {
     console.error(`\ncheck-skills-drift --self-test: ${failed} case(s) no longer detectable.`);
     return 1;
   }
-  console.log(`\ncheck-skills-drift --self-test: ${cases.length + 2} case(s) behave.`);
+  // +3 standalone checks that are not table cases: the clean-tree control, the
+  // files-failure invariance guard, and the exit-code distinctness assertion.
+  console.log(`\ncheck-skills-drift --self-test: ${cases.length + 3} case(s) behave.`);
   return 0;
 }

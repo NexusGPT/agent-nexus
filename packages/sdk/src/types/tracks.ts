@@ -492,7 +492,11 @@ export interface ListTrackSectionsResponse {
 export interface RenameTrackSectionResponse {
   oldPath: string;
   newPath: string;
-  /** The renamed node plus every descendant. `1` when it is a leaf. */
+  /**
+   * The renamed node plus every descendant. `1` when it is a leaf, and `0` when
+   * the new slug equals the old one — that rename is a no-op and writes nothing,
+   * so a caller must not read `0` as "the section vanished".
+   */
   rowsRewritten: number;
 }
 

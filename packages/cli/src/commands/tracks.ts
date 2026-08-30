@@ -735,10 +735,12 @@ Notes:
   one this list used to omit. The order is the track number ascending and a new
   track takes the highest number, so the tracks a default page hides are always
   the NEWEST ones — including one you just created.
-  NOTHING IN THE ANSWER SAYS A PAGE WAS CUT. This response carries no total and
-  no hasMore, so a full page and a complete set are the same fifty rows. Raise
-  --limit, up to 200, before reading an absence as DONE, BLOCKED, archived or
-  dependency-held.
+  THE ANSWER SAYS WHEN A PAGE WAS CUT. hasMore is true when the ready set is
+  larger than this page, and the footer under the table says so. Raise --limit,
+  up to 200, and re-read before reading an absence as DONE, BLOCKED, archived or
+  dependency-held. There is deliberately no total and no cursor: this route
+  answers what can be worked on now, and "nexus tracks list" is the paged surface
+  when a caller needs to walk a set.
   nextOwner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an agent
   can proceed, USER means a person has to act, EVENT means something outside
   has to happen first.
@@ -757,7 +759,7 @@ Notes:
         // an exception on the one command that needs it, because the narrowing is
         // copy-paste: the table wants one array, so the action takes one array,
         // and the document silently inherits the table's taste.
-        printEnvelope(result, () =>
+        printEnvelope(result, () => {
           // 🔴 THE SAME COLUMNS AS `tracks list`, IN THE SAME ORDER, MINUS
           // `STATUS` — which `ready` cannot vary usefully, since a DONE or
           // BLOCKED track is not in this set by construction. Two reads of the
@@ -775,8 +777,39 @@ Notes:
             { key: "nextOwner", label: "WAITING ON", width: 12 },
             { key: "currentStep", label: "CURRENT STEP", width: 40 },
             { key: "id", label: "ID", width: 38 }
-          ])
-        );
+          ]);
+
+          // 🔴 A FULL PAGE AND A COMPLETE SET USED TO BE THE SAME OUTPUT. The
+          // rows dropped are always the NEWEST tracks — the statement orders by
+          // number ascending and a new track takes the highest — so the one you
+          // just created is the first to fall off. `hasMore` is the server's own
+          // answer, read one row past the page, and it is the only thing that
+          // separates the two.
+          //
+          // NO DENOMINATOR: this route carries no total and no cursor by design,
+          // so there is no "x of y" to print. Naming a total the response does
+          // not have would be the same over-claim this line exists to remove.
+          //
+          // The ceiling is NOT repeated here. `--limit`'s own description
+          // documents its range, and a third copy of 200 is a third thing to go
+          // stale — which is exactly how the signal this renders died quietly
+          // before it existed. The footer names the action; the flag names the
+          // range.
+          //
+          // Silent when `hasMore` is false. A footer on a complete set is noise,
+          // and worse, it teaches the reader to skim the footer — so on the day
+          // it carries the warning it does not get read.
+          //
+          // Human channel only — `printEnvelope` returns before calling this
+          // under `--json`, where `hasMore` is already in the document.
+          if (result.hasMore) {
+            console.log(
+              color.dim(
+                `\n${result.tracks.length} row(s) shown. MORE TRACKS ARE READY — raise --limit and re-read.`
+              )
+            );
+          }
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1036,9 +1069,9 @@ Notes:
   on it is blocked and unheld, which is both answers being right.
   --limit DEFAULTS TO 50 SERVER SIDE, so this list is truncated whether or not
   you passed the flag and absence from it is not proof a task is blocked. This
-  response carries no total and no hasMore either, so nothing in the answer
-  distinguishes a full page from a complete set. Widen --limit, up to 200,
-  before reading a missing row as blocked.
+  response carries hasMore, and the footer under the table says so when the page
+  was cut. Widen --limit, up to 200, and re-read before reading a missing row as
+  blocked. There is deliberately no total and no cursor.
   Needs the "track_tasks:read" scope.`
     )
     .action(async (trackId: string, opts: { limit?: number }) => {
@@ -1072,6 +1105,25 @@ Notes:
               color.dim(
                 `\nNothing is offered. That reads the same whether the board is finished or stuck —\n` +
                   `  nexus tracks task why-not-ready ${trackId}`
+              )
+            );
+          }
+
+          // 🔴 A SEPARATE `if`, NEVER AN `else if`. "Nothing is offered" and "not
+          // everything is shown" are different questions with different answers,
+          // and chaining them would drop one. They are mutually exclusive only
+          // because `clampReadySetLimit` floors the page at 1 — a property of the
+          // SERVER, which has no business being encoded as control flow here.
+          //
+          // This is the route where truncation is reachable today: one production
+          // track holds 165 tasks against a default page of 50.
+          //
+          // No denominator and no repeated ceiling, for the reasons `tracks ready`
+          // gives. Silent when `hasMore` is false.
+          if (result.hasMore) {
+            console.log(
+              color.dim(
+                `\n${result.tasks.length} row(s) shown. MORE TASKS ARE READY — raise --limit and re-read.`
               )
             );
           }
@@ -1448,7 +1500,16 @@ Notes:
           plan.tasks,
           edges.edges,
           serverReadyIds,
-          ready.tasks.length >= READY_SET_CEILING
+          // 🔴 THE WIRE FIELD, NOT A LENGTH INFERENCE. `>= READY_SET_CEILING`
+          // answers "did I get everything I ASKED for", never "is there more",
+          // and the two diverge the moment the server clamps below the request.
+          // The probe deliberately reads one row past the page and exceeds the
+          // server's own max by one, so `hasMore` is trustworthy exactly AT the
+          // ceiling — which is where the inference was weakest.
+          //
+          // READY_SET_CEILING STAYS: it is the limit this call REQUESTS, on the
+          // line above. Only the truncation claim moved to the wire.
+          ready.hasMore
         );
 
         printEnvelope(
@@ -1902,14 +1963,37 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.tracks.listMemoryEntries(trackId);
 
-        printEnvelope(result, () =>
+        printEnvelope(result, () => {
           printTable(result.entries, [
             { key: "key", label: "KEY", width: 28 },
             { key: "valueBytes", label: "BYTES", width: 8 },
             { key: "value", label: "VALUE", width: 64 },
             { key: "updatedAt", label: "UPDATED", width: 26 }
-          ])
-        );
+          ]);
+
+          // 🔴 THE BUDGET IS THE ENTIRE REASON THIS READ EXISTS, AND ONLY --json
+          // COULD SEE IT. `trackMemoryBytes` and `budgetBytes` have been on this
+          // envelope the whole time and the table printed neither, so the one
+          // number a person needs BEFORE writing — how much room is left — was
+          // reachable only from the channel a person is not using. This command's
+          // own one-line description promises "with the byte budget", which made
+          // the help a claim the output did not keep.
+          //
+          // `budgetBytes` appears EXACTLY ONCE in the whole wire surface, on this
+          // response, so there was no other command a human could get it from.
+          // `memory put` already prints the running total on its success line,
+          // which is what left the list view as the single place it went missing.
+          //
+          // "byte(s)" rather than a pluralised noun, for the reason `tracks list`
+          // gives: this line renders at n=1 as readily as at n=8000.
+          //
+          // Human channel only — `printEnvelope` returns before calling this
+          // under `--json`, where both fields are already in the document, so a
+          // script's answer cannot be contaminated by it.
+          console.log(
+            color.dim(`\n${result.trackMemoryBytes} of ${result.budgetBytes} byte(s) used.`)
+          );
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }

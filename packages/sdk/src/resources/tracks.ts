@@ -212,8 +212,15 @@ export class TracksResource extends BaseResource {
    * At most 100 ids per call — the bound is the URL length, not the work. A full
    * 200-track page from `list()` is therefore two calls.
    *
-   * One entry per id ASKED FOR, in the order asked. A track that is not yours is
-   * present with `0/0`; see {@link ListTrackRollupsResponse}.
+   * One entry per DISTINCT id asked for, in the order asked. A track that is not
+   * yours is present with `0/0`; see {@link ListTrackRollupsResponse}.
+   *
+   * ⚠️ INDEX THE ANSWER BY `trackId` — DO NOT ZIP IT AGAINST YOUR ARRAY BY
+   * POSITION. The route collapses duplicates before it reads, because the
+   * response is keyed by track id and a repeated id cannot produce a second
+   * entry. So `[A, A, B]` comes back as TWO entries, and a positional zip then
+   * pairs `B`'s progress with `A` — silently, with both arrays looking fine. Pass
+   * a de-duplicated list if you want the lengths to match.
    */
   async readRollups(trackIds: readonly string[]): Promise<ListTrackRollupsResponse> {
     return this.http.request<ListTrackRollupsResponse>("GET", `/tracks/rollup`, {
@@ -231,9 +238,14 @@ export class TracksResource extends BaseResource {
   /**
    * The tasks inside one track that can be picked up right now.
    *
-   * ⚠️ A track in another organization answers with an EMPTY SET, not a refusal.
-   * The read is anchored on the key's organization, so a foreign id matches no
-   * candidate row — the same answer a real track with nothing ready gives.
+   * ⚠️ A track you cannot reach answers 404 — the same answer an absent id gives,
+   * and deliberately indistinguishable from it, exactly as {@link get} and
+   * {@link readRollup} describe. The route names a `:trackId`, so the access gate
+   * decides it before the read runs, and absent, another organization's and
+   * ungranted are ONE refusal.
+   *
+   * So an EMPTY SET here means a real, readable track with nothing ready on it —
+   * and nothing else.
    */
   async listReadyTasks(
     trackId: string,
@@ -255,8 +267,11 @@ export class TracksResource extends BaseResource {
    * means anything whole; sorting the flat array by `position` alone interleaves
    * the branches, because it is unique per PARENT rather than per track.
    *
-   * ⚠️ A track in another organization answers an EMPTY LIST, not a refusal —
-   * the same call `readRollup()` makes by answering `0/0`.
+   * ⚠️ A track you cannot reach answers 404, not an empty list. The route names a
+   * `:trackId`, so the access gate decides it first and absent, another
+   * organization's and ungranted are ONE refusal. `readRollup()`'s `0/0` is the
+   * same story told the other way round: it means a readable track with no work
+   * on it, because the unreachable case never gets that far.
    */
   async listTasks(trackId: string): Promise<ListTrackTasksResponse> {
     return this.http.request<ListTrackTasksResponse>("GET", `/tracks/${trackId}/tasks`);

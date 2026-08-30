@@ -20,7 +20,8 @@
     "nexus": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "COMPATIBILITY.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -32,6 +33,7 @@
     "gen:audit-types": "tsx scripts/generate-vibe-audit-event-types.ts",
     "gen:cli-surface": "tsx scripts/generate-cli-surface.ts",
     "gen:cli-surface-baseline": "tsx scripts/generate-cli-surface-baseline.ts",
+    "gen:id-graph-ledger": "tsx scripts/generate-id-graph-ledger.ts",
     "gen:contract-help": "tsx scripts/generate-contract-help.ts",
     "gen:json-shape": "tsx scripts/generate-json-shape.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",
@@ -40,6 +42,8 @@
     "build:refresh-skills": "pnpm run gen:skills && tsup",
     "dev": "tsup --watch",
     "test:auth": "tsx scripts/test-auth-login.ts",
+    "id-thread": "tsx scripts/id-thread-sweep.ts",
+    "id-thread:plan": "tsx scripts/id-thread-sweep.ts --plan",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint . --max-warnings 9",

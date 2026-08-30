@@ -839,9 +839,36 @@ export interface UnmodelledRoleSystem {
   resourceType: string;
   /** Which system. */
   resourceId: string;
+  /**
+   * Which bucket it is in, even with no figure to bucket.
+   *
+   * A system can be `BUILDING` and unmodelled at once — the ordinary state of
+   * something somebody has just started — so a count of "what is being built"
+   * taken from `contributions` alone undercounts by exactly these.
+   */
+  lifecycle: RoleResourceLifecycle;
   /** Why it produced no contribution. */
   reason: "NO_IMPACT_MODEL";
 }
+
+/**
+ * Which bucket a system's figures land in.
+ *
+ * - `LIVE` — running, and the ONLY bucket summed into `impactPersonHours` and
+ *   `money.totals`.
+ * - `BUILDING` — being built. Its own row publishes what it WILL save; none of
+ *   it is in the Role's totals, because nobody is saving it yet.
+ * - `RETIRED` — no longer doing the Role's work. Same treatment as `BUILDING`.
+ *
+ * There is no `PROPOSED`: a `RoleResource` names a system that already exists,
+ * so "a proposed system that exists" is a contradiction. The thing that is
+ * proposed and names no system is a Role TASK.
+ *
+ * 🚨 IT SAYS NOTHING ABOUT `basis`. A live hand-estimated system is an estimate;
+ * one still being built whose volumes were measured is measured. Going live
+ * changes the bucket, never the basis.
+ */
+export type RoleResourceLifecycle = "BUILDING" | "LIVE" | "RETIRED";
 
 /**
  * Whether a coverage figure rests on measurements, on estimates, or on both.
@@ -878,6 +905,16 @@ export interface RoleCoverageContribution {
   resourceType: string;
   /** Which system. */
   resourceId: string;
+  /**
+   * Which bucket this row's figures land in, and therefore whether
+   * `personHours` below is inside `RoleCoverage.impactPersonHours` or outside.
+   *
+   * 🚨 SUMMING `personHours` ACROSS THESE ROWS DOES NOT GIVE
+   * `impactPersonHours`. Only `LIVE` rows are in the Role's totals. Read this
+   * field, or read `impactPersonHoursByLifecycle`, which is the split already
+   * done for you.
+   */
+  lifecycle: RoleResourceLifecycle;
   /** Person-hours per year, or `null` when the model did not evaluate. */
   personHours: number | null;
   /**
@@ -945,8 +982,23 @@ export interface RoleCoverage {
   coverage: CoverageRatio;
   /** The denominator in person-hours per year, or `null` when there is none. */
   workloadPersonHours: number | null;
-  /** The numerator: the sum of the contributions that evaluated. */
+  /**
+   * The numerator: the sum of the contributions that evaluated AND are `LIVE`.
+   *
+   * 🚨 LIVE COVERAGE, NOT MODELLED COVERAGE. A system in `BUILDING` publishes a
+   * real `personHours` on its own row and is deliberately absent from here — it
+   * is work nobody is saving yet, and a headline that counted it would report a
+   * saving the customer has not received.
+   */
   impactPersonHours: number;
+  /**
+   * The numerator split by bucket — the source for "70% live, 4% more coming".
+   *
+   * Every bucket is always present; a zero here is a measurement, never a
+   * missing key. `impactPersonHoursByLifecycle.LIVE === impactPersonHours`, by
+   * construction.
+   */
+  impactPersonHoursByLifecycle: Record<RoleResourceLifecycle, number>;
   /** One entry per system that HAS an impact model. */
   contributions: readonly RoleCoverageContribution[];
   /** Every input key a measurement replaced, across every model evaluated. */
@@ -1844,6 +1896,17 @@ export interface RoleWorkingYear {
   publicHolidayDays: number | null;
   /** Expected sickness in days, or `null`. */
   sicknessDays: number | null;
+  /**
+   * Weeks actually worked — `calendarWeeks` less the leave, the holidays and
+   * the sickness, floored at one week.
+   *
+   * DERIVED on every read, never stored, so it cannot disagree with the four
+   * terms beside it. `null` means this Role has not stated `calendarWeeks`,
+   * which is the term the other three are subtracted FROM — not an error, and
+   * not a zero. Holidays and sickness are days and convert at five days to the
+   * week.
+   */
+  weeksWorked: number | null;
   /** Row UUID. */
   id: string;
   /** The Role it belongs to. */

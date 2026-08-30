@@ -55,9 +55,13 @@ const GENERATED = "../src/response-contract.generated.ts";
  *   `Response` that never described what the handler sends projects faithfully
  *   and passes here. `apps/backend/src/__governance__/v1-response-contracts-match-the-handler.spec.ts`
  *   is the instrument for that half.
- * - **The 113 routes publishing no response schema.** They are in the manifest
- *   as `undeclared`, which makes them countable and keeps them out of a silent
+ * - **The routes publishing no response schema.** They are in the manifest as
+ *   `undeclared`, which makes them countable and keeps them out of a silent
  *   pass — it does not check them. Nothing can, until a schema is authored.
+ *   How many there are is stated in the generated file's own header and
+ *   asserted against the shipped entries below; a figure repeated here would
+ *   be a second copy that rots, and this one did — it read 113 against a true
+ *   104 with nothing to notice.
  * - **Anything below the first level of the payload.** The projection is
  *   deliberately shallow; see its header.
  * - **A field the projection could not type.** It carries the empty code and
@@ -423,10 +427,13 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "TrackCreateDependencyEdge",
   "TrackCreateSection",
   "TrackRenameSection",
+  "TrackListSections",
+  "TrackListTasks",
   "TrackReadTask",
   "TrackClaimTask",
   "TrackToggleTask",
   "TrackCreateTaskEdge",
+  "TrackListTaskEdges",
   "TrackImportPlan",
   "TrackListAgents",
   "TrackOpenAgent",
@@ -460,6 +467,95 @@ const checkable = new Set(
     .filter((route) => route.payload.kind === "object" || route.payload.kind === "array")
     .map((route) => route.name)
 );
+
+/**
+ * The four counts the generated header states, read back out of the SHIPPED
+ * bytes.
+ *
+ * 🚨 **Returns `undefined` rather than a zero when the header does not match.**
+ * A count parsed by a broken pattern is indistinguishable from a real count of
+ * zero, and zero would compare equal to nothing and red for the wrong reason —
+ * or, over a partition, quietly agree with itself. The caller asserts this is
+ * defined before it asserts anything with it.
+ */
+function headerCounts(
+  source: string
+): { total: number; checkable: number; undeclared: number; opaque: number } | undefined {
+  const match =
+    /^\/\/ (\d+) routes: (\d+) with a checkable shape, (\d+) publishing no\n\/\/ response schema, (\d+) whose payload has no key set to check\.$/m.exec(
+      source
+    );
+  if (!match) return undefined;
+
+  return {
+    total: Number(match[1]),
+    checkable: Number(match[2]),
+    undeclared: Number(match[3]),
+    opaque: Number(match[4])
+  };
+}
+
+/** The same four, counted off the shipped ENTRIES — the copy a consumer reads. */
+const shippedCounts = {
+  total: shipped.length,
+  checkable: shipped.filter((r) => r.payload.kind === "object" || r.payload.kind === "array")
+    .length,
+  undeclared: shipped.filter((r) => r.payload.kind === "undeclared").length,
+  opaque: shipped.filter((r) => r.payload.kind === "opaque").length
+};
+
+describe("the header's counts are a measurement, not a sentence", () => {
+  /**
+   * ## Why the byte-for-byte check above does not already cover this
+   *
+   * `renderResponseContractModule` writes those four numbers from a tally the
+   * projector keeps while it walks, and the byte-for-byte assertion compares
+   * the file to that same render. So a tally counting the WRONG population is
+   * written into the header AND matched by the check — both sides wrong in the
+   * same direction, agreeing perfectly, nothing red. `projectResponseContract`
+   * calls them "the numbers a gate asserts about it"; until this block, no gate
+   * did.
+   *
+   * These read the shipped ENTRIES instead, by their `payload.kind` field. That
+   * is top-level by construction: `kind` is reached as a property of the route's
+   * own payload, so an `array` whose `items` are an `object` cannot be counted
+   * twice. A regex over the file's text CAN count both — the naive sweep returns
+   * 525 against a true 491, and the 34 extra are exactly the 34 `array` routes.
+   */
+  const onDisk = readFileSync(join(dirname(fileURLToPath(import.meta.url)), GENERATED), "utf8");
+
+  it("states counts this test could actually read", () => {
+    expect(
+      headerCounts(onDisk),
+      "the generated header no longer matches the shape this gate parses. If the " +
+        "wording changed deliberately, update headerCounts — do not delete the assertion."
+    ).toBeDefined();
+  });
+
+  it("states the number of routes the manifest actually ships", () => {
+    expect(headerCounts(onDisk)).toEqual(shippedCounts);
+  });
+
+  it("agrees with the tally the projector kept while walking", () => {
+    expect({
+      checkable: projection.declared,
+      undeclared: projection.undeclared,
+      opaque: projection.opaque
+    }).toEqual({
+      checkable: shippedCounts.checkable,
+      undeclared: shippedCounts.undeclared,
+      opaque: shippedCounts.opaque
+    });
+  });
+
+  it("partitions every route into exactly one of the three", () => {
+    // Without this, a payload kind nobody counted would leave all three totals
+    // individually correct and the sum short.
+    expect(shippedCounts.checkable + shippedCounts.undeclared + shippedCounts.opaque).toBe(
+      shippedCounts.total
+    );
+  });
+});
 
 describe("the shipped response contract", () => {
   it("read a real population, so nothing below is vacuous", () => {

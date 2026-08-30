@@ -1448,10 +1448,10 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "role-07",
     target: "role coverage",
     summary:
-      "THREE ROWS MOVE THIS FIGURE ... The workload and the per-system impact are authored in the dashboard",
+      "THREE ROWS PRODUCE THIS FIGURE ... plus each system's LIFECYCLE, which moves it without being a model ... The workload and the per-system impact are authored in the dashboard",
     state: "placed",
     leaf: "role coverage",
-    probe: "THREE ROWS MOVE THIS FIGURE AND NOTHING ELSE DOES"
+    probe: "THREE ROWS PRODUCE THIS FIGURE"
   },
   {
     id: "skill-folder-01",

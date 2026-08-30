@@ -832,13 +832,16 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracks dependency add": "registration-only",
   "tracks section create": "registration-only",
   "tracks section rename": "registration-only",
+  "tracks section list": "registration-only",
   "tracks task ready": "registration-only",
+  "tracks task list": "registration-only",
   "tracks task get": "registration-only",
   // A MUTATION, so existence only. It also OVERWRITES a claim another agent
   // holds, by design, which is the last thing a sweep should run for real.
   "tracks task claim": "registration-only",
   "tracks task toggle": "registration-only",
   "tracks task edge": "registration-only",
+  "tracks task edges": "registration-only",
   "tracks plan import": "registration-only",
   "tracks agent list": "registration-only",
   "tracks agent open": "registration-only",
@@ -1119,8 +1122,12 @@ export interface CommandNode {
    * second list of root-level help registrations to keep in step with
    * `buildRootProgram`, and the next one anyone adds diverges in silence.
    *
-   * Lazy and memoized. Capturing it eagerly for all ~582 nodes would put the
-   * cost on the classification gate, which never reads it.
+   * Lazy and memoized. Capturing it eagerly for EVERY node in the tree would
+   * put the cost on the classification gate, which never reads it. The node
+   * count is deliberately not quoted — it moves with every command anyone adds,
+   * the figure that used to sit here read ~582 against a live 642, and the
+   * laziness is a property `command-universe.test.ts` asserts directly rather
+   * than a cost this comment can size.
    */
   readonly help: string;
   /**

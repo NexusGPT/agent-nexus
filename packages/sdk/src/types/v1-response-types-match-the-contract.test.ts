@@ -1514,6 +1514,12 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"TrackRenameSection">, MethodResult<NexusClient["tracks"]["renameSection"]>>
   >,
+  // TrackListSections  GET /public/v1/tracks/:trackId/sections  ->  client.tracks.listSections()
+  Expect<
+    Equals<ResponseOf<"TrackListSections">, MethodResult<NexusClient["tracks"]["listSections"]>>
+  >,
+  // TrackListTasks  GET /public/v1/tracks/:trackId/tasks  ->  client.tracks.listTasks()
+  Expect<Equals<ResponseOf<"TrackListTasks">, MethodResult<NexusClient["tracks"]["listTasks"]>>>,
   // TrackReadTask  GET /public/v1/tracks/tasks/:taskId  ->  client.tracks.readTask()
   Expect<Equals<ResponseOf<"TrackReadTask">, MethodResult<NexusClient["tracks"]["readTask"]>>>,
   // TrackClaimTask  POST /public/v1/tracks/tasks/:taskId/claim  ->  client.tracks.claimTask()
@@ -1523,6 +1529,10 @@ export type V1ResponseAssertions = [
   // TrackCreateTaskEdge  POST /public/v1/tracks/:trackId/task-edges  ->  client.tracks.createTaskEdge()
   Expect<
     Equals<ResponseOf<"TrackCreateTaskEdge">, MethodResult<NexusClient["tracks"]["createTaskEdge"]>>
+  >,
+  // TrackListTaskEdges  GET /public/v1/tracks/:trackId/task-edges  ->  client.tracks.listTaskEdges()
+  Expect<
+    Equals<ResponseOf<"TrackListTaskEdges">, MethodResult<NexusClient["tracks"]["listTaskEdges"]>>
   >,
   // TrackImportPlan  POST /public/v1/tracks/:trackId/import-plan  ->  client.tracks.importPlan()
   Expect<Equals<ResponseOf<"TrackImportPlan">, MethodResult<NexusClient["tracks"]["importPlan"]>>>,
@@ -2109,10 +2119,13 @@ const GATED_ROUTES = [
   "TrackCreateDependencyEdge",
   "TrackCreateSection",
   "TrackRenameSection",
+  "TrackListSections",
+  "TrackListTasks",
   "TrackReadTask",
   "TrackClaimTask",
   "TrackToggleTask",
   "TrackCreateTaskEdge",
+  "TrackListTaskEdges",
   "TrackImportPlan",
   "TrackListAgents",
   "TrackOpenAgent",
@@ -2616,7 +2629,9 @@ export type V1ResponseDrift = [
  * gained. The assertion is `toBeGreaterThanOrEqual`, so a floor left too low
  * still passes — nothing here will report the loss. This value is 278 + 23
  * (agent-evals, NEX-3909) + 1 (`ScoreRecord`) + 16 (raises that landed without
- * moving the floor) + 8 (the routes #4521 gave a Response and #4525 gated).
+ * moving the floor) + 8 (the routes #4521 gave a Response and #4525 gated) + 1
+ * (`TrackListTasks`, NEX-4541) + 2 (`TrackListSections` and `TrackListTaskEdges`,
+ * NEX-4447).
  *
  * 🚨 THE 16 IS THE POINT. `toBeGreaterThanOrEqual` means a floor left behind
  * never reports itself, so this drifted 302-against-318 on staging while every
@@ -2624,7 +2639,7 @@ export type V1ResponseDrift = [
  * number. Raise it in the same commit that adds a name, or it silently stops
  * protecting the names added since.
  */
-const GATED_ROUTE_FLOOR = 326;
+const GATED_ROUTE_FLOOR = 329;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

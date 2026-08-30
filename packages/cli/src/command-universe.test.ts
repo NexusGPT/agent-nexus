@@ -350,11 +350,14 @@ describe("one walk carries the metadata a rendering throws away", () => {
     expect(new Set(nodes.map((node) => node.path))).toEqual(fromModules);
 
     // Attribution is why registrars get their own throwaway program. It must not
-    // change the tree: measured equal, 500 leaves both ways, empty diff.
+    // change the tree, and the assertion below IS that check — both sides are
+    // counted live, on every run. No leaf count is quoted here: the one that
+    // was ("500 leaves both ways") read against a live 546 and, sitting beside
+    // an assertion that already compares the two, it never had anything to add.
     expect(nodes.filter((node) => node.isLeaf).length).toBe((await deriveCommandLeaves()).length);
   });
 
-  it("keeps `help` lazy, so the classification gate never renders 582 help pages", async () => {
+  it("keeps `help` lazy, so the classification gate never renders every help page", async () => {
     // `deriveCommandLeaves()` reads `path` and `isLeaf` only. If `help` were
     // eager — or if a projection spread a node and evaluated the getter — the
     // gate would pay for text it never looks at. Guarding the property rather

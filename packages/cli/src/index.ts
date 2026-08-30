@@ -236,16 +236,23 @@ export function buildRootProgram(version: string = VERSION): Command {
    * this program prints, so no help screen, no command and no error led anyone
    * to the document. A promise the tool cannot lead you to is not a promise.
    *
-   * 🚨 A REPO-RELATIVE PATH WOULD NAME A FILE THAT EXISTS ON NO INSTALLED COPY.
-   * `package.json` declares `files: ["dist"]`, so the published tarball carries
-   * the compiled binary and nothing else: `packages/cli/COMPATIBILITY.md` is
-   * absent from every `npm install -g` on earth, and the product repo the file
-   * really lives in is private. The public mirror named by `repository.url` is
-   * the one location a reader outside this machine can actually open, which is
+   * 🚨 A REPO-RELATIVE PATH WOULD NAME A FILE NOBODY OUTSIDE THIS REPO CAN OPEN.
+   * The product repo the document lives in is private, so `packages/cli/…` is a
+   * path only a monorepo checkout can follow. The public mirror named by
+   * `repository.url` is where a reader outside this machine opens it, which is
    * why the epilogue spells the whole URL.
    *
-   * {@link compatibility-link-is-in-root-help.test.ts} pins the link to that
-   * `repository` field, so moving the mirror fails rather than rotting.
+   * The URL is not enough on its own, and the second sentence beside it is not
+   * decoration. It points at branch `main` — the NEWEST contract — while the
+   * reader is holding whatever version they installed, and it needs a network at
+   * the exact moment someone is debugging a script. So `package.json` names
+   * `COMPATIBILITY.md` in `files` too, and the document is on disk in every
+   * install, at the version that install actually promises.
+   *
+   * Two specs hold the two halves. {@link compatibility-link-is-in-root-help.test.ts}
+   * pins the link to that `repository` field, so moving the mirror fails rather
+   * than rotting. {@link compatibility-ships-in-the-tarball.test.ts} asks npm what
+   * it would publish, so the shipped copy disappearing fails rather than rotting.
    */
   program.addHelpText(
     "after",
@@ -379,6 +386,9 @@ export function buildRootProgram(version: string = VERSION): Command {
     a --json payload is not covered by the same promise as the command that
     printed it. Read the contract before you script any of it:
     https://github.com/NexusGPT/agent-nexus/blob/main/packages/cli/COMPATIBILITY.md
+    That page is branch main, so it is the newest contract and not necessarily
+    the one this build promises. The copy that shipped with the version you are
+    running is on disk, as COMPATIBILITY.md beside this package's package.json.
 
   Tip: Run "nexus docs" for full documentation, gotchas, and recipes.
        Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).

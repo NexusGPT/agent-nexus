@@ -32,7 +32,6 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-
 import { describe, expect, it } from "vitest";
 
 const E2E_DIR = path.resolve(__dirname, "..", "e2e");

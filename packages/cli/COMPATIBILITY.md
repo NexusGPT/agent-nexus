@@ -70,8 +70,8 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **52 top-level commands**, of which **52 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **639 command nodes**
-and **543 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+hidden — there are none at all (see INTERNAL). Under them sit **642 command nodes**
+and **546 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
@@ -212,7 +212,7 @@ than going through a printer — the `writes-its-own-json` count in the generate
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **536 of the 543 leaves** and parses each one's stdout, and
+gate, which drives **539 of the 546 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -248,7 +248,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 536 leaves the gate drives. And on every terminal path — `--help`,
+the 539 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -391,7 +391,7 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**409 of the 543 leaves** carry a derived shape line on their `--help`, generated
+**412 of the 546 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
@@ -530,7 +530,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-543 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
+546 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -635,7 +635,7 @@ anyone.
 
 `src/commands/upgrade.ts` registers **0** hidden top-level commands beside
 `upgrade`. It once registered eighteen, every one of which was the same action:
-reinstall this CLI.
+reinstall this CLI. These fifteen were removed:
 
 ```
 get     new       install      sync          fetch   pull  download
@@ -643,7 +643,7 @@ refresh reinstall patch        bump          self-update  selfupdate
 self-upgrade      selfupgrade
 ```
 
-Fifteen of them were removed. `nexus get`, `nexus new`, `nexus install` and `nexus
+`nexus get`, `nexus new`, `nexus install` and `nexus
 sync` are plausible names for something else entirely — `get` ends 40 leaves in
 this tree, `update` ends 29, and `install` and `sync` are declared aliases of
 `skills update` — and all four replaced the running binary. They were absent from
@@ -731,7 +731,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 639 nodes, and the root program is a 640th
+`src/command-universe.ts` renders all 642 nodes, and the root program is a 643rd
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
@@ -804,7 +804,7 @@ A removal is a mechanism, not a review comment. **A command that stops answering
 without an alias or a served deprecation cycle fails the build**, so the promises
 above are enforced rather than merely stated.
 
-**0 leaves are on a deprecation cycle today**, out of the **523 paths** the last
+**0 leaves are on a deprecation cycle today**, out of the **546 paths** the last
 release promised. An empty list is the ordinary state — a release that retires
 nothing is the normal release — so read the list, never this sentence:
 `src/deprecations.ts` is the declaration and it is the whole of it.
@@ -907,8 +907,10 @@ release, not a clarification of this document. File it with `nexus ticket create
 - Pin the CLI version if you depend on payload field names.
 - Use `--profile` or `NEXUS_API_KEY` to bind the session. The machine-wide active
   profile can be repointed by another terminal mid-run.
-- Never script `nexus get`, `nexus new`, `nexus install` or `nexus sync` — all four
-  reinstall the binary.
+- `nexus get`, `nexus new`, `nexus install` and `nexus sync` are not commands. They
+  were hidden aliases that reinstalled the binary and they were removed; each now
+  exits non-zero with `unknown command`. The words survive only after a namespace —
+  `nexus skills install`, `nexus workflow get` — where they mean what they say.
 
 ---
 

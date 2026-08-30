@@ -50,8 +50,16 @@ import { buildRootProgram, VERSION } from "./root-program";
  * The population is the docs model itself, so a namespace added tomorrow is
  * covered without being named here. That makes the gate vacuous in exactly one
  * way — a model that documents NOTHING passes a loop over nothing — so the floor
- * below is not decoration. Measured at the time of writing: 47 namespaces, 518
- * subcommands, 565 documented paths.
+ * below is not decoration. It was cut from a reading of 47 namespaces, 518
+ * subcommands and 565 documented paths, taken 2026-08-14.
+ *
+ * 🚨 That reading is DATED because it is history, not a live count — the tree
+ * has grown since and the floors are deliberately slack against it. Do not
+ * refresh those three numbers to today's, and do not raise the floors to match
+ * them: a floor rounded down is what lets ordinary growth land without going
+ * red, and a floor pinned to the current count reds on the next command anyone
+ * adds. An undated reading beside a floor is the failure this comment now
+ * avoids — a nearby audit read exactly such a line as a stale exact count.
  *
  * ── 🔴 WHY BYTE-IDENTITY IS NOT ENOUGH, PROVEN BY MUTATION ───────────────────
  *

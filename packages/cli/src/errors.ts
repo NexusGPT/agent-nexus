@@ -239,6 +239,23 @@ const CLI_CODES = {
 export const CLI_MINTED_CODES: ReadonlySet<string> = new Set(Object.values(CLI_CODES));
 
 /**
+ * THE CODE THAT MEANS NOTHING WAS SENT.
+ *
+ * Exported because `exit-codes.ts` cannot answer the question it looks like it
+ * answers. `invalid-input` (5) is reached from TWO places: {@link refuse}, where
+ * the CLI declined before opening a socket, and {@link exitCodeForHttpStatus},
+ * where the server returned 400, 409 or 422 to a request that went out and came
+ * back. The exit code is identical and the two facts are opposites.
+ *
+ * A caller that has to tell them apart reads the DOCUMENT's `code`: this value
+ * appears only on the first, because the server branch passes the API's own code
+ * through. `scripts/id-thread-sweep.ts` is that caller — for it, "the harness
+ * failed to supply an input" is a SKIP and "the route refused a complete
+ * request" is a FAILURE, and conflating them either way defeats the gate.
+ */
+export const CLI_INVALID_ARGUMENTS = CLI_CODES.INVALID_ARGUMENTS;
+
+/**
  * The one code with no {@link FailureCause}, because it owns its own exit code.
  *
  * Every `FailureCause` maps through {@link reportFailure}, which returns 1 —

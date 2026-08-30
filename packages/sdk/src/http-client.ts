@@ -531,9 +531,16 @@ export class HttpClient {
   /**
    * The manifest, indexed for matching.
    *
-   * Built lazily and shared by every client, because compiling 448 routes for a
-   * client that never reads a payload is work nobody asked for — and the module
-   * is a `const`, so one index is correct for all of them.
+   * Built lazily and shared by every client, because compiling the whole v1
+   * manifest — every route the API publishes — for a client that never reads a
+   * payload is work nobody asked for, and the module is a `const`, so one index
+   * is correct for all of them.
+   *
+   * The route count is deliberately not quoted: this file cannot compute it,
+   * and the figure that used to sit here read 448 against a true 491. The
+   * generated manifest states its own counts in its header, and
+   * `scripts/response-contract.codegen.test.ts` asserts them against the
+   * shipped entries.
    */
   private static compiledContract: CompiledManifest | undefined;
 

@@ -20,7 +20,8 @@ export type PermissionResourceType =
   | "deployment"
   | "feature"
   | "vibe_app"
-  | "workspace";
+  | "workspace"
+  | "track";
 
 /**
  * A resource kind the generic permissions routes can actually name — every

@@ -4,9 +4,10 @@
 # Two roles:
 #   1. Underlay for the /pinguin skill — produces structured results so the
 #      agent loop can focus on interpretation.
-#   2. CI gate (.github/workflows/cli-sweep.yml) — runs against staging on
-#      every PR touching packages/cli/**. The --strict flag promotes WARN
-#      to FAIL so the JSON contract is treated as load-bearing.
+#   2. CI gate — the `cli-sweep` job of .github/workflows/pr-checks.yml, whose
+#      `CLI: Sweep` context is REQUIRED on staging and main. Runs against
+#      staging on every PR affecting the CLI's package graph. The --strict flag
+#      promotes WARN to FAIL so the JSON contract is treated as load-bearing.
 #
 # Usage:
 #   ./sweep.sh                       # text output, default profile

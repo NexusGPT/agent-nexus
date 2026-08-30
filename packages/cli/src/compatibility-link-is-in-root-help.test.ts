@@ -39,12 +39,18 @@ import { buildRootProgram, VERSION } from "./root-program";
  * WHY THE LINK IS AN ABSOLUTE URL AND NOT `packages/cli/COMPATIBILITY.md`
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * 🚨 A REPO-RELATIVE PATH NAMES A FILE THAT IS ON NO INSTALLED COPY.
- * `package.json` declares `files: ["dist"]`, so the published tarball is the
- * compiled binary and nothing else — the document is absent from every
- * `npm install -g @agent-nexus/cli`, and the repository it really lives in is
- * private. The mirror named by `repository.url` is public and is the one place
- * a reader outside this machine can open it, so the epilogue spells the URL.
+ * 🚨 A REPO-RELATIVE PATH NAMES A TREE THE READER DOES NOT HAVE.
+ * The repository the document really lives in is private, so `packages/cli/…`
+ * resolves only inside a monorepo checkout. The mirror named by
+ * `repository.url` is public and is the one place a reader outside this machine
+ * can open it, so the epilogue spells the URL.
+ *
+ * The document ALSO ships in the tarball — `package.json` names it in `files` —
+ * because a branch URL answers for the newest contract rather than the installed
+ * one, and needs a network besides. That half is
+ * {@link compatibility-ships-in-the-tarball.test.ts}'s, and it is a separate
+ * spec on purpose: this file owns the POINTER, that one owns the ARTIFACT, and
+ * the two rot independently.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * WHAT THIS ASSERTS, AND WHAT IT CANNOT

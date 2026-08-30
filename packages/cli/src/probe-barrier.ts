@@ -66,9 +66,9 @@ import type { Command } from "commander";
  * `registration-only` there — the same bucket as `agent get`. `phone-number buy`,
  * which starts a monthly carrier charge, and `agent get`, which reads a row, are
  * one word apart from each other and identical to any tool reading that file. The
- * separation rate is 6 of 109. Going the other way, 30 `never-execute` leaves
- * carry NO barrier here: `upgrade` and its 17 hidden aliases reinstall the binary
- * — ruinous for a sweep, free for a person on a throwaway machine.
+ * separation rate is 6 of 109. Going the other way, 16 `never-execute` leaves
+ * carry NO barrier here: `upgrade` and its three declared aliases reinstall the
+ * binary — ruinous for a sweep, free for a person on a throwaway machine.
  *
  * The two are cross-checked rather than merged. `probe-barrier.test.ts` asserts
  * no leaf the sweep executes as `safe` carries a barrier, because a command a

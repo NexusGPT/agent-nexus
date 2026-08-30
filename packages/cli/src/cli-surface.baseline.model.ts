@@ -71,8 +71,27 @@ export interface SurfaceBaseline {
    * the capture — leaves the released binary never carried. The cost is that
    * removing one of those owes a cycle it did not really owe; the alternative
    * error, a baseline missing a leaf that WAS published, silently permits the
-   * removal this whole file exists to refuse. Every later snapshot is taken at
-   * a release and carries neither error.
+   * removal this whole file exists to refuse. A snapshot captured from `staging`
+   * rather than at the instant of a publish carries the same over-inclusion, in
+   * the same safe direction.
+   *
+   * 🚨 A SNAPSHOT IS ONLY AS CURRENT AS THE LAST TIME SOMEBODY RAN THE
+   * GENERATOR, AND FOR THIRTEEN RELEASES NOBODY DID. This file sat at 0.26.0
+   * while the package shipped 0.35.1. Nothing had gone wrong in it — the cost
+   * was not a wrong answer but a SMALLER QUESTION. `auditSurfaceRemovals` walks
+   * the BASELINE, so the 23 leaves published in between were compared against
+   * nothing at all, and any of them could have been deleted with every gate
+   * still green. A stale baseline does not weaken the rule; it shrinks the
+   * population the rule is asked about, which nothing surfaces on its own.
+   *
+   * That is now an assertion rather than a habit. `deprecation-cycle.test.ts`
+   * counts the `CHANGELOG.md` headings newer than this snapshot and refuses at
+   * two or more, naming how many live leaves the lag has put outside the
+   * population. The snapshot still lags the tree BETWEEN releases — that is what
+   * it is for — and it may lag by the ONE release currently in flight, because
+   * `changeset version` bumps the package on a force-pushed branch where a
+   * regeneration cannot be committed. What it may not do is lag a release that
+   * has already shipped.
    */
   readonly version: string;
   /** Every leaf, sorted by path. */

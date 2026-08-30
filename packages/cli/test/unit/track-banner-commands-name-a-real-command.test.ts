@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-
 import { renderTrackBanner, TRACK_BANNER_COMMANDS } from "@nexus/types";
+import { describe, expect, it } from "vitest";
 
 import { deriveCommandLeaves } from "../../src/command-universe";
 

@@ -17,8 +17,12 @@
  * every hidden command visible and every option choiceless.
  *
  * 🚨 NEVER SPREAD A `CommandNode`. Its `help` is a LAZY MEMOIZED GETTER —
- * capturing it for all ~582 nodes costs the classification gate 31ms for text it
- * never reads. `{ ...node }` EVALUATES the getter, so a spread silently converts
+ * capturing it for every node in the tree costs the classification gate real
+ * time for text it never reads. Neither the node count nor the millisecond
+ * figure is quoted here any more: both moved (the count read ~582 against a
+ * live 642) and nothing checked either, while the PROPERTY that makes the cost
+ * avoidable is asserted directly in `command-universe.test.ts`.
+ * `{ ...node }` EVALUATES the getter, so a spread silently converts
  * the laziness into an eager capture and the cost comes back. Build field by
  * field. This module reads `help` exactly once per node it renders, which is the
  * point at which the cost is genuinely owed.

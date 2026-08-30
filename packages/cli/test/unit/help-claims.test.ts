@@ -34,17 +34,34 @@ import { buildProgram, descriptorIndex, walkTree } from "./help-truth-scan";
  * always does.
  */
 
+/**
+ * FLOORS, not counts — every value below is asserted with
+ * `toBeGreaterThanOrEqual`, never with equality.
+ *
+ * 🚨 **Do not "correct" one of these to a freshly measured number.** They are
+ * the measurement rounded DOWN so ordinary growth never reds them, exactly as
+ * the header above says. Replacing a floor with today's exact count turns a
+ * robust vacuity guard into a gate that reds on the next legitimate route
+ * anyone adds — and an author under that pressure raises the number rather
+ * than reading it, which is how a floor quietly becomes a rubber stamp.
+ *
+ * Each doc comment records the reading the floor was cut from, and every one
+ * carries its date. An UNDATED reading reads as a live fact and rots into one:
+ * a nearby audit took the `470 routes` note below for a current count and
+ * filed it as stale, when the only thing wrong with it was that it did not say
+ * when it was taken. The floors themselves were correct throughout.
+ */
 const MEASURED = {
-  /** 3041 citations resolved on 2026-08-20. */
+  /** Cut from 3041 citations resolved, measured 2026-08-20. */
   citations: 2500,
-  /** 29 bounds and defaults judged. */
+  /** Cut from 29 bounds and defaults judged, measured 2026-08-20. */
   bounds: 20,
-  /** 25 scope claims joined to a backend route. */
+  /** Cut from 25 scope claims joined to a backend route, measured 2026-08-20. */
   scopeClaims: 20,
-  /** 470 routes indexed across 64 controllers. */
+  /** Cut from 470 routes across 64 controllers, measured 2026-08-20. */
   backendRoutes: 400,
   backendControllers: 50,
-  /** 501 leaves in the tree. */
+  /** Cut from 501 leaves in the tree, measured 2026-08-20. */
   leaves: 400
 } as const;
 

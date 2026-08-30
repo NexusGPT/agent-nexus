@@ -381,6 +381,18 @@ const EXPECTED_BARE_ONE_SITES: readonly string[] = [
 ];
 
 describe("no exit code is written as a number outside the taxonomy module", () => {
+  it("walks a real population of production sources — an empty walk is not compliance", () => {
+    // The three cases below all assert an EMPTY offenders list, and a walk that
+    // returned nothing produces exactly that. The `EXPECTED_BARE_ONE_SITES`
+    // equality catches a TOTAL collapse, and a partial one in any of those eight
+    // files, but a walk that quietly stopped descending into some OTHER subtree
+    // passes every assertion here while having read none of it.
+    //
+    // 214 files today; a hundred is the structural claim — this scans the CLI's
+    // whole source tree, not a corner of it — and it stays true without editing.
+    expect(productionSources().length).toBeGreaterThan(100);
+  });
+
   it("finds no integer literal in a process.exit(...) call", () => {
     const offenders: string[] = [];
     for (const file of productionSources()) {

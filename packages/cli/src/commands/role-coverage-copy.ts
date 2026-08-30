@@ -13,13 +13,23 @@
  *
  * ── THE TWO MODELS ───────────────────────────────────────────────────────────
  *
- * COVERAGE is derived on the SERVER from three rows and nothing else:
- * `RoleWorkload`, one `RoleSystemImpact` per held system, and
- * `OrganizationAutomationSettings`. Verified at source rather than assumed:
- * `GetRoleCoverageUseCase` injects exactly five ports — the Role existence
- * read, those three, and the held-resource list that produces
- * `unmodelledSystems` — and `RoleWorkingYear`, `RoleScopeLine` and `RoleJobType`
- * appear nowhere under `packages/types/src/shared/domain/role-coverage/`.
+ * COVERAGE is derived on the SERVER from three MODELS: `RoleWorkload`, one
+ * `RoleSystemImpact` per held system, and `OrganizationAutomationSettings`.
+ * `RoleWorkingYear`, `RoleScopeLine` and `RoleJobType` appear nowhere under
+ * `packages/types/src/shared/domain/role-coverage/`.
+ *
+ * 🚨 A FOURTH THING MOVES THE FIGURE WITHOUT BEING A MODEL, AND THE COPY BELOW
+ * HAS TO SAY SO OR IT REPEATS THE DEFECT IT WAS WRITTEN TO CURE.
+ * `RoleResource.lifecycle` decides whether a system's already-computed term
+ * joins the totals at all — only `LIVE` is summed. It contributes no magnitude,
+ * so the three models are unchanged, but a caller who moved a system to
+ * BUILDING and watched the percentage drop is owed the sentence.
+ *
+ * The port set is derived rather than counted here: any number written in this
+ * paragraph is wrong by the next read anyone adds, and it was wrong already —
+ * it said five while the use case injected eight.
+ * `apps/backend/src/__governance__/role-coverage-inputs-are-the-documented-three.spec.ts`
+ * is the derivation, and it names this file when the set moves.
  *
  * THE JOB MODEL is the Scope, the job-type library, the Role's variables and its
  * working year. The server stores those rows and never reads them for coverage;
@@ -70,11 +80,19 @@ export const JOB_MODEL_DOES_NOT_MOVE_COVERAGE = `
  * who reads why it will not be there goes to the dashboard.
  */
 export const COVERAGE_INPUTS_NOTE = `
-  THREE ROWS MOVE THIS FIGURE AND NOTHING ELSE DOES. The Role's WORKLOAD, which
-  is the person-hours it works in a year and is the denominator. Each held
-  system's IMPACT model, which is the person-hours that system gives back and
-  is one term of the numerator. And the organization's AUTOMATION SETTINGS —
+  THREE ROWS PRODUCE THIS FIGURE. The Role's WORKLOAD, which is the
+  person-hours it works in a year and is the denominator. Each held system's
+  IMPACT model, which is the person-hours that system gives back and is one
+  term of the numerator. And the organization's AUTOMATION SETTINGS —
   hours a day, days a week, weeks a year, currency.
+
+  ONE MORE THING MOVES IT, AND IT IS NOT A MODEL: each system's LIFECYCLE.
+  Only a system that is LIVE is summed into the numerator and into the money
+  totals. A system that is BUILDING or RETIRED still reports its own hours on
+  its own row — what it will save, or used to — and is outside every total.
+  So "coverage" here means LIVE coverage: work that is being saved today, not
+  work that has been modelled. Every system starts LIVE unless the Role's
+  system policy sets startPaused.
 
   ONLY THE LAST OF THE THREE IS WRITABLE THROUGH THIS API, with
   "nexus role set-automation-settings". The workload and the per-system impact

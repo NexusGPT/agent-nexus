@@ -434,6 +434,101 @@ describe("deprecation cycle — the SHIPPED artifacts agree with the rule", () =
     expect(drift === null ? 1 : drift).toBeLessThanOrEqual(0);
   });
 
+  /**
+   * THE OTHER DIRECTION, AND IT IS THE ONE THAT ACTUALLY ROTS.
+   *
+   * The case above refuses a baseline from the FUTURE — a hand edit, which has
+   * never happened. This one refuses a baseline from the PAST, which is the
+   * state this file was found in: the snapshot said 0.26.0 while the package
+   * shipped 0.35.1, thirteen releases with nothing regenerating it in between.
+   *
+   * 🚨 A STALE BASELINE IS PERMISSIVE, AND THAT IS WHY NOTHING NOTICED.
+   * `auditSurfaceRemovals` returns one finding per BASELINE leaf, so a leaf the
+   * baseline never captured is not compared against anything at all. It can be
+   * deleted in any pull request and every case in this file stays green. The
+   * rule does not weaken as the snapshot ages — its POPULATION shrinks, in
+   * silence, and only a hand audit can see it. At 0.26.0 the shortfall was 23
+   * leaves, the whole of `chat` and `score` among them.
+   *
+   * ── TWO WRONG SPELLINGS OF THIS RULE, BOTH OF WHICH GET IT UNINSTALLED ─────
+   *
+   * ⚠️ "NO LIVE LEAF OUTSIDE THE BASELINE" is wrong: the tree moves ahead of the
+   * last release every time somebody adds a command, so it would be red for most
+   * of every cycle and red on the pull requests least deserving of it.
+   *
+   * 🚨 "THE BASELINE VERSION EQUALS `package.json`" IS ALSO WRONG, AND IT
+   * DEADLOCKS THE RELEASE. `changeset version` writes the next number on
+   * `release/version-packages`, which is FORCE-PUSHED by its own workflow — so a
+   * regeneration cannot be committed onto it, `Tests: Vitest` is a required
+   * context on the pull request it opens, and the release would sit red with no
+   * sanctioned way to clear it. The generator refuses to advance mid-cycle by
+   * design; a gate demanding equality would refuse the one commit that is
+   * allowed to break it.
+   *
+   * ── WHAT IS ACTUALLY INVARIANT ──────────────────────────────────────────────
+   *
+   * Not "the baseline is current" but "the baseline is not stale by a release
+   * that has ALREADY SHIPPED". `CHANGELOG.md` carries one `## x.y.z` heading per
+   * release and `changeset version` writes that heading in the same commit as
+   * the bump, so counting headings newer than the baseline separates the two
+   * states structurally, with no branch-name exception:
+   *
+   *   0 newer  the baseline is current — the ordinary state.
+   *   1 newer  a release is in flight, or has just landed and the follow-up
+   *            regeneration is owed. Permitted, because forbidding it is the
+   *            deadlock above.
+   *   2+ newer a shipped release was never captured. That is the rot, and at
+   *            the moment this case was written it stood at 13.
+   *
+   * Counting HEADINGS rather than doing arithmetic on the version numbers is
+   * deliberate: 0.26.0 to 0.35.1 is thirteen actual releases and a naive minor
+   * subtraction calls it nine. The changelog knows how many times this package
+   * shipped; a semver delta only knows how far the number moved.
+   *
+   * `scripts/generate-cli-surface-baseline.ts --check` asks a stricter version of
+   * this and exits 1 on it. It was written with the rest of the mechanism and no
+   * job has ever run it, which is why this lives in the suite instead: the tests
+   * that already gate this package are the one place a check cannot be
+   * forgotten, and the same idiom `cli-surface.codegen.test.ts` uses to keep the
+   * manifest beside it from rotting.
+   */
+  it("is not stale by a release that has already shipped", () => {
+    // Two floors, because a broken read of EITHER input yields zero newer
+    // releases — indistinguishable from a baseline that is perfectly current,
+    // which is the false green this whole case exists to remove.
+    expect(CLI_SURFACE.length).toBeGreaterThan(0);
+    const shipped = [...LIVE_CHANGELOG.keys()];
+    expect(shipped.length).toBeGreaterThan(0);
+
+    const ordered = shipped.map((version) => ({
+      version,
+      order: compareVersions(version, CLI_SURFACE_BASELINE.version)
+    }));
+
+    // An unparseable heading must not drop silently out of the count — that
+    // would under-report the lag, which is the permissive direction.
+    expect(
+      ordered.filter((entry) => entry.order === null).map((entry) => entry.version),
+      "a CHANGELOG.md heading is not x.y.z, so it cannot be counted in either direction"
+    ).toEqual([]);
+
+    const newer = ordered.filter((entry) => entry.order !== null && entry.order > 0);
+    const promised = new Set(CLI_SURFACE_BASELINE.leaves.map((leaf) => leaf.path));
+    const uncovered = CLI_SURFACE.filter((row) => !promised.has(row.path)).map((row) => row.path);
+
+    expect(
+      newer.length,
+      `the baseline is the surface of ${CLI_SURFACE_BASELINE.version} and CHANGELOG.md ` +
+        `already carries ${newer.length} later release(s): ${newer.map((e) => e.version).join(", ")}. ` +
+        `One is the release in flight and is expected; more than one means a release shipped ` +
+        `without the baseline being advanced, so ${uncovered.length} of the ${CLI_SURFACE.length} ` +
+        `leaves this tree answers today sit OUTSIDE the compared population and can be removed ` +
+        `without a single finding` +
+        (uncovered.length === 0 ? "" : `: ${uncovered.join(", ")}`) +
+        `. fix: pnpm --filter @agent-nexus/cli run gen:cli-surface-baseline`
+    ).toBeLessThanOrEqual(1);
+  });
+
   it("REFUSES every path the last release promised and this tree no longer answers", () => {
     const refused = live.filter((finding) => !finding.permitted);
     expect(

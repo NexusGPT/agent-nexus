@@ -26,8 +26,11 @@ import type {
   ListTrackEventsResponse,
   ListTrackMemoryEntriesResponse,
   ListTrackRollupsResponse,
+  ListTrackSectionsResponse,
   ListTracksParams,
   ListTracksResponse,
+  ListTrackTaskEdgesResponse,
+  ListTrackTasksResponse,
   OpenTrackAgentBody,
   PutTrackMemoryEntryBody,
   PutTrackMemoryEntryResponse,
@@ -191,7 +194,9 @@ export class TracksResource extends BaseResource {
    * The track's progress: leaves done, leaves total.
    *
    * 🔴 COUNTS, NEVER A PERCENTAGE — divide them yourself. LEAVES ONLY, so a
-   * parent task is in neither number. A track that is not yours reads `0/0`.
+   * parent task is in neither number. `0/0` means a real, readable track with no
+   * work on it: a track you cannot reach is a 404, the same answer an absent id
+   * gives, and deliberately indistinguishable from it.
    */
   async readRollup(trackId: string): Promise<TrackRollup> {
     return this.http.request<TrackRollup>("GET", `/tracks/${trackId}/rollup`);
@@ -239,6 +244,24 @@ export class TracksResource extends BaseResource {
     });
   }
 
+  /**
+   * A track's WHOLE plan — every task, at every depth, each with its banner.
+   *
+   * 🔴 THIS IS THE ONLY WAY TO READ A BOARD. `listReadyTasks()` shows what is
+   * unblocked and `readTask()` needs an id you already hold, so without this a
+   * plan can be worked and never reviewed, audited or drawn.
+   *
+   * ⚠️ NOT PAGED, AND GROUPED BY `parentTaskId` THEN `position`. The tree only
+   * means anything whole; sorting the flat array by `position` alone interleaves
+   * the branches, because it is unique per PARENT rather than per track.
+   *
+   * ⚠️ A track in another organization answers an EMPTY LIST, not a refusal —
+   * the same call `readRollup()` makes by answering `0/0`.
+   */
+  async listTasks(trackId: string): Promise<ListTrackTasksResponse> {
+    return this.http.request<ListTrackTasksResponse>("GET", `/tracks/${trackId}/tasks`);
+  }
+
   /** Declare that one track blocks another. An edge closing a circle is refused. */
   async createDependencyEdge(body: CreateTrackDependencyEdgeBody): Promise<TrackEdgeCreated> {
     return this.http.request<TrackEdgeCreated>("POST", `/tracks/dependencies`, { body });
@@ -247,6 +270,21 @@ export class TracksResource extends BaseResource {
   /** Create one section, at a chosen index among its siblings. */
   async createSection(trackId: string, body: CreateTrackSectionBody): Promise<TrackSection> {
     return this.http.request<TrackSection>("POST", `/tracks/${trackId}/sections`, { body });
+  }
+
+  /**
+   * The track's whole document tree, prose included.
+   *
+   * ⚠️ ORDERED BY `path`, so every parent arrives before its children and the
+   * tree builds in one pass. `position` orders SIBLINGS.
+   *
+   * ⚠️ `body` is `""` when nobody has written any — never `null`.
+   *
+   * Needs `track_sections:read`, which a key holding `track_sections:write`
+   * already satisfies.
+   */
+  async listSections(trackId: string): Promise<ListTrackSectionsResponse> {
+    return this.http.request<ListTrackSectionsResponse>("GET", `/tracks/${trackId}/sections`);
   }
 
   /** Re-slug one section; its whole subtree follows, in ONE statement. */
@@ -295,6 +333,22 @@ export class TracksResource extends BaseResource {
   /** Declare that one task blocks another, inside one track. */
   async createTaskEdge(trackId: string, body: CreateTrackTaskEdgeBody): Promise<TrackEdgeCreated> {
     return this.http.request<TrackEdgeCreated>("POST", `/tracks/${trackId}/task-edges`, { body });
+  }
+
+  /**
+   * What blocks what, inside this track's plan.
+   *
+   * 🔴 THIS IS WHAT ACCOUNTS FOR A TASK `listReadyTasks()` WITHHOLDS. Intersect
+   * it with `listTasks()`: a task's blockers are the edges naming it as
+   * `blockedTaskId`, and an open task with no such edge is held by an unticked
+   * ancestor or by a child rather than by a dependency.
+   *
+   * ⚠️ Unordered, and it carries no cycle information.
+   *
+   * Needs `track_tasks:read`.
+   */
+  async listTaskEdges(trackId: string): Promise<ListTrackTaskEdgesResponse> {
+    return this.http.request<ListTrackTaskEdgesResponse>("GET", `/tracks/${trackId}/task-edges`);
   }
 
   /**

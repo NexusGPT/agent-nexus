@@ -9,7 +9,7 @@ import type { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
-import { printEnvelope, printRecord, printSuccess, printTable } from "../output";
+import { absent, printEnvelope, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, resolveRequiredBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
 import { confirmable, confirmDestructive } from "../util/confirm";
@@ -30,6 +30,7 @@ import {
   TRACK_DELETE_MEMORY_ENTRY_CONTRACT,
   TRACK_IMPORT_PLAN_CONTRACT,
   TRACK_LIST__PARAMS_ARCHIVED,
+  TRACK_LIST__PARAMS_NEXT_OWNER,
   TRACK_LIST__PARAMS_STATUS,
   TRACK_LIST_AGENTS__PARAMS_STATE,
   TRACK_LIST_AGENTS_CONTRACT,
@@ -41,6 +42,9 @@ import {
   TRACK_LIST_ORGANIZATION_EVENTS_CONTRACT,
   TRACK_LIST_READY_CONTRACT,
   TRACK_LIST_READY_TASKS_CONTRACT,
+  TRACK_LIST_SECTIONS_CONTRACT,
+  TRACK_LIST_TASK_EDGES_CONTRACT,
+  TRACK_LIST_TASKS_CONTRACT,
   TRACK_OPEN_AGENT_CONTRACT,
   TRACK_PUT_MEMORY_ENTRY_CONTRACT,
   TRACK_READ_CONTRACT,
@@ -108,6 +112,10 @@ export function registerTracksCommands(program: Command): void {
       "1-64 chars of [a-z0-9-], starting with a letter or digit. Unique in your organization"
     )
     .requiredOption("--title <title>", "What the track is called")
+    .option(
+      "--short-title <text>",
+      "A short name, at most 5 words and 80 characters. Omitted leaves it uncurated"
+    )
     .option("--current-step <text>", "What happens next, one line, at most 400 characters")
     .addOption(
       enumOption(
@@ -139,15 +147,27 @@ Notes:
   --next-owner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an
   agent can proceed, USER means a person has to act, EVENT means something
   outside has to happen first.
+  --short-title IS CURATED AND THE SERVER NEVER DERIVES ONE. Omit it and the
+  track's shortTitle is null, which every reader renders as the full --title.
+  It is refused above 5 words or 80 characters rather than truncated, because
+  no truncation rule can turn an arbitrary title into a five-WORD name. There
+  is no route that sets it later, so this is the only place to write one.
   Needs the "tracks:write" scope.`
     )
     .action(
-      async (opts: { slug: string; title: string; currentStep?: string; nextOwner?: string }) => {
+      async (opts: {
+        slug: string;
+        title: string;
+        shortTitle?: string;
+        currentStep?: string;
+        nextOwner?: string;
+      }) => {
         try {
           const client = createClient(program.optsWithGlobals());
           const track = await client.tracks.create({
             slug: opts.slug,
             title: opts.title,
+            ...(opts.shortTitle !== undefined && { shortTitle: opts.shortTitle }),
             ...(opts.currentStep !== undefined && { currentStep: opts.currentStep }),
             ...(opts.nextOwner !== undefined && {
               nextOwner: opts.nextOwner as TrackNextOwner
@@ -158,7 +178,12 @@ Notes:
             id: track.id,
             number: track.number,
             slug: track.slug,
-            title: track.title
+            title: track.title,
+            // The STORED value, so a caller that passed --short-title can see it
+            // landed rather than assume it. `absent()` and not `?? "(none)"`:
+            // this one object goes down both channels, so a display string here
+            // would replace the null a script reads.
+            shortTitle: track.shortTitle ?? absent("(none — readers show the title)")
           });
         } catch (err) {
           process.exitCode = handleError(err);
@@ -428,12 +453,20 @@ Notes:
         TRACK_LIST__PARAMS_ARCHIVED
       )
     )
+    .addOption(
+      enumOption(
+        "--next-owner <owner>",
+        "Only tracks waiting on this kind of actor. Every owner when omitted",
+        TRACK_LIST__PARAMS_NEXT_OWNER
+      )
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus tracks list
   $ nexus tracks list --status DONE
+  $ nexus tracks list --next-owner USER
   $ nexus tracks list --limit 200 --json
 
 Notes:
@@ -447,46 +480,53 @@ Notes:
   you put away, and --archived include to see both at once. That is the entire
   recovery path for "nexus tracks archive", and it is why archiving is not a
   delete.
+  --next-owner NAMES A KIND OF ACTOR, NOT A PERSON. USER means a human is due
+  next, CUE means the agent, EVENT means an external watcher. It is what the
+  WAITING ON column shows. There is no per-user filter anywhere in this API, so
+  --next-owner USER is "waiting on a human" and not "waiting on you".
   AN EMPTY LIST MEANS THE ORGANIZATION HAS NO TRACKS, not that the read failed.
   Run with --json and check for an empty array rather than reading the dimmed
   "No results." line as an error.
   Needs the "tracks:read" scope.`
     )
-    .action(async (opts: { limit?: number; status?: string; archived?: string }) => {
-      try {
-        const client = createClient(program.optsWithGlobals());
-        const result = await client.tracks.list({
-          limit: opts.limit,
-          ...(opts.status !== undefined && { status: opts.status as TrackStatus }),
-          ...(opts.archived !== undefined && {
-            archived: opts.archived as "exclude" | "only" | "include"
-          })
-        });
+    .action(
+      async (opts: { limit?: number; status?: string; archived?: string; nextOwner?: string }) => {
+        try {
+          const client = createClient(program.optsWithGlobals());
+          const result = await client.tracks.list({
+            limit: opts.limit,
+            ...(opts.status !== undefined && { status: opts.status as TrackStatus }),
+            ...(opts.archived !== undefined && {
+              archived: opts.archived as "exclude" | "only" | "include"
+            }),
+            ...(opts.nextOwner !== undefined && { nextOwner: opts.nextOwner as TrackNextOwner })
+          });
 
-        printEnvelope(result, () =>
-          // 🔴 `ARCHIVED` IS A COLUMN RATHER THAN A FLAG-CONDITIONAL ONE.
-          // Under `--archived include` the page mixes live and archived rows,
-          // and without this column they are indistinguishable — which would
-          // make the one mode that exists for recovery the one that cannot tell
-          // you what to recover. A column that appears only under some flags is
-          // worse: the header moves, and a script reading a fixed layout breaks
-          // on a flag it did not pass. `CURRENT STEP` gives up 10 characters to
-          // pay for it. Found by bugbot on #4146.
-          printTable(result.tracks, [
-            { key: "number", label: "#", width: 6 },
-            { key: "slug", label: "SLUG", width: 28 },
-            { key: "title", label: "TITLE", width: 40 },
-            { key: "status", label: "STATUS", width: 13 },
-            { key: "archivedAt", label: "ARCHIVED", width: 12 },
-            { key: "nextOwner", label: "WAITING ON", width: 12 },
-            { key: "currentStep", label: "CURRENT STEP", width: 30 },
-            { key: "id", label: "ID", width: 38 }
-          ])
-        );
-      } catch (err) {
-        process.exitCode = handleError(err);
+          printEnvelope(result, () =>
+            // 🔴 `ARCHIVED` IS A COLUMN RATHER THAN A FLAG-CONDITIONAL ONE.
+            // Under `--archived include` the page mixes live and archived rows,
+            // and without this column they are indistinguishable — which would
+            // make the one mode that exists for recovery the one that cannot tell
+            // you what to recover. A column that appears only under some flags is
+            // worse: the header moves, and a script reading a fixed layout breaks
+            // on a flag it did not pass. `CURRENT STEP` gives up 10 characters to
+            // pay for it. Found by bugbot on #4146.
+            printTable(result.tracks, [
+              { key: "number", label: "#", width: 6 },
+              { key: "slug", label: "SLUG", width: 28 },
+              { key: "title", label: "TITLE", width: 40 },
+              { key: "status", label: "STATUS", width: 13 },
+              { key: "archivedAt", label: "ARCHIVED", width: 12 },
+              { key: "nextOwner", label: "WAITING ON", width: 12 },
+              { key: "currentStep", label: "CURRENT STEP", width: 30 },
+              { key: "id", label: "ID", width: 38 }
+            ])
+          );
+        } catch (err) {
+          process.exitCode = handleError(err);
+        }
       }
-    });
+    );
   bindCommand(list, TRACK_LIST_CONTRACT);
 
   // ── tracks get ────────────────────────────────────────────────────────────
@@ -527,6 +567,7 @@ Notes:
           number: track.number,
           slug: track.slug,
           title: track.title,
+          shortTitle: track.shortTitle,
           status: track.status,
           currentStep: track.currentStep,
           nextOwner: track.nextOwner,
@@ -559,10 +600,16 @@ Notes:
   IT COUNTS LEAVES ONLY, at any nesting depth. A parent task is structure
   rather than work, so it is in neither number: one parent holding three
   children reads 0/3, never 0/4.
-  0/0 IS NOT AN ERROR AND IS NOT A REFUSAL. A track with no tasks reads 0/0,
-  and so does a track that belongs to another organization — the read is
-  anchored on your key's organization, so a foreign id matches no rows. The two
-  are deliberately indistinguishable.
+  IT COUNTS STEP LEAVES ONLY. A DECISION or a DEFINITION is content recorded on
+  the board — a choice that was taken, a rule that was settled — and is never
+  outstanding work, so it is in neither number either. byKind is the whole task
+  set partitioned, so you can see exactly what done/total left out. A STEP whose
+  only children are content is a LEAF rather than structure, so the work it
+  names does not vanish with them.
+  0/0 IS NOT AN ERROR AND IT MEANS A REAL, READABLE TRACK WITH NO WORK ON IT.
+  A track you cannot reach is a 404, and that one answer covers an absent id,
+  another organization's and an ungranted one alike — so the status code tells
+  you the track is unreachable without ever telling you whether it exists.
   Needs the "tracks:read" scope.`
     )
     .action(async (trackId: string) => {
@@ -570,7 +617,19 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const progress = await client.tracks.readRollup(trackId);
 
-        printRecord({ done: progress.done, total: progress.total });
+        // 🔴 `byKind` IS PRINTED BESIDE THE COUNTS BECAUSE THE COUNTS NARROWED.
+        // `done`/`total` count STEP leaves, so a reader seeing a denominator
+        // smaller than the plan needs the partition in the same answer — a
+        // number that excludes rows without saying which is a number nobody can
+        // check. Flattened rather than nested: `printRecord` renders one level,
+        // and an object value would print as [object Object].
+        printRecord({
+          done: progress.done,
+          total: progress.total,
+          steps: progress.byKind.STEP,
+          decisions: progress.byKind.DECISION,
+          definitions: progress.byKind.DEFINITION
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -805,6 +864,59 @@ Notes:
     });
   bindCommand(sectionRename, TRACK_RENAME_SECTION_CONTRACT);
 
+  const sectionList = section
+    .command("list")
+    .description("The track's whole document tree, prose included")
+    .argument("<trackId>", "The track to read")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks section list 11111111-1111-4111-8111-111111111111
+  $ nexus tracks section list 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THE SECTION TREE IS NOT THE TASK TREE. Sections are the track's DOCUMENT — an
+  outline with prose under each heading. Tasks are the work, and no task belongs
+  to a section: they are two independent hierarchies over one track. "nexus
+  tracks task list" is the other one.
+  ROWS ARRIVE IN "path" ORDER, so every parent precedes its children and the
+  tree builds in one pass. "path" is parent/child, so string order is
+  depth-first order. POSITION ORDERS SIBLINGS and is what the board shows.
+  BODY IS THE PROSE AND IS NEVER NULL. A section nobody has written under
+  carries the empty string, so branching on null branches on a value this API
+  does not produce. Use --json to read it; the table shows a length only.
+  IT IS NOT PAGED, and there is no --limit. An outline only means anything
+  whole, because parentSectionId has to resolve inside the answer.
+  A FOREIGN TRACK AND AN ABSENT ONE ARE BOTH REFUSED WITH 404, IDENTICALLY.
+  You cannot tell them apart and that is deliberate: a different answer would
+  tell you whether another organisation's track id exists.
+  Needs the "track_sections:read" scope, which a key holding
+  "track_sections:write" already satisfies.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.listSections(trackId);
+
+        printEnvelope(result, () =>
+          printTable(
+            result.sections.map((s) => ({ ...s, bodyChars: s.body.length })),
+            [
+              { key: "path", label: "PATH", width: 40 },
+              { key: "title", label: "TITLE", width: 40 },
+              { key: "position", label: "POS", width: 5 },
+              { key: "bodyChars", label: "PROSE", width: 7 },
+              { key: "id", label: "ID", width: 38 }
+            ]
+          )
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(sectionList, TRACK_LIST_SECTIONS_CONTRACT);
+
   // ── tracks task ───────────────────────────────────────────────────────────
   const task = tracks.command("task").description("Work with the tasks of a track");
 
@@ -821,13 +933,20 @@ Examples:
   $ nexus tracks task ready 11111111-1111-4111-8111-111111111111 --limit 5
 
 Notes:
-  A TRACK IN ANOTHER ORGANISATION ANSWERS EMPTY, NOT 404. The read is anchored
-  on your API key's organisation, so a foreign id matches no row and returns
-  exactly what a real track with nothing ready returns. An empty answer is
-  therefore not proof the track exists.
+  A FOREIGN TRACK AND AN ABSENT ONE ARE BOTH REFUSED WITH 404, IDENTICALLY.
+  You cannot tell them apart and that is deliberate: a different answer would
+  tell you whether another organisation's track id exists.
   gate: true MEANS THE TASK WILL REFUSE ITS OWN COMPLETION WITHOUT EVIDENCE.
   It travels with the row so you know before you start, not at the moment you
   tick the box.
+  ONLY STEP TASKS ARE EVER IN THIS SET. A DECISION or a DEFINITION is content
+  recorded on the board, so it can never be picked up and is not offered here.
+  It can still BLOCK: an unticked content row somebody drew an edge from holds
+  its dependents exactly as a step would, because dropping it would release work
+  rather than merely show less. Run "nexus tracks task list" to see everything.
+  A TASK WAITING ON A SECTION PARENT APPEARS HERE ONCE THAT PARENT'S SUBTREE IS
+  DONE. Nobody has to tick the parent: a blocker with children is satisfied by
+  every STEP leaf beneath it being done, the same set the rollup counts.
   A TASK ANOTHER AGENT HOLDS IS STILL IN THIS LIST, and the rows do not say so.
   The query tests done, leaf and blocker state and never reads the claim, so
   READY means unblocked rather than unattended. Read the task itself with
@@ -853,6 +972,68 @@ Notes:
       }
     });
   bindCommand(taskReady, TRACK_LIST_READY_TASKS_CONTRACT);
+
+  const taskList = task
+    .command("list")
+    .description("The track's whole plan — every task, at every depth")
+    .argument("<trackId>", "The track to read")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks task list 11111111-1111-4111-8111-111111111111
+  $ nexus tracks task list 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THIS IS NOT "nexus tracks task ready". That one answers what can be picked up
+  right now and hides everything done, everything with children, and everything
+  waiting on a blocker. This answers what the plan CONTAINS, so a task you
+  finished is here and nowhere else — it is the only way to read or audit a
+  board whole.
+  IT IS NOT PAGED, and there is no --limit. The tree only means anything whole:
+  parentTaskId has to resolve inside the answer, and position is unique per
+  PARENT rather than per track, so a page would hand you a forest of orphans in
+  an order you could not restore.
+  ROWS ARE GROUPED BY PARENT, THEN BY position. Sorting the flat array by
+  position alone interleaves the branches. Group by parentTaskId first.
+  KIND SAYS WHAT THE ROW IS. STEP is work and is the only kind the rollup counts
+  or the ready set offers; DECISION and DEFINITION are content recorded on the
+  board. Everything is listed here, including the content — this is the board,
+  not the burndown.
+  READ banner FIRST ON EVERY ROW. It is the only place that says whether another
+  agent is on a task, how long ago it was heard from, and the command to take it.
+  A FOREIGN TRACK AND AN ABSENT ONE ARE BOTH REFUSED WITH 404, IDENTICALLY.
+  You cannot tell them apart and that is deliberate: a different answer would
+  tell you whether another organisation's track id exists.
+  Needs the "track_tasks:read" scope.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.listTasks(trackId);
+
+        printEnvelope(result, () =>
+          // 🔴 `DONE` IS A COLUMN RATHER THAN A FILTER, for the reason
+          // `tracks list` gives about ARCHIVED: this read deliberately shows
+          // finished work beside open work, and without the column the one view
+          // that shows both cannot tell them apart. `KIND` is here for the same
+          // reason one layer over — a DEFINITION and a STEP look identical by
+          // title, and telling them apart is the whole point of the field.
+          printTable(result.tasks, [
+            { key: "title", label: "TITLE", width: 48 },
+            { key: "kind", label: "KIND", width: 11 },
+            { key: "gate", label: "GATE", width: 6 },
+            { key: "doneAt", label: "DONE", width: 12 },
+            { key: "position", label: "POS", width: 5 },
+            { key: "parentTaskId", label: "PARENT", width: 38 },
+            { key: "id", label: "ID", width: 38 }
+          ])
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(taskList, TRACK_LIST_TASKS_CONTRACT);
 
   const taskGet = task
     .command("get")
@@ -913,6 +1094,10 @@ Notes:
   can recognise it; the value here is your own agent's id, which the route
   resolves against the OPEN agents of this task's track. A name is a 400 — the
   field is validated as a UUID before the route runs.
+  WHERE THAT ID COMES FROM: "nexus tracks agent open" opens an agent on a track
+  and prints its id, and "nexus tracks agent list" shows the ones already OPEN
+  there. Claiming neither creates an agent nor falls back to an implicit one, so
+  a caller holding no id opens one first rather than looking for a flag here.
   THE BANNER ON EVERY TASK READ NAMES THIS COMMAND, and that string is
   generated from this registration. It is not a copy you may edit.
   Needs the "track_tasks:write" scope.`
@@ -995,6 +1180,12 @@ Notes:
   planner in the organisation behind one another for nothing.
   BOTH ENDPOINTS MUST BE TASKS OF THE TRACK NAMED IN THE ARGUMENT. A task from
   another track is a 404, not a cross-track edge.
+  A BLOCKER WITH CHILDREN IS SATISFIED BY ITS SUBTREE, NOT BY ITS OWN TICK. So a
+  --blocker may name a section parent: it releases what it holds once every STEP
+  leaf beneath it is done, which is exactly the set "nexus tracks rollup" counts.
+  You do not have to tick the parent, and you may.
+  EVERY OTHER BLOCKER IS RELEASED BY TICKING THAT ROW ITSELF — a task with no
+  children of its own, and any DECISION or DEFINITION whatever hangs under it.
   Needs the "track_tasks:write" scope.`
     )
     .action(async (trackId: string, opts: { blocker: string; blocked: string }) => {
@@ -1011,6 +1202,53 @@ Notes:
       }
     });
   bindCommand(taskEdge, TRACK_CREATE_TASK_EDGE_CONTRACT);
+
+  const taskEdges = task
+    .command("edges")
+    .description("What blocks what, inside this track's plan")
+    .argument("<trackId>", "The track whose plan to read")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks task edges 11111111-1111-4111-8111-111111111111
+  $ nexus tracks task edges 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  "edges" READS AND "edge" WRITES. This one takes the track and nothing else;
+  "nexus tracks task edge" adds one and requires --blocker and --blocked. A
+  mistyped read lists; a mistyped write refuses on the missing options.
+  THIS IS WHAT ACCOUNTS FOR A TASK "nexus tracks task ready" WITHHOLDS. Ready
+  answers what can be picked up NOW; "task list" answers what the plan contains.
+  The difference between the two is the set nothing else could explain — and a
+  task's blockers are the edges naming it as blockedTaskId. An open task with no
+  such edge is held by an unticked ancestor or by its own children instead.
+  IT IS UNORDERED. The row carries no position and the table has no ordering
+  column, so no order is promised and none should be relied on.
+  IT CARRIES NO CYCLE INFORMATION. Refusing a circle is the write path's job,
+  inside a lock over a snapshot this read does not have.
+  A FOREIGN TRACK AND AN ABSENT ONE ARE BOTH REFUSED WITH 404, IDENTICALLY.
+  You cannot tell them apart and that is deliberate: a different answer would
+  tell you whether another organisation's track id exists.
+  Needs the "track_tasks:read" scope.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const result = await client.tracks.listTaskEdges(trackId);
+
+        printEnvelope(result, () =>
+          printTable(result.edges, [
+            { key: "blockerTaskId", label: "BLOCKER (finishes first)", width: 38 },
+            { key: "blockedTaskId", label: "BLOCKED (waits)", width: 38 },
+            { key: "id", label: "ID", width: 38 }
+          ])
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+  bindCommand(taskEdges, TRACK_LIST_TASK_EDGES_CONTRACT);
 
   // ── tracks plan ───────────────────────────────────────────────────────────
   const plan = tracks.command("plan").description("Import a whole plan into a track");
@@ -1035,6 +1273,14 @@ Notes:
   [A [A1, A2 [A2a]], B] the indices are 0:A 1:A1 2:A2 3:A2a 4:B. Getting this
   wrong FAILS SILENTLY — every edge still inserts, every count still matches,
   and the dependencies land on the wrong tasks with no error to read.
+  SAY WHAT EACH ENTRY IS, WITH kind. STEP is work and is the default; DECISION
+  and DEFINITION are content — a choice you are recording, a rule or an axis you
+  are settling. Only STEP counts toward the rollup and only STEP is ever offered
+  by "tracks task ready", so importing prose without a kind puts it in the
+  denominator for good. It does NOT propagate to children: a DEFINITION under a
+  STEP is the ordinary shape, so each node declares its own.
+    {"tasks":[{"title":"Rule: every fix ships with its judge","kind":"DEFINITION"},
+              {"title":"Extract the lifecycle skeleton"}]}
   IT IS ALL OR NOTHING. Any refusal — a circle, an acceptance over 400
   characters, a missing parent — rolls the entire import back, so a half
   imported plan is not a state this command can leave behind.
@@ -1060,7 +1306,26 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
-  bindCommand(planImport, TRACK_IMPORT_PLAN_CONTRACT);
+  // `kind` SITS ON A PLAN NODE, AT EVERY DEPTH, AND NO FLAG CAN REACH IT. A plan
+  // is a tree of tasks and each node declares its own kind — a DEFINITION under a
+  // STEP is the ordinary shape, which is exactly why it does not propagate — so a
+  // `--kind` could only ever set one of many. The whole tree arrives through
+  // `--body`, which on THIS leaf really is the JSON body (`--body <json>`, a file
+  // path or `-` for stdin), unlike `channel whatsapp template create` where
+  // `--body` is message text and the JSON arrives on `--body-file`.
+  //
+  // Four paths rather than one because `TrackPlanNodeSchema` declares its nesting
+  // with an explicit depth of four rather than a `z.lazy()` recursion — the
+  // contract's own refusal of an attacker-controlled recursion depth — so the
+  // projection sees four distinct paths for one field.
+  bindCommand(planImport, TRACK_IMPORT_PLAN_CONTRACT, {
+    "Body.tasks[].kind": "--body only; one kind per node, and a plan is a tree of nodes",
+    "Body.tasks[].children[].kind": "--body only; one kind per node, and a plan is a tree of nodes",
+    "Body.tasks[].children[].children[].kind":
+      "--body only; one kind per node, and a plan is a tree of nodes",
+    "Body.tasks[].children[].children[].children[].kind":
+      "--body only; one kind per node, and a plan is a tree of nodes"
+  });
 
   // ── tracks agent ──────────────────────────────────────────────────────────
   const agent = tracks.command("agent").description("Work with the agents on a track");

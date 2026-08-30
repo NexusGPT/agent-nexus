@@ -22,9 +22,28 @@
  * `scripts/verify-docs-links.ts`, which checks the same tree, is referenced by a
  * comment in one backend spec, and is invoked by no CI job at all.
  *
+ * ── DIRECTION 0: THE PAGE EXISTS AT ALL ─────────────────────────────────────
+ *
+ * 🚨 EVERY FRESHNESS CASE HERE ITERATES THE FILES ON DISK, SO UNTIL THE SET
+ * EQUALITY BELOW LANDED, A COMMAND WITH NO PAGE WAS INVISIBLE TO ALL OF THEM.
+ * `for (const file of pages)` asks whether each file matches its projection —
+ * a question a missing file never enters. That is a control that is silent on
+ * the green path: it proves a page that EXISTS was generated and says nothing
+ * about a command whose page is ABSENT.
+ *
+ * `nexus score` shipped with no page and this suite was 14/14 GREEN, verified
+ * by holding the page out. So the first case is a SET EQUALITY between the
+ * namespaces the walk produces and the `.mdx` files under `commands/` — a
+ * command with no page and a page for a command that no longer exists both go
+ * RED, because both are the same broken claim that these docs enumerate the CLI.
+ *
+ * The freshness cases below are downstream of it and stay that way: they get to
+ * assume the file is there because this one has already proven it.
+ *
  * ── THE TWO DIRECTIONS, WHICH ARE ONE ASSERTION ─────────────────────────────
  *
- * A generated page rots two ways and a single equality catches both:
+ * Given the page exists, a generated page rots two ways and a single equality
+ * catches both:
  *   · A HUMAN EDITED IT. The file no longer matches its projection.
  *   · THE SOURCE MOVED. The projection no longer matches the file.
  * Neither has a distinct signature and neither needs one — the repo's idiom for
@@ -261,6 +280,64 @@ describe("CLI docs are generated, and authored pages carry no command reference"
   it("the projection produces a real population", () => {
     expect(namespaces.length).toBeGreaterThan(40);
     expect(namespaces.every((n) => n.commands.length >= 0)).toBe(true);
+  });
+
+  // ── Direction 0: the page EXISTS at all. ────────────────────────────────────
+
+  it("the set of namespaces and the set of pages under commands/ are the same set", () => {
+    // 🚨 EVERY OTHER CASE IN THIS FILE ITERATES THE FILES ON DISK, SO A COMMAND
+    // WITH NO PAGE IS INVISIBLE TO ALL OF THEM. The equality below this one
+    // starts `for (const file of pages)` and asks whether each file matches its
+    // projection — a question a missing file never enters. That is a control
+    // that is silent on the green path: it proves a page that EXISTS was
+    // generated and says nothing about a command whose page is ABSENT.
+    //
+    // Measured on `origin/staging` at f7ecbc7dca: `nexus score` is a plain,
+    // visible `program.command("score")` with two subcommands, a v1 contract
+    // binding and an `AUTHORED_FRONTMATTER` entry — and it had no page. Holding
+    // `score.mdx` out of the tree left this suite 14/14 GREEN. The CLI's
+    // published surface under-reported what the CLI does, and nothing here could
+    // say so.
+    //
+    // ── WHY THIS IS A SET EQUALITY AND NOT TWO SEPARATE ASSERTIONS ───────────
+    //
+    // The mirror defect costs the same and reads the same to a customer: a page
+    // committed for a namespace that no longer exists is a documented command
+    // that errors when typed. `sync-docs-to-zero-entropy.ts` walks the
+    // FILESYSTEM, so an orphan page keeps being pushed to the customer search
+    // index under a `https://gpt.nexus/docs/...` URL long after the command is
+    // gone. Both directions are the same claim — the docs enumerate the CLI —
+    // so they are one assertion and neither can be tightened without the other.
+    //
+    // NOT covered by the marker cases below, either. "every page marked
+    // generated matches a fresh projection" does report an orphan, but only for
+    // a page CARRYING the marker; strip the marker and it falls through to the
+    // `orphaned.length <= 2` ratchet, which counts missing markers and never
+    // asks whether the namespace exists. A hand-written page for a deleted
+    // command satisfies both.
+    //
+    // The held pages need no exemption: `agent-eval` and `agent-skill` are
+    // authored rather than projected, but they are authored pages FOR REAL
+    // NAMESPACES, so they belong in this set on both sides. A page earns its
+    // place here by naming a command, not by how it was produced.
+    const pageNames = pages.map((file) => file.replace(/\.mdx$/, "")).sort();
+    const namespaceNames = namespaces.map((n) => n.name).sort();
+
+    // Anti-vacuity, BOTH halves, and neither is optional: two empty sets are
+    // equal, so a broken tree walk and a missing docs directory each satisfy the
+    // equality below while reading exactly like a clean pass. A uniform result
+    // across every row is the shape of a broken instrument, not a clean world.
+    expect(namespaceNames.length).toBeGreaterThan(40);
+    expect(pageNames.length).toBeGreaterThan(40);
+
+    // Reported as two named lists rather than one set-equality diff: "score has
+    // no page" and "score.mdx documents nothing" call for opposite fixes — run
+    // the generator, or delete the page — and a bare `toEqual` on two sorted
+    // arrays makes the reader work out which direction they are looking at.
+    const undocumented = namespaceNames.filter((name) => !pageNames.includes(name));
+    const orphaned = pageNames.filter((name) => !namespaceNames.includes(name));
+
+    expect({ undocumented, orphaned }).toEqual({ undocumented: [], orphaned: [] });
   });
 
   // ── Direction 1 + 2: hand-edited, and stale. One equality. ──────────────────

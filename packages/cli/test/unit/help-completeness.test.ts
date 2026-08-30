@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { DbEnum, NodeType } from "@nexus/types";
 import {
+  AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1,
   AgentToolConfigTypeSchema,
   ApiTriggerTypeSchema,
   BatchRequestBodySchema,
@@ -11,7 +12,8 @@ import {
   ExecutionStatusSchema,
   ListWorkflowsParamsSchema,
   UpdateAgentToolBodySchema,
-  UpsertConversationEvalWebhookBodySchema
+  UpsertConversationEvalWebhookBodySchema,
+  WritableAgentToolConfigTypeSchema
 } from "@nexus/types/public-api-v1";
 import { Command } from "commander";
 import { test } from "vitest";
@@ -148,18 +150,73 @@ test("every agent subcommand has an Examples block", () => {
 
 // ── agent-tool ────────────────────────────────────────────────────────────
 
+/**
+ * 🚨 THE ENUM TO READ HERE IS THE **WRITE** ONE, AND READING THE WRONG ONE FAILS
+ * IN BOTH DIRECTIONS.
+ *
+ * `AgentToolConfigTypeSchema` is the READ enum — it types the response DTO, so it
+ * must name every type a stored row can hold. `WritableAgentToolConfigTypeSchema`
+ * is what the create and update BODIES accept, and it is strictly narrower:
+ * `AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1` holds back types with no equip
+ * surface behind them.
+ *
+ * This test asserted against the read enum and went red the hour `MEMORY` was
+ * added to it — `create --help omits type MEMORY` — for a value `create` must
+ * never offer. Satisfying that by listing MEMORY in the help would have made
+ * `--help` advertise a `--type` the API now refuses, which is the exact class of
+ * defect this whole file exists to catch.
+ *
+ * The second arm is the one that keeps the split honest in the other direction:
+ * a withheld type must be ABSENT from the write help. Without it, deleting the
+ * exclusion list would leave every assertion here green.
+ */
 test("agent-tool create --help lists exactly the tool types the contract accepts", () => {
   const help = helpFor(registerAgentToolCommands, ["agent-tool", "create"]);
 
-  for (const type of AgentToolConfigTypeSchema.options) {
-    assert.ok(help.includes(type), `create --help omits type ${type}`);
+  for (const type of WritableAgentToolConfigTypeSchema.options) {
+    assert.ok(help.includes(type), `create --help omits writable type ${type}`);
   }
+  for (const type of AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1) {
+    assert.ok(
+      !new RegExp(`--type ${type}\\b`).test(help),
+      `create --help offers --type ${type}, which the API refuses`
+    );
+  }
+  // The exclusion is real and not an empty list quietly satisfying both arms.
+  assert.ok(
+    AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1.length > 0 &&
+      WritableAgentToolConfigTypeSchema.options.length < AgentToolConfigTypeSchema.options.length,
+    "the write enum is not narrower than the read enum — the split is inert"
+  );
   // WEBHOOK was in the shipped help and its fourth example. It is not a type.
   assert.ok(!AgentToolConfigTypeSchema.options.includes("WEBHOOK" as never));
   for (const example of examplesIn(help)) {
     assert.ok(
       !/--type WEBHOOK\b/.test(example),
       `example uses a type outside the enum: ${example}`
+    );
+  }
+});
+
+/**
+ * The read half of the same split, asserted where the write half is asserted so
+ * the two cannot drift apart unnoticed.
+ *
+ * A withheld type must still be READABLE: `AgentToolConfigSchema.type` is the
+ * response DTO, and dropping a member from it makes an existing row of that type
+ * unserialisable — a 500 on a GET, strictly worse than being unwritable. That is
+ * the whole reason this is a split rather than a narrowing.
+ */
+test("a type withheld from the write surface is still readable on the response", () => {
+  for (const type of AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1) {
+    assert.ok(
+      AgentToolConfigTypeSchema.options.includes(type),
+      `${type} is excluded from writes but also missing from the read enum — a GET on such a row cannot be serialised`
+    );
+    assert.equal(
+      UpdateAgentToolBodySchema.safeParse({ type }).success,
+      false,
+      `update accepts type ${type}, which the exclusion list says it refuses`
     );
   }
 });

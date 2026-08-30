@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 49 command groups, 519 invocable subcommands
+- 52 command groups, 546 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
@@ -813,7 +813,11 @@ Place in your project root. The CLI walks up the directory tree to find it. Cons
 
 ### CI sweep gate
 
-Every PR that touches `packages/cli/**` runs `.github/workflows/cli-sweep.yml`, which:
+Every ready PR reports the `CLI: Sweep` context, which is a **required check** on `staging` and `main`. It is the `cli-sweep` job of `.github/workflows/pr-checks.yml`, and it runs its work only when the PR touches the CLI's package graph — `@agent-nexus/cli` itself, or `@agent-nexus/sdk` / `@nexus/types`, which it depends on. On any other PR it reports `skipped`, which branch protection accepts.
+
+It must stay in `pr-checks.yml` rather than move to a workflow of its own: a workflow-level `paths:` filter makes a skipped workflow report **no context at all**, and protection then waits forever for a check that never arrives. A job-level `if:` reports `skipped` instead. See `.github/required-contexts.json`.
+
+When it runs, it:
 
 1. Builds the CLI from PR sources (not npm)
 2. Authenticates against staging with a CI service profile

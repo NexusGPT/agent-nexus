@@ -52,7 +52,12 @@ import { isConfirmable } from "./util/confirm";
  * is why {@link Projection.unjoined} is a FIELD rather than an assumption. A
  * leaf the root program does not carry is REPORTED, never dropped and never
  * guessed at, and the spec asserts the two sets are equal in both directions.
- * Measured today: 586 nodes, 586 root-program paths, 0 either way.
+ * That assertion lives in `cli-surface.codegen.test.ts` and it runs on every
+ * change, which is a stronger statement than any reading quoted here: a count
+ * written in this docblock said "586 nodes, 586 root-program paths" against a
+ * live 642 and 642, and being stale cost it nothing because nothing read it.
+ * The equality is the invariant; the cardinality is `cli-surface.generated.ts`'s
+ * header, which is regenerated.
  *
  * ── WHAT IS DERIVED, AND WHAT COULD NOT BE ──────────────────────────────────
  *

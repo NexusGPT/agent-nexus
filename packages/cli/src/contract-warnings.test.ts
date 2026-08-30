@@ -113,9 +113,13 @@ describe("what the user does NOT see", () => {
   });
 
   it("says nothing for an UNCHECKED read", () => {
-    // `unchecked` is a fact about the CONTRACT, not about this run — 113 routes
-    // publish no schema. Printing it would put a line on almost every command
-    // and teach the reader to stop looking.
+    // `unchecked` is a fact about the CONTRACT, not about this run — a large
+    // minority of v1 routes publish no response schema at all. Printing it
+    // would put a line on almost every command and teach the reader to stop
+    // looking. The count lives in the generated manifest's header, which is
+    // asserted against the shipped entries; this package cannot reach it, so
+    // restating it here only bought a number that rotted (it read 113 against
+    // a true 104).
     createContractReporter({})?.({
       ...MISMATCH,
       state: "unchecked",

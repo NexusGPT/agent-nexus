@@ -92,9 +92,15 @@ export const EXIT_VERIFICATION_NOT_YOURS = EXIT_CODES.unmeasured;
  *
  * They are `.alias()` calls on `upgrade` rather than separate commands, which is
  * this CLI's own idiom (`task-eval` → `eval`, `workspace unmount` → `umount`).
- * One command, one help entry reading `upgrade|update|latest|up`, and a guess
- * that misses now prints "unknown command" and points at `--help` instead of
- * silently reinstalling.
+ * One command, one help entry, and a guess that misses now prints "unknown
+ * command" and points at `--help` instead of silently reinstalling.
+ *
+ * ⚠️ COMMANDER RENDERS ONLY THE FIRST ALIAS in a usage line, so that entry reads
+ * `upgrade|update` — not `upgrade|update|latest|up`. `task-eval|eval` hides this,
+ * because one alias is the whole list. So `latest` and `up` would be as
+ * undiscoverable as the eighteen were, and the Notes block below names all three
+ * explicitly to close that gap. Verify against the binary, never against this
+ * comment: `node dist/index.js --help | grep upgrade`.
  *
  * ⚠️ `index.ts` still needs the WORDS, because it reads `process.argv[2]` to
  * skip the auto-update after the upgrade ran. Commander reports an aliased
@@ -433,6 +439,11 @@ Examples:
   $ nexus upgrade
 
 Notes:
+  IT ANSWERS TO FOUR SPELLINGS: "upgrade", "update", "latest" and "up". The usage
+  line above shows only the first alias, so this is the one place all four are
+  written down. Nothing else upgrades the CLI — a word that is not on this list
+  is not a spelling of this command.
+
   IT NEEDS NO API KEY, NO BASE URL AND NO PROFILE. Unlike every resource command
   group, this one does not call the Public API — it manages your local CLI
   install and touches nothing in your workspace. An unauthenticated or

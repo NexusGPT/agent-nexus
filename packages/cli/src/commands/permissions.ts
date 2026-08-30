@@ -56,7 +56,8 @@ const GENERIC_GRANT_RESOURCE_TYPES: Record<GenericGrantResourceType, true> = {
   document: true,
   deployment: true,
   feature: true,
-  vibe_app: true
+  vibe_app: true,
+  track: true
 };
 
 const RESOURCE_TYPE_NAMES = Object.keys(GENERIC_GRANT_RESOURCE_TYPES).sort().join(", ");

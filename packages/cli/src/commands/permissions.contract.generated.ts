@@ -29,7 +29,8 @@ export const PERMISSIONS_GRANT__BODY_RESOURCE_TYPE = {
     "document",
     "deployment",
     "feature",
-    "vibe_app"
+    "vibe_app",
+    "track"
   ]
 } as const satisfies ContractEnum;
 
@@ -64,7 +65,8 @@ export const PERMISSIONS_LIST_RESOURCE_ACCESS__PATH_VARS_RESOURCE_TYPE = {
     "document",
     "deployment",
     "feature",
-    "vibe_app"
+    "vibe_app",
+    "track"
   ]
 } as const satisfies ContractEnum;
 
@@ -79,7 +81,8 @@ export const PERMISSIONS_REVOKE__BODY_RESOURCE_TYPE = {
     "document",
     "deployment",
     "feature",
-    "vibe_app"
+    "vibe_app",
+    "track"
   ]
 } as const satisfies ContractEnum;
 
@@ -122,7 +125,7 @@ export const PERMISSIONS_GRANT_CONTRACT = {
   method: "POST",
   route: "/public/v1/permissions/grant",
   fields: [
-    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app"] },
+    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app", "track"] },
     { path: "Body.resourceId", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.subjectType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["user", "group", "organization", "api_key", "role"] },
     { path: "Body.subjectId", slot: "Body", type: "string", required: true, depth: 0 },
@@ -135,7 +138,7 @@ export const PERMISSIONS_LIST_RESOURCE_ACCESS_CONTRACT = {
   method: "GET",
   route: "/public/v1/permissions/:resourceType/:resourceId/access",
   fields: [
-    { path: "PathVars.resourceType", slot: "PathVars", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app"] },
+    { path: "PathVars.resourceType", slot: "PathVars", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app", "track"] },
     { path: "PathVars.resourceId", slot: "PathVars", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -145,7 +148,7 @@ export const PERMISSIONS_REVOKE_CONTRACT = {
   method: "POST",
   route: "/public/v1/permissions/revoke",
   fields: [
-    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app"] },
+    { path: "Body.resourceType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["agent", "workflow", "credential", "access_card", "template", "document", "deployment", "feature", "vibe_app", "track"] },
     { path: "Body.resourceId", slot: "Body", type: "unknown", required: true, depth: 0 },
     { path: "Body.subjectType", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["user", "group", "organization", "api_key", "role"] },
     { path: "Body.subjectId", slot: "Body", type: "string", required: true, depth: 0 },

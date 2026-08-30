@@ -26,6 +26,21 @@ export type TrackNextOwner = "CUE" | "USER" | "EVENT";
 export type TrackStatus = "PLANNED" | "IN_PROGRESS" | "BLOCKED" | "IN_REVIEW" | "DONE";
 
 /**
+ * What a task row IS.
+ *
+ * 🔴 ONLY `STEP` IS WORK. A roll-up counts `STEP` leaves and nothing else, and
+ * the ready set offers `STEP` rows and nothing else — `DECISION` and
+ * `DEFINITION` are content recorded on the board, a choice that was taken or a
+ * rule that was settled, and they are outstanding work in neither direction.
+ *
+ * ⚠️ IT IS THE DEFAULT EVERYWHERE. A row created without one, and every row
+ * written before the field existed, is a `STEP`. So filing prose as a task
+ * without naming its kind puts it in the denominator — which is the whole reason
+ * `TrackPlanNode.kind` exists.
+ */
+export type TrackTaskKind = "STEP" | "DECISION" | "DEFINITION";
+
+/**
  * Create one track.
  *
  * 🔴 `number` IS NOT A FIELD HERE AND MAY NEVER BE SENT. The server allocates it
@@ -40,6 +55,14 @@ export interface CreateTrackBody {
   /** Unique per organization. 1-64 chars of `[a-z0-9-]`. A duplicate is a 409. */
   slug: string;
   title: string;
+  /**
+   * A hand-written short name, at most 5 words and 80 characters. Omit or send
+   * `null` to leave the track uncurated — a reader then falls back to `title`.
+   *
+   * The server never derives one: a read-time truncation cannot honour a WORD
+   * count, so an uncurated track simply has none.
+   */
+  shortTitle?: string | null;
   /** What happens next, one line, at most 400 characters. */
   currentStep?: string | null;
   /** Who is waited on. `USER` when omitted. */
@@ -57,6 +80,14 @@ export interface CreateTrackResponse {
   number: number;
   slug: string;
   title: string;
+  /**
+   * The curated short name, or `null` when nobody wrote one.
+   *
+   * 🔴 `null` MEANS UNCURATED AND YOU FALL BACK TO `title`. It is never
+   * "pending" and never `""` — the server refuses a blank at both the contract
+   * and the column, so those are the only two values you can receive.
+   */
+  shortTitle: string | null;
   currentStep: string | null;
   nextOwner: TrackNextOwner;
 }
@@ -163,6 +194,8 @@ export interface Track {
   number: number;
   slug: string;
   title: string;
+  /** The curated short name, or `null`. See {@link CreateTrackResponse}. */
+  shortTitle: string | null;
   status: TrackStatus;
   /** One line, at most 400 characters. `null` until somebody sets one. */
   currentStep: string | null;
@@ -204,8 +237,12 @@ export interface ListTracksParams {
    *
    * 🔴 IT IS SERVER-ISSUED AND ITS SHAPE IS NOT PART OF THE PROMISE. Do not
    * build one from a track's `number`: the token carries the filters it was
-   * issued under, and a cursor used with a different `status` or `archived` is
-   * REFUSED rather than quietly resuming inside a different list.
+   * issued under, and a cursor used with a different `status`, `archived` or
+   * `nextOwner` is REFUSED rather than quietly resuming inside a different list.
+   *
+   * ⚠️ CURSORS ISSUED BEFORE `nextOwner` EXISTED ARE REFUSED. The fingerprint
+   * gained a segment, so a token held across that upgrade no longer parses.
+   * Drop it and read from the top; nothing else is affected.
    */
   cursor?: string;
   /** Narrow the page to one status. Every status when omitted. */
@@ -218,12 +255,28 @@ export interface ListTracksParams {
    * to hand back to `archive(id, { archived: false })`.
    */
   archived?: "exclude" | "only" | "include";
+  /**
+   * Narrow to the tracks waiting on one KIND of actor. Every owner when omitted.
+   *
+   * 🔴 THIS IS THE "WAITING ON ME" FILTER, AND IT HAS TO BE SENT RATHER THAN
+   * APPLIED LOCALLY. A page is at most 200 rows, so filtering what you already
+   * fetched under-reports on any organization past one page — and it renders as
+   * "nobody is waiting on you", which nobody questions.
+   *
+   * ⚠️ A KIND, NEVER A PERSON. `"USER"` means a human is due next, not that
+   * YOU are — this API has no per-user narrowing anywhere.
+   *
+   * `list({ nextOwner: "USER", limit: 1 })` reads `total` as the count for a
+   * badge without paging.
+   */
+  nextOwner?: TrackNextOwner;
 }
 
 export interface ListTracksResponse {
   tracks: Track[];
   /**
-   * Every track matching `status` and `archived`, ignoring `limit` and `cursor`.
+   * Every track matching `status`, `archived` and `nextOwner`, ignoring `limit`
+   * and `cursor`.
    *
    * Not the size of this page — `tracks.length` is that. The page and this count
    * are built from one filter expression on the server, so a total you cannot
@@ -252,6 +305,18 @@ export interface ListTracksResponse {
 export interface TrackRollup {
   done: number;
   total: number;
+  /**
+   * Every task of the track, by kind — parents included, done and open alike.
+   *
+   * 🔴 IT IS HERE BECAUSE `done`/`total` NARROWED. They count STEP leaves; a
+   * `DECISION` or a `DEFINITION` is content recorded on the board and is in
+   * neither number. Without this you would watch a denominator fall with no way
+   * to see where it went. The sum of these three is the whole task set.
+   *
+   * ⚠️ EVERY KEY IS ALWAYS PRESENT, `0` INCLUDED — so `byKind.DECISION` is a
+   * number on the ordinary track that has none, never `undefined`.
+   */
+  byKind: Record<TrackTaskKind, number>;
 }
 
 /** One track's progress inside a batched answer. */
@@ -286,6 +351,8 @@ export interface ReadyTrack {
   /** The name a person types and reads. The number means nothing outside your org. */
   slug: string;
   title: string;
+  /** The curated short name, or `null`. See {@link CreateTrackResponse}. */
+  shortTitle: string | null;
   /** One line, at most 400 characters. `null` until somebody sets one. */
   currentStep: string | null;
   nextOwner: TrackNextOwner;
@@ -305,6 +372,8 @@ export interface ListReadyTracksResponse {
 export interface ReadyTrackTask {
   id: string;
   title: string;
+  /** The curated short name, or `null`. See {@link CreateTrackResponse}. */
+  shortTitle: string | null;
   acceptance: string | null;
   /** `true` when ticking this task requires evidence. */
   gate: boolean;
@@ -319,6 +388,47 @@ export interface TrackEdgeCreated {
   id: string;
 }
 
+/**
+ * One task edge as a READER sees it — the row's own id, and both ends.
+ *
+ * ⚠️ `blockerTaskId` FINISHES FIRST, `blockedTaskId` WAITS — the same way round
+ * as `createTaskEdge`'s body, so what you read round-trips without inverting.
+ *
+ * ⚠️ NOT `TrackEdgeCreated`. That one is the *create* response and carries only
+ * the id; this is the row.
+ */
+export interface TrackTaskEdge {
+  id: string;
+  /** The task that must finish first. */
+  blockerTaskId: string;
+  /** The task that waits. */
+  blockedTaskId: string;
+}
+
+/**
+ * What blocks what, inside one track's plan.
+ *
+ * 🔴 THIS IS WHAT MAKES AN OPEN TASK THE READY SET WITHHOLDS EXPLAINABLE.
+ * `listTasks()` says which rows are open and `listReadyTasks()` says which of
+ * them can be picked up; the difference between the two is the set nothing
+ * could account for. A task's blockers are the edges naming it as
+ * `blockedTaskId`.
+ *
+ * ⚠️ UNORDERED — the row carries no position and the table has no ordering
+ * column, so no order is promised.
+ *
+ * ⚠️ NO CYCLE INFORMATION. Refusing a circle happens on the write path, inside
+ * a lock over a snapshot this read does not have.
+ *
+ * 🔴 A TRACK THAT IS NOT YOURS AND A TRACK THAT DOES NOT EXIST BOTH THROW 404,
+ * with the same message. You cannot tell them apart, deliberately — otherwise
+ * the refusal would tell you whether another organization's track id exists.
+ * Do not branch on the difference; there is none to branch on.
+ */
+export interface ListTrackTaskEdgesResponse {
+  edges: TrackTaskEdge[];
+}
+
 export interface TrackSection {
   id: string;
   trackId: string;
@@ -328,6 +438,33 @@ export interface TrackSection {
   path: string;
   title: string;
   position: number;
+  /**
+   * The section's prose. `""` when nobody has written any.
+   *
+   * ⚠️ NEVER `null`. The column is NOT NULL with an empty-string default, so
+   * "nobody wrote any" is `""` — branching on `null` here branches on a value
+   * this API does not produce.
+   */
+  body: string;
+}
+
+/**
+ * A track's whole document tree, prose included.
+ *
+ * ⚠️ ORDERED BY `path`, SO EVERY PARENT ARRIVES BEFORE ITS CHILDREN — `path` is
+ * `parent/child`, so string order is depth-first order and the tree builds in
+ * one pass. `position` decides SIBLING order and travels on each row, because
+ * siblings sort by slug under `path` and by `position` on the board.
+ *
+ * ⚠️ NOT PAGED, for `listTasks()`'s reason: an outline only means anything
+ * whole, because `parentSectionId` has to resolve inside the answer.
+ *
+ * 🔴 A TRACK THAT IS NOT YOURS AND A TRACK THAT DOES NOT EXIST BOTH THROW 404,
+ * with the same message — the same indistinguishability
+ * `ListTrackTaskEdgesResponse` records, and for the same reason.
+ */
+export interface ListTrackSectionsResponse {
+  sections: TrackSection[];
 }
 
 export interface RenameTrackSectionResponse {
@@ -350,7 +487,27 @@ export interface TrackTask {
   id: string;
   trackId: string;
   parentTaskId: string | null;
+  /**
+   * Where this task sits among its siblings, from 0.
+   *
+   * ⚠️ UNIQUE PER PARENT, NOT PER TRACK. It is the only thing that orders the
+   * plan, so a client that ignores it renders the steps in whatever sequence
+   * the response happened to arrive in — but sorting a flat list by it alone
+   * interleaves the branches. Group by `parentTaskId` first.
+   */
+  position: number;
+  /**
+   * What this row IS.
+   *
+   * 🔴 `STEP` IS WORK AND IS THE ONLY KIND ANY ROLL-UP COUNTS. `DECISION` and
+   * `DEFINITION` are content filed on the board — a choice taken, a rule or an
+   * axis settled — and they are absent from `done`, from `total` and from the
+   * ready set. Every row written before the field existed reads `STEP`.
+   */
+  kind: TrackTaskKind;
   title: string;
+  /** The curated short name, or `null`. See {@link CreateTrackResponse}. */
+  shortTitle: string | null;
   acceptance: string | null;
   /** `true` when ticking this task requires evidence. */
   gate: boolean;
@@ -367,6 +524,40 @@ export interface TrackTask {
    */
   doneByUserId: string | null;
   claimedByAgentId: string | null;
+  /**
+   * ISO-8601. When this row joined the plan.
+   *
+   * 🔴 IT IS HERE SO YOU CAN EXPLAIN A DENOMINATOR THAT MOVED. A roll-up is a
+   * snapshot, so a plan that GREW while work was being done reads as work going
+   * backwards — `5/20 → 6/20 → 6/36 → 9/136` is three tasks closed and 116
+   * added, and every one of those numbers was correct while the board looked
+   * frozen. With this beside `doneAt`, "closed in this window" and "added in
+   * this window" are both a filter over the plan you already have.
+   *
+   * ⚠️ THE ROW'S BIRTH, NOT THE PLAN'S. A plan imported in one call gives every
+   * task the same instant, so this separates added-later from added-at-import
+   * and cannot order what arrived together.
+   */
+  createdAt: string;
+}
+
+/**
+ * A track's whole plan.
+ *
+ * ⚠️ NOT PAGED, AND GROUPED BY `parentTaskId` THEN `position`. The tree only
+ * means anything whole: `parentTaskId` resolves inside this answer, and
+ * `position` is unique per PARENT, so sorting the flat array by it alone
+ * interleaves the branches.
+ *
+ * ⚠️ IT CARRIES EVERY KIND, INCLUDING THE ONES NO ROLL-UP COUNTS. This is the
+ * board, not the burndown. Filter on `kind` if you want only the work.
+ *
+ * 🔴 A TRACK THAT IS NOT YOURS AND A TRACK THAT DOES NOT EXIST BOTH THROW 404,
+ * with the same message — the same indistinguishability
+ * `ListTrackTaskEdgesResponse` records, and for the same reason.
+ */
+export interface ListTrackTasksResponse {
+  tasks: TrackTask[];
 }
 
 export interface ClaimTrackTaskResponse {
@@ -568,10 +759,31 @@ export interface ToggleTrackTaskBody {
  */
 export interface TrackPlanNode {
   title: string;
+  /**
+   * A hand-written short name for this task, at most 5 words and 80 characters.
+   * Omit or send `null` to leave it uncurated.
+   *
+   * 🔴 THE IMPORT IS THE ONLY DOOR A TASK IS BORN THROUGH, so this is the only
+   * place a task's short title can ever be set.
+   */
+  shortTitle?: string | null;
   /** One line. The server refuses more than 400 characters. */
   acceptance?: string | null;
   /** A gate blocks its whole ancestry from being ticked until it carries evidence. */
   gate?: boolean;
+  /**
+   * What this entry IS. `STEP` when omitted.
+   *
+   * 🔴 THE IMPORT IS THE ONLY DOOR A TASK IS BORN THROUGH, so this is the only
+   * place a kind can be declared. A plan whose prose entries do not name one
+   * becomes a plan of steps, and every one of them lands in the roll-up
+   * denominator.
+   *
+   * ⚠️ IT DOES NOT PROPAGATE TO `children`. A `DEFINITION` under a `STEP` is the
+   * ordinary shape — a rule recorded beneath the work it constrains — so each
+   * node declares its own.
+   */
+  kind?: TrackTaskKind;
   children?: TrackPlanNode[];
 }
 

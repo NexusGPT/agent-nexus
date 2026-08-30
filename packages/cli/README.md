@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 52 command groups, 546 invocable subcommands
+- 52 command groups, 547 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
@@ -813,7 +813,17 @@ Place in your project root. The CLI walks up the directory tree to find it. Cons
 
 ### CI sweep gate
 
-Every ready PR reports the `CLI: Sweep` context, which is a **required check** on `staging` and `main`. It is the `cli-sweep` job of `.github/workflows/pr-checks.yml`, and it runs its work only when the PR touches the CLI's package graph — `@agent-nexus/cli` itself, or `@agent-nexus/sdk` / `@nexus/types`, which it depends on. On any other PR it reports `skipped`, which branch protection accepts.
+Every ready PR reports the `CLI: Sweep` context. It is the `cli-sweep` job of `.github/workflows/pr-checks.yml`, and it runs its work only when the PR touches the CLI's package graph — `@agent-nexus/cli` itself, or `@agent-nexus/sdk` / `@nexus/types`, which it depends on. On any other PR it reports `skipped`, which branch protection accepts.
+
+> **Whether that context actually gates is not asserted here.** Branch protection lives on GitHub and no file in this repository can see it, so a sentence claiming the check is required goes wrong silently the moment it is armed or disarmed. This paragraph read "which is a **required check** on `staging` and `main`" while the context was required on neither — step 4 of the runbook below had never been performed — which made a red sweep read as blocking and its absence from a rollup read as impossible.
+>
+> `.github/required-contexts.json` declares the **intent**; `scripts/required-contexts.ts` reads it. Ask the live system rather than any prose:
+>
+> ```bash
+> pnpm dlx tsx scripts/required-contexts.ts --reconcile
+> ```
+>
+> That needs **admin** — `GET /branches/{b}/protection` is admin-only and the default `GITHUB_TOKEN` does not have it — so it cannot run in CI, and a declaration can sit unarmed indefinitely with nothing noticing. `--verify` (offline, and in CI via `Gate specs`) checks the declaration against the workflow, never against protection.
 
 It must stay in `pr-checks.yml` rather than move to a workflow of its own: a workflow-level `paths:` filter makes a skipped workflow report **no context at all**, and protection then waits forever for a check that never arrives. A job-level `if:` reports `skipped` instead. See `.github/required-contexts.json`.
 
@@ -836,6 +846,11 @@ The CI workflow needs a staging API key in repo secrets. Provision it like so:
 4. Promote `CLI: Sweep` to a required check on `staging` and `main` branch protection rules
 
 Until the secret is in place, the workflow fails at the "Authenticate against staging" step with a clear message — the job is intentionally advisory (not required) until provisioned.
+
+**Steps 1–3 are done and step 4 is not.** The secret is provisioned (the sweep authenticates and runs its leaves), so the promotion is now due — and it is a branch-protection edit, which needs repo admin. Two things to confirm first, because arming a context carelessly makes PRs unmergeable with nothing red to point at:
+
+- **Every open PR must already carry the row.** It does: a PR that touches no CLI file still reports `CLI: Sweep` as `skipping`, because the job-level `if:` skips the job rather than a `paths:` filter skipping the workflow. That is the entire reason this job lives in `pr-checks.yml`.
+- **It must be reliably green when it does run.** It was red on every CLI-touching PR until the sweep learned to SKIP a declared feature opt-out; confirm that fix is on `staging`, not merely merged into a cluster, before arming.
 
 ### Local sweep
 

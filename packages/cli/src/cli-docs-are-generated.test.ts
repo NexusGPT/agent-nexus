@@ -87,6 +87,39 @@ const COMMAND_DOCS = join(CLI_DOCS, "commands");
 const DOCS_ROOT = join(CLI_DOCS, "..");
 
 /**
+ * THE ANTI-VACUITY FLOOR, in ONE place. It was three separate `44` literals
+ * describing one fact, which is three things to drift and they drifted
+ * together: the tree held 50 projections against a floor of 44 and a comment
+ * saying 32. A floor six behind is this control switched off for six pages.
+ *
+ * ⚠️ A FLOOR IS THE RIGHT SHAPE HERE AND AN EXACT PIN IS NOT — the opposite of
+ * `GATED_ROUTE_COUNT` in the SDK's v1 response gate, and the difference is
+ * measured rather than stylistic. That count is a hand-written array literal, so
+ * nothing but a deliberate edit can move it, and its membership changed in 1
+ * commit in the 180 days to 2026-08-30. This number counts FILES ON DISK: 52
+ * command pages were ADDED in that same window, across 254 commits touching
+ * `content/docs/cli/commands/`. Pinning it would red roughly every third day on
+ * correct work, and a gate that refuses correct work is removed — after which
+ * the real rot flows again.
+ *
+ * ✅ THE SLACK-REFUSING HALF ALREADY EXISTS IN THIS FILE, which is what makes a
+ * floor sufficient here rather than merely convenient. `orphaned.length <= 2`
+ * below bounds the COMPLEMENT — command pages carrying no marker — and it
+ * ratchets downward on its own: adding a page moves both populations together
+ * and leaves it unchanged, while a page losing its marker moves them apart and
+ * reds. A bound on `pages.length - examined` was drafted here and DELETED as
+ * redundant, verified rather than assumed: `AUTHORED_PAGES` holds only
+ * top-level pages, so it intersects `commands/` in nothing and that expression
+ * is arithmetically identical to `orphaned.length`. A second surface pinning one
+ * contract reads as extra coverage and is extra drift.
+ *
+ * What raising 44 → 50 buys is therefore a SECOND independent arm on the same
+ * regression, not a first: measured by stripping one marker, the floor arm was
+ * green at 44 and reds at 50.
+ */
+const GENERATED_PAGE_FLOOR = 50;
+
+/**
  * Every page `scripts/sync-docs-to-zero-entropy.ts` pushes to the customer
  * search index, as the slug path it pushes it under.
  *
@@ -372,10 +405,9 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // three cases above; this line is what makes THIS case fail too, so the
     // reason a reader sees is the real one.
     //
-    // RATCHET, upward. 32 pages are projections today. It rises with the
-    // migration and must never fall — a page silently leaving the generated set
-    // is the regression this number exists to refuse.
-    expect(examined).toBeGreaterThanOrEqual(44);
+    // RATCHET, upward. It rises with the migration and must never fall.
+    expect(examined).toBeGreaterThanOrEqual(GENERATED_PAGE_FLOOR);
+
     expect(drifted).toEqual([]);
   });
 
@@ -405,14 +437,14 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // Anti-vacuity, both halves. An empty population satisfies the assertion,
     // and so does a tree where the scope footer stopped being projected at all —
     // which would delete the surface this rule is about rather than fix it.
-    expect(generated.length).toBeGreaterThanOrEqual(44);
+    expect(generated.length).toBeGreaterThanOrEqual(GENERATED_PAGE_FLOOR);
     expect(
       generated.filter((file) =>
         readFileSync(join(COMMAND_DOCS, file), "utf8").includes(
           "THIS IS ONE CLIENT (@agent-nexus/cli)"
         )
       ).length
-    ).toBeGreaterThanOrEqual(44);
+    ).toBeGreaterThanOrEqual(GENERATED_PAGE_FLOOR);
 
     expect(versioned).toEqual([]);
   });

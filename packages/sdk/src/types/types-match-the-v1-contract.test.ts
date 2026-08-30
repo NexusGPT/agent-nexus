@@ -9,6 +9,7 @@ import { WorkspaceSummarySchema } from "@nexus/types";
 import {
   AgentFolderSchema,
   AgentModelSchema,
+  AgentToolConfigTypeSchema,
   ApiKeyConnectionSchema,
   ApiKeyServiceSchema,
   AssetDeleteResultSchema,
@@ -98,6 +99,7 @@ import {
   UploadDatasetResponseSchema,
   UserGroupMemberV1BodySchema,
   UserGroupV1ResponseSchema,
+  WritableAgentToolConfigTypeSchema,
   ZPublicApiV1
 } from "@nexus/types/public-api-v1";
 import { describe, expect, it } from "vitest";
@@ -105,7 +107,14 @@ import { describe, expect, it } from "vitest";
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
 import type { ApiKeyConnection, ApiKeyService } from "./api-key-connections";
 import type { Asset, AssetDeleteResult } from "./assets";
-import type { AgentModel, DeleteResponse, ModelConfig, ModelProvider } from "./common";
+import type {
+  AgentModel,
+  AgentToolConfigType,
+  DeleteResponse,
+  ModelConfig,
+  ModelProvider,
+  WritableAgentToolConfigType
+} from "./common";
 import type {
   AssignDeploymentToFolderBody,
   AssignDeploymentToFolderResponse,
@@ -443,6 +452,62 @@ export type V1ContractAssertions = [
   // rename away from being wrong silently.
   Expect<Equals<AgentModel, Sent<typeof AgentModelSchema>>>,
 
+  // ── the tool-config-type enum ────────────────────────────────────────────
+  //
+  // 🚨 THE FIFTH SPELLING OF ONE PRISMA ENUM, AND THE ONLY ONE NOTHING WATCHED.
+  // `AgentToolConfigType` is written down in five places: the Prisma enum
+  // (`schema.prisma`), `SCOPED_REFERENCES` in the backend's skill-reference
+  // tenancy validator (a `Record` over it, so it reds at compile time),
+  // `AgentToolConfigTypeSchema` in the v1 contract (gated against Prisma by
+  // `prisma-enum-parity.test.ts`, which pairs `<X>Schema` to Prisma `<X>` by
+  // NAME), the CLI's committed `agent-tool.contract.generated.ts` (generated,
+  // and `Generated config` step 5 diffs it) — and this package's hand-written
+  // union, which had no gate at all.
+  //
+  // This line is the fifth link. Without it the chain Prisma → contract → CLI
+  // is checked end to end and the SDK simply falls off the end of it: a member
+  // added to the database reddens the backend `Record` and the CLI artefact and
+  // leaves `common.ts` compiling, publishing a union that omits a value the API
+  // now returns. That is the "member the SDK omits" direction the block above
+  // calls an unreachable channel — no error, no `undefined`, the value is typed
+  // out of existence.
+  //
+  // ⚠️ IT DID NOT CATCH THE DIVERGENCE THAT MOTIVATED IT, BECAUSE THERE IS NONE
+  // ON THIS BRANCH. `MEMORY` is added to the Prisma enum by an unmerged cluster
+  // (#4584); at `origin/staging` both sides hold the same five members. That is
+  // the point of landing the gate first rather than the member: when that
+  // cluster merges, THIS line is what reds, and it reds on the merge commit
+  // rather than on the member's own PR.
+  //
+  // ONE PAIR, BOTH DIRECTIONS OF TRAFFIC. `AgentToolConfigType` types the
+  // response (`AgentToolConfig.type`) AND both write bodies
+  // (`CreateAgentToolBody.type`, `UpdateAgentToolBody.type`), and the contract
+  // spells all three with this same schema object, so one assertion covers all
+  // three slots. `Received` rather than `Sent` because a bare `z.enum` has no
+  // transform and no default — the two are the same type — and the response is
+  // the slot where an omission is unrecoverable.
+  //
+  // 🔑 THE SETS HAVE NOW SEPARATED, AND THE PAIR ABOVE PREDICTED IT EXACTLY. `MEMORY`
+  // reached `origin/staging` with `WritableAgentToolConfigTypeSchema =
+  // AgentToolConfigTypeSchema.exclude([...])`, so from that commit this line describes
+  // the RESPONSE alone and a second pair is owed for the write bodies. Both are below.
+  //
+  // ⚠️ THE PREDICTION SAID THIS LINE WOULD STAY GREEN AND IT WENT RED, WHICH IS THE
+  // GATE WORKING RATHER THAN A SURPRISE: the SDK's hand-written `AgentToolConfigType`
+  // still held five members while the schema had grown a sixth. Green would have meant
+  // the copy had drifted with nothing noticing — that is the whole thing this pins.
+  Expect<Equals<AgentToolConfigType, Received<typeof AgentToolConfigTypeSchema>>>,
+
+  // 🔴 THE WRITE HALF, AND IT IS A SEPARATE ASSERTION BECAUSE IT IS A SEPARATE CLAIM.
+  // `CreateAgentToolBody.type` and `UpdateAgentToolBody.type` are typed
+  // `WritableAgentToolConfigType`, so this pins the NARROWED set against the narrowed
+  // schema. Without it the exclusion could gain or lose a member and no assertion
+  // anywhere would notice — the read pair above is satisfied by the wide set either way.
+  //
+  // ⚠️ `Sent` rather than `Received`: this set only ever appears on a REQUEST body, and
+  // naming the direction is what stops the next reader assuming one pair covers both.
+  Expect<Equals<WritableAgentToolConfigType, Sent<typeof WritableAgentToolConfigTypeSchema>>>,
+
   // ── roles ── /public/v1/roles/*, /public/v1/role-job-types
   //
   // Ten routes, ten pairs, and the deep ones are here deliberately. `RoleCoverage`
@@ -640,6 +705,7 @@ const GATED_PAIRS = [
   "ModelProvider ↔ ModelProviderSchema",
   "ModelConfig ↔ ModelConfigSchema",
   "AgentModel ↔ AgentModelSchema",
+  "AgentToolConfigType ↔ AgentToolConfigTypeSchema",
 
   "RolesListResponse ↔ RolesListV1ResponseSchema",
   "RoleResponse ↔ RoleV1ResponseSchema",
@@ -806,7 +872,17 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // inside that object was gated and the object around it was not, so every
 // tuning field stayed a hand-copy nothing could check — and two of them had
 // already drifted from the contract.
-const GATED_PAIR_FLOOR = 100;
+//
+// 100 → 101: `AgentToolConfigType ↔ AgentToolConfigTypeSchema`. The FIFTH place
+// one Prisma enum is spelled, and the only one with no gate — the other four
+// (the Prisma enum, the backend `Record` over it, the v1 contract enum via
+// `prisma-enum-parity.test.ts`, the CLI's generated contract help via
+// `Generated config` step 5) were already chained. This package fell off the end
+// of that chain. Not found by a drift: the five `Tool*` routes that carry this
+// enum are ledgered in `V1_RESPONSE_DRIFT` for `config: unknown`, and a ledger
+// row buys silence on the WHOLE ROUTE, so every other field in those DTOs —
+// including `type` — was free. See the narrowing beside that ledger.
+const GATED_PAIR_FLOOR = 101;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

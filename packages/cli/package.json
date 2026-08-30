@@ -38,6 +38,7 @@
     "gen:json-shape": "tsx scripts/generate-json-shape.ts",
     "gen:skills": "tsx scripts/bundle-skills.ts",
     "check:skills-lock": "tsx scripts/check-skills-lock.ts",
+    "check:skills-drift": "tsx scripts/check-skills-drift.ts",
     "build": "tsup",
     "build:refresh-skills": "pnpm run gen:skills && tsup",
     "dev": "tsup --watch",

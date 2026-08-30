@@ -353,9 +353,12 @@ export class RolesResource extends BaseResource {
    * 🚨 IT CHANGES NO ACCESS. Nothing this Role grants is suspended, narrowed or
    * revoked, and every member reaches afterwards exactly what they reached
    * before. If you are looking for the other behaviour, it does not exist and
-   * was refused deliberately — emptying a Role's grants PUBLISHES every
-   * Collection and Workspace it was the last holder of to the whole
-   * organization, which is the opposite of what "suspend its access" sounds
+   * was refused deliberately — emptying a Role's grants HANDS every Collection
+   * and Workspace it was the last holder of to a different audience rather than
+   * withdrawing it, because narrowing on those two types is an allow-list over
+   * the caller's own placement: the resource returns to the set no Role has
+   * claimed, where every caller placed in no Role reaches it and every
+   * Role-placed caller loses it. That is not what "suspend its access" sounds
    * like.
    *
    * Idempotent: pausing an already-paused Role resolves with the ORIGINAL

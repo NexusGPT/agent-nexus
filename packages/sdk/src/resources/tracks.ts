@@ -338,10 +338,18 @@ export class TracksResource extends BaseResource {
   /**
    * What blocks what, inside this track's plan.
    *
-   * 🔴 THIS IS WHAT ACCOUNTS FOR A TASK `listReadyTasks()` WITHHOLDS. Intersect
-   * it with `listTasks()`: a task's blockers are the edges naming it as
-   * `blockedTaskId`, and an open task with no such edge is held by an unticked
-   * ancestor or by a child rather than by a dependency.
+   * 🔴 THIS IS WHAT ACCOUNTS FOR A TASK `listReadyTasks()` WITHHOLDS. A task's
+   * blockers are the edges naming IT **OR ANY OF ITS ANCESTORS** as
+   * `blockedTaskId`. An edge hung on a section parent — the shape a plan import
+   * produces when dependencies are drawn between parents — holds every row
+   * beneath it, and those rows carry no edge of their own. Read only the edges
+   * naming a task directly and a genuinely blocked row reports as unexplained.
+   *
+   * ⚠️ THE ANCESTRY IS NOT ON THE WIRE. The column that query reads is absent
+   * from the v1 task schema and from these types, so composing this yourself
+   * means walking `parentTaskId` up from `listTasks()` — which agrees with the
+   * server only while the two are in step. `nexus tracks task why-not-ready`
+   * already does that composition and ships the caveat with its answer.
    *
    * ⚠️ Unordered, and it carries no cycle information.
    *

@@ -290,6 +290,7 @@ export const ID_GRAPH_UNCOVERED: readonly (readonly [string, string])[] = [
   ["tracks task claim", "bound-but-mutates"],
   ["tracks task edge", "bound-but-mutates"],
   ["tracks task toggle", "bound-but-mutates"],
+  ["tracks task why-not-ready", "unbound-no-provable-method"],
   ["user-group add-member", "bound-but-mutates"],
   ["user-group delete", "bound-but-mutates"],
   ["user-group remove-member", "bound-but-mutates"],

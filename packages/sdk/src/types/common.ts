@@ -167,20 +167,44 @@ export type AgentModel =
   | "OPENAI_O4_MINI";
 
 /**
- * The type of tool configuration attached to an agent.
+ * The type of tool configuration attached to an agent, as READ back.
  *
  * - `"PLUGIN"` — Pipedream marketplace tool (external API integration).
  * - `"WORKFLOW"` — An organization-owned automation workflow.
  * - `"TASK"` — An organization-owned AI task.
  * - `"COLLECTION"` — A knowledge collection the agent can query.
  * - `"DOCUMENT_TEMPLATE"` — A document generation template.
+ * - `"MEMORY"` — An agent memory store. **Readable, never creatable through v1** —
+ *   see {@link WritableAgentToolConfigType}.
+ *
+ * 🔴 THIS IS THE WIDE, READ-SIDE SET AND IT MUST STAY WIDE. A stored row of any
+ * type has to be readable, so narrowing this to match what a caller may WRITE
+ * would type an existing row out of existence — the response would carry a value
+ * the type says cannot occur, and every consumer's exhaustive switch would miss it
+ * silently. The write narrowing is a separate type, derived below.
  */
 export type AgentToolConfigType =
   | "WORKFLOW"
   | "PLUGIN"
   | "TASK"
   | "COLLECTION"
-  | "DOCUMENT_TEMPLATE";
+  | "DOCUMENT_TEMPLATE"
+  | "MEMORY";
+
+/**
+ * The subset of {@link AgentToolConfigType} a caller may SEND on a create or update
+ * body.
+ *
+ * 🔴 DERIVED BY EXCLUSION, NEVER RESTATED AS A SECOND LIST, AND THAT MIRRORS THE
+ * CONTRACT: `WritableAgentToolConfigTypeSchema = AgentToolConfigTypeSchema.exclude(...)`.
+ * A hand-written second list is a copy that drifts from the first the day a member is
+ * added; deriving it means a new READ member flows here automatically, and only a change
+ * to the EXCLUSION is a decision anyone has to make.
+ *
+ * `MEMORY` is excluded because a MEMORY row is inert if created through v1 — publishing
+ * it as creatable would advertise a capability the API does not have.
+ */
+export type WritableAgentToolConfigType = Exclude<AgentToolConfigType, "MEMORY">;
 
 /** Prompt version type. `"AUTO"` versions are created automatically on prompt changes; `"CHECKPOINT"` versions are manually named snapshots. */
 export type VersionType = "AUTO" | "CHECKPOINT";

@@ -4,10 +4,11 @@
 # Two roles:
 #   1. Underlay for the /pinguin skill — produces structured results so the
 #      agent loop can focus on interpretation.
-#   2. CI gate — the `cli-sweep` job of .github/workflows/pr-checks.yml, whose
-#      `CLI: Sweep` context is REQUIRED on staging and main. Runs against
-#      staging on every PR affecting the CLI's package graph. The --strict flag
-#      promotes WARN to FAIL so the JSON contract is treated as load-bearing.
+#   2. CI gate — the `cli-sweep` job of .github/workflows/pr-checks.yml. Runs
+#      against staging on every PR affecting the CLI's package graph. The
+#      --strict flag promotes WARN to FAIL so the JSON contract is treated as
+#      load-bearing. Whether that context GATES is not asserted here; see
+#      "Does this gate?" below.
 #
 # Usage:
 #   ./sweep.sh                       # text output, default profile
@@ -23,6 +24,26 @@
 #   default        — number of FAILs (0 = clean)
 #   --strict       — number of FAILs + WARNs (any non-PASS fails CI)
 #   --check-drift  — 1 if any drift, 0 if clean
+#
+# 🚨 DOES THIS GATE? NOT ASSERTED HERE, AND THE LINE ABOVE USED TO ASSERT IT.
+#
+# Branch protection lives on GitHub and no file in this repository can see it, so
+# a sentence here claiming the context is required goes wrong SILENTLY the moment
+# it is armed or disarmed. That is not hypothetical: this header read `CLI: Sweep`
+# "is REQUIRED on staging and main" while the context was required on NEITHER, so
+# a red sweep read as blocking and its absence from a rollup read as impossible.
+#
+# `.github/required-contexts.json` declares the INTENT and is the input
+# `scripts/required-contexts.ts` reads. Ask the live system:
+#
+#   pnpm dlx tsx scripts/required-contexts.ts --reconcile
+#
+# It needs ADMIN — `GET /branches/{b}/protection` is admin-only and the default
+# GITHUB_TOKEN does not have it — so it CANNOT run in CI, and a declaration can
+# sit unarmed indefinitely with nothing noticing. `--verify` is the half that
+# does run in CI (via `Gate specs`) and it is OFFLINE: it checks the declaration
+# against the workflow, never against protection. So this exact drift class is
+# invisible to every automated check in the repository, by construction.
 #
 # WHERE THE COMMAND LIST LIVES — not here, deliberately.
 #
@@ -132,7 +153,33 @@ run_leaf() {
     # Add new ones as new features adopt the same "feature not configured"
     # convention; resist the urge to broaden into generic 5xx matching —
     # that would mask real outages.
-    if printf '%s' "$out" | grep -qE '"message":[[:space:]]*"[^"]*(not configured|feature is disabled|feature not enabled)'; then
+    #
+    # 🚨 MATCH THE SENTENCE, NEVER THE STATUS. Every phrase here is a specific
+    # declaration by the backend that a feature is unavailable BY POLICY. A
+    # broader rule — "403 means skip", or the `FEATURE_NOT_ENABLED` wire code —
+    # is the tempting shape and it is the wrong one: the code is shared with
+    # refusals that are real regressions, and a status is shared with every
+    # permissions bug there is. `sweep-skips-only-a-declared-opt-out.test.ts`
+    # holds that line by asserting a plain 401 and a 500 still FAIL.
+    #
+    # `opted out of this feature` is the OPT-OUT branch of
+    # `apps/backend/src/feature-flags/infrastructure/guards/feature-flag.guard.ts`:
+    # the org asked not to have the feature, so the 403 is the environment
+    # answering correctly and there is no CLI defect to find. It is a distinct
+    # sentence from the positive branch on purpose — the flag IS enabled, which
+    # is precisely why the route refuses — so it needs its own phrase here.
+    #
+    # ⚠️ THE POSITIVE BRANCH IS NOT MATCHED, AND THAT IS A DECISION RATHER THAN
+    # AN OVERSIGHT. The same guard also emits "This feature is not enabled for
+    # your organization" (2 sites), which no phrase above matches — so a leaf
+    # behind a feature flag the org simply lacks FAILS here exactly as the four
+    # `role *` leaves once did. It is left unmatched because no swept leaf
+    # reaches it today, so adding the phrase would be untested surface on the
+    # one matcher that must never over-broaden. If a red sweep brought you here:
+    # that is the case, adding the sentence is the fix, and
+    # `sweep-skips-only-a-declared-opt-out.test.ts` is where to prove it both
+    # ways before you do.
+    if printf '%s' "$out" | grep -qE '"message":[[:space:]]*"[^"]*(not configured|feature is disabled|feature not enabled|opted out of this feature)'; then
       local reason
       reason=$(printf '%s' "$out" \
         | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('error',{}).get('message',''))" 2>/dev/null \

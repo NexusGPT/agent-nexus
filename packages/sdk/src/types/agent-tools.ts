@@ -1,4 +1,4 @@
-import type { AgentToolConfigType } from "./common";
+import type { AgentToolConfigType, WritableAgentToolConfigType } from "./common";
 
 // ============================================================================
 // Agent Tool Config (response shape)
@@ -63,8 +63,8 @@ export interface CreateAgentToolBody {
   iconUrl?: string;
   /** Icon type identifier. */
   iconType?: string;
-  /** Tool type (required). */
-  type: AgentToolConfigType;
+  /** Tool type (required). `MEMORY` is readable but not creatable through v1. */
+  type: WritableAgentToolConfigType;
   /**
    * JSON Schema defining the input the agent must provide when invoking this tool (required).
    * Use `{ type: "object", properties: { ... } }` or `{}` if no input is needed.
@@ -101,7 +101,7 @@ export interface UpdateAgentToolBody {
   /** Icon type identifier. */
   iconType?: string;
   /** Tool type. */
-  type?: AgentToolConfigType;
+  type?: WritableAgentToolConfigType;
   /** JSON Schema defining the input the agent must provide when invoking this tool. */
   agentInputSchema?: unknown;
   /** Internal tool configuration (provider-specific). */

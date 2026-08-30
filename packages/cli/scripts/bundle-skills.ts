@@ -7,10 +7,22 @@
  *
  * Run: pnpm run gen:skills
  *
- * Auth: requires GITHUB_TOKEN or GH_TOKEN in the environment. In CI, GitHub
- * Actions provides GITHUB_TOKEN automatically. Locally, the easiest is:
+ * Auth: requires GITHUB_TOKEN or GH_TOKEN in the environment. Locally, the
+ * easiest is:
  *
  *   GITHUB_TOKEN=$(gh auth token) pnpm run gen:skills
+ *
+ * CI HAS NO SUCH TOKEN, and the no-token branch in `main()` below is there
+ * because of it. GitHub Actions does not put `GITHUB_TOKEN` in a step's
+ * environment unless the workflow maps it in, and no job that installs this
+ * workspace does — `.github/actions/setup` maps none. Even if one did, that
+ * token is scoped to `NexusGPT/nexus` alone and this script reads a DIFFERENT,
+ * private repository. So `scripts/postinstall.sh` runs `gen:skills` on every
+ * install including CI, resolves nothing, and keeps the committed bundle.
+ *
+ * That is why the pin can go stale with nothing noticing, and why the check for
+ * it is a scheduled job holding its own credential rather than anything on the
+ * install path — `scripts/check-skills-drift.ts`.
  *
  * If the lockfile is absent, the script fetches `main` HEAD, uses that SHA,
  * and writes the lockfile so subsequent runs are deterministic. Bump the

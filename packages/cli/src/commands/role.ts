@@ -1249,9 +1249,11 @@ Notes:
   IT CHANGES NO ACCESS. Nothing the Role grants is suspended, narrowed or
   revoked, and every member reaches afterwards exactly what they reached
   before. There is no command that suspends a Role's access, deliberately —
-  emptying a Role's grants PUBLISHES every collection and workspace it was the
-  last holder of to the whole organization, which is the opposite of what it
-  sounds like.
+  emptying a Role's grants HANDS every collection and workspace it was the last
+  holder of to a different audience rather than withdrawing it. Narrowing on
+  those two types is an allow-list over the caller's own placement, so the
+  resource returns to the set no Role has claimed: every caller placed in no
+  Role reaches it, and every Role-placed caller loses it.
 
   IT IS IDEMPOTENT AND KEEPS THE FIRST STOP. Pausing an already-paused Role
   succeeds and reports the ORIGINAL "pausedAt" — that field answers since when,

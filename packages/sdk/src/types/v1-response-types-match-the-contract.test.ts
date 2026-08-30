@@ -2616,30 +2616,186 @@ export type V1ResponseDrift = [
   >
 ];
 
+// ---------------------------------------------------------------------------
+// Narrowing a ledger row: the rest of the DTO is still gated
+// ---------------------------------------------------------------------------
+
 /**
- * A ratchet, not a target. Raise it as entries leave the ledger; never lower it.
+ * 🚨 A LEDGER ROW BUYS SILENCE ON THE WHOLE ROUTE, NOT ON THE FIELD IT NAMES.
  *
- * A hardcoded literal, never `GATED_ROUTES.length` compared against itself — an
- * assertion deriving both sides from one source passes vacuously.
+ * `V1_RESPONSE_DRIFT` is keyed by ROUTE. A row removes that route from
+ * `V1ResponseAssertions` entirely, so its DTO has no positive comparison at all
+ * and every OTHER divergence in it is free. The negative assertion beside it
+ * does not close that: it says the pair still DIFFERS, and it stays true — and
+ * therefore green — however many further fields separate. An entry that names
+ * one field reads as narrow and behaves as broad.
  *
- * WHEN TWO BRANCHES RAISE THIS, THE MERGE ADDS BOTH RAISES — it never takes the
- * larger. Each branch raises the floor by the number of names it added to
- * `GATED_ROUTES`, so the raises are independent and taking `max()` silently
- * discards the smaller one, unratcheting exactly as far as that branch had
- * gained. The assertion is `toBeGreaterThanOrEqual`, so a floor left too low
- * still passes — nothing here will report the loss. This value is 278 + 23
- * (agent-evals, NEX-3909) + 1 (`ScoreRecord`) + 16 (raises that landed without
- * moving the floor) + 8 (the routes #4521 gave a Response and #4525 gated) + 1
- * (`TrackListTasks`, NEX-4541) + 2 (`TrackListSections` and `TrackListTaskEdges`,
- * NEX-4447).
+ * That is not a theoretical property. The five `Tool*` rows are ledgered for
+ * `config: unknown`, one key of the twelve on `AgentToolConfig`, and under that
+ * silence `AgentToolConfig.type` — the SDK's hand-written spelling of the Prisma
+ * `AgentToolConfigType` enum — sat with no gate anywhere in this package for the
+ * life of the ledger. It was found by reading, which is what this whole file
+ * exists to stop being the mechanism.
  *
- * 🚨 THE 16 IS THE POINT. `toBeGreaterThanOrEqual` means a floor left behind
- * never reports itself, so this drifted 302-against-318 on staging while every
- * run stayed green. A floor that only ever passes is not a ratchet; it is a
- * number. Raise it in the same commit that adds a name, or it silently stops
- * protecting the names added since.
+ * ## The shape, and exactly how far it reaches
+ *
+ * A narrowed row erases the ledgered KEYS from both sides and asserts the
+ * remainder is still exactly equal. So `config` stays unchecked and the other
+ * eleven fields of `AgentToolConfig` go back under the gate, including `type`.
+ *
+ * ⚠️ THIS FORM ONLY REACHES A TOP-LEVEL KEY OF THE RESPONSE (or of its element
+ * type, for an array route). A ledger reason naming a NESTED path —
+ * `ConversationDetail.contact.*`, `Satisfaction.framework`,
+ * `providers[].slug`, `ParameterDefinition.type` — cannot be expressed with
+ * `Omit`, and a deep by-path erase is real type-level machinery whose failure
+ * mode is a vacuous assertion rather than a red one. Those rows are left
+ * un-narrowed deliberately: a narrowing that silently erases more than it
+ * claims is worse than the route-wide silence it replaces. NEX-4550 carries
+ * the general case with the measurement, the row-by-row classification, and the
+ * per-path mutation control a `DeepOmit` would owe before anyone trusts it.
+ *
+ * 🔑 A NARROWED ROW IS STILL A LEDGER ROW. Its negative assertion above stays,
+ * so the self-pruning still fires when the ledgered field itself is repaired.
+ * The two assertions answer different questions and both are needed: the
+ * negative one says "this row is still owed", the narrowed one says "and
+ * nothing ELSE in it has moved since".
  */
-const GATED_ROUTE_FLOOR = 329;
+type Flat<T> = { [K in keyof T]: T[K] };
+
+/**
+ * Both sides with the ledgered keys removed, flattened so {@link Equals} — which
+ * compares the type NODE — is not defeated by `Omit`'s own `Pick<…>` spelling.
+ */
+type Except<T, K extends PropertyKey> = T extends readonly (infer E)[]
+  ? Flat<Omit<E, K>>[]
+  : Flat<Omit<T, K>>;
+
+/**
+ * One POSITIVE assertion per narrowed ledger row: everything the row does NOT
+ * name must still match exactly.
+ *
+ * A `false` here is a compile error on that exact line, and the line names the
+ * route. Same enforcement as {@link V1ResponseAssertions} — `tsc`, never vitest.
+ */
+export type V1ResponseDriftNarrowed = [
+  // ToolList  ->  client.agents.tools.list()  — ledgered for `config` only
+  Expect<
+    Equals<
+      Except<ResponseOf<"ToolList">, "config">,
+      Except<MethodResult<NexusClient["agents"]["tools"]["list"]>, "config">
+    >
+  >,
+  // ToolGet  ->  client.agents.tools.get()  — ledgered for `config` only
+  Expect<
+    Equals<
+      Except<ResponseOf<"ToolGet">, "config">,
+      Except<MethodResult<NexusClient["agents"]["tools"]["get"]>, "config">
+    >
+  >,
+  // ToolCreate  ->  client.agents.tools.create()  — ledgered for `config` only
+  Expect<
+    Equals<
+      Except<ResponseOf<"ToolCreate">, "config">,
+      Except<MethodResult<NexusClient["agents"]["tools"]["create"]>, "config">
+    >
+  >,
+  // ToolUpdate  ->  client.agents.tools.update()  — ledgered for `config` only
+  Expect<
+    Equals<
+      Except<ResponseOf<"ToolUpdate">, "config">,
+      Except<MethodResult<NexusClient["agents"]["tools"]["update"]>, "config">
+    >
+  >,
+  // ToolAttachCollection  ->  client.agents.tools.attachCollection()  — ledgered for `config` only
+  Expect<
+    Equals<
+      Except<ResponseOf<"ToolAttachCollection">, "config">,
+      Except<MethodResult<NexusClient["agents"]["tools"]["attachCollection"]>, "config">
+    >
+  >
+];
+
+/**
+ * The keys each narrowed row erases, named for the runtime consistency checks.
+ *
+ * Hand-written beside the assertions above and reconciled against the ledger
+ * below, so a narrowing for a route that is not ledgered, or a row that lost its
+ * ledger entry, is red rather than silent.
+ */
+const V1_RESPONSE_DRIFT_NARROWED: Record<string, readonly string[]> = {
+  ToolList: ["config"],
+  ToolGet: ["config"],
+  ToolCreate: ["config"],
+  ToolUpdate: ["config"],
+  ToolAttachCollection: ["config"]
+};
+
+/**
+ * The ledgered routes whose divergence is expressible as a TOP-LEVEL `Omit`, and
+ * which must therefore carry a narrowing for as long as they are ledgered.
+ *
+ * 🔴 THIS REPLACED A COUNT FLOOR (`narrowed.length >= 5`), WHICH REFUSED ITS OWN
+ * CURE. Repairing one of these routes removes it from {@link V1_RESPONSE_DRIFT}
+ * and from the narrowed table together, so a floor over the narrowed table's own
+ * size reddened on exactly the commit that fixed the debt it was tracking — the
+ * shape `ledger-gates-do-not-refuse-their-cure` names `control-dies-on-success`.
+ * The original docblock recorded the defect ("a row that leaves the ledger
+ * entirely leaves this too") and shipped the floor anyway.
+ *
+ * 🔑 THE DRAIN-SAFE FORM ASSERTS OVER THE ROWS THAT SURVIVE. A route named here
+ * that is still ledgered must still be narrowed; one that has been repaired is
+ * absent from `V1_RESPONSE_DRIFT`, so it is not an offender and this passes in
+ * silence — at zero as readily as at five. A stale name left here after a repair
+ * is inert for the same reason, which is the safe direction.
+ *
+ * ⚠️ It is NOT derived from `V1_RESPONSE_DRIFT_NARROWED`. Deriving it there would
+ * make deleting a narrowing delete its own obligation, which is the anti-deletion
+ * ratchet this exists to be.
+ */
+const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
+  "ToolList",
+  "ToolGet",
+  "ToolCreate",
+  "ToolUpdate",
+  "ToolAttachCollection"
+];
+
+/**
+ * THE EXACT SIZE OF `GATED_ROUTES`, asserted with `toBe`.
+ *
+ * An independent witness to how many routes are gated. Never
+ * `GATED_ROUTES.length` compared against itself, which passes vacuously; and
+ * never derived from `routes` minus `V1_RESPONSE_DRIFT`, because the coverage
+ * case at the bottom of this file already asserts that identity, so a bound
+ * built on it moves in step with the very demotion it would need to catch.
+ * A hardcoded literal is the only shape that can witness anything here.
+ *
+ * 🚨 IT IS AN EQUALITY BECAUSE A FLOOR ONLY REFUSES GROWTH, WHICH IS HALF A
+ * GATE. Under `toBeGreaterThanOrEqual` a number left behind never reports
+ * itself: this stood at 302 against a live 318 on staging, and later at 329
+ * against 331, green both times. That gap is not cosmetic — it is this gate
+ * switched off for exactly that many demotions. Measured on the 329-against-331
+ * state: moving two gated routes into `V1_RESPONSE_DRIFT` — precisely the
+ * regression this number exists to refuse — left the suite 8/8 GREEN. The same
+ * mutation under `toBe` reds and prints both numbers.
+ *
+ * WHEN TWO BRANCHES BOTH ADD ROUTES, THE MERGE ADDS BOTH DELTAS — it never
+ * takes the larger. The raises are independent, so taking `max()` discards the
+ * smaller one, unratcheting exactly as far as that branch had gained. Under
+ * `toBeGreaterThanOrEqual` that botched resolution was SILENT; under `toBe` it
+ * is the failure below, printing the number to write. That is the argument for
+ * the stricter matcher: it does not make the merge harder, it makes a wrong
+ * merge visible.
+ *
+ * ⚠️ THE COST IS AN EDIT ON EVERY BRANCH THAT ADDS A ROUTE, AND IT IS SMALL
+ * HERE FOR A MEASURED REASON — `GATED_ROUTES` is a hand-written literal, so
+ * nothing but a deliberate edit moves it, and its membership changed in 1
+ * commit in the 180 days to 2026-08-30. Contrast `GENERATED_PAGE_FLOOR` in
+ * `packages/cli/src/cli-docs-are-generated.test.ts`, which counts files on disk
+ * that grew by 52 in that same window: that one stays a floor, and the
+ * difference between the two is churn, not taste.
+ */
+const GATED_ROUTE_COUNT = 331;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();
@@ -2658,7 +2814,14 @@ describe("every v1 response schema matches its SDK method's return type", () => 
   });
 
   it("is enforced by typecheck, and this file is where a response drift surfaces", () => {
-    expect(GATED_ROUTES.length).toBeGreaterThanOrEqual(GATED_ROUTE_FLOOR);
+    expect(
+      GATED_ROUTES.length,
+      "GATED_ROUTES no longer holds exactly GATED_ROUTE_COUNT names. If you ADDED a " +
+        "gated route, set GATED_ROUTE_COUNT to the number on the left. If you did not, " +
+        "a route has LEFT the gated set — check whether it was demoted into " +
+        "V1_RESPONSE_DRIFT, which is the regression this count exists to refuse. " +
+        "Merging two branches that each added routes? Add both deltas; never take the larger."
+    ).toBe(GATED_ROUTE_COUNT);
   });
 
   /**
@@ -2698,6 +2861,39 @@ describe("every v1 response schema matches its SDK method's return type", () => 
   it("never lists a route as both gated and drifting", () => {
     const both = GATED_ROUTES.filter((name) => name in V1_RESPONSE_DRIFT);
     expect(both).toEqual([]);
+  });
+
+  /**
+   * A narrowing is only meaningful beside the row it narrows. One naming a
+   * route that is gated outright, or one whose row was repaired away, is a
+   * stale assertion reading as coverage.
+   */
+  it("narrows only routes that are actually ledgered", () => {
+    const narrowed = Object.keys(V1_RESPONSE_DRIFT_NARROWED);
+
+    expect(
+      narrowed.filter((name) => !(name in V1_RESPONSE_DRIFT)),
+      "narrowed rows for routes that are not in V1_RESPONSE_DRIFT — a narrowing " +
+        "belongs beside its ledger row; if the route left the ledger, delete the " +
+        "narrowed assertion in V1ResponseDriftNarrowed too"
+    ).toEqual([]);
+
+    for (const [name, keys] of Object.entries(V1_RESPONSE_DRIFT_NARROWED)) {
+      expect(
+        keys.length,
+        `${name} narrows nothing — an empty key list erases nothing`
+      ).toBeGreaterThan(0);
+    }
+
+    expect(
+      NARROWABLE_LEDGER_ROUTES.filter(
+        (name) => name in V1_RESPONSE_DRIFT && !(name in V1_RESPONSE_DRIFT_NARROWED)
+      ),
+      "a route declared narrowable is still ledgered but lost its narrowing — a " +
+        "route-wide row leaves every field it does not name unchecked, so dropping " +
+        "the narrowing silently un-gates the rest of that DTO. Restore it, or repair " +
+        "the route so it leaves V1_RESPONSE_DRIFT altogether."
+    ).toEqual([]);
   });
 
   /** An exemption with no reason is an omission wearing a label. */

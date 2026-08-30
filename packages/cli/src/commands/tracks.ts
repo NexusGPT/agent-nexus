@@ -9,10 +9,13 @@ import type { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse } from "../errors";
-import { absent, printEnvelope, printRecord, printSuccess, printTable } from "../output";
+import { absent, color, printEnvelope, printRecord, printSuccess, printTable } from "../output";
 import { asRequestBody, resolveRequiredBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { explainUnreadyTasks, RECONSTRUCTION_CAVEAT } from "../util/track-blockers";
+import { READY_SET_CEILING, renderWhyNotReady } from "../util/track-blockers.render";
+import { trackListNextPageCommand } from "../util/track-list-next-page-command";
 import {
   TRACK_APPEND_DIARY_ENTRY__BODY_KIND,
   TRACK_APPEND_DIARY_ENTRY_CONTRACT,
@@ -86,11 +89,17 @@ import {
  * mechanism — a banner naming a command the CLI does not register is an
  * instruction that fails in the reader's hands.
  *
- * ⚠️ `--agent` TAKES AN ID, AND ITS PLACEHOLDER SAYS SO NOW. It read
- * `--agent <name>` while the route resolves an OPEN agent BY ID, so a caller who
- * pasted the agent name out of the banner's own "another agent is working on
- * this" line got a 409 that named nothing. The banner regenerated with the
- * corrected placeholder; the command, its parents and the flag are unchanged.
+ * ⚠️ `--agent` TAKES AN ID **OR** A NAME, AND ITS PLACEHOLDER STILL READS
+ * `<agentId>` ON PURPOSE. The route resolves either — the name is unique among a
+ * track's OPEN agents, and it is the value the banner's own "another agent is
+ * working on this" line prints — so pasting a name out of the banner now works.
+ * The placeholder is deliberately NOT renamed: it is read off this node into
+ * `packages/types/src/shared/domain/tracks/track-banner-commands.generated.ts`
+ * and printed inside every banner, and a rename would regenerate that plus three
+ * other generated artefacts and red
+ * `tracks-claim-help-names-the-agent-verb.test.ts`'s control — for a flag whose
+ * ACCEPTED set widened while its wire field name did not move. What accepts more
+ * needs no new spelling; the flag's DESCRIPTION and the notes below say so.
  *
  * ## There is no separate take-over verb, deliberately
  *
@@ -140,10 +149,17 @@ Notes:
   THE SLUG IS UNIQUE PER ORGANIZATION, and a duplicate is a 409. It is the
   human name for the track; nothing addresses a track by slug yet, so pick one
   a person can read rather than one a script will parse.
-  A NEW TRACK IS PLANNED, EMPTY, AND ALREADY READY. "nexus tracks ready" tests
-  status, archival and dependency edges and never tasks, so a track created with
-  nothing in it comes back as ready work on the very next call. It has no
+  A NEW TRACK IS PLANNED AND EMPTY, AND IT ALREADY SATISFIES THE READY
+  PREDICATE. "nexus tracks ready" tests status, archival and dependency edges
+  and never tasks, so nothing has to be added before a track qualifies. It has no
   sections until you run "nexus tracks section create".
+  SATISFYING THAT PREDICATE IS NOT THE SAME AS BEING ON THE PAGE, and for a
+  track you just made the two come apart in the worst direction. The number is
+  allocated ascending and "nexus tracks ready" is ordered by number ascending
+  with a server-side default of 50 rows, so the track you just created is the
+  LAST in line: on an organization already holding 50 ready tracks it is not on
+  the first page at all. Read it back by id with "nexus tracks get", or widen
+  the page with --limit.
   --next-owner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an
   agent can proceed, USER means a person has to act, EVENT means something
   outside has to happen first.
@@ -445,6 +461,7 @@ Notes:
     .command("list")
     .description("Every track in your organization — what exists, not what is ready")
     .option("--limit <n>", "How many rows, 1-200", (value: string) => Number(value))
+    .option("--cursor <cursor>", "A `nextCursor` from a previous page. Never build one")
     .addOption(enumOption("--status <status>", "Narrow to one status", TRACK_LIST__PARAMS_STATUS))
     .addOption(
       enumOption(
@@ -484,17 +501,35 @@ Notes:
   next, CUE means the agent, EVENT means an external watcher. It is what the
   WAITING ON column shows. There is no per-user filter anywhere in this API, so
   --next-owner USER is "waiting on a human" and not "waiting on you".
-  AN EMPTY LIST MEANS THE ORGANIZATION HAS NO TRACKS, not that the read failed.
+  AN EMPTY LIST MEANS NO TRACK MATCHED YOUR FILTERS, not that the read failed.
   Run with --json and check for an empty array rather than reading the dimmed
   "No results." line as an error.
+  A NON-EMPTY PAGE MAY STILL BE PARTIAL, AND --limit DEFAULTS TO 50 SERVER SIDE.
+  Unlike the two ready reads, this answer says so: it carries total, hasMore and
+  nextCursor, the footer under the table prints how many of how many you are
+  looking at, and it names the exact command for the rest.
+  PAGE WITH --cursor, NEVER AN OFFSET, and there is no offset flag to reach for.
+  The ceiling is 200 rows, so an organization past 200 tracks is reachable ONLY
+  by paging. Round-trip the token verbatim and stop when hasMore is false.
+  A CURSOR CARRIES THE FILTERS IT WAS ISSUED UNDER. Replaying it under a
+  different --status, --archived or --next-owner is refused with a 400 rather
+  than quietly resuming inside a different list, so change a filter and start
+  again from the first page. --limit is not bound in.
   Needs the "tracks:read" scope.`
     )
     .action(
-      async (opts: { limit?: number; status?: string; archived?: string; nextOwner?: string }) => {
+      async (opts: {
+        limit?: number;
+        cursor?: string;
+        status?: string;
+        archived?: string;
+        nextOwner?: string;
+      }) => {
         try {
           const client = createClient(program.optsWithGlobals());
           const result = await client.tracks.list({
             limit: opts.limit,
+            ...(opts.cursor !== undefined && { cursor: opts.cursor }),
             ...(opts.status !== undefined && { status: opts.status as TrackStatus }),
             ...(opts.archived !== undefined && {
               archived: opts.archived as "exclude" | "only" | "include"
@@ -502,7 +537,7 @@ Notes:
             ...(opts.nextOwner !== undefined && { nextOwner: opts.nextOwner as TrackNextOwner })
           });
 
-          printEnvelope(result, () =>
+          printEnvelope(result, () => {
             // 🔴 `ARCHIVED` IS A COLUMN RATHER THAN A FLAG-CONDITIONAL ONE.
             // Under `--archived include` the page mixes live and archived rows,
             // and without this column they are indistinguishable — which would
@@ -520,8 +555,42 @@ Notes:
               { key: "nextOwner", label: "WAITING ON", width: 12 },
               { key: "currentStep", label: "CURRENT STEP", width: 30 },
               { key: "id", label: "ID", width: 38 }
-            ])
-          );
+            ]);
+
+            // 🔴 THE PAGE FOOTER IS THE ONLY THING THAT SAYS THE PAGE WAS CUT.
+            // `--limit` defaults to 50 SERVER SIDE, so a table of fifty rows is
+            // what both a full page and a complete set look like — the read is
+            // truncated for a caller who passed no flag at all, and the terminal
+            // channel had nothing that distinguished the two. `total`, `hasMore`
+            // and `nextCursor` have been on the wire the whole time and only
+            // `--json` could see them, which put the recovery path behind the
+            // one channel a person is not using.
+            //
+            // "row(s)" rather than a pluralised noun: this line renders at n=1
+            // as readily as at n=50, and a `plural()` that swaps the noun and
+            // leaves the verb is a bug this namespace has already shipped once.
+            //
+            // Human channel only — `printEnvelope` does not run this callback
+            // under `--json`, where the three fields are already in the
+            // document, so a script's answer cannot be contaminated by it.
+            console.log(
+              color.dim(`\n${result.tracks.length} of ${result.total} matching row(s) shown.`)
+            );
+            if (result.hasMore && result.nextCursor !== null) {
+              // The command a reader runs next, spelled out. A `nextCursor` a
+              // caller can see and cannot use is what this command shipped with:
+              // the token was in the document and no flag accepted it.
+              //
+              // 🔴 BUILT, NEVER INTERPOLATED HERE. The cursor fingerprints the
+              // filters and the token contains `*`, so the naive one-line form
+              // is refused by the server after any filtered page and by zsh on
+              // every unfiltered one. `track-list-next-page-command.ts` owns both
+              // reasons and is unit-tested against them.
+              console.log(
+                color.dim(`  The rest:\n    ${trackListNextPageCommand(opts, result.nextCursor)}`)
+              );
+            }
+          });
         } catch (err) {
           process.exitCode = handleError(err);
         }
@@ -661,6 +730,15 @@ Notes:
   exactly as hard as one that is BLOCKED. An organization with no tracks at all
   reads the same. Run "nexus tracks ready --json" and check for an empty array
   rather than reading the dimmed "No results." line as an error.
+  --limit DEFAULTS TO 50 SERVER SIDE, SO A TRACK IS ALSO ABSENT WHEN IT FELL OFF
+  THE PAGE. That is a fifth reason, it needs no flag to happen, and it is the
+  one this list used to omit. The order is the track number ascending and a new
+  track takes the highest number, so the tracks a default page hides are always
+  the NEWEST ones — including one you just created.
+  NOTHING IN THE ANSWER SAYS A PAGE WAS CUT. This response carries no total and
+  no hasMore, so a full page and a complete set are the same fifty rows. Raise
+  --limit, up to 200, before reading an absence as DONE, BLOCKED, archived or
+  dependency-held.
   nextOwner SAYS WHO IS WAITED ON, NOT WHO OWNS THE TRACK. CUE means an agent
   can proceed, USER means a person has to act, EVENT means something outside
   has to happen first.
@@ -952,6 +1030,15 @@ Notes:
   READY means unblocked rather than unattended. Read the task itself with
   "nexus tracks task get <taskId>" — its banner is the only place that
   instruction lives.
+  THIS LIST AND THAT BANNER ANSWER DIFFERENT QUESTIONS AND CANNOT CONTRADICT
+  EACH OTHER. This is the blocker axis; the banner is the claim axis, rendered
+  from the holding agent alone. A task absent here whose banner says nobody is
+  on it is blocked and unheld, which is both answers being right.
+  --limit DEFAULTS TO 50 SERVER SIDE, so this list is truncated whether or not
+  you passed the flag and absence from it is not proof a task is blocked. This
+  response carries no total and no hasMore either, so nothing in the answer
+  distinguishes a full page from a complete set. Widen --limit, up to 200,
+  before reading a missing row as blocked.
   Needs the "track_tasks:read" scope.`
     )
     .action(async (trackId: string, opts: { limit?: number }) => {
@@ -959,14 +1046,36 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.tracks.listReadyTasks(trackId, { limit: opts.limit });
 
-        printEnvelope(result, () =>
+        printEnvelope(result, () => {
           printTable(result.tasks, [
             { key: "title", label: "TITLE", width: 52 },
             { key: "gate", label: "GATE", width: 6 },
             { key: "acceptance", label: "ACCEPTANCE", width: 52 },
             { key: "id", label: "ID", width: 38 }
-          ])
-        );
+          ]);
+
+          // 🔴 AN EMPTY READY SET AND A FINISHED BOARD RENDER IDENTICALLY, and
+          // that is the whole complaint this pointer answers: a board at
+          // 127 of 156 with 29 rows open answers ZERO here and reads as nearly
+          // done. Nothing else on this surface said where to look.
+          //
+          // ⚠️ IT IS A POINTER, NOT A DIAGNOSIS — deliberately. Deciding whether
+          // rows remain open needs the whole plan, which is a SECOND call on the
+          // hot path of an autonomous loop that reads this route in a cycle. So
+          // the hint costs one line and no request, and the command it names is
+          // the one that pays for the answer.
+          //
+          // Human channel only: `printEnvelope` does not run this callback under
+          // `--json`, so a script's document cannot be contaminated by it.
+          if (result.tasks.length === 0) {
+            console.log(
+              color.dim(
+                `\nNothing is offered. That reads the same whether the board is finished or stuck —\n` +
+                  `  nexus tracks task why-not-ready ${trackId}`
+              )
+            );
+          }
+        });
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1051,9 +1160,14 @@ Notes:
   this domain reserves a region of a track or refuses a second worker, so
   collision avoidance is a live instruction that arrives with the thing you
   asked for. It names the exact command to run to take the task.
+  THE BANNER REPORTS WHO IS ON THE TASK, NEVER WHETHER IT CAN BE STARTED. It is
+  rendered from the holding agent and a clock, and reads nothing about blockers
+  or done state, so "nobody is on this" is not a claim that the task is
+  unblocked. Run "nexus tracks task ready <trackId>" for that axis.
   A CLAIM HELD BY AN AGENT THAT IS NO LONGER OPEN READS AS NOBODY ON IT. A
   closed agent and an absent claim mean the same thing and render the same
-  banner, so claimedByAgentId can be set while the banner says READY TO START.
+  banner, so claimedByAgentId can be set while the banner says
+  "NOBODY IS ON THIS".
   THE AGE IN THE BANNER COMES FROM THE HEARTBEAT AND FROM NOTHING ELSE. "last
   heard 40s ago" and "last heard 4h ago" are the whole judgement; a holder named
   without an age would read as authority while often describing a dead agent.
@@ -1075,13 +1189,16 @@ Notes:
     .command("claim")
     .description("Say you are working on a task, taking it over if somebody already was")
     .argument("<taskId>", "The task to claim")
-    .requiredOption("--agent <agentId>", "The id of the OPEN agent claiming it")
+    .requiredOption("--agent <agentId>", "The OPEN agent claiming it — its name or its id")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus tracks task claim 22222222-2222-4222-8222-222222222222 \\
       --agent 33333333-3333-4333-8333-333333333333
+
+  $ nexus tracks task claim 22222222-2222-4222-8222-222222222222 \\
+      --agent backend-lane
 
 Notes:
   A CLAIM TAKES NO LOCK AND NEVER REFUSES BECAUSE SOMEBODY ELSE HOLDS THE TASK.
@@ -1090,14 +1207,20 @@ Notes:
   a task you cannot reach and 409 when that agent is not OPEN on this task's
   track. The next agent to read the task is told who holds it and how long ago
   that agent was last heard from, and decides for itself.
-  --agent IS AN ID, NOT A NAME. The banner names the HOLDER by name so a person
-  can recognise it; the value here is your own agent's id, which the route
-  resolves against the OPEN agents of this task's track. A name is a 400 — the
-  field is validated as a UUID before the route runs.
-  WHERE THAT ID COMES FROM: "nexus tracks agent open" opens an agent on a track
+  --agent TAKES AN ID OR A NAME. A name is unique among a track's OPEN agents,
+  so the value the banner prints for the HOLDER is a value you can pass. Closing
+  an agent frees its name, which is why the uniqueness is only over OPEN ones.
+  AN ID WINS WHEN A VALUE COULD BE EITHER. Agent names are unconstrained, so an
+  agent may legitimately be NAMED after a uuid — such an agent is claimable by
+  its own id and not by that name. The response always carries the resolved id,
+  never the spelling you sent.
+  ONE REFUSAL, NOT TWO: an unknown name, a name whose agent has been closed, and
+  an agent on another track all answer the same 409. It never tells you whether
+  a name exists on a track, which is what would let it be probed.
+  WHERE AN ID COMES FROM: "nexus tracks agent open" opens an agent on a track
   and prints its id, and "nexus tracks agent list" shows the ones already OPEN
   there. Claiming neither creates an agent nor falls back to an implicit one, so
-  a caller holding no id opens one first rather than looking for a flag here.
+  a caller holding neither an id nor a name opens one first.
   THE BANNER ON EVERY TASK READ NAMES THIS COMMAND, and that string is
   generated from this registration. It is not a copy you may edit.
   Needs the "track_tasks:write" scope.`
@@ -1221,8 +1344,11 @@ Notes:
   THIS IS WHAT ACCOUNTS FOR A TASK "nexus tracks task ready" WITHHOLDS. Ready
   answers what can be picked up NOW; "task list" answers what the plan contains.
   The difference between the two is the set nothing else could explain — and a
-  task's blockers are the edges naming it as blockedTaskId. An open task with no
-  such edge is held by an unticked ancestor or by its own children instead.
+  task's blockers are the edges naming IT OR ANY OF ITS ANCESTORS as
+  blockedTaskId. An edge hung on a section parent holds every row beneath it and
+  those rows carry no edge of their own, so reading only the edges that name a
+  task directly reports a genuinely blocked row as unexplained.
+  "nexus tracks task why-not-ready" composes that walk for you.
   IT IS UNORDERED. The row carries no position and the table has no ordering
   column, so no order is promised and none should be relied on.
   IT CARRIES NO CYCLE INFORMATION. Refusing a circle is the write path's job,
@@ -1249,6 +1375,97 @@ Notes:
       }
     });
   bindCommand(taskEdges, TRACK_LIST_TASK_EDGES_CONTRACT);
+
+  /**
+   * `tracks task why-not-ready` — the only command here that COMPOSES.
+   *
+   * ⚠️ IT IS DELIBERATELY NOT BOUND TO A CONTRACT, because it maps to no single
+   * route: it reads the ready set, the plan and the edges and intersects the
+   * three. `contract-help.test.ts` skips an unbound command by construction
+   * (`if (!binding) continue;`), and the `tracks` namespace has many other bound
+   * commands, so the per-namespace floor that keeps that file from going
+   * vacuously green is unaffected. It still has to be classified in
+   * `command-universe.ts` like every other leaf.
+   *
+   * 🔴 IT EXPLAINS A SET IT DOES NOT COMPUTE, AND THAT SEPARATION IS THE POINT.
+   * `tracks task ready` remains the sole authority on what may be picked up. A
+   * command that ALSO decided readiness would be a second implementation of an
+   * anti-join whose two surfaces fail asymmetrically — narrowing what counts as
+   * a blocker, or widening what counts as satisfied, hands out genuinely blocked
+   * work and the answer looks like a well-formed set of real tasks either way.
+   * Nothing here touches that query.
+   */
+  task
+    .command("why-not-ready")
+    .description("Why the tasks this track still has open are not being offered")
+    .argument("<trackId>", "The track to explain")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus tracks task why-not-ready 11111111-1111-4111-8111-111111111111
+  $ nexus tracks task why-not-ready 11111111-1111-4111-8111-111111111111 --json
+
+Notes:
+  THE ANSWER IS RECONSTRUCTED ON THIS MACHINE AND IS NOT THE SERVER'S OWN
+  REASON. The ready set is one query inside the API and it publishes nothing
+  about what it withheld, so this command reads the plan and its edges and
+  re-derives the rule. The materialised ancestry the server's query reads does
+  not cross the wire, so ancestry is rebuilt by walking parentTaskId: faithful
+  while the two are in step, and divergent exactly where they have drifted.
+  Read every line here as a reconstruction and "nexus tracks task ready" as the
+  authority on what may actually be picked up.
+  IT ANSWERS THE QUESTION A ROLL-UP CANNOT. A board can read 127 of 156 with 29
+  rows open and offer NOTHING, which is indistinguishable from a board that is
+  nearly finished. This names the rows that are holding it and says of each
+  whether it is WORK or CONTENT, because a content row nobody will ever tick
+  holds its dependents exactly as a step would.
+  AN EDGE HUNG ON AN ANCESTOR HOLDS EVERYTHING BENEATH IT, and the held row's own
+  edge list is empty. The VIA column names that ancestor. Reading only the edges
+  that name a task directly reports the row as unexplained.
+  A BLOCKER WITH WORK BENEATH IT IS SATISFIED BY THAT SUBTREE, NOT BY ITS OWN
+  TICK. "subtree open" means work is still outstanding below it; ticking the
+  parent by hand also releases it, and finishing the work is the intended exit.
+  IT MAKES NO WRITE AND CHANGES NOTHING. Three reads, all needing only the
+  "track_tasks:read" scope.
+  A FOREIGN TRACK AND AN ABSENT ONE ARE BOTH REFUSED WITH 404, IDENTICALLY.`
+    )
+    .action(async (trackId: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+
+        // The ready set is asked for at its ceiling so the cross-check below is
+        // about the WHOLE set rather than about a default page of 50. A shorter
+        // answer than the ceiling is the whole answer.
+        const [ready, plan, edges] = await Promise.all([
+          client.tracks.listReadyTasks(trackId, { limit: READY_SET_CEILING }),
+          client.tracks.listTasks(trackId),
+          client.tracks.listTaskEdges(trackId)
+        ]);
+
+        const serverReadyIds = ready.tasks.map((row) => row.id);
+        const report = explainUnreadyTasks(
+          plan.tasks,
+          edges.edges,
+          serverReadyIds,
+          ready.tasks.length >= READY_SET_CEILING
+        );
+
+        printEnvelope(
+          {
+            trackId,
+            // The caveat travels in the DOCUMENT, not only on the terminal. A
+            // script is the caller most likely to read this as authoritative.
+            reconstruction: RECONSTRUCTION_CAVEAT,
+            serverReadyIds,
+            ...report
+          },
+          () => renderWhyNotReady(report, serverReadyIds)
+        );
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
 
   // ── tracks plan ───────────────────────────────────────────────────────────
   const plan = tracks.command("plan").description("Import a whole plan into a track");
@@ -1612,6 +1829,15 @@ Notes:
   flag; every field has its own.
   --task, --agent AND --workspace ARE CHECKED. An id that does not resolve
   inside your organisation is a 404 and nothing is written.
+  WHERE AN AGENT ID COMES FROM: "nexus tracks agent open" opens an agent on a
+  track and prints its id, and "nexus tracks agent list" shows the ones already
+  OPEN there. --agent here takes an ID ONLY and resolves no name, unlike
+  "nexus tracks task claim". Neither verb is on this screen, because
+  "nexus tracks agent" is a different parent from "nexus tracks diary".
+  WHERE A TASK ID COMES FROM: "nexus tracks task list" prints one for every row
+  of the plan.
+  WHERE A WORKSPACE ID COMES FROM: "nexus workspace list". That is a different
+  namespace entirely and nothing under "nexus tracks" mints one.
   Needs the "track_diary:write" scope.`
     )
     .action(
@@ -1904,6 +2130,12 @@ Notes:
   demanding the agent is what makes an actorless event impossible at the door
   instead of a 500 from a database constraint. Your key's owning user is
   recorded alongside it when there is one.
+  WHERE AN AGENT ID COMES FROM: "nexus tracks agent open" opens an agent on a
+  track and prints its id, and "nexus tracks agent list" shows the ones already
+  OPEN there. --agent is REQUIRED here and takes an ID ONLY — it resolves no
+  name, unlike "nexus tracks task claim" — and "nexus tracks agent" is a
+  different parent from "nexus tracks event", so neither verb appears on this
+  screen's own help or on its parent's.
   THE PAYLOAD IS OPAQUE AND NOTHING QUERIES ACROSS IT. Store what a reader will
   need; nothing indexes its fields.
   THE STREAM IS APPEND ONLY. There is no way to remove or edit an event.

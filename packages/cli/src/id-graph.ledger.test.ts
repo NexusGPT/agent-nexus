@@ -73,7 +73,16 @@ const gate = shrinkOnlyLedger({
   // which would bound the ledger by itself and permit unlimited growth in
   // silence. Raising it is the one edit that lets this class grow, and it
   // cannot be made without being seen.
-  ceiling: 338,
+  //
+  // 338 -> 339 for `tracks task why-not-ready`, and the binding remedy is
+  // genuinely unavailable to it rather than merely unwritten: it COMPOSES three
+  // reads (ready set, plan, edges) and maps to no single route, so there is no
+  // contract to bind it to and `bindCommand` could only name one of the three.
+  // Its own docblock in `commands/tracks.ts` states that as a deliberate design
+  // decision, made before this gate existed. It is not `declared-unsweepable`
+  // either — it is perfectly callable given a real trackId, so a
+  // `id-graph.leaf-residue.ts` row would claim something false about it.
+  ceiling: 339,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

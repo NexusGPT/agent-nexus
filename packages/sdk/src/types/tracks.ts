@@ -360,6 +360,18 @@ export interface ReadyTrack {
 
 export interface ListReadyTracksResponse {
   tracks: ReadyTrack[];
+  /**
+   * `true` when the ready set is larger than this page.
+   *
+   * The page defaults to 50 and is capped at 200. Without this a truncated page
+   * and a complete answer were the same response, and the rows dropped were
+   * always the NEWEST tracks — the statement orders by `Track.number` ascending
+   * and a new track takes the highest number.
+   *
+   * There is deliberately no `total` and no cursor: raise `limit` and re-read.
+   * `ListTracksResponse` is the paged surface when a caller needs to walk a set.
+   */
+  hasMore: boolean;
 }
 
 /**
@@ -381,6 +393,14 @@ export interface ReadyTrackTask {
 
 export interface ListReadyTrackTasksResponse {
   tasks: ReadyTrackTask[];
+  /**
+   * `true` when this track has more ready tasks than this page.
+   *
+   * The same signal as {@link ListReadyTracksResponse.hasMore}, and this is the
+   * route where truncation is reachable today: one production track holds 165
+   * tasks against a default page of 50.
+   */
+  hasMore: boolean;
 }
 
 /** Both edge routes answer with the id of the row they inserted. */
@@ -411,8 +431,10 @@ export interface TrackTaskEdge {
  * 🔴 THIS IS WHAT MAKES AN OPEN TASK THE READY SET WITHHOLDS EXPLAINABLE.
  * `listTasks()` says which rows are open and `listReadyTasks()` says which of
  * them can be picked up; the difference between the two is the set nothing
- * could account for. A task's blockers are the edges naming it as
- * `blockedTaskId`.
+ * could account for. A task's blockers are the edges naming it **or any of its
+ * ancestors** as `blockedTaskId`: an edge hung on a section parent holds every
+ * row beneath it, and those rows carry no edge of their own. See
+ * `listTaskEdges()` for what rebuilding that ancestry costs a client.
  *
  * ⚠️ UNORDERED — the row carries no position and the table has no ordering
  * column, so no order is promised.

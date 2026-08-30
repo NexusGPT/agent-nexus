@@ -842,6 +842,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracks task toggle": "registration-only",
   "tracks task edge": "registration-only",
   "tracks task edges": "registration-only",
+
+  // Read-only — three GETs and no write — but it takes a required `<trackId>`,
+  // so the sweep can assert it is registered and cannot invoke it. Same reason
+  // `tracks task ready` sits here rather than under `safe`.
+  "tracks task why-not-ready": "registration-only",
   "tracks plan import": "registration-only",
   "tracks agent list": "registration-only",
   "tracks agent open": "registration-only",

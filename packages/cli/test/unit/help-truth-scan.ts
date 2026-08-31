@@ -14,6 +14,7 @@ import { ZPublicApiV1 } from "@nexus/types/public-api-v1";
 import { Command, CommanderError } from "commander";
 
 import { discoverRootRegistrars } from "../../src/command-universe";
+import { isJsonMode, setJsonMode } from "../../src/output";
 import { buildRootProgram } from "../../src/root-program";
 import { resetResolvedBodies } from "../../src/util/body";
 
@@ -918,6 +919,32 @@ export async function parseExample(
     value: Readable.from([Buffer.from(stdin, "utf-8")]),
     configurable: true
   });
+
+  /**
+   * JSON MODE IS PROCESS-GLOBAL AND STICKY, SO IT IS THE ONE PIECE OF STATE THIS
+   * FUNCTION USED TO FLIP AND NOT PUT BACK.
+   *
+   * The wrapped `parse`/`parseAsync` call `setJsonMode(true)` whenever the argv
+   * asks for `--json`, and `setJsonMode` writes a module-level flag in
+   * `src/output.ts` — not per-program state. So the FIRST example carrying
+   * `--json` armed it for the rest of the scan, with two consequences:
+   *
+   *   1. Every later `helpOf()` then rendered through the JSON contract's
+   *      `outputHelp` wrapper, which emitted `{"help":{…,"text":""}}` to stdout
+   *      — 638 documents per run, on this tree. The text is EMPTY because
+   *      `helpOf` installs its own `writeOut` to capture the render, so the
+   *      contract's `helpCapture` never sees a byte. Nothing reads those
+   *      documents; they are pure noise, and vitest ships every one of them to
+   *      the main process over the same birpc channel it reports results on.
+   *   2. Worse, every later `parseExample` ran with JSON mode armed by an
+   *      unrelated example. A rule verdict that depended on the mode would have
+   *      been decided by example ORDER.
+   *
+   * `json-contract-is-total.test.ts` already restores it in its own `finally`
+   * for exactly this reason. Saving and restoring rather than forcing `false`
+   * keeps a caller that deliberately armed the mode working.
+   */
+  const realJsonMode = isJsonMode();
   resetResolvedBodies();
   let refusal: ParseOutcome | undefined;
   try {
@@ -940,6 +967,7 @@ export async function parseExample(
     // that survives is read by every later parse AND by the runner itself.
     if (realStdin) Object.defineProperty(process, "stdin", realStdin);
     else delete (process as unknown as { stdin?: unknown }).stdin;
+    setJsonMode(realJsonMode);
     resetResolvedBodies();
   }
   if (refusal) return refusal;

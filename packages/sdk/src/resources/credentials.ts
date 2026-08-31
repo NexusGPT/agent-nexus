@@ -1,4 +1,4 @@
-import { type HttpClient, withDerivedHasMore } from "../http-client";
+import type { HttpClient } from "../http-client";
 import type { PageResponse } from "../types/common";
 import type {
   ConnectCredentialBody,
@@ -22,13 +22,9 @@ export class CredentialsResource extends BaseResource {
   }
 
   async list(params?: ListCredentialsParams): Promise<PageResponse<Credential>> {
-    const { data, meta } = await this.http.requestWithMeta<Credential[]>("GET", "/credentials", {
+    return this.http.requestPage<Credential>("GET", "/credentials", {
       query: params as Record<string, string | number | undefined>
     });
-    return {
-      data,
-      meta: meta ? withDerivedHasMore(meta) : { total: data.length, page: 1, hasMore: false }
-    };
   }
 
   /**

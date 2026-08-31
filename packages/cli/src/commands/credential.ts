@@ -277,7 +277,7 @@ Notes:
   API-key connection's name and DESCRIPTION, and a tool credential's name — so
   a hit can come from text the table never shows, and the row looks arbitrary.
   It does NOT match the service; filter on that with --service instead.
-  Paginated. Check meta.hasMore before concluding a credential is absent — and
+  Paginated. Check meta.paging before concluding a credential is absent — and
   a zero-result --search is weak evidence of absence for the same reason.`
       )
   ).action(async (opts) => {

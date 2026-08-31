@@ -286,6 +286,32 @@ describe("the invocation returns while the refresh is still running", () => {
     return false;
   }
 
+  /**
+   * 🚨 THE CACHE VERSION IS NOT THE END OF THE CHILD'S WORK, SO IT IS THE WRONG
+   * SIGNAL TO WAIT ON BEFORE READING THE LOCK.
+   *
+   * The child publishes the cache with a rename and releases the lock on the
+   * NEXT statement, in a process this test does not control. A wait keyed on the
+   * cache version therefore resumes INSIDE that two-syscall gap — microseconds
+   * on an idle machine, wide enough under a loaded runner to read the lock as
+   * still held and fail an assertion the code satisfies a moment later.
+   *
+   * The release is the last thing the refresher touches on disk, so it is the
+   * signal an assertion about the lock has to key on. Every caller pairs this
+   * with a read that proves the lock was HELD first: absence at the end and
+   * absence throughout are the same observation to a poll, and this one would
+   * return `true` on its first iteration against a build that had stopped
+   * locking altogether.
+   */
+  async function waitForLockRelease(budgetMs: number): Promise<boolean> {
+    const deadline = Date.now() + budgetMs;
+    while (Date.now() < deadline) {
+      if (!fs.existsSync(lockDir())) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  }
+
   it("comes back long before the child's request completes", async () => {
     writeStaleCache("0.2.21");
     harness.childProgram = buildRefreshScript({
@@ -321,8 +347,31 @@ describe("the invocation returns while the refresh is still running", () => {
     });
 
     await checkForUpdate("0.2.19");
-    await expect(waitForCacheVersion("9.9.9", 10_000)).resolves.toBe(true);
 
+    // Floor under the release assertion at the end, and it can only be read
+    // here. The parent claims the lock and only then spawns, so the lock is
+    // held the instant this call returns — the child cannot reach its own
+    // release before the server's deliberate delay has elapsed. Without this
+    // line the wait below is satisfied on its first iteration by a lock that
+    // was never taken, and a build that silently stopped locking would turn
+    // this case green.
+    expect(fs.existsSync(lockDir()), "the parent did not hold the refresh lock").toBe(true);
+
+    await expect(
+      waitForCacheVersion("9.9.9", 10_000),
+      "the child never published the refreshed version"
+    ).resolves.toBe(true);
+    // Released on success, so an invocation a minute later is not blocked — and
+    // the release is one statement PAST the rename the wait above observes, in
+    // a process this test does not control. Waiting for the cache version and
+    // then reading the lock resumes inside that gap and fails under load.
+    await expect(
+      waitForLockRelease(10_000),
+      "the refresh lock was still held after the child had published the cache"
+    ).resolves.toBe(true);
+
+    // Taken once the child is provably finished, so this listing is of a
+    // settled directory rather than one mid-rename.
     const entries = fs.readdirSync(path.dirname(cacheFile()));
     // Floor over the SAME listing before reading anything from it. An empty
     // `readdirSync` — a wrong path, a directory that was never created — reads
@@ -330,8 +379,6 @@ describe("the invocation returns while the refresh is still running", () => {
     // resolved nothing wearing a tick.
     expect(entries).toContain(path.basename(cacheFile()));
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
-    // Released on success, so an invocation a minute later is not blocked.
-    expect(fs.existsSync(lockDir())).toBe(false);
   }, 20_000);
 
   it("leaves the cache owner-only, on a path that was already loose", async () => {

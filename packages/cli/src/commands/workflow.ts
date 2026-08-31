@@ -109,11 +109,11 @@ Notes:
   --folder accepts a folder id or its name, matched case-insensitively. A folder
   that matches nothing returns an empty list rather than ignoring the filter.
   Newest-updated first.
-  --json IS {data: [...], meta: {total, page, hasMore}}, NOT A BARE ARRAY, and
+  --json IS {data: [...], meta: {total, page, paging}}, NOT A BARE ARRAY, and
   "nexus task list" — the other list you are most likely to read beside this
   one — answers {items, total}. Both are objects and NEITHER is a bare array, so
   jq '.[]' selects nothing on either; the rows are under .data here and .items
-  there. Read meta.hasMore here rather than counting rows.`
+  there. Read meta.paging here rather than counting rows.`
       )
   ).action(async (opts) => {
     try {

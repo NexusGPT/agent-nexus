@@ -2123,7 +2123,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     id: "workflow-15",
     target: "workflow list",
     summary:
-      "document the --json envelope {data:[...], meta:{total,page,hasMore}} — it differs from `task list`, which returns a bare array.",
+      "document the --json envelope {data:[...], meta:{total,page,paging}} — it differs from `task list`, which returns a bare array.",
     state: "placed",
     leaf: "workflow list",
     probe: "NOT A BARE ARRAY"

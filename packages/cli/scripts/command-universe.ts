@@ -9,6 +9,7 @@
  * Usage:
  *   tsx scripts/command-universe.ts --print-safe-leaves     # one path per line
  *   tsx scripts/command-universe.ts --print-fixture-leaves  # the non-empty subset
+ *   tsx scripts/command-universe.ts --print-expected-skips  # skips the sweep accepts
  *   tsx scripts/command-universe.ts --check-drift         # report + exit code
  *   tsx scripts/command-universe.ts --check-drift --json  # machine-readable
  *
@@ -38,15 +39,26 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The skips the sweep accepts. Emptiness is legitimate — an environment that
+  // answers every leaf declares nothing — so unlike the safe-leaf list this one
+  // is never treated as a refusal by the caller.
+  if (args.has("--print-expected-skips")) {
+    process.stdout.write(
+      report.expectedSkips.length === 0 ? "" : `${report.expectedSkips.join("\n")}\n`
+    );
+    return;
+  }
+
   if (!args.has("--check-drift")) {
     process.stderr.write(
-      "Usage: command-universe.ts --print-safe-leaves | --print-fixture-leaves | --check-drift [--json]\n"
+      "Usage: command-universe.ts --print-safe-leaves | --print-fixture-leaves | --print-expected-skips | --check-drift [--json]\n"
     );
     process.exitCode = 2;
     return;
   }
 
-  const drifted = report.unclassified.length + report.stale.length;
+  const drifted =
+    report.unclassified.length + report.stale.length + report.staleExpectedSkips.length;
 
   if (args.has("--json")) {
     process.stdout.write(
@@ -55,8 +67,10 @@ async function main(): Promise<void> {
           drift: {
             unclassified: report.unclassified,
             stale: report.stale,
+            staleExpectedSkips: report.staleExpectedSkips,
             observed: report.observed.length,
-            safe: report.safe.length
+            safe: report.safe.length,
+            expectedSkips: report.expectedSkips.length
           }
         },
         null,
@@ -79,10 +93,18 @@ async function main(): Promise<void> {
       );
       process.stdout.write(`${report.stale.map((path) => `  · ${path}`).join("\n")}\n\n`);
     }
+    if (report.staleExpectedSkips.length > 0) {
+      process.stdout.write(
+        `Stale expected-skips (${report.staleExpectedSkips.length}) — named in SWEEP_EXPECTED_SKIPS, but the sweep does not execute them:\n`
+      );
+      process.stdout.write(
+        `${report.staleExpectedSkips.map((path) => `  · ${path}`).join("\n")}\n\n`
+      );
+    }
     process.stdout.write(
       drifted === 0
         ? "Clean — every leaf the CLI registers is classified.\n"
-        : `Drift: ${report.unclassified.length} unclassified + ${report.stale.length} stale\n`
+        : `Drift: ${report.unclassified.length} unclassified + ${report.stale.length} stale + ${report.staleExpectedSkips.length} stale expected-skip(s)\n`
     );
   }
 

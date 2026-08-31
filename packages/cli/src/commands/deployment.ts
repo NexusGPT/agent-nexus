@@ -174,7 +174,7 @@ Examples:
   $ nexus deployment list --active --json
 
 Notes:
-  --limit above 100 is a 400, NOT a clamp. Page with meta.hasMore; meta.total
+  --limit above 100 is a 400, NOT a clamp. Page with meta.paging; meta.total
   counts the filtered set, so it moves when --search or --type does.
   --type takes the uppercase enum. --active selects isActive=true only —
   there is no flag for the inactive half, omit it and read the ACTIVE column.
@@ -588,7 +588,7 @@ Examples:
 Notes:
   THIS IS WHAT THE WIDGET ACTUALLY RENDERS. It reads settings.embedSettings —
   the same group the dashboard writes and the same one the widget loads — and
-  returns all 61 published keys: the ui* palette, the bubble* placement, the
+  returns all 58 published keys: the ui* palette, the bubble* placement, the
   header, footer and landing-screen groups, the localized* variants beside
   every translatable string, and suggestedMessages.
 
@@ -596,7 +596,7 @@ Notes:
   NOT_AN_EMBED_DEPLOYMENT, naming the type it found. Other channels keep their
   settings elsewhere — read those with "nexus deployment get <id>".
 
-  ONE KEY OF THE 62 IS NEVER RETURNED: identityVerificationSecret. It is the
+  ONE KEY OF THE 59 IS NEVER RETURNED: identityVerificationSecret. It is the
   server-side HMAC key that signs a visitor's externalUserId, so anyone holding
   it can forge a visitor identity — publishing it would hand that to every
   deployments:read caller. The contract omits it; nothing here filters it, so
@@ -604,7 +604,7 @@ Notes:
   because whether verification is on is not a secret. The secret survives an
   update untouched (see "embed-config-update").
 
-  THE OUTPUT IS A VALID UPDATE BODY. The update accepts exactly these 61 keys,
+  THE OUTPUT IS A VALID UPDATE BODY. The update accepts exactly these 58 keys,
   every one optional, so a read can be edited and PATCHed straight back.`
     )
     .action(async (id: string) => {
@@ -636,12 +636,15 @@ Notes:
   which is the group the widget loads, and the response is a fresh read of what
   was stored.
 
-  🚨 AN UNDECLARED KEY IS DROPPED SILENTLY, NOT REFUSED. The write parses
-  against a non-strict schema, so a misspelling — "primaryColor" for
-  "uiPrimaryColor", "theme" for "uiAppearance" — is stripped before the column
-  and answers 200 with the old value still in place. Nothing reports it. THE
-  CHECK IS THE RESPONSE: the key you sent is in it with the value you sent, or
-  the write did not happen. Run "embed-config" first for the exact spellings.
+  🚨 AN UNDECLARED KEY IS DROPPED, NOT REFUSED. The write parses against a
+  non-strict schema, so a misspelling — "primaryColor" for "uiPrimaryColor",
+  "theme" for "uiAppearance" — is stripped before the column and answers 200
+  with the old value still in place. The response carries the header
+  x-nexus-discarded-body-keys naming what was dropped, at most 10 names, each
+  truncated to 64 chars, TOP-LEVEL ONLY — a stale key nested inside footerLinks,
+  landingScreenActionButtons or a localized* map never appears in it. THE CHECK
+  IS THE RESPONSE: the key you sent is in it with the value you sent, or the
+  write did not happen. Run "embed-config" first for the exact spellings.
 
   PATCH SEMANTICS, AND THEY ARE REAL. Only the keys you name change; the rest
   of the group is re-read from storage and written back. That is also what

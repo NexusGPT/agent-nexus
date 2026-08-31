@@ -62,7 +62,7 @@ Examples:
   $ nexus agent list --search "support" --json
 
 Notes:
-  Results are paginated. Use --page/--limit. Check meta.hasMore in --json output.
+  Results are paginated. Use --page/--limit. Check meta.paging in --json output.
   --page defaults to 1 and --limit to 20. A --limit above 100 is REFUSED with a
   400 rather than clamped, so a script asking for 500 receives no rows at all.
   --status takes ACTIVE or DRAFT — the public spelling of the internal

@@ -6,7 +6,7 @@ import {
   NexusConnectionError,
   NexusTimeoutError
 } from "./errors";
-import { HttpClient, retryDelayMs, withDerivedHasMore } from "./http-client";
+import { HttpClient, normalizePagingMeta, retryDelayMs } from "./http-client";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
 
 /**
@@ -292,51 +292,126 @@ describe("requestRaw", () => {
 });
 
 /**
- * `withDerivedHasMore` fills in a `hasMore` the server did not send.
+ * `normalizePagingMeta` reports what the server said about further pages, and
+ * reports that it said NOTHING when that is the case (NEX-4592).
  *
- * The property that matters most is the FIRST test: today every v1 list
- * endpoint sends `hasMore`, so the derivation must be a no-op on real traffic.
- * A helper that "helpfully" recomputed the field would silently disagree with
- * the server on exactly the paginated reads it is supposed to pass through.
+ * Two properties carry this describe block. The first is that a served
+ * `hasMore` is a no-op — today every v1 list endpoint that sends one is passed
+ * through untouched, and a helper that "helpfully" recomputed the field would
+ * silently disagree with the server on exactly the paginated reads it exists to
+ * forward. The second is that a payload supporting NO conclusion produces
+ * `"did-not-say"` and never `"exhausted"`: those two send a paging loop in
+ * opposite directions, and the old boolean could only spell the wrong one.
  */
-describe("withDerivedHasMore", () => {
+/**
+ * `requestPage` end to end — NEX-4592.
+ *
+ * The unit tests below cover the normalizer. These cover the thing a caller
+ * actually holds: a server that publishes no pagination must not come back
+ * looking like a server that published a complete one-page collection.
+ */
+describe("requestPage — a silent server stays silent", () => {
+  const page = (meta?: unknown): string =>
+    JSON.stringify({ success: true, data: [{ id: "a" }, { id: "b" }], ...(meta ? { meta } : {}) });
+
+  it("reports did-not-say, and invents neither a total nor a page, when meta is absent", async () => {
+    const http = clientFor(200, page());
+
+    const result = await http.requestPage<{ id: string }>("GET", "/agents");
+
+    // The rows are not in doubt — only their position in a larger set is.
+    expect(result.data).toHaveLength(2);
+    expect(result.meta).toEqual({ paging: "did-not-say" });
+    // The three fabrications this ticket names, each asserted absent by name.
+    expect(result.meta.total).toBeUndefined();
+    expect(result.meta.page).toBeUndefined();
+  });
+
+  it("does not read a page of 2 as a collection of 2", async () => {
+    const http = clientFor(200, page());
+
+    const { meta } = await http.requestPage<{ id: string }>("GET", "/agents");
+
+    expect(meta.total).not.toBe(2);
+  });
+
+  it("passes a served hasMore through as the paging state", async () => {
+    const http = clientFor(200, page({ total: 40, page: 1, hasMore: true }));
+
+    await expect(http.requestPage<{ id: string }>("GET", "/agents")).resolves.toEqual({
+      data: [{ id: "a" }, { id: "b" }],
+      meta: { total: 40, page: 1, paging: "has-more" }
+    });
+  });
+
+  it("reports did-not-say on a meta that carries a total but nothing to page by", async () => {
+    const http = clientFor(200, page({ total: 40, page: 1 }));
+
+    const { meta } = await http.requestPage<{ id: string }>("GET", "/agents");
+
+    // 40 rows behind a page of 2, and nothing in the payload says whether more
+    // are reachable. "exhausted" here is what stopped a walk on page one.
+    expect(meta).toEqual({ total: 40, page: 1, paging: "did-not-say" });
+  });
+});
+
+describe("normalizePagingMeta", () => {
   it("returns a served hasMore untouched, even when it contradicts the other fields", () => {
     // page 1 of 9 pages says "more pages exist", the server says false.
     // The server wins: it is the only party that knows.
     const meta = { total: 90, page: 1, limit: 10, totalPages: 9, hasMore: false };
 
-    expect(withDerivedHasMore(meta).hasMore).toBe(false);
+    expect(normalizePagingMeta(meta).paging).toBe("exhausted");
   });
 
   it("keeps a served hasMore: true", () => {
-    expect(withDerivedHasMore({ total: 90, page: 1, hasMore: true }).hasMore).toBe(true);
+    expect(normalizePagingMeta({ total: 90, page: 1, hasMore: true }).paging).toBe("has-more");
   });
 
   it("derives from page < totalPages when hasMore is absent", () => {
-    expect(withDerivedHasMore({ total: 90, page: 1, limit: 10, totalPages: 9 }).hasMore).toBe(true);
-    expect(withDerivedHasMore({ total: 90, page: 9, limit: 10, totalPages: 9 }).hasMore).toBe(
-      false
+    expect(normalizePagingMeta({ total: 90, page: 1, limit: 10, totalPages: 9 }).paging).toBe(
+      "has-more"
+    );
+    expect(normalizePagingMeta({ total: 90, page: 9, limit: 10, totalPages: 9 }).paging).toBe(
+      "exhausted"
     );
   });
 
   it("falls back to page * limit < total when totalPages is absent too", () => {
-    expect(withDerivedHasMore({ total: 90, page: 1, limit: 10 }).hasMore).toBe(true);
-    expect(withDerivedHasMore({ total: 90, page: 9, limit: 10 }).hasMore).toBe(false);
+    expect(normalizePagingMeta({ total: 90, page: 1, limit: 10 }).paging).toBe("has-more");
+    expect(normalizePagingMeta({ total: 90, page: 9, limit: 10 }).paging).toBe("exhausted");
   });
 
-  it("answers false when nothing in the payload suggests another page", () => {
-    expect(withDerivedHasMore({ total: 90, page: 1 }).hasMore).toBe(false);
+  /**
+   * The regression this whole change exists for.
+   *
+   * `{ total: 90, page: 1 }` supports no inference about further pages: there is
+   * no `hasMore`, no `totalPages` and no `limit` to divide by. The old helper
+   * answered `hasMore: false`, which reads as "the walk is over" and stops a
+   * paging loop on page one of ninety rows. The honest answer names the silence.
+   */
+  it("says did-not-say — never exhausted — when the payload supports no conclusion", () => {
+    expect(normalizePagingMeta({ total: 90, page: 1 }).paging).toBe("did-not-say");
+  });
+
+  /**
+   * A server that sent NO meta has published nothing, so nothing is published
+   * onward: no total invented from the page length, no page number claimed, and
+   * a paging state that says the server was silent.
+   */
+  it("invents no total and no page when the server sent no meta at all", () => {
+    expect(normalizePagingMeta(undefined)).toEqual({ paging: "did-not-say" });
   });
 
   it("preserves every other field it passes through", () => {
     const meta = { total: 90, page: 2, limit: 10, totalPages: 9 };
 
-    expect(withDerivedHasMore(meta)).toEqual({
+    expect(normalizePagingMeta(meta)).toEqual({
       total: 90,
       page: 2,
       limit: 10,
       totalPages: 9,
-      hasMore: true
+      paging: "has-more"
     });
   });
 });

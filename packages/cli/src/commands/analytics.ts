@@ -194,12 +194,12 @@ Notes:
   built, naming the value it rejected. A fraction is legal on both sides:
   "--score 0.5" is sent as 0.5.
 
-  THE meta HERE CARRIES FIVE FIELDS — total, page, limit, totalPages, hasMore.
+  THE meta HERE CARRIES FIVE FIELDS — total, page, limit, totalPages, paging.
   Every other list in this CLI carries three, so a parser written against
   tracing or conversation finds no totalPages here, and one written here finds
   none there.
 
-  READ hasMore, NEVER total. total is PROBED, not counted: the server fetches
+  READ paging, NEVER total. total is PROBED, not counted: the server fetches
   limit+1 rows and reports offset+limit+1 whenever a next page exists. So on
   every page but the last, total means "one more than you have seen" and
   totalPages means "exactly one page left". Both are lower bounds, and only the

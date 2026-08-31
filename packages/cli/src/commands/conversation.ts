@@ -84,7 +84,7 @@ THREE COMMANDS IN THIS NAMESPACE PAGE, AND NO TWO OF THEM CARRY THE SAME meta.
 Under --json every one answers {"data":[…]} and the difference is what sits
 beside it, so a script written against one silently reads undefined on the next:
 
-  conversation list      meta = {total, page, hasMore}
+  conversation list      meta = {total, page, paging}
                          NO limit and NO totalPages — "deployment list" carries
                          all five, and this one does not.
   conversation messages  meta = {hasMore, nextBefore}
@@ -211,7 +211,7 @@ Notes:
   conversation back and nothing says the filter did not apply. Check the count
   against an unfiltered run before trusting it. --assigned-to none is exact.
   --last-message-before / --last-message-after are ISO-8601 instants.
-  --limit above 100 is a 400, not a clamp. Page with meta.hasMore in --json.`
+  --limit above 100 is a 400, not a clamp. Page with meta.paging in --json.`
     )
     .action(async (opts) => {
       try {

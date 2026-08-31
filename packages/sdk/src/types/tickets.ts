@@ -2,6 +2,8 @@
 // Ticket types
 // ============================================================================
 
+import type { PageResponse, PaginationMeta } from "./common";
+
 export type TicketType = "BUG" | "FEATURE_REQUEST" | "IMPROVEMENT";
 export type TicketPriority = "NONE" | "URGENT" | "HIGH" | "MEDIUM" | "LOW";
 
@@ -23,6 +25,31 @@ export interface TicketContext {
 // ============================================================================
 // Response types
 // ============================================================================
+
+/**
+ * Pagination for the ticket list.
+ *
+ * This is the shared {@link PaginationMeta}, and the alias is kept because the
+ * ticket route is where its optionality bites hardest and this name is where a
+ * reader goes looking for the reason.
+ *
+ * 🔴 `total` IS OPTIONAL AND THAT IS THE CONTRACT, NOT AN OVERSIGHT. The upstream
+ * provider fetch is bounded, so past that bound the server can only offer a floor
+ * — and it publishes nothing rather than a floor wearing a total's name. Present
+ * means exact; absent means unknown.
+ *
+ * `total` and `totalPages` travel together, because the second is derived from
+ * the first and inherits its uncertainty exactly.
+ *
+ * `paging` reports REACHABILITY, not existence: `"exhausted"` means nothing
+ * more can be paged to, even where the provider holds rows past the bound. That
+ * second fact is what the absent `total` carries. Page on `paging`; it
+ * terminates, and it says `"did-not-say"` rather than guessing.
+ */
+export type TicketListMeta = PaginationMeta;
+
+/** A page of tickets, with metadata whose total may legitimately be missing. */
+export type TicketListPage = PageResponse<TicketSummary>;
 
 export interface TicketSummary {
   id: string;
@@ -133,15 +160,19 @@ export interface ListTicketsAcrossOrganizationsParams {
   search?: string;
 }
 
-/** Result of `client.tickets.listAcrossOrganizations()`. */
+/**
+ * Result of `client.tickets.listAcrossOrganizations()`.
+ *
+ * The pagination fields carry what the SERVER published, in the same
+ * {@link PaginationMeta} shape every other list uses — absent where it said
+ * nothing. This route aggregates across organizations and skips the ones whose
+ * fetch failed, so a count derived from the merged rows would be a floor on a
+ * floor.
+ */
 export interface CrossOrgTicketsResult {
   tickets: CrossOrgTicketSummary[];
-  /** Total tickets gathered across orgs (bounded — duplicate-scan aid, not exhaustive). */
-  total: number;
-  /** Current page (1-based) of the merged result. */
-  page: number;
-  /** Whether more pages exist after the current one. */
-  hasMore: boolean;
+  /** Pagination as published by the server; see {@link PaginationMeta}. */
+  meta: PaginationMeta;
   /** How many organizations the caller belongs to. */
   organizationCount: number;
   /** Orgs whose ticket fetch failed and were skipped (best-effort aggregation). */

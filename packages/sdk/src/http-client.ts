@@ -22,7 +22,7 @@ import {
   parseRetryAfterMs
 } from "./retry-policy";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./timeouts";
-import type { PageResponse, PaginationMeta, WirePaginationMeta } from "./types/common";
+import type { PageResponse, PaginationMeta, PagingState, WirePaginationMeta } from "./types/common";
 
 // ============================================================================
 // Types
@@ -1210,23 +1210,14 @@ export class HttpClient {
    * {@link PageResponse}.
    *
    * `requestWithMeta` types `meta` as OPTIONAL, because most endpoints do not
-   * return it, while `PageResponse.meta` is REQUIRED. Every list method used to
-   * bridge that gap with a `meta: meta!` non-null assertion — 20 of them, one
-   * per resource — which told the compiler the field was present without
-   * checking, and left `meta` genuinely `undefined` at runtime whenever the
-   * server omitted it. The type said one thing and the value was another.
+   * return it, while `PageResponse.meta` is REQUIRED. This method is the one
+   * place that bridges the gap, and it bridges it by REPORTING the absence
+   * rather than filling it in.
    *
-   * This method closes the gap in ONE place instead. When the server omits
-   * `meta`, it derives one that honestly describes the payload it did send: a
-   * single complete page. That is a real value of the right shape rather than a
-   * lie, so callers reading `meta.total` or `meta.hasMore` cannot crash.
-   *
-   * A PARTIAL `meta` gets the same treatment, because `meta ?? default` only
-   * fires when `meta` is missing wholesale. Every v1 list endpoint currently
-   * sends `hasMore`, so this derivation is a no-op today and is a fallback, not
-   * a fix: `withDerivedHasMore` returns a served `hasMore` untouched. It exists
-   * so that an endpoint which later omits the field degrades to a computed
-   * boolean rather than leaving `undefined` behind a type that says `boolean`.
+   * A server that sends no `meta` has told this client nothing about the
+   * collection, so the normalized meta carries no `total`, no `page`, and
+   * `paging: "did-not-say"`. The page itself is still returned in full — the
+   * data is not in doubt, only its position in a larger set is.
    *
    * What genuinely varies is the REST of the meta. `/agents` sends
    * `{ total, page, hasMore }`; `/assets` sends `limit` and `totalPages` as
@@ -1248,36 +1239,57 @@ export class HttpClient {
   ): Promise<PageResponse<T>> {
     const { data, meta } = await this.requestWithMeta<T[]>(method, path, opts);
 
-    if (!meta) {
-      return { data, meta: { total: data.length, page: 1, hasMore: false } };
-    }
-
-    return { data, meta: withDerivedHasMore(meta) };
+    return { data, meta: normalizePagingMeta(meta) };
   }
 }
 
 /**
- * Fill in a `hasMore` the server did not send.
+ * Turn what the server sent into a {@link PaginationMeta}, without inventing
+ * anything it did not send.
  *
- * `page < totalPages` is the same expression the endpoints that DO send
- * `hasMore` compute it with, so a derived value and a served one agree. When
- * `totalPages` is missing too, `page * limit < total` says the same thing from
- * the other three fields. With none of them available the honest answer is
- * `false`: nothing in the payload suggests another page exists.
+ * The paging state is INFERRED where the payload supports an inference and
+ * reported as `"did-not-say"` where it does not:
+ *
+ * - A served `hasMore` is authoritative and passes through untouched.
+ * - `page < totalPages` is the same expression the endpoints that DO send
+ *   `hasMore` compute it with, so a derived value and a served one agree.
+ * - `page * limit < total` says the same thing from the other three fields.
+ * - With none of those available, the payload supports no conclusion, and
+ *   `"did-not-say"` is what that is. It is deliberately not `"exhausted"`:
+ *   those two send a paging loop in opposite directions, and only one of them
+ *   is honest about a payload that stated nothing.
+ *
+ * Absent `meta` and a `meta` carrying none of these fields are the same fact
+ * from a caller's side — the server published nothing — so they produce the
+ * same value here.
  */
-export function withDerivedHasMore(meta: WirePaginationMeta): PaginationMeta {
+export function normalizePagingMeta(meta: WirePaginationMeta | undefined): PaginationMeta {
+  if (!meta) return { paging: "did-not-say" };
+
   const { total, page, hasMore, limit, totalPages } = meta;
 
-  if (hasMore !== undefined) {
-    return { ...meta, hasMore };
-  }
-  if (totalPages !== undefined) {
-    return { ...meta, hasMore: page < totalPages };
-  }
-  if (limit !== undefined) {
-    return { ...meta, hasMore: page * limit < total };
-  }
-  return { ...meta, hasMore: false };
+  const paging = ((): PagingState => {
+    if (hasMore !== undefined) return hasMore ? "has-more" : "exhausted";
+    if (page !== undefined && totalPages !== undefined) {
+      return page < totalPages ? "has-more" : "exhausted";
+    }
+    if (page !== undefined && limit !== undefined && total !== undefined) {
+      return page * limit < total ? "has-more" : "exhausted";
+    }
+    return "did-not-say";
+  })();
+
+  // Built field by field rather than spread from `meta`, so the wire's own
+  // `hasMore` cannot ride along. A spread leaves a boolean on the runtime object
+  // that `PaginationMeta` does not declare, and a consumer reading it loosely
+  // would get the collapsed answer back out of the very value that replaced it.
+  return {
+    ...(total !== undefined && { total }),
+    ...(page !== undefined && { page }),
+    ...(limit !== undefined && { limit }),
+    ...(totalPages !== undefined && { totalPages }),
+    paging
+  };
 }
 
 function appendQuery(

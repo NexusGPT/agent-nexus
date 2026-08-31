@@ -137,10 +137,10 @@ async function captureStderr(fn: () => Promise<void>): Promise<string> {
   return chunks.join("");
 }
 
-const ROLE_ID = "11111111-1111-1111-1111-111111111111";
-const OTHER_ROLE_ID = "22222222-2222-2222-2222-222222222222";
-const AGENT_ID = "33333333-3333-3333-3333-333333333333";
-const GRANT_ID = "44444444-4444-4444-4444-444444444444";
+const ROLE_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_ROLE_ID = "22222222-2222-4222-8222-222222222222";
+const AGENT_ID = "33333333-3333-4333-8333-333333333333";
+const GRANT_ID = "44444444-4444-4444-8444-444444444444";
 
 /** The `{ roles, readiness }` list shape, which name resolution reads. */
 function rolesList(roles: { id: string; name: string }[]) {
@@ -534,6 +534,241 @@ describe("role list --json is a JOIN, and its help says so", () => {
     expect(help).toContain("GET /public/v1/roles");
     expect(help).toContain("parallel arrays");
     expect(help).toContain("nexus api GET /roles");
+  });
+});
+
+/**
+ * THE ANSWER HALF OF THE THREE LEAVES THE LIVE SWEEP NO LONGER REACHES.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHY THESE THREE, AND WHY HERE RATHER THAN IN THE SWEEP
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `role automation-settings`, `role governance` and `role job-types` are three of
+ * the four `role` leaves `scripts/sweep.sh` now SKIPs: the organisation it
+ * authenticates as has opted out of the Role primitive, so every one of them
+ * answers 403 "This organization has opted out of this feature" and the sweep
+ * accepts that as environment policy. It is right to accept it, and the cost is
+ * that nothing executes these commands against anything any more.
+ *
+ * They were not uncovered before that — they were covered by the REQUEST half
+ * only. The three cases in "the ten read verbs reach the paths the v1 contract
+ * declares" and in "governance queues" fixture `{ settings: [] }` and
+ * `{ jobTypes: [], unreadable: [] }`, assert the METHOD and the PATH, and stop.
+ * An empty fixture cannot exercise a renderer, so every branch below was reached
+ * by nothing in this repository, live or offline.
+ *
+ * 🚨 THE SWEEP NEVER ASSERTED THIS EITHER, WHICH IS WHY THIS IS NOT A DOWNGRADE.
+ * `scan-response.py` answers two questions — does the body parse as JSON, and
+ * does it carry a string of MIN_SECRET_LENGTH or more under a secret-shaped key.
+ * It never reads a key name and never looks at a value's type. So for these
+ * leaves the live gate proved "the route answered something JSON-shaped", and
+ * that is the whole of what was lost. Everything asserted below is strictly more
+ * than the sweep ever checked, and it runs in `Tests: Vitest`, which is a
+ * required context on staging and main — where `CLI: Sweep` is declared
+ * `"gating": true` in .github/required-contexts.json and is armed on NEITHER.
+ * Measured with the repo's own instrument, `scripts/required-contexts.ts
+ * --reconcile`: 18 live against 19 declared on both branches, and `CLI: Sweep`
+ * is the single row of difference.
+ *
+ * What is genuinely NOT recoverable here is route existence, tenancy scoping and
+ * the server's own shape. A contract test cannot see a deleted route. That gap is
+ * real, it is named in the commit, and it is smaller than the one it replaces.
+ */
+describe("the leaves the sweep can no longer reach still answer, and the answer is asserted", () => {
+  describe("role governance", () => {
+    // TWO rows, and only two — the other RoleManagementAction values are what
+    // remains of a retired allow-list and the server reads no policy for them.
+    const GOVERNANCE = {
+      settings: [
+        { action: "CREATE_ROLE", requiresApproval: true },
+        { action: "DELETE_ROLE", requiresApproval: false }
+      ]
+    };
+
+    it("unwraps `settings` and answers the ROWS, never the API's envelope", async () => {
+      request.mockResolvedValue(GOVERNANCE);
+
+      const out = await runJson(["role", "governance"]);
+      const rows = out.data as { action: string; requiresApproval: unknown }[];
+
+      expect(Array.isArray(out.data)).toBe(true);
+      expect(rows.map((r) => r.action)).toEqual(["CREATE_ROLE", "DELETE_ROLE"]);
+      // The API's own key must not survive into the document — a caller reading
+      // `.settings` off this is reading `undefined`, and that is the divergence
+      // worth pinning rather than discovering.
+      expect(out).not.toHaveProperty("settings");
+    });
+
+    it("keeps requiresApproval a BOOLEAN in --json, never the rendered English", async () => {
+      // NEX-3627 was exactly this shape one command over: the wire call was
+      // right, the human rendering was right, and the JSON document carried a
+      // sentence where a script expected a discriminant. `requiresApproval` is
+      // the field a caller branches on to know whether `role create` will create
+      // or merely file a request, so a string here is a silent behaviour change
+      // for every script that reads it.
+      request.mockResolvedValue(GOVERNANCE);
+
+      const out = await runJson(["role", "governance"]);
+      const rows = out.data as { requiresApproval: unknown }[];
+
+      expect(rows[0]?.requiresApproval).toBe(true);
+      expect(rows[1]?.requiresApproval).toBe(false);
+    });
+
+    it("renders both rows and the discriminant column in the human table", async () => {
+      request.mockResolvedValue(GOVERNANCE);
+
+      const out = await runTable(["role", "governance"]);
+
+      expect(out).toContain("REQUIRES APPROVAL");
+      expect(out).toContain("CREATE_ROLE");
+      expect(out).toContain("DELETE_ROLE");
+      // Rendered, not dropped — `renderCell` stringifies a boolean, and a column
+      // that silently blanked would still print the header and both actions.
+      expect(out).toContain("true");
+      expect(out).toContain("false");
+    });
+  });
+
+  describe("role automation-settings", () => {
+    const STATED = {
+      organizationId: "org_1",
+      hoursPerDay: 7.6,
+      daysPerWeek: 5,
+      workingWeeksPerYear: 46,
+      currency: null
+    };
+
+    it("answers the settings object ITSELF — printRecord emits no `data` wrapper", async () => {
+      request.mockResolvedValue(STATED);
+
+      const out = await runJson(["role", "automation-settings"]);
+
+      // Deliberately different from every list leaf in this file: `printList`
+      // emits `{ data, meta }` and `printRecord` emits the record. A caller that
+      // reaches for `.data` here gets `undefined`, so the shape is asserted
+      // rather than assumed to match its neighbours.
+      expect(out).not.toHaveProperty("data");
+      expect(out.hoursPerDay).toBe(7.6);
+      expect(out.daysPerWeek).toBe(5);
+      expect(out.workingWeeksPerYear).toBe(46);
+    });
+
+    it("keeps a null currency as JSON null, not as the sentence a human reads", async () => {
+      // The field carries a `format` that renders `null` as "(none stated)". That
+      // formatter belongs to the TABLE path; if it ever reached the document, a
+      // script testing `currency === null` would silently start seeing a string.
+      request.mockResolvedValue(STATED);
+
+      const out = await runJson(["role", "automation-settings"]);
+
+      expect(out.currency).toBeNull();
+      expect(out.currency).not.toBe("(none stated)");
+    });
+
+    it("renders the absent currency as a stated sentence in the human table", async () => {
+      request.mockResolvedValue(STATED);
+
+      const out = await runTable(["role", "automation-settings"]);
+
+      expect(out).toContain("(none stated)");
+      expect(out).toContain("7.6");
+    });
+
+    it("answers the literal document null when nothing has been authored", async () => {
+      // THE WHOLE OBJECT CAN BE ABSENT and absence is a SUCCESS. `null` — not
+      // `{}`, not an error — is what makes a coverage read answer
+      // NO_WORKING_TIME_MODEL for every Role in the organization at once, so a
+      // caller has to be able to branch on it.
+      request.mockResolvedValue(null);
+
+      const out = await runJson(["role", "automation-settings"]);
+
+      expect(out).toBeNull();
+    });
+
+    it("exits 0 on that absence, and says so in words in the human rendering", async () => {
+      request.mockResolvedValue(null);
+
+      const out = await runTable(["role", "automation-settings"]);
+
+      expect(out).toContain("not configured");
+      // The arm that matters: an absent row is not an error, and a non-zero exit
+      // here would make every script treat "nothing stated yet" as a failure.
+      expect(process.exitCode).toBe(0);
+    });
+  });
+
+  describe("role job-types", () => {
+    const READABLE = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Support agent, Manila",
+      basis: "SALARY",
+      group: "PEOPLE",
+      category: "Operations",
+      quantityUnit: "people",
+      note: null,
+      parts: [{ label: "base" }, { label: "shift premium" }]
+    };
+    const WITHHELD_A = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const WITHHELD_B = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+    it("answers only the READABLE rows, and never the withheld ids as data", async () => {
+      request.mockResolvedValue({
+        jobTypes: [READABLE],
+        unreadable: [WITHHELD_A, WITHHELD_B]
+      });
+
+      const out = await runJson(["role", "job-types"]);
+      const rows = out.data as { id: string }[];
+
+      expect(rows.map((r) => r.id)).toEqual([READABLE.id]);
+      // The withheld rows must not leak into the list under any spelling: listing
+      // one with no rates prices every scope line naming it at ZERO, silently.
+      expect(JSON.stringify(out.data)).not.toContain(WITHHELD_A);
+      expect(JSON.stringify(out.data)).not.toContain(WITHHELD_B);
+    });
+
+    it("reports every withheld id on stderr, with its count", async () => {
+      // 🚨 THE WARNING IS THE WHOLE POINT OF THE DISPOSITION. A row withheld with
+      // nothing said is indistinguishable from a library that simply has fewer
+      // rows, and that is the reading that prices work at zero. Counting is not
+      // enough either — the ids are what a person needs to fix the rows.
+      const stderr = await captureStderr(async () => {
+        request.mockResolvedValue({
+          jobTypes: [READABLE],
+          unreadable: [WITHHELD_A, WITHHELD_B]
+        });
+        await run(["role", "job-types"]);
+      });
+
+      expect(stderr).toContain("2 job type(s) could not be read");
+      expect(stderr).toContain(WITHHELD_A);
+      expect(stderr).toContain(WITHHELD_B);
+    });
+
+    it("says NOTHING when every row read — the negative control on that warning", async () => {
+      // Without this, a warning hard-wired to fire on every call would satisfy
+      // the case above and be indistinguishable from one that reads `unreadable`.
+      const stderr = await captureStderr(async () => {
+        request.mockResolvedValue({ jobTypes: [READABLE], unreadable: [] });
+        await run(["role", "job-types"]);
+      });
+
+      expect(stderr).not.toContain("could not be read");
+    });
+
+    it("renders the part COUNT rather than the parts themselves in the table", async () => {
+      request.mockResolvedValue({ jobTypes: [READABLE], unreadable: [] });
+
+      const out = await runTable(["role", "job-types"]);
+
+      expect(out).toContain("Support agent, Manila");
+      // The column formats an array to its length; a renderer that lost the
+      // format would print the JSON of the array and blow the column apart.
+      expect(out).not.toContain("shift premium");
+    });
   });
 });
 

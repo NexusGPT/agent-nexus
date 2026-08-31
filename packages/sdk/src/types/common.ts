@@ -11,27 +11,52 @@ export interface PaginationParams {
 }
 
 /**
+ * Whether a further page exists — including the case where nobody knows.
+ *
+ * A boolean cannot carry three answers, and the third one is real: several v1
+ * list routes publish no `hasMore` at all. Collapsing that absence to `false`
+ * tells a paging loop it is finished when the server merely declined to say, so
+ * the loop stops on page one and the caller reads a truncated collection as a
+ * complete one. Nothing in the payload distinguishes the two.
+ *
+ * The three states are a union rather than an optional boolean because
+ * `meta.hasMore ?? false` compiles, reads as prudence, and reinstates exactly
+ * the collapse this type exists to prevent. A caller must name `"did-not-say"`
+ * to act on it, and `Record<PagingState, T>` gives exhaustiveness for free.
+ *
+ * - `"has-more"`   — a further page exists.
+ * - `"exhausted"`  — this is the last page.
+ * - `"did-not-say"` — the server published nothing about further pages. NOT a
+ *   synonym for `"exhausted"`: page against `total`, or request the next page
+ *   and see, but do not conclude the walk is over.
+ */
+export type PagingState = "has-more" | "exhausted" | "did-not-say";
+
+/** Every {@link PagingState}, for exhaustive iteration. */
+export const PAGING_STATES = ["has-more", "exhausted", "did-not-say"] as const;
+
+/**
  * Pagination metadata returned alongside list results.
  *
- * `limit` and `totalPages` are optional because not every list endpoint emits
- * them — but where the server does send them they were previously unnameable,
- * so a caller could read `meta.total` and not `meta.totalPages` for no reason
- * anyone chose.
+ * EVERY COUNT HERE IS OPTIONAL AND ABSENCE IS THE POINT. A field is present
+ * when the server published it and missing when it did not — never filled in
+ * from the page the SDK happens to be holding. `total: data.length` is the page
+ * size wearing a population's name, and `page: 1` on a payload that carried no
+ * page number claims a position the SDK cannot know.
  *
- * `hasMore` is REQUIRED and is guaranteed by {@link HttpClient.requestPage},
- * which derives it when the server omits it. Six v1 list endpoints — agents,
- * conversations, phone numbers, tickets, versions and workflows — send
- * `{ total, page, limit, totalPages }` with no `hasMore` at all, so before that
- * derivation `client.agents.list()` returned a `meta.hasMore` typed `boolean`
- * and `undefined` at runtime.
+ * `paging` is the one required field, because a caller that pages MUST confront
+ * whether the walk is over. See {@link PagingState}.
  */
 export interface PaginationMeta {
-  /** Total number of items across all pages. */
-  total: number;
-  /** Current page number (1-based). */
-  page: number;
-  /** Whether more pages exist after the current one. */
-  hasMore: boolean;
+  /**
+   * Items across all pages — present ONLY when the server published one.
+   * Absent means unknown; it never means zero and never means `data.length`.
+   */
+  total?: number;
+  /** Current page number (1-based), when the server reports it. */
+  page?: number;
+  /** Whether a further page exists, or that the server did not say. */
+  paging: PagingState;
   /** Items requested per page, when the endpoint reports it. */
   limit?: number;
   /** Total number of pages, when the endpoint reports it. */
@@ -41,17 +66,20 @@ export interface PaginationMeta {
 /**
  * Pagination metadata exactly as the server sent it, before normalization.
  *
- * This is what comes off the wire: `hasMore` is OPTIONAL here because six v1
- * list endpoints do not send it. {@link PaginationMeta} — the normalized shape —
- * is what {@link PageResponse} carries, and `HttpClient.requestPage` is what
- * turns one into the other. Declaring them as one type is what let a field the
- * server never sends be typed as always present.
+ * This is what comes off the wire, and every field is optional because every
+ * one of them is omitted by some v1 route. {@link PaginationMeta} — the
+ * normalized shape — is what {@link PageResponse} carries, and
+ * `HttpClient.requestPage` is what turns one into the other.
+ *
+ * The two types stay separate so the normalizer has somewhere to put an
+ * absence. Declaring them as one is what let a field the server never sends be
+ * typed as always present.
  */
 export interface WirePaginationMeta {
-  /** Total number of items across all pages. */
-  total: number;
-  /** Current page number (1-based). */
-  page: number;
+  /** Items across all pages. Absent where the server publishes no count. */
+  total?: number;
+  /** Current page number (1-based), where the server echoes it. */
+  page?: number;
   /** Whether more pages exist. Absent on several v1 list endpoints. */
   hasMore?: boolean;
   /** Items requested per page, when the endpoint reports it. */

@@ -250,7 +250,7 @@ Notes:
   and what a deployment binds with phoneNumberId. It is not the number.
   PRICE is what this organization is charged monthly for that number, as it
   was recorded at purchase.
-  --limit above 100 is a 400, not a clamp. Page with meta.hasMore in --json.`
+  --limit above 100 is a 400, not a clamp. Page with meta.paging in --json.`
     )
     .action(async (opts) => {
       try {

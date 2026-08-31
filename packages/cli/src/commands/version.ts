@@ -68,7 +68,7 @@ Notes:
   draft as an AUTO row and the new text as a CHECKPOINT, so the list grows by
   two per edit rather than one. Counting rows is not counting edits, and a list
   that jumped by more than you expected is this, not a duplicate write.
-  meta CARRIES total, page AND hasMore — there is no checkpointCount. To count
+  meta CARRIES total, page AND paging — there is no checkpointCount. To count
   the checkpoints, ask for them and read the total:
   "nexus version list <agent-id> --type CHECKPOINT --json" -> meta.total.
   An agent id your key cannot see answers 404, the same as one that does not

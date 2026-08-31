@@ -122,9 +122,18 @@ Notes:
         // so adding a total to it would be a breaking change for every script
         // already reading it. Without the total an operator paging by --offset has
         // no way to know when to stop, which would make --offset half a feature.
+        //
+        // An ABSENT total supports no conclusion about further rows, so it is
+        // reported as one. Defaulting it to 0 and comparing answers "exhausted",
+        // and the operator stops paging believing they hold the whole collection.
         printPaginationMeta({
           total: result.total,
-          hasMore: offset + items.length < (result.total ?? 0)
+          paging:
+            result.total === undefined
+              ? "did-not-say"
+              : offset + items.length < result.total
+                ? "has-more"
+                : "exhausted"
         });
       } catch (err) {
         process.exitCode = handleError(err);
@@ -572,9 +581,9 @@ Notes:
   Soft-deleted documents are excluded, so a document deleted elsewhere leaves
   this list silently rather than appearing as a broken row.
 
-  --json IS {data: [...], meta: {total, page, limit, totalPages, hasMore}}, NOT
+  --json IS {data: [...], meta: {total, page, limit, totalPages, paging}}, NOT
   a bare array — and "collection list", the command beside it, IS a bare array.
-  Read meta.hasMore here rather than counting the rows you got.`
+  Read meta.paging here rather than counting the rows you got.`
       )
   );
 

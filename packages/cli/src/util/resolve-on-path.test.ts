@@ -141,8 +141,42 @@ describe("resolveCandidates", () => {
     const candidates = resolveCandidates("nexus", { PATH: dir });
 
     expect(candidates).toHaveLength(1);
+    // The failure column is asserted FIRST, and carries its own message,
+    // because it is the only field that says WHY there is no version. vitest
+    // stops at the first failing assertion, so with the version checked first
+    // this case reds as `expected null to be "1.2.3"` — a sentence that names
+    // neither the module nor the machine, and leaves a reader to guess between
+    // "the parse broke" and "this box could not start a process". Checked in
+    // this order the red prints the reason verbatim: a spawn abandoned at
+    // PROBE_TIMEOUT_MS reads `spawnSync … ETIMEDOUT`, and a parse that stopped
+    // recognising a version reads back the output it failed to read.
+    expect(candidates[0].failure, "the probe reported a failure instead of a version").toBeNull();
     expect(candidates[0].version).toBe("1.2.3");
-    expect(candidates[0].failure).toBeNull();
+  });
+
+  it("stops probing after the sixth hit rather than spawning one process per PATH entry", () => {
+    // A PATH with dozens of hits is pathological, and rendering a diagnostic
+    // does not need to cost a process per entry. The over-limit row is still
+    // PRINTED — omitting it would hide a file the shell can reach — it just
+    // carries the reason it was not read in place of a version.
+    const dirs = Array.from({ length: 7 }, (_, index) =>
+      dirWith(`limit-${index}`, [{ file: "nexus", executable: true }])
+    );
+    const probed: string[] = [];
+
+    const candidates = resolveCandidates("nexus", { PATH: dirs.join(delimiter) }, (binary) => {
+      probed.push(binary);
+      return { version: "0.25.0", failure: null };
+    });
+
+    // Recording the probe rather than counting rows is the point: the limit is
+    // a claim about how many processes get SPAWNED, and a row count is
+    // satisfied by an implementation that probes all seven and hides one.
+    expect(probed).toEqual(dirs.slice(0, 6).map((dir) => join(dir, "nexus")));
+    expect(candidates).toHaveLength(7);
+    expect(candidates[6].path).toBe(join(dirs[6], "nexus"));
+    expect(candidates[6].version).toBeNull();
+    expect(candidates[6].failure).toMatch(/too many entries on PATH/);
   });
 });
 

@@ -36,6 +36,18 @@ export class ConversationsResource extends BaseResource {
     });
   }
 
+  /**
+   * Search conversations by topic and message content.
+   *
+   * ⚠️ BOUNDED, AND THIS METHOD CANNOT TELL YOU WHEN IT CUT. `limit` defaults to
+   * 50 and caps at 100. The HTTP response carries `meta.hasMore`, but `search`
+   * returns `data` only — so a result of exactly `limit` items may be a truncated
+   * page and looks identical to a complete one.
+   *
+   * Until this returns the flag, treat a full page as possibly incomplete: raise
+   * `limit`, or narrow the query. {@link ConversationsResource.getMessages}
+   * returns `hasMore` because its result type carries it.
+   */
   async search(params: SearchConversationsParams): Promise<ConversationSummary[]> {
     return this.http.request<ConversationSummary[]>("GET", "/conversations/search", {
       query: params as unknown as Record<string, string>

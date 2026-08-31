@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { beforeAll, test } from "vitest";
 
-import { runHelpTruthScan, type ScanReport } from "./help-truth-rules";
+import { resolveCommandRoutes, type RouteResolution } from "./help-truth-rules";
 import { descriptorFor, descriptorIndex, sdkRouteIndex } from "./help-truth-scan";
 
 /**
@@ -105,10 +105,24 @@ for (const c of eachOrRefuse(
   });
 }
 
-let report: ScanReport;
+/**
+ * THE ROUTE HALF ONLY, AND THE DIFFERENCE IS 36 SECONDS.
+ *
+ * This file used to call `runHelpTruthScan()`, which also evaluates R1-R4 —
+ * 1333 examples, each rebuilding the whole 643-node commander tree at 27.7ms a
+ * time. Measured 2026-08-31: 35.6s of the file's 37.6s was that, and none of it
+ * can change the assertion below, which reads `unresolvedCommands` alone.
+ * `resolveCommandRoutes()` is the same derivation stopped one phase earlier —
+ * ~190ms — so this file no longer pays for rules it does not assert on.
+ *
+ * ⚠️ IT IS THE SAME DERIVATION, NOT A SECOND ONE. `runHelpTruthScan` consumes
+ * this very result, so `help-truth` and this file cannot come to different
+ * answers about which commands resolve.
+ */
+let report: RouteResolution;
 
 beforeAll(async () => {
-  report = await runHelpTruthScan();
+  report = await resolveCommandRoutes();
 });
 
 test("the real tree: no command is reported as missing a descriptor it HAS", () => {

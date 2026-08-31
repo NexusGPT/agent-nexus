@@ -1,4 +1,3 @@
-import { withDerivedHasMore } from "../http-client";
 import { appendFilePart } from "../multipart";
 import type { Asset, AssetDeleteResult, ListAssetsParams } from "../types/assets";
 import type { PageResponse } from "../types/common";
@@ -43,13 +42,9 @@ export class AssetsResource extends BaseResource {
    * @param params - Optional pagination and name search.
    */
   async list(params?: ListAssetsParams): Promise<PageResponse<Asset>> {
-    const { data, meta } = await this.http.requestWithMeta<Asset[]>("GET", "/assets", {
+    return this.http.requestPage<Asset>("GET", "/assets", {
       query: params as Record<string, string | number | undefined>
     });
-    return {
-      data,
-      meta: meta ? withDerivedHasMore(meta) : { total: data.length, page: 1, hasMore: false }
-    };
   }
 
   /**

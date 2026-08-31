@@ -280,6 +280,14 @@ export interface ListConversationsParams {
 export interface SearchConversationsParams {
   query: string;
   deploymentId?: string;
+  /**
+   * How many results to return, 1-100. Defaults to 50.
+   *
+   * 🔴 THE SEARCH IS BOUNDED WHETHER OR NOT YOU SET THIS. Before this field
+   * existed the bound was 50 and unreachable, so a query matching thousands
+   * returned 50 with no way to ask for more.
+   */
+  limit?: number;
 }
 
 export interface GetMessagesResult {

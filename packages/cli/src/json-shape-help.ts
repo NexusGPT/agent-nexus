@@ -78,7 +78,9 @@ export const JSON_SHAPE_LINES: Readonly<Record<JsonShapeId, string>> = {
     "OUTPUT --json: {data: [...]} — the rows are under .data. NOT a bare array,\n" +
     "  so jq '.[]' selects nothing; iterate with jq '.data[]'. A \"meta\" key\n" +
     "  sits beside it carrying the paging counters, and is ABSENT on a route\n" +
-    "  that reports none — so read meta.hasMore rather than assuming it.",
+    "  that reports none — so read meta.paging rather than assuming it: it is\n" +
+    '  "has-more", "exhausted", or "did-not-say" where the route stated\n' +
+    '  nothing. "did-not-say" is NOT "exhausted" — do not stop paging on it.',
   array:
     "OUTPUT --json: A BARE ARRAY — the rows ARE the document. No envelope, no\n" +
     "  meta, [] when empty. jq '.data[]' selects nothing here; use jq '.[]'.",

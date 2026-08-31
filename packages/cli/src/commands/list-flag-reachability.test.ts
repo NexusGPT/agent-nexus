@@ -182,7 +182,7 @@ describe("collection list — the total prints in TABLE mode only", () => {
 describe("customer list — --tag reaches the route's tag filter", () => {
   beforeEach(() => {
     requestPage.mockReset();
-    requestPage.mockResolvedValue({ data: [], meta: { total: 0, page: 1, hasMore: false } });
+    requestPage.mockResolvedValue({ data: [], meta: { total: 0, page: 1, paging: "exhausted" } });
   });
 
   it("sends the tag when the flag is given", async () => {

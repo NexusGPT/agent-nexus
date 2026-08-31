@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 
 let _jsonMode = false;
+import { PAGING_STATES, type PagingState } from "@agent-nexus/sdk";
+
 import { nonBlankOr } from "./util/present-text";
 
 /**
@@ -172,7 +174,12 @@ export interface Column<T> extends RecordField<T> {
 export interface PaginationLike {
   total?: number;
   page?: number;
-  hasMore?: boolean;
+  /**
+   * Whether more rows follow — three-valued, because the server may say
+   * nothing and an operator must be told that rather than shown a silence
+   * indistinguishable from "that is the whole set". See {@link PagingState}.
+   */
+  paging?: PagingState;
 }
 
 function field(row: object, key: string): unknown {
@@ -646,24 +653,47 @@ export function printWarning(message: string, ...hints: string[]): void {
 // Pagination meta
 // ---------------------------------------------------------------------------
 
+/**
+ * Read the paging fields off whatever meta a command was handed.
+ *
+ * `paging` is the SDK's own vocabulary. `hasMore` is still read because a few
+ * routes are consumed as raw envelopes rather than through a typed resource,
+ * and a served boolean is authoritative wherever it appears. A value that is
+ * neither is reported as absent rather than guessed at.
+ */
 function readPagination(meta: object): PaginationLike {
   const total = field(meta, "total");
   const page = field(meta, "page");
+  const paging = field(meta, "paging");
   const hasMore = field(meta, "hasMore");
+
+  const state = PAGING_STATES.find((s) => s === paging);
+
   return {
     total: typeof total === "number" ? total : undefined,
     page: typeof page === "number" ? page : undefined,
-    hasMore: typeof hasMore === "boolean" ? hasMore : undefined
+    paging:
+      state ?? (typeof hasMore === "boolean" ? (hasMore ? "has-more" : "exhausted") : undefined)
   };
 }
 
+/**
+ * The footer under a table.
+ *
+ * `"did-not-say"` prints, and printing it is the whole point: an operator who
+ * sees no footer reads the table as the complete set, so a server that
+ * published nothing about further pages has to say so out loud. Silence is
+ * reserved for `"exhausted"`, where it is true.
+ */
 export function printPaginationMeta(meta: PaginationLike): void {
   if (_jsonMode) return; // already included in JSON output
 
   const parts: string[] = [];
   if (meta.total != null) parts.push(`${meta.total} total`);
   if (meta.page != null) parts.push(`page ${meta.page}`);
-  if (meta.hasMore) parts.push("more available");
+  if (meta.paging === "has-more") parts.push("more available");
+  if (meta.paging === "did-not-say")
+    parts.push("more may exist — this route reports no page count");
 
   if (parts.length > 0) {
     console.log(color.dim(`\n${parts.join(" · ")}`));

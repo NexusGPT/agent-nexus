@@ -25,6 +25,19 @@
 #   --strict       — number of FAILs + WARNs (any non-PASS fails CI)
 #   --check-drift  — 1 if any drift, 0 if clean
 #
+# 🚨 A SKIP NEVER COUNTS TOWARD THE EXIT CODE, AND THAT IS WHY IT HAS TO BE
+# DECLARED. Environment policy is not a regression, so a skip must not fail the
+# build — but that also means a leaf going dark changes ONE DIGIT in a summary
+# line and nothing else. Four `role *` leaves lost their live coverage exactly
+# that way, and the only reason anyone noticed is that they went RED first.
+#
+# So `SWEEP_EXPECTED_SKIPS` in `src/command-universe.ts` names the skips this
+# repository accepts, and this script reads it: an undeclared skip is a FAIL, a
+# declared one is reported with the coverage it costs, and a declaration that no
+# longer skips is reported STALE and fails nothing. The summary carries the
+# denominator — `$SKIP/$DECLARED_TOTAL declared skip` — because a numerator on
+# its own is what made the loss invisible.
+#
 # 🚨 DOES THIS GATE? NOT ASSERTED HERE, AND THE LINE ABOVE USED TO ASSERT IT.
 #
 # Branch protection lives on GitHub and no file in this repository can see it, so
@@ -137,6 +150,10 @@ run_leaf() {
   # function that re-derives its own inputs is a second place for the two lists
   # to disagree.
   local require_non_empty="${2:-false}"
+  # Third argument, same reasoning as the second: the caller already resolved
+  # membership of SWEEP_EXPECTED_SKIPS, and a function re-deriving its own inputs
+  # is a second place for the two lists to disagree.
+  local expected_skip="${3:-false}"
 
   # shellcheck disable=SC2086
   out=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} $path --json 2>&1)
@@ -184,7 +201,30 @@ run_leaf() {
       reason=$(printf '%s' "$out" \
         | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('error',{}).get('message',''))" 2>/dev/null \
         | tr -d '\n' | cut -c1-80)
-      printf 'SKIP|%s|%s\n' "$path" "$reason"
+
+      # 🚨 THE PHRASE SAYS THE REFUSAL IS POLICY. IT DOES NOT SAY ANYONE DECIDED
+      # TO ACCEPT IT. Those are different facts and only the second is a reason
+      # to stay green: a leaf going dark costs exactly the coverage it used to
+      # carry, and the skip count moving from 1 to 5 is the only trace it ever
+      # left. So an undeclared skip FAILS, and the remedy is one line.
+      if [[ "$expected_skip" != "true" ]]; then
+        printf 'FAIL|%s|UNDECLARED SKIP: %s — the backend declares this unavailable by policy, which is not a CLI defect, but nobody has declared the coverage loss. Add this leaf to SWEEP_EXPECTED_SKIPS in src/command-universe.ts with the CAUSE, or restore the environment.\n' \
+          "$path" "$reason"
+        return
+      fi
+
+      # 🚨 `require_non_empty` IS READ HERE, AND THAT IS THE POINT OF THE BRANCH.
+      # It used to be bound at the top of this function and read only in the
+      # success path below, so a `safe-with-fixture` leaf that skipped bypassed
+      # every non-emptiness assertion and reported an outcome indistinguishable
+      # from a leaf that never had one. That is the exact vacuous green the
+      # disposition exists to delete, one layer up from where it was guarded.
+      if [[ "$require_non_empty" == "true" ]]; then
+        printf 'SKIP|%s|%s — DECLARED. safe-with-fixture: its non-emptiness assertion did NOT run, so this leaf is dark rather than merely unasserted.\n' \
+          "$path" "$reason"
+      else
+        printf 'SKIP|%s|%s — DECLARED\n' "$path" "$reason"
+      fi
       return
     fi
     local err
@@ -377,6 +417,30 @@ if [[ $FIXTURE_EXIT -ne 0 ]]; then
 fi
 rm -f "$FIXTURE_STDERR"
 
+# The skips this run is allowed to report, from the SAME table as the two lists
+# above. Emptiness is legitimate — an environment answering every leaf declares
+# nothing — so this is not treated as a refusal. A non-zero exit IS, for the
+# reason the fixture list gives: a derivation that failed would silently make
+# every skip undeclared, turning a visibility gate into a wall of red that says
+# nothing about the environment.
+SKIPS_STDERR=$(mktemp)
+EXPECTED_SKIPS_RAW=$(run_universe --print-expected-skips 2>"$SKIPS_STDERR")
+SKIPS_EXIT=$?
+if [[ $SKIPS_EXIT -ne 0 ]]; then
+  echo "FATAL: could not derive the expected-skip list." >&2
+  echo "Refusing to sweep without it — every skip would read as undeclared and the" >&2
+  echo "run would be red for a reason that says nothing about this environment." >&2
+  echo "  command : pnpm exec tsx scripts/command-universe.ts --print-expected-skips" >&2
+  echo "  exit    : $SKIPS_EXIT" >&2
+  echo "  --- its stdout ---" >&2
+  printf '%s\n' "$EXPECTED_SKIPS_RAW" >&2
+  echo "  --- its stderr ---" >&2
+  cat "$SKIPS_STDERR" >&2
+  rm -f "$SKIPS_STDERR"
+  exit 7
+fi
+rm -f "$SKIPS_STDERR"
+
 is_fixture_backed() {
   local needle="$1" line
   while IFS= read -r line; do
@@ -385,13 +449,41 @@ is_fixture_backed() {
   return 1
 }
 
+is_expected_skip() {
+  local needle="$1" line
+  while IFS= read -r line; do
+    [[ "$line" == "$needle" ]] && return 0
+  done <<< "$EXPECTED_SKIPS_RAW"
+  return 1
+}
+
 for leaf in "${SWEEP_TARGETS[@]}"; do
+  expected=false
+  is_expected_skip "$leaf" && expected=true
   if is_fixture_backed "$leaf"; then
-    RESULTS+=("$(run_leaf "$leaf" true)")
+    RESULTS+=("$(run_leaf "$leaf" true "$expected")")
   else
-    RESULTS+=("$(run_leaf "$leaf")")
+    RESULTS+=("$(run_leaf "$leaf" false "$expected")")
   fi
 done
+
+# A declaration that no longer describes this environment. Reported, never fatal:
+# the environment recovering is GOOD NEWS, and a gate that reddens on good news
+# gets its declarations deleted rather than its news read. Drift in the other
+# direction — a declaration naming a leaf the sweep does not execute — is caught
+# by `--check-drift` in `Tests: Vitest`, where a stale line is unambiguous.
+STALE_SKIPS=()
+while IFS= read -r declared; do
+  [[ -z "$declared" ]] && continue
+  for r in "${RESULTS[@]}"; do
+    IFS='|' read -r st pa _ <<< "$r"
+    if [[ "$pa" == "$declared" && "$st" != "SKIP" ]]; then
+      # `path|status`, not a prose string: the text and JSON paths both render
+      # from this, so the two cannot describe different sets of stale leaves.
+      STALE_SKIPS+=("$declared|$st")
+    fi
+  done
+done <<< "$EXPECTED_SKIPS_RAW"
 
 ELAPSED=$(( $(date +%s) - START ))
 
@@ -409,17 +501,49 @@ for r in "${RESULTS[@]}"; do
   esac
 done
 
+# The DENOMINATOR for the skip count. A bare "5 skip" is a numerator, and a
+# numerator alone cannot distinguish the skips somebody declared from the ones
+# that arrived on their own — which is precisely how four leaves went dark
+# unnoticed. Every SKIP above is declared by construction (an undeclared one is
+# a FAIL), so this is what says whether the DECLARATION still fits.
+DECLARED_TOTAL=0
+while IFS= read -r declared; do
+  [[ -n "$declared" ]] && ((DECLARED_TOTAL++))
+done <<< "$EXPECTED_SKIPS_RAW"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Output
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [[ "$OUTPUT" == "json" ]]; then
+  # THE HEREDOC BELOW IS UNQUOTED, SO BASH EXPANDS ITS ENTIRE BODY FIRST.
+  # `<<PYEOF`, not `<<'PYEOF'`: every `$` in the block is live before python
+  # sees a byte of it, and `#` inside a heredoc is ordinary TEXT to bash, not
+  # a comment. A python comment in there is expanded exactly like code.
+  #
+  # That is why this warning lives out here. Written inside the block, a
+  # comment naming "${STALE_SKIPS[@]}" IS the bug it describes — the shipped
+  # version of it aborted the whole `--json` path, and the literal above is
+  # inert only because a bash comment is discarded before any expansion runs.
+  #
+  # What it warns about: STALE_SKIPS is EMPTY on a healthy sweep, so a bare
+  # "${STALE_SKIPS[@]}" is an unbound-variable error under this file's
+  # `set -u` on bash 3.2, the macOS default. The NORMAL case, not the rare
+  # one. Any array expanded inside the block takes the ${ARR[@]+"${ARR[@]}"}
+  # idiom documented at line 96.
   python3 <<PYEOF
 import json, sys
 results = []
 for line in """$(printf '%s\n' "${RESULTS[@]}")""".strip().splitlines():
     status, path, note = line.split("|", 2)
     results.append({"status": status, "path": path, "note": note})
+# The expansion below is guarded on purpose. The reason is the bash comment
+# above this heredoc, which is the only place it can be spelled out without
+# being expanded. Nothing in here may name an array expansion literally.
+stale_skips = []
+for line in """$(printf '%s\n' ${STALE_SKIPS[@]+"${STALE_SKIPS[@]}"})""".strip().splitlines():
+    path, status = line.split("|", 1)
+    stale_skips.append({"path": path, "answered": status})
 payload = {
     "preflight": {
         "binary": "$BINARY_VERSION",
@@ -427,8 +551,25 @@ payload = {
         "profile": "$PROFILE",
         "elapsed_seconds": $ELAPSED,
     },
-    "counts": {"pass": $PASS, "fail": $FAIL, "warn": $WARN, "skip": $SKIP, "total": ${#RESULTS[@]}},
+    "counts": {
+        "pass": $PASS,
+        "fail": $FAIL,
+        "warn": $WARN,
+        "skip": $SKIP,
+        "skip_declared": $DECLARED_TOTAL,
+        "skip_stale": len(stale_skips),
+        "total": ${#RESULTS[@]},
+    },
     "results": results,
+    # Without this a machine reader sees skip < skip_declared and cannot tell
+    # which declarations went stale, so the remedy names the file to edit.
+    "stale_skips": stale_skips,
+    "stale_skips_remedy": (
+        "These leaves answer again and SWEEP_EXPECTED_SKIPS still excuses them. "
+        "This fails nothing. Remove each path from SWEEP_EXPECTED_SKIPS in "
+        "packages/cli/src/command-universe.ts so the next leaf to go dark is not "
+        "excused by a declaration nobody re-read."
+    ) if stale_skips else None,
 }
 print(json.dumps(payload, indent=2))
 PYEOF
@@ -442,10 +583,21 @@ else
     printf '%-6s %-45s %s\n' "$status" "$path" "$note"
   done
   echo ""
+  if [[ ${#STALE_SKIPS[@]} -gt 0 ]]; then
+    echo "STALE declarations (${#STALE_SKIPS[@]}) — SWEEP_EXPECTED_SKIPS names these and they no longer skip."
+    echo "This is GOOD NEWS and fails nothing: the environment answers again. Remove the"
+    echo "line from SWEEP_EXPECTED_SKIPS in src/command-universe.ts so the next leaf to go"
+    echo "dark is not excused by a declaration nobody re-read."
+    for s in "${STALE_SKIPS[@]}"; do
+      IFS='|' read -r sp ss <<< "$s"
+      echo "  · $sp answered $ss"
+    done
+    echo ""
+  fi
   if [[ "$STRICT" == "true" ]]; then
-    echo "Summary: $PASS pass · $SKIP skip · $WARN warn · $FAIL fail · ${ELAPSED}s · STRICT (warn counts as fail)"
+    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · ${ELAPSED}s · STRICT (warn counts as fail)"
   else
-    echo "Summary: $PASS pass · $SKIP skip · $WARN warn · $FAIL fail · ${ELAPSED}s"
+    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · ${ELAPSED}s"
   fi
 fi
 

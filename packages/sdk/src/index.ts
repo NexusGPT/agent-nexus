@@ -33,7 +33,12 @@ export * from "./resources";
 
 // HTTP client (for advanced usage)
 export type { HttpClientOptions, RequestOptions, RetryNotice, RetryRefusal } from "./http-client";
-export { HttpClient } from "./http-client";
+export { HttpClient, normalizePagingMeta } from "./http-client";
+
+// Pagination — the one VALUE in `types/`, and it has to be named here because
+// the `export type *` at the foot of this file carries types only. It is the
+// list a consumer builds an exhaustive `Record<PagingState, T>` from.
+export { PAGING_STATES } from "./types/common";
 
 // The browser door — a chat-only client for a page holding a session token and
 // no organization API key. See `./browser-chat.ts` for why `NexusClient` is the

@@ -67,6 +67,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { classifyCommandUniverse } from "./command-universe";
+
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SWEEP = join(PACKAGE_ROOT, "scripts", "sweep.sh");
 const SWEEP_SOURCE = readFileSync(SWEEP, "utf8");
@@ -190,17 +192,106 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // The matcher has to guard the SKIP emission itself. Asserting the pattern
     // exists somewhere in the file would survive a mutation that left it in a
     // comment while the branch matched everything.
-    const branch = SWEEP_SOURCE.slice(SWEEP_SOURCE.indexOf(skipPattern()));
-    const untilReturn = branch.slice(0, branch.indexOf("return"));
-    expect(untilReturn).toContain("printf 'SKIP|%s|%s\\n'");
+    //
+    // The region is bounded by the scanner comment rather than by the first
+    // `return`: the branch now returns EARLY for an undeclared skip, so slicing
+    // to the first `return` would cut the SKIP emission off entirely and this
+    // assertion would fail for a reason that has nothing to do with wiring.
+    const branch = SWEEP_SOURCE.slice(
+      SWEEP_SOURCE.indexOf(skipPattern()),
+      SWEEP_SOURCE.indexOf("# One pass answers both questions")
+    );
+    expect(branch.length).toBeGreaterThan(0);
+    expect(branch).toContain("printf 'SKIP|%s|%s — DECLARED");
   });
 
   it("reports the skip with its reason, so a shrunken suite cannot read as a green one", () => {
     // A silently-omitted case is indistinguishable from one that passed. The
     // SKIP line names the leaf AND the backend's own sentence, and the summary
-    // carries a skip count beside the pass count.
-    expect(SWEEP_SOURCE).toContain('printf \'SKIP|%s|%s\\n\' "$path" "$reason"');
-    expect(SWEEP_SOURCE).toMatch(/\$PASS pass · \$SKIP skip · \$WARN warn · \$FAIL fail/);
+    // carries the skip count beside the pass count.
+    expect(SWEEP_SOURCE).toContain('"$path" "$reason"');
+    // 🚨 THE COUNT NOW CARRIES ITS DENOMINATOR. `5 skip` is a numerator, and a
+    // numerator alone cannot separate the skips somebody declared from the ones
+    // that arrived on their own — which is exactly how four leaves went dark
+    // with nothing to point at. A bare `$SKIP skip` must not come back.
+    expect(SWEEP_SOURCE).toMatch(
+      /\$PASS pass · \$SKIP\/\$DECLARED_TOTAL declared skip · \$WARN warn · \$FAIL fail/
+    );
+    expect(SWEEP_SOURCE).not.toMatch(/\$PASS pass · \$SKIP skip/);
+  });
+
+  // ── The declaration ───────────────────────────────────────────────────────
+
+  it("FAILS a skip nobody declared — the phrase says it is policy, not that it is accepted", () => {
+    // The matcher above answers "is this refusal environment policy". That is a
+    // fact about the RESPONSE. Whether the resulting coverage loss is ACCEPTED is
+    // a fact about this repository, and only `SWEEP_EXPECTED_SKIPS` carries it.
+    // Before this branch the two were the same answer, so a leaf going dark cost
+    // its whole coverage and moved one digit in a line nobody reads.
+    const branch = SWEEP_SOURCE.slice(
+      SWEEP_SOURCE.indexOf(skipPattern()),
+      SWEEP_SOURCE.indexOf("# One pass answers both questions")
+    );
+
+    expect(branch).toMatch(/if\s+\[\[\s+"\$expected_skip"\s+!=\s+"true"\s+\]\]/);
+    expect(branch).toContain("UNDECLARED SKIP");
+    // It must name the remedy where the person reading the red is standing.
+    expect(branch).toContain("SWEEP_EXPECTED_SKIPS");
+  });
+
+  it("derives that declaration rather than restating it, and REFUSES on a failed derivation", () => {
+    // Same discipline as the safe-leaf and fixture lists: a derivation that
+    // failed must never degrade into an empty set. An empty expected-skip set
+    // makes every skip undeclared, so the failure direction here is loud rather
+    // than silent — but it would be loud for a reason that says nothing about
+    // the environment, which is its own kind of untrustworthy red.
+    expect(SWEEP_SOURCE).toMatch(
+      /EXPECTED_SKIPS_RAW=\$\(.*--print-expected-skips\s+2>"\$SKIPS_STDERR"\)/
+    );
+    expect(SWEEP_SOURCE).toMatch(/^SKIPS_EXIT=\$\?$/m);
+
+    const refusal = SWEEP_SOURCE.slice(
+      SWEEP_SOURCE.indexOf("SKIPS_EXIT=$?"),
+      SWEEP_SOURCE.indexOf("is_fixture_backed()")
+    );
+    expect(refusal).toMatch(/if\s+\[\[\s+\$SKIPS_EXIT\s+-ne\s+0\s+\]\]/);
+    expect(refusal).toContain("could not derive the expected-skip list");
+    // BOTH streams — `pnpm exec` names an unresolvable tool on STDOUT, which
+    // `$(...)` traps in the variable rather than letting it reach the log.
+    expect(refusal).toMatch(/printf '%s\\n' "\$EXPECTED_SKIPS_RAW"/);
+    expect(refusal).toContain('cat "$SKIPS_STDERR"');
+    expect(refusal).toMatch(/exit 7/);
+
+    // And the derived list has to reach the membership test that decides the
+    // third argument — the link that makes all of the above load-bearing.
+    const membership = SWEEP_SOURCE.slice(
+      SWEEP_SOURCE.indexOf("is_expected_skip()"),
+      SWEEP_SOURCE.indexOf("ELAPSED=")
+    );
+    expect(membership).toMatch(/done\s*<<<\s*"\$EXPECTED_SKIPS_RAW"/);
+    expect(membership).toMatch(/is_expected_skip\s+"\$leaf"\s+&&\s+expected=true/);
+    expect(membership).toMatch(/run_leaf "\$leaf" true "\$expected"/);
+    expect(membership).toMatch(/run_leaf "\$leaf" false "\$expected"/);
+  });
+
+  it("declares exactly the leaves the sweep executes — a declaration for anything else is drift", async () => {
+    const report = await classifyCommandUniverse();
+
+    // Every declared skip is a leaf the sweep RUNS. A declaration naming a leaf
+    // that is `registration-only`, renamed or deleted would sit there excusing
+    // whatever later takes that name.
+    expect(report.staleExpectedSkips).toEqual([]);
+    for (const path of report.expectedSkips) {
+      expect(report.safe).toContain(path);
+    }
+
+    // A control on that loop: an empty `expectedSkips` would satisfy it while
+    // asserting nothing, and the declaration is non-empty today.
+    expect(report.expectedSkips.length).toBeGreaterThan(0);
+    // The leaf whose loss is largest, because it is the only fixture-backed one:
+    // its non-emptiness assertion is what the skip bypasses.
+    expect(report.expectedSkips).toContain("role job-types");
+    expect(report.fixtureBacked).toContain("role job-types");
   });
 
   it("keeps SKIP out of the exit code in BOTH modes — a policy gap is not a regression", () => {

@@ -1,6 +1,5 @@
-import type { HttpClient } from "../http-client";
+import { type HttpClient, normalizePagingMeta } from "../http-client";
 import { appendFilePart } from "../multipart";
-import type { PageResponse } from "../types/common";
 import type {
   CreateTicketBody,
   CreateTicketCommentBody,
@@ -10,6 +9,7 @@ import type {
   TicketAttachment,
   TicketComment,
   TicketDetail,
+  TicketListPage,
   TicketSummary,
   UpdateTicketBody
 } from "../types/tickets";
@@ -20,7 +20,16 @@ export class TicketsResource extends BaseResource {
     super(http);
   }
 
-  async list(params?: ListTicketsParams): Promise<PageResponse<TicketSummary>> {
+  /**
+   * List tickets.
+   *
+   * ⚠️ `meta.total` CAN BE ABSENT HERE, and on this route that is routine
+   * rather than exceptional. The upstream fetch is bounded, so past that bound
+   * the server cannot establish a count and publishes none — absent means
+   * unknown, present means exact. Page on `meta.paging`; it terminates, and it
+   * reports `"did-not-say"` rather than inventing a stop.
+   */
+  async list(params?: ListTicketsParams): Promise<TicketListPage> {
     return this.http.requestPage<TicketSummary>("GET", "/tickets", {
       query: params as Record<string, string | number | undefined>
     });
@@ -34,19 +43,17 @@ export class TicketsResource extends BaseResource {
   async listAcrossOrganizations(
     params?: ListTicketsAcrossOrganizationsParams
   ): Promise<CrossOrgTicketsResult> {
-    // The endpoint puts pagination (total/page/hasMore) in the envelope meta
-    // (like tickets.list), so read it via requestWithMeta and fold it into the result.
-    const { data, meta } = await this.http.requestWithMeta<
-      Omit<CrossOrgTicketsResult, "total" | "page" | "hasMore">
-    >("GET", "/tickets/across-organizations", {
-      query: params as Record<string, string | number | undefined>
-    });
-    return {
-      ...data,
-      total: meta?.total ?? data.tickets.length,
-      page: meta?.page ?? 1,
-      hasMore: meta?.hasMore ?? false
-    };
+    // The endpoint puts pagination in the envelope meta (like tickets.list), so
+    // read it via requestWithMeta and fold it into the result. The meta is
+    // normalized, never synthesized: this route aggregates across orgs and skips
+    // the ones that failed, so `data.tickets.length` is a floor on a floor and
+    // naming it `total` would be the page size wearing a population's name.
+    const { data, meta } = await this.http.requestWithMeta<Omit<CrossOrgTicketsResult, "meta">>(
+      "GET",
+      "/tickets/across-organizations",
+      { query: params as Record<string, string | number | undefined> }
+    );
+    return { ...data, meta: normalizePagingMeta(meta) };
   }
 
   async get(ticketId: string): Promise<TicketDetail> {

@@ -188,11 +188,11 @@ Examples:
   $ nexus tracing trace 7f3a1c20-9b4e-4d51-8a62-0c1d2e3f4a5b --json
 
 Notes:
-  THE GENERATIONS LIST IS CAPPED AT 100 AND SAYS SO NOWHERE. A trace with more
-  than 100 model calls returns the first 100 by start time, and its
-  generationCount is recomputed from that truncated array — so this command
-  reports 100 while "tracing traces" reports the real number for the same
-  trace. Cross-check there, and page the rest with
+  THE GENERATIONS LIST IS WINDOWED, AND THE HEADER SAYS SO. A trace with more
+  model calls than the window returns the earliest by start time, and the header
+  then reads "Generations (100 of 137)". The second number is the trace's own
+  count and agrees with "tracing traces" for the same trace, so the two never
+  disagree about one trace. Page the rest with
   "nexus tracing generations --trace-id <id>".
   STILL NO PROMPTS. The nested generations carry metadata only; the prompt,
   messages and response need "nexus tracing generation <generation-id> --json".
@@ -226,7 +226,29 @@ Notes:
         // emitting a second JSON value here would break parsers (NEX-2176).
         const gens = trace.generations;
         if (!isJsonMode() && gens && gens.length > 0) {
-          console.log(`\n${color.bold("Generations")} (${gens.length}):\n`);
+          // 🔴 THE COUNT IS THE TRACE'S OWN, AND THE ARRAY IS NOT. The nested
+          // array is windowed server-side while `generationCount` counts the
+          // whole trace, so `length < generationCount` IS the window biting —
+          // a fact off the wire, never a cap this file duplicates. The window size is
+          // never named here: naming it would put a server constant in a second
+          // place, and the two numbers already say everything a reader needs.
+          //
+          // Unlike the ready reads, this route HAS a real denominator, so the
+          // house "x of y" is honest here. `workspace search` is the same shape
+          // one level simpler — a wire flag, rendered inline, silent when false.
+          //
+          // Silent when the whole list is present: an unconditional suffix would
+          // train the reader to skim the one line that carries the warning.
+          const windowed = gens.length < trace.generationCount;
+          const shown = windowed ? `${gens.length} of ${trace.generationCount}` : `${gens.length}`;
+          console.log(`\n${color.bold("Generations")} (${shown}):\n`);
+          if (windowed) {
+            console.log(
+              color.dim(
+                `  Windowed — page the rest with "nexus tracing generations --trace-id <id>".\n`
+              )
+            );
+          }
           printList(gens, undefined, [
             { key: "id", label: "ID", width: 36 },
             { key: "modelName", label: "MODEL", width: 25 },

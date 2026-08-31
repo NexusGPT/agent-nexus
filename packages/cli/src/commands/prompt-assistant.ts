@@ -349,7 +349,7 @@ Examples:
 
 Notes:
   Use this to recover a thread whose ID was lost (e.g. a chat call killed
-  before its response was read). Results are paginated; check meta.hasMore.
+  before its response was read). Results are paginated; check meta.paging.
 
   SUMMARY IS NOT ASSISTANT-WRITTEN, AND IT CHANGES MEANING WITH status. The
   server sends the generated promptResult.name once there is one, and until then

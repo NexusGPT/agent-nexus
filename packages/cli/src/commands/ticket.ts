@@ -83,9 +83,7 @@ async function listAcrossOrganizations(
   printList(
     result.tickets,
     {
-      total: result.total,
-      page: result.page,
-      hasMore: result.hasMore,
+      ...result.meta,
       organizationCount: result.organizationCount,
       skippedOrganizationIds: result.skippedOrganizationIds
     },

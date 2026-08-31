@@ -14,6 +14,7 @@ import {
   fieldIssues,
   flagValuesIn,
   helpOf,
+  type Invocation,
   invocationsIn,
   isIdFormatIssue,
   isPlaceholder,
@@ -25,6 +26,7 @@ import {
   sdkRouteIndex,
   sourceSlices,
   transportCallsIn,
+  type TreeNode,
   walkTree
 } from "./help-truth-scan";
 
@@ -252,7 +254,57 @@ const yieldToEventLoop = (): Promise<void> =>
     setImmediate(resolve);
   });
 
-export async function runHelpTruthScan(): Promise<ScanReport> {
+/** One printed `$ …` invocation, carrying the example line it came from. */
+type ExampleInvocation = Invocation & { readonly example: string };
+
+/**
+ * The ROUTE half of the scan: which command reaches which v1 descriptor, and
+ * which reaches none.
+ *
+ * ── WHY THIS IS ITS OWN FUNCTION ─────────────────────────────────────────────
+ * Two suites want two different halves of one answer. `help-truth` needs the
+ * rules and calls {@link runHelpTruthScan}, which continues from this result.
+ * `descriptor-match` asks only which commands resolve to a descriptor, and that
+ * is decided entirely here — so it stops at this line instead of paying for
+ * R1-R4, which cannot change its answer.
+ *
+ * 🚨 ONE DERIVATION, TWO CONSUMERS, DELIBERATELY. Giving the cheap caller its
+ * own copy of this resolution is the obvious way to make it fast and it is the
+ * wrong one: the two answers would drift, and the drift would be INVISIBLE —
+ * both suites stay green while disagreeing about the same tree. The expensive
+ * caller consumes this result rather than recomputing it, so there is no second
+ * answer to drift.
+ *
+ * ── THE COST IS `buildProgram()`, NOT THE PARSING ────────────────────────────
+ * Measured 2026-08-31 on this tree: 643 nodes, 1333 invocations. Everything in
+ * THIS function totals ~190ms. R1-R4 cost ~37s, of which `parseExample` is
+ * 0.6ms a call and `buildProgram` is 27.7ms a call — 98%. A fresh tree per
+ * example is REQUIRED (commander stores parsed option values on the Command
+ * objects, so a shared tree lets one example's arguments satisfy the next
+ * example's required options and turns a real defect green), which is why the
+ * split moves the cheap consumer OFF that path rather than memoising the tree
+ * underneath it.
+ */
+export interface RouteResolution {
+  readonly base: ReturnType<typeof buildProgram>;
+  readonly nodes: readonly TreeNode[];
+  readonly leafNodes: readonly TreeNode[];
+  readonly slices: Map<TreeNode, string>;
+  readonly descriptors: Map<string, Descriptor>;
+  readonly sdkRoutes: Map<string, { method: string; path: string }>;
+  /** command label → every descriptor its own source slice reaches. */
+  readonly routeOf: Map<string, Descriptor[]>;
+  /** command label → the `--help` bytes a caller reads. */
+  readonly helpByLabel: Map<string, string>;
+  /** command label → every runnable invocation printed in that help. */
+  readonly invocationsByLabel: Map<string, ExampleInvocation[]>;
+  readonly unresolvedCommands: { command: string; reason: string }[];
+  readonly routesResolved: number;
+  readonly unresolvedNoSdkCall: number;
+  readonly unresolvedNoDescriptor: number;
+}
+
+export async function resolveCommandRoutes(): Promise<RouteResolution> {
   const base = await buildProgram();
   const nodes = walkTree(base);
   const leafNodes = nodes.filter((n) => n.isLeaf);
@@ -260,19 +312,10 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
   const descriptors = descriptorIndex();
   const sdkRoutes = sdkRouteIndex();
 
-  const violations: Violation[] = [];
   const unresolvedCommands: { command: string; reason: string }[] = [];
-  let examplesChecked = 0;
-  let truncated = 0;
-  let statedStdinDocuments = 0;
-  let stdinBodiesJudged = 0;
-  let unstatedStdinBodies = 0;
   let routesResolved = 0;
   let unresolvedNoSdkCall = 0;
   let unresolvedNoDescriptor = 0;
-  let requiredOptionsExamined = 0;
-  const pathOperandsJudged = new Map<string, number>();
-  const pathOperandsSkipped = new Map<string, number>();
 
   // Resolve each node's route ONCE — the slice and the SDK scan do not vary per
   // example, and re-resolving per example would make the arm 1000x its cost.
@@ -292,12 +335,13 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     if (found.length > 0) routeOf.set(label, found);
   }
 
+  const helpByLabel = new Map<string, string>();
+  const invocationsByLabel = new Map<string, ExampleInvocation[]>();
   for (const node of nodes) {
     await yieldToEventLoop();
     const label = node.path.join(" ");
     const help = helpOf(node.cmd);
-    const examples = examplesIn(help);
-    const routes = routeOf.get(label) ?? [];
+    helpByLabel.set(label, help);
 
     // 🚨 THE POPULATION IS INVOCATIONS, NOT LINES, AND THE TWO STOPPED BEING THE
     // SAME THING WHEN `examplesIn` WIDENED. It now returns every `$ …` line, and
@@ -305,9 +349,84 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     // `$ rm ~/nexus/support-docs/notes/probe.md` to set the scene. Counting lines
     // would let that satisfy R0, certifying a command as exampled on a line that
     // invokes `rm`.
-    const invocations = examples.flatMap((example) =>
+    const invocations = examplesIn(help).flatMap((example) =>
       invocationsIn(example).map((invocation) => ({ example, ...invocation }))
     );
+    invocationsByLabel.set(label, invocations);
+
+    // ── the blind spots, counted rather than skipped ──────────────────────────
+    if (invocations.length > 0) {
+      if ((routeOf.get(label) ?? []).length > 0) {
+        routesResolved++;
+      } else {
+        const slice = slices.get(node);
+        const call = slice ? sdkCallsIn(slice)[0] : undefined;
+        if (!call) {
+          unresolvedNoSdkCall++;
+          unresolvedCommands.push({ command: label, reason: "no client.<resource>.<method> call" });
+        } else {
+          unresolvedNoDescriptor++;
+          unresolvedCommands.push({ command: label, reason: `no v1 descriptor for ${call}` });
+        }
+      }
+    }
+  }
+
+  return {
+    base,
+    nodes,
+    leafNodes,
+    slices,
+    descriptors,
+    sdkRoutes,
+    routeOf,
+    helpByLabel,
+    invocationsByLabel,
+    unresolvedCommands,
+    routesResolved,
+    unresolvedNoSdkCall,
+    unresolvedNoDescriptor
+  };
+}
+
+export async function runHelpTruthScan(): Promise<ScanReport> {
+  const resolution = await resolveCommandRoutes();
+  const {
+    base,
+    nodes,
+    leafNodes,
+    slices,
+    descriptors,
+    sdkRoutes,
+    routeOf,
+    helpByLabel,
+    invocationsByLabel,
+    unresolvedCommands,
+    routesResolved,
+    unresolvedNoSdkCall,
+    unresolvedNoDescriptor
+  } = resolution;
+
+  const violations: Violation[] = [];
+  let examplesChecked = 0;
+  let truncated = 0;
+  let statedStdinDocuments = 0;
+  let stdinBodiesJudged = 0;
+  let unstatedStdinBodies = 0;
+  let requiredOptionsExamined = 0;
+  const pathOperandsJudged = new Map<string, number>();
+  const pathOperandsSkipped = new Map<string, number>();
+
+  for (const node of nodes) {
+    await yieldToEventLoop();
+    const label = node.path.join(" ");
+    const help = helpByLabel.get(label) ?? "";
+    const routes = routeOf.get(label) ?? [];
+
+    // The population is INVOCATIONS, not lines — {@link resolveCommandRoutes}
+    // owns the extraction and the reason, and hands the same list to both the
+    // route arm and the rules below, so the two can never judge different sets.
+    const invocations = invocationsByLabel.get(label) ?? [];
 
     // ── R0 — a leaf a caller lands on must show a runnable example and Notes ──
     // This is the TRIPWIRE for R1–R4 as much as a rule of its own: every one of
@@ -562,22 +681,9 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
       }
     }
 
-    // ── the blind spots, counted rather than skipped ──────────────────────────
-    if (invocations.length > 0) {
-      if (routes.length > 0) {
-        routesResolved++;
-      } else {
-        const slice = slices.get(node);
-        const call = slice ? sdkCallsIn(slice)[0] : undefined;
-        if (!call) {
-          unresolvedNoSdkCall++;
-          unresolvedCommands.push({ command: label, reason: "no client.<resource>.<method> call" });
-        } else {
-          unresolvedNoDescriptor++;
-          unresolvedCommands.push({ command: label, reason: `no v1 descriptor for ${call}` });
-        }
-      }
-    }
+    // The blind spots are counted in {@link resolveCommandRoutes}, which decides
+    // them from `invocations` and `routeOf` alone — neither of which any rule
+    // below can move.
   }
 
   // ── why each BLIND namespace is blind ────────────────────────────────────────

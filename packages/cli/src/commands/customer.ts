@@ -29,7 +29,7 @@ export function registerCustomerCommands(program: Command): void {
     "after",
     `
 FOUR ENVELOPES IN ONE NAMESPACE, under --json:
-  list                     {data: [...], meta: {total, page, hasMore}}
+  list                     {data: [...], meta: {total, page, paging}}
   get, get-by-external-id  one FLAT object, with no data key around it
   create, update, note     {success, message, id, ...} — an acknowledgement
   delete                   {success, message, id} — the server's own

@@ -58,7 +58,7 @@ function parseItemIds(value: string): string[] {
 function printImportResult(result: ImportResult): void {
   printList(result.documents, { importedCount: result.importedCount }, IMPORTED_COLUMNS);
 
-  // printPaginationMeta only understands total/page/hasMore, so the count above
+  // printPaginationMeta only understands total/page/paging, so the count above
   // is dropped in table mode — and the count is the answer to "did it work".
   if (!isJsonMode()) {
     const plural = result.importedCount === 1 ? "" : "s";
@@ -73,7 +73,7 @@ function printItems(page: CloudItemPage): void {
     ITEM_COLUMNS
   );
 
-  // printPaginationMeta only understands total/page/hasMore, so in table mode
+  // printPaginationMeta only understands total/page/paging, so in table mode
   // the token is dropped and the listing looks complete when it is not. Print
   // the flag that continues it, not just the fact that more exists.
   if (!isJsonMode() && page.nextPageToken !== undefined) {

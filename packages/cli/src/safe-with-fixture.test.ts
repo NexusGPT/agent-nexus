@@ -159,6 +159,41 @@ describe("safe-with-fixture", () => {
     expect(sweep).toContain("--require-non-empty");
   });
 
+  it("READS that flag on the SKIP path too, which is where the chain used to end", () => {
+    // 🚨 THE LINK ABOVE STOPS ONE SHORT, AND THAT IS THE DEFECT THIS FILE IS
+    // ABOUT, COMMITTED BY THIS FILE.
+    //
+    // Steps 1-5 prove `run_leaf` is TOLD to assert non-emptiness. They never
+    // prove it ACTS on being told in every path it can take. It could not:
+    // `require_non_empty` was bound at the top of `run_leaf`, the command ran
+    // one line later, and the `exit_code -ne 0` SKIP branch returned BEFORE the
+    // variable was read. So a `safe-with-fixture` leaf that answered 403
+    // bypassed every assertion above and reported SKIP — the same row a leaf
+    // with no fixture assertion at all produces.
+    //
+    // That happened. `role job-types` is `safe-with-fixture`, the swept
+    // organisation was opted out of the Role primitive, and the strongest
+    // assertion in the sweep went dark while the disposition table still called
+    // it fixture-backed and COMPATIBILITY.md still counted it as swept.
+    //
+    // Tracing a chain link by link and stopping one link before the one that
+    // matters is the same vacuity as asserting on your own mock.
+    const sweep = readFileSync(SWEEP, "utf8");
+
+    const skipBranch = sweep.slice(
+      sweep.indexOf("if [[ $exit_code -ne 0 ]]; then"),
+      sweep.indexOf("# One pass answers both questions")
+    );
+
+    // The slice is the region under test, not the whole file — a substring
+    // assertion over 460 lines of shell matches a comment by default.
+    expect(skipBranch.length).toBeGreaterThan(0);
+    expect(skipBranch).toMatch(/if\s+\[\[\s+"\$require_non_empty"\s+==\s+"true"\s+\]\]/);
+    // And it must SAY what was lost. A skip row that reads like every other skip
+    // row is how this went unnoticed for the leaf it was written for.
+    expect(skipBranch).toContain("non-emptiness assertion did NOT run");
+  });
+
   it("names the remedy and forbids the shortcut, in the failure line itself", () => {
     // The cheapest way to clear a FIXTURE MISSING is to reclassify the leaf as
     // `safe`, which restores the exact vacuous green this disposition exists to

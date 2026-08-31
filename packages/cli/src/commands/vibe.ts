@@ -2678,7 +2678,7 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
     { key: "details", label: "Details" }
   ]);
 
-  printPaginationMeta({ hasMore: data.nextCursor !== null });
+  printPaginationMeta({ paging: data.nextCursor === null ? "exhausted" : "has-more" });
   if (data.nextCursor !== null) {
     console.log(color.dim(`\nNext page:\n  nexus vibe audit list --cursor "${data.nextCursor}"`));
   }

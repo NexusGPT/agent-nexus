@@ -213,7 +213,7 @@ describe("cloud-import commands", () => {
     ]);
 
     // Without this the listing looks complete: the generic pagination footer
-    // only understands total/page/hasMore and drops the token entirely.
+    // only understands total/page/paging and drops the token entirely.
     expect(out).toContain("page-2");
     expect(out).toContain("--page-token");
   });
@@ -366,7 +366,7 @@ describe("cloud-import import commands", () => {
     ]);
 
     // The count is the answer to "did it work"; the generic pagination footer
-    // understands total/page/hasMore and would drop it.
+    // understands total/page/paging and would drop it.
     expect(out).toContain("Imported 2 documents.");
   });
 

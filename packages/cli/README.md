@@ -383,7 +383,7 @@ nexus agent list --json
 ```json
 {
   "data": [{ "id": "abc-123", "firstName": "Support", "lastName": "Bot", "status": "ACTIVE" }],
-  "meta": { "total": 3, "page": 1, "hasMore": true }
+  "meta": { "total": 3, "page": 1, "paging": "has-more" }
 }
 ```
 
@@ -851,6 +851,28 @@ Until the secret is in place, the workflow fails at the "Authenticate against st
 
 - **Every open PR must already carry the row.** It does: a PR that touches no CLI file still reports `CLI: Sweep` as `skipping`, because the job-level `if:` skips the job rather than a `paths:` filter skipping the workflow. That is the entire reason this job lives in `pr-checks.yml`.
 - **It must be reliably green when it does run.** It was red on every CLI-touching PR until the sweep learned to SKIP a declared feature opt-out; confirm that fix is on `staging`, not merely merged into a cluster, before arming.
+
+Ask the live system rather than this page — the declaration and the arming are different facts and only one of them is in this repository:
+
+```bash
+pnpm dlx tsx scripts/required-contexts.ts --reconcile   # needs repo admin
+```
+
+### A SKIP is a coverage loss, and it has to be declared
+
+`sweep.sh` SKIPs a leaf when the backend declares the feature unavailable by policy — a 403 the environment is right to send, with no CLI defect behind it. Accepting that is correct. Reporting it as a bare number is not: `64 pass · 5 skip · 0 fail` cannot tell an expected skip from a leaf that went dark this morning, and SKIP is excluded from the exit code by design.
+
+So the accepted skips are declared in `SWEEP_EXPECTED_SKIPS` in `src/command-universe.ts`, and the sweep reads that declaration:
+
+- a skip **named** there is accepted, and the report line says what coverage is gone;
+- a skip **not** named there is a **FAIL**, naming the leaf and the remedy;
+- a leaf named there that **did not** skip is reported `STALE` and fails nothing — the environment recovering is good news, and a gate that reddens on good news gets its declarations deleted rather than its news read.
+
+The summary carries the denominator: `64 pass · 5/5 declared skip · 0 warn · 0 fail`.
+
+**The declared leaf stays `safe` on purpose.** It is still executed on every run, so the day the environment answers again, coverage resumes with nobody remembering to flip anything. Parking it `registration-only` would stop the sweep watching it and would need a human to notice the recovery.
+
+⚠️ **A `safe-with-fixture` leaf that skips loses more than the others**, because its non-emptiness assertion is the strongest thing the sweep asserts and the skip path bypasses it entirely. Its report line says so rather than reading like every other skip.
 
 ### Local sweep
 

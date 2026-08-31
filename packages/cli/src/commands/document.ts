@@ -628,8 +628,8 @@ Notes:
   THE FIRST PAGE IS 20 ROWS, AND A 100-CHILD CRAWL LOOKS COMPLETE AT 20. This
   is paginated with the same defaults as every v1 list — page 1, limit 20, and
   100 is the ceiling a larger --limit is refused against. Read meta before you
-  act on the rows: --json carries {total, page, limit, totalPages, hasMore}, and
-  hasMore is what separates "that is the folder" from "that is the first fifth
+  act on the rows: --json carries {total, page, limit, totalPages, paging}, and
+  paging is what separates "that is the folder" from "that is the first fifth
   of it". Attaching what you got here without walking the pages attaches a
   fraction of the crawl and nothing says so.
 

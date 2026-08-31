@@ -1,5 +1,557 @@
 # @agent-nexus/sdk
 
+## 2.1.0
+### Minor Changes
+
+- 7d3ffa2: A board can ask which tracks are waiting on a human
+  
+  `GET /tracks` narrowed on `status` and `archived` and nothing else, so a "waiting
+  on me" panel had to fetch a page and filter it in the browser. A page is at most
+  200 rows. On any organization past that, the panel filtered one page of a longer
+  list and under-reported — and it under-reported as **"nobody is waiting on you"**,
+  which is the one wrong answer nobody questions. That screen could not be built
+  honestly from the client, which is why this is a contract change rather than a
+  component.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.list()` takes `nextOwner`.** One value out of `CUE`, `USER` and
+  `EVENT`; every owner when omitted, exactly as `status` behaves.
+  
+  It narrows the SQL, so `total` counts the whole filtered set rather than the page.
+  `list({ nextOwner: "USER", limit: 1 })` is therefore a one-request count for a
+  badge, with no paging at all.
+  
+  **It names a KIND of actor, never a person.** `Track.nextOwner` says whether a
+  human, Cue, or an external event is due next. `nextOwner: "USER"` is "waiting on a
+  human" across the whole organization — it is not "waiting on you", and this API
+  has no per-user narrowing anywhere. A UI that labels it "mine" is labelling it
+  wrongly.
+  
+  **The column is `NOT NULL`**, so there is no unowned row for the filter to have an
+  opinion about. Every track matches exactly one of the three values.
+  
+  ## 🔴 Cursors issued before this upgrade are refused
+  
+  The page cursor carries a fingerprint of the filter set it was issued under, so
+  that replaying a `status=PLANNED` cursor into a `status=DONE` request is refused
+  rather than served the middle of a different list. `nextOwner` joins that
+  fingerprint, which means **the fingerprint gained a segment and every cursor
+  already in flight no longer parses.** They come back as a 400 naming a malformed
+  cursor.
+  
+  That is the correct outcome and not a cost being worked around: a token minted
+  before this filter existed carries no statement about it, so honouring it would
+  resume a walk under a filter set it was never a position in — the exact
+  plausible-wrong-page the fingerprint exists to refuse.
+  
+  **What to do:** drop the cursor and read from the top. Nothing else is affected —
+  a caller that pages within one process, which is every caller the SDK shape
+  encourages, never sees this. Cursors are server-issued and their shape has never
+  been part of the promise; keep round-tripping `nextCursor` verbatim and never
+  build one.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tracks list --next-owner <CUE|USER|EVENT>`.**
+  
+  It filters the same column the `WAITING ON` column already prints, so what the
+  table shows and what the flag selects cannot disagree. `--help` states that it
+  names a kind of actor rather than a person.
+  
+  ```
+  $ nexus tracks list --next-owner USER
+  $ nexus tracks list --next-owner USER --status IN_PROGRESS
+  ```
+- 43b0468: A covered system says whether it is live, and coverage counts only the live ones
+  
+  `client.roles.getCoverage(roleId)` now reports a `lifecycle` on every row —
+  `"BUILDING"`, `"LIVE"` or `"RETIRED"` — and a new
+  `impactPersonHoursByLifecycle` split beside the headline numerator.
+  
+  ```ts
+  const coverage = await client.roles.getCoverage(roleId);
+  
+  coverage.impactPersonHours;                     // LIVE only
+  coverage.impactPersonHoursByLifecycle;          // { BUILDING, LIVE, RETIRED }
+  coverage.contributions[0].lifecycle;            // which bucket that row is in
+  ```
+  
+  ## The headline changed meaning, and reading it the old way now overstates
+  
+  `impactPersonHours` is the sum of the contributions that evaluated **and are
+  `LIVE`**. A system somebody is still building publishes a real `personHours` on
+  its own row and is deliberately outside the total: it is work the customer is
+  not yet receiving, and a headline that counted it would report a saving that has
+  not happened. `coverage` is computed from that same live numerator.
+  
+  🚨 **SUMMING `contributions[].personHours` NO LONGER GIVES `impactPersonHours`.**
+  It never errors — it just reads high by exactly the building and retired rows.
+  Read `impactPersonHoursByLifecycle`, which is the same split already done:
+  `impactPersonHoursByLifecycle.LIVE === impactPersonHours`, by construction.
+  
+  ## `unmodelledSystems` carries it too, and that is the counter-intuitive half
+  
+  A system can be `BUILDING` **and** unmodelled at the same time — the ordinary
+  state of something just started. So a count of "what is being built" taken from
+  `contributions` alone undercounts by exactly those rows.
+  
+  ## There is no `PROPOSED`
+  
+  A covered system names a system that already exists, so "a proposed system that
+  exists" is a contradiction. The thing that is proposed and names nothing yet is
+  a Role task.
+  
+  ## `lifecycle` says nothing about `basis`
+  
+  A live hand-estimated system is an estimate; one still being built whose volumes
+  were measured is measured. Going live changes the bucket, never the basis.
+  
+  ## Types
+  
+  `RoleResourceLifecycle` is exported. `lifecycle` is required on
+  `RoleCoverageContribution` and `UnmodelledRoleSystem`, and
+  `impactPersonHoursByLifecycle` is required on `RoleCoverage` with all three
+  buckets always present — a zero there is a measurement, never a missing key.
+  
+  ⚠️ **If you CONSTRUCT any of those types — a fixture, a mock, a stub response —
+  they now need the new fields.** Reading one is unaffected.
+- fb17a22: A ready page says whether it was truncated
+  
+  `tracks.listReady()` and `tracks.listReadyTasks()` answered with a page and nothing
+  else, so a truncated page and a complete answer were the same response. A caller
+  reading 50 rows could not tell 50 from 165, and the rows that went missing were not
+  arbitrary: both statements order by ascending `number`, and a newly created row takes
+  the highest number, so the dropped rows were always the NEWEST ones — the ones a board
+  is most likely to be waiting on.
+  
+  **`ListReadyTracksResponse` and `ListReadyTrackTasksResponse` both carry `hasMore`.**
+  
+  `true` means the ready set is larger than the page you received. The page defaults to
+  50 and is capped at 200. Truncation is reachable on the task route today — one track
+  can hold 165 ready tasks against a default page of 50 — and latent on the track route.
+  
+  **There is deliberately no `total` and no `nextCursor` on these two responses.** Raise
+  `limit` and re-read from the top; `tracks.list()` is the paged surface when a caller
+  needs to walk a set. A keyset cursor would be wrong here rather than merely absent:
+  readiness is re-derived on every request, so a task that becomes ready after a cursor
+  was issued sits above that cursor and the next page excludes it — it is never offered
+  again. `hasMore` points at the one action that stays self-consistent.
+  
+  Nothing breaks. `hasMore` is an addition to two responses; a caller that ignores it
+  keeps its current behaviour, including the page ceiling it already had.
+- c661666: A section carries its prose, and a task carries its position
+  
+  Two columns that have been writable since the tracks domain shipped were
+  returned by no route on either surface, so a client could write them and never
+  read them back. Both are now on the response types.
+  
+  ## `TrackSection.body`
+  
+  **Without it a section tree is an outline and never a document.**
+  `client.tracks.createSection()` has always accepted `body`, and nothing has ever
+  given it back — so a caller could not check what it had stored, and a surface
+  rendering the tree could show every title and none of the content underneath.
+  
+  ⚠️ It is **never `null`**. The column is NOT NULL with an empty-string default,
+  so "nobody wrote any" is `""`. A consumer branching on `null` is branching on a
+  value this API does not produce.
+  
+  ## `TrackTask.position`
+  
+  **It is the only thing that orders a plan**, and without it a client renders the
+  steps in whatever sequence the response happened to arrive in — silently, and
+  plausibly, because a wrong order still looks like a plan.
+  `@@unique([trackId, parentTaskId, position])` is what makes it total.
+  
+  ⚠️ It is unique **per parent**, not per track. Two tasks under different parents
+  legitimately share a position, so sorting a flat list by this column alone
+  interleaves the branches. Group by `parentTaskId` first.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. Both fields are additive on response types only; no request
+  shape moved, no field was removed or made optional, and no route changed its
+  status code. A caller that ignores both fields behaves exactly as before.
+  
+  TypeScript consumers constructing a `TrackSection` or a `TrackTask` literal by
+  hand — a test fixture, a mock — will need the new field, which is the compiler
+  pointing at the one place the shape is asserted rather than read.
+- 28e4c69: A task says what it is, and a board can be read whole
+  
+  Two things landed together because they are the same complaint: a track's plan
+  could be worked and never READ, and the rows it held could not say which of them
+  were work.
+  
+  ## `client.tracks.listTasks(trackId)` · `nexus tracks task list <trackId>`
+  
+  The only route that enumerates a track's tasks. Before it, `listReadyTasks()`
+  answered what was unblocked and `readTask()` needed an id you already held, so a
+  board could not be reviewed, audited or drawn. On one live track of 136 rows the
+  ready set showed 107 and nothing reached the other 29.
+  
+  ⚠️ **NOT PAGED, and there is no `limit`.** The tree only means anything whole:
+  `parentTaskId` has to resolve inside the answer, and `position` is unique per
+  PARENT rather than per track, so a page hands you a forest of orphans in an
+  order you cannot restore. Rows arrive grouped by `parentTaskId`, then by
+  `position` — sorting the flat array by `position` alone interleaves the
+  branches.
+  
+  ⚠️ **A track in another organization answers an EMPTY LIST, not a refusal** —
+  the same call `readRollup()` makes by answering `0/0`. An empty answer is not
+  proof the track exists.
+  
+  ## `TrackTask.kind` — `STEP` · `DECISION` · `DEFINITION`
+  
+  A closed vocabulary saying what a row IS. `STEP` is real work. `DECISION` is a
+  choice recorded on the board. `DEFINITION` is a definition, rule, axis or
+  constraint.
+  
+  🔴 **THE ROLL-UP NOW COUNTS `STEP` LEAVES AND NOTHING ELSE.** `TrackRollup.done`
+  and `.total` are a narrower number than they were, and `TrackRollup.byKind` is
+  the whole task set partitioned so you can see exactly what they left out. Every
+  key is always present, `0` included.
+  
+  **No existing number moves on its own.** The column is `NOT NULL DEFAULT 'STEP'`,
+  `TrackPlanNode.kind` defaults to `STEP`, and every row written before the field
+  existed reads `STEP` — so `done`/`total` change only for a plan somebody
+  deliberately reclassifies. Nothing in this release rewrites a row.
+  
+  ⚠️ **A `STEP` whose only children are content is a LEAF, not structure.** The
+  work tree is the `STEP` tree, so filing a rule under a step does not make that
+  step vanish from the denominator.
+  
+  ⚠️ **A `DECISION` or a `DEFINITION` is never in the ready set** — it cannot be
+  picked up. It can still BLOCK: an unticked content row somebody drew an edge
+  from holds its dependents exactly as a step would, because dropping it would
+  release work rather than merely show less.
+  
+  **Say what an entry is at the import.** `tracks plan import` is the only door a
+  task row is born through, so `kind` on a `TrackPlanNode` is the only place it
+  can be declared. It does not propagate to `children`: a `DEFINITION` under a
+  `STEP` is the ordinary shape, so each node declares its own. A plan that names
+  no kinds is a plan of steps, which is the behaviour this field exists to let you
+  opt out of.
+  
+  `nexus tracks rollup` now prints `steps`, `decisions` and `definitions` beside
+  `done` and `total`, and `nexus tracks task list` carries a `KIND` column.
+- 23cf88d: A task says when it joined the plan, and the roll-up help stops promising `0/0`
+  
+  ## What changes for a caller
+  
+  `TrackTask` carries `createdAt` (ISO-8601), so `client.tracks.readTask(taskId)`
+  and every task list now report when a row joined the plan. It is required on the
+  response, and the generated response contract lists it in `required` for
+  `GET /tracks/tasks/:taskId`.
+  
+  That is the field a reader needs to explain a denominator that moved. A roll-up
+  is a snapshot, so a plan that GREW while work was being done reads as work going
+  backwards — `5/20 → 6/20 → 6/36 → 9/136` is three tasks closed and 116 added, and
+  every one of those numbers was correct while the board looked frozen. With
+  `createdAt` beside `doneAt`, "closed in this window" and "added in this window"
+  are both a filter over the plan you already hold, and neither is a new number
+  anybody has to keep honest.
+  
+  It is the ROW's birth, not the plan's: a plan imported in one call gives every
+  task the same instant, so it separates added-later from added-at-import and
+  cannot order what arrived together.
+  
+  ## CLI help only, and it was wrong
+  
+  `nexus tracks rollup` documented that a track belonging to another organization
+  reads `0/0`, "deliberately indistinguishable" from a track with no tasks. That
+  stopped being true when the tracks routes were gated: `GET /tracks/:trackId/rollup`
+  names `:trackId`, so an unreachable track is a **404** — one answer covering an
+  absent id, another organization's and an ungranted one alike. The help now says
+  so. The BATCH `GET /tracks/rollup` still answers `0/0`, because it takes its ids
+  in a query where no guard can see them.
+  
+  `nexus tracks ready` and `nexus tracks task edge` also explain that a blocker
+  with children is released by its subtree rather than by its own tick.
+  
+  No command gained a verb, a flag or a changed argument, which is why the CLI is a
+  patch: its published artefact here is the help text, and the help text was
+  serving a claim the server no longer honours.
+- 1b775fc: A track and a task can carry a short name
+  
+  A track title is written to be read in a document — "Rewrite the whole billing
+  subsystem end to end". A board column, a breadcrumb and an agent's own status
+  line all need the same thing called something shorter, and every surface that
+  needed one had to invent it. There is no honest way to invent it: the obvious
+  move is to truncate the title on read, and a truncation cannot honour a WORD
+  count. One 200-character word truncates to a 200-character "short" title or to a
+  fragment of a word, and there is no character limit at which a five-word English
+  title and a space-free CJK one both come out right.
+  
+  So the short name is **stored**, written by whoever knows what the thing is
+  called, and returned verbatim.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`Track`, `ReadyTrack`, `TrackTask` and `ReadyTrackTask` gain `shortTitle: string | null`.**
+  Every read that returns a title now returns this beside it — `tracks.list()`,
+  `tracks.get()`, `tracks.create()`, `tracks.listReady()`, `tracks.listTasks()`,
+  `tracks.listReadyTasks()` and `tracks.readTask()`.
+  
+  **`null` means UNCURATED, and you fall back to `title`.** It is not "pending" and
+  it is not an error state — it is the value every track and task that exists today
+  carries, so it is the common case rather than the exception. The server never
+  fills it in for you, and never shortens `title` to stand in for it: if it did,
+  no caller could tell a track somebody deliberately named in five words from one
+  nobody has named at all, and nothing could report what is left to curate.
+  
+  **It is never `""`.** A blank is refused at the contract and again by a database
+  CHECK, so `null` and a real name are the only two values that reach you. A
+  consumer branching on the empty string is branching on a value this API does not
+  produce.
+  
+  **`tracks.create()` takes `shortTitle`, and `TrackPlanNode` takes one per task.**
+  Omit it, or send `null`, to leave the thing uncurated.
+  
+  🔴 **The plan import is the only door a task's short name can arrive through.**
+  There is no single-task create and no task update on this API — a task row is
+  born in `tracks.importPlan()` and nowhere else — so a task not named at import
+  time stays uncurated. The same holds one level up for a different reason: a
+  track's `title` has never been updatable either, and `shortTitle` follows it.
+  
+  ## The two bounds, and why they are enforced in different places
+  
+  **At most 5 words, and at most 80 characters.** Both are refused with a 400
+  rather than truncated, so a value you send is either stored exactly as you wrote
+  it (after trimming) or refused with a reason.
+  
+  - The **character** bound is also a database CHECK, in the same unit — code
+    points, what `char_length()` counts, not UTF-16 code units. 80 emoji are 80
+    characters and are accepted.
+  - The **word** bound is enforced by the API alone, deliberately. A word count in
+    Postgres is vacuous for a space-free script — a CJK title is one word at any
+    length — and Postgres' own whitespace class does not agree with JavaScript's
+    about a non-breaking space across the versions we run. One rule in one place
+    beats two rules that disagree.
+  
+  Words are runs of non-whitespace after trimming, so `a  b` is two.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tracks create --short-title "<text>"`.** Omitted leaves the track
+  uncurated.
+  
+  **`nexus tracks get` prints `shortTitle`**, and `tracks create` echoes the stored
+  value so you can see it landed. Under `--json` an uncurated one is `null`; in the
+  terminal it reads as a sentence, so a script never has to detect absence by
+  matching English.
+  
+  ```
+  $ nexus tracks create --slug billing-rewrite --title "Rewrite the whole billing subsystem end to end" \
+      --short-title "Billing rewrite"
+  $ nexus tracks get 11111111-1111-4111-8111-111111111111 --json
+  ```
+  
+  The task-level short name is set through `nexus tracks plan --body`, on each
+  entry, alongside `title` and `kind`.
+  
+  ## Nothing existing changes shape
+  
+  The field is additive on every response and optional on both write doors. No
+  cursor, no filter and no ordering is affected, and no value already stored moves.
+- f0d9aa1: A track can say what blocks what, and read its own outline
+  
+  Two read routes that the tracks surface never had. Both tables have been
+  writable since the domain shipped and neither could be read back through the
+  public API, so a plan could be drawn and never inspected.
+  
+  ## `client.tracks.listTaskEdges(trackId)` · `nexus tracks task edges <trackId>`
+  
+  **This is what accounts for a task the ready set withholds.** `task list`
+  answers what the plan CONTAINS and `task ready` answers what can be picked up
+  NOW; the difference between the two was a set nothing could explain, because the
+  anti-join that withholds a task is server-side and published nothing. A track
+  reporting 61 of 65 done with four open leaves, one of them ready, left three
+  that neither the owner nor the agent could account for — work outstanding that
+  nobody could find or close.
+  
+  A task's blockers are the edges naming it **or any of its ancestors** as
+  `blockedTaskId`: an edge hung on a section parent holds every row beneath it,
+  and those rows carry no edge of their own. That is now a question the two lists
+  answer together — reading only the edges that name a task directly reports a
+  genuinely blocked row as unexplained.
+  
+  ⚠️ **Unordered.** The row carries no position and the table has no ordering
+  column, so no order is promised and none should be relied on.
+  
+  ⚠️ **No cycle information.** Refusing a circle is the write path's job, inside a
+  lock over a snapshot this read does not have.
+  
+  ⚠️ **`edges` reads and `edge` writes.** `nexus tracks task edge` still adds one
+  and requires `--blocker` and `--blocked`; the new leaf takes the track and
+  nothing else. A mistyped read lists, a mistyped write refuses on the missing
+  options — both directions fail loudly or harmlessly.
+  
+  ## `client.tracks.listSections(trackId)` · `nexus tracks section list <trackId>`
+  
+  **The section resource was write-only.** Create and rename shipped with no read,
+  so a caller could build an outline and never read it back — and `body`, the
+  section's prose, is accepted by `createSection()` and was returned by nothing, so
+  a writer had no way to check what it had stored.
+  
+  Rows arrive in `path` order, so every parent precedes its children and the tree
+  builds in one pass. `position` orders siblings.
+  
+  ⚠️ **`body` is never `null`.** The column is NOT NULL with an empty-string
+  default, so "nobody wrote any" is `""`. A consumer branching on `null` is
+  branching on a value this API does not produce.
+  
+  ## A new scope, and no existing key needs re-minting
+  
+  `track_sections:read` joins the catalog, because `track_sections` had a write
+  scope and no read one. **Every key that already holds `track_sections:write`
+  satisfies it** — on the same resource, `write` implies `read` — so nothing has
+  to be re-minted. The catalog entry exists so that a key CAN be minted that reads
+  a track's outline and cannot restructure it, which was previously inexpressible.
+  
+  `listTaskEdges` needs `track_tasks:read`, which already existed.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. Two additive routes, two additive SDK methods, two additive CLI
+  leaves, one additive scope. No request shape moved, no field was removed or made
+  optional, no route changed its status code, and no existing command was renamed
+  or relocated.
+  
+  ⚠️ **A track in another organization answers an empty list on both, not a 404.**
+  The reads are anchored on the caller's organization, so an empty answer is
+  exactly what a real, empty track returns and is not proof the track exists —
+  the same call `readRollup()` already makes by answering `0/0`.
+
+### Patch Changes
+
+- b1e3013: A memory tool config is readable, and the type says it is never creatable
+  
+  `AgentToolConfigType` gains `MEMORY`, so a stored memory tool config read back from
+  `client.agents.tools.list()` / `.get()` is now typed rather than typed out of
+  existence. Before this the SDK's hand-written union held five members while the v1
+  contract published six, so an exhaustive `switch` over a real response could miss a
+  row it had actually received.
+  
+  **The write bodies are narrowed to match the API rather than the read set.**
+  `CreateAgentToolBody.type` and `UpdateAgentToolBody.type` are now
+  `WritableAgentToolConfigType` — `Exclude<AgentToolConfigType, "MEMORY">` — because a
+  `MEMORY` config is inert if created through v1, and publishing it as creatable would
+  advertise a capability the API does not have.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. `MEMORY` was absent from the SDK type entirely, so no caller could
+  have been sending it on a create or update body; the write set holds exactly the five
+  members it always did. The read side is purely additive — a `switch` that was
+  exhaustive over the old five now needs a `MEMORY` arm, which is a compile error at the
+  call site and is the good direction.
+- 9f1f356: An edge hung on an ancestor holds the rows beneath it, on every surface that says so
+  
+  Four surfaces said a task's blockers are the edges naming it as `blockedTaskId` —
+  the SDK's `listTaskEdges()` docblock and its response type, the `nexus tracks task
+  edges` help text, and the OpenAPI description of `GET /tracks/:trackId/task-edges`.
+  The SDK docblock added that an open task with no such edge is held by an unticked
+  ancestor or by a child "rather than by a dependency". The readiness predicate tests each
+  edge against the task AND EVERY ANCESTOR OF IT, so an edge hung on a section
+  parent — the shape a plan import produces when dependencies are drawn between
+  parents — holds every row beneath it, and those rows carry no edge of their own.
+  That IS a dependency, and it has a nameable blocker row. The old sentence steered
+  a reader away from it: they looked for a structural cause, found none, and
+  reported the board as unexplained. That is the production report this correction
+  comes from.
+  
+  All four now say a task's blockers are the edges naming it or any of its
+  ancestors, and state what composing that costs. The materialised ancestry column
+  the ready-set query reads does not cross the wire — it is absent from the v1 task
+  schema and from the SDK types — so a client rebuilds it by walking `parentTaskId`,
+  which agrees with the server only while the two are in step. `nexus tracks task
+  why-not-ready` already does that composition and ships the caveat with its
+  answer, so it is the thing to reach for rather than a hand-rolled intersection.
+  
+  Documentation only. No type, no signature and no behaviour changes; it is a
+  release because the SDK docblocks are emitted into the published `.d.ts` and the
+  CLI help text is printed on every `--help`.
+- 3a2b176: Four SDK doc claims corrected where they stated the opposite of the API
+  
+  No behaviour changes — but these are the sentences a caller designs against, and
+  four of them described an API that does not exist.
+  
+  **`listReadyTasks()` and `listTasks()` said a track in another organization
+  answers an empty set.** It answers **404**. Both routes name a `:trackId`, so the
+  access gate decides them before the read runs, and absent, another organization's
+  and ungranted are one indistinguishable refusal. `get()` and `readRollup()` in the
+  same file already documented it correctly, so the file contradicted itself — and a
+  caller that wrote `if (tasks.length === 0)` to mean "not mine" was reading a
+  branch that never runs. An empty list means a real, readable track with nothing on
+  it, and nothing else.
+  
+  **`readRollups()` said to zip its answer against your own list.** The route
+  collapses duplicate ids before it reads, because the response is keyed by track
+  id, so `[A, A, B]` returns TWO entries — and a positional zip then pairs B's
+  progress with A, silently, with both arrays looking well-formed. Index the answer
+  by `trackId`, or pass a de-duplicated list if you want the lengths to match.
+  
+  **`rowsRewritten` is `0`, not `1`, when a section rename is a no-op.** Renaming a
+  section to the slug it already has writes nothing and returns `0`. The doc said
+  "`1` when it is a leaf" with no mention of that case, so `0` read as a vanished
+  section.
+- 48719ce: `permissions` accepts `track` as a resource type
+  
+  A Track is a resource you can grant, revoke and read the access list for. Use
+  `track` where you already use `agent` or `workflow`:
+  
+  ```bash
+  nexus permissions grant --resource-type track --resource-id <trackId> \
+    --subject-type user --subject-id <userId> --relation viewer
+  nexus permissions revoke --resource-type track --resource-id <trackId> \
+    --subject-type user --subject-id <userId>
+  nexus permissions access track <trackId>
+  ```
+  
+  The CLI refused `track` before this change. It refused the value locally, so the
+  request never left your machine. The three commands above now send it.
+  
+  The SDK types carry the new value too. `PermissionResourceType` lists `track`,
+  and `GenericGrantResourceType` derives from that list. So
+  `client.permissions.grant()`, `client.permissions.revoke()` and
+  `client.permissions.listResourceAccess()` all accept `track`. It is no longer a
+  compile error.
+  
+  `nexus permissions set-visibility` does not take `track`. That command keeps its
+  own list of resource types, and the list is unchanged.
+- 3a3d451: The Roles SDK describes releasing a grant as a change of audience, not a publish
+  
+  `client.roles`'s doc comment on the suspend path said that emptying a Role's
+  grants publishes every Collection and Workspace it was the last holder of to the
+  whole organization. Under the allow-list that is backwards.
+  
+  The resource returns to the set no Role has claimed: every caller placed in no
+  Role reaches it, and every Role-placed caller loses it. No runtime behaviour
+  changed in this package — this corrects a description that would have led a
+  caller to expect a widening where the effect is a narrowing for anyone holding a
+  Role.
+- 4086d14: `workspaces.list()` documents that it returns the caller's reach, not the organization's
+  
+  No behaviour change — the doc was describing an API that stopped existing when the
+  narrowing was fixed.
+  
+  `workspaces.list()` said it lists "the organization's workspaces". It lists the
+  workspaces **this key can reach**: `ListWorkspacesUseCase` drops any workspace a
+  `RoleWorkspaceGrant` narrows out for the caller, so the result agrees with what that
+  same caller could actually open.
+  
+  The route genuinely did return the whole organization once — that was a bug, and the
+  use case's own docblock records it: `subjects` was made a required key precisely
+  because "the Public API v1 list route did exactly that and returned every workspace in
+  the org to a caller a Role had narrowed out". The narrowing landed; the sentence
+  describing the old behaviour did not.
+  
+  **What this changes for you:** nothing in the wire shape, but stop reading a shorter
+  list as an error. Two keys in the same organization legitimately receive different
+  lists, and a workspace missing from one of them has not been deleted — that key is
+  narrowed out of it.
+
 ## 2.0.0
 ### Major Changes
 

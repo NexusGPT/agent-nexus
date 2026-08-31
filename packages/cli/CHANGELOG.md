@@ -1,5 +1,635 @@
 # @agent-nexus/cli
 
+## 1.1.0
+### Minor Changes
+
+- 7d3ffa2: A board can ask which tracks are waiting on a human
+  
+  `GET /tracks` narrowed on `status` and `archived` and nothing else, so a "waiting
+  on me" panel had to fetch a page and filter it in the browser. A page is at most
+  200 rows. On any organization past that, the panel filtered one page of a longer
+  list and under-reported — and it under-reported as **"nobody is waiting on you"**,
+  which is the one wrong answer nobody questions. That screen could not be built
+  honestly from the client, which is why this is a contract change rather than a
+  component.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`tracks.list()` takes `nextOwner`.** One value out of `CUE`, `USER` and
+  `EVENT`; every owner when omitted, exactly as `status` behaves.
+  
+  It narrows the SQL, so `total` counts the whole filtered set rather than the page.
+  `list({ nextOwner: "USER", limit: 1 })` is therefore a one-request count for a
+  badge, with no paging at all.
+  
+  **It names a KIND of actor, never a person.** `Track.nextOwner` says whether a
+  human, Cue, or an external event is due next. `nextOwner: "USER"` is "waiting on a
+  human" across the whole organization — it is not "waiting on you", and this API
+  has no per-user narrowing anywhere. A UI that labels it "mine" is labelling it
+  wrongly.
+  
+  **The column is `NOT NULL`**, so there is no unowned row for the filter to have an
+  opinion about. Every track matches exactly one of the three values.
+  
+  ## 🔴 Cursors issued before this upgrade are refused
+  
+  The page cursor carries a fingerprint of the filter set it was issued under, so
+  that replaying a `status=PLANNED` cursor into a `status=DONE` request is refused
+  rather than served the middle of a different list. `nextOwner` joins that
+  fingerprint, which means **the fingerprint gained a segment and every cursor
+  already in flight no longer parses.** They come back as a 400 naming a malformed
+  cursor.
+  
+  That is the correct outcome and not a cost being worked around: a token minted
+  before this filter existed carries no statement about it, so honouring it would
+  resume a walk under a filter set it was never a position in — the exact
+  plausible-wrong-page the fingerprint exists to refuse.
+  
+  **What to do:** drop the cursor and read from the top. Nothing else is affected —
+  a caller that pages within one process, which is every caller the SDK shape
+  encourages, never sees this. Cursors are server-issued and their shape has never
+  been part of the promise; keep round-tripping `nextCursor` verbatim and never
+  build one.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tracks list --next-owner <CUE|USER|EVENT>`.**
+  
+  It filters the same column the `WAITING ON` column already prints, so what the
+  table shows and what the flag selects cannot disagree. `--help` states that it
+  names a kind of actor rather than a person.
+  
+  ```
+  $ nexus tracks list --next-owner USER
+  $ nexus tracks list --next-owner USER --status IN_PROGRESS
+  ```
+- 46f6f4d: A stuck board can name the rows that are holding it
+  
+  A board could read `127 of 156 done`, hold 29 open rows, and answer
+  `nexus tracks task ready` with NOTHING — indistinguishable from a board that is
+  nearly finished. The ready set is an anti-join computed inside the API and it
+  publishes nothing about what it withheld, so no route named the offending edge
+  and nothing escalated. Refusing such an edge at import was considered and
+  rejected: a content-kind blocker holding its dependents is supported behaviour,
+  so every candidate refusal predicate is a false refusal. The honest place to name
+  the blocker is the moment a reader asks why nothing is ready.
+  
+  `nexus tracks task why-not-ready <trackId>` is that moment. It adds no route: it
+  composes the three reads that already exist — the ready set, the whole plan and
+  the task edges — and for every open row the ready set does not offer it names the
+  rows holding it, says of each whether it is WORK or CONTENT, and says whether the
+  blocker is released by ticking it or by finishing the work beneath it. A content
+  row nobody would otherwise close now has a name. `nexus tracks task ready` also
+  points at this command when it comes back empty, and pays for no extra request to
+  do it.
+  
+  🔴 THE ANSWER IS RECONSTRUCTED ON THE CLIENT AND IS NEVER THE SERVER'S OWN
+  REASON, and it says so in both channels — in the terminal and as a
+  `reconstruction` field on the `--json` document. The materialised ancestry the
+  server's ready-set query reads does not cross the wire, so the command rebuilds
+  ancestry by walking `parentTaskId`. That agrees with the server while the two are
+  in step and diverges exactly where they have drifted, which is one of the live
+  failure modes here. When the two name different ready sets the command says so
+  and picks no winner. `nexus tracks task ready` remains the sole authority on what
+  may be picked up; nothing here computes that set.
+  
+  ⚠️ AN EDGE HUNG ON AN ANCESTOR HOLDS EVERYTHING BENEATH IT, and the held row's
+  own edge list is empty. Composing on a task's own edges alone — the edges naming
+  it as `blockedTaskId` — reports the held row as unexplained, and that is the
+  shape a plan import produces. The output names the ancestor the edge is actually
+  hung on.
+- 28e4c69: A task says what it is, and a board can be read whole
+  
+  Two things landed together because they are the same complaint: a track's plan
+  could be worked and never READ, and the rows it held could not say which of them
+  were work.
+  
+  ## `client.tracks.listTasks(trackId)` · `nexus tracks task list <trackId>`
+  
+  The only route that enumerates a track's tasks. Before it, `listReadyTasks()`
+  answered what was unblocked and `readTask()` needed an id you already held, so a
+  board could not be reviewed, audited or drawn. On one live track of 136 rows the
+  ready set showed 107 and nothing reached the other 29.
+  
+  ⚠️ **NOT PAGED, and there is no `limit`.** The tree only means anything whole:
+  `parentTaskId` has to resolve inside the answer, and `position` is unique per
+  PARENT rather than per track, so a page hands you a forest of orphans in an
+  order you cannot restore. Rows arrive grouped by `parentTaskId`, then by
+  `position` — sorting the flat array by `position` alone interleaves the
+  branches.
+  
+  ⚠️ **A track in another organization answers an EMPTY LIST, not a refusal** —
+  the same call `readRollup()` makes by answering `0/0`. An empty answer is not
+  proof the track exists.
+  
+  ## `TrackTask.kind` — `STEP` · `DECISION` · `DEFINITION`
+  
+  A closed vocabulary saying what a row IS. `STEP` is real work. `DECISION` is a
+  choice recorded on the board. `DEFINITION` is a definition, rule, axis or
+  constraint.
+  
+  🔴 **THE ROLL-UP NOW COUNTS `STEP` LEAVES AND NOTHING ELSE.** `TrackRollup.done`
+  and `.total` are a narrower number than they were, and `TrackRollup.byKind` is
+  the whole task set partitioned so you can see exactly what they left out. Every
+  key is always present, `0` included.
+  
+  **No existing number moves on its own.** The column is `NOT NULL DEFAULT 'STEP'`,
+  `TrackPlanNode.kind` defaults to `STEP`, and every row written before the field
+  existed reads `STEP` — so `done`/`total` change only for a plan somebody
+  deliberately reclassifies. Nothing in this release rewrites a row.
+  
+  ⚠️ **A `STEP` whose only children are content is a LEAF, not structure.** The
+  work tree is the `STEP` tree, so filing a rule under a step does not make that
+  step vanish from the denominator.
+  
+  ⚠️ **A `DECISION` or a `DEFINITION` is never in the ready set** — it cannot be
+  picked up. It can still BLOCK: an unticked content row somebody drew an edge
+  from holds its dependents exactly as a step would, because dropping it would
+  release work rather than merely show less.
+  
+  **Say what an entry is at the import.** `tracks plan import` is the only door a
+  task row is born through, so `kind` on a `TrackPlanNode` is the only place it
+  can be declared. It does not propagate to `children`: a `DEFINITION` under a
+  `STEP` is the ordinary shape, so each node declares its own. A plan that names
+  no kinds is a plan of steps, which is the behaviour this field exists to let you
+  opt out of.
+  
+  `nexus tracks rollup` now prints `steps`, `decisions` and `definitions` beside
+  `done` and `total`, and `nexus tracks task list` carries a `KIND` column.
+- 1b775fc: A track and a task can carry a short name
+  
+  A track title is written to be read in a document — "Rewrite the whole billing
+  subsystem end to end". A board column, a breadcrumb and an agent's own status
+  line all need the same thing called something shorter, and every surface that
+  needed one had to invent it. There is no honest way to invent it: the obvious
+  move is to truncate the title on read, and a truncation cannot honour a WORD
+  count. One 200-character word truncates to a 200-character "short" title or to a
+  fragment of a word, and there is no character limit at which a five-word English
+  title and a space-free CJK one both come out right.
+  
+  So the short name is **stored**, written by whoever knows what the thing is
+  called, and returned verbatim.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`Track`, `ReadyTrack`, `TrackTask` and `ReadyTrackTask` gain `shortTitle: string | null`.**
+  Every read that returns a title now returns this beside it — `tracks.list()`,
+  `tracks.get()`, `tracks.create()`, `tracks.listReady()`, `tracks.listTasks()`,
+  `tracks.listReadyTasks()` and `tracks.readTask()`.
+  
+  **`null` means UNCURATED, and you fall back to `title`.** It is not "pending" and
+  it is not an error state — it is the value every track and task that exists today
+  carries, so it is the common case rather than the exception. The server never
+  fills it in for you, and never shortens `title` to stand in for it: if it did,
+  no caller could tell a track somebody deliberately named in five words from one
+  nobody has named at all, and nothing could report what is left to curate.
+  
+  **It is never `""`.** A blank is refused at the contract and again by a database
+  CHECK, so `null` and a real name are the only two values that reach you. A
+  consumer branching on the empty string is branching on a value this API does not
+  produce.
+  
+  **`tracks.create()` takes `shortTitle`, and `TrackPlanNode` takes one per task.**
+  Omit it, or send `null`, to leave the thing uncurated.
+  
+  🔴 **The plan import is the only door a task's short name can arrive through.**
+  There is no single-task create and no task update on this API — a task row is
+  born in `tracks.importPlan()` and nowhere else — so a task not named at import
+  time stays uncurated. The same holds one level up for a different reason: a
+  track's `title` has never been updatable either, and `shortTitle` follows it.
+  
+  ## The two bounds, and why they are enforced in different places
+  
+  **At most 5 words, and at most 80 characters.** Both are refused with a 400
+  rather than truncated, so a value you send is either stored exactly as you wrote
+  it (after trimming) or refused with a reason.
+  
+  - The **character** bound is also a database CHECK, in the same unit — code
+    points, what `char_length()` counts, not UTF-16 code units. 80 emoji are 80
+    characters and are accepted.
+  - The **word** bound is enforced by the API alone, deliberately. A word count in
+    Postgres is vacuous for a space-free script — a CJK title is one word at any
+    length — and Postgres' own whitespace class does not agree with JavaScript's
+    about a non-breaking space across the versions we run. One rule in one place
+    beats two rules that disagree.
+  
+  Words are runs of non-whitespace after trimming, so `a  b` is two.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus tracks create --short-title "<text>"`.** Omitted leaves the track
+  uncurated.
+  
+  **`nexus tracks get` prints `shortTitle`**, and `tracks create` echoes the stored
+  value so you can see it landed. Under `--json` an uncurated one is `null`; in the
+  terminal it reads as a sentence, so a script never has to detect absence by
+  matching English.
+  
+  ```
+  $ nexus tracks create --slug billing-rewrite --title "Rewrite the whole billing subsystem end to end" \
+      --short-title "Billing rewrite"
+  $ nexus tracks get 11111111-1111-4111-8111-111111111111 --json
+  ```
+  
+  The task-level short name is set through `nexus tracks plan --body`, on each
+  entry, alongside `title` and `kind`.
+  
+  ## Nothing existing changes shape
+  
+  The field is additive on every response and optional on both write doors. No
+  cursor, no filter and no ordering is affected, and no value already stored moves.
+- f0d9aa1: A track can say what blocks what, and read its own outline
+  
+  Two read routes that the tracks surface never had. Both tables have been
+  writable since the domain shipped and neither could be read back through the
+  public API, so a plan could be drawn and never inspected.
+  
+  ## `client.tracks.listTaskEdges(trackId)` · `nexus tracks task edges <trackId>`
+  
+  **This is what accounts for a task the ready set withholds.** `task list`
+  answers what the plan CONTAINS and `task ready` answers what can be picked up
+  NOW; the difference between the two was a set nothing could explain, because the
+  anti-join that withholds a task is server-side and published nothing. A track
+  reporting 61 of 65 done with four open leaves, one of them ready, left three
+  that neither the owner nor the agent could account for — work outstanding that
+  nobody could find or close.
+  
+  A task's blockers are the edges naming it **or any of its ancestors** as
+  `blockedTaskId`: an edge hung on a section parent holds every row beneath it,
+  and those rows carry no edge of their own. That is now a question the two lists
+  answer together — reading only the edges that name a task directly reports a
+  genuinely blocked row as unexplained.
+  
+  ⚠️ **Unordered.** The row carries no position and the table has no ordering
+  column, so no order is promised and none should be relied on.
+  
+  ⚠️ **No cycle information.** Refusing a circle is the write path's job, inside a
+  lock over a snapshot this read does not have.
+  
+  ⚠️ **`edges` reads and `edge` writes.** `nexus tracks task edge` still adds one
+  and requires `--blocker` and `--blocked`; the new leaf takes the track and
+  nothing else. A mistyped read lists, a mistyped write refuses on the missing
+  options — both directions fail loudly or harmlessly.
+  
+  ## `client.tracks.listSections(trackId)` · `nexus tracks section list <trackId>`
+  
+  **The section resource was write-only.** Create and rename shipped with no read,
+  so a caller could build an outline and never read it back — and `body`, the
+  section's prose, is accepted by `createSection()` and was returned by nothing, so
+  a writer had no way to check what it had stored.
+  
+  Rows arrive in `path` order, so every parent precedes its children and the tree
+  builds in one pass. `position` orders siblings.
+  
+  ⚠️ **`body` is never `null`.** The column is NOT NULL with an empty-string
+  default, so "nobody wrote any" is `""`. A consumer branching on `null` is
+  branching on a value this API does not produce.
+  
+  ## A new scope, and no existing key needs re-minting
+  
+  `track_sections:read` joins the catalog, because `track_sections` had a write
+  scope and no read one. **Every key that already holds `track_sections:write`
+  satisfies it** — on the same resource, `write` implies `read` — so nothing has
+  to be re-minted. The catalog entry exists so that a key CAN be minted that reads
+  a track's outline and cannot restructure it, which was previously inexpressible.
+  
+  `listTaskEdges` needs `track_tasks:read`, which already existed.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. Two additive routes, two additive SDK methods, two additive CLI
+  leaves, one additive scope. No request shape moved, no field was removed or made
+  optional, no route changed its status code, and no existing command was renamed
+  or relocated.
+  
+  ⚠️ **A track in another organization answers an empty list on both, not a 404.**
+  The reads are anchored on the caller's organization, so an empty answer is
+  exactly what a real, empty track returns and is not proof the track exists —
+  the same call `readRollup()` already makes by answering `0/0`.
+- fa10ef6: The CLI can page a track list, and every ready read says which page it showed you
+  
+  `tracks.list()` gained `cursor`, `total`, `hasMore` and `nextCursor` on the SDK,
+  and the changeset that shipped them recorded the CLI side as "No command
+  changed." This is that command changing.
+  
+  ## `nexus tracks list --cursor`
+  
+  The token was in the `--json` document from the day the SDK carried it and **no
+  flag accepted it**, so an organization past the 200-row ceiling could not
+  enumerate its own tracks from the CLI in any spelling. `--cursor` now exists and
+  round-trips the token.
+  
+  The terminal channel also prints what it is showing you — `50 of 240 matching
+  row(s) shown` — and, when more remain, the exact command for the rest. That
+  command carries the filters forward, because the cursor fingerprints
+  `status`/`archived`/`nextOwner` and replaying it without them is refused with a
+  400; and the token is shell-quoted, because an omitted status or next-owner
+  encodes as `*`, so the default cursor is `50~*.exclude.*` and an unquoted paste
+  into zsh dies on `no matches found` before the CLI runs.
+  
+  ## The three reads that could not say they were truncated
+  
+  `--limit` defaults to **50 server side** on `tracks list`, `tracks ready` and
+  `tracks task ready`. Two of them said nothing about it and one said the opposite:
+  
+  - **`tracks ready`** listed four reasons a track can be absent — DONE, BLOCKED,
+    archived, dependency-held — and omitted the fifth, which needs no flag to
+    happen. The order is track number ascending, so the tracks a default page hides
+    are always the newest.
+  - **`tracks task ready`** said "truncated by `--limit`", which a reader who never
+    typed `--limit` correctly reads as not applying to them.
+  - **`tracks create`** went further and promised a new track "comes back as ready
+    work on the very next call". That is true of the ready *predicate* and false of
+    the *page*, and false precisely for the track just created: a new track takes
+    the highest number and the set sorts ascending, so it is last in line.
+  
+  All three now state the default. The two ready reads also say their answer
+  carries no `total` and no `hasMore`, because their response schemas genuinely do
+  not — a partial page and a complete set are the same fifty rows there, and
+  nothing on the wire distinguishes them.
+  
+  ## Two commands that demanded an id and never said where one comes from
+  
+  `tracks event append --agent` is required and uuid-only; `tracks diary append`
+  takes `--agent`, `--task` and `--workspace`. None named the verb that mints one,
+  and `tracks agent` sits under a different parent, so backing up one level does not
+  find it either. All now point at `nexus tracks agent open` / `list`, at
+  `nexus tracks task list`, and — for the workspace id — out of the namespace
+  entirely to `nexus workspace list`.
+  
+  ## What changes for a caller
+  
+  Nothing breaks. `--cursor` is optional and omitting it reads the first page
+  exactly as before. The page footer is terminal-only: `--json` documents are
+  untouched, and already carried `total`, `hasMore` and `nextCursor`.
+
+### Patch Changes
+
+- 23cf88d: A task says when it joined the plan, and the roll-up help stops promising `0/0`
+  
+  ## What changes for a caller
+  
+  `TrackTask` carries `createdAt` (ISO-8601), so `client.tracks.readTask(taskId)`
+  and every task list now report when a row joined the plan. It is required on the
+  response, and the generated response contract lists it in `required` for
+  `GET /tracks/tasks/:taskId`.
+  
+  That is the field a reader needs to explain a denominator that moved. A roll-up
+  is a snapshot, so a plan that GREW while work was being done reads as work going
+  backwards — `5/20 → 6/20 → 6/36 → 9/136` is three tasks closed and 116 added, and
+  every one of those numbers was correct while the board looked frozen. With
+  `createdAt` beside `doneAt`, "closed in this window" and "added in this window"
+  are both a filter over the plan you already hold, and neither is a new number
+  anybody has to keep honest.
+  
+  It is the ROW's birth, not the plan's: a plan imported in one call gives every
+  task the same instant, so it separates added-later from added-at-import and
+  cannot order what arrived together.
+  
+  ## CLI help only, and it was wrong
+  
+  `nexus tracks rollup` documented that a track belonging to another organization
+  reads `0/0`, "deliberately indistinguishable" from a track with no tasks. That
+  stopped being true when the tracks routes were gated: `GET /tracks/:trackId/rollup`
+  names `:trackId`, so an unreachable track is a **404** — one answer covering an
+  absent id, another organization's and an ungranted one alike. The help now says
+  so. The BATCH `GET /tracks/rollup` still answers `0/0`, because it takes its ids
+  in a query where no guard can see them.
+  
+  `nexus tracks ready` and `nexus tracks task edge` also explain that a blocker
+  with children is released by its subtree rather than by its own tick.
+  
+  No command gained a verb, a flag or a changed argument, which is why the CLI is a
+  patch: its published artefact here is the help text, and the help text was
+  serving a claim the server no longer honours.
+- 9f1f356: An edge hung on an ancestor holds the rows beneath it, on every surface that says so
+  
+  Four surfaces said a task's blockers are the edges naming it as `blockedTaskId` —
+  the SDK's `listTaskEdges()` docblock and its response type, the `nexus tracks task
+  edges` help text, and the OpenAPI description of `GET /tracks/:trackId/task-edges`.
+  The SDK docblock added that an open task with no such edge is held by an unticked
+  ancestor or by a child "rather than by a dependency". The readiness predicate tests each
+  edge against the task AND EVERY ANCESTOR OF IT, so an edge hung on a section
+  parent — the shape a plan import produces when dependencies are drawn between
+  parents — holds every row beneath it, and those rows carry no edge of their own.
+  That IS a dependency, and it has a nameable blocker row. The old sentence steered
+  a reader away from it: they looked for a structural cause, found none, and
+  reported the board as unexplained. That is the production report this correction
+  comes from.
+  
+  All four now say a task's blockers are the edges naming it or any of its
+  ancestors, and state what composing that costs. The materialised ancestry column
+  the ready-set query reads does not cross the wire — it is absent from the v1 task
+  schema and from the SDK types — so a client rebuilds it by walking `parentTaskId`,
+  which agrees with the server only while the two are in step. `nexus tracks task
+  why-not-ready` already does that composition and ships the caveat with its
+  answer, so it is the thing to reach for rather than a hand-rolled intersection.
+  
+  Documentation only. No type, no signature and no behaviour changes; it is a
+  release because the SDK docblocks are emitted into the published `.d.ts` and the
+  CLI help text is printed on every `--help`.
+- 2ac1aa9: `nexus tracks task claim --help` now names where its required agent id comes from. The option is mandatory and the id can only be minted by another namespace, so the screen that demands it now points at `nexus tracks agent open` (which opens an agent and prints its id) and `nexus tracks agent list` (which shows the ones already OPEN on a track).
+- 48719ce: `permissions` accepts `track` as a resource type
+  
+  A Track is a resource you can grant, revoke and read the access list for. Use
+  `track` where you already use `agent` or `workflow`:
+  
+  ```bash
+  nexus permissions grant --resource-type track --resource-id <trackId> \
+    --subject-type user --subject-id <userId> --relation viewer
+  nexus permissions revoke --resource-type track --resource-id <trackId> \
+    --subject-type user --subject-id <userId>
+  nexus permissions access track <trackId>
+  ```
+  
+  The CLI refused `track` before this change. It refused the value locally, so the
+  request never left your machine. The three commands above now send it.
+  
+  The SDK types carry the new value too. `PermissionResourceType` lists `track`,
+  and `GenericGrantResourceType` derives from that list. So
+  `client.permissions.grant()`, `client.permissions.revoke()` and
+  `client.permissions.listResourceAccess()` all accept `track`. It is no longer a
+  compile error.
+  
+  `nexus permissions set-visibility` does not take `track`. That command keeps its
+  own list of resource types, and the list is unchanged.
+- cbf98b9: `tracks ready` and `tracks task ready` say when a page was cut
+  
+  Both ready responses now carry `hasMore`, read one row past the page. Before it, a
+  full page and a complete set were the same output in EVERY channel: these routes
+  carry no total and no cursor, so `--json` could not tell them apart either.
+  
+  The rows dropped are always the NEWEST — the statement orders by number ascending
+  and a new row takes the highest — so the track you just created is the first to
+  fall off. `tracks task ready` is the LIVE case, not a precaution: one production
+  track holds 165 tasks against a default page of 50. `tracks ready` is the latent
+  one.
+  
+  Three call sites, all of them:
+  
+  - `tracks ready` and `tracks task ready` render a footer when `hasMore` is true.
+  - `tracks task why-not-ready` reads `hasMore` instead of inferring truncation from
+    `ready.tasks.length >= READY_SET_CEILING`. That inference answers "did I get
+    everything I ASKED for", never "is there more", and the two diverge the moment
+    the server clamps below the request. The probe deliberately reads one row past
+    the page and exceeds the server's own maximum by one, so `hasMore` is
+    trustworthy exactly AT the ceiling — which is where the inference was weakest.
+    `READY_SET_CEILING` stays as the limit that call requests; only the truncation
+    claim moved to the wire.
+  
+  **The footer names the action, not a denominator.** These routes have no total to
+  divide by, so there is no "x of y" to print; inventing one would be the same
+  over-claim this change removes. The ceiling is not repeated either — `--limit`'s
+  own description documents its range, and a third copy of `200` is a third thing to
+  go stale, which is how this signal died quietly before it existed.
+  
+  **It is silent when `hasMore` is false.** A footer on a complete set is not just
+  noise: it teaches the reader to skim the footer, so on the day it carries the
+  warning it would not be read.
+  
+  The help strings that said the opposite are rewritten to the present truth. They
+  still say there is no total and no cursor, because that remains true — these
+  routes gained a truncation signal, not a paged surface, and `tracks list` is still
+  the paged one.
+  
+  **Proved by mutation**, four of them, each reported against a prediction:
+  dropping the guard reds only the quiet cases; forcing it off reds only the loud
+  ones; emitting the footer outside `printEnvelope` reds the `--json` contamination
+  assertion; and reverting `why-not-ready` to the length inference reds the
+  truncation assertion on an envelope where the wire and the inference genuinely
+  disagree — one ready row far below the ceiling, with `hasMore` true.
+- 43b0468: `nexus role coverage --help` stops saying three rows are the only thing that moves the figure
+  
+  The note used to open "THREE ROWS MOVE THIS FIGURE AND NOTHING ELSE DOES". That
+  was true when it was written and is not true now: a covered system's
+  **lifecycle** decides whether its already-computed term joins the totals at all,
+  and only a `LIVE` system is summed.
+  
+  It contributes no magnitude, so the three models — the Role's workload, each
+  system's impact, and the organization's automation settings — are unchanged.
+  But an operator who moved a system to `BUILDING` and watched the percentage drop
+  was reading help text that said that could not happen.
+  
+  The note now reads "THREE ROWS PRODUCE THIS FIGURE", names lifecycle as the
+  fourth thing that moves it, and states that a `BUILDING` or `RETIRED` system
+  still reports its own hours on its own row while sitting outside every total.
+- 3a3d451: `nexus role` stops warning that emptying a Role's grants publishes to the whole organization
+  
+  The warning on the Role suspend/delete paths said that emptying a Role's grants
+  "PUBLISHES every collection and workspace it was the last holder of to the whole
+  organization". That was true under the old subtractive rule and is now the
+  opposite of what happens.
+  
+  Narrowing on Collections and Workspaces is an allow-list keyed on the CALLER's
+  own placement. Emptying a Role's grants returns the resource to the set no Role
+  has claimed — every caller placed in no Role reaches it, and **every
+  Role-placed caller loses it**. The resource changes audience; it is not
+  published.
+  
+  The warning still exists and still says the operation is not what "suspend its
+  access" sounds like. Only the description of the effect changed.
+- c442971: The reads that need an id are swept too
+  
+  `sweep.sh` exercised the 69 leaves that take no input against the live API. The
+  373 that take a required id were never swept, because `registration-only` covers
+  two opposite things at once: a mutation, and a read that simply needs an
+  argument. `agent delete <id>` must never fire in a sweep; `agent get <id>` is
+  safe the moment something hands it an id.
+  
+  A new gate splits them and sweeps the second group, with the ids DISCOVERED
+  rather than written down. Which leaf produces which id is derived from the route
+  tree — `/agents/:agentId/tools` takes its `agentId` from whatever serves
+  `GET /agents` — so no table has to be maintained and a new command is covered
+  the moment it is registered.
+  
+  A leaf may only enter that population when the Public API v1 contract proves its
+  method is `GET`. Nothing is inferred from a command's name, which is what keeps a
+  `trigger`, `execute` or `provision` from being mistaken for a read and fired
+  against a real environment.
+  
+  No command's behaviour, flags or output change.
+- fa82747: The stability contract ships with the package
+  
+  `COMPATIBILITY.md` was published in no tarball. `package.json` declared
+  `files: ["dist"]` and no `.npmignore` existed, so the document naming which
+  parts of the CLI you may script against reached nobody who installed it — the
+  root `--help` epilogue pointed at a URL on the public mirror instead, which
+  answers for the newest contract rather than the one you have and needs a
+  network to read at all.
+  
+  It is now in `files`, so `npm pack` carries it (4 entries to 5), and a
+  network-free gate asks npm what it would publish rather than reading the
+  `files` array — the array is a request, and a spec that reads it stays green
+  when the file itself is gone.
+  
+  Nothing about the contract's content changed. What changed is that the
+  installed version now carries the promise it is actually bound by.
+- 17a40c3: `tracks memory list` shows the byte budget to a person, not only to `--json`
+  
+  The command's own one-line description promises "with the byte budget".
+  `trackMemoryBytes` and `budgetBytes` have been on this envelope the whole time,
+  and the human table printed neither — so the promise was kept only in `--json`,
+  the channel a person is not using.
+  
+  `budgetBytes` appears EXACTLY ONCE in the whole wire surface, on this response.
+  So the 8000-byte ceiling reached a human through no command at all. `memory put`
+  already prints the running total on its success line, which is what left the list
+  view as the single place it went missing — and the list view is the one a person
+  reads BEFORE deciding whether there is room to write.
+  
+  The table now carries a footer in the house idiom:
+  
+      2341 of 8000 byte(s) used.
+  
+  `--json` is untouched. `printEnvelope` returns before invoking the human callback
+  under `--json`, where both fields are already in the document — verified by
+  reading `output.ts`, and asserted by a test rather than assumed.
+  
+  **Proved by mutation.** Removing the footer — the original defect — reds the two
+  human-channel assertions and leaves both controls green. Moving the same footer
+  OUTSIDE the `printEnvelope` callback reds exactly one test: the `--json`
+  contamination assertion, while all three human-channel assertions stay green. A
+  fix with the right string and the right numbers, rendering perfectly to a person,
+  would have corrupted every script parsing this command, and only that one
+  assertion catches it.
+- f91d793: `why-not-ready` stops claiming a negative its own walk could not establish
+  
+  With no hold rows, `nexus tracks task why-not-ready` printed, flatly:
+  
+  > No open work leaf is held by an edge. Nothing is being withheld by a dependency.
+  
+  That second sentence is a claim about the PLAN. What the command actually has is
+  a claim about its own WALK, and the two come apart: `buildAncestry` breaks out of
+  a parent chain that revisits a node, so on a looped plan it stops early and the
+  hold table is short for a reason that is not "there are no holds".
+  
+  An incomplete ancestor list can only MISS a hold — it never invents one — so
+  "the walk found nothing" and "there is nothing" render as the same empty table.
+  Only `ancestryLooped` separates them, and the sentence was printed without
+  consulting it.
+  
+  **The existing loop warning did not cover this, while reading as though it did.**
+  It says "Some rows below may be explained against an incomplete ancestor list" —
+  and this is the branch with no rows below. It qualified every case except the one
+  carrying the strongest claim.
+  
+  On a truncated walk the command now says what it knows, in ASD-STE100 Simplified
+  Technical English — active voice, simple present, one idea per sentence:
+  
+  > This report shows no work leaf that an edge holds. The ancestry walk stopped
+  > early. This result can be incomplete.
+  
+  It reports what the report SHOWS rather than what EXISTS, and it still prints the
+  ready-set fact, which is established. When the walk did not loop, the original
+  sentence is unchanged byte for byte — the defect was the missing condition, not
+  the wording of the case that was always entitled to its claim.
+  
+  **What this does not close.** `ancestryLooped === false` is not proof the walk was
+  complete, and the new wording is chosen so it does not imply one. `buildAncestry`
+  has a second exit — a `parentTaskId` naming a row absent from the supplied set —
+  which truncates a chain and sets no flag. That is reachable whenever the task
+  list itself was capped. Closing it needs a second flag out of `buildAncestry`.
+
 ## 1.0.0
 ### Major Changes
 

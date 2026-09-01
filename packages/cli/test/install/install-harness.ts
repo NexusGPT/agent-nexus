@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -95,6 +96,18 @@ export function cleanupTempDirs(): void {
       // Best effort. The OS reclaims `tmpdir()` regardless.
     }
   }
+}
+
+/**
+ * sha256 of a file on disk.
+ *
+ * Used to prove a fixture that is BUILT ONCE and USED TWICE is byte-identical
+ * on the second use. A tarball is an input, so nothing in an install should
+ * write to it — but "should" is the word this suite exists not to rely on, and
+ * a residue check that reads the file is cheaper than a second `npm pack`.
+ */
+export function digestOf(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
 /**

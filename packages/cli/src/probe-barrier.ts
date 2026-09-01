@@ -260,6 +260,88 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
     why: "installs an automatic trigger that executes runs on conversation close, so it bills without an operator"
   },
 
+  // ── apps ──────────────────────────────────────────────────────────────────
+  "apps approvals decide": {
+    barrier: "third-party",
+    why: "records a real approval decision that releases or blocks a production deployment"
+  },
+  "apps attach-repo": {
+    barrier: "money",
+    why: "binds a real git project to a served application"
+  },
+  "apps cluster provision": {
+    barrier: "money",
+    why: "provisions this organisation's dedicated AWS cluster and bills for it until it is disabled"
+  },
+  "apps create": {
+    barrier: "money",
+    why: "creates a served application and the capacity behind it"
+  },
+  "apps delete": {
+    barrier: "money",
+    why: "destroys a served application and stops serving it"
+  },
+  "apps deploy": {
+    barrier: "money",
+    why: "starts a real build and a real deployment, which consume build minutes and serving capacity"
+  },
+  "apps deploy-state": {
+    barrier: "setup",
+    why: "answers about a real deployed application this organisation does not have"
+  },
+  "apps edge-token": {
+    barrier: "third-party",
+    why: "reveals the bearer token that reaches a private deployed app"
+  },
+  "apps git-credentials": {
+    barrier: "third-party",
+    why: "mints and reveals this organisation's git push token"
+  },
+  "apps git-project clone": {
+    barrier: "third-party",
+    why: "clones from the tenant git host onto the caller's machine"
+  },
+  "apps git-project create": {
+    barrier: "third-party",
+    why: "creates a repository on the tenant git host"
+  },
+  "apps git-project delete": {
+    barrier: "third-party",
+    why: "destroys a repository on the tenant git host and releases its name"
+  },
+  "apps git-project pull": {
+    barrier: "third-party",
+    why: "fetches from the tenant git host onto the caller's machine"
+  },
+  "apps git-project reprovision": {
+    barrier: "third-party",
+    why: "re-provisions a repository on the tenant git host"
+  },
+  "apps logs": {
+    barrier: "setup",
+    why: "streams runtime logs from a real deployed application"
+  },
+  "apps provision-repo": {
+    barrier: "money",
+    why: "provisions a git project on the tenant git host"
+  },
+  "apps reprovision-repo": {
+    barrier: "money",
+    why: "re-provisions a git project on the tenant git host"
+  },
+  "apps rollback": {
+    barrier: "money",
+    why: "starts a real deployment of the previous version"
+  },
+  "apps rotate-edge-token": {
+    barrier: "third-party",
+    why: "retires the token every existing caller of the private app is using"
+  },
+  "apps visibility": {
+    barrier: "third-party",
+    why: "changes who on the public internet may reach a deployed app"
+  },
+
   // ── auth ──────────────────────────────────────────────────────────────────
   "auth login": {
     barrier: "setup",
@@ -535,88 +617,6 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
   "tool test": {
     barrier: "third-party",
     why: "invokes the configured tool against the third party's live system"
-  },
-
-  // ── vibe ──────────────────────────────────────────────────────────────────
-  "vibe app attach-repo": {
-    barrier: "money",
-    why: "binds a real git project to a served application"
-  },
-  "vibe app create": {
-    barrier: "money",
-    why: "creates a served application and the capacity behind it"
-  },
-  "vibe app delete": {
-    barrier: "money",
-    why: "destroys a served application and stops serving it"
-  },
-  "vibe app edge-token": {
-    barrier: "third-party",
-    why: "reveals the bearer token that reaches a private deployed app"
-  },
-  "vibe app logs": {
-    barrier: "setup",
-    why: "streams runtime logs from a real deployed application"
-  },
-  "vibe app provision-repo": {
-    barrier: "money",
-    why: "provisions a git project on the tenant git host"
-  },
-  "vibe app reprovision-repo": {
-    barrier: "money",
-    why: "re-provisions a git project on the tenant git host"
-  },
-  "vibe app rotate-edge-token": {
-    barrier: "third-party",
-    why: "retires the token every existing caller of the private app is using"
-  },
-  "vibe app visibility": {
-    barrier: "third-party",
-    why: "changes who on the public internet may reach a deployed app"
-  },
-  "vibe approvals decide": {
-    barrier: "third-party",
-    why: "records a real approval decision that releases or blocks a production deployment"
-  },
-  "vibe cluster provision": {
-    barrier: "money",
-    why: "provisions this organisation's dedicated AWS cluster and bills for it until it is disabled"
-  },
-  "vibe deploy": {
-    barrier: "money",
-    why: "starts a real build and a real deployment, which consume build minutes and serving capacity"
-  },
-  "vibe deploy-state": {
-    barrier: "setup",
-    why: "answers about a real deployed application this organisation does not have"
-  },
-  "vibe git-credentials": {
-    barrier: "third-party",
-    why: "mints and reveals this organisation's git push token"
-  },
-  "vibe git-project clone": {
-    barrier: "third-party",
-    why: "clones from the tenant git host onto the caller's machine"
-  },
-  "vibe git-project create": {
-    barrier: "third-party",
-    why: "creates a repository on the tenant git host"
-  },
-  "vibe git-project delete": {
-    barrier: "third-party",
-    why: "destroys a repository on the tenant git host and releases its name"
-  },
-  "vibe git-project pull": {
-    barrier: "third-party",
-    why: "fetches from the tenant git host onto the caller's machine"
-  },
-  "vibe git-project reprovision": {
-    barrier: "third-party",
-    why: "re-provisions a repository on the tenant git host"
-  },
-  "vibe rollback": {
-    barrier: "money",
-    why: "starts a real deployment of the previous version"
   },
 
   // ── workflow ──────────────────────────────────────────────────────────────

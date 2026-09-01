@@ -69,6 +69,18 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   // forward the undecoded body to `useChat({ resume: true })` from their own GET
   // handler. There is nothing a terminal would do with the bytes.
   "chat.resumeRaw": "raw Response for a browser proxy — the CLI drives chat.resume instead",
+  // The token EXCHANGE. It exists because a browser holds no org API key, so a
+  // stale token is the only way it can keep its conversation. Every `nexus chat`
+  // invocation is the opposite case by construction — `createClient` throws
+  // without an api key — so the terminal's answer to a stale token is
+  // `--chat-id`, which re-mints onto the SAME conversation and is a command
+  // that already exists. A `nexus chat refresh` would be a second spelling of
+  // it, for a principal this CLI cannot be.
+  //
+  // What would have to change: a caller here holding a session token and NO api
+  // key. On the day one exists, this row comes out and the command is four
+  // lines.
+  "chat.refresh": "the terminal re-mints with --chat-id; refresh is for a caller with no api key",
   // Reading one connection by id: `nexus channel list-connections` covers the
   // discovery case, and nothing in the CLI takes a connection id yet.
   "channels.getConnection": "no command takes a connection id",

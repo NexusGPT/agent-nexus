@@ -370,14 +370,14 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
  * give the site a category from `EXIT_CODES`, not to write its file down.
  */
 const EXPECTED_BARE_ONE_SITES: readonly string[] = [
+  "commands/apps.ts",
+  "commands/apps.ts",
   "commands/auth.ts",
   "commands/auth.ts",
   "commands/auth.ts",
   "commands/channel.ts",
   "commands/channel.ts",
-  "commands/skills.ts",
-  "commands/vibe.ts",
-  "commands/vibe.ts"
+  "commands/skills.ts"
 ];
 
 describe("no exit code is written as a number outside the taxonomy module", () => {
@@ -518,7 +518,7 @@ function categoryAccessor(category: ExitCategory): string {
  */
 const PRODUCERS: Readonly<Record<ExitCategory, () => number>> = {
   success: () => processLevelExit("contract-binding.ts", "success"),
-  interrupted: () => processLevelExit(join("commands", "vibe-app-logs.ts"), "interrupted"),
+  interrupted: () => processLevelExit(join("commands", "apps-logs.ts"), "interrupted"),
   failed: () => handleError(new Error("unexpected")),
   "not-authenticated": () => handleError(new NexusAuthenticationError("nope", "UNAUTHORIZED")),
   "permission-denied": () => handleError(new NexusApiError("FORBIDDEN", "nope", 403)),
@@ -556,7 +556,7 @@ describe("every declared exit category is reachable, and produces its own number
  *    <int>`. A FIFTH MAP HID BEHIND A FUNCTION CALL AND PASSED ALL OF THEM.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `vibe-watch.ts` spelled its verdict `return kind === "served" ? 0 : 1` inside
+ * `apps-watch.ts` spelled its verdict `return kind === "served" ? 0 : 1` inside
  * `reportWatchOutcome`, plus six bare `return 1`s. The call site reads
  * `process.exitCode = runDeploymentWatch(...)` — no integer anywhere near
  * `process.exitCode`, so every scan above was green over a map the taxonomy did
@@ -947,7 +947,7 @@ describe("no per-command help promises an exit code the taxonomy may refine", ()
  *
  * The truth is narrow and none of them carried it: ONE command produces `130`,
  * on the SECOND signal, of EITHER kind, because one counter serves `SIGINT` and
- * `SIGTERM`. `vibe-app-logs-interrupt.test.ts` drives that behaviour; this
+ * `SIGTERM`. `apps-logs-interrupt.test.ts` drives that behaviour; this
  * checks that the three places a caller READS it agree with it.
  *
  * ⚠️ Asserted as SUBSTRINGS of prose, which is the weakest form of check in this
@@ -964,18 +964,18 @@ describe("every surface that describes 130 describes the same 130", () => {
       withoutComments(readFileSync(file, "utf8")).includes("process.exit(EXIT_CODES.interrupted)")
     );
     expect(producers.map((file) => relative(SRC_DIR, file))).toEqual([
-      join("commands", "vibe-app-logs.ts")
+      join("commands", "apps-logs.ts")
     ]);
   });
 
   it("the root --help says which command emits it and that the first Ctrl-C does not", () => {
     const root = renderedHelp().find(([path]) => path === "nexus")?.[1] ?? "";
-    expect(root).toContain("vibe app logs --follow");
+    expect(root).toContain("apps logs --follow");
     expect(root).toContain("SECOND signal");
   });
 
   it("the producing command's own --help names the second signal and both kinds", () => {
-    const help = renderedHelp().find(([path]) => path === "vibe app logs")?.[1] ?? "";
+    const help = renderedHelp().find(([path]) => path === "apps logs")?.[1] ?? "";
     // The anti-vacuity control: the epilogue is where every one of these lives,
     // and `helpInformation()` renders a complete-looking screen without it.
     expect(help).toContain("--follow and --until are mutually exclusive");
@@ -986,7 +986,7 @@ describe("every surface that describes 130 describes the same 130", () => {
 
   it("COMPATIBILITY.md names the producer, the second signal and both kinds", () => {
     const doc = readFileSync(COMPATIBILITY_DOC, "utf8");
-    expect(doc).toContain("nexus vibe app logs --follow");
+    expect(doc).toContain("nexus apps logs --follow");
     expect(doc).toContain("SECOND");
     expect(doc).toContain("SIGTERM");
   });

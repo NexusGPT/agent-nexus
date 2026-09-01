@@ -10,7 +10,13 @@ import {
   NAMESPACE_TOTAL
 } from "./help-truth.ledger";
 import { deriveCommandLeaves, runHelpTruthScan, type ScanReport } from "./help-truth-rules";
-import { descriptorFor, descriptorIndex, transportCallsIn } from "./help-truth-scan";
+import {
+  descriptorFor,
+  descriptorIndex,
+  sdkCallsIn,
+  sdkRouteIndex,
+  transportCallsIn
+} from "./help-truth-scan";
 
 /**
  * THE `--help` TRUTH GATE — every namespace, every command, one shrink-only ledger.
@@ -195,6 +201,73 @@ test("CONTROL: the examples, the contracts and the SDK routes were all read", ()
   assert.ok(
     report.routesResolved > 200,
     `only ${report.routesResolved} commands resolved to a route — rules 2-4 are nearly blind`
+  );
+});
+
+test("CONTROL: the SDK-call detector still reads a NESTED call", () => {
+  // `sdkCallsIn` is how every command's route is found: it reads
+  // `client.<resource>.<method>(` out of the command's own source slice, and
+  // rules 2-4 see only what it returns. Until this arm existed this file named
+  // it nowhere — `sdkCallsIn` and `sdkRouteIndex` appeared here ZERO times — so
+  // the whole route arm rested on two functions no assertion touched.
+  //
+  // 🚨 A CALL THE DETECTOR CANNOT SEE IS NOT A RED. IT IS A NAMESPACE PROMOTED
+  // TO "CORRECT AND PERMANENT". An unrecognised call resolves no route, so R4
+  // judges nothing AND skips nothing — and PROGRESS 4's abstention arm fires on
+  // `judged === 0 && skipped > 0`, which 0 and 0 cannot satisfy. The namespace
+  // falls through to the blindness classifier, reaches UNREACHED, and is printed
+  // under "NO PATH ID TO CHECK — correct and permanent", the one bucket that is
+  // never work. Measured on this tree by narrowing the regex to two segments:
+  // 13 blind became 18, five namespaces silently refiled as permanent, and all
+  // 19 tests stayed green.
+  //
+  // A LITERAL, not the tree — the same reasoning that replaced
+  // `report.transportRoutesResolved > 0` in PROGRESS 4 below. A fixture stays
+  // answerable when the population it describes changes; an assertion about
+  // whatever the tree happens to contain goes green on the defect and red on the
+  // cure.
+  assert.deepEqual(
+    sdkCallsIn("await client.agents.versions.list(agentId);"),
+    ["agents.versions.list"],
+    "`sdkCallsIn` no longer reads the THIRD segment of a sub-resource call, so every " +
+      "command reaching v1 through one resolves no route — and is then reported as a " +
+      "namespace with no contract rather than as an unchecked one"
+  );
+  assert.deepEqual(
+    sdkCallsIn("await client.agents.get(agentId);"),
+    ["agents.get"],
+    "`sdkCallsIn` no longer reads a plain two-segment call, which is the arity the whole " +
+      "route arm is built on"
+  );
+});
+
+test("CONTROL: the SDK route index still emits its nested sub-resources", () => {
+  // The other half of the pair, and a SEPARATE arm because it fails for a
+  // different reason: a mutant that dies on the wrong assertion has measured
+  // nothing. `sdkCallsIn` finding `agents.versions.list` is worth nothing unless
+  // the index can turn that name into a verb and a path.
+  //
+  // `this.versions = new VersionsResource(http)` lives INSIDE
+  // `resources/agents.ts`, so the `client.ts` pass cannot see it; a second pass
+  // over the resource files is the only reason a three-segment key exists at
+  // all. Measured on this tree by deleting that pass: the gate printed
+  // `CONTRACT GAP (5)` where it prints `CONTRACT GAP: none`, and all 19 tests
+  // stayed green — a five-namespace regression the gate reported in a
+  // `console.log` and no assertion read.
+  const routes = sdkRouteIndex();
+  const nested = [...routes.keys()].filter((key) => key.split(".").length === 3).sort();
+  const route = routes.get("agents.versions.list");
+  assert.ok(
+    route,
+    `\`sdkRouteIndex\` did not resolve \`agents.versions.list\`. It emitted ${nested.length} ` +
+      `three-segment key(s)${nested.length > 0 ? `: ${nested.slice(0, 8).join(", ")}` : ""}.\n` +
+      `NONE means the nested-resource pass is gone and no sub-resource route resolves at all;\n` +
+      `some, but not this one, means the SDK renamed it and this fixture needs the new name.`
+  );
+  assert.ok(
+    descriptorFor(descriptorIndex(), route) !== undefined,
+    "`agents.versions.list` resolves to a route the v1 contract does not declare, so every " +
+      "sub-resource command would be reported NO-DESCRIPTOR"
   );
 });
 

@@ -190,6 +190,9 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "agent-eval webhook delete",
   "agent-skill delete",
   "agent-tool delete",
+  "apps delete",
+  "apps git-project delete",
+  "apps rotate-edge-token",
   "asset delete",
   "channel whatsapp-template delete",
   "claude-code install",
@@ -219,9 +222,6 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "user-group delete",
   "version delete",
   "version restore",
-  "vibe app delete",
-  "vibe app rotate-edge-token",
-  "vibe git-project delete",
   "workflow branch delete",
   "workflow delete",
   "workflow edge delete",
@@ -282,6 +282,7 @@ export const UNCONFIRMED_DESTRUCTIVE: Readonly<Record<string, string>> = {
   "agent-collection detach":
     "Takes knowledge collections off an agent. The sibling `agent-eval template detach` and " +
     "`deployment template detach` both confirm; this one does not.",
+  "apps env rm": "Deletes an environment variable from a Vibe app; the value is not recoverable.",
   "auth logout":
     "Deletes a stored profile — the API key and its org metadata. The key is not " +
     "recoverable from here once the file is gone.",
@@ -308,7 +309,6 @@ export const UNCONFIRMED_DESTRUCTIVE: Readonly<Record<string, string>> = {
     "Deletes a trace and every generation under it. Its own description ends " +
     '"permanent, no confirmation" — written down, and until now checked by nothing.',
   "user-group remove-member": "Removes one user from a group.",
-  "vibe env rm": "Deletes an environment variable from a Vibe app; the value is not recoverable.",
   "workflow unpublish":
     "Takes a published workflow back to DRAFT and DEACTIVATES its production triggers. " +
     'Its own help calls it "a disabling, not a tidy-up" — a live webhook or schedule stops ' +

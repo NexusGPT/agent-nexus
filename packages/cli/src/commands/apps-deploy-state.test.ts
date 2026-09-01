@@ -7,13 +7,13 @@ import {
   formatServedLines,
   qualifyRefName,
   renderDeployState
-} from "./vibe-deploy-state";
+} from "./apps-deploy-state";
 
 /**
- * `vibe deploy-state` is the one command whose OUTPUT is the product: the
+ * `apps deploy-state` is the one command whose OUTPUT is the product: the
  * endpoint behind it already holds the answer, so every defect this verb can
  * have is a rendering defect. The assertions are therefore on the WORDS, in the
- * same spirit as `vibe-deployability.test.ts` — an operator who cannot tell two
+ * same spirit as `apps-deployability.test.ts` — an operator who cannot tell two
  * states apart by reading the output is the failure being prevented.
  *
  * Two of them are load-bearing rather than cosmetic, and are asserted from more

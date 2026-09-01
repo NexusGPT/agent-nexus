@@ -1,12 +1,12 @@
 /**
- * `nexus vibe app logs <appId>` — read what a deployed app has printed, and
+ * `nexus apps logs <appId>` — read what a deployed app has printed, and
  * optionally keep reading.
  *
- * The command's whole body lives here rather than inline in `vibe.ts` for one
+ * The command's whole body lives here rather than inline in `apps.ts` for one
  * reason: almost none of it is about HTTP. Flag resolution, the SSE frame
  * vocabulary, the terminal rules of a follow and the rendering are all pure
  * functions over values a test can hand them, and every acceptance criterion on
- * this ticket is a statement about one of them. The action in `vibe.ts` is the
+ * this ticket is a statement about one of them. The action in `apps.ts` is the
  * thin part — it resolves options, opens a socket and prints.
  *
  * ## Two endpoints, two shapes, one command

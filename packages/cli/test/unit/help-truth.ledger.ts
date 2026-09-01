@@ -163,7 +163,7 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // a `.nexusrc` pin and two environment variables outrank the active profile;
   // `auth list` answers `[]` under --json and a human sentence without it.
   //
-  // `admin` and `vibe` are the other two R0 namespaces and are deliberately NOT
+  // `admin` and `apps` are the other two R0 namespaces and are deliberately NOT
   // here: 42 of their leaves carry no `addHelpText` at all, so they need facts
   // written from the route rather than prose moved, and that is a different pass.
   // ⚠️ `admin` CLOSED WITHOUT A LINE OF RELOCATED PROSE, WHICH IS THE OPPOSITE
@@ -205,6 +205,21 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "agent-tool",
   "analytics",
   "api",
+  //
+  // ⚠️ `apps` IS THE MIRROR OF `admin`, AND THE PAIR IS THE FINDING. `admin` had
+  // NINE of fifteen leaves with no `addHelpText` at all, so its help had to be
+  // written from the route. `apps` had THREE of twenty-seven: twenty-four leaves
+  // already carried the caveat a reader needs and R0 could not see it, because
+  // the text sat under no heading. Those twenty-four are a `Notes:` line
+  // inserted above prose that is otherwise byte-identical — 24 insertions, zero
+  // deletions, every added line the literal `Notes:`.
+  //
+  // The three bare ones — `list`, `deployments list`, `deployments get` —
+  // were read one at a time rather than assumed, and all three turned out
+  // legible: the untruncated Id column is deliberate because it is where the id
+  // every other verb takes comes from, and `deployments get` prints TWO records
+  // where the second is the build job.
+  "apps",
   "asset",
   "auth",
   "channel",
@@ -287,21 +302,6 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // `platform-listener-events` each carried real prose ABOVE their examples with
   // no `Notes:` heading — the content was there, in the one place a reader of
   // any other command does not look.
-  //
-  // ⚠️ `vibe` IS THE MIRROR OF `admin`, AND THE PAIR IS THE FINDING. `admin` had
-  // NINE of fifteen leaves with no `addHelpText` at all, so its help had to be
-  // written from the route. `vibe` had THREE of twenty-seven: twenty-four leaves
-  // already carried the caveat a reader needs and R0 could not see it, because
-  // the text sat under no heading. Those twenty-four are a `Notes:` line
-  // inserted above prose that is otherwise byte-identical — 24 insertions, zero
-  // deletions, every added line the literal `Notes:`.
-  //
-  // The three bare ones — `app list`, `deployments list`, `deployments get` —
-  // were read one at a time rather than assumed, and all three turned out
-  // legible: the untruncated Id column is deliberate because it is where the id
-  // every other verb takes comes from, and `deployments get` prints TWO records
-  // where the second is the build job.
-  "vibe",
   "workflow",
   "workspace"
 ];

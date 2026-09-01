@@ -151,6 +151,62 @@ describe("chat.createSession — hop one, spending the ORG API KEY", () => {
   });
 });
 
+describe("chat.refresh — trading a stale token WITHOUT the org api key", () => {
+  it("POSTs the refresh route with the session token and NO api-key", async () => {
+    const { chat, seen } = chatFor(() =>
+      jsonResponse({ token: "t2", sessionId: "s2", chatId: "c", expiresInSeconds: 900 })
+    );
+
+    const session = await chat.refresh(DEPLOYMENT, { token: TEST_SESSION_TOKEN });
+
+    expect(session).toEqual({
+      token: "t2",
+      sessionId: "s2",
+      chatId: "c",
+      expiresInSeconds: 900
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe(
+      `https://api-staging.gpt.nexus/api/public/v1/deployments/${DEPLOYMENT}/chat-session/refresh`
+    );
+    // The whole point of the route: the caller holds the token and nothing
+    // else. An api-key here would mean a browser could not make this call.
+    expect(seen[0].headers["x-chat-session-token"]).toBe(TEST_SESSION_TOKEN);
+    expect(seen[0].headers).not.toHaveProperty("api-key");
+  });
+
+  it("sends NO body, because a chatId here would be somebody else's conversation", async () => {
+    const { chat, seen } = chatFor(() =>
+      jsonResponse({ token: "t2", sessionId: "s2", chatId: "c", expiresInSeconds: 900 })
+    );
+
+    await chat.refresh(DEPLOYMENT, { token: TEST_SESSION_TOKEN });
+
+    expect(seen[0].body).toBeUndefined();
+  });
+
+  it("keeps the SAME chatId, which is the reason the route exists", async () => {
+    // A visitor who switched tabs and came back must land on their own
+    // conversation. A successor addressing a fresh chat would be the bug this
+    // route was added to fix, and it is indistinguishable from success unless
+    // the id is asserted.
+    const { chat } = chatFor(() =>
+      jsonResponse({
+        token: "t2",
+        sessionId: "s2",
+        chatId: "the-original-conversation",
+        expiresInSeconds: 900
+      })
+    );
+
+    const session = await chat.refresh(DEPLOYMENT, { token: TEST_SESSION_TOKEN });
+
+    expect(session.chatId).toBe("the-original-conversation");
+    expect(session.token).not.toBe(TEST_SESSION_TOKEN);
+  });
+});
+
 describe("chat.stream — hop two, spending the SESSION TOKEN", () => {
   it("sends the session token and NO api-key at all", async () => {
     const { chat, seen } = chatFor(() => sseResponse(A_TEXT_TURN));

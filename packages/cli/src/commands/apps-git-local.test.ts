@@ -7,32 +7,32 @@ import {
   composeCloneUrl,
   composeCredentialLine,
   resolveCloneDirectory
-} from "./vibe-git-local";
+} from "./apps-git-local";
 
-// The vibe commands reach the API through tenantRequest, not the SDK client;
+// The apps commands reach the API through tenantRequest, not the SDK client;
 // registration alone must not touch either.
 vi.mock("../util/tenant-http", () => ({ tenantRequest: vi.fn() }));
 
-import { registerVibeCommands } from "./vibe";
+import { registerAppsCommands } from "./apps";
 
 const CREDENTIALS = {
   username: "vibe-push",
   pushToken: "tok_live_abc123",
-  cloneUrlBase: "https://git.acme.gpt.nexus/vibe/"
+  cloneUrlBase: "https://git.acme.gpt.nexus/apps/"
 };
 
 describe("composeCloneUrl", () => {
   it("appends <name>.git to a base that already ends in a slash", () => {
-    expect(composeCloneUrl("https://git.acme.gpt.nexus/vibe/", "shared-lib")).toBe(
-      "https://git.acme.gpt.nexus/vibe/shared-lib.git"
+    expect(composeCloneUrl("https://git.acme.gpt.nexus/apps/", "shared-lib")).toBe(
+      "https://git.acme.gpt.nexus/apps/shared-lib.git"
     );
   });
 
   // A base that lost its trailing slash would otherwise splice the org and the
   // repo into one segment (".../vibeshared-lib.git") and 404 confusingly.
   it("normalises a base missing its trailing slash", () => {
-    expect(composeCloneUrl("https://git.acme.gpt.nexus/vibe", "shared-lib")).toBe(
-      "https://git.acme.gpt.nexus/vibe/shared-lib.git"
+    expect(composeCloneUrl("https://git.acme.gpt.nexus/apps", "shared-lib")).toBe(
+      "https://git.acme.gpt.nexus/apps/shared-lib.git"
     );
   });
 
@@ -82,7 +82,7 @@ describe("resolveCloneDirectory", () => {
 describe("buildCloneArgs", () => {
   const args = buildCloneArgs(
     "/tmp/nexus-vibe-git-x/credentials",
-    "https://git.acme.gpt.nexus/vibe/shared-lib.git",
+    "https://git.acme.gpt.nexus/apps/shared-lib.git",
     "shared-lib",
     "main"
   );
@@ -127,7 +127,7 @@ describe("buildCloneArgs", () => {
   it("terminates options before the positional arguments", () => {
     expect(args.slice(-3)).toEqual([
       "--",
-      "https://git.acme.gpt.nexus/vibe/shared-lib.git",
+      "https://git.acme.gpt.nexus/apps/shared-lib.git",
       "shared-lib"
     ]);
   });
@@ -168,10 +168,10 @@ describe("git-project command registration", () => {
   function gitProjectGroup(): Command {
     const program = new Command();
     program.name("nexus").option("--json", "Output as JSON");
-    registerVibeCommands(program);
-    const vibe = program.commands.find((c) => c.name() === "vibe");
-    expect(vibe).toBeDefined();
-    const group = vibe?.commands.find((c) => c.name() === "git-project");
+    registerAppsCommands(program);
+    const apps = program.commands.find((c) => c.name() === "apps");
+    expect(apps).toBeDefined();
+    const group = apps?.commands.find((c) => c.name() === "git-project");
     expect(group).toBeDefined();
     return group as Command;
   }

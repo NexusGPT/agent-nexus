@@ -139,7 +139,7 @@ export function promptLine(text = ""): void {
  * reported and set `process.exitCode`, so the caller returns without acting.
  *
  * `rerun` is the exact command line that WOULD have worked, and it exists so a
- * per-command hint is no longer a reason to hand-roll the whole helper. `vibe`
+ * per-command hint is no longer a reason to hand-roll the whole helper. `apps`
  * kept its own copy of this function for exactly that one line, and the copy
  * then drifted: it tested `isJsonMode()` as well as stdin, so `--json` at a
  * terminal refused a question a person was standing right there to answer.

@@ -186,7 +186,7 @@ export interface DriftReport {
  *     TO SEED A FIXTURE rather than a rule anything currently enforces.
  *
  * 🚨 AND ONE SHAPE IS REFUSED NO MATTER HOW WELL IT READS: a leaf that RETURNS
- * A CREDENTIAL. `vibe git-credentials` takes no input, exits 0 and emits clean
+ * A CREDENTIAL. `apps git-credentials` takes no input, exits 0 and emits clean
  * JSON — it meets every test above — and what it emits is the organisation's
  * git push token. `sweep.sh` prints the first 100 characters of a leaf's output
  * into the CI log on failure, and a CI log is readable by anyone with repository
@@ -305,6 +305,43 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
 
   // ── api ────────────────────────────────────────────────────────────────────
   api: "never-execute", // accepts any HTTP verb against any path — unbounded by construction
+
+  // ── apps ───────────────────────────────────────────────────────────────────
+  "apps approvals decide": "registration-only",
+  "apps approvals get": "registration-only",
+  "apps approvals pending": "registration-only",
+  "apps attach-repo": "registration-only",
+  "apps audit list": "safe",
+  "apps cluster provision": "registration-only",
+  "apps cluster status": "safe",
+  "apps create": "registration-only",
+  "apps delete": "registration-only",
+  "apps deploy": "registration-only",
+  "apps deploy-state": "registration-only",
+  "apps deployments get": "registration-only",
+  "apps deployments list": "registration-only",
+  "apps edge-token": "registration-only",
+  "apps env list": "registration-only",
+  "apps env rm": "registration-only",
+  "apps env set": "registration-only",
+  "apps get": "registration-only",
+  "apps git-credentials": "registration-only",
+  "apps git-project clone": "registration-only",
+  "apps git-project create": "registration-only",
+  "apps git-project delete": "registration-only",
+  "apps git-project get": "registration-only",
+  "apps git-project list": "safe",
+  "apps git-project pull": "registration-only",
+  "apps git-project reprovision": "registration-only",
+  "apps list": "safe",
+  "apps logs": "registration-only",
+  "apps provision-repo": "registration-only",
+  "apps register-as-tool": "registration-only",
+  "apps reprovision-repo": "registration-only",
+  "apps rollback": "registration-only",
+  "apps rotate-edge-token": "registration-only",
+  "apps update": "registration-only",
+  "apps visibility": "registration-only",
 
   // ── asset ──────────────────────────────────────────────────────────────────
   "asset delete": "registration-only",
@@ -903,43 +940,6 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "version restore": "registration-only",
   "version update": "registration-only",
 
-  // ── vibe ───────────────────────────────────────────────────────────────────
-  "vibe app attach-repo": "registration-only",
-  "vibe app create": "registration-only",
-  "vibe app delete": "registration-only",
-  "vibe app edge-token": "registration-only",
-  "vibe app get": "registration-only",
-  "vibe app list": "safe",
-  "vibe app logs": "registration-only",
-  "vibe app provision-repo": "registration-only",
-  "vibe app register-as-tool": "registration-only",
-  "vibe app reprovision-repo": "registration-only",
-  "vibe app rotate-edge-token": "registration-only",
-  "vibe app update": "registration-only",
-  "vibe app visibility": "registration-only",
-  "vibe approvals decide": "registration-only",
-  "vibe approvals get": "registration-only",
-  "vibe approvals pending": "registration-only",
-  "vibe audit list": "safe",
-  "vibe cluster provision": "registration-only",
-  "vibe cluster status": "safe",
-  "vibe deploy": "registration-only",
-  "vibe deploy-state": "registration-only",
-  "vibe deployments get": "registration-only",
-  "vibe deployments list": "registration-only",
-  "vibe env list": "registration-only",
-  "vibe env rm": "registration-only",
-  "vibe env set": "registration-only",
-  "vibe git-credentials": "registration-only",
-  "vibe git-project clone": "registration-only",
-  "vibe git-project create": "registration-only",
-  "vibe git-project delete": "registration-only",
-  "vibe git-project get": "registration-only",
-  "vibe git-project list": "safe",
-  "vibe git-project pull": "registration-only",
-  "vibe git-project reprovision": "registration-only",
-  "vibe rollback": "registration-only",
-
   // ── workflow ───────────────────────────────────────────────────────────────
   "workflow batch": "registration-only",
   "workflow branch create": "registration-only",
@@ -1065,11 +1065,11 @@ function commandsDirectory(): string {
 type RootRegistrar = (program: Command) => void;
 
 export interface DiscoveredRegistrar {
-  /** Basename inside `src/commands/`, e.g. `vibe.ts`. */
+  /** Basename inside `src/commands/`, e.g. `apps.ts`. */
   readonly module: string;
   /** Repository-relative path, for a docs page's `sourceRefs` frontmatter. */
   readonly sourcePath: string;
-  /** The exported function's name, e.g. `registerVibeCommands`. */
+  /** The exported function's name, e.g. `registerAppsCommands`. */
   readonly name: string;
   readonly register: RootRegistrar;
 }
@@ -1173,7 +1173,7 @@ export interface CommandOption {
 }
 
 export interface CommandNode {
-  /** Space-joined path from the ROOT, e.g. `vibe app list`. Keys {@link COMMAND_CLASSIFICATION}. */
+  /** Space-joined path from the ROOT, e.g. `apps list`. Keys {@link COMMAND_CLASSIFICATION}. */
   readonly path: string;
   /** The final segment only, e.g. `list`. */
   readonly name: string;
@@ -1267,7 +1267,7 @@ export interface CommandNamespace extends CommandNode {
  *
  * 🚨 `helpInformation()` IS NOT THIS. It stops at the options table and omits
  * every `addHelpText` block — the hand-written Notes and Examples, which are the
- * highest-value prose on the surface. Measured against commander 13 on `vibe`:
+ * highest-value prose on the surface. Measured against commander 13 on `apps`:
  * `helpInformation()` does not contain its `Subcommands:` epilogue and a capture
  * of `outputHelp()` does.
  *

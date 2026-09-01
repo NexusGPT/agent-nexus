@@ -1058,7 +1058,7 @@ Notes:
   read. Either do that sweep, or accept that grants are lost unrecorded.
   A CODE WORKSPACE USUALLY BACKS A VIBE APP. Rows whose storage type is CODE
   (the "kind" key in --json) are projections of a git project, and share a name
-  with the app and the project. Check "nexus vibe app list" for a matching name
+  with the app and the project. Check "nexus apps list" for a matching name
   before deleting one.
   A PARTIAL FAILURE LEAVES THE WORKSPACE PRESENT. If the storage purge fails
   the record is kept on purpose so a retry can finish; re-run the same command.

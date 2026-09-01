@@ -44,7 +44,7 @@ change under this document.
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | **STABLE**   | Command names and required arguments, global flags, the error document, `--json` yielding ONE parseable document on every terminal path (`--help`, `--version`, `--print-contract`, every refusal), what each exit code MEANS, destructive-command refusal | Only in a release that says so, at the top of `CHANGELOG.md`   |
 | **EVOLVING** | The `--json` envelope shape per command, per-command optional flags, help text content, the classified command set, WHICH exit code a given failure gets                                                                                                   | Additions any release; removals only after a deprecation cycle |
-| **UNSTABLE** | `--json` payload field names, table columns and widths, `nexus api`, the `vibe` and `admin` trees                                                                                                                                                          | Any release, without notice                                    |
+| **UNSTABLE** | `--json` payload field names, table columns and widths, `nexus api`, the `apps` and `admin` trees                                                                                                                                                          | Any release, without notice                                    |
 | **INTERNAL** | Hidden commands, stderr prose, config file layout, the bundled SDK                                                                                                                                                                                         | No promise at all                                              |
 
 ---
@@ -70,7 +70,7 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **52 top-level commands**, of which **52 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **643 command nodes**
+hidden — there are none at all (see INTERNAL). Under them sit **642 command nodes**
 and **547 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
@@ -78,20 +78,20 @@ tree rather than a list somebody maintains.
 The 52 visible namespaces:
 
 ```
-access-card  admin          agent        agent-collection  agent-eval
-agent-skill  agent-tool     analytics    api               asset
-auth         channel        chat         claude-code       cloud-import
-collection   conversation   credential   cue               custom-model
-customer     deployment     docs         document          emulator
-execution    external-tool  folder       html-template     known-issues
-mcp          model          permissions  phone-number      prompt-assistant
-role         score          skill-folder skills            task
-task-eval    template       ticket       tool              tracing
-tracks       upgrade        user-group   version           vibe
-workflow     workspace
+access-card       admin       agent          agent-collection  agent-eval
+agent-skill       agent-tool  analytics      api               apps
+asset             auth        channel        chat              claude-code
+cloud-import      collection  conversation   credential        cue
+custom-model      customer    deployment     docs              document
+emulator          execution   external-tool  folder            html-template
+known-issues      mcp         model          permissions       phone-number
+prompt-assistant  role        score          skill-folder      skills
+task              task-eval   template       ticket            tool
+tracing           tracks      upgrade        user-group        version
+workflow          workspace
 ```
 
-⚠️ **Two of those 52 are carved out of this tier: `vibe` and `admin`.** They are
+⚠️ **Two of those 52 are carved out of this tier: `apps` and `admin`.** They are
 visible because operators need to find them, not because they are stable. See
 UNSTABLE.
 
@@ -231,7 +231,7 @@ assume it does:**
 | `nexus analytics export`    | same                                                                                             |
 | `nexus cue export`          | the transcript corpus, NDJSON by default — many documents by construction, one payload by intent |
 | `nexus execution follow`    | a live stream, open until the run ends                                                           |
-| `nexus vibe app logs`       | a live stream, open until you stop it                                                            |
+| `nexus apps logs`           | a live stream, open until you stop it                                                            |
 | `nexus mcp serve`           | the MCP stdio transport — newline-delimited JSON-RPC for as long as the host holds the pipe      |
 
 The first four are a **payload passthrough**: stdout is the server's data in the
@@ -285,10 +285,10 @@ discard input, or file a request instead of acting. Where that is true, the
 command's own `--help` Notes say so and name the verification step.
 
 🚨 **`130` HAS EXACTLY ONE PRODUCER, AND THE FIRST Ctrl-C IS NOT IT.**
-`nexus vibe app logs --follow` is the only command that can emit it. It counts
+`nexus apps logs --follow` is the only command that can emit it. It counts
 signals and exits `130` on the SECOND — the second signal of EITHER kind, because
 one counter serves `SIGINT` and `SIGTERM`. The FIRST signal ends the follow
-cleanly at `0`, so `nexus vibe app logs --follow; echo $?` after one Ctrl-C
+cleanly at `0`, so `nexus apps logs --follow; echo $?` after one Ctrl-C
 prints `0`. A Ctrl-C followed by a supervisor's `SIGTERM` reaches `130`, and so
 does a `SIGTERM` pair — which reports `130`, never `143`. This taxonomy declares
 ONE code in the shell's band on purpose, so "the caller stopped it" is one
@@ -600,9 +600,9 @@ Note the prefix is prepended in `HttpClient` and **no flag removes it**, so rout
 outside `public/v1` are unreachable through it. A probe finding nothing there is
 not proof a capability is absent.
 
-### The `vibe` and `admin` trees
+### The `apps` and `admin` trees
 
-`vibe` is the internal Git and deployment platform. `admin` drives platform
+`apps` is the internal Git and deployment platform. `admin` drives platform
 operations behind an admin JWT. Both are operator surfaces for the Nexus team, both
 move with the services behind them, and neither is covered by this document. They
 are visible rather than hidden because operators need to find them, not because
@@ -731,13 +731,13 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 643 nodes, and the root program is a 644th
+`src/command-universe.ts` renders all 642 nodes, and the root program is a 643rd
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
 internal — an undocumented variable is not a promise, whatever it currently does.
 
-⚠️ It is read at exactly **one** site, in `src/commands/vibe.ts`, where it
+⚠️ It is read at exactly **one** site, in `src/commands/apps.ts`, where it
 suppresses one follow-up hint printed after a deployment is triggered. It is not a
 global non-interactive switch, and setting it changes nothing about the
 destructive-confirmation section above: with no terminal and no `--yes`, a
@@ -850,7 +850,7 @@ LONGER command does not count, because `agent list` is a substring of
 `agent list-templates` and of `workflow agent list` alike.
 
 **UNSTABLE and INTERNAL owe no cycle**, because this document promises them
-nothing: `admin`, `api` and `vibe` "may change in any release, without a changelog
+nothing: `admin`, `api` and `apps` "may change in any release, without a changelog
 entry", and a hidden command has "no promise at all". The tier is read off the
 BASELINE row, not recomputed — so hiding a command in the same commit that deletes
 it does not launder it out of the promise it was under.

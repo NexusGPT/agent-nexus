@@ -94,6 +94,11 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "Call any Nexus Public API v1 endpoint directly from the command line, with authentication, base URL, and response formatting handled for you."
   },
+  apps: {
+    title: "Apps CLI",
+    icon: "rocket",
+    description: "Build, deploy, watch and manage Vibe applications from the command line."
+  },
   auth: {
     title: "Authentication CLI",
     icon: "key-round",
@@ -351,10 +356,5 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     icon: "users-round",
     description:
       "Create and manage user groups — the collections of members that a role or an access policy is applied to."
-  },
-  vibe: {
-    title: "Vibe CLI",
-    icon: "rocket",
-    description: "Build, deploy, watch and manage vibe applications from the command line."
   }
 };

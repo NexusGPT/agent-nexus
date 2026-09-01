@@ -558,6 +558,110 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     probe: "SOME ROUTES HAVE NO TYPED COMMAND AT ALL"
   },
   {
+    id: "apps-01",
+    target: "apps",
+    summary: "put the end-to-end ORDER of operations on the namespace help",
+    state: "placed",
+    leaf: "apps",
+    probe: "THAT IS NOT THE ORDER TO RUN THEM"
+  },
+  {
+    id: "apps-02",
+    target: "apps get",
+    summary: "document the response fields — the help has no Notes section",
+    state: "placed",
+    leaf: "apps get",
+    probe: "gitProjectId SCALAR"
+  },
+  {
+    id: "apps-03",
+    target: "apps update",
+    summary: "say how shipGateMode relates to --require-verification",
+    state: "placed",
+    leaf: "apps update",
+    probe: "A TWO-STATE FLAG OVER A THREE-STATE FIELD"
+  },
+  {
+    id: "apps-04",
+    target: "apps create",
+    summary: "say the git-project-name warning goes to STDERR",
+    state: "placed",
+    leaf: "apps create",
+    probe: "THAT WARNING GOES TO STDERR"
+  },
+  {
+    id: "apps-05",
+    target: "apps delete",
+    summary: "say env vars are destroyed with the app",
+    state: "placed",
+    leaf: "apps delete",
+    probe: "THE APP'S ENVIRONMENT VARIABLES GO WITH IT"
+  },
+  {
+    id: "apps-06",
+    target: "apps env set",
+    summary: "say which scope the running app actually reads",
+    state: "placed",
+    leaf: "apps env set",
+    probe: "ALL UNION PROD, WITH PROD WINNING ON A NAME"
+  },
+  {
+    id: "apps-07",
+    target: "apps env list",
+    summary: "explain the Source / Card / Status columns",
+    state: "placed",
+    leaf: "apps env list",
+    probe: "THE Card COLUMN NAMES WHOSE AUTHORITY"
+  },
+  {
+    id: "apps-08",
+    target: "apps git-project get",
+    summary: "label the 'Build source' URL — it is NOT where you push",
+    state: "placed",
+    leaf: "apps git-project get",
+    probe: "it is not your push remote"
+  },
+  {
+    id: "apps-09",
+    target: "apps git-credentials",
+    summary: "document the two undocumented response fields",
+    state: "placed",
+    leaf: "apps git-credentials",
+    probe: 'THE "Org" ROW IS NOT YOUR NEXUS ORGANIZATION'
+  },
+  {
+    id: "apps-10",
+    target: "apps register-as-tool",
+    summary: "state the ordering prerequisite up front",
+    state: "placed",
+    leaf: "apps register-as-tool",
+    probe: "DEPLOY FIRST."
+  },
+  {
+    id: "apps-11",
+    target: "apps edge-token",
+    summary: "cross-reference that a visibility flip invalidates the token",
+    state: "placed",
+    leaf: "apps edge-token",
+    probe: "USUALLY A VISIBILITY FLIP, NOT AN"
+  },
+  {
+    id: "apps-12",
+    target: "apps deploy-state",
+    summary: "add the NO_REPOSITORY-to-fixed worked path",
+    state: "placed",
+    leaf: "apps deploy-state",
+    probe: "EACH OUTCOME NAMES A DIFFERENT FIX"
+  },
+  {
+    id: "apps-13",
+    target: "apps audit list",
+    summary: "name the events worth alerting on",
+    state: "placed",
+    leaf: "apps audit list",
+    probe: "IS THE ONLY RECORD THAT A SHIP GATE WAS"
+  },
+  {
     id: "asset-01",
     target: "asset (namespace)",
     summary: "give this namespace a Notes section — it is the only one of the five with none.",
@@ -1890,110 +1994,6 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     probe: "AN EMPTY DRAFT CHECKPOINTS AND PUBLISHES ANYWAY"
   },
   {
-    id: "vibe-01",
-    target: "vibe",
-    summary: "put the end-to-end ORDER of operations on the namespace help",
-    state: "placed",
-    leaf: "vibe",
-    probe: "THAT IS NOT THE ORDER TO RUN THEM"
-  },
-  {
-    id: "vibe-02",
-    target: "vibe app get",
-    summary: "document the response fields — the help has no Notes section",
-    state: "placed",
-    leaf: "vibe app get",
-    probe: "gitProjectId SCALAR"
-  },
-  {
-    id: "vibe-03",
-    target: "vibe app update",
-    summary: "say how shipGateMode relates to --require-verification",
-    state: "placed",
-    leaf: "vibe app update",
-    probe: "A TWO-STATE FLAG OVER A THREE-STATE FIELD"
-  },
-  {
-    id: "vibe-04",
-    target: "vibe app create",
-    summary: "say the git-project-name warning goes to STDERR",
-    state: "placed",
-    leaf: "vibe app create",
-    probe: "THAT WARNING GOES TO STDERR"
-  },
-  {
-    id: "vibe-05",
-    target: "vibe app delete",
-    summary: "say env vars are destroyed with the app",
-    state: "placed",
-    leaf: "vibe app delete",
-    probe: "THE APP'S ENVIRONMENT VARIABLES GO WITH IT"
-  },
-  {
-    id: "vibe-06",
-    target: "vibe env set",
-    summary: "say which scope the running app actually reads",
-    state: "placed",
-    leaf: "vibe env set",
-    probe: "ALL UNION PROD, WITH PROD WINNING ON A NAME"
-  },
-  {
-    id: "vibe-07",
-    target: "vibe env list",
-    summary: "explain the Source / Card / Status columns",
-    state: "placed",
-    leaf: "vibe env list",
-    probe: "THE Card COLUMN NAMES WHOSE AUTHORITY"
-  },
-  {
-    id: "vibe-08",
-    target: "vibe git-project get",
-    summary: "label the 'Build source' URL — it is NOT where you push",
-    state: "placed",
-    leaf: "vibe git-project get",
-    probe: "it is not your push remote"
-  },
-  {
-    id: "vibe-09",
-    target: "vibe git-credentials",
-    summary: "document the two undocumented response fields",
-    state: "placed",
-    leaf: "vibe git-credentials",
-    probe: 'THE "Org" ROW IS NOT YOUR NEXUS ORGANIZATION'
-  },
-  {
-    id: "vibe-10",
-    target: "vibe app register-as-tool",
-    summary: "state the ordering prerequisite up front",
-    state: "placed",
-    leaf: "vibe app register-as-tool",
-    probe: "DEPLOY FIRST."
-  },
-  {
-    id: "vibe-11",
-    target: "vibe app edge-token",
-    summary: "cross-reference that a visibility flip invalidates the token",
-    state: "placed",
-    leaf: "vibe app edge-token",
-    probe: "USUALLY A VISIBILITY FLIP, NOT AN"
-  },
-  {
-    id: "vibe-12",
-    target: "vibe deploy-state",
-    summary: "add the NO_REPOSITORY-to-fixed worked path",
-    state: "placed",
-    leaf: "vibe deploy-state",
-    probe: "EACH OUTCOME NAMES A DIFFERENT FIX"
-  },
-  {
-    id: "vibe-13",
-    target: "vibe audit list",
-    summary: "name the events worth alerting on",
-    state: "placed",
-    leaf: "vibe audit list",
-    probe: "IS THE ONLY RECORD THAT A SHIP GATE WAS"
-  },
-  {
     id: "workflow-01",
     target: "workflow create",
     summary:
@@ -2265,7 +2265,7 @@ export const REVIEWED_NAMESPACES: readonly string[] = [
   "upgrade",
   "user-group",
   "version",
-  "vibe",
+  "apps",
   "workflow",
   "workspace"
 ];

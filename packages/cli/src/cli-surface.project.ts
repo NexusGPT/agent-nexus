@@ -94,12 +94,12 @@ const UNCLASSIFIED = "(unclassified)" as const;
 /**
  * Namespaces `COMPATIBILITY.md` carves out of STABLE by name.
  *
- * `vibe` and `admin` are named under UNSTABLE — "visible because operators need
+ * `apps` and `admin` are named under UNSTABLE — "visible because operators need
  * to find them, not because they are stable". `nexus api` has its own UNSTABLE
  * section. This is a transcription of that document, so a leaf's tier is a
  * CHECKABLE consequence of the promise rather than a second opinion about it.
  */
-const UNSTABLE_NAMESPACES: ReadonlySet<string> = new Set(["admin", "api", "vibe"]);
+const UNSTABLE_NAMESPACES: ReadonlySet<string> = new Set(["admin", "api", "apps"]);
 
 /**
  * Which promise governs this leaf's path and required positionals.
@@ -377,7 +377,7 @@ export function renderCliSurfaceModule(projection: Projection): string {
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
  * Transcribed from \`COMPATIBILITY.md\`, not re-decided here: hidden is INTERNAL;
- * \`admin\`, \`api\` and \`vibe\` are UNSTABLE by name; everything else is STABLE.
+ * \`admin\`, \`api\` and \`apps\` are UNSTABLE by name; everything else is STABLE.
  * On EVERY row, whatever its tier, the optional \`flags\` are EVOLVING and the
  * \`--json\` PAYLOAD FIELDS are UNSTABLE. A row is not "a STABLE thing".
  *

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   • `nexus api` builds a raw HttpClient itself           -> httpClientOpts
 //   • every ordinary command goes through createClient,
 //     which builds a NexusClient                           -> nexusClientOpts
-//   • `vibe` goes through the tenant transport             -> tenantOpts
+//   • `apps` goes through the tenant transport             -> tenantOpts
 //
 // 🔴 `agent-eval` MOVED between two of those, and this file is where that shows.
 // It used to build a raw HttpClient of its own, so its case asserted on
@@ -80,14 +80,14 @@ vi.mock("../util/tenant-http", () => ({
 import { parseTimeoutSeconds } from "../client";
 import { registerAgentEvalCommands } from "./agent-eval";
 import { registerApiCommand } from "./api";
-import { registerVibeCommands } from "./vibe";
+import { registerAppsCommands } from "./apps";
 
 async function run(argv: string[]): Promise<void> {
   const program = new Command();
   program.name("nexus").option("--timeout <seconds>", "timeout", parseTimeoutSeconds);
   registerApiCommand(program);
   registerAgentEvalCommands(program);
-  registerVibeCommands(program);
+  registerAppsCommands(program);
 
   const spy = vi.spyOn(console, "log").mockImplementation(() => {});
   try {
@@ -144,8 +144,8 @@ describe("global --timeout reaches every HTTP path, always in seconds", () => {
     expect(nexusClientOpts[0].timeout).toBeUndefined();
   });
 
-  it("vibe's tenant transport receives the converted timeout", async () => {
-    await run(["--timeout", "45", "vibe", "cluster", "status"]);
+  it("apps's tenant transport receives the converted timeout", async () => {
+    await run(["--timeout", "45", "apps", "cluster", "status"]);
 
     expect(tenantOpts).toHaveLength(1);
     expect(tenantOpts[0].timeout).toBe(45_000);

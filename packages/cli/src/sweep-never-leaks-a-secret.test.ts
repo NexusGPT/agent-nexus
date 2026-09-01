@@ -5,7 +5,7 @@
  * THE LEAF THIS EXISTS FOR, AND WHY THE EXISTING GATE IS NOT ENOUGH
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `vibe git-credentials` returns this organisation's git push token. It takes no
+ * `apps git-credentials` returns this organisation's git push token. It takes no
  * input, exits 0 and emits clean JSON, so every promotion rule says yes to it:
  * no required positional, no required option, `--json` on a read. `sweep.sh`
  * prints a slice of a leaf's output into the CI log on failure, and that log is
@@ -13,7 +13,7 @@
  *
  * It is already fenced ONE way. `probe-barrier.ts` gives it a `third-party`
  * barrier, and `probe-barrier.test.ts` fails if a barrier'd leaf is classified
- * `safe` — verified by mutation: it reds with `[ 'vibe git-credentials' ]`.
+ * `safe` — verified by mutation: it reds with `[ 'apps git-credentials' ]`.
  *
  * 🚨 THAT FENCE IS A TABLE, AND A TABLE ONLY CATCHES WHAT SOMEBODY REMEMBERED TO
  * PUT IN IT. `probe-barrier.ts`'s own header says it cannot demand an entry for a
@@ -37,7 +37,7 @@
  *
  * It does not invoke the live API, so it cannot prove today's responses are
  * clean — only that the instrument works and is connected. The end-to-end proof
- * is a mutation against staging: classify `vibe git-credentials` as `safe`, run
+ * is a mutation against staging: classify `apps git-credentials` as `safe`, run
  * the sweep, and it FAILs with `SECRET-SHAPED RESPONSE: pushToken (len 40)`
  * while the 40-character value appears nowhere in the log.
  */

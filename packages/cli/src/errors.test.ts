@@ -41,7 +41,7 @@ describe("handleError next steps", () => {
     expect(exitCode).toBe(EXIT_CODES["invalid-input"]);
     // The API's own reason still leads — the hint never replaces it.
     expect(output).toContain("no dedicated Vibe cluster");
-    expect(output).toContain("nexus vibe cluster provision --region");
+    expect(output).toContain("nexus apps cluster provision --region");
     // The alternative nobody guesses from the message alone: a project with its
     // own remote is cloned by the build and needs no cluster at all.
     expect(output).toContain("--git-url");
@@ -52,7 +52,7 @@ describe("handleError next steps", () => {
       new NexusApiError("VIBE_GIT_PROJECT_CLUSTER_NOT_READY", "totally different wording", 409)
     );
 
-    expect(output).toContain("nexus vibe cluster provision --region");
+    expect(output).toContain("nexus apps cluster provision --region");
   });
 
   it("leaves a conflict it has no next step for exactly as the API stated it", () => {
@@ -61,7 +61,7 @@ describe("handleError next steps", () => {
     );
 
     expect(output).toContain("name is already taken");
-    expect(output).not.toContain("nexus vibe cluster provision");
+    expect(output).not.toContain("nexus apps cluster provision");
   });
 
   /**

@@ -41,7 +41,7 @@
 #       Needs a template submitted to Meta and awaiting review. A fixture must
 #       not reach a third party.
 #
-#   vibe approvals pending
+#   apps approvals pending
 #       Needs a gated deployment, which provisions infrastructure that costs
 #       money and outlives the command.
 #

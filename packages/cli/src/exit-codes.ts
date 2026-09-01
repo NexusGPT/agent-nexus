@@ -17,7 +17,7 @@
  *     the old copy" and `3` for "installed and I could not check it FOR you".
  *     Those are the SAME NUMBERS the admin tree spends on auth and permission,
  *     meaning something unrelated, and `nexus upgrade --help` published them.
- *   - `commands/vibe-app-logs.ts` exited `130` on a second signal.
+ *   - `commands/apps-logs.ts` exited `130` on a second signal.
  *
  * And the root `--help` epilogue said "EVERY failure exits 1", which was true of
  * exactly one of the four.
@@ -135,7 +135,7 @@ export type ExitCategory =
    * not ours to assign.
    *
    * 🚨 THE CLI DOES CHOOSE THIS ONE, FROM EXACTLY ONE PLACE, AND NOT ON THE
-   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in `commands/vibe-app-logs.ts`
+   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in `commands/apps-logs.ts`
    * counts signals and exits here on the SECOND. ONE counter serves both
    * `SIGINT` and `SIGTERM`, so the pair that reaches it is usually MIXED — a
    * user presses Ctrl-C, a supervisor then sends `SIGTERM` into the same

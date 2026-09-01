@@ -178,6 +178,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "ChatTurnStatus",
   "DeploymentAnonymousChatSessionCreate",
   "DeploymentChatSessionCreate",
+  "DeploymentChatSessionRefresh",
   "DeploymentCreate",
   "DeploymentFolderAssign",
   "DeploymentFolderCreate",

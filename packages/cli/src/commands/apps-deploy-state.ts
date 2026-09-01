@@ -1,5 +1,5 @@
 /**
- * `nexus vibe deploy-state` — "did my push land, and is what I pushed what is
+ * `nexus apps deploy-state` — "did my push land, and is what I pushed what is
  * live", answered by the platform in one call.
  *
  * ── Why a CLI verb, when the endpoint already exists ────────────────────────
@@ -31,7 +31,7 @@
  *    politer label.
  *
  * Rendering is pure and separated from the HTTP call so both can be asserted
- * without a network — the command wiring lives in `vibe.ts`.
+ * without a network — the command wiring lives in `apps.ts`.
  */
 
 import { color } from "../output";
@@ -82,7 +82,7 @@ export function describeOutcome(outcome: VibeDeployStateOutcome): string {
     case "REF_UNKNOWN":
       return `${color.red("REF_UNKNOWN")} ${color.dim("— that ref does not exist on this repo at all; nothing has ever been pushed to it")}`;
     case "NO_REPOSITORY":
-      return `${color.red("NO_REPOSITORY")} ${color.dim("— the app has no git project attached, so there is nothing to have received a push. Fix: nexus vibe app attach-repo")}`;
+      return `${color.red("NO_REPOSITORY")} ${color.dim("— the app has no git project attached, so there is nothing to have received a push. Fix: nexus apps attach-repo")}`;
     default:
       // Unreachable per the union, reachable at runtime: a published binary
       // routinely talks to a backend newer than itself, and a value this CLI
@@ -111,7 +111,7 @@ export function formatAge(ms: number): string {
   return `${String(Math.floor(hours / 24))}d ago`;
 }
 
-/** `2026-08-04 06:40:11Z` — the same shape the rest of `vibe` prints. */
+/** `2026-08-04 06:40:11Z` — the same shape the rest of `apps` prints. */
 function formatInstant(iso: string): string {
   return iso.replace(/\.\d{3}Z$/, "Z").replace("T", " ");
 }

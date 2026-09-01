@@ -157,7 +157,7 @@ describe("the detector fires on the defect and stays silent on the design", () =
   });
 
   it("catches prose carried across a BOOLEAN return into the caller's exit", () => {
-    // `vibe app delete` and its two siblings: the prose is in the confirmation,
+    // `apps delete` and its two siblings: the prose is in the confirmation,
     // the exit is at the call site, and a boolean is all that connects them.
     const report = scanFixture(`
       async function confirmDestructive(q: string, rerun: string, yes?: boolean) {

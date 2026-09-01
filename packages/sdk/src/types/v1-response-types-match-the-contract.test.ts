@@ -631,6 +631,10 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["chat"]["createSession"]>
     >
   >,
+  // DeploymentChatSessionRefresh  POST /public/v1/deployments/:deploymentId/chat-session/refresh  ->  client.chat.refresh()
+  Expect<
+    Equals<ResponseOf<"DeploymentChatSessionRefresh">, MethodResult<NexusClient["chat"]["refresh"]>>
+  >,
   // ChatStopTurn  POST /public/v1/deployments/:deploymentId/chat/stop  ->  client.chat.stop()
   Expect<Equals<ResponseOf<"ChatStopTurn">, MethodResult<NexusClient["chat"]["stop"]>>>,
   // ChatTurnStatus  GET /public/v1/deployments/:deploymentId/chat/status  ->  client.chat.status()
@@ -1944,6 +1948,7 @@ const GATED_ROUTES = [
   "DeploymentGet",
   "DeploymentUpdate",
   "DeploymentChatSessionCreate",
+  "DeploymentChatSessionRefresh",
   "DeploymentStatistics",
   "DeploymentGetEmbedConfig",
   "DeploymentUpdateEmbedConfig",
@@ -2238,16 +2243,16 @@ const V1_RESPONSE_DRIFT: Record<string, string> = {
     "`AgentToolConfig.config` is `unknown` here against a seven-key object in the contract (`toolId`, `workflowId`, `collectionId`, `action`, `toolCredentialId`, `instructions`, `parameters`). Opaque BY DESIGN — the shape varies by tool type and the SDK deliberately refuses to pick one. Typing it means modelling the per-type union first.",
   // GET /public/v1/skills/tasks/:taskId  ->  client.skills.getTask()
   SkillsGetTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
   // POST /public/v1/skills/tasks  ->  client.skills.createTask()
   SkillsCreateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
   // POST /public/v1/skills/tasks/:taskId/duplicate  ->  client.skills.duplicateTask()
   SkillsDuplicateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
   // PATCH /public/v1/skills/tasks/:taskId  ->  client.skills.updateTask()
   SkillsUpdateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to delphi's surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
   // GET /public/v1/access-cards/available-actions  ->  client.credentials.cards.availableActions()
   AccessCardAvailableActions:
     "`ParameterDefinition.type` is `string` here against a nine-member literal union (`string`/`number`/`boolean`/`object`/`array`/`text`/`url`/`email`/`phone`). The SDK is WIDER, so nothing is hidden; a caller rendering a form input per type cannot exhaust it.",
@@ -2795,7 +2800,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 331;
+const GATED_ROUTE_COUNT = 332;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

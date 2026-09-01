@@ -37,7 +37,20 @@
  * comma-separated list of leaf paths that answer exit 0 with non-JSON, for
  * producing a run with a chosen number of FAILURES. See the block that reads it
  * for why there is no count-based knob beside it.
+ *
+ * FAKE_VANISH_PRODUCERS (+ FAKE_STATE_DIR) is the CONCURRENT DELETE: a named
+ * producer's first row is published once and gone from every later read, and any
+ * consumer handed it answers `not-found`. That is the fourth state staging
+ * cannot be asked for - it needs another job to delete a row inside a window
+ * nobody controls. See the block that reads it.
+ *
+ * FAKE_UNREADABLE_REREAD (+ FAKE_STATE_DIR) is the fifth: a producer whose first
+ * read is a good list and whose every later read answers EXIT 0 with a body that
+ * is not a list at all. It composes with FAKE_VANISH_PRODUCERS, and it is the
+ * only way to make the sweep's own re-read unreadable AFTER a good list is
+ * already stored. See the block that reads it.
  */
+import { writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_MODE ?? "normal";
 const argv = process.argv.slice(2).filter((a) => a !== "--json" && !a.startsWith("--profile"));
@@ -89,14 +102,122 @@ const leaf = pathParts.join(" ");
 // Any leaf with no threaded id is being invoked as a PRODUCER.
 const isProducer = threaded.length === 0;
 
+// FAKE_VANISH_PRODUCERS: a comma-separated list of producer leaves whose FIRST
+// row exists on their first read and is gone from every later one, and whose id
+// 404s from every consumer.
+//
+// ══════════════════════════════════════════════════════════════════════════════
+// 🚨 THIS IS THE ONE STATE THE RACE CANNOT BE PROVEN WITHOUT, AND IT CANNOT BE
+//    PRODUCED AGAINST STAGING
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// The defect is a row deleted BETWEEN the sweep's list call and its read, by a
+// job this process does not control. Waiting for `CLI: E2E flows` to tear down
+// inside the window is exactly the on-luck reproduction that made the red
+// unexplained for four runs: two of them were green with a concurrent run in
+// flight, because it was in its CREATE phase.
+//
+// So the delete is produced HERE, deterministically, through the same
+// `NEXUS_BIN` seam CI already uses. It needs cross-invocation state because this
+// fixture is spawned once per call and sees only its own argv - FAKE_STATE_DIR
+// holds one marker file per producer, and its ABSENCE is what makes a read the
+// first one.
+//
+// ⚠️ THE VANISHING ROW IS FIRST, NOT ONLY. A producer that emptied entirely
+// would be indistinguishable from `FAKE_MODE=empty` and would prove the wrong
+// thing: the sweep would report SKIPPED_NO_ID and pass for a reason that has
+// nothing to do with the race. The second row is what a re-thread must find.
+const vanishProducers = (process.env.FAKE_VANISH_PRODUCERS ?? "").split(",").filter(Boolean);
+const stateDir = process.env.FAKE_STATE_DIR;
+
+// FAKE_UNREADABLE_REREAD: producers whose FIRST read is a good list and whose
+// every LATER read answers exit 0 with a body that is not JSON at all.
+//
+// 🚨 THE ONE SHAPE THAT SEPARATES "EXIT 0" FROM "PARSED AS A LIST". A route
+// answering 200 with an error page is the real-world source of it, and it cannot
+// be produced by FAKE_FAIL_LEAVES: that knob breaks a leaf on EVERY invocation,
+// including the first, so the sweep never stores a good list to lose. The defect
+// this exists for is a good list being REPLACED by an unreadable re-read, which
+// needs the two reads to differ — the same first-vs-later state the vanishing
+// producers need, and it reuses it.
+const unreadableReread = (process.env.FAKE_UNREADABLE_REREAD ?? "").split(",").filter(Boolean);
+
+function firstReadOf(producer: string): boolean {
+  if (stateDir === undefined)
+    die(
+      "FAKE_VANISH_PRODUCERS / FAKE_UNREADABLE_REREAD need FAKE_STATE_DIR - refusing to fake a race with no state\n",
+      1
+    );
+  const marker = `${stateDir}/read-${producer.replace(/\W+/g, "_")}`;
+  // `wx` fails when the file is already there, so the CHECK and the WRITE are one
+  // syscall. A stat-then-write would race against the sweep's own re-read.
+  try {
+    writeFileSync(marker, "1", { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const DOOMED = /-doomed$/;
+
 if (isProducer) {
   if (mode === "empty") say({ success: true, data: [] });
+
+  const slug = leaf.replace(/\s+/g, "-");
+  const survivor = { id: `fake-${slug}-1`, slug: `fake-slug-1` };
+  const doomed = { id: `fake-${slug}-doomed`, slug: `fake-slug-0` };
+
+  // ⚠️ `firstReadOf` CONSUMES its marker, so it is asked exactly ONCE per process
+  // and the answer reused. Two callers each asking would make the second read of
+  // a single invocation report itself as a later one.
+  const needsReadState = vanishProducers.includes(leaf) || unreadableReread.includes(leaf);
+  const isFirstRead = needsReadState ? firstReadOf(leaf) : true;
+
+  // Exit 0, and not a list. Placed BEFORE the vanish branch so it composes with
+  // it: the first read still publishes the doomed row, so the sweep threads it,
+  // gets a not-found, and re-reads — and it is that re-read that is unreadable.
+  if (unreadableReread.includes(leaf) && !isFirstRead) {
+    process.stdout.write("<html>502 Bad Gateway</html>");
+    process.exit(0);
+  }
+
+  if (vanishProducers.includes(leaf)) {
+    // FAKE_VANISH_LEAVES_NOTHING: the doomed row was this producer's LAST row,
+    // so the re-read that proves the deletion comes back EMPTY. That is the race
+    // at full strength, and it is the one shape indistinguishable from an
+    // untouched producer that simply has nothing — which is why it needs its own
+    // knob rather than falling out of the case above.
+    if (process.env.FAKE_VANISH_LEAVES_NOTHING === "1") {
+      say({ success: true, data: isFirstRead ? [doomed] : [] });
+    }
+    if (isFirstRead) say({ success: true, data: [doomed, survivor] });
+  }
   // One row is enough - the harness threads the first id it finds. `slug` is
   // carried so the param-named-field rule is exercised rather than assumed.
-  say({
-    success: true,
-    data: [{ id: `fake-${leaf.replace(/\s+/g, "-")}-1`, slug: `fake-slug-1` }]
-  });
+  say({ success: true, data: [survivor] });
+}
+
+// A consumer handed the doomed id answers exactly what the real API answers for
+// a deleted row: the CLI's `not-found` category (4) with a NOT_FOUND document.
+// Deliberately NOT a bespoke code - the runner reads the taxonomy, so a fixture
+// inventing its own number would prove nothing about production.
+if (threaded.some((id) => DOOMED.test(id))) {
+  process.stderr.write(`warning: a line of unrelated stream noise\n`);
+  console.log(
+    JSON.stringify(
+      {
+        error: {
+          message: `Not found: ${threaded.find((id) => DOOMED.test(id))}`,
+          hint: null,
+          code: "NOT_FOUND"
+        }
+      },
+      null,
+      2
+    )
+  );
+  process.exit(4);
 }
 
 // FAKE_FAIL_LEAVES: a comma-separated list of leaf paths that answer exit 0 with

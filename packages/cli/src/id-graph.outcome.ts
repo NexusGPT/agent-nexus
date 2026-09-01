@@ -24,6 +24,10 @@ import { isClientSideRefusal } from "./id-graph.refusal";
  *   REACHED              invoked, exit 0, parseable JSON, no credential.
  *   SKIPPED_NO_ID        its producer returned zero rows. Decided upstream of
  *                        this function, which never sees that case.
+ *   SKIPPED_ID_VANISHED  every id its producer offered was PROVEN deleted between
+ *                        the two calls. Also decided upstream — establishing it
+ *                        needs a second network read, which a pure function of an
+ *                        exit code cannot have. See `id-graph.race.ts`.
  *   SKIPPED_NEEDS_INPUT  the CLI refused BEFORE SENDING ANYTHING — a fact about
  *                        what the harness supplied, not about the route.
  *   FAILED               anything else non-zero.
@@ -40,7 +44,12 @@ import { isClientSideRefusal } from "./id-graph.refusal";
  * the two things that category can mean. See {@link isClientSideRefusal}, whose
  * default is `false` because FAILED is the loud direction.
  */
-export type LeafOutcome = "REACHED" | "SKIPPED_NO_ID" | "SKIPPED_NEEDS_INPUT" | "FAILED";
+export type LeafOutcome =
+  | "REACHED"
+  | "SKIPPED_NO_ID"
+  | "SKIPPED_ID_VANISHED"
+  | "SKIPPED_NEEDS_INPUT"
+  | "FAILED";
 
 export interface OutcomeVerdict {
   readonly status: LeafOutcome;

@@ -1,8 +1,8 @@
 /**
- * Local git plumbing for `nexus vibe git-project clone|pull` — the only two
+ * Local git plumbing for `nexus apps git-project clone|pull` — the only two
  * Vibe commands that drive a `git` subprocess on the user's own machine.
  *
- * Split out of `vibe.ts` (already ~3k lines) for the same reason `vibe-watch.ts`
+ * Split out of `apps.ts` (already ~3k lines) for the same reason `apps-watch.ts`
  * is: the interesting logic here is pure and worth testing on its own, and the
  * IO is a thin shell around it.
  *
@@ -142,7 +142,7 @@ export class GitCommandFailedError extends Error {
 export class NotAGitRepositoryError extends Error {
   constructor(public readonly directory: string) {
     super(
-      `"${directory}" is not a git repository. Clone it first: nexus vibe git-project clone <projectId> ${directory}`
+      `"${directory}" is not a git repository. Clone it first: nexus apps git-project clone <projectId> ${directory}`
     );
     this.name = "NotAGitRepositoryError";
   }
@@ -170,7 +170,7 @@ export function assertGitRepository(directory: string): void {
  *
  * stdout is discarded and stderr inherited: git reports progress on stderr, so
  * the user still sees it, and `--json` mode's stdout stays a single parseable
- * document (the house rule in `vibe.ts`).
+ * document (the house rule in `apps.ts`).
  */
 export function runGitWithCredential(
   credentials: VibeGitCredentialParts,
@@ -180,7 +180,7 @@ export function runGitWithCredential(
   const credentialLine = composeCredentialLine(credentials);
   if (credentialLine === null) {
     throw new Error(
-      `The git host address returned for your org is not a valid https URL ("${credentials.cloneUrlBase}"). Run "nexus vibe git-credentials" to inspect it.`
+      `The git host address returned for your org is not a valid https URL ("${credentials.cloneUrlBase}"). Run "nexus apps git-credentials" to inspect it.`
     );
   }
 

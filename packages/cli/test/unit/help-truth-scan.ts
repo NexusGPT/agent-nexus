@@ -104,6 +104,24 @@ let originInstalled = false;
  * assumption fails SILENTLY by attributing one command's source to another. The
  * stack frame is exact or absent, and absent is reported.
  */
+/**
+ * Whether the recorder below actually captures a stack, or just gets out of the way.
+ *
+ * 🚨 THIS FLAG IS THE WHOLE COST OF THE HELP SCAN. `new Error().stack` is captured
+ * once per `.command()` call, so a tree of 643 commands pays 643 stack captures —
+ * **26.14ms of a 29.95ms build, 87.3%** (measured 2026-08-31, 40 builds a side).
+ * `runHelpTruthScan` builds one tree it reads origins from and then 1333 throwaway
+ * trees it does not, so the throwaway ones were paying for a side table nothing
+ * ever read.
+ *
+ * DEFAULTS TO ON, and that direction is deliberate: a caller that forgets to say
+ * anything gets the recording behaviour, and only a call site proved not to read
+ * `TreeNode.file`/`.line` opts out. The failure of a wrong opt-out is then a
+ * missing origin — loud, because {@link sourceSlices} silently drops a node with
+ * no file and the scan's own `locatedNodes` floor would fall.
+ */
+let recordingOrigins = true;
+
 export function installOriginRecorder(): void {
   if (originInstalled) return;
   originInstalled = true;
@@ -113,6 +131,7 @@ export function installOriginRecorder(): void {
     ...args: unknown[]
   ) {
     const created = (real as (...a: unknown[]) => Command).apply(this, args);
+    if (!recordingOrigins) return created;
     const frame = (new Error().stack ?? "")
       .split("\n")
       .slice(2)
@@ -139,15 +158,32 @@ export function installOriginRecorder(): void {
  * arguments satisfy the next example's required options and turn a real defect
  * green.
  */
-export function buildProgram(): Command {
+export function buildProgram(options: { recordOrigins?: boolean } = {}): Command {
   installOriginRecorder();
-  const program = buildRootProgram();
-  program.exitOverride();
-  program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
-  if (program.commands.length === 0) {
-    throw new Error("buildRootProgram() registered no commands — the population is empty");
+  // Saved and restored rather than set-then-forced-true, so a nested build cannot
+  // strand the flag off and silently unlocate every later tree.
+  const previous = recordingOrigins;
+  recordingOrigins = options.recordOrigins ?? true;
+  try {
+    const program = buildRootProgram();
+    program.exitOverride();
+    program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+    if (program.commands.length === 0) {
+      throw new Error("buildRootProgram() registered no commands — the population is empty");
+    }
+    return program;
+  } finally {
+    recordingOrigins = previous;
   }
-  return program;
+}
+
+/**
+ * Does this tree carry command origins? For the CONTROL that says
+ * `recordOrigins: false` actually did something — an optimisation that is
+ * secretly a no-op is indistinguishable from one that works, if you only time it.
+ */
+export function originCount(root: Command): number {
+  return walkTree(root).filter((n) => n.file !== undefined).length;
 }
 
 /**

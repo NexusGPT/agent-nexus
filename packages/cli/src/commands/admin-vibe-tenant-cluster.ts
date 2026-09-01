@@ -68,7 +68,7 @@ Notes:
   --region is constrained to EU AWS regions for RGPD data residency,
   rejected locally before the HTTP call (mirrors the backend's Zod
   boundary). This is the cross-org OPERATOR path; an org provisions its
-  own cluster with "nexus vibe cluster provision" or from its console.
+  own cluster with "nexus apps cluster provision" or from its console.
 `
     )
     .action(async (organizationId: string, cmdOpts: { region: string }) => {

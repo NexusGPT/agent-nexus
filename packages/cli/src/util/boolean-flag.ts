@@ -31,7 +31,7 @@ import { InvalidArgumentError } from "commander";
  *
  * `InvalidArgumentError` from a parser refuses at PARSE time — before the action
  * runs, before a client is built, in commander's own error format. Two copies of
- * this logic already existed (`role.ts`'s `readBoolean`, `vibe.ts`'s
+ * this logic already existed (`role.ts`'s `readBoolean`, `apps.ts`'s
  * `parseBoolFlag`), both correct and both throwing from inside the action, so
  * the refusal arrived after the command had already started work.
  * `parseTimeoutSeconds` in `client.ts` is the house precedent for the parser

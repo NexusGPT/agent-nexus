@@ -59,7 +59,7 @@ function everyCommand(root: Command, trail: string[] = []): Array<[string, Comma
  * THE HAND-ROLLED LIST IS GONE, AND ITS ABSENCE IS THE ASSERTION.
  *
  * Six commands used to declare `--yes` themselves — `phone-number buy|release`,
- * `workspace delete` and three `vibe` verbs. Every one of them refused
+ * `workspace delete` and three `apps` verbs. Every one of them refused
  * correctly, through a parser of its own; they were DRY debt rather than a
  * data-loss risk, and that is exactly why they survived so long. A correct copy
  * of a rule is still a place the rule can change, and a gate over the tree could
@@ -228,7 +228,7 @@ describe("the destructive-confirmation convention", () => {
 /**
  * `<bool>` options that already REFUSE, through a correct parser of their own.
  *
- * These are not the defect. `role.ts`'s `readBoolean` and `vibe.ts`'s
+ * These are not the defect. `role.ts`'s `readBoolean` and `apps.ts`'s
  * `parseBoolFlag` both throw on an unrecognised value — two authors independently
  * reached the same rule, which is the strongest argument that refusing is the
  * convention rather than one person's taste. What they do differently is WHEN:
@@ -245,8 +245,8 @@ const SOUND_LOCAL_BOOLEAN_PARSERS: readonly string[] = [
   "role set-system-policy --notify-takeover",
   "role set-system-policy --require-review",
   "role set-system-policy --start-paused",
-  "vibe app update --require-approvals",
-  "vibe app update --require-verification"
+  "apps update --require-approvals",
+  "apps update --require-verification"
 ];
 
 describe("a boolean flag refuses rather than coercing", () => {

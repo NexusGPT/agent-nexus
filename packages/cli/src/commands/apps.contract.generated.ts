@@ -12,7 +12,7 @@
 //
 // 🚨 THIS FILE IS ONE OF TWO OPINIONS, NEVER THE AUTHORITY. Where the CLI offers
 // fewer values than the contract lists, the reason is declared at the flag in
-// `vibe.ts` and printed in --help. The contract has already been the
+// `apps.ts` and printed in --help. The contract has already been the
 // wrong one: it lists a deployment type the server 500s on.
 
 import type { ProjectedDescriptor } from "../contract-help.render";

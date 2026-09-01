@@ -61,7 +61,7 @@
  * correct code.
  *
  * ⚠️ THE SCAN ALSO REPORTED TWO SITES THAT WERE ALREADY COMPLETE, AND THE
- * LEDGER RECORDED KEYS THEY NEVER LOST. `known-issues` and `vibe`'s trigger
+ * LEDGER RECORDED KEYS THEY NEVER LOST. `known-issues` and `apps`'s trigger
  * printer both opened with `if (isJsonMode()) { console.log(JSON.stringify(x));
  * return; }` — the whole response reached `--json` and the printer below was
  * the human branch, which is the shape `json-shape.scan.ts` needs

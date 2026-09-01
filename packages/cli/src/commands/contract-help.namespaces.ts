@@ -7,6 +7,7 @@ import { registerAgentEvalCommands } from "./agent-eval";
 import { registerAgentSkillCommands } from "./agent-skill";
 import { registerAgentToolCommands } from "./agent-tool";
 import { registerAnalyticsCommands } from "./analytics";
+import { registerAppsCommands } from "./apps";
 import { registerAssetCommands } from "./asset";
 import { registerChannelCommands } from "./channel";
 import { registerChatCommands } from "./chat";
@@ -42,7 +43,6 @@ import { registerTracingCommands } from "./tracing";
 import { registerTracksCommands } from "./tracks";
 import { registerUserGroupCommands } from "./user-group";
 import { registerVersionCommands } from "./version";
-import { registerVibeCommands } from "./vibe";
 import { registerWorkflowCommands } from "./workflow";
 import { registerWorkspaceCommands } from "./workspace";
 
@@ -475,7 +475,7 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   "task-eval": registerEvaluationCommands,
   customer: registerCustomerCommands,
   execution: registerExecutionCommands,
-  vibe: registerVibeCommands,
+  apps: registerAppsCommands,
   "known-issues": registerKnownIssuesCommand,
   score: registerScoreCommands
 };

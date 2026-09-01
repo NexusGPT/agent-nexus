@@ -37,11 +37,11 @@ const NEXT_STEPS_BY_CODE: Record<string, string> = {
   // never needs a cluster at all.
   VIBE_GIT_PROJECT_CLUSTER_NOT_READY: [
     "Provision your cluster (EU regions, immutable once set):",
-    "  nexus vibe cluster provision --region eu-west-3",
-    "  nexus vibe cluster status",
+    "  nexus apps cluster provision --region eu-west-3",
+    "  nexus apps cluster status",
     "",
     "Or host the code yourself — no cluster needed, the build clones your remote:",
-    "  nexus vibe app provision-repo <appId> --git-url https://github.com/acme/svc.git"
+    "  nexus apps provision-repo <appId> --git-url https://github.com/acme/svc.git"
   ].join("\n"),
 
   // The id names a real connected account under its OTHER name. Two commands

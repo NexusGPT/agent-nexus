@@ -242,7 +242,7 @@ describe("cli-surface — COMPATIBILITY.md's tiers are checkable, not merely sta
       .map((leaf) => leaf.path)
       .sort();
 
-  const CARVED_OUT = ["admin", "api", "vibe"] as const;
+  const CARVED_OUT = ["admin", "api", "apps"] as const;
 
   it("has a manifest to reason about at all", () => {
     // The one floor in this block, and it is on the BASE population rather than
@@ -278,7 +278,7 @@ describe("cli-surface — COMPATIBILITY.md's tiers are checkable, not merely sta
       // single tier would satisfy one case above and fail here.
       const answers = new Set([
         tierOf({ path: "agent get", hidden: true }),
-        tierOf({ path: "vibe app list", hidden: false }),
+        tierOf({ path: "apps list", hidden: false }),
         tierOf({ path: "agent get", hidden: false })
       ]);
       expect([...answers].sort()).toEqual(["INTERNAL", "STABLE", "UNSTABLE"]);
@@ -293,7 +293,7 @@ describe("cli-surface — COMPATIBILITY.md's tiers are checkable, not merely sta
       expect(paths((leaf) => leaf.tier === "INTERNAL")).toEqual(paths((leaf) => leaf.hidden));
     });
 
-    it("records UNSTABLE on exactly the admin, api and vibe trees", () => {
+    it("records UNSTABLE on exactly the admin, api and apps trees", () => {
       const carvedOut = new Set<string>(CARVED_OUT);
       expect(paths((leaf) => leaf.tier === "UNSTABLE")).toEqual(
         paths((leaf) => !leaf.hidden && carvedOut.has(leaf.path.split(" ")[0]))

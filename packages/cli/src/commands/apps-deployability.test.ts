@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDeployability, formatDeployabilityCell } from "./vibe";
+import { formatDeployability, formatDeployabilityCell } from "./apps";
 
 /**
  * `deployability` is the one-field answer to "why does my URL do nothing", and

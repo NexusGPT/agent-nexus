@@ -2,7 +2,7 @@
  * The Server-Sent Events line protocol, decoded incrementally.
  *
  * This is the CLI's first SSE consumer — nothing in `packages/cli/src` read a
- * `text/event-stream` before `vibe app logs --follow`. It is a module of its own,
+ * `text/event-stream` before `apps logs --follow`. It is a module of its own,
  * fed strings rather than a socket, because every interesting case is a
  * SPLITTING case: a frame arriving in two chunks, a chunk carrying two frames,
  * a keepalive comment between them. None of those are reachable from a test

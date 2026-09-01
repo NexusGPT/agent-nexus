@@ -452,12 +452,12 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     // ONE LEAF OF THIS NAMESPACE IS ON THE v1 CONTRACT AND THE REST ARE NOT, and
-    // the split is a property of the SERVER, not of this rollout. `vibe app
+    // the split is a property of the SERVER, not of this rollout. `apps
     // register-as-tool` posts to `/api/public/v1/vibe/apps/:appId/register-as-tool`;
     // every other verb here posts to the `/api/vibe/...` tenant surface, which
     // `ZPublicApiV1` does not declare and this generator therefore cannot see.
     // Binding the one leaf is the whole of what is derivable.
-    namespace: "vibe",
+    namespace: "apps",
     descriptors: ["VibeRegisterAppAsTool"]
   },
   {

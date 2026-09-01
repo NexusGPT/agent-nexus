@@ -1,5 +1,5 @@
 /**
- * `nexus vibe app logs <appId>` — the page read, the follow, and every way a
+ * `nexus apps logs <appId>` — the page read, the follow, and every way a
  * follow can stop.
  *
  * What these tests defend, in order of what would hurt most if it broke:
@@ -36,7 +36,7 @@ import {
   VIBE_LOG_WIRE_MAX_LIMIT,
   type VibeLogLineDto
 } from "../vibe-wire-types";
-import { registerVibeCommands } from "./vibe";
+import { registerAppsCommands } from "./apps";
 import {
   describeFollowFailure,
   followLogStream,
@@ -44,7 +44,7 @@ import {
   resolveAppLogsRequest,
   VIBE_LOG_CLI_DEFAULT_LIMIT,
   VIBE_LOG_CLI_MAX_LIMIT
-} from "./vibe-app-logs";
+} from "./apps-logs";
 
 const BASE_URL = "https://api.test.invalid";
 const API_KEY = "test-api-key";
@@ -95,7 +95,7 @@ async function run(
     .option("--api-key <key>", "API key")
     .option("--profile <name>", "Profile")
     .exitOverride();
-  registerVibeCommands(program);
+  registerAppsCommands(program);
 
   if (json) setJsonMode(true);
   const chunks: string[] = [];
@@ -114,8 +114,7 @@ async function run(
       BASE_URL,
       "--api-key",
       API_KEY,
-      "vibe",
-      "app",
+      "apps",
       "logs",
       ...argv
     ]);
@@ -150,7 +149,7 @@ function frame(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-describe("nexus vibe app logs — the page read", () => {
+describe("nexus apps logs — the page read", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => {
     vi.unstubAllGlobals();

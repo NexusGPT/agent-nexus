@@ -23,7 +23,7 @@ import { describeStdout } from "./json-one-document.scan";
  * that makes a green here worth reading.
  *
  * ⚠️ TWO COMMANDS IN THE LEDGER WERE NEVER DEFECTS, AND THEY ARE MARKED
- * `CONTROL` RATHER THAN HIDDEN. `known-issues` and `vibe deploy` both opened
+ * `CONTROL` RATHER THAN HIDDEN. `known-issues` and `apps deploy` both opened
  * with `if (isJsonMode()) { console.log(JSON.stringify(x)); return; }`, so the
  * whole response already reached `--json` and the printer below it was the
  * human branch. The scan cannot see that early return — it is the same shape

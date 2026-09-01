@@ -10,7 +10,7 @@ import {
   type WatchIo,
   type WatchOptions,
   type WatchOutcome
-} from "./vibe-watch";
+} from "./apps-watch";
 
 const OPTIONS: WatchOptions = {
   deployTimeoutMs: 60_000,
@@ -350,7 +350,7 @@ describe("reportWatchOutcome — served", () => {
     const { text } = captureReport(SERVED(APP({ visibility: "PRIVATE" })), "app-42");
     expect(text).toContain("by design");
     // The token path and the API path — the two the platform actually answers.
-    expect(text).toContain("nexus vibe app edge-token app-42");
+    expect(text).toContain("nexus apps edge-token app-42");
     expect(text).toContain("servingDeployment.triggerSha");
   });
 

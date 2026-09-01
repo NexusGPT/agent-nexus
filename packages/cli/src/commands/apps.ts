@@ -1,5 +1,5 @@
 /**
- * `nexus vibe …` — tenant-scoped Vibe (Nexus Git + internal deployment
+ * `nexus apps …` — tenant-scoped Vibe (Nexus Git + internal deployment
  * platform) commands. Authenticate with the org API key, same as the
  * rest of the tenant CLI.
  *
@@ -97,7 +97,17 @@ import {
   type VibeGitProjectAliasDto,
   type VibeShipGateMode
 } from "../vibe-wire-types";
-import { VIBE_REGISTER_APP_AS_TOOL_CONTRACT } from "./vibe.contract.generated";
+import { VIBE_REGISTER_APP_AS_TOOL_CONTRACT } from "./apps.contract.generated";
+import { qualifyRefName, renderDeployState } from "./apps-deploy-state";
+import {
+  assertGitAvailable,
+  assertGitRepository,
+  buildCloneArgs,
+  buildPullArgs,
+  composeCloneUrl,
+  resolveCloneDirectory,
+  runGitWithCredential
+} from "./apps-git-local";
 import {
   type AppLogsFlags,
   emitLogLines,
@@ -107,38 +117,40 @@ import {
   toLogQuery,
   VIBE_LOG_CLI_DEFAULT_SINCE,
   VIBE_LOG_CLI_LIMIT_HELP
-} from "./vibe-app-logs";
-import { qualifyRefName, renderDeployState } from "./vibe-deploy-state";
-import {
-  assertGitAvailable,
-  assertGitRepository,
-  buildCloneArgs,
-  buildPullArgs,
-  composeCloneUrl,
-  resolveCloneDirectory,
-  runGitWithCredential
-} from "./vibe-git-local";
-import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./vibe-watch";
+} from "./apps-logs";
+import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./apps-watch";
 
 // ============================================================
-// Root vibe command + audit subcommand registration
+// Root apps command + audit subcommand registration
 // ============================================================
 
-export function registerVibeCommands(program: Command): void {
-  const vibe = program
-    .command("vibe")
+export function registerAppsCommands(program: Command): void {
+  const apps = program
+    .command("apps")
     .description("Nexus Git + internal deployment platform (Vibe)")
     .addHelpText(
       "after",
       `
 Subcommands:
-  cluster          Provision / inspect your org's dedicated Vibe cluster.
-  app              Manage Vibe apps — create, list, get, update, register as a tool.
-  git-project      Manage git projects — the standalone code store apps deploy from.
-  git-credentials  Fetch your tenant git push token + clone address.
+  list             List the org's Vibe apps, newest-first — where app ids come from.
+  create           Create an app record.
+  get              Show one app by id.
+  update           Update an app (partial — only the flags you pass change).
+  delete           Destroy an app and stop serving it.
+  visibility       Make an app browser-reachable, or private again.
+  logs             Read a deployed app's runtime logs, and optionally follow them.
+  provision-repo   Give an app a new repo — or attach-repo for one you have.
+  attach-repo      Bind an existing git project to an app.
+  reprovision-repo Rebuild an app's repo backing.
+  register-as-tool Register a healthy deployed app as an agent tool.
+  edge-token       Reveal the bearer token that reaches a private deployed app.
+  rotate-edge-token  Replace that token.
   deploy           Trigger a deployment for an app from a commit sha.
   deploy-state     Did my push land, and is what I pushed what is live?
   rollback         Roll an app back to its previous healthy version.
+  git-credentials  Fetch your tenant git push token + clone address.
+  cluster          Provision / inspect your org's dedicated Vibe cluster.
+  git-project      Manage git projects — the standalone code store apps deploy from.
   deployments      List / inspect an app's deployments and their build jobs.
   env              An app's environment — list, set and remove plaintext vars,
                    and read the access cards imported into it.
@@ -149,22 +161,21 @@ Subcommands:
 🚨 THIS NAMESPACE PROVISIONS REAL CLOUD INFRASTRUCTURE THAT COSTS MONEY AND
 OUTLIVES THE COMMAND. A cluster, a git host and every running deployment keep
 consuming until something removes them; nothing here is a sandbox and nothing
-expires on its own. Treat "cluster provision", "app create", "deploy" and
-"app provision-repo" as spend, and clean up what you were only trying out.
+expires on its own. Treat "cluster provision", "create", "deploy" and
+"provision-repo" as spend, and clean up what you were only trying out.
 
 THE SUBCOMMANDS ARE LISTED ALPHABETICALLY AND THAT IS NOT THE ORDER TO RUN THEM.
 End to end, once the cluster exists:
 
-  1. vibe app create                    the app record
-  2. vibe app provision-repo            a new repo — or attach-repo for one you have
-  3. vibe git-credentials               your push token AND the address to push to
-  4. vibe git-project clone             then commit and push with plain git —
-                                        there is no "git-project commit" or
-                                        "git-project push" verb, and the remote
-                                        comes from step 3
-  5. vibe deploy                        names the commit sha to build
-  6. vibe deploy-state                  did the push land, is it what is live
-  7. vibe app register-as-tool          only once a deployment is healthy
+  1. apps create                the app record
+  2. apps provision-repo        a new repo — or attach-repo for one you have
+  3. apps git-credentials       your push token AND the address to push to
+  4. apps git-project clone     then commit and push with plain git — there is
+                                no "git-project commit" or "git-project push"
+                                verb, and the remote comes from step 3
+  5. apps deploy                names the commit sha to build
+  6. apps deploy-state          did the push land, is it what is live
+  7. apps register-as-tool      only once a deployment is healthy
 
 Each step's own --help is right about its step; nothing but this list says how
 they compose.
@@ -174,21 +185,21 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
 `
     );
 
-  registerClusterCommands(vibe, program);
-  registerAppCommands(vibe, program);
-  registerGitProjectCommands(vibe, program);
-  registerGitCredentialsCommand(vibe, program);
-  registerDeployCommand(vibe, program);
-  registerDeployStateCommand(vibe, program);
-  registerRollbackCommand(vibe, program);
-  registerDeploymentsCommands(vibe, program);
-  registerEnvCommands(vibe, program);
-  registerApprovalsCommands(vibe, program);
-  registerAuditCommands(vibe, program);
+  registerClusterCommands(apps, program);
+  registerAppCommands(apps, program);
+  registerGitProjectCommands(apps, program);
+  registerGitCredentialsCommand(apps, program);
+  registerDeployCommand(apps, program);
+  registerDeployStateCommand(apps, program);
+  registerRollbackCommand(apps, program);
+  registerDeploymentsCommands(apps, program);
+  registerEnvCommands(apps, program);
+  registerApprovalsCommands(apps, program);
+  registerAuditCommands(apps, program);
 }
 
 // ============================================================
-// vibe cluster
+// apps cluster
 // ============================================================
 
 /** The cluster health the GET surface reports. `null` cluster = none provisioned. */
@@ -218,8 +229,8 @@ interface ProvisionVibeClusterResponse {
  * operator path (`nexus admin vibe-tenant-cluster`) acts on ANOTHER org and is
  * not what a tenant reaches for.
  */
-function registerClusterCommands(vibe: Command, program: Command): void {
-  const cluster = vibe
+function registerClusterCommands(apps: Command, program: Command): void {
+  const cluster = apps
     .command("cluster")
     .description("Provision / inspect your org's dedicated Vibe cluster");
 
@@ -238,8 +249,8 @@ exists. A cluster is what lets Nexus HOST your code (the tenant git host)
 and hold your secrets.
 
 Examples:
-  $ nexus vibe cluster status
-  $ nexus vibe cluster status --json
+  $ nexus apps cluster status
+  $ nexus apps cluster status --json
 `
     )
     .action(async () => {
@@ -274,14 +285,14 @@ Provisioning is declarative and asynchronous: this records the intent and
 returns immediately, then the cluster converges on its own (typically tens
 of minutes). You do not need to wait — a git project created meanwhile is
 accepted and materializes once the cluster is up. Poll with
-"nexus vibe cluster status".
+"nexus apps cluster status".
 
 Idempotent: running it again while PROVISIONING, or against a cluster
 that is already live, reports the current state instead of erroring.
 
 Examples:
-  $ nexus vibe cluster provision --region eu-west-3
-  $ nexus vibe cluster provision --region eu-central-1 --json
+  $ nexus apps cluster provision --region eu-west-3
+  $ nexus apps cluster provision --region eu-central-1 --json
 `
     )
     .action(async (cmdOpts: { region: string }) => {
@@ -317,7 +328,7 @@ function printVibeCluster(data: GetVibeClusterResponse): void {
     console.log(color.dim("No dedicated cluster."));
     console.log(
       color.dim(
-        'A git project created with --git-url (bring-your-own-git) still builds and\ndeploys on shared infrastructure with no cluster required. A Nexus-hosted git\nproject ("git-project create" with no --git-url) needs a healthy dedicated\ncluster and stays PENDING until one exists. Provision one: nexus vibe cluster provision --region <region>'
+        'A git project created with --git-url (bring-your-own-git) still builds and\ndeploys on shared infrastructure with no cluster required. A Nexus-hosted git\nproject ("git-project create" with no --git-url) needs a healthy dedicated\ncluster and stays PENDING until one exists. Provision one: nexus apps cluster provision --region <region>'
       )
     );
     return;
@@ -354,13 +365,13 @@ const ALREADY_ACTIVE_ADVICE: Record<VibeTenantClusterStatus, string> = {
   DEGRADED:
     "It is degraded and the platform retries automatically every few minutes — " +
     "that clears ordinary drift on its own, but NOT a blocker outside the " +
-    "cluster's control (e.g. a cloud-provider capacity limit). Run \"nexus vibe " +
+    "cluster's control (e.g. a cloud-provider capacity limit). Run \"nexus apps " +
     'cluster status" for the actual reason (Reason:); if it names a capacity or ' +
     "quota limit, it self-heals once that is raised and needs no action from you " +
     "— contact support if it persists.",
   DISABLING: "It is being torn down. Wait for it to finish, then run this again to revive it.",
   DESTROYING: "It is being destroyed. Wait for it to finish, then run this again for a fresh one.",
-  PROVISIONING: "It is already being provisioned — poll with: nexus vibe cluster status",
+  PROVISIONING: "It is already being provisioned — poll with: nexus apps cluster status",
   DISABLED_RETAINED: "It is disabled. Running this again revives it in place.",
   DESTROYED: "It is destroyed. Running this again provisions a fresh one."
 };
@@ -379,7 +390,7 @@ function printProvisionOutcome(outcome: ProvisionVibeClusterOutcome, region: str
           ? `Re-provisioning your retired cluster in ${region}.`
           : `Provisioning your cluster in ${region}.`
       );
-      console.log(color.dim("It converges on its own — poll with: nexus vibe cluster status"));
+      console.log(color.dim("It converges on its own — poll with: nexus apps cluster status"));
       return;
     case "already_active":
       console.log(`Your cluster is already ${outcome.status}.`);
@@ -393,11 +404,11 @@ function printProvisionOutcome(outcome: ProvisionVibeClusterOutcome, region: str
 }
 
 // ============================================================
-// vibe deployments
+// apps deployments
 // ============================================================
 
-function registerDeploymentsCommands(vibe: Command, program: Command): void {
-  const deployments = vibe.command("deployments").description("Inspect an app's deployments");
+function registerDeploymentsCommands(apps: Command, program: Command): void {
+  const deployments = apps.command("deployments").description("Inspect an app's deployments");
 
   deployments
     .command("list <appId>")
@@ -406,7 +417,7 @@ function registerDeploymentsCommands(vibe: Command, program: Command): void {
       "after",
       `
 Notes:
-The Id column is never truncated, because "vibe deployments get <appId>
+The Id column is never truncated, because "apps deployments get <appId>
 <deploymentId>" takes it — this listing is where that second id comes from.
 
 Commit is shortened to seven characters for the table. The full trigger sha is
@@ -418,8 +429,8 @@ row carries the highest number.
 An app with no deployments prints one dim line rather than an empty table.
 
 Examples:
-  $ nexus vibe deployments list 11111111-2222-4333-8444-555555555555
-  $ nexus vibe deployments list 11111111-2222-4333-8444-555555555555 --json
+  $ nexus apps deployments list 11111111-2222-4333-8444-555555555555
+  $ nexus apps deployments list 11111111-2222-4333-8444-555555555555 --json
 `
     )
     .action(async (appId: string) => {
@@ -446,7 +457,7 @@ TWO RECORDS, NOT ONE. The deployment prints first and its build job second, and
 the build job is where Logs, Builder and Duration live. A deployment that never
 reached a build prints "No build job." instead of a second record.
 
-THIS IS THE BUILD LOG, and "vibe app logs" is the APPLICATION log. If you are
+THIS IS THE BUILD LOG, and "apps logs" is the APPLICATION log. If you are
 looking for what the container printed after it started, that is the other
 command.
 
@@ -459,8 +470,8 @@ A deployment built with --force-rebuild says so, which is what explains the -v
 suffix on its image tag.
 
 Examples:
-  $ nexus vibe deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
-  $ nexus vibe deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --json
+  $ nexus apps deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
+  $ nexus apps deployments get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --json
 `
     )
     .action(async (appId: string, deploymentId: string) => {
@@ -478,11 +489,11 @@ Examples:
 }
 
 // ============================================================
-// vibe env
+// apps env
 // ============================================================
 
-function registerEnvCommands(vibe: Command, program: Command): void {
-  const env = vibe
+function registerEnvCommands(apps: Command, program: Command): void {
+  const env = apps
     .command("env")
     .description("Manage an app's plaintext env vars, and read its imported access cards");
 
@@ -517,9 +528,9 @@ Older servers do not report cards. They answer with variables only and this
 table has no card rows, which is not the same as an app having no cards.
 
 Examples:
-  $ nexus vibe env list 11111111-2222-4333-8444-555555555555
-  $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.envVars[].name'
-  $ nexus vibe env list 11111111-2222-4333-8444-555555555555 --json | jq '.cardBindings[] | select(.status != "ACTIVE")'
+  $ nexus apps env list 11111111-2222-4333-8444-555555555555
+  $ nexus apps env list 11111111-2222-4333-8444-555555555555 --json | jq '.envVars[].name'
+  $ nexus apps env list 11111111-2222-4333-8444-555555555555 --json | jq '.cardBindings[] | select(.status != "ACTIVE")'
 
 Notes:
   THE Card COLUMN NAMES WHOSE AUTHORITY A CARD ROW CARRIES — the credential
@@ -530,7 +541,7 @@ Notes:
   order the deployer resolves: ALL first, then the scope that overwrites it by
   name. A scope this CLI does not recognise sorts to the TOP rather than being
   buried in the middle. Which scope a deployment actually reads is on
-  "nexus vibe env set".`
+  "nexus apps env set".`
     )
     .action(async (appId: string) => {
       try {
@@ -569,12 +580,12 @@ Notes:
   is a value that never takes effect while the table shows it plainly.
   Keep each NAME at exactly ONE scope anyway: ALL for a value that never varies,
   PROD for one that does. Two rows for one name is legal, resolvable and
-  unreadable at a glance — delete the loser with "vibe env rm".
+  unreadable at a glance — delete the loser with "apps env rm".
 
 Examples:
-  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 LOG_LEVEL=debug
-  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 DATABASE_URL=postgres://… --scope PROD
-  $ nexus vibe env set 11111111-2222-4333-8444-555555555555 FEATURE_OFF=
+  $ nexus apps env set 11111111-2222-4333-8444-555555555555 LOG_LEVEL=debug
+  $ nexus apps env set 11111111-2222-4333-8444-555555555555 DATABASE_URL=postgres://… --scope PROD
+  $ nexus apps env set 11111111-2222-4333-8444-555555555555 FEATURE_OFF=
 `
     )
     .action(async (appId: string, assignment: string, cmdOpts: { scope?: string }) => {
@@ -595,7 +606,7 @@ Examples:
 
   env
     .command("rm <appId> <envVarId>")
-    .description("Remove an env var by id (find the id via `nexus vibe env list`)")
+    .description("Remove an env var by id (find the id via `nexus apps env list`)")
     .addHelpText(
       "after",
       `
@@ -607,7 +618,7 @@ Variables only. A card row's id is a binding id and this route does not
 know it, so it answers 404 — revoke a card from the console instead.
 
 Examples:
-  $ nexus vibe env rm 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
+  $ nexus apps env rm 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
 `
     )
     .action(async (appId: string, envVarId: string) => {
@@ -625,11 +636,11 @@ Examples:
 }
 
 // ============================================================
-// vibe approvals
+// apps approvals
 // ============================================================
 
-function registerApprovalsCommands(vibe: Command, program: Command): void {
-  const approvals = vibe.command("approvals").description("Review gated deployments");
+function registerApprovalsCommands(apps: Command, program: Command): void {
+  const approvals = apps.command("approvals").description("Review gated deployments");
 
   approvals
     .command("pending")
@@ -639,11 +650,11 @@ function registerApprovalsCommands(vibe: Command, program: Command): void {
       `
 Notes:
 The reviewer queue — every deployment waiting on an approval gate, across
-all apps in your org. Decide one with \`nexus vibe approvals decide\`.
+all apps in your org. Decide one with \`nexus apps approvals decide\`.
 
 Examples:
-  $ nexus vibe approvals pending
-  $ nexus vibe approvals pending --json | jq '.requests[].vibeDeploymentId'
+  $ nexus apps approvals pending
+  $ nexus apps approvals pending --json | jq '.requests[].vibeDeploymentId'
 `
     )
     .action(async () => {
@@ -670,7 +681,7 @@ Returns 404 when the deployment is ungated (no approval gate) or not in
 your org.
 
 Examples:
-  $ nexus vibe approvals get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
+  $ nexus apps approvals get 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa
 `
     )
     .action(async (appId: string, deploymentId: string) => {
@@ -700,8 +711,8 @@ Pass exactly one of --approve / --reject. You cannot decide your own
 deployment (403); a duplicate or already-decided/expired request is 409.
 
 Examples:
-  $ nexus vibe approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --approve
-  $ nexus vibe approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --reject --note "needs a migration first"
+  $ nexus apps approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --approve
+  $ nexus apps approvals decide 11111111-2222-4333-8444-555555555555 66666666-7777-4888-8999-aaaaaaaaaaaa --reject --note "needs a migration first"
 `
     )
     .action(
@@ -745,11 +756,11 @@ function resolveDecision(cmdOpts: {
 }
 
 // ============================================================
-// vibe git-credentials
+// apps git-credentials
 // ============================================================
 
-function registerGitCredentialsCommand(vibe: Command, program: Command): void {
-  vibe
+function registerGitCredentialsCommand(apps: Command, program: Command): void {
+  apps
     .command("git-credentials")
     .description("Fetch your org's git push token + tenant git host address")
     .addHelpText(
@@ -761,7 +772,7 @@ Org-scoped — the credential is your own (your org API key authenticates).
 
 Push a repo (the repo name is your Vibe app's repo on the host). --json
 prints the credential fields at the top level:
-  $ creds=$(nexus vibe git-credentials --json)
+  $ creds=$(nexus apps git-credentials --json)
   $ base=$(echo "$creds" | jq -r '.cloneUrlBase')
   $ user=$(echo "$creds" | jq -r '.username')
   $ tok=$(echo "$creds" | jq -r '.pushToken')
@@ -776,7 +787,7 @@ push is a non-fast-forward and git rejects it with a bare "fetch first".
 Nothing on the git host can explain that rejection when it happens — git
 decides it locally, on your machine, and never contacts the server. So take
 one of these instead:
-  $ nexus vibe git-project clone <projectId>          # start from the repo
+  $ nexus apps git-project clone <projectId>          # start from the repo
   $ git fetch origin && git rebase origin/<branch>    # keep local work you have
 
 The pushToken is a LIVE SECRET — it grants git push to your repos. Treat the
@@ -786,8 +797,8 @@ Returns 404 if your org has no dedicated git host, 409 if the host has not
 finished provisioning yet (retry shortly).
 
 Examples:
-  $ nexus vibe git-credentials
-  $ nexus vibe git-credentials --json | jq -r '.cloneUrlBase'
+  $ nexus apps git-credentials
+  $ nexus apps git-credentials --json | jq -r '.cloneUrlBase'
 
 Notes:
   THE "Org" ROW IS NOT YOUR NEXUS ORGANIZATION. forgejoOrg is the path segment
@@ -848,16 +859,16 @@ function printGitCredentials(creds: VibeGitCredentialsDto): void {
     color.yellow('Repos are created seeded, so a virgin first push is rejected with "fetch first".')
   );
   console.log(
-    color.dim("Clone the project (nexus vibe git-project clone <id>), or rebase onto it first.")
+    color.dim("Clone the project (nexus apps git-project clone <id>), or rebase onto it first.")
   );
 }
 
 // ============================================================
-// vibe deploy
+// apps deploy
 // ============================================================
 
-function registerDeployCommand(vibe: Command, program: Command): void {
-  vibe
+function registerDeployCommand(apps: Command, program: Command): void {
+  apps
     .command("deploy <appId>")
     .description("Trigger a deployment for an app from a commit sha")
     .requiredOption("--sha <sha>", "Commit sha to deploy (7–40 hex chars).")
@@ -918,12 +929,12 @@ nothing. Nothing is rebuilt either way — the gate runs after the build, so
 the image already exists and an override ships it as-is.
 
 Examples:
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --watch
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --force-rebuild
-  $ nexus vibe deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --skip-verification
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4d…full40
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --confirm-overage
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --watch
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --force-rebuild
+  $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4 --skip-verification
 `
     )
     .action(
@@ -950,7 +961,7 @@ Examples:
             // reused image they asked to replace and look like it worked —
             // and one that drops --skip-verification would be refused by the
             // gate the operator just chose to pass.
-            `nexus vibe deploy ${appId} --sha ${cmdOpts.sha}` +
+            `nexus apps deploy ${appId} --sha ${cmdOpts.sha}` +
               `${cmdOpts.forceRebuild === true ? " --force-rebuild" : ""}` +
               `${cmdOpts.skipVerification === true ? " --skip-verification" : ""}` +
               ` --confirm-overage`,
@@ -1040,11 +1051,11 @@ async function runDeploymentWatch(
 }
 
 // ============================================================
-// vibe deploy-state
+// apps deploy-state
 // ============================================================
 
 /**
- * The push-to-deploy answer, in one call — see `vibe-deploy-state.ts` for why
+ * The push-to-deploy answer, in one call — see `apps-deploy-state.ts` for why
  * the rendering is a separate, pure module.
  *
  * A thin wrapper on purpose: the endpoint already carries a discriminated
@@ -1053,8 +1064,8 @@ async function runDeploymentWatch(
  * client back on parsing `git push` stdout, which is the defect the endpoint
  * was built to retire.
  */
-function registerDeployStateCommand(vibe: Command, program: Command): void {
-  vibe
+function registerDeployStateCommand(apps: Command, program: Command): void {
+  apps
     .command("deploy-state <appId>")
     .description("Did my push land, and is what I pushed what is live?")
     .option(
@@ -1077,7 +1088,7 @@ remote URL looks exactly like a success report.
 Branch on 'outcome', never on the exit code. This command exits 0 whenever
 the QUESTION was answered; NOT_RECEIVED is a successful read of a bad
 situation, not a failed command. (The verb that branches on exit code is
-'vibe deploy --watch'.)
+'apps deploy --watch'.)
 
   DEPLOYED               a deployment exists for this commit
   RECEIVED_NOT_DEPLOYED  the push landed and nothing deployed it
@@ -1103,21 +1114,21 @@ neither to ask about the app's own deploy branch, which is what someone who
 just ran 'git push' wants and cannot always name.
 
 Examples:
-  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555
-  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
-  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --ref main
-  $ nexus vibe deploy-state 11111111-2222-4333-8444-555555555555 --json
+  $ nexus apps deploy-state 11111111-2222-4333-8444-555555555555
+  $ nexus apps deploy-state 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4
+  $ nexus apps deploy-state 11111111-2222-4333-8444-555555555555 --ref main
+  $ nexus apps deploy-state 11111111-2222-4333-8444-555555555555 --json
 
 Notes:
   EACH OUTCOME NAMES A DIFFERENT FIX, AND ONLY ONE OF THEM IS ABOUT THE PUSH.
-    NO_REPOSITORY          "vibe app attach-repo <appId> <gitProjectId>", then
-                           re-run this. "vibe git-project list" finds the id.
+    NO_REPOSITORY          "apps attach-repo <appId> <gitProjectId>", then
+                           re-run this. "apps git-project list" finds the id.
     RECEIVED_NOT_DEPLOYED  the push LANDED, so nothing about it needs redoing.
                            Three causes: it went to a branch that is not the
-                           app's deploy branch ("vibe app update
+                           app's deploy branch ("apps update
                            --deploy-branch"); no app is attached to the project
-                           it went to ("vibe app attach-repo"); or the org is
-                           suspended ("vibe audit list --type
+                           it went to ("apps attach-repo"); or the org is
+                           suspended ("apps audit list --type
                            COST_SAFETY_AUTO_SUSPENDED").
     NOT_RECEIVED           ask about the REF instead — "--ref <branch>". Ref
                            rows record HEADS, so a commit that landed and was
@@ -1163,11 +1174,11 @@ Notes:
 }
 
 // ============================================================
-// vibe rollback
+// apps rollback
 // ============================================================
 
-function registerRollbackCommand(vibe: Command, program: Command): void {
-  vibe
+function registerRollbackCommand(apps: Command, program: Command): void {
+  apps
     .command("rollback <appId>")
     .description("Roll an app back to its previous healthy version")
     .option("--to <sha>", "Redeploy this specific commit sha instead of the previous version.")
@@ -1199,9 +1210,9 @@ it triggers an ordinary build+deploy of that sha, exactly like
 \`deploy --sha\`. It is not atomic and it rebuilds.
 
 Examples:
-  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555
-  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555 --watch
-  $ nexus vibe rollback 11111111-2222-4333-8444-555555555555 --to 1a2b3c4
+  $ nexus apps rollback 11111111-2222-4333-8444-555555555555
+  $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --watch
+  $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --to 1a2b3c4
 `
     )
     .action(
@@ -1230,7 +1241,7 @@ Examples:
               opts,
               appId,
               triggerSha,
-              `nexus vibe rollback ${appId} --to ${cmdOpts.to}` +
+              `nexus apps rollback ${appId} --to ${cmdOpts.to}` +
                 `${cmdOpts.skipVerification === true ? " --skip-verification" : ""}` +
                 ` --confirm-overage`,
               cmdOpts.confirmOverage === true,
@@ -1294,13 +1305,14 @@ function printRollback(data: RollbackAppResponse): void {
 }
 
 // ============================================================
-// vibe app
+// apps
 // ============================================================
 
-function registerAppCommands(vibe: Command, program: Command): void {
-  const app = vibe.command("app").description("Manage Vibe apps");
+function registerAppCommands(apps: Command, program: Command): void {
+  // The `app` group is deliberately absent: these leaves hang directly off
+  // `apps`, so the verb is `nexus apps create`, never `nexus apps app create`.
 
-  app
+  apps
     .command("list")
     .description("List the org's Vibe apps, newest-first")
     .addHelpText(
@@ -1308,20 +1320,20 @@ function registerAppCommands(vibe: Command, program: Command): void {
       `
 Notes:
 THIS IS WHERE THE APP ID COMES FROM, which is why the Id column is never
-truncated: every other "vibe" verb takes that id as an argument.
+truncated: every other "apps" verb takes that id as an argument.
 
 The Source column earns its place by separating the two apps that look
 identical in every other column — the app nobody has pushed to yet, and the app
-that has no source to push to at all. "vibe app get" has room for the fix.
+that has no source to push to at all. "apps get" has room for the fix.
 
-Approvals reads "required" or "off" and is the gate "vibe approvals" works on.
+Approvals reads "required" or "off" and is the gate "apps approvals" works on.
 An app with no deployments yet still lists here.
 
 An org with no apps prints one dim line; --json returns the payload either way.
 
 Examples:
-  $ nexus vibe app list
-  $ nexus vibe app list --json
+  $ nexus apps list
+  $ nexus apps list --json
 `
     )
     .action(async () => {
@@ -1337,20 +1349,20 @@ Examples:
       }
     });
 
-  app
+  apps
     .command("get <appId>")
     .description("Show one Vibe app by id")
     .addHelpText(
       "after",
       `
 Examples:
-  $ nexus vibe app get 11111111-2222-4333-8444-555555555555
-  $ nexus --json vibe app get 11111111-2222-4333-8444-555555555555
+  $ nexus apps get 11111111-2222-4333-8444-555555555555
+  $ nexus --json apps get 11111111-2222-4333-8444-555555555555
 
 Notes:
   THIS READ RESOLVES TWO JOINS NO OTHER APP COMMAND DOES. "deployability" and
   "gitProject" sit BESIDE the app, never on it, and create/update answer without
-  them — so a script reading either off "vibe app update" gets undefined rather
+  them — so a script reading either off "apps update" gets undefined rather
   than a value.
     deployability  DEPLOYABLE, NO_SOURCE_ATTACHED or SOURCE_NOT_READY — the
                    one-field answer to "why does my URL do nothing".
@@ -1396,7 +1408,7 @@ Notes:
       }
     });
 
-  app
+  apps
     .command("logs <appId>")
     .description("Read a deployed app's runtime logs, and optionally follow them")
     .option(
@@ -1416,7 +1428,7 @@ Notes:
       `
 Notes:
 Reads what the DEPLOYED app printed — application output, not build output. For
-a build log, use \`nexus vibe deployments get <appId> <deploymentId>\`.
+a build log, use \`nexus apps deployments get <appId> <deploymentId>\`.
 
 Lines print oldest-first, so time runs down the screen and a --follow continues
 the same chronology.
@@ -1438,10 +1450,10 @@ Ctrl-C followed by a supervisor's SIGTERM reaches it \u2014 the ordinary shape o
 shutdown \u2014 and so does a SIGTERM pair, which still reports 130 rather than 143.
 
 Examples:
-  $ nexus vibe app logs 11111111-2222-4333-8444-555555555555
-  $ nexus vibe app logs <appId> --since 15m --color green
-  $ nexus vibe app logs <appId> --grep 'POST /webhook' --limit 500
-  $ nexus --json vibe app logs <appId> --follow | jq -r '.message'
+  $ nexus apps logs 11111111-2222-4333-8444-555555555555
+  $ nexus apps logs <appId> --since 15m --color green
+  $ nexus apps logs <appId> --grep 'POST /webhook' --limit 500
+  $ nexus --json apps logs <appId> --follow | jq -r '.message'
 `
     )
     .action(async (appId: string, cmdOpts: AppLogsFlags) => {
@@ -1465,7 +1477,7 @@ Examples:
       }
     });
 
-  app
+  apps
     .command("update <appId>")
     .description("Update a Vibe app (partial — only the flags you pass change)")
     .option(
@@ -1499,10 +1511,10 @@ left untouched). At least one flag is required. --resource-quotas and
 fully validates the new shape, so pass every field.
 
 Examples:
-  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
-  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --require-approvals true
-  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --ship-gate warn
-  $ nexus vibe app update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
+  $ nexus apps update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
+  $ nexus apps update 11111111-2222-4333-8444-555555555555 --require-approvals true
+  $ nexus apps update 11111111-2222-4333-8444-555555555555 --ship-gate warn
+  $ nexus apps update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
 
 Notes:
   --ship-gate IS THE FLAG THAT REACHES ALL THREE STATES. The app stores
@@ -1511,7 +1523,7 @@ Notes:
     off      the gate never reads the repository.
     warn     the gate reads it, records what it found, and ships the deploy
              anyway. This is the on-ramp: turn it on across a fleet, then read
-             "nexus vibe audit list --type DEPLOYMENT_VERIFICATION_WARNED" to
+             "nexus apps audit list --type DEPLOYMENT_VERIFICATION_WARNED" to
              see how often ENFORCE would have refused before you enforce.
     enforce  a missing or red artifact refuses the deploy.
   --require-verification IS A TWO-STATE FLAG OVER A THREE-STATE FIELD, kept for
@@ -1557,7 +1569,7 @@ Notes:
       }
     );
 
-  app
+  apps
     .command("create <name>")
     .description("Create a new Vibe app")
     .option("--description <text>", "Optional app description.")
@@ -1585,9 +1597,9 @@ would conflict on that name — use "attach-repo" to point the app at the
 project that already exists.
 
 Examples:
-  $ nexus vibe app create stripe-handler
-  $ nexus vibe app create orders-api --description "Order webhook handler"
-  $ nexus vibe app create landing --public
+  $ nexus apps create stripe-handler
+  $ nexus apps create orders-api --description "Order webhook handler"
+  $ nexus apps create landing --public
 
 Notes:
   THAT WARNING GOES TO STDERR, AND --json DOES NOT SUPPRESS IT. stdout stays the
@@ -1595,7 +1607,7 @@ Notes:
   stream rather than corrupting it. A script capturing stdout alone loses the
   warning in silence, and so does a "2>&1 | head" whose window the app table
   fills first. Capture stderr on its own, or find the project again with
-  "nexus vibe git-project list".
+  "nexus apps git-project list".
 `
     )
     .action(async (name: string, cmdOpts: { description?: string; public?: boolean }) => {
@@ -1624,7 +1636,7 @@ Notes:
             color.yellow(
               `A git project named "${p.name}" (${p.status}) already exists in this organization.\n` +
                 `"provision-repo" mints a project named after the app, so it will conflict on that name. ` +
-                `Attach the existing one instead:\n  nexus vibe app attach-repo ${data.app.id} ${p.id}`
+                `Attach the existing one instead:\n  nexus apps attach-repo ${data.app.id} ${p.id}`
             )
           );
         }
@@ -1633,7 +1645,7 @@ Notes:
       }
     });
 
-  app
+  apps
     .command("visibility <appId> <mode>")
     .description("Set who may reach a deployed app: public (anyone) or private (identity required)")
     .addHelpText(
@@ -1657,8 +1669,8 @@ Re-asserting the visibility an app already has is a no-op: no token is
 minted and nothing is re-published.
 
 Examples:
-  $ nexus vibe app visibility 11111111-2222-4333-8444-555555555555 public
-  $ nexus vibe app visibility 11111111-2222-4333-8444-555555555555 private
+  $ nexus apps visibility 11111111-2222-4333-8444-555555555555 public
+  $ nexus apps visibility 11111111-2222-4333-8444-555555555555 private
 `
     )
     .action(async (appId: string, mode: string) => {
@@ -1765,9 +1777,9 @@ Examples:
             color.yellow("  Re-point the tool at the new token (register-as-tool cannot — it 409s")
           );
           console.log(color.yellow("  on an app that already has one):"));
-          console.log(color.dim(`    nexus vibe app edge-token ${appId}`));
+          console.log(color.dim(`    nexus apps edge-token ${appId}`));
           console.log(color.dim("      → the new token, and the header name to send it in"));
-          console.log(color.dim(`    nexus --json vibe app get ${appId} | jq -r .linkedToolId`));
+          console.log(color.dim(`    nexus --json apps get ${appId} | jq -r .linkedToolId`));
           console.log(color.dim("      → the tool to repair"));
           console.log(color.dim("    nexus external-tool update-auth <toolId> --body \\"));
           console.log(
@@ -1781,7 +1793,7 @@ Examples:
       }
     });
 
-  confirmable(app.command("delete <appId>"))
+  confirmable(apps.command("delete <appId>"))
     .description("Delete a Vibe app and stop serving it")
     .addHelpText(
       "after",
@@ -1796,22 +1808,22 @@ outlives any one of them. Remove it separately with "git-project delete" if
 nothing else needs it.
 
 🚨 THE APP'S ENVIRONMENT VARIABLES GO WITH IT, AND THEY ARE NOT IN THE GIT
-PROJECT. "vibe env" is a sibling namespace, so it is easy to assume its rows
+PROJECT. "apps env" is a sibling namespace, so it is easy to assume its rows
 survive alongside the code; they do not. Every plaintext var and every imported
 access card on this app becomes unreachable the moment it is deleted, and
 re-creating an app with the same name does not bring them back. Copy them out
-first — "nexus vibe env list <appId> --json" — if you might rebuild this app.
+first — "nexus apps env list <appId> --json" — if you might rebuild this app.
 
 Examples:
-  $ nexus vibe app delete 11111111-2222-4333-8444-555555555555
-  $ nexus vibe app delete 11111111-2222-4333-8444-555555555555 --yes
+  $ nexus apps delete 11111111-2222-4333-8444-555555555555
+  $ nexus apps delete 11111111-2222-4333-8444-555555555555 --yes
 `
     )
     .action(async (appId: string, cmdOpts: { yes?: boolean }) => {
       try {
         const ok = await confirmDestructive(`Delete app ${appId}? It will stop being served.`, {
           ...cmdOpts,
-          rerun: `nexus vibe app delete ${appId} --yes`
+          rerun: `nexus apps delete ${appId} --yes`
         });
         if (!ok) {
           // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
@@ -1839,7 +1851,7 @@ Examples:
       }
     });
 
-  app
+  apps
     .command("edge-token <appId>")
     .description("Reveal the token a caller needs to reach this app while it is private")
     .addHelpText(
@@ -1862,15 +1874,15 @@ A TOKEN THAT SUDDENLY STOPS WORKING IS USUALLY A VISIBILITY FLIP, NOT AN
 EXPIRY. Going public DESTROYS the token (this command then 409s); going private
 again mints a FRESH one rather than restoring the old. Either direction breaks
 every caller holding the previous value, including registered tools. Check
-"nexus vibe app get <appId>" for the current mode before hunting for a rotation
+"nexus apps get <appId>" for the current mode before hunting for a rotation
 you did not run.
 
 The token is printed in full. Treat the output as a secret: pipe it, don't paste
 it into a shared terminal.
 
 Examples:
-  $ nexus vibe app edge-token 11111111-2222-4333-8444-555555555555
-  $ nexus --json vibe app edge-token 11111111-2222-4333-8444-555555555555
+  $ nexus apps edge-token 11111111-2222-4333-8444-555555555555
+  $ nexus --json apps edge-token 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (appId: string) => {
@@ -1886,7 +1898,7 @@ Examples:
       }
     });
 
-  confirmable(app.command("rotate-edge-token <appId>"))
+  confirmable(apps.command("rotate-edge-token <appId>"))
     .description("Mint a fresh edge token for a private app and retire the old one")
     .addHelpText(
       "after",
@@ -1901,15 +1913,15 @@ If the app is registered as an agent tool, the tool holds a copy of the old
 token and must be re-registered. The command says so when that applies.
 
 Examples:
-  $ nexus vibe app rotate-edge-token 11111111-2222-4333-8444-555555555555
-  $ nexus vibe app rotate-edge-token 11111111-2222-4333-8444-555555555555 --yes
+  $ nexus apps rotate-edge-token 11111111-2222-4333-8444-555555555555
+  $ nexus apps rotate-edge-token 11111111-2222-4333-8444-555555555555 --yes
 `
     )
     .action(async (appId: string, cmdOpts: { yes?: boolean }) => {
       try {
         const ok = await confirmDestructive(
           `Rotate the edge token for ${appId}? Callers using the current token stop working immediately.`,
-          { ...cmdOpts, rerun: `nexus vibe app rotate-edge-token ${appId} --yes` }
+          { ...cmdOpts, rerun: `nexus apps rotate-edge-token ${appId} --yes` }
         );
         if (!ok) {
           // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
@@ -1933,7 +1945,7 @@ Examples:
       }
     });
 
-  const registerAsTool = app
+  const registerAsTool = apps
     .command("register-as-tool <appId>")
     .description("Register a deployed Vibe app as a CUSTOM_MANIFEST agent tool")
     .option("--spec-file <path>", "Path to the app's OpenAPI spec file (JSON or YAML).")
@@ -1949,8 +1961,8 @@ Examples:
 Notes:
 DEPLOY FIRST. This is the last step of the flow, not a way to set one up: an app
 with no healthy deployment is refused with a 409 saying exactly that, and it is
-the first thing most people hit. Run "nexus vibe deploy <appId>" and confirm
-with "nexus vibe deploy-state <appId>" before coming here.
+the first thing most people hit. Run "nexus apps deploy <appId>" and confirm
+with "nexus apps deploy-state <appId>" before coming here.
 
 The platform owns the tool's endpoint URL — it is the app's canonical
 public URL (\`VibeApp.publicUrl\`), set server-side. You cannot point the
@@ -1962,9 +1974,9 @@ defaults to none at v1 — a deployed Vibe app is reachable without extra
 credentials; tighten per-app as Vault-backed secrets land.
 
 Examples:
-  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json
-  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./api.yaml --name "Orders API"
-  $ nexus vibe app register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json --json | jq .id
+  $ nexus apps register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json
+  $ nexus apps register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./api.yaml --name "Orders API"
+  $ nexus apps register-as-tool 11111111-2222-4333-8444-555555555555 --spec-file ./openapi.json --json | jq .id
 `
     )
     .action(
@@ -1999,7 +2011,7 @@ Examples:
   // `bindCommand` on why the call must come last.
   bindCommand(registerAsTool, VIBE_REGISTER_APP_AS_TOOL_CONTRACT);
 
-  app
+  apps
     .command("provision-repo <appId>")
     .description("Provision a git project for a Vibe app")
     .option(
@@ -2025,8 +2037,8 @@ with a bare "fetch first". Clone the project instead, or rebase your local
 work onto it; the command's output prints both forms.
 
 Examples:
-  $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url file:///tmp/my-repo
-  $ nexus vibe app provision-repo 11111111-2222-4333-8444-555555555555 --git-url https://github.com/acme/svc.git
+  $ nexus apps provision-repo 11111111-2222-4333-8444-555555555555 --git-url file:///tmp/my-repo
+  $ nexus apps provision-repo 11111111-2222-4333-8444-555555555555 --git-url https://github.com/acme/svc.git
 `
     )
     .action(async (appId: string, cmdOpts: { gitUrl?: string }) => {
@@ -2046,7 +2058,7 @@ Examples:
       }
     });
 
-  app
+  apps
     .command("attach-repo <appId> <gitProjectId>")
     .description("Attach an EXISTING git project to a Vibe app")
     .addHelpText(
@@ -2062,15 +2074,15 @@ to. An app that was never attached is invisible to that fan-out, so every
 push advances the project's refs and deploys nothing — and, because a
 project with no apps is a legitimate code store, nothing reports it as
 wrong. If your app says "Never deployed" while your pushes succeed, this is
-almost certainly why. Check with "nexus vibe app get <appId>".
+almost certainly why. Check with "nexus apps get <appId>".
 
 Attaching to the project the app already has is a no-op success, so this is
 safe to re-run. Attaching to a DIFFERENT project returns 409 — an app is not
 re-pointed at another code store by accident.
 
 Examples:
-  $ nexus vibe app attach-repo 11111111-2222-4333-8444-555555555555 99999999-8888-4777-8666-555555555555
-  $ nexus vibe git-project list      # find the project id
+  $ nexus apps attach-repo 11111111-2222-4333-8444-555555555555 99999999-8888-4777-8666-555555555555
+  $ nexus apps git-project list      # find the project id
 `
     )
     .action(async (appId: string, gitProjectId: string) => {
@@ -2087,7 +2099,7 @@ Examples:
       }
     });
 
-  app
+  apps
     .command("reprovision-repo <appId>")
     .description("Retry provisioning a FAILED git project")
     .addHelpText(
@@ -2103,7 +2115,7 @@ Only a FAILED project can be retried — READY / PENDING / ARCHIVED return
 409, and an app with no git project returns 404.
 
 Examples:
-  $ nexus vibe app reprovision-repo 11111111-2222-4333-8444-555555555555
+  $ nexus apps reprovision-repo 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (appId: string) => {
@@ -2121,11 +2133,11 @@ Examples:
 }
 
 // ============================================================
-// vibe git-project
+// apps git-project
 // ============================================================
 
-function registerGitProjectCommands(vibe: Command, program: Command): void {
-  const project = vibe
+function registerGitProjectCommands(apps: Command, program: Command): void {
+  const project = apps
     .command("git-project")
     .description("Manage git projects — the standalone code store apps deploy from")
     .addHelpText(
@@ -2138,7 +2150,7 @@ no app attached is a pure code store. Push to it and its refs advance; nothing
 deploys, because deployment is an app's job.
 
 Apps point at a project ("many apps → one project"), so one code store can
-back several apps watching different branches. "nexus vibe app provision-repo"
+back several apps watching different branches. "nexus apps provision-repo"
 is the app-centric shortcut that creates a project and attaches it in one step.
 
 "clone" and "pull" drive a real git on this machine, so a project is usable
@@ -2146,12 +2158,12 @@ end-to-end from the CLI: clone it, commit, push with the remote that
 "git-credentials" prints, then pull the next change back.
 
 Examples:
-  $ nexus vibe git-project create my-lib
-  $ nexus vibe git-project list
-  $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
-  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 ./my-lib
-  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555 ./my-lib
-  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project create my-lib
+  $ nexus apps git-project list
+  $ nexus apps git-project get 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project clone 11111111-2222-4333-8444-555555555555 ./my-lib
+  $ nexus apps git-project pull 11111111-2222-4333-8444-555555555555 ./my-lib
+  $ nexus apps git-project delete 11111111-2222-4333-8444-555555555555
 `
     );
 
@@ -2187,8 +2199,8 @@ repo under it. Release the name with "git-project delete" when you no longer
 need the project.
 
 Examples:
-  $ nexus vibe git-project create shared-lib
-  $ nexus vibe git-project create shared-lib --description "Shared helpers" --default-branch trunk
+  $ nexus apps git-project create shared-lib
+  $ nexus apps git-project create shared-lib --description "Shared helpers" --default-branch trunk
 `
     )
     .action(
@@ -2226,8 +2238,8 @@ Lists every project in your org — standalone code stores and the ones apps
 are attached to alike, in every lifecycle status.
 
 Examples:
-  $ nexus vibe git-project list
-  $ nexus vibe --json git-project list
+  $ nexus apps git-project list
+  $ nexus apps --json git-project list
 `
     )
     .action(async () => {
@@ -2255,10 +2267,10 @@ has not been materialized on the git host yet; READY is serving. FAILED means
 materialization failed — retry it with "git-project reprovision".
 
 Build source is what the build executor clones — it is not your push remote.
-Run "nexus vibe git-credentials" for the URL and token you push with.
+Run "nexus apps git-credentials" for the URL and token you push with.
 
 Examples:
-  $ nexus vibe git-project get 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project get 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (projectId: string) => {
@@ -2295,9 +2307,9 @@ The project must be READY — a PENDING project has not materialized on the git
 host yet, and cloning it would fail inside git with a much worse message.
 
 Examples:
-  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555
-  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 ./shared-lib
-  $ nexus vibe git-project clone 11111111-2222-4333-8444-555555555555 --branch trunk
+  $ nexus apps git-project clone 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project clone 11111111-2222-4333-8444-555555555555 ./shared-lib
+  $ nexus apps git-project clone 11111111-2222-4333-8444-555555555555 --branch trunk
 `
     )
     .action(
@@ -2313,7 +2325,7 @@ Examples:
           const gitProject = projectData.gitProject;
           if (gitProject.status !== "READY") {
             throw new Error(
-              `Git project "${gitProject.name}" is ${gitProject.status}, not READY — it has not materialized on your git host yet. Check "nexus vibe git-project get ${projectId}".`
+              `Git project "${gitProject.name}" is ${gitProject.status}, not READY — it has not materialized on your git host yet. Check "nexus apps git-project get ${projectId}".`
             );
           }
 
@@ -2351,7 +2363,7 @@ Examples:
           }
           console.log(`${color.green("✓")} Cloned ${gitProject.name}@${branch} into ${target}`);
           console.log(
-            color.dim(`Update it later with: nexus vibe git-project pull ${projectId} ${target}`)
+            color.dim(`Update it later with: nexus apps git-project pull ${projectId} ${target}`)
           );
         } catch (err) {
           process.exitCode = handleError(err);
@@ -2376,8 +2388,8 @@ outcome than a merge commit created behind your back. Resolve a divergence
 yourself, then re-run.
 
 Examples:
-  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555
-  $ nexus vibe git-project pull 11111111-2222-4333-8444-555555555555 ./shared-lib
+  $ nexus apps git-project pull 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project pull 11111111-2222-4333-8444-555555555555 ./shared-lib
 `
     )
     .action(async (projectId: string, directory: string | undefined) => {
@@ -2421,7 +2433,7 @@ and your tenant re-materializes it on its next pass; nothing else changes
 Only a FAILED project can be retried — READY / PENDING / ARCHIVED return 409.
 
 Examples:
-  $ nexus vibe git-project reprovision 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project reprovision 11111111-2222-4333-8444-555555555555
 `
     )
     .action(async (projectId: string) => {
@@ -2451,15 +2463,15 @@ means it stops deploying on push. Check with "app get <appId>" before deleting a
 project you did not create standalone.
 
 Examples:
-  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555
-  $ nexus vibe git-project delete 11111111-2222-4333-8444-555555555555 --yes
+  $ nexus apps git-project delete 11111111-2222-4333-8444-555555555555
+  $ nexus apps git-project delete 11111111-2222-4333-8444-555555555555 --yes
 `
     )
     .action(async (projectId: string, cmdOpts: { yes?: boolean }) => {
       try {
         const ok = await confirmDestructive(
           `Delete git project ${projectId}? Apps pointing at it stop deploying.`,
-          { ...cmdOpts, rerun: `nexus vibe git-project delete ${projectId} --yes` }
+          { ...cmdOpts, rerun: `nexus apps git-project delete ${projectId} --yes` }
         );
         if (!ok) {
           // ??=, NOT =. `confirmDestructive` ALREADY set the code when it
@@ -2489,11 +2501,11 @@ Examples:
 }
 
 // ============================================================
-// vibe audit
+// apps audit
 // ============================================================
 
-function registerAuditCommands(vibe: Command, program: Command): void {
-  const audit = vibe.command("audit").description("Read the per-org Vibe audit feed");
+function registerAuditCommands(apps: Command, program: Command): void {
+  const audit = apps.command("audit").description("Read the per-org Vibe audit feed");
 
   audit
     .command("list")
@@ -2512,12 +2524,12 @@ function registerAuditCommands(vibe: Command, program: Command): void {
       "after",
       `
 Examples:
-  $ nexus vibe audit list
-  $ nexus vibe audit list --limit 20
-  $ nexus vibe audit list --type DEPLOYMENT_TRIGGERED --app 11111111-2222-4333-8444-555555555555
-  $ nexus vibe audit list --type DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK --app <appId>
-  $ nexus vibe audit list --cursor "2026-05-25T12:00:00.000Z|abc…"
-  $ nexus vibe audit list --json | jq '.events[]'
+  $ nexus apps audit list
+  $ nexus apps audit list --limit 20
+  $ nexus apps audit list --type DEPLOYMENT_TRIGGERED --app 11111111-2222-4333-8444-555555555555
+  $ nexus apps audit list --type DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK --app <appId>
+  $ nexus apps audit list --cursor "2026-05-25T12:00:00.000Z|abc…"
+  $ nexus apps audit list --json | jq '.events[]'
 
 Event types (--type takes exactly one):
 ${formatEventTypeHelp()}
@@ -2552,7 +2564,7 @@ Notes:
   family to explain it. COST_SAFETY_SOFT_LIMIT_WARNING is the one that only
   warns.
   DEPLOYMENT_VERIFICATION_OVERRIDDEN IS THE ONLY RECORD THAT A SHIP GATE WAS
-  BYPASSED. "vibe deploy --skip-verification" names the caller and the commit
+  BYPASSED. "apps deploy --skip-verification" names the caller and the commit
   here and nowhere else. Its neighbours: DEPLOYMENT_VERIFICATION_REFUSED (the
   gate stopped the deploy) and DEPLOYMENT_VERIFICATION_WARNED (the app sits in
   WARN, so the gate ran, recorded, and shipped anyway).
@@ -2657,7 +2669,7 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
   }
 
   const rows = data.events.map((e) => ({
-    // The event id is shortened: `vibe audit` only lists, so no command
+    // The event id is shortened: `apps audit` only lists, so no command
     // takes it. The APP id is not — it is the argument to `app get`,
     // `deployments list` and `deploy`, and this feed is often where a
     // reader first sees it.
@@ -2680,7 +2692,7 @@ function printAuditEvents(data: ListAuditEventsResponse): void {
 
   printPaginationMeta({ paging: data.nextCursor === null ? "exhausted" : "has-more" });
   if (data.nextCursor !== null) {
-    console.log(color.dim(`\nNext page:\n  nexus vibe audit list --cursor "${data.nextCursor}"`));
+    console.log(color.dim(`\nNext page:\n  nexus apps audit list --cursor "${data.nextCursor}"`));
   }
 }
 
@@ -2889,7 +2901,7 @@ async function confirmOverageInteractively(
   promptLine(`  ${data.reason.message}`);
 
   // STDIN, because that is the stream the answer arrives on. Testing stdout
-  // refused a `vibe deploy > log` typed at an operator's own keyboard.
+  // refused a `apps deploy > log` typed at an operator's own keyboard.
   if (!process.stdin.isTTY) {
     console.error(`\nRe-run confirmed:\n  ${rerun}`);
     return false;
@@ -2926,7 +2938,7 @@ async function confirmOverageInteractively(
  *
  * `rerun` is passed in rather than composed here for the same reason: the hint
  * has to name the command the operator actually ran, and a hardcoded
- * `nexus vibe deploy …` printed at someone running `rollback` is a wrong
+ * `nexus apps deploy …` printed at someone running `rollback` is a wrong
  * instruction, not a missing one.
  */
 async function triggerDeploymentAnsweringOverage(
@@ -3012,7 +3024,7 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
     }
     // No Builder row here on purpose: the build has not run yet, and which
     // strategy it will use is decided inside the executor over a checkout that
-    // has not been cloned. It shows up on `vibe deployment get` once the build
+    // has not been cloned. It shows up on `apps deployment get` once the build
     // reports. This line used to print the requested builder, which the executor
     // never read.
     printRecord(d, [
@@ -3030,7 +3042,7 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
           `\nApproval gate: ${r.status} — ${r.requiredApprovals} approval(s) required before it deploys.`
         )
       );
-      console.log(color.dim("Review pending gates: nexus vibe approvals pending"));
+      console.log(color.dim("Review pending gates: nexus apps approvals pending"));
     }
 
     // Path B — surface tool registration at the natural moment. A hint, not a
@@ -3040,7 +3052,7 @@ function printTriggeredDeployment(data: TriggerDeploymentResponse, appId: string
     if (!process.env.NEXUS_NO_PROMPTS) {
       console.log(
         color.dim(
-          `\nOnce healthy, register this app as an agent tool:\n  nexus vibe app register-as-tool ${appId} --spec-file ./openapi.json`
+          `\nOnce healthy, register this app as an agent tool:\n  nexus apps register-as-tool ${appId} --spec-file ./openapi.json`
         )
       );
     }
@@ -3157,7 +3169,7 @@ function printVibeAppList(data: ListVibeAppsResponse): void {
   }
 
   // Full id: this list is where users get the app id, and every other
-  // `vibe` command takes it as an argument.
+  // `apps` command takes it as an argument.
   const rows = data.apps.map((a) => ({
     id: a.id,
     name: a.name,
@@ -3222,7 +3234,7 @@ export function formatDeployability(
   if (deployability === "NO_SOURCE_ATTACHED") {
     return (
       color.red("no source attached") +
-      color.dim(" — nothing to build; attach one with `vibe app attach-repo`")
+      color.dim(" — nothing to build; attach one with `apps attach-repo`")
     );
   }
   if (deployability === "SOURCE_NOT_READY") {
@@ -3729,7 +3741,7 @@ export function formatSeededRepoFirstPushHint(project: {
     color.yellow("This project's repo is created with an initial commit already on it."),
     `A first push from a local repo you started yourself is rejected with "fetch first".`,
     "Start from the repo, or replay local work you already have onto it:",
-    `  nexus vibe git-project clone ${project.id}`,
+    `  nexus apps git-project clone ${project.id}`,
     // `defaultBranch` is optional on the deprecated `repository` alias, which is
     // the only value a pre-decoupling backend sends. Interpolating it blind
     // printed `git rebase origin/undefined` — a command that cannot work,
@@ -3782,7 +3794,7 @@ function printVibeGitProject(
     { key: "updatedAt", label: "Updated", format: (v) => formatTimestamp(String(v)) }
   ]);
   console.log("");
-  console.log(color.dim("To push to this project, run: nexus vibe git-credentials"));
+  console.log(color.dim("To push to this project, run: nexus apps git-credentials"));
   if (opts.freshlyProvisioned === true) {
     console.log("");
     console.log(formatSeededRepoFirstPushHint(project));
@@ -3821,7 +3833,7 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
     { key: "createdAt", label: "Created", width: 21 }
   ]);
   console.log("");
-  console.log(color.dim("To push to a project, run: nexus vibe git-credentials"));
+  console.log(color.dim("To push to a project, run: nexus apps git-credentials"));
 }
 
 /** Render the first 8 chars of an id so the table stays readable. */
@@ -3829,7 +3841,7 @@ function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void {
  * Shorten an id for DISPLAY ONLY — never for an id the user has to type
  * back.
  *
- * Every `vibe` command that takes an id takes the full uuid, and the API
+ * Every `apps` command that takes an id takes the full uuid, and the API
  * rejects anything else. So a shortened id in a list is a trap: it is the
  * only id the reader has, it looks complete enough to copy, and pasting it
  * back fails. Reserve this for ids no command accepts (actor / decider
@@ -4026,7 +4038,7 @@ const UNMODELLED_DETAIL_FIELDS = [
  *
  * Reaching for `--json` is always the complete answer, and the dim hint says
  * so. What this must not do is print nothing, or print `undefined`: the
- * details column is where a reader scanning `vibe audit list` decides whether
+ * details column is where a reader scanning `apps audit list` decides whether
  * a row matters, and a blank one on DEPLOYMENT_FAILED reads as "no further
  * information exists" rather than "this printer has no case for it".
  */

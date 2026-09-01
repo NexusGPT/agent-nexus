@@ -15,13 +15,13 @@ import {
   cleanupTempDirs,
   DECLARED_NAME,
   DECLARED_VERSION,
+  digestOf,
   ensureBuilt,
   installedBinary,
   installedPackageRoot,
   installGlobally,
   LONG_SUPERSEDED,
   pack,
-  PACKAGE_ROOT,
   type PackManifest,
   runInstalled,
   sealedEnv,
@@ -31,6 +31,7 @@ import {
   stagePublishedTree,
   tempDir
 } from "./install-harness";
+import { forgetPackSource, packSource } from "./pack-source";
 
 /**
  * THE INSTALL STEP RUNS HERE. EVERYWHERE ELSE IT IS STUBBED.
@@ -59,6 +60,13 @@ import {
  * verb `getGlobalInstallCommand` builds), the `bin` mapping, the shebang, the
  * dependency resolution, PATH resolution, the spawn, the version parse, and
  * `runUpgrade`'s own control flow end to end.
+ *
+ * `npm pack` is handed {@link packSource} rather than the package directory
+ * itself: the same tree, HARD-LINKED, with only `node_modules` omitted — which
+ * npm excludes from a tarball unconditionally, and which it otherwise walks
+ * clean through the pnpm symlink store at a measured cost of seconds. That is
+ * not a fourth substitution, and `pack-source.ts` carries both the measurement
+ * and the two assertions that keep it from becoming one.
  *
  * NOT REAL — three substitutions, none of them negotiable:
  *   · THE REGISTRY. `fetchLatest` is stubbed. A spec may not depend on
@@ -96,7 +104,12 @@ let realManifest: PackManifest;
 
 beforeAll(() => {
   ensureBuilt();
-  const packed = pack(PACKAGE_ROOT, tempDir("artifact"));
+  // `packSource()` is PACKAGE_ROOT with `node_modules` omitted, hard-linked so
+  // npm reads the same inodes. `pack-source.ts` carries the measurement and the
+  // two assertions that make the omission provably free; the short version is
+  // that npm walks the pnpm symlink store to build a tarball containing none of
+  // it, and that walk was the largest single cost in this file.
+  const packed = pack(packSource(), tempDir("artifact"));
   realTarball = packed.tarball;
   realManifest = packed.manifest;
 }, 900_000);
@@ -106,6 +119,7 @@ beforeAll(() => {
 // becomes one people switch off.
 afterAll(() => {
   cleanupTempDirs();
+  forgetPackSource();
 });
 
 describe("the packed tarball installs and the installed binary runs", () => {
@@ -338,19 +352,40 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
   });
 
   /**
-   * A prefix carrying a genuinely npm-installed OLD build.
+   * The OLD release artifact — packed once, installed by each case that needs one.
    *
    * `stageAtVersion` rewrites the manifest AND the version esbuild baked into
    * `dist/index.js`, because the second is the one `--version` actually prints.
    * Nothing here is a shell script pretending to be a CLI: it is the real
    * artifact, really packed and really installed, at an older number.
+   *
+   * A tarball is an INPUT — an install reads it and never writes it — so the
+   * second case receives the same bytes whether they were packed once or twice.
+   * That is asserted rather than argued: {@link digestOf} pins the file's
+   * sha256 on the first pack and re-checks it on every reuse, so a fixture that
+   * did acquire residue reds by name instead of quietly changing what the
+   * "installed old version" is. Each case still gets its own FRESH prefix and
+   * its own real install; only the artifact is shared.
    */
+  let oldRelease: { tarball: string; digest: string } | undefined;
+
+  function oldReleaseTarball(): string {
+    if (oldRelease === undefined) {
+      const packed = pack(stageAtVersion(LONG_SUPERSEDED), tempDir("artifact"));
+      oldRelease = { tarball: packed.tarball, digest: digestOf(packed.tarball) };
+    } else {
+      expect(digestOf(oldRelease.tarball)).toBe(oldRelease.digest);
+    }
+    return oldRelease.tarball;
+  }
+
+  /** A prefix carrying a genuinely npm-installed OLD build. */
   function prefixWithOldInstall(): { prefix: string; home: string } {
-    const old = pack(stageAtVersion(LONG_SUPERSEDED), tempDir("artifact"));
+    const oldTarball = oldReleaseTarball();
     const prefix = tempDir("prefix");
     const home = tempDir("home");
 
-    expect(installGlobally(old.tarball, prefix).status).toBe(0);
+    expect(installGlobally(oldTarball, prefix).status).toBe(0);
     // The premise of every case below. If the old install did not take, an
     // "upgraded" verdict afterwards would be measuring nothing.
     expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).toBe(LONG_SUPERSEDED);

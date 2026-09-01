@@ -494,7 +494,15 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
       if (stdin !== undefined) statedStdinDocuments++;
 
       // ── R1 — commander is the real parser; what it refuses, a reader cannot run
-      const program = await buildProgram();
+      //
+      // A FRESH TREE PER EXAMPLE IS STILL LOAD-BEARING AND IS STILL BUILT.
+      // Commander stores parsed option values on the Command objects, so reusing
+      // one lets this example's arguments satisfy the next example's required
+      // options and turns a real defect green. What is dropped here is only the
+      // ORIGIN side table: `parseExample` reads `node.cmd` and `node.path` and
+      // never `node.file`/`.line`, so recording a stack frame per command bought
+      // nothing on these 1333 trees and cost 87.3% of each build.
+      const program = await buildProgram({ recordOrigins: false });
       const outcome = await parseExample(program, args, stdin ?? "");
       if (outcome.kind === "refused") {
         // 🚨 ONE REFUSAL IS NOT A FINDING, AND IT IS THE ONE THIS SCANNER

@@ -13,6 +13,7 @@ import { registerAgentSkillCommands } from "./commands/agent-skill";
 import { registerAgentToolCommands } from "./commands/agent-tool";
 import { registerAnalyticsCommands } from "./commands/analytics";
 import { registerApiCommand } from "./commands/api";
+import { registerAppsCommands } from "./commands/apps";
 import { registerAssetCommands } from "./commands/asset";
 // Commands
 import { registerAuthCommands } from "./commands/auth";
@@ -54,7 +55,6 @@ import { registerTracksCommands } from "./commands/tracks";
 import { registerUpgradeCommand, UPGRADE_ALIASES } from "./commands/upgrade";
 import { registerUserGroupCommands } from "./commands/user-group";
 import { registerVersionCommands } from "./commands/version";
-import { registerVibeCommands } from "./commands/vibe";
 import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { resolveProfile } from "./config";
@@ -301,7 +301,7 @@ export function buildRootProgram(version: string = VERSION): Command {
       10 the operation ran and the outcome did not happen (retrying is the trap)
       11 the operation ran and the result COULD NOT BE MEASURED
       130 interrupted (128 + 2 — the shell's number, not ours). ONLY
-          "vibe app logs --follow" emits it, and only on the SECOND signal;
+          "apps logs --follow" emits it, and only on the SECOND signal;
           the first Ctrl-C ends that follow at 0.
     Under --json an error is a JSON document on STDOUT:
     {"error":{"message","hint","code"}}, all three keys ALWAYS present, hint null
@@ -494,7 +494,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerClaudeCodeCommands(program);
   registerSkillsCommands(program);
   registerCloudImportCommands(program);
-  registerVibeCommands(program);
+  registerAppsCommands(program);
   registerUpgradeCommand(program);
   registerDocsCommand(program);
 

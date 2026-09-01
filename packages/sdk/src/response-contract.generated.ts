@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 491 routes: 381 with a checkable shape, 104 publishing no
+// 492 routes: 382 with a checkable shape, 104 publishing no
 // response schema, 6 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -377,6 +377,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "POST /deployments/:deploymentId/chat": {name:"ChatSendMessageStream",method:"POST",path:"/deployments/:deploymentId/chat",payload:{kind:"undeclared",why:"rawResponse"}},
   "POST /deployments/:deploymentId/chat-session": {name:"DeploymentChatSessionCreate",method:"POST",path:"/deployments/:deploymentId/chat-session",payload:{kind:"object",fields:{"chatId":"s","expiresInSeconds":"n","sessionId":"s","token":"s"},required:["chatId","expiresInSeconds","sessionId","token"]}},
   "POST /deployments/:deploymentId/chat-session/anonymous": {name:"DeploymentAnonymousChatSessionCreate",method:"POST",path:"/deployments/:deploymentId/chat-session/anonymous",payload:{kind:"object",fields:{"chatId":"s","expiresInSeconds":"n","sessionId":"s","token":"s"},required:["chatId","expiresInSeconds","sessionId","token"]}},
+  "POST /deployments/:deploymentId/chat-session/refresh": {name:"DeploymentChatSessionRefresh",method:"POST",path:"/deployments/:deploymentId/chat-session/refresh",payload:{kind:"object",fields:{"chatId":"s","expiresInSeconds":"n","sessionId":"s","token":"s"},required:["chatId","expiresInSeconds","sessionId","token"]}},
   "POST /deployments/:deploymentId/chat/stop": {name:"ChatStopTurn",method:"POST",path:"/deployments/:deploymentId/chat/stop",payload:{kind:"object",fields:{"accepted":"b","turnId":"0s"},required:["accepted","turnId"]}},
   "POST /deployments/:deploymentId/voice-session": {name:"DeploymentVoiceSessionCreate",method:"POST",path:"/deployments/:deploymentId/voice-session",payload:{kind:"object",fields:{"expiresInSeconds":"n","sessionId":"s","token":"s","websocketPath":"s"},required:["expiresInSeconds","sessionId","token","websocketPath"]}},
   "POST /deployments/:deploymentId/whatsapp-templates": {name:"DeploymentWhatsappTemplateAttach",method:"POST",path:"/deployments/:deploymentId/whatsapp-templates",payload:{kind:"undeclared",why:"noResponse"}},

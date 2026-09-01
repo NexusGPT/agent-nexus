@@ -25,7 +25,7 @@ const COMMANDS_DIR = join(__dirname, "../commands");
  * Rebuild the real tree WITHOUT the fix applied.
  *
  * Two-argument registrars (`registerWorkflowBuilderCommands(workflow, program)`,
- * the `admin vibe` family) are deliberately excluded: they are reached through
+ * the `admin apps` family) are deliberately excluded: they are reached through
  * their parent registrar, so calling them again at the root would graft phantom
  * top-level commands onto the tree. Excluding them is not a gap — it is how the
  * real tree is shaped. `body-satisfies-required.test.ts` asserts in BOTH

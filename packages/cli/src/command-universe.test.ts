@@ -248,10 +248,10 @@ describe("one walk carries the metadata a rendering throws away", () => {
     const leaves = await deriveCommandLeaves();
 
     // `collectLeaves` used to drop every namespace node, which made the walk
-    // unusable for documentation: there is no page for `vibe` if `vibe` is not
+    // unusable for documentation: there is no page for `apps` if `apps` is not
     // in the result. Namespaces are reachable now; the gate still classifies
     // leaves only.
-    expect(nodes.some((node) => node.path === "vibe" && !node.isLeaf)).toBe(true);
+    expect(nodes.some((node) => node.path === "apps" && !node.isLeaf)).toBe(true);
     expect(nodes.filter((node) => node.isLeaf).map((node) => node.path)).toEqual(leaves);
     expect(nodes.length).toBeGreaterThan(leaves.length);
   });
@@ -305,15 +305,15 @@ describe("one walk carries the metadata a rendering throws away", () => {
 
   it("captures the addHelpText prose that helpInformation() drops", async () => {
     const namespaces = await deriveCommandNamespaces();
-    const vibe = namespaces.find((namespace) => namespace.name === "vibe");
+    const apps = namespaces.find((namespace) => namespace.name === "apps");
 
-    // `vibe` registers its subcommand table through `addHelpText("after")`.
+    // `apps` registers its subcommand table through `addHelpText("after")`.
     // `helpInformation()` omits it; a capture of `outputHelp()` keeps it. This
     // assertion is the difference between the two, pinned — the Notes and
     // Examples blocks across the CLI live in exactly this channel and are the
     // highest-value prose on the surface.
-    expect(vibe?.help).toContain("Subcommands:");
-    expect(vibe?.help).toContain("feature-flagged");
+    expect(apps?.help).toContain("Subcommands:");
+    expect(apps?.help).toContain("feature-flagged");
   });
 
   it("reads aliases and .choices() through the accessors that hold the casts", async () => {

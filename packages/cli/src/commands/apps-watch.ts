@@ -298,7 +298,7 @@ function parseInstant(raw: string | null): number | null {
 
 /**
  * Render the outcome and return the process exit code. Success is `0` and
- * nothing else is: a caller scripting `nexus vibe deploy --watch` must be able
+ * nothing else is: a caller scripting `nexus apps deploy --watch` must be able
  * to branch on the exit code alone.
  *
  * ⚠️ THE NUMBERS COME FROM `src/exit-codes.ts` AND THE CATEGORIES ARE
@@ -342,7 +342,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
         console.log(`  ${outcome.deployment.errorReason}`);
       }
       console.log(
-        color.dim(`  Build log: nexus vibe deployments get ${appId} ${outcome.deployment.id}`)
+        color.dim(`  Build log: nexus apps deployments get ${appId} ${outcome.deployment.id}`)
       );
       return EXIT_CODES.failed;
 
@@ -387,7 +387,7 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
           ` still ${outcome.deployment.status} after ${formatDuration(outcome.waitedMs)} — stopped waiting.`
       );
       console.log(
-        color.dim(`  Still running: nexus vibe deployments get ${appId} ${outcome.deployment.id}`)
+        color.dim(`  Still running: nexus apps deployments get ${appId} ${outcome.deployment.id}`)
       );
       return EXIT_CODES.failed;
 
@@ -447,9 +447,9 @@ function printServedVisibility(visibility: WatchAppVisibility, appId: string): v
 
   console.log(color.dim("  Private — a plain GET of that URL answers 401 by design (the edge"));
   console.log(color.dim("  authorizer), not a failed deploy. Two checks that do work:"));
-  console.log(color.dim(`    nexus vibe app edge-token ${appId}`));
+  console.log(color.dim(`    nexus apps edge-token ${appId}`));
   console.log(color.dim("      the token, and the header to send it in"));
-  console.log(color.dim("    nexus --json vibe app list"));
+  console.log(color.dim("    nexus --json apps list"));
   console.log(
     color.dim(`      .apps[] | select(.id == "${appId}") | .servingDeployment.triggerSha`)
   );

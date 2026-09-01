@@ -20,6 +20,10 @@
  *
  *   - the auth header (`api-key` here, `Authorization: Bearer` there)
  *   - the token source (profile chain here, --admin-token / env there)
+ *   - the tenant selector: this transport sends `organization-id`
+ *     alongside the key, resolved by the same `resolveOrganization`
+ *     the SDK client uses. A platform-operator token names no
+ *     organization, so `admin-http.ts` sends no such header.
  *   - exit-code mapping is the SDK's `handleError` instead of the
  *     admin tree's `handleAdminError`
  *
@@ -35,7 +39,7 @@ import {
   NexusTimeoutError
 } from "@agent-nexus/sdk";
 
-import { resolveBaseUrl, resolveProfile } from "../config";
+import { resolveBaseUrl, resolveOrganization, resolveProfile } from "../config";
 
 export interface TenantHttpOptions {
   /** Override API key (from `--api-key` global). Falls back to the profile chain. */
@@ -165,7 +169,7 @@ export async function tenantRequest<T>(
   opts: TenantHttpOptions,
   req: TenantRequestOptions
 ): Promise<T> {
-  const apiKey = resolveTenantApiKey(opts);
+  const { apiKey, organizationId } = resolveTenantAuth(opts);
   const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${req.path}`);
   if (req.query) {
@@ -175,8 +179,14 @@ export async function tenantRequest<T>(
     }
   }
 
+  // Spread conditionally, never `?? ""`. The guard's `extractOrganizationId`
+  // requires `length > 0`, so a blank header refuses IDENTICALLY to an absent
+  // one — the cost of `?? ""` is not a wrong refusal, it is a header that every
+  // proxy log, trace and `curl -v` shows as a selection that was never made.
+  // It is also the SDK client's own spelling, which is the point of mirroring.
   const headers: Record<string, string> = {
     "api-key": apiKey,
+    ...(organizationId ? { "organization-id": organizationId } : {}),
     Accept: "application/json"
   };
   if (req.body !== undefined) {
@@ -279,7 +289,7 @@ export async function tenantStream(
   opts: TenantHttpOptions,
   req: TenantStreamOptions
 ): Promise<AsyncIterable<string>> {
-  const apiKey = resolveTenantApiKey(opts);
+  const { apiKey, organizationId } = resolveTenantAuth(opts);
   const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
   const url = new URL(`${baseUrl}${req.path}`);
   if (req.query) {
@@ -318,7 +328,11 @@ export async function tenantStream(
   try {
     response = await fetch(url.toString(), {
       method: "GET",
-      headers: { "api-key": apiKey, Accept: "text/event-stream" },
+      headers: {
+        "api-key": apiKey,
+        ...(organizationId ? { "organization-id": organizationId } : {}),
+        Accept: "text/event-stream"
+      },
       signal: controller.signal
     });
   } catch (err) {
@@ -395,11 +409,40 @@ async function* readTextChunks(
   }
 }
 
-function resolveTenantApiKey(opts: TenantHttpOptions): string {
-  if (opts.apiKey) return opts.apiKey;
-  // Defer to the shared profile chain (explicit --profile > NEXUS_API_KEY env >
-  // active profile) so an explicit --profile is honored here too, exactly as it
-  // is for base-URL resolution — resolveProfile applies NEXUS_API_KEY at the
-  // correct precedence, so no separate env short-circuit is needed.
-  return resolveProfile({ profile: opts.profile, baseUrl: opts.baseUrl }).profile.apiKey;
+/** The credential AND the tenant it acts on, from one resolution of the chain. */
+interface TenantAuth {
+  apiKey: string;
+  /** Absent when nothing selected an org — the key's own org decides, server-side. */
+  organizationId?: string;
+}
+
+/**
+ * Resolve the key and the acting organization together, the way
+ * `createClient` does for every SDK-backed command.
+ *
+ * These are ONE resolution because the org rides on the profile the key came
+ * from: resolving them separately is what let this transport send a key with no
+ * `organization-id` beside it, so every `/api/vibe/...` route answered
+ * `ORGANIZATION_REQUIRED` for a personal (`nxs_p_`) token that `nexus agent list`
+ * accepted in the same shell.
+ *
+ * `opts.apiKey` is passed THROUGH rather than short-circuited: `resolveProfile`
+ * returns on it at step 1 without loading config, so an explicit
+ * `--api-key`/`NEXUS_API_KEY` override still costs no config file and still
+ * cannot throw — and it reaches `resolveOrganization`, which reads
+ * `NEXUS_ORGANIZATION_ID` first. That is the only way an override can name an
+ * org at all, since `auth use-org` refuses to store one for it.
+ *
+ * Everything else is the shared profile chain (explicit --profile >
+ * NEXUS_API_KEY env > active profile), so an explicit --profile is honored here
+ * exactly as it is for base-URL resolution.
+ */
+function resolveTenantAuth(opts: TenantHttpOptions): TenantAuth {
+  const resolved = resolveProfile({
+    apiKey: opts.apiKey,
+    profile: opts.profile,
+    baseUrl: opts.baseUrl
+  });
+  const { organizationId } = resolveOrganization(resolved.profile);
+  return { apiKey: resolved.profile.apiKey, organizationId };
 }

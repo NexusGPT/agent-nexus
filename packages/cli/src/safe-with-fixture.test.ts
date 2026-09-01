@@ -273,7 +273,7 @@ describe("safe-with-fixture", () => {
     for (const refusal of [
       "role creation-requests",
       "channel whatsapp-template approvals",
-      "vibe approvals pending",
+      "apps approvals pending",
       "emulator scenario list",
       "workspace status"
     ]) {

@@ -350,7 +350,7 @@ const MUST_COVER: readonly string[] = [
   "nexus upgrade --help",
   // Three deep leaves across unrelated namespaces, so a walk that stops after
   // depth 2 cannot pass.
-  "nexus vibe deploy --help",
+  "nexus apps deploy --help",
   "nexus workflow node-types --help",
   "nexus auth login --help"
 ];

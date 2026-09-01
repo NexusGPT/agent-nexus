@@ -4,8 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { deriveIdGraph } from "../src/id-graph";
-import { idsFrom } from "../src/id-graph.ids";
-import { outcomeForExitCode } from "../src/id-graph.outcome";
+import { rowsFrom } from "../src/id-graph.ids";
+import type { ThreadableLeaf } from "../src/id-graph.model";
+import { type LeafOutcome, outcomeForExitCode } from "../src/id-graph.outcome";
+import { isNotFound, raceVerdict, type ThreadedId } from "../src/id-graph.race";
+import { planThread } from "../src/id-graph.thread";
 
 /**
  * id-thread-sweep - execute the read leaves that need an id, with ids DISCOVERED
@@ -21,19 +24,26 @@ import { outcomeForExitCode } from "../src/id-graph.outcome";
  * comes from `agent list`, and no table anywhere says so.
  *
  * ==============================================================================
- * THE FOUR OUTCOMES ARE NOT THREE, AND THE SPLIT IS THE WHOLE POINT
+ * THE OUTCOMES ARE NOT THREE, AND THE SPLIT IS THE WHOLE POINT
  * ==============================================================================
  *
  *   REACHED        invoked, exit 0, parseable JSON, no credential in the body.
  *   SKIPPED_NO_ID  its producer returned ZERO rows, so no id existed to pass.
  *                  The route is UNTESTED and nothing is claimed about it.
+ *   SKIPPED_ID_VANISHED
+ *                  every id its producer offered was PROVEN deleted between the
+ *                  list call and the read - a concurrent writer, not a broken
+ *                  route. Also untested, and for a different reason, so it is
+ *                  counted separately. See `src/id-graph.race.ts`.
  *   SKIPPED_NEEDS_INPUT
  *                  the CLI refused BEFORE SENDING ANYTHING, which is a fact
  *                  about what this harness supplied and not about the route.
  *                  A 400/409/422 shares its exit code and is NOT this - see
  *                  `isClientSideRefusal`.
  *   FAILED         invoked, and something was wrong. A producer that ERRORED
- *                  lands here too, never in SKIPPED.
+ *                  lands here too, never in SKIPPED. A `not-found` whose row is
+ *                  still listed by its own producer lands here as well, which is
+ *                  the signal this whole sweep exists to produce.
  *   REFUSED        the run could not establish its own preconditions, so it
  *                  reports no per-leaf verdicts at all.
  *
@@ -90,7 +100,13 @@ const EXIT_EMPTY_POPULATION = 5;
 /** Leaves were considered and NONE was reached. Never a pass, even with 0 failures. */
 const EXIT_NOTHING_REACHED = 7;
 
-type Status = "REACHED" | "SKIPPED_NO_ID" | "SKIPPED_NEEDS_INPUT" | "FAILED";
+/**
+ * The vocabulary is declared ONCE, in `src/id-graph.outcome.ts`, and this file
+ * reads it. It was duplicated here as a local union, so adding an outcome meant
+ * editing two closed unions that nothing compared — and the one this file
+ * carried would have been the one a report is printed from.
+ */
+type Status = LeafOutcome;
 interface Result {
   readonly status: Status;
   readonly path: string;
@@ -203,6 +219,124 @@ function inertNamespaces(results: readonly Result[], executable: number): string
     });
 }
 
+/**
+ * HOW MANY TIMES A LEAF IS RE-THREADED AFTER A ROW IS *PROVEN* DELETED.
+ *
+ * Not a tolerance and not a backoff: each re-thread happens only once the fresh
+ * producer read has SHOWN the previous id gone, so a bounded number of them
+ * costs nothing on a healthy run and never softens a real not-found. Two is the
+ * observed shape with room to spare — the measured races deleted ONE row per
+ * sweep window, and exhausting this means three different rows were deleted
+ * underneath one leaf, which is reported as its own outcome rather than guessed.
+ */
+const NOT_FOUND_REATTEMPTS = 2;
+
+/**
+ * Re-read every producer that fed this attempt.
+ *
+ * A successful re-read REPLACES the stored body, so every later leaf threads the
+ * surviving rows instead of walking into the same deleted one. A failed re-read
+ * is recorded as `undefined` and leaves the stored body alone — it is evidence
+ * of nothing, and `raceVerdict` treats it as `unmeasured`.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 "SUCCESSFUL" MEANS **PARSED AS A LIST**, NEVER MERELY EXIT 0
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A route that answers 200 with an error page exits 0 and carries no rows, and
+ * `idsFrom` reads it as zero ids. Gating this write on the exit code alone lets
+ * such a body REPLACE a good stored list.
+ *
+ * 🔴 AND `bodyOf` IS SHARED, so the damage is not confined to the leaf that
+ * triggered the re-read: every LATER leaf threading that producer then reports
+ * `SKIPPED_NO_ID` — "returned zero rows" — about a producer whose good list this
+ * run already held. That is the same substitution this harness exists to refuse,
+ * arriving through the cure rather than the disease.
+ *
+ * `rowsFrom` is the one place the envelope rule lives, and it separates the two
+ * facts `idsFrom` deliberately collapses: `undefined` is "did not parse", an
+ * empty array is "parsed, and empty". Only the second is a re-read that measured
+ * anything. An unreadable one is evidence of nothing — exactly like a failed
+ * one — so it records `undefined` and leaves the stored body alone, which leaves
+ * the not-found standing as a FAILURE rather than softening it into a race.
+ */
+function refreshProducers(
+  threaded: readonly ThreadedId[],
+  bodyOf: Map<string, string>
+): Map<string, string | undefined> {
+  const refreshed = new Map<string, string | undefined>();
+  for (const entry of threaded) {
+    if (refreshed.has(entry.producer)) continue;
+    const res = run([...entry.producer.split(" "), "--json"]);
+    if (res.code === 0 && rowsFrom(res.out) !== undefined) {
+      bodyOf.set(entry.producer, res.out);
+      refreshed.set(entry.producer, res.out);
+    } else {
+      refreshed.set(entry.producer, undefined);
+    }
+  }
+  return refreshed;
+}
+
+/**
+ * One leaf, invoked - and re-invoked when, and only when, a row it threaded is
+ * proven to have been deleted underneath it. `id-graph.race.ts` holds the whole
+ * argument for why that proof is required and why its default is FAILED.
+ */
+function runLeaf(
+  leaf: ThreadableLeaf,
+  bodyOf: Map<string, string>,
+  producerBroke: ReadonlyMap<string, string>,
+  vanished: Map<string, Set<string>>
+): Result {
+  let proven = 0;
+
+  for (let attempt = 0; attempt <= NOT_FOUND_REATTEMPTS; attempt += 1) {
+    const plan = planThread(leaf, bodyOf, producerBroke, vanished);
+    if (plan.kind === "blocked") {
+      return { status: plan.status, path: leaf.path, note: plan.note };
+    }
+
+    const res = run([...leaf.path.split(" "), ...plan.args, "--json"]);
+    if (res.code === 0) return fromScan(leaf.path, scan(res.out), plan.args.length);
+    if (!isNotFound(res.code)) return fromExitCode(leaf.path, res.code, res.out);
+
+    // A not-found, which is the ONE code that could mean the row is gone. Ask
+    // the producer; never infer it from the code alone.
+    const verdict = raceVerdict(plan.threaded, refreshProducers(plan.threaded, bodyOf));
+    if (verdict.kind !== "vanished") {
+      const base = fromExitCode(leaf.path, res.code, res.out);
+      // 🚨 PREFIXED, NEVER APPENDED. `base.note` ends in a 120-char slice of the
+      // error DOCUMENT, which `emitDocument` pretty-prints, so it carries
+      // newlines and the report's aligned row ends at its first one. A suffix
+      // lands several lines down among stream noise - measured - and the reader
+      // scanning the FAILED rows never sees which of the two reds this is.
+      const why =
+        verdict.kind === "still-listed"
+          ? "the id is STILL listed by its producer, so this is the route"
+          : `race re-check UNMEASURED (${verdict.why})`;
+      return { ...base, note: `[${why}] ${base.note}` };
+    }
+    for (const entry of verdict.gone) {
+      let forProducer = vanished.get(entry.producer);
+      if (forProducer === undefined) {
+        forProducer = new Set<string>();
+        vanished.set(entry.producer, forProducer);
+      }
+      if (!forProducer.has(entry.id)) proven += 1;
+      forProducer.add(entry.id);
+    }
+  }
+
+  return {
+    status: "SKIPPED_ID_VANISHED",
+    path: leaf.path,
+    note:
+      `${proven} id(s) were each PROVEN deleted between this run's list call and ` +
+      `its read; the route was never exercised and nothing is claimed about it`
+  };
+}
+
 function main(): void {
   const graph = deriveIdGraph();
 
@@ -234,7 +368,9 @@ function main(): void {
     ]);
   }
 
-  // -- Discovery. Each producer runs ONCE however many consumers it feeds. ----
+  // -- Discovery. Each producer runs ONCE here, however many consumers it feeds.
+  // It is re-read later only when a consumer answers `not-found` and the harness
+  // has to establish whether the row is gone. See `runLeaf`. ------------------
   const producers = new Set<string>();
   for (const leaf of graph.executable) {
     for (const source of leaf.sources)
@@ -259,50 +395,26 @@ function main(): void {
   }
 
   // -- Threading -------------------------------------------------------------
+  // 🚨 RUN-SCOPED, NOT PER-LEAF, AND KEYED BY PRODUCER. "Producer X lost row Y"
+  // is a fact about this RUN — one producer typically feeds several consumers
+  // (three leaves take `agentId`), so a per-leaf record makes every consumer
+  // after the first re-derive an empty producer as SKIPPED_NO_ID and hides the
+  // race behind the ordinary skip. It also means a proven deletion costs ONE
+  // 404 rather than one per consumer: the later leaves never issue a call they
+  // already know the answer to.
+  const vanished = new Map<string, Set<string>>();
   const results: Result[] = [];
   for (const leaf of graph.executable) {
-    const args: string[] = [];
-    // Carried as a STATUS, never inferred later from the note's wording.
-    let blocked: { status: Status; note: string } | undefined;
-
-    for (const source of leaf.sources) {
-      if (source.kind !== "producer-leaf") continue;
-
-      const broke = producerBroke.get(source.leaf);
-      if (broke !== undefined) {
-        blocked = { status: "FAILED", note: `producer \`${source.leaf}\` failed: ${broke}` };
-        break;
-      }
-      const ids = idsFrom(bodyOf.get(source.leaf) ?? "", source.param);
-      if (ids.length === 0) {
-        blocked = {
-          status: "SKIPPED_NO_ID",
-          note: `no \`${source.param}\` existed - producer \`${source.leaf}\` returned zero rows`
-        };
-        break;
-      }
-      args.push(ids[0]);
-    }
-
-    if (blocked !== undefined) {
-      results.push({ status: blocked.status, path: leaf.path, note: blocked.note });
-      continue;
-    }
-
-    const res = run([...leaf.path.split(" "), ...args, "--json"]);
-    if (res.code !== 0) {
-      results.push(fromExitCode(leaf.path, res.code, res.out));
-      continue;
-    }
-    results.push(fromScan(leaf.path, scan(res.out), args.length));
+    results.push(runLeaf(leaf, bodyOf, producerBroke, vanished));
   }
 
   const countOf = (status: Status): number =>
     results.filter((result) => result.status === status).length;
   const reached = countOf("REACHED");
   const skippedNoId = countOf("SKIPPED_NO_ID");
+  const skippedIdVanished = countOf("SKIPPED_ID_VANISHED");
   const skippedNeedsInput = countOf("SKIPPED_NEEDS_INPUT");
-  const skipped = skippedNoId + skippedNeedsInput;
+  const skipped = skippedNoId + skippedIdVanished + skippedNeedsInput;
   const failed = countOf("FAILED");
 
   if (AS_JSON) {
@@ -320,6 +432,7 @@ function main(): void {
             reached,
             skipped,
             skippedNoId,
+            skippedIdVanished,
             skippedNeedsInput,
             failed,
             total: results.length
@@ -345,11 +458,13 @@ function main(): void {
         `${result.status.padEnd(14)} ${result.path.padEnd(30)} ${result.note}\n`
       );
     }
-    // Both skip kinds named. One total would hide which of two very different
-    // things happened: nothing existed to test with, or the call was malformed.
+    // EVERY skip kind named. One total would hide which of three very different
+    // things happened: nothing existed to test with, the row was deleted out
+    // from under the call, or the call was malformed.
     process.stdout.write(
       `\nSummary: ${reached} reached · ${skipped} skipped ` +
-        `(${skippedNoId} no-id, ${skippedNeedsInput} needs-input) · ${failed} failed\n`
+        `(${skippedNoId} no-id, ${skippedIdVanished} vanished, ${skippedNeedsInput} needs-input) · ` +
+        `${failed} failed\n`
     );
 
     const inert = inertNamespaces(results, graph.executable.length);

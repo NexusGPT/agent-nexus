@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { VibeAppDto } from "../vibe-wire-types";
-import { buildAppUpdateBody, formatShipGateMode, printVibeApp } from "./vibe";
+import { buildAppUpdateBody, formatShipGateMode, printVibeApp } from "./apps";
 
 /**
  * `shipGateMode` has THREE states and the CLI knew two of them, in both
- * directions: `vibe app get` printed the server's lossy boolean projection, so a
+ * directions: `apps get` printed the server's lossy boolean projection, so a
  * WARN app read `Ship gate: off` while every one of its deploys wrote
- * DEPLOYMENT_VERIFICATION_WARNED, and `vibe app update` had no flag that could
+ * DEPLOYMENT_VERIFICATION_WARNED, and `apps update` had no flag that could
  * reach WARN at all.
  *
  * 🚨 EVERY ASSERTION BELOW HAS TO SEPARATE WARN FROM OFF. A suite that checks
@@ -105,7 +105,7 @@ describe("formatShipGateMode — the three states are three lines", () => {
   });
 });
 
-describe("vibe app get — the Ship gate row", () => {
+describe("apps get — the Ship gate row", () => {
   it("prints warn for a WARN app whose requireVerification boolean is false", () => {
     // The whole ticket in one assertion. Point the row back at
     // `requireVerification` and this reds.
@@ -143,7 +143,7 @@ describe("vibe app get — the Ship gate row", () => {
   });
 });
 
-describe("vibe app update --ship-gate — reaching all three states", () => {
+describe("apps update --ship-gate — reaching all three states", () => {
   it("reaches WARN, which no boolean flag can express", () => {
     expect(buildAppUpdateBody({ shipGate: "warn" })).toEqual({ shipGateMode: "WARN" });
   });

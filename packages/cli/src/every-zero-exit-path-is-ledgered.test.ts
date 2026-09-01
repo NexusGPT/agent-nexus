@@ -244,7 +244,7 @@ const ZERO_EXIT_LEDGER: Readonly<Record<string, ZeroExitEntry>> = {
       "ledger was needed — it wrote to process.stdout directly, BELOW commander's " +
       "own door, so json-terminal-contract.ts could not reach it."
   },
-  "src/commands/vibe-app-logs.ts": {
+  "src/commands/apps-logs.ts": {
     maxSites: 1,
     why:
       "A SECOND Ctrl-C during a log follow, exiting 130. Not a --json surface: the " +

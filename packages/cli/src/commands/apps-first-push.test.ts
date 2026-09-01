@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatSeededRepoFirstPushHint } from "./vibe";
+import { formatSeededRepoFirstPushHint } from "./apps";
 
 /**
  * A tenant repo is materialized with `auto_init`, so it holds a commit before
@@ -14,7 +14,7 @@ import { formatSeededRepoFirstPushHint } from "./vibe";
  * `pre-receive`, `update` and `post-receive` all fail to fire on the rejected
  * push and all three fire on the same repo when the push is accepted.
  *
- * The assertions are therefore on the WORDS, as in `vibe-deployability.test.ts`:
+ * The assertions are therefore on the WORDS, as in `apps-deployability.test.ts`:
  * the defect is that an operator could not tell WHY the push was refused, so the
  * test has to be about what they can read.
  */
@@ -36,7 +36,7 @@ describe("formatSeededRepoFirstPushHint", () => {
     const hint = formatSeededRepoFirstPushHint(project);
     // Someone who has not written code yet should clone; someone who already
     // has commits must not be told to clone, because that discards their work.
-    expect(hint).toContain("nexus vibe git-project clone");
+    expect(hint).toContain("nexus apps git-project clone");
     expect(hint).toContain("git fetch origin");
     expect(hint).toContain("git rebase");
   });

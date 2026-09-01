@@ -37,16 +37,17 @@ function cursorHeaders(lastEventId: string | undefined): Record<string, string> 
  * Message Stream format.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * ONE METHOD TAKES THE API KEY. THE OTHER FIVE TAKE THE SESSION TOKEN.
+ * ONE METHOD TAKES THE API KEY. EVERY OTHER ONE TAKES THE SESSION TOKEN.
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * {@link createSession} authenticates with the org API key this client was
  * constructed with — it is a privileged act and belongs on a server.
- * {@link stream}, {@link streamRaw}, {@link resume}, {@link resumeRaw},
- * {@link stop} and {@link status} authenticate with the SESSION TOKEN and send
- * NO api-key at all, because the server refuses a request that carries both.
- * That asymmetry is the security property, not an inconvenience: the token
- * names one deployment and one conversation, and holds no scopes.
+ * {@link refresh}, {@link stream}, {@link streamRaw}, {@link resume},
+ * {@link resumeRaw}, {@link stop} and {@link status} authenticate with the
+ * SESSION TOKEN and send NO api-key at all, because the server refuses a
+ * request that carries both. That asymmetry is the security property, not an
+ * inconvenience: the token names one deployment and one conversation, and
+ * holds no scopes.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * THE CONTROL SURFACE — what turns a demo into a product
@@ -60,6 +61,7 @@ function cursorHeaders(lastEventId: string | undefined): Record<string, string> 
  * | a Stop button | {@link stop} |
  * | "is it still running" | {@link status} |
  * | reconnect after a reload or a dropped socket | {@link resume} · {@link resumeRaw} |
+ * | keep the SAME conversation across a stale token | {@link refresh} |
  *
  * @example A server minting for a browser
  * ```ts
@@ -128,6 +130,40 @@ export class ChatResource extends BaseResource {
     return this.http.request<ChatSession>("POST", `/deployments/${deploymentId}/chat-session`, {
       body
     });
+  }
+
+  /**
+   * Exchange a session token for a successor addressing the SAME conversation.
+   *
+   * Uses the SESSION TOKEN, not the org API key — so a browser holding nothing
+   * else can call it, which is the whole point. Without this, a visitor who
+   * read an answer, switched tabs and came back would be handed a brand new
+   * session addressing an empty chat, and their exchange with the agent would
+   * be silently gone.
+   *
+   * ⚠️ **A token may be exchanged ONCE.** A second presentation of the same
+   * token is a fork — two holders of one credential — and is refused. Keep the
+   * successor and discard the token you sent.
+   *
+   * 🔴 **This is the only chat route that accepts an EXPIRED token**, because a
+   * browser learns its token is stale by being refused rather than by watching
+   * a clock. What it does not extend is the session's absolute ceiling: the
+   * renewal deadline is carried forward to the successor, so twelve hours from
+   * the FIRST mint is a wall no number of refreshes moves. When that deadline
+   * passes, refreshing stops working and {@link createSession} — which needs
+   * the org API key, and therefore a server — is the only way back.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param auth - The token being exchanged. The conversation is its own claim,
+   *   which is why there is no body: a `chatId` here would let a stranger
+   *   holding a leaked conversation id append to somebody else's chat.
+   */
+  async refresh(deploymentId: string, auth: ChatStreamAuth): Promise<ChatSession> {
+    return this.http.request<ChatSession>(
+      "POST",
+      `/deployments/${deploymentId}/chat-session/refresh`,
+      { chatSessionToken: auth.token }
+    );
   }
 
   /**

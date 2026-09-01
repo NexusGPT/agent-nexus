@@ -65,11 +65,11 @@ vi.mock("../client", () => ({
   })
 }));
 
+import { registerAppsCommands } from "./apps";
 import { registerCloudImportCommands } from "./cloud-import";
 import { registerCustomModelCommands } from "./custom-model";
 import { registerDocsCommand } from "./docs";
 import { registerExternalToolCommands } from "./external-tool";
-import { registerVibeCommands } from "./vibe";
 import { registerWorkspaceCommands } from "./workspace";
 
 interface Driven {
@@ -306,10 +306,10 @@ describe("under --json, a failure is a document on stdout — at the doors the s
     expectOneErrorDocument(run, "custom-model delete (util/confirm confirmDestructive)", "--yes");
   });
 
-  it("vibe app delete: vibe's OWN confirmDestructive, which tests isJsonMode explicitly", async () => {
-    const run = await drive(registerVibeCommands, ["vibe", "app", "delete", "app-1"]);
+  it("apps delete: the apps module's OWN confirmDestructive, which tests isJsonMode explicitly", async () => {
+    const run = await drive(registerAppsCommands, ["apps", "delete", "app-1"]);
 
-    expectOneErrorDocument(run, "vibe app delete (vibe-local confirmDestructive)", "--yes");
+    expectOneErrorDocument(run, "apps delete (module-local confirmDestructive)", "--yes");
   });
 
   it("docs search: a thrown call is reported as a document, not as prose", async () => {

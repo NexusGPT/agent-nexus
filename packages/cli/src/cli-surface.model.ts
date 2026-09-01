@@ -38,7 +38,7 @@ export type SurfaceTier =
   /** Named, visible, promised. A rename without an alias is a breaking change. */
   | "STABLE"
   /**
-   * `vibe`, `admin` and `api` — carved out of STABLE by name in COMPATIBILITY.md.
+   * `apps`, `admin` and `api` — carved out of STABLE by name in COMPATIBILITY.md.
    * Visible because operators need to find them, not because they are stable.
    */
   | "UNSTABLE"

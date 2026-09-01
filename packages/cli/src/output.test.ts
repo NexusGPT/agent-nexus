@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe("printTable", () => {
   /**
-   * The load-bearing property behind full ids in `vibe` lists. A column's
+   * The load-bearing property behind full ids in `apps` lists. A column's
    * `width` is a hard `slice`, so a `width: 10` on an id column silently
    * cuts a uuid down to something the API rejects with a 500 — and the list
    * is the only place a user gets that id. Omitting `width` must print it

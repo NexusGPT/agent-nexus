@@ -13,7 +13,7 @@ import { describeStdout } from "./json-one-document.scan";
  * WHY THIS BRANCH IS INVISIBLE TO BOTH `--json` GATES
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `nexus vibe deploy` answers the spend soft-limit by ASKING. Non-interactively —
+ * `nexus apps deploy` answers the spend soft-limit by ASKING. Non-interactively —
  * a pipe, CI, or `--json` — it must never auto-confirm, so it prints the situation
  * and exits non-zero having deployed nothing. Under `--json` it printed
  * `JSON.stringify(data)`: the raw `confirmation_required` payload, on STDOUT, in
@@ -51,7 +51,7 @@ vi.mock("../util/tenant-http", async (importOriginal) => {
   return { ...actual, tenantRequest };
 });
 
-const { registerVibeCommands } = await import("./vibe");
+const { registerAppsCommands } = await import("./apps");
 
 interface Driven {
   readonly stdout: string;
@@ -60,7 +60,7 @@ interface Driven {
 }
 
 /**
- * Drive `vibe deploy` on a minimal root that carries the same two installers the
+ * Drive `apps deploy` on a minimal root that carries the same two installers the
  * real program does, so `--json` is resolved from argv exactly as the binary
  * resolves it. Building the whole tree here would work and would also make this
  * spec fail for reasons that have nothing to do with the branch it is about.
@@ -90,7 +90,7 @@ async function drive(argv: readonly string[]): Promise<Driven> {
   try {
     const program = new Command();
     program.name("nexus").option("--json", "Output as JSON").option("--api-key <key>", "key");
-    registerVibeCommands(program);
+    registerAppsCommands(program);
     installArgumentRefusalReporting(program, { onSuccessfulExit: "throw" });
     installJsonTerminalContract(program);
     await program.parseAsync(["node", "nexus", ...argv]);
@@ -111,13 +111,13 @@ interface ErrorDocument {
   readonly error: { readonly message: string; readonly hint: string | null; readonly code: string };
 }
 
-describe("vibe deploy refuses the spend gate with an ERROR document under --json", () => {
+describe("apps deploy refuses the spend gate with an ERROR document under --json", () => {
   it("puts the documented envelope on stdout, never the confirmation payload", async () => {
     tenantRequest.mockReset();
     tenantRequest.mockResolvedValue(CONFIRMATION_REQUIRED);
 
     const run = await drive([
-      "vibe",
+      "apps",
       "deploy",
       APP_ID,
       "--sha",
@@ -159,7 +159,7 @@ describe("vibe deploy refuses the spend gate with an ERROR document under --json
     tenantRequest.mockResolvedValue(CONFIRMATION_REQUIRED);
 
     const run = await drive([
-      "vibe",
+      "apps",
       "deploy",
       APP_ID,
       "--sha",

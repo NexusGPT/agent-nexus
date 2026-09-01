@@ -1,5 +1,5 @@
 /**
- * `nexus vibe app logs --follow` — WHAT A SIGNAL ACTUALLY DOES TO THE EXIT CODE.
+ * `nexus apps logs --follow` — WHAT A SIGNAL ACTUALLY DOES TO THE EXIT CODE.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * 🚨 THIS IS THE ONLY PLACE IN THE CLI THAT PRODUCES `130`, AND EVERY SHIPPED
@@ -31,7 +31,7 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 import { EXIT_CODES } from "../exit-codes";
-import { type AppLogsRequest, runAppLogsFollow } from "./vibe-app-logs";
+import { type AppLogsRequest, runAppLogsFollow } from "./apps-logs";
 
 const tenantStream = vi.hoisted(() => vi.fn());
 vi.mock("../util/tenant-http", () => ({ tenantStream }));

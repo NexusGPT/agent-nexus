@@ -12,7 +12,7 @@
  * `--help`.
  *
  * "Per terminal result" is not a softening. Two commands legitimately produce
- * many values and neither is a defect: `vibe app logs --follow` emits NDJSON
+ * many values and neither is a defect: `apps logs --follow` emits NDJSON
  * because an array's closing bracket only exists once the stream ends, and a
  * follow does not end; `execution follow` polls and prints per-node progress
  * until the run terminates. A rule that called those violations would be
@@ -116,11 +116,7 @@ import { setJsonMode } from "../output";
  * for as long as the host keeps the pipe open. There is no last document to wait
  * for, and driving it here would block on a stdin that never closes.
  */
-export const STREAMING_LEAVES: readonly string[] = [
-  "execution follow",
-  "mcp serve",
-  "vibe app logs"
-];
+export const STREAMING_LEAVES: readonly string[] = ["execution follow", "mcp serve", "apps logs"];
 
 /**
  * Commands whose stdout is the SERVER'S payload in a format the CALLER chose.

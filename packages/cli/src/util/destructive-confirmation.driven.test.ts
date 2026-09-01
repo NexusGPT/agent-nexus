@@ -35,7 +35,7 @@ import { EXIT_CODES } from "../exit-codes";
  *
  * Every candidate in `UNCONFIRMED_DESTRUCTIVE` does NOT stop: driven, it runs
  * its action to completion, because that is the very thing being measured.
- * `auth logout` deletes a stored profile and `vibe env rm` deletes one, so `HOME` moves
+ * `auth logout` deletes a stored profile and `apps env rm` deletes one, so `HOME` moves
  * in `vi.hoisted` — before the imports, because `config.ts` computes its
  * directory from `os.homedir()` at module load — and every network seam is
  * stubbed. `process.cwd()` moves too: `claude-code install` unpacks a whole

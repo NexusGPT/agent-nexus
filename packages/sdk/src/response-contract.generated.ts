@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 492 routes: 382 with a checkable shape, 104 publishing no
+// 493 routes: 383 with a checkable shape, 104 publishing no
 // response schema, 6 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -501,6 +501,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "PUT /roles/:roleId/boards": {name:"RolesReorderBoards",method:"PUT",path:"/roles/:roleId/boards",payload:{kind:"object",fields:{"boards":"a","cards":"a"},required:["boards","cards"]}},
   "PUT /roles/:roleId/scope-lines": {name:"RolesReplaceScopeLines",method:"PUT",path:"/roles/:roleId/scope-lines",payload:{kind:"object",fields:{"lines":"a","unresolvedVariables":"a"},required:["lines","unresolvedVariables"]}},
   "PUT /roles/:roleId/system-policy": {name:"RolesUpsertSystemPolicy",method:"PUT",path:"/roles/:roleId/system-policy",payload:{kind:"object",fields:{"allowProposals":"b","autoPush":"b","id":"s","notifyTakeover":"b","requireReview":"b","roleId":"s","startPaused":"b","updatedAt":"s"},required:["allowProposals","autoPush","id","notifyTakeover","requireReview","roleId","startPaused","updatedAt"]}},
+  "PUT /roles/:roleId/systems/:roleResourceId/lifecycle": {name:"RolesTransitionSystemLifecycle",method:"PUT",path:"/roles/:roleId/systems/:roleResourceId/lifecycle",payload:{kind:"object",fields:{"lifecycle":"s","roleResourceId":"s"},required:["lifecycle","roleResourceId"]}},
   "PUT /roles/:roleId/tasks": {name:"RolesReplaceTasks",method:"PUT",path:"/roles/:roleId/tasks",payload:{kind:"object",fields:{"tasks":"a"},required:["tasks"]}},
   "PUT /roles/:roleId/tasks/:taskId/duties": {name:"RolesReplaceTaskDuties",method:"PUT",path:"/roles/:roleId/tasks/:taskId/duties",payload:{kind:"object",fields:{"responsibilityIds":"a"},required:["responsibilityIds"]}},
   "PUT /roles/:roleId/variables": {name:"RolesReplaceVariables",method:"PUT",path:"/roles/:roleId/variables",payload:{kind:"object",fields:{"variables":"a"},required:["variables"]}},

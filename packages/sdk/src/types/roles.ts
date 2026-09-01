@@ -1938,6 +1938,46 @@ export interface RoleSystemPolicyBody {
   notifyTakeover: boolean;
 }
 
+/**
+ * Request body for `client.roles.transitionSystemLifecycle()`.
+ *
+ * 🚨 THIS MOVES THE ROLE'S PUBLISHED COVERAGE IN BOTH DIRECTIONS AND THE RESULT
+ * REPORTS NEITHER. Only `LIVE` systems are summed, so moving one INTO `LIVE`
+ * adds its person-hours, revenue and cost to the Role's totals, and moving one
+ * OUT of `LIVE` removes all three — without touching a single model. The system
+ * keeps publishing its own per-row figures either way, so the per-system rows
+ * look unchanged while the headline number has moved. `roles.coverage(roleId)`
+ * is the read that says by how much, and it needs `role_coverage:read` — a scope
+ * this write neither carries nor implies.
+ *
+ * 🔴 `LIVE` IS REACHABLE ONLY FROM `BUILDING`. `RETIRED -> LIVE` is refused, and
+ * so is asking for the state the system is already in. Un-retiring is `RETIRED`
+ * then `BUILDING` then `LIVE`, one extra call. The rule exists so that every
+ * approval has a submitter to be checked against: the only thing that records a
+ * submitter is the move INTO `BUILDING`, so a direct edge would create rows
+ * going live with no submitter or a stale one, and the Role's review requirement
+ * would have to fail open or fail closed for exactly those rows.
+ */
+export interface RoleSystemLifecycleBody {
+  /** The bucket to move the system into. */
+  lifecycle: RoleResourceLifecycle;
+}
+
+/**
+ * What the transition did.
+ *
+ * Echoes the state rather than a bare success, so a caller that retried after a
+ * timeout can tell which state it is looking at without a second round trip. It
+ * deliberately carries no coverage figure: a payload with a stale numerator in it
+ * invites a re-render from the wrong number.
+ */
+export interface RoleSystemLifecycleResult {
+  /** The `RoleResource` attachment that moved — not the system's own id. */
+  roleResourceId: string;
+  /** The bucket it is now in. */
+  lifecycle: RoleResourceLifecycle;
+}
+
 /** The Role's system policy, as the API returns it. */
 export interface RoleSystemPolicy {
   /** Systems may propose changes. */

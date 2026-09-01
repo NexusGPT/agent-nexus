@@ -89,7 +89,7 @@ const COVERAGE_WORD = /\bcover(age|s|ed|ing)?\b/i;
  * automation figure. An UPPER BOUND, so removing the word from a command's help
  * takes its entry and this figure down together, in silence.
  */
-const MAY_NAME_THE_FIGURE_CEILING = 12;
+const MAY_NAME_THE_FIGURE_CEILING = 13;
 
 const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
   coverage: "it IS the figure",
@@ -104,6 +104,15 @@ const MAY_NAME_THE_FIGURE: Readonly<Record<string, string>> = {
   "set-variables": "carries the job-model disclaimer",
   "set-working-year": "carries the job-model disclaimer",
   "set-system-policy": "carries the job-model disclaimer",
+  // 🔑 THE ONE ENTRY THAT IS NEITHER THE FIGURE NOR A DISCLAIMER: it MOVES the
+  // figure, in both directions, and touches no model doing it. Only a LIVE
+  // system is summed, so this write is the whole of the difference between
+  // modelled coverage and live coverage — the automation sense in its strongest
+  // form, which is why "coverage buckets" is the honest name for what it moves
+  // a system between. Silence here would be the defect: a caller who cannot see
+  // that this changes the published percentage is exactly the caller who
+  // retires a system to tidy an inventory.
+  "set-system-lifecycle": "moves the figure in both directions, without touching a model",
   // These two render the CAPABILITY enum out of the v1 contract, and
   // `coverage.view` / `coverage.manage` are in it. That is the automation sense
   // appearing as an identifier — the docblock above names those two strings as

@@ -222,6 +222,15 @@ export const ROLES_MOVE_BOARD_CARD__PATH_VARS_CARD_TYPE = {
   ]
 } as const satisfies ContractEnum;
 
+export const ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE = {
+  path: "RolesTransitionSystemLifecycle.Body.lifecycle",
+  contractValues: [
+    "BUILDING",
+    "LIVE",
+    "RETIRED"
+  ]
+} as const satisfies ContractEnum;
+
 export const ROLES_UPDATE_BOARD__BODY_ACCENT = {
   path: "RolesUpdateBoard.Body.accent",
   contractValues: [
@@ -490,6 +499,17 @@ export const ROLES_REORDER_BOARDS_CONTRACT = {
   fields: [
     { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
     { path: "Body.boardIds", slot: "Body", type: "array", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const ROLES_TRANSITION_SYSTEM_LIFECYCLE_CONTRACT = {
+  name: "RolesTransitionSystemLifecycle",
+  method: "PUT",
+  route: "/public/v1/roles/:roleId/systems/:roleResourceId/lifecycle",
+  fields: [
+    { path: "PathVars.roleId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "PathVars.roleResourceId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.lifecycle", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["BUILDING", "LIVE", "RETIRED"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

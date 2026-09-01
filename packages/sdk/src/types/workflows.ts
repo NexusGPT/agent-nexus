@@ -641,7 +641,8 @@ export type NexusApiCategory =
   | "inbox"
   | "workflows"
   | "executions"
-  | "workspace";
+  | "workspace"
+  | "memory";
 
 /** The `(category, action)` catalog surfaced on the `nexusApi` node type. */
 export interface NexusApiActionCatalog {

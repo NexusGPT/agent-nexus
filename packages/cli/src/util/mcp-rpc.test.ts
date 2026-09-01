@@ -1,3 +1,4 @@
+import { NexusApiError } from "@agent-nexus/sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -181,7 +182,7 @@ describe("the MCP transport speaks the CLI's own credential resolution", () => {
 
     await expect(
       createMcpTransport({}).send(toolsCallMessage(1, "agent_create", {}))
-    ).rejects.toThrow();
+    ).rejects.toThrow(NexusApiError);
     expect(calls).toHaveLength(1);
   });
 });

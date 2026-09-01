@@ -24,6 +24,9 @@ import {
   AssignTemplateToFolderResponseSchema,
   AvailablePhoneNumberItemSchema,
   BuyPhoneNumberBodySchema,
+  ConnectToolBodySchema,
+  ConnectToolHttpBodySchema,
+  ConnectToolOAuthBodySchema,
   CreateDeploymentFolderBodySchema,
   CreateDocumentTemplateFolderBodySchema,
   CreateFolderBodySchema,
@@ -81,6 +84,7 @@ import {
   RoleScopeLinesV1BodySchema,
   RoleScopeLinesV1ResponseSchema,
   RolesListV1ResponseSchema,
+  RoleSystemLifecycleV1BodySchema,
   RoleSystemPolicyV1BodySchema,
   RoleV1ResponseSchema,
   RoleVariablesV1BodySchema,
@@ -179,6 +183,8 @@ import type {
   RoleScopeLinesBody,
   RoleScopeLinesResponse,
   RolesListResponse,
+  RoleSystemLifecycleBody,
+  RoleSystemLifecycleResult,
   RoleSystemPolicy,
   RoleSystemPolicyBody,
   RoleSystemsResponse,
@@ -198,6 +204,7 @@ import type {
   UpdateSkillFolderBody
 } from "./skill-folders";
 import type { ExternalToolDetail, ListExternalToolsResponse } from "./skills";
+import type { ConnectToolBody, ConnectToolHttpBody, ConnectToolOAuthBody } from "./tool-connection";
 import type { GenerationDetail, GenerationSummary, TraceDetail, TraceSummary } from "./tracing";
 import type {
   CreateUserGroupBody,
@@ -560,6 +567,7 @@ export type V1ContractAssertions = [
   Expect<Equals<RoleVariablesResponse, Received<typeof RoleVariablesV1ResponseSchema>>>,
   Expect<Equals<RoleWorkingYearBody, Sent<typeof RoleWorkingYearV1BodySchema>>>,
   Expect<Equals<RoleSystemPolicyBody, Sent<typeof RoleSystemPolicyV1BodySchema>>>,
+  Expect<Equals<RoleSystemLifecycleBody, Sent<typeof RoleSystemLifecycleV1BodySchema>>>,
 
   // ── the three nullable READS, asserted through the DESCRIPTOR ──────────────
   //
@@ -599,6 +607,12 @@ export type V1ContractAssertions = [
     Equals<RoleSystemPolicy | null, Received<typeof ZPublicApiV1.RolesGetSystemPolicy.Response>>
   >,
   Expect<Equals<RoleSystemPolicy, Received<typeof ZPublicApiV1.RolesUpsertSystemPolicy.Response>>>,
+  Expect<
+    Equals<
+      RoleSystemLifecycleResult,
+      Received<typeof ZPublicApiV1.RolesTransitionSystemLifecycle.Response>
+    >
+  >,
 
   // The member ADD, both halves through the DESCRIPTOR for the reason stated above.
   // Its response is an ALIAS of the internal row today; asserting the alias export
@@ -627,7 +641,37 @@ export type V1ContractAssertions = [
   Expect<Equals<WorkspaceSummary, Received<typeof WorkspaceSummarySchema>>>,
 
   Expect<Equals<UpsertRoleMemberBody, Sent<typeof ZPublicApiV1.RolesUpsertMember.Body>>>,
-  Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>
+  Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>,
+
+  // ── tool connection ── /public/v1/tools/:toolId/connect ───────────────────
+  //
+  // 🚨 THE LAST UNGATED LINK OF THE CHAIN THE CLI COMPILES AGAINST. The CLI's
+  // request literal is typechecked against this package's hand-written
+  // `ConnectToolOAuthBody` / `ConnectToolHttpBody`, and nothing compared those to
+  // `ConnectToolBodySchema` — the schema the handler actually validates with. So
+  // renaming `service` on the contract side left the CLI compiling perfectly and
+  // shipping a body that can only 400 (NEX-3535).
+  //
+  // `Sent<>` throughout: these are REQUEST bodies, so what a caller supplies is
+  // the schema's INPUT. Comparing a request type against `_output` reports drift
+  // that does not exist the moment a `.default()` or a `z.coerce` lands.
+  //
+  // THREE PAIRS, BECAUSE THIS PACKAGE PUBLISHES THREE NAMES. `ConnectToolOAuthBody`
+  // and `ConnectToolHttpBody` are separately exported and separately imported by
+  // consumers; pinning only the union would leave each arm's own exported name
+  // checked solely through whatever `ConnectToolBody` happens to be built from
+  // today, which is an alias one edit away from being inlined.
+  //
+  // ⚠️ THE UNION PAIR IS NOT THE WEAK ONE, AND ASSUMING IT WAS IS THE EASY ERROR.
+  // `Equals` compares the whole type NODE, not the keys every arm shares, so it
+  // reds on a field moving INSIDE an arm too — measured: renaming `service` to
+  // `serviceName` upstream takes BOTH the OAuth pair and the union pair to
+  // `TS2344`, and leaves the HTTP pair green. What the per-arm pairs add over the
+  // union is ATTRIBUTION — the error names the arm that drifted rather than the
+  // union around it — not detection.
+  Expect<Equals<ConnectToolOAuthBody, Sent<typeof ConnectToolOAuthBodySchema>>>,
+  Expect<Equals<ConnectToolHttpBody, Sent<typeof ConnectToolHttpBodySchema>>>,
+  Expect<Equals<ConnectToolBody, Sent<typeof ConnectToolBodySchema>>>
 ];
 
 /**
@@ -742,11 +786,17 @@ const GATED_PAIRS = [
   "RoleSystemPolicyBody ↔ RoleSystemPolicyV1BodySchema",
   "RoleSystemPolicy | null ↔ ZPublicApiV1.RolesGetSystemPolicy.Response",
   "RoleSystemPolicy ↔ ZPublicApiV1.RolesUpsertSystemPolicy.Response",
+  "RoleSystemLifecycleBody ↔ RoleSystemLifecycleV1BodySchema",
+  "RoleSystemLifecycleResult ↔ ZPublicApiV1.RolesTransitionSystemLifecycle.Response",
 
   "WorkspaceSummary ↔ WorkspaceSummarySchema",
 
   "UpsertRoleMemberBody ↔ ZPublicApiV1.RolesUpsertMember.Body",
-  "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response"
+  "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response",
+
+  "ConnectToolOAuthBody ↔ ConnectToolOAuthBodySchema",
+  "ConnectToolHttpBody ↔ ConnectToolHttpBodySchema",
+  "ConnectToolBody ↔ ConnectToolBodySchema"
 ] as const;
 
 /**
@@ -882,7 +932,34 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // enum are ledgered in `V1_RESPONSE_DRIFT` for `config: unknown`, and a ledger
 // row buys silence on the WHOLE ROUTE, so every other field in those DTOs —
 // including `type` — was free. See the narrowing beside that ledger.
-const GATED_PAIR_FLOOR = 101;
+//
+// +3: the tool-connect REQUEST bodies — `ConnectToolOAuthBody`,
+// `ConnectToolHttpBody`, and the union over them (NEX-3535). The CLI's request
+// literal is typechecked against this package's hand-written types, and those
+// were compared to nothing, so the chain contract → SDK → CLI stopped one link
+// short of `ConnectToolBodySchema`, which is what the handler validates with.
+// Three rather than one because this package publishes three names; the reasoning
+// and what each pair actually buys are stated beside the assertions.
+//
+// +2: the Role system-lifecycle REQUEST body and its RESULT —
+// `RoleSystemLifecycleBody ↔ RoleSystemLifecycleV1BodySchema` and
+// `RoleSystemLifecycleResult ↔ ZPublicApiV1.RolesTransitionSystemLifecycle.Response`.
+// The transition is the only v1 write that moves a Role's published coverage
+// without touching a model, so its body is the one place a wrong `lifecycle`
+// string moves a customer-facing figure with nothing to catch it. Two rather than
+// one because the RESULT is echoed back for a caller retrying after a timeout,
+// and an unchecked echo is how a retry reads the wrong state as confirmed.
+//
+// 🚨 101 + 3 + 2 = 106, AND THAT IS COUNTED FROM THE MERGED ARRAY RATHER THAN
+// ADDED UP. Two branches each raised this constant off the same base of 101 —
+// staging to 104, `cluster/roles-v1-lifecycle` to 103 — so NEITHER side's number
+// is correct after the merge, and taking either one is silent: 104 leaves the two
+// lifecycle pairs unfloored, and 103 passes the `toBeGreaterThanOrEqual` above
+// while protecting less than it claims. This is the shape that is true on both
+// parents and false only in their join, which no member PR can catch. The `toBe`
+// assertion at the bottom of this file is what refuses a wrong value in EITHER
+// direction; count the list, never take a side.
+const GATED_PAIR_FLOOR = 106;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

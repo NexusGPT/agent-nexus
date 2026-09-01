@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 52 command groups, 547 invocable subcommands
+- 52 command groups, 548 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`

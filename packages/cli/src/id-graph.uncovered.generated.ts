@@ -245,6 +245,7 @@ export const ID_GRAPH_UNCOVERED: readonly (readonly [string, string])[] = [
   ["role revoke-workspace", "unbound-no-provable-method"],
   ["role scope-lines", "unbound-no-provable-method"],
   ["role set-scope-lines", "unbound-no-provable-method"],
+  ["role set-system-lifecycle", "bound-but-mutates"],
   ["role set-system-policy", "unbound-no-provable-method"],
   ["role set-task-duties", "unbound-no-provable-method"],
   ["role set-tasks", "unbound-no-provable-method"],

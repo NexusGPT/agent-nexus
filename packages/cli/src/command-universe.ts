@@ -680,6 +680,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "role scope-lines": "registration-only",
   "role set-automation-settings": "registration-only",
   "role set-scope-lines": "registration-only",
+  "role set-system-lifecycle": "registration-only",
   "role set-system-policy": "registration-only",
   "role set-task-duties": "registration-only",
   "role set-tasks": "registration-only",

@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Command, Option } from "commander";
+import { Command, CommanderError, Option } from "commander";
 import { describe, expect, it } from "vitest";
 
 import { enumOption } from "../contract-binding";
@@ -168,7 +168,7 @@ describe("a field inside --body satisfies its required flag", () => {
     const h = harness(declareGo);
     await expect(
       h.program.parseAsync(["go", "--body", '{"somethingElse":1}'], { from: "user" })
-    ).rejects.toThrow();
+    ).rejects.toThrow(CommanderError);
 
     const written = h.errors().join("");
     expect(written).toContain("error: required option '--first-name <name>' not specified");
@@ -179,7 +179,7 @@ describe("a field inside --body satisfies its required flag", () => {
 
   it("refuses when --body is absent altogether", async () => {
     const h = harness(declareGo);
-    await expect(h.program.parseAsync(["go"], { from: "user" })).rejects.toThrow();
+    await expect(h.program.parseAsync(["go"], { from: "user" })).rejects.toThrow(CommanderError);
     expect(h.errors().join("")).toContain("not specified");
     expect(h.seen()).toBeUndefined();
   });
@@ -360,7 +360,7 @@ describe("the refusal names the key it actually checked", () => {
     errors.length = 0;
     await expect(
       second.parseAsync(["go", "--body", '{"displayName":"M"}'], { from: "user" })
-    ).rejects.toThrow();
+    ).rejects.toThrow(CommanderError);
 
     const written = errors.join("");
     expect(written).toContain('"baseUrl" inside --body');

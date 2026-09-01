@@ -35,7 +35,7 @@ export interface CueTranscriptMessage {
   reasoningLevel: string | null;
   model: string | null;
   provider: ModelProvider | null;
-  /** Teammate display name; null on a lead-composed row. */
+  /** Background-agent display name; null on a lead-composed row. */
   agentName: string | null;
   /** Thread key — the Task/Agent tool-use id that spawned this row's subagent. */
   parentToolUseId: string | null;

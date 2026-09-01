@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, CommanderError } from "commander";
 import { describe, expect, it } from "vitest";
 
 import { buildRootProgram } from "../index";
@@ -34,7 +34,7 @@ describe("one stdin, one claimant", () => {
     const h = harness(twoReaders);
     await expect(
       h.program.parseAsync(["go", "--body", "-", "--prompt", "-"], { from: "user" })
-    ).rejects.toThrow();
+    ).rejects.toThrow(CommanderError);
 
     expect(h.errors()).toContain("--body and --prompt both read standard input");
     // The refusal must land BEFORE anything consumes the stream.
@@ -89,7 +89,7 @@ describe("one stdin, one claimant", () => {
       const long = flags.split(" ")[0] as string;
       await expect(
         h.program.parseAsync(["go", "--body", "-", long, "-"], { from: "user" })
-      ).rejects.toThrow();
+      ).rejects.toThrow(CommanderError);
       expect(h.errors()).toContain(long);
     }
   });

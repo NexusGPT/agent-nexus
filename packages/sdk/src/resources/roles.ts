@@ -55,6 +55,8 @@ import type {
   RoleScopeLinesBody,
   RoleScopeLinesResponse,
   RolesListResponse,
+  RoleSystemLifecycleBody,
+  RoleSystemLifecycleResult,
   RoleSystemPolicy,
   RoleSystemPolicyBody,
   RoleSystemsResponse,
@@ -1080,6 +1082,48 @@ export class RolesResource extends BaseResource {
    */
   async upsertSystemPolicy(roleId: string, body: RoleSystemPolicyBody): Promise<RoleSystemPolicy> {
     return this.http.request<RoleSystemPolicy>("PUT", `/roles/${roleId}/system-policy`, { body });
+  }
+
+  /**
+   * Move one of the Role's systems between coverage buckets.
+   *
+   * 🚨 IT MOVES A CUSTOMER-FACING FIGURE IN BOTH DIRECTIONS AND THE RESULT
+   * REPORTS NEITHER. Only `LIVE` systems are summed into the Role's coverage
+   * numerator and money totals: `LIVE` adds the system's person-hours, revenue
+   * and cost, and leaving `LIVE` — for `BUILDING` or for `RETIRED` — removes all
+   * three. No model is touched either way, and the system's own row keeps
+   * publishing the same figures, so nothing in the per-system list changes while
+   * the Role's headline coverage has. Call `roles.coverage(roleId)` to see what
+   * it did; that read needs `role_coverage:read`, which `roles:write` does not
+   * imply.
+   *
+   * 🔴 `LIVE` IS REACHABLE ONLY FROM `BUILDING`, so `RETIRED -> LIVE` is a 400
+   * and un-retiring takes two calls. Asking for the state the system is already
+   * in is a 409 rather than a silent success, because the alternative is
+   * re-stamping the approver.
+   *
+   * ⚠️ WHEN THE ROLE'S SYSTEM POLICY SETS `requireReview`, THE APPROVER MUST NOT
+   * BE THE SUBMITTER — this call is made as the API key's OWNER, so a key whose
+   * owner submitted the system cannot approve it and no retry helps. A system
+   * with no recorded submitter cannot satisfy the requirement either; retire it
+   * and submit it again to record one.
+   *
+   * @param roleId - Role UUID.
+   * @param roleResourceId - The ATTACHMENT's UUID, not the agent's or workflow's.
+   *   Read it off `roles.resources(roleId)` or off the coverage view.
+   * @param body - The bucket to move into.
+   * @returns The attachment and the bucket it is now in.
+   */
+  async transitionSystemLifecycle(
+    roleId: string,
+    roleResourceId: string,
+    body: RoleSystemLifecycleBody
+  ): Promise<RoleSystemLifecycleResult> {
+    return this.http.request<RoleSystemLifecycleResult>(
+      "PUT",
+      `/roles/${roleId}/systems/${roleResourceId}/lifecycle`,
+      { body }
+    );
   }
 
   // ──────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Command, InvalidArgumentError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { describe, expect, it } from "vitest";
 
 import { parseFeedbackScore } from "./feedback-score";
@@ -56,6 +56,6 @@ describe("parseFeedbackScore", () => {
     program.parse(["node", "t", "feedback", "--score", "0.5"]);
     expect(seen).toBe(0.5);
 
-    expect(() => program.parse(["node", "t", "feedback", "--score", "5"])).toThrow();
+    expect(() => program.parse(["node", "t", "feedback", "--score", "5"])).toThrow(CommanderError);
   });
 });

@@ -35,6 +35,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { selectSkillDirs, SHARED_DIR } from "./skills-bundle/select-skill-dirs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = path.resolve(__dirname, "..");
 const LOCK_FILE = path.join(CLI_ROOT, "skills-nexus.lock");
@@ -256,13 +258,15 @@ async function main(): Promise<void> {
     throw new Error(`Tarball is missing a top-level skills/ directory: ${skillsRoot}`);
   }
 
-  const skillDirs = fs
-    .readdirSync(skillsRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && d.name.startsWith("nexus-"))
-    .map((d) => d.name)
-    .sort();
-
-  console.log(`Found ${skillDirs.length} skill directories`);
+  // Selection AND its report, in one call. `selectSkillDirs` names every
+  // top-level entry it did not bundle, on stderr, so a directory added upstream
+  // that matches nothing cannot reach zero users in silence the way
+  // `skills/plain/` did. See that module's header for why it warns rather than
+  // failing, and why nothing here decides `plain`'s fate.
+  const skillDirs = selectSkillDirs(fs.readdirSync(skillsRoot, { withFileTypes: true }), {
+    log: (message) => console.log(message),
+    warn: (message) => console.warn(message)
+  });
 
   const skillsRecord: Record<string, { slug: string; description: string; files: FileEntry[] }> =
     {};
@@ -279,7 +283,10 @@ async function main(): Promise<void> {
 
   const claudeMd = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, "utf-8").trim() : "";
 
-  const sharedFiles = collectFiles(path.join(skillsRoot, "shared"));
+  // `SHARED_DIR`, not a second literal: this call IS the reason `shared` is
+  // declared in `NON_SKILL_DIRS` as "consumed elsewhere", and the two must not
+  // be able to drift into a declaration nothing honours.
+  const sharedFiles = collectFiles(path.join(skillsRoot, SHARED_DIR));
 
   // settings.json + hooks/ — the scoped permission posture (NEX-2461). The
   // top-level settings.json installs to .claude/settings.json; the hooks/ tree

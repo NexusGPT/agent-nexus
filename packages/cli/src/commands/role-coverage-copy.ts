@@ -94,6 +94,12 @@ export const COVERAGE_INPUTS_NOTE = `
   work that has been modelled. Every system starts LIVE unless the Role's
   system policy sets startPaused.
 
+  THE LIFECYCLE IS WRITABLE THROUGH THIS API, unlike the two models above, with
+  "nexus role set-system-lifecycle". It moves this figure in both directions and
+  touches no model: into LIVE adds the system's hours and money to the totals,
+  out of LIVE removes them. Re-read this command afterwards — nothing in the
+  write's own output reports what it did to the figure.
+
   ONLY THE LAST OF THE THREE IS WRITABLE THROUGH THIS API, with
   "nexus role set-automation-settings". The workload and the per-system impact
   are authored in the dashboard, on the Role's General tab. Their routes are

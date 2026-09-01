@@ -475,6 +475,12 @@ export const ROLE_NAMESPACE_AREAS: ReadonlyArray<{
       "coverage",
       "automation-settings",
       "set-automation-settings",
+      // FILED UNDER THE COST MODEL RATHER THAN BESIDE `set-system-policy`, even
+      // though both write a fact about a system. What a reader is looking for
+      // when they reach this index is what MOVES the figure, and this is the
+      // only verb here besides `set-automation-settings` that does — the policy
+      // write moves nothing.
+      "set-system-lifecycle",
       "job-types",
       "create-job-type",
       "update-job-type",
@@ -511,7 +517,8 @@ The ${ROLE_VERB_COUNT} verbs are ${ROLE_NAMESPACE_AREAS.length} areas:
 
 ${ROLE_NAMESPACE_AREAS.map((area) => renderArea(area.label, area.verbs)).join("\n\n")}
 
-Only THE COST MODEL feeds "nexus role coverage", and inside it only
-"set-automation-settings" writes anything that moves the figure —
-"nexus role coverage --help" names the three rows that do, and says where the
-other two are authored.`;
+Only THE COST MODEL feeds "nexus role coverage", and inside it exactly TWO verbs
+move the figure. "set-automation-settings" writes one of the three rows it is
+derived from — "nexus role coverage --help" names all three and says where the
+other two are authored. "set-system-lifecycle" moves it WITHOUT touching a row:
+only a LIVE system is summed, so it decides which already-modelled systems count.`;

@@ -298,6 +298,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "RolesReplaceTasks",
   "RolesReplaceVariables",
   "RolesResume",
+  "RolesTransitionSystemLifecycle",
   "RolesUpdate",
   "RolesUpdateBoard",
   "RolesUpdatePermissionSet",

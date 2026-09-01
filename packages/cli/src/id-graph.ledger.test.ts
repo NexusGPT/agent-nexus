@@ -82,7 +82,15 @@ const gate = shrinkOnlyLedger({
   // decision, made before this gate existed. It is not `declared-unsweepable`
   // either — it is perfectly callable given a real trackId, so a
   // `id-graph.leaf-residue.ts` row would claim something false about it.
-  ceiling: 339,
+  //
+  // 339 -> 340 for `role set-system-lifecycle`, classified `bound-but-mutates`.
+  // It IS bound — `bindCommand` names `RolesTransitionSystemLifecycle`, so the
+  // remedy the other rows lack is already applied — and it stays unsweepable for
+  // the reason that classification exists: the sweep calls what it reaches, and
+  // this call moves a Role's published coverage figure. There is no read-only
+  // form of it to call instead. A row here is the honest place for that, not a
+  // `declared-unsweepable` entry, which would claim it cannot be reached.
+  ceiling: 340,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

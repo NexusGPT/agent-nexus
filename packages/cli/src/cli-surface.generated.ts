@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 642 command nodes; 547 invocable leaves.
+ * 643 command nodes; 548 invocable leaves.
  * 52 top-level commands — 52 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         488 STABLE, 59 UNSTABLE
- *   disposition  22 never-execute, 456 registration-only, 64 safe, 5 safe-with-fixture
+ *   tier         489 STABLE, 59 UNSTABLE
+ *   disposition  22 never-execute, 457 registration-only, 64 safe, 5 safe-with-fixture
  *   --yes        46 destructive — 46 confirmable
- *   --json       413 answered, 134 abstain
+ *   --json       414 answered, 134 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -432,6 +432,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "role scope-lines", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>"], flags: [], aliases: [], hidden: false, confirm: null, json: "list", shape: "4fc25abeb9c3" },
   { path: "role set-automation-settings", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: [], flags: ["--hours-per-day <n>", "--days-per-week <n>", "--working-weeks <n>", "--currency <code>", "--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "359fe7881344" },
   { path: "role set-scope-lines", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>"], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "b3bb9945d0ea" },
+  { path: "role set-system-lifecycle", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>", "<system>", "<lifecycle> {BUILDING|LIVE|RETIRED}"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "2991609a3bf2" },
   { path: "role set-system-policy", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>"], flags: ["--allow-proposals <bool>", "--require-review <bool>", "--start-paused <bool>", "--auto-push <bool>", "--notify-takeover <bool>", "--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "7e6895460198" },
   { path: "role set-task-duties", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>", "<task-id>"], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "4571ec466de1" },
   { path: "role set-tasks", tier: "STABLE", module: "role.ts", disposition: "registration-only", args: ["<role>"], flags: ["!--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "52ddb5455dd3" },

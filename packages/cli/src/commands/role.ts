@@ -11,6 +11,7 @@ import type {
   RoleJobTypeBody,
   RolePermissionSetResourceReach,
   RoleReadinessEntry,
+  RoleResourceLifecycle,
   RoleResourceType,
   RoleScopeLinesBody,
   RoleSystemPolicyBody,
@@ -69,6 +70,8 @@ import {
   ROLES_MOVE_BOARD_CARD__PATH_VARS_CARD_TYPE,
   ROLES_MOVE_BOARD_CARD_CONTRACT,
   ROLES_REORDER_BOARDS_CONTRACT,
+  ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE,
+  ROLES_TRANSITION_SYSTEM_LIFECYCLE_CONTRACT,
   ROLES_UPDATE_BOARD__BODY_ACCENT,
   ROLES_UPDATE_BOARD_CONTRACT,
   ROLES_UPDATE_PERMISSION_SET__BODY_CAPABILITIES_ITEM,
@@ -407,6 +410,43 @@ function readBoolean(raw: string, flag: string): boolean {
 /** `--currency EUR` or `--currency none`, which clears it. */
 function readNullableString(raw: string): string | null {
   return raw === "none" || raw === "null" ? null : raw;
+}
+
+/**
+ * The three coverage buckets, DERIVED from the generated contract rather than
+ * retyped — so a fourth member upstream cannot leave this narrowing behind.
+ */
+type ContractLifecycle =
+  (typeof ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE.contractValues)[number];
+
+/**
+ * Narrow a `<lifecycle>` positional to the SDK's union, with no cast.
+ *
+ * `enumArgument` has already normalised and validated this value against the
+ * same generated constant, so the throw below is unreachable through commander —
+ * stated anyway, exactly as the v1 handler states its own unreachable actor
+ * check, because "unreachable" is a property of the argument declaration above
+ * and not of this function.
+ *
+ * 🔑 IT ALSO CROSS-CHECKS THE TWO VOCABULARIES FOR FREE. The return type is the
+ * SDK's `RoleResourceLifecycle` and the value's type is the CONTRACT's member
+ * union, so a value the contract gains and the published SDK type has not is a
+ * compile error here rather than a runtime 400 for whoever typed it.
+ */
+function readLifecycle(raw: string): RoleResourceLifecycle {
+  const value = raw.toUpperCase();
+  const match = ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE.contractValues.find(
+    (candidate: ContractLifecycle) => candidate === value
+  );
+
+  if (match === undefined) {
+    throw new Error(
+      `Invalid lifecycle "${raw}". Expected ` +
+        `${ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE.contractValues.join(", ")}.`
+    );
+  }
+
+  return match;
 }
 
 /** APPROVED / REJECTED, case-folded. `PENDING` is a start state, never a verdict. */
@@ -3301,6 +3341,83 @@ ${JOB_MODEL_DOES_NOT_MOVE_COVERAGE}`
       }
     });
 
+  const setSystemLifecycle = role
+    .command("set-system-lifecycle")
+    .description("Move one of a Role's systems between coverage buckets")
+    .argument("<role>", "Role name or UUID")
+    .argument("<system>", 'The attachment\'s UUID — from "nexus role systems"')
+    .addArgument(
+      enumArgument(
+        "<lifecycle>",
+        "The bucket to move it into",
+        ROLES_TRANSITION_SYSTEM_LIFECYCLE__BODY_LIFECYCLE,
+        undefined,
+        // Case-folded, exactly as `readVerdict` folds APPROVED/REJECTED. This is
+        // not a widening: the three contract values are uppercase, so what goes
+        // on the wire is a contract member whatever the operator typed, and
+        // `enumArgument` validates the OUTPUT rather than the input. A folder
+        // that went the other way WOULD widen, and would need a declaration.
+        (value) => value.toUpperCase()
+      )
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ nexus role set-system-lifecycle "Support agent" 7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44 LIVE
+  $ nexus role set-system-lifecycle "Support agent" 7c2e9a10-4b6d-4f81-8a35-1d9e0c7b2f44 retired
+
+Notes:
+  THIS MOVES "nexus role coverage" IN BOTH DIRECTIONS AND SAYS NOTHING ABOUT BY
+  HOW MUCH. Only a LIVE system is summed into the Role's numerator and its money
+  totals, so moving one into LIVE adds its hours, revenue and cost, and moving
+  one out — to BUILDING or RETIRED — removes all three. No model is touched
+  either way and the system keeps reporting its own hours on its own row, so the
+  per-system list looks identical while the headline figure has moved. Re-read
+  "nexus role coverage" to see what happened.
+
+  <system> IS THE ATTACHMENT'S ID, NOT THE AGENT'S OR THE WORKFLOW'S. A system
+  lives in one Role at a time, so its own id says nothing about which Role holds
+  it; the attachment id addresses this Role's claim and nothing else. Read it
+  from "nexus role systems".
+
+  LIVE IS REACHABLE ONLY FROM BUILDING. RETIRED -> LIVE is refused, and so is
+  asking for the bucket the system is already in. Un-retiring is two calls:
+  RETIRED, then BUILDING, then LIVE. The rule exists so every approval has a
+  submitter to be checked against — only the move into BUILDING records one — so
+  a direct edge would put systems live with no submitter and the Role's review
+  requirement could then only fail open or fail closed for exactly those rows.
+
+  IF THE ROLE'S SYSTEM POLICY SETS requireReview, THE APPROVER MUST NOT BE THE
+  SUBMITTER. This call acts as the API key's OWNER, so a key whose owner
+  submitted the system is refused and no retry helps — a second person has to
+  run it. A system with no recorded submitter cannot satisfy the rule either;
+  retire it and submit it again to record one.
+
+  Needs roles:write, plus the Role's own role.update capability — a scope alone
+  is not enough. It is role.update and NOT coverage.manage on purpose: the
+  review rule lives on the system policy, whose write is role.update, so gating
+  this on the coverage capability would let its holder move systems live under a
+  rule they cannot see or configure. roles:write does NOT carry
+  role_coverage:read, so mint that too if you want to read the figure back.`
+    )
+    .action(async (ref: string, systemId: string, lifecycle: string) => {
+      try {
+        const client = createClient(program.optsWithGlobals());
+        const roleId = await resolveRoleId(client, ref);
+        const result = await client.roles.transitionSystemLifecycle(roleId, systemId, {
+          lifecycle: readLifecycle(lifecycle)
+        });
+
+        printSuccess("System lifecycle updated.", {
+          roleResourceId: result.roleResourceId,
+          lifecycle: result.lifecycle
+        });
+      } catch (err) {
+        process.exitCode = handleError(err);
+      }
+    });
+
   // ── boards ────────────────────────────────────────────────────────────────
   //
   // A Role's boards are how its systems are ORGANISED. Everything the Role holds
@@ -3599,6 +3716,7 @@ ${BOARDS_ARE_A_CANVAS}`
   bindCommand(boards, ROLES_LIST_BOARDS_CONTRACT);
   bindCommand(addBoard, ROLES_CREATE_BOARD_CONTRACT);
   bindCommand(reorderBoards, ROLES_REORDER_BOARDS_CONTRACT);
+  bindCommand(setSystemLifecycle, ROLES_TRANSITION_SYSTEM_LIFECYCLE_CONTRACT);
   bindCommand(updateBoard, ROLES_UPDATE_BOARD_CONTRACT);
   bindCommand(removeBoard, ROLES_DELETE_BOARD_CONTRACT);
   bindCommand(moveCard, ROLES_MOVE_BOARD_CARD_CONTRACT);

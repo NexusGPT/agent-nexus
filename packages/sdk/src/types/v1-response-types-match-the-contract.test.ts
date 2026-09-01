@@ -1391,6 +1391,13 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["roles"]["upsertSystemPolicy"]>
     >
   >,
+  // RolesTransitionSystemLifecycle  PUT /public/v1/roles/:roleId/systems/:roleResourceId/lifecycle  ->  client.roles.transitionSystemLifecycle()
+  Expect<
+    Equals<
+      ResponseOf<"RolesTransitionSystemLifecycle">,
+      MethodResult<NexusClient["roles"]["transitionSystemLifecycle"]>
+    >
+  >,
   // RolesListResponsibilities  GET /public/v1/roles/:roleId/responsibilities  ->  client.roles.listResponsibilities()
   Expect<
     Equals<
@@ -2091,6 +2098,7 @@ const GATED_ROUTES = [
   "RolesUpsertWorkingYear",
   "RolesGetSystemPolicy",
   "RolesUpsertSystemPolicy",
+  "RolesTransitionSystemLifecycle",
   "RolesListResponsibilities",
   "RolesAddResponsibility",
   "RolesRemoveResponsibility",
@@ -2800,7 +2808,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 332;
+const GATED_ROUTE_COUNT = 333;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

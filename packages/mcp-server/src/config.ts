@@ -196,8 +196,55 @@ export function resolveApiKey(): string {
  * machine-global. For an ORG-SCOPED key the header is accepted only while it
  * names that key's own organization — which is the ordinary case, since login
  * stores `orgId` from the key itself.
+ *
+ * ── WHY THIS IS A COPY AND STAYS ONE (NEX-4621) ──────────────────────────────
+ *
+ * `@agent-nexus/mcp-server` and `@agent-nexus/cli` are two independently
+ * published npm packages with no dependency between them, and they read
+ * DIFFERENT stores — `~/.nexus-mcp/config.json` here, the CLI's own config
+ * there. So the only shareable part is the ORDER of two selectors, and creating
+ * a package dependency to share two lines costs more than it saves.
+ *
+ * The order is therefore pinned as a CONTRACT instead of extracted:
+ * `packages/cli/src/organization-precedence-is-one-rule.test.ts` reads this
+ * function's body off disk beside the CLI's `resolveOrganization` and fails
+ * when the two selector sequences stop agreeing. That gate is what makes this
+ * copy safe; without it a divergence is silent by construction, because a
+ * selection rule that drifts does not fail — it picks a different tenant.
  */
 export function resolveOrganizationId(): string | undefined {
-  if (process.env.NEXUS_ORGANIZATION_ID) return process.env.NEXUS_ORGANIZATION_ID;
-  return loadConfig().orgId;
+  return resolveOrganization().organizationId;
+}
+
+/** How the organization the next request acts on was determined. */
+export type OrganizationSource =
+  | "env" // NEXUS_ORGANIZATION_ID — per-shell, does not touch the config file
+  | "profile" // the resolved profile's stored orgId
+  | "token"; // no selection: the key's own org decides, server-side
+
+/** The organization a tool call will act on, and what selected it. */
+export interface ResolvedOrganization {
+  organizationId?: string;
+  source: OrganizationSource;
+}
+
+/**
+ * {@link resolveOrganizationId}, plus WHICH selector answered.
+ *
+ * The source is derived HERE rather than re-tested by the caller. `whoami`
+ * used to print it by asking `process.env.NEXUS_ORGANIZATION_ID` a second time,
+ * independently of the resolution it was labelling — a third copy of this
+ * precedence, and precisely the shape of NEX-2525 on the CLI side, where the
+ * one surface whose whole job is answering "which org am I in" was the one that
+ * lied. One read, one answer, one label.
+ *
+ * Shaped deliberately like the CLI's `ResolvedOrganization` so the two
+ * functions stay diffable by eye as well as by the contract gate above.
+ */
+export function resolveOrganization(): ResolvedOrganization {
+  const fromEnv = process.env.NEXUS_ORGANIZATION_ID;
+  if (fromEnv) return { organizationId: fromEnv, source: "env" };
+  const fromProfile = loadConfig().orgId;
+  if (fromProfile) return { organizationId: fromProfile, source: "profile" };
+  return { source: "token" };
 }

@@ -19,7 +19,16 @@ vi.mock("../config", async (importOriginal) => {
   return {
     ...actual,
     resolveBaseUrl: () => "https://api.nexusgpt.io",
-    resolveApiKey: () => "nxs_test"
+    // `nexus api` resolves a PROFILE, not a bare key: the acting organization
+    // rides on the profile the key came from, so the two are ONE resolution and
+    // `resolveApiKey` is no longer on this command's path. The real
+    // `resolveProfile` throws CLI_NOT_AUTHENTICATED with none configured — which
+    // the command catches, so every case below would read as an API failure.
+    resolveProfile: () => ({
+      name: "test",
+      profile: { apiKey: "nxs_test", baseUrl: "https://api.nexusgpt.io" },
+      source: "env"
+    })
   };
 });
 

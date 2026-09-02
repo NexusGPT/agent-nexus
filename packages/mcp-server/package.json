@@ -44,7 +44,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "start:stdio": "node dist/cli.js",
-    "typecheck": "tsc --noEmit --skipLibCheck",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit --skipLibCheck",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "prepublishOnly": "pnpm run build"

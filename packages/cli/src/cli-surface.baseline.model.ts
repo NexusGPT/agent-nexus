@@ -75,6 +75,22 @@ export interface SurfaceBaseline {
    * rather than at the instant of a publish carries the same over-inclusion, in
    * the same safe direction.
    *
+   * 🚨 A RENAME MAKES THAT CAPTURE LOSSY IN THE UNSAFE DIRECTION TOO, AND AN
+   * ORDINARY REGENERATION IS WHAT DOES IT. The paragraph above holds only while
+   * the tree GROWS between releases. A path renamed with no alias leaves the
+   * tree, so a capture taken afterwards holds the new spelling and drops the
+   * old one — a leaf that WAS published, gone from the compared population, by
+   * the sanctioned path rather than by a hand edit. The 1.1.0 capture did that
+   * to the 35 `vibe *` paths that release shipped, and it cost nothing only
+   * because `OWES_A_CYCLE` gives an UNSTABLE leaf no promise to lose.
+   *
+   * A STABLE leaf cannot reach that state the same way — an aliasless rename is
+   * REFUSED while the old path is still in the baseline. It reaches it one step
+   * later: an alias is a FIELD on the new row and never a row of its own, so
+   * the next capture drops the old path from `leaves` entirely, and removing
+   * the alias after that produces no finding at all. The cure the removal gate
+   * recommends is therefore spent by the next release. That hole is open.
+   *
    * 🚨 A SNAPSHOT IS ONLY AS CURRENT AS THE LAST TIME SOMEBODY RAN THE
    * GENERATOR, AND FOR THIRTEEN RELEASES NOBODY DID. This file sat at 0.26.0
    * while the package shipped 0.35.1. Nothing had gone wrong in it — the cost

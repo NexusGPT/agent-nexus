@@ -804,7 +804,7 @@ A removal is a mechanism, not a review comment. **A command that stops answering
 without an alias or a served deprecation cycle fails the build**, so the promises
 above are enforced rather than merely stated.
 
-**0 leaves are on a deprecation cycle today**, out of the **546 paths** the last
+**0 leaves are on a deprecation cycle today**, out of the **547 paths** the last
 release promised. An empty list is the ordinary state — a release that retires
 nothing is the normal release — so read the list, never this sentence:
 `src/deprecations.ts` is the declaration and it is the whole of it.

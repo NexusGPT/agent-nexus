@@ -33,6 +33,7 @@ import type {
   CreateNodeBody,
   CreateWorkflowBody,
   ListWorkflowsParams,
+  NexusApiCategory,
   NodeDeleteResult,
   NodeResponse,
   NodeTypeSchema,
@@ -159,6 +160,42 @@ export type WorkflowContractAssertions = [
 export type WorkflowStatusAssertion = Expect<Equals<WorkflowStatus, DbEntity.WorkflowStatus>>;
 
 /**
+ * `NexusApiCategory` names exactly the families the served catalog enumerates.
+ *
+ * The `NodeTypeSchema` pair above already reaches this union — `actionCatalog`
+ * is part of that object, so a drifted category fails there too. This assertion
+ * exists anyway, and the redundancy is the point:
+ *
+ * 1. **It is findable.** The union is a published, hand-written export; the only
+ *    honest answer to "what holds it?" was a whole-object equality four
+ *    declarations away, which a `grep NexusApiCategory` over this directory
+ *    returns nothing for. A gate nobody can find is one somebody rebuilds.
+ * 2. **It survives the other pair being retired.** `NodeTypeSchema` moving into
+ *    {@link UNGATED_WITH_REASON} — a route losing its Response schema — would
+ *    silently take this union's only cover with it. Nothing in that move would
+ *    mention categories.
+ * 3. **It fails narrowly.** A drift here reports on a line naming the type,
+ *    instead of inside a diff of the whole node-type response.
+ *
+ * The oracle is the v1 `z.enum`, whose members Zod infers from
+ * `NEXUS_API_CATEGORIES` — an array annotated `NexusApiCategory[]`, the server's
+ * own union. So this compares the SDK against the server's list and not against
+ * a restatement of it, which is what the ratchet below enforces.
+ *
+ * ⚠️ It cannot see a category present in `NEXUS_API_CATEGORIES` but absent from
+ * the union that annotates it, because that is a compile error in
+ * `@nexus/types` and never reaches this package.
+ */
+export type NexusApiCategoryAssertion = Expect<
+  Equals<
+    NexusApiCategory,
+    NonNullable<
+      Received<typeof NodeTypeSchemaResponseSchema>["actionCatalog"]
+    >["categories"][number]["category"]
+  >
+>;
+
+/**
  * The pairs asserted above, named for the coverage ratchet.
  *
  * Written by hand, and the floor below is a hardcoded LITERAL rather than
@@ -186,7 +223,8 @@ const GATED_PAIRS = [
   "NodeTypeSchema ↔ NodeTypeSchemaResponseSchema",
   "PlatformListenerEvent ↔ PlatformListenerEventSchema",
   "PlatformListenerFilterFieldDef ↔ FilterFieldDefSchema",
-  "WorkflowStatus ↔ DbEntity.WorkflowStatus (the generated Prisma enum)"
+  "WorkflowStatus ↔ DbEntity.WorkflowStatus (the generated Prisma enum)",
+  "NexusApiCategory ↔ NodeTypeSchemaResponseSchema.actionCatalog.categories[].category"
 ] as const;
 
 /**
@@ -261,7 +299,7 @@ describe("workflow types match the v1 contract", () => {
     // The floor is a literal. Deleting an assertion above without deleting its
     // name here leaves this green; deleting BOTH takes it red, which is the
     // point — a shrinking gate has to be a deliberate act.
-    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(21);
+    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(22);
     expect(new Set(GATED_PAIRS).size).toBe(GATED_PAIRS.length);
   });
 

@@ -1,4 +1,4 @@
-import { loadConfig, resolveBaseUrl, resolveOrganizationId } from "../config";
+import { loadConfig, resolveBaseUrl, resolveOrganization } from "../config";
 
 /**
  * Print the current configuration: base URL, masked API key, env.
@@ -39,10 +39,14 @@ export async function whoamiCommand(): Promise<void> {
   // org-unbound token acts on whichever one `organization-id` names. Printing
   // "which key" without "which organization" is how a bridge could look
   // correctly configured while answering from another tenant (NEX-3022).
-  const organizationId = resolveOrganizationId();
-  const orgSource = process.env.NEXUS_ORGANIZATION_ID
-    ? "NEXUS_ORGANIZATION_ID env"
-    : "profile (nexus auth use-org)";
+  //
+  // The LABEL comes out of the same call as the value. Asking the environment
+  // a second time to decide what to print is a second copy of the precedence,
+  // and a label derived independently of the thing it labels is how a status
+  // surface reports one organization while the bridge talks to another
+  // (NEX-2525 on the CLI side, NEX-4621 here).
+  const { organizationId, source } = resolveOrganization();
+  const orgSource = source === "env" ? "NEXUS_ORGANIZATION_ID env" : "profile (nexus auth use-org)";
 
   console.log(`  Base URL:  ${baseUrl} (${urlSource})`);
   console.log(`  API Key:   ${keyDisplay}${keySource ? ` (${keySource})` : ""}`);

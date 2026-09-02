@@ -9,10 +9,17 @@ import type { WorkflowExecutionStatus } from "./workflow-executions";
  * `@agent-nexus/sdk` has neither.
  *
  * A COMMENT ASKING FOR LOCKSTEP IS NOT A MECHANISM.
- * `workflows-wire-types.conformance.ts` is the mechanism — it imports the real
- * v1 schemas and fails `pnpm typecheck` when a declaration here stops matching
- * one, so a contract change lands as a compile error rather than as a support
- * ticket.
+ * `workflow-types-match-the-v1-contract.test.ts`, beside this file, is the
+ * mechanism — it imports the real v1 schemas and fails `pnpm typecheck` when a
+ * declaration here stops matching one, so a contract change lands as a compile
+ * error rather than as a support ticket. Its `WorkflowContractAssertions` table
+ * names every gated pair, and `UNGATED_WITH_REASON` names what it cannot reach.
+ *
+ * 🚨 A gate cited by a filename that does not resolve is worse than no citation:
+ * a reader who checks it reads the absence as "nothing holds these
+ * declarations" and builds a second gate beside the working one. A dangling
+ * pointer and a live one are the same characters on the page, so open the
+ * destination before writing or trusting a name here.
  *
  * Not every route has a v1 response schema. Where none exists the doc comment
  * names the backend producer the shape was read off, which is also how you can
@@ -626,9 +633,16 @@ export interface NexusApiActionField {
  * The resource families a `nexusApi` node can act on.
  *
  * Enumerated rather than left as `string` because the payload enumerates them:
- * the catalog is built from a fixed server-side list, and `workflows-wire-types
- * .conformance.ts` compares this union against it, so adding a family upstream
- * is a compile error here rather than a silently unnameable value.
+ * the catalog is built from a fixed server-side list.
+ *
+ * `workflow-types-match-the-v1-contract.test.ts` compares this union against
+ * that list — `NexusApiCategoryAssertion` names it directly, and the
+ * `NodeTypeSchema ↔ NodeTypeSchemaResponseSchema` pair reaches it a second time
+ * through `actionCatalog`. Both resolve to the `z.enum` the v1 schema builds
+ * from `NEXUS_API_CATEGORIES`, whose element type IS the server's own
+ * `NexusApiCategory`. So a family added upstream is a compile error here rather
+ * than a silently unnameable value, and one added HERE and nowhere else is a
+ * compile error too — the assertion is exact equality, not one-way containment.
  */
 export type NexusApiCategory =
   | "agents"

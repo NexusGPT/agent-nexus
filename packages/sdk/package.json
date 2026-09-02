@@ -45,7 +45,7 @@
     "test": "vitest run",
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.scripts.json",
     "lint": "eslint . --max-warnings 0",
     "prepublishOnly": "pnpm run build",
     "gen:response-contract": "tsx scripts/generate-response-contract.ts"

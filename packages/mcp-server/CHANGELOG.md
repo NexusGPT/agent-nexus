@@ -1,5 +1,44 @@
 # @agent-nexus/mcp-server
 
+## 1.1.2
+### Patch Changes
+
+- 748f32e: One rule decides which organization you are in
+  
+  The precedence that picks the acting organization — `NEXUS_ORGANIZATION_ID`
+  first, then the profile's stored `orgId`, then nothing and the key's own
+  organization decides — had four production spellings across the CLI and the MCP
+  bridge. Two were hand-rolled copies of the other two. Both copies agreed with
+  the rule on the day they were written, which is exactly why nothing would have
+  reported the day they stopped: a duplicated SELECTION rule does not fail when it
+  drifts, it picks a different tenant.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus workspace mount` records the acting organization through the same
+  resolver the API calls use.** It picked the mount's org with its own copy of the
+  precedence, beside a client that asked the canonical resolver — so a mount could
+  be filed under one organization while the requests filling it went to another.
+  No flag, no output and no registry format changes; the resolution is now the one
+  the rest of the CLI already used.
+  
+  ## `@agent-nexus/mcp-server`
+  
+  **`nexus-mcp whoami` derives the `Org:` source label from the resolution it is
+  labelling**, instead of re-reading the environment to guess which selector had
+  answered. The printed value could not disagree with the header being sent
+  today — but a status surface whose label is computed separately from the thing
+  it labels is the shape that once had `nexus auth status` reporting one
+  organization while every request went to another.
+  
+  An empty `NEXUS_ORGANIZATION_ID` or an empty stored `orgId` now resolves to "no
+  selection" rather than to an empty string, matching the CLI. An empty
+  organization header is refused server-side, so this replaces a request that
+  could only fail with one that lets the key's own organization decide.
+  
+  `resolveOrganizationId()` keeps its exact signature — it is exported from the
+  package entry point and delegates to the new resolver.
+
 ## 1.1.1
 ### Patch Changes
 

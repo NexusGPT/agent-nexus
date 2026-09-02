@@ -1,5 +1,390 @@
 # @agent-nexus/cli
 
+## 1.2.0
+### Minor Changes
+
+- 09c0fad: A page says when the server said nothing about further pages
+  
+  ⚠️ **Breaking for every consumer of a list method.** `PaginationMeta.hasMore`
+  (`boolean`) is replaced by `PaginationMeta.paging`, a
+  `"has-more" | "exhausted" | "did-not-say"`. `meta.total` and `meta.page` become
+  optional. `withDerivedHasMore` is replaced by `normalizePagingMeta`.
+  
+  🔴 **`requestPage` invented pagination metadata whenever the server sent none**,
+  and it invented it in three directions at once:
+  
+  ```ts
+  return { data, meta: { total: data.length, page: 1, hasMore: false } };
+  ```
+  
+  `total` became the PAGE SIZE wearing a population's name. `page` claimed to be
+  the first page on a payload that named no page. And `hasMore: false` told a
+  caller the walk was finished when the server had merely declined to say.
+  
+  **The third one is the expensive one, because it terminates a loop.** A paging
+  loop reading `hasMore` stops on page one and the caller reads a truncated
+  collection as a complete one. Nothing in the payload distinguishes that from a
+  genuinely complete first page — the rows are identical, the meta is
+  well-formed, and no error is raised anywhere.
+  
+  **Absence is now a state, not a value.** A server that publishes nothing
+  produces `{ paging: "did-not-say" }` — no total, no page, nothing derived from
+  the page the SDK happens to be holding. The rows are still returned in full: the
+  data was never in doubt, only its position in a larger set.
+  
+  **Why a three-valued union rather than an optional boolean.** `hasMore?: boolean`
+  would reinstate the bug on the first edit: `meta.hasMore ?? false` compiles,
+  reads as prudence, and collapses the third state back into the second with
+  nothing to catch it. A union cannot be collapsed without naming
+  `"did-not-say"`, and `Record<PagingState, T>` gives exhaustiveness for free.
+  The field is RENAMED rather than retyped so that every existing read fails at
+  compile time — a string is always truthy, so leaving the name `hasMore` would
+  have turned `if (meta.hasMore)` into a silent always-true.
+  
+  **Inference is unchanged where the payload supports one.** A served `hasMore` is
+  authoritative and passes through untouched; `page < totalPages` and
+  `page * limit < total` are still derived. Only the case where the payload
+  supports NO conclusion changed, and it changed from a guess to a report.
+  
+  **Migration.**
+  
+  ```ts
+  // before
+  let hasMore = true;
+  while (hasMore) {
+    const res = await client.agents.list({ page, limit: 50 });
+    hasMore = res.meta.hasMore;
+    page++;
+  }
+  
+  // after — stop on "exhausted"; "did-not-say" is not a stop condition
+  for (;;) {
+    const res = await client.agents.list({ page, limit: 50 });
+    if (res.meta.paging === "exhausted" || res.data.length === 0) break;
+    page++;
+  }
+  ```
+  
+  Reading a count: `meta.total` may be absent, and absent means unknown. It never
+  means zero, and it never means `data.length`.
+  
+  **Three resources inlined a copy of the helper's body rather than calling it**,
+  so repairing the helper alone would have left them fabricating meta after the
+  fix. `assets.list`, `credentials.list` and `tickets.list` now route through
+  `requestPage`; `tickets.listAcrossOrganizations` returns its pagination as a
+  `meta` object instead of three fabricated top-level fields.
+  
+  **CLI.** `--json` list output carries `meta.paging` in place of `meta.hasMore`.
+  The table footer now PRINTS when a route published no paging counters — an
+  operator who sees no footer reads the table as the complete set, so a silence
+  that used to mean "we do not know" had to stop looking like "that is all of it".
+- 460397c: A system can be taken live without touching its model, and that alone moves the Role's coverage
+  
+  `client.roles.transitionSystemLifecycle()` moves one of a Role's systems between
+  `"BUILDING"`, `"LIVE"` and `"RETIRED"`. The CLI verb is
+  `nexus role set-system-lifecycle`.
+  
+  ```ts
+  const moved = await client.roles.transitionSystemLifecycle(roleId, roleResourceId, {
+    lifecycle: "LIVE"
+  });
+  
+  moved.roleResourceId; // the attachment that moved
+  moved.lifecycle; // "LIVE"
+  ```
+  
+  ```bash
+  nexus role set-system-lifecycle <role> <system> LIVE
+  ```
+  
+  ## It moves a published figure in both directions, and the result reports neither
+  
+  Only `LIVE` systems are summed into a Role's coverage numerator and money totals.
+  Moving a system **into** `LIVE` adds its person-hours, revenue and cost; moving one
+  **out** of `LIVE` — for `BUILDING` or for `RETIRED` — removes all three. No model is
+  touched either way.
+  
+  🚨 **THE PER-SYSTEM ROWS DO NOT CHANGE WHEN THIS CALL SUCCEEDS.** The system keeps
+  publishing the same `personHours` on its own row whatever bucket it is in, so a UI
+  rendering that list sees nothing move while the Role's headline has. The result
+  payload deliberately carries no coverage figure — a stale numerator in a response is
+  an invitation to re-render from the wrong number.
+  
+  `roles.coverage(roleId)` is the read that says by how much, and it needs
+  `role_coverage:read`. **This write is `roles:write`, which does not imply it** — a key
+  scoped only to write can make the change and cannot read its effect.
+  
+  ## `LIVE` is reachable only from `BUILDING`, so un-retiring is two calls
+  
+  `RETIRED -> LIVE` is refused with a 400. To bring a retired system back:
+  
+  ```ts
+  await client.roles.transitionSystemLifecycle(roleId, systemId, { lifecycle: "BUILDING" });
+  await client.roles.transitionSystemLifecycle(roleId, systemId, { lifecycle: "LIVE" });
+  ```
+  
+  The rule is not ceremony. The move **into** `BUILDING` is the only thing that records a
+  submitter, and an approval is checked against that submitter — so a direct
+  `RETIRED -> LIVE` edge would put rows live with no submitter or a stale one, and the
+  review requirement below would have to fail open or fail closed for exactly those rows.
+  
+  ⚠️ **Asking for the state the system is already in is a 409, not a silent success.**
+  Retry logic that treats "already there" as idempotent will surface an error where it
+  expects a no-op. The refusal is deliberate: the alternative is silently re-stamping the
+  approver.
+  
+  ## Under `requireReview`, the approver must not be the submitter
+  
+  When the Role's system policy sets `requireReview`, this call is made as **the API
+  key's owner**. A key whose owner submitted the system cannot approve it, and no retry
+  helps — it is the same identity every time. Separate the keys, or have a different
+  person's key make the call.
+  
+  A system with **no** recorded submitter cannot satisfy the requirement either. Retire it
+  and submit it again, which records one.
+  
+  ## `roleResourceId` is the attachment, not the system
+  
+  The second argument is the `RoleResource` UUID — the row that attaches a system to a
+  Role — not the agent's or workflow's own id. Read it off `roles.resources(roleId)` or
+  off the coverage view. Passing the underlying resource's id is the easy mistake here and
+  it does not resolve.
+  
+  ## Types
+  
+  `RoleSystemLifecycleBody` and `RoleSystemLifecycleResult` are exported, both reusing the
+  existing `RoleResourceLifecycle`.
+  
+  They are new interfaces, so **nothing you already construct gains a required field** —
+  fixtures, mocks and stubs of the existing Role types are unaffected by this release.
+- 65e732b: `nexus vibe` is now `nexus apps`, and the `app` level is gone.
+  
+  Every invocation of the old name stops working. Update scripts before upgrading:
+  
+  - `nexus vibe app create` → `nexus apps create`
+  - `nexus vibe app logs` → `nexus apps logs`
+  - `nexus vibe app list` → `nexus apps list`
+  - `nexus vibe deploy` → `nexus apps deploy`
+  
+  The `approvals`, `audit`, `cluster`, `deployments`, `env` and `git-project` groups keep
+  their names one level under `apps`; only the `app` level disappears, so its 13 leaves are
+  now direct children. The bare leaves `deploy`, `deploy-state`, `rollback` and
+  `git-credentials` are unchanged apart from the namespace.
+  
+  The tree stays UNSTABLE — as `vibe` was, and as `COMPATIBILITY.md` continues to say under
+  the new name. It may change again in any release without a changelog entry, and it is an
+  operator surface rather than a supported scripting target.
+  
+  The HTTP API is untouched: these commands still call `/api/vibe/*`, the `vibe:read` and
+  `vibe:write` scopes are unchanged, and no API key needs reissuing.
+
+### Patch Changes
+
+- f193581: A skipped leaf is a coverage loss, and the sweep now says so
+  
+  `sweep.sh` SKIPs a leaf when the backend declares the feature unavailable by
+  policy — a 403 the environment is right to send, with no CLI defect behind it.
+  Accepting that is correct. Reporting it as a bare number was not: `64 pass · 5
+  skip · 0 fail` cannot tell an expected skip from a leaf that went dark this
+  morning, and SKIP is excluded from the exit code by design. Four `role *` leaves
+  lost their live coverage that way, and the only reason anyone noticed is that
+  they went RED first — a leaf that had always skipped, or that started skipping
+  quietly, produced no signal at any point.
+  
+  The accepted skips are now declared in `SWEEP_EXPECTED_SKIPS` in
+  `src/command-universe.ts`, and the sweep reads that declaration. A skip named
+  there is accepted and its report line says what coverage is gone; a skip not
+  named there is a FAIL that names the leaf and the remedy; a leaf named there
+  that did not skip is reported STALE and fails nothing, because the environment
+  recovering is good news and a gate that reddens on good news gets its
+  declarations deleted rather than its news read. The summary carries the
+  denominator: `64 pass · 5/5 declared skip · 0 warn · 0 fail`.
+  
+  A declared leaf stays `safe` rather than being parked `registration-only`. It is
+  still executed on every run, so the day the environment answers again coverage
+  resumes with nobody remembering to flip anything, and `--check-drift` refuses a
+  declaration naming a leaf the sweep does not execute.
+  
+  It also fixes a guard that could not fire. `require_non_empty` was bound at the
+  top of `run_leaf` and read only in the success path, so a `safe-with-fixture`
+  leaf that skipped bypassed its non-emptiness assertion and reported a row
+  indistinguishable from a leaf that never had one — the exact vacuous green that
+  disposition exists to delete. `role job-types` is that leaf, and its skip line
+  now says the assertion did not run.
+  
+  Three `role` leaves gain the answer half they never had: `automation-settings`,
+  `governance` and `job-types` were covered by request-half assertions over empty
+  fixtures, which cannot reach a renderer. The new cases pin the `settings`
+  unwrap, `requiresApproval` surviving `--json` as a boolean, the literal `null`
+  document for absent automation settings and its zero exit, and the withheld
+  job-type ids being reported on stderr rather than silently dropped.
+- 7e68922: `deployment embed-config` help names the discard header, and its key counts are correct
+  
+  `nexus deployment embed-config --help` said the endpoint returns **61** keys and
+  withholds one of **62**, and `embed-config-update --help` said the update accepts
+  **61**. The real figures are **58 served** and **59 declared** — the counts were
+  written against an earlier shape of the widget's settings group and were never
+  re-derived after it changed.
+  
+  `embed-config-update --help` also said an undeclared key is dropped and
+  **"Nothing reports it."** That has been false since the v1 discarded-body-key
+  reporter shipped: the response carries a header naming exactly what was thrown
+  away.
+  
+  ```
+  $ nexus deployment embed-config-update dep-uuid --body '{"theme":"dark"}'
+  # the response now carries:
+  #   x-nexus-discarded-body-keys: theme
+  ```
+  
+  The help text now states the header **and its limits**, because a caller who
+  trusts it without them is worse off than one who never heard of it:
+  
+  - at most **10** key names reach the header, each truncated to **64** characters
+  - **top-level keys only** — a stale key nested inside `footerLinks`,
+    `landingScreenActionButtons` or a `localized*` map never appears in it
+  - a body the endpoint **refuses** reports nothing, because the `400` is raised
+    before any discard is computed
+  
+  Nothing about request acceptance changes. An undeclared key is still stripped
+  and the call still returns `200`; the response body remains the authoritative
+  check on what landed.
+- 17e0542: `nexus api` now sends the `organization-id` header, so a personal (`nxs_p_`) token works there
+  
+  The raw passthrough built its HTTP client from the API key alone, so every
+  org-scoped route answered `403 ORGANIZATION_REQUIRED` for a personal token —
+  including in a shell exporting `NEXUS_ORGANIZATION_ID`, and while every typed
+  command (`nexus agent list` and friends) accepted the same key in the same shell.
+  
+  It now resolves the acting organization the same way every other command does:
+  `NEXUS_ORGANIZATION_ID`, then the profile's selected org, then the token's own.
+  An org-scoped key is unaffected — the header names its own organization, which is
+  the ordinary path. When nothing selects an organization the header is omitted
+  rather than sent blank.
+- 748f32e: One rule decides which organization you are in
+  
+  The precedence that picks the acting organization — `NEXUS_ORGANIZATION_ID`
+  first, then the profile's stored `orgId`, then nothing and the key's own
+  organization decides — had four production spellings across the CLI and the MCP
+  bridge. Two were hand-rolled copies of the other two. Both copies agreed with
+  the rule on the day they were written, which is exactly why nothing would have
+  reported the day they stopped: a duplicated SELECTION rule does not fail when it
+  drifts, it picks a different tenant.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus workspace mount` records the acting organization through the same
+  resolver the API calls use.** It picked the mount's org with its own copy of the
+  precedence, beside a client that asked the canonical resolver — so a mount could
+  be filed under one organization while the requests filling it went to another.
+  No flag, no output and no registry format changes; the resolution is now the one
+  the rest of the CLI already used.
+  
+  ## `@agent-nexus/mcp-server`
+  
+  **`nexus-mcp whoami` derives the `Org:` source label from the resolution it is
+  labelling**, instead of re-reading the environment to guess which selector had
+  answered. The printed value could not disagree with the header being sent
+  today — but a status surface whose label is computed separately from the thing
+  it labels is the shape that once had `nexus auth status` reporting one
+  organization while every request went to another.
+  
+  An empty `NEXUS_ORGANIZATION_ID` or an empty stored `orgId` now resolves to "no
+  selection" rather than to an empty string, matching the CLI. An empty
+  organization header is refused server-side, so this replaces a request that
+  could only fail with one that lets the key's own organization decide.
+  
+  `resolveOrganizationId()` keeps its exact signature — it is exported from the
+  package entry point and delegates to the new resolver.
+- 74592a6: The vendored skills pin rejoins upstream `main`, and the bundle grows by two skills, seven agents and a hook
+  
+  The CLI ships the `claude-code-skills-nexus` corpus inside its own package — `src/skills-content.generated.json`, read at runtime and published via `dist/`. `scripts/bundle-skills.ts` rebuilds it from the tarball at the SHA in `skills-nexus.lock`, so the lock is the only thing that decides what an agent reads after `nexus claude-code install`.
+  
+  `skills-nexus.lock` moves `d28e9180e3` → `bc52b93c42`, and both halves of the bundle are regenerated together.
+  
+  ## Why the pin could not simply follow `main` before
+  
+  The previous two bumps pinned a cherry-pick lineage rather than `main`, because two documentation fixes lived only on that lineage and `main` would have regressed them. Both are now on `main`, so the pin follows the branch again instead of a side branch that has to be re-cut for every bump.
+  
+  Measured on the regenerated payload, parsed rather than grepped, so the JSON's own escaping cannot produce a zero that means nothing:
+  
+  | needle                        | file                                                         | count |
+  | ----------------------------- | ------------------------------------------------------------ | ----- |
+  | `autoShowInitialMessagePopup` | `nexus-deployments/channels/embed.md`                        | **0** |
+  | `leadsSettings`               | `nexus-deployments/channels/embed.md`                        | **0** |
+  | `all types`                   | `nexus-workflow-builder/node-types/logic/branching/GUIDE.md` | **0** |
+  | `primaryColor` _(control)_    | `nexus-deployments/channels/embed.md`                        | 2     |
+  | `operator` _(control)_        | `.../branching/GUIDE.md`                                     | 20    |
+  
+  Both controls are non-zero, so the scan reads the files it names.
+  
+  ## The blast radius, measured rather than asserted
+  
+  Both payloads were parsed and every bundled surface compared by path and content — the same surface list `workspace-registry-skill-compat.test.ts` builds, so the count is the one the tripwire actually scans:
+  
+  - **503 files before, 559 after.** 56 added, **0 removed**, 114 changed, 389 byte-identical.
+  - Skills **20 → 22**: `nexus-chat` and `nexus-prompt-lifecycle` are new. Nothing was retired.
+  - Agents **24 → 31**: four prompt agents (`prompt-clarifier`, `prompt-planner`, `prompt-reviewer`, `prompt-scanner`) and three workflow agents (`wf-builder`, `wf-planner`, `wf-reviewer`).
+  - Hooks **24 → 25**: `watchers/stall-watch.py`.
+  - Shared **10 → 12**: `scripts/prompt-checks.py`, `scripts/round-gen.py`.
+  - `settings.json` 5027 → 5174 bytes; `CLAUDE.md` 150550 → 150460.
+  - Total bundled content 8,572,526 → 9,941,802 bytes (+1,369,276). The committed JSON goes 9,018,893 → 10,440,460 bytes.
+  
+  The five largest content moves are all in the hook tree — `nexus-lifecycle.py` +159,221, `nexus-pretool.py` +133,917, `lib/hook_core.py` +113,336, `CHECK-REGISTRY.md` +49,604, `nexus-posttool.py` +33,547 — so the bulk of this bump is the Python firewall, not the skill markdown.
+  
+  ## The registry coupling stays closed
+  
+  `workspace-registry-skill-compat.test.ts` scans the shipped bundle for **13** literal bare-slug readers of `~/.nexus-mcp/workspace-mounts.json`. All 13 read **0** on the new payload, against a control (`workspace-mounts.json`, 42 occurrences) proving the scan reaches the text. They read 0 on the old payload too — this bump neither closes nor reopens that coupling, and the point of measuring is that following `main` did not reintroduce a reader.
+  
+  ## One upstream directory the bundler drops
+  
+  `skills/plain/SKILL.md` is new at this SHA and does **not** ship. `bundle-skills.ts` selects skill directories with `d.name.startsWith("nexus-")`, so a directory named anything else is skipped silently — no warning, no count mismatch, nothing in the generator's own log. It is recorded here rather than fixed: changing that filter changes what `nexus claude-code install` writes to disk, which is a different change with its own review.
+- 624b325: `tracing trace <id>` names its generation window instead of rendering it as a count
+  
+  The nested generations array is windowed server-side. The header printed the
+  array's length alone, so a windowed trace reported the window as its count — and
+  disagreed with `tracing traces` about the same trace.
+  
+  `generationCount` counts the WHOLE trace, so `generations.length <
+  generationCount` is the window biting. That is a fact read off the wire, never a
+  cap this file duplicates: the window size is not named in the CLI at all, because
+  the two numbers already say everything a reader needs and a second copy of a
+  server constant is a second thing to go stale.
+  
+      Generations (2 of 137):
+        Windowed — page the rest with "nexus tracing generations --trace-id <id>".
+  
+  Unlike the ready reads, this route HAS a real denominator, so the house "x of y"
+  is honest here. `workspace search` is the same shape one level simpler — a wire
+  flag, rendered inline, silent when false.
+  
+  **Silent when the whole list is present.** An unconditional suffix is not just
+  noise: it teaches the reader to skim the one line that carries the warning, so on
+  the day it matters it is not read.
+  
+  The help said the list "IS CAPPED AT 100 AND SAYS SO NOWHERE". It says so now, so
+  that sentence is rewritten to what is true rather than annotated.
+  
+  **Proved by mutation, each against a prediction.** Forcing the window flag TRUE
+  reds exactly the two complete-trace assertions and leaves the windowed ones green;
+  forcing it FALSE reds exactly the two windowed assertions and leaves the complete
+  ones green. The pair is complementary, so neither set of assertions is carrying
+  the other.
+  
+  This depends on the repository and mapper fix that makes `generationCount` the
+  trace's own count rather than a value synthesised from the windowed array. Before
+  that, the cross-check this renders could not work: the one field that looked like
+  a cross-check was the field the truncation had already corrupted.
+- 165d18c: `nexus apps` commands now name the organization they act on.
+  
+  Every `apps` verb sent your API key without the `organization-id` header, so a
+  personal token got `403 ORGANIZATION_REQUIRED` from all of them — including in a
+  shell that had exported `NEXUS_ORGANIZATION_ID`, and while every other command on
+  the same key worked. The organization is now resolved exactly as it is for the
+  rest of the CLI (`NEXUS_ORGANIZATION_ID`, then the profile's active org, then the
+  key's own org server-side), on the request path and on the log-follow stream
+  alike.
+
 ## 1.1.0
 ### Minor Changes
 

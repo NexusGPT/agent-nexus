@@ -1,5 +1,320 @@
 # @agent-nexus/sdk
 
+## 3.0.0
+### Major Changes
+
+- 09c0fad: A page says when the server said nothing about further pages
+  
+  ⚠️ **Breaking for every consumer of a list method.** `PaginationMeta.hasMore`
+  (`boolean`) is replaced by `PaginationMeta.paging`, a
+  `"has-more" | "exhausted" | "did-not-say"`. `meta.total` and `meta.page` become
+  optional. `withDerivedHasMore` is replaced by `normalizePagingMeta`.
+  
+  🔴 **`requestPage` invented pagination metadata whenever the server sent none**,
+  and it invented it in three directions at once:
+  
+  ```ts
+  return { data, meta: { total: data.length, page: 1, hasMore: false } };
+  ```
+  
+  `total` became the PAGE SIZE wearing a population's name. `page` claimed to be
+  the first page on a payload that named no page. And `hasMore: false` told a
+  caller the walk was finished when the server had merely declined to say.
+  
+  **The third one is the expensive one, because it terminates a loop.** A paging
+  loop reading `hasMore` stops on page one and the caller reads a truncated
+  collection as a complete one. Nothing in the payload distinguishes that from a
+  genuinely complete first page — the rows are identical, the meta is
+  well-formed, and no error is raised anywhere.
+  
+  **Absence is now a state, not a value.** A server that publishes nothing
+  produces `{ paging: "did-not-say" }` — no total, no page, nothing derived from
+  the page the SDK happens to be holding. The rows are still returned in full: the
+  data was never in doubt, only its position in a larger set.
+  
+  **Why a three-valued union rather than an optional boolean.** `hasMore?: boolean`
+  would reinstate the bug on the first edit: `meta.hasMore ?? false` compiles,
+  reads as prudence, and collapses the third state back into the second with
+  nothing to catch it. A union cannot be collapsed without naming
+  `"did-not-say"`, and `Record<PagingState, T>` gives exhaustiveness for free.
+  The field is RENAMED rather than retyped so that every existing read fails at
+  compile time — a string is always truthy, so leaving the name `hasMore` would
+  have turned `if (meta.hasMore)` into a silent always-true.
+  
+  **Inference is unchanged where the payload supports one.** A served `hasMore` is
+  authoritative and passes through untouched; `page < totalPages` and
+  `page * limit < total` are still derived. Only the case where the payload
+  supports NO conclusion changed, and it changed from a guess to a report.
+  
+  **Migration.**
+  
+  ```ts
+  // before
+  let hasMore = true;
+  while (hasMore) {
+    const res = await client.agents.list({ page, limit: 50 });
+    hasMore = res.meta.hasMore;
+    page++;
+  }
+  
+  // after — stop on "exhausted"; "did-not-say" is not a stop condition
+  for (;;) {
+    const res = await client.agents.list({ page, limit: 50 });
+    if (res.meta.paging === "exhausted" || res.data.length === 0) break;
+    page++;
+  }
+  ```
+  
+  Reading a count: `meta.total` may be absent, and absent means unknown. It never
+  means zero, and it never means `data.length`.
+  
+  **Three resources inlined a copy of the helper's body rather than calling it**,
+  so repairing the helper alone would have left them fabricating meta after the
+  fix. `assets.list`, `credentials.list` and `tickets.list` now route through
+  `requestPage`; `tickets.listAcrossOrganizations` returns its pagination as a
+  `meta` object instead of three fabricated top-level fields.
+  
+  **CLI.** `--json` list output carries `meta.paging` in place of `meta.hasMore`.
+  The table footer now PRINTS when a route published no paging counters — an
+  operator who sees no footer reads the table as the complete set, so a silence
+  that used to mean "we do not know" had to stop looking like "that is all of it".
+
+### Minor Changes
+
+- 49f7049: A browser can keep its conversation across a stale token
+  
+  `client.chat.refresh(deploymentId, auth)` exchanges a session token for a
+  successor addressing the SAME conversation. It authenticates with the SESSION
+  TOKEN and sends no api-key, so a browser holding nothing else can call it —
+  which is the whole point. `createBrowserChatClient` exposes it alongside
+  `stream()`, `resume()`, `stop()` and `status()`.
+  
+  Without it, a visitor who read an answer, switched tabs and came back was
+  handed a brand new session addressing an empty chat, and their exchange with
+  the agent was silently gone. The only way to keep a conversation alive was
+  `createSession`, which needs the org API key and therefore a server — so a
+  purely client-side embed could not do it at all.
+  
+  **A token may be exchanged ONCE.** A second presentation of the same token is a
+  fork — two holders of one credential — and is refused. Keep the successor and
+  discard the token you sent.
+  
+  **This is the only chat route that accepts an EXPIRED token**, because a browser
+  learns its token is stale by being refused rather than by watching a clock. So
+  a 401 from a chat route now means that TOKEN is finished, not that the session
+  is: call `refresh()` before asking your own server for a fresh mint.
+  
+  What it does not extend is the session's absolute ceiling. The renewal deadline
+  is carried forward to the successor, so twelve hours from the FIRST mint is a
+  wall no number of refreshes moves. When that deadline passes, `refresh()` is
+  refused too and `createSession` is the only way back — that refusal is the
+  signal to mint, and it is the one case where a server is still required.
+  
+  There is no request body, deliberately: the conversation is the token's own
+  claim. A `chatId` here would let a stranger holding a leaked conversation id
+  append to somebody else's chat.
+- 460397c: A system can be taken live without touching its model, and that alone moves the Role's coverage
+  
+  `client.roles.transitionSystemLifecycle()` moves one of a Role's systems between
+  `"BUILDING"`, `"LIVE"` and `"RETIRED"`. The CLI verb is
+  `nexus role set-system-lifecycle`.
+  
+  ```ts
+  const moved = await client.roles.transitionSystemLifecycle(roleId, roleResourceId, {
+    lifecycle: "LIVE"
+  });
+  
+  moved.roleResourceId; // the attachment that moved
+  moved.lifecycle; // "LIVE"
+  ```
+  
+  ```bash
+  nexus role set-system-lifecycle <role> <system> LIVE
+  ```
+  
+  ## It moves a published figure in both directions, and the result reports neither
+  
+  Only `LIVE` systems are summed into a Role's coverage numerator and money totals.
+  Moving a system **into** `LIVE` adds its person-hours, revenue and cost; moving one
+  **out** of `LIVE` — for `BUILDING` or for `RETIRED` — removes all three. No model is
+  touched either way.
+  
+  🚨 **THE PER-SYSTEM ROWS DO NOT CHANGE WHEN THIS CALL SUCCEEDS.** The system keeps
+  publishing the same `personHours` on its own row whatever bucket it is in, so a UI
+  rendering that list sees nothing move while the Role's headline has. The result
+  payload deliberately carries no coverage figure — a stale numerator in a response is
+  an invitation to re-render from the wrong number.
+  
+  `roles.coverage(roleId)` is the read that says by how much, and it needs
+  `role_coverage:read`. **This write is `roles:write`, which does not imply it** — a key
+  scoped only to write can make the change and cannot read its effect.
+  
+  ## `LIVE` is reachable only from `BUILDING`, so un-retiring is two calls
+  
+  `RETIRED -> LIVE` is refused with a 400. To bring a retired system back:
+  
+  ```ts
+  await client.roles.transitionSystemLifecycle(roleId, systemId, { lifecycle: "BUILDING" });
+  await client.roles.transitionSystemLifecycle(roleId, systemId, { lifecycle: "LIVE" });
+  ```
+  
+  The rule is not ceremony. The move **into** `BUILDING` is the only thing that records a
+  submitter, and an approval is checked against that submitter — so a direct
+  `RETIRED -> LIVE` edge would put rows live with no submitter or a stale one, and the
+  review requirement below would have to fail open or fail closed for exactly those rows.
+  
+  ⚠️ **Asking for the state the system is already in is a 409, not a silent success.**
+  Retry logic that treats "already there" as idempotent will surface an error where it
+  expects a no-op. The refusal is deliberate: the alternative is silently re-stamping the
+  approver.
+  
+  ## Under `requireReview`, the approver must not be the submitter
+  
+  When the Role's system policy sets `requireReview`, this call is made as **the API
+  key's owner**. A key whose owner submitted the system cannot approve it, and no retry
+  helps — it is the same identity every time. Separate the keys, or have a different
+  person's key make the call.
+  
+  A system with **no** recorded submitter cannot satisfy the requirement either. Retire it
+  and submit it again, which records one.
+  
+  ## `roleResourceId` is the attachment, not the system
+  
+  The second argument is the `RoleResource` UUID — the row that attaches a system to a
+  Role — not the agent's or workflow's own id. Read it off `roles.resources(roleId)` or
+  off the coverage view. Passing the underlying resource's id is the easy mistake here and
+  it does not resolve.
+  
+  ## Types
+  
+  `RoleSystemLifecycleBody` and `RoleSystemLifecycleResult` are exported, both reusing the
+  existing `RoleResourceLifecycle`.
+  
+  They are new interfaces, so **nothing you already construct gains a required field** —
+  fixtures, mocks and stubs of the existing Role types are unaffected by this release.
+- f261b20: A `nexusApi` node can name the agent-memory family
+  
+  `NexusApiCategory` gains `"memory"`. That union types
+  `NexusApiActionCatalog.categories[].category` — the catalog served on the
+  `nexusApi` node type — so a client reading that catalog now has a name for a
+  family it was already going to be handed, instead of a category it could render
+  and not type.
+  
+  The family is labelled `Agent Memory` and carries two actions:
+  
+  - **`memory.get`** reads every stored entry for one subject. Reading a subject
+    nothing has ever been written for is not an error — it answers `exists: false`
+    with an empty `values` and `storedMemoryBytes: 0`.
+  - **`memory.set`** stores one entry. The key must already be declared on the
+    organisation's active memory schema for that scope, and a subject's entries are
+    charged `key + value + 4` bytes each against an 8000-byte cap.
+  
+  ⚠️ **`values` is open on purpose, and everything beside it is a typed leaf.** The
+  keys inside it are whatever the organisation's own memory schema declares —
+  per-org, per-scope and versioned — so the catalog declares the envelope and no
+  properties within it. `scope`, `subjectId`, `exists`, `entryCount` and
+  `storedMemoryBytes` are declared and named.
+  
+  ⚠️ **The union widened, so an exhaustive `switch` over `NexusApiCategory` stops
+  being exhaustive.** No existing member moved and nothing changes at runtime; the
+  compiler is pointing at the one place the set is asserted rather than read.
+- 52ed7dd: `tickets.list()` types `meta.total` as optional, because it can be unknown
+  
+  ⚠️ **Breaking for TypeScript consumers of `tickets.list()`.** It returns
+  `TicketListPage` instead of `PageResponse<TicketSummary>`, and on that type
+  `meta.total` and `meta.totalPages` are optional. Code that reads `meta.total` as a
+  number now needs to handle its absence.
+  
+  🔴 **The breaking change already happened; this is the type catching up.** The
+  route began omitting `total` when it stopped publishing a bounded count as an
+  exact one. A consumer reading `meta.total` was already getting `undefined` at
+  runtime — it was merely typed as a `number`, so arithmetic on it produced `NaN`
+  and rendering it produced nothing, with no type error to warn anyone. The choice
+  was to make the type honest or to make the runtime dishonest again.
+  
+  **Why absence rather than a number plus a flag.** A caller who ignores a
+  `totalIsExact` flag gets a wrong number that looks exactly like a right one —
+  silently, and only for the organisations large enough to hit the bound, which are
+  the ones who notice least and matter most. A caller who ignores an absent field
+  gets a compile error or `undefined`. Absence cannot be silently misread as a
+  number; a wrong number can be silently misread as a right one.
+  
+  **Why not the shared `PaginationMeta`.** Around twenty other paginated endpoints
+  always supply a total. Widening the shared type would make all of their consumers
+  handle an absence they will never see, and a type that says "this might be
+  missing" where it never is trains readers to ignore the warning.
+  
+  **`meta.hasMore` is always present and is what to page on.** It reports
+  reachability — whether a further page will return rows — so it terminates. It
+  previously stayed `true` on every page once the upstream fetch was bounded,
+  including empty pages past the bound, so a loop over `hasMore` never ended.
+
+### Patch Changes
+
+- e6b002c: A transcript row's `agentName` is documented as a background agent's name
+  
+  No behaviour change — the field, its type and its null case are untouched. What
+  changes is the sentence a caller reads on it, which called the sender a
+  _teammate_.
+  
+  That word named a distinct kind of agent this platform never produced. Under a
+  headless runner no team forms and no teammate spawns, so a reader meeting it went
+  looking for the thing that made a teammate different from a background agent and
+  found nothing. The runner's own vocabulary retired the word; this doc comment was
+  one of the surfaces still speaking it, and it is the one published to SDK
+  consumers — it reaches the generated declarations, so it is what an editor shows
+  on hover.
+  
+  `agentName` still holds the display name of the background agent a row is
+  attributed to, and is still null on a lead-composed row.
+- 52ed7dd: `conversations.search()` accepts a `limit`, and says that it is bounded
+  
+  The search was capped at 50 results with no parameter to change it and nothing in
+  the response to say a cut had happened. A query matching four thousand
+  conversations returned fifty, and fifty was indistinguishable from a complete
+  answer.
+  
+  **`SearchConversationsParams` now takes `limit`** — 1 to 100, defaulting to 50, so
+  an existing caller sees exactly what it saw before.
+  
+  ⚠️ **`search()` still cannot tell you when it cut.** The HTTP response carries
+  `meta.hasMore`, but this method returns `data` only, so a result of exactly
+  `limit` items may be a truncated page and looks identical to a complete one.
+  Until the method returns that flag, treat a full page as possibly incomplete:
+  raise `limit`, or narrow the query. `getMessages()` returns `hasMore` because its
+  result type carries it; `search()` returning a bare array cannot gain the field
+  without a breaking change.
+- d1ad304: The tool-connect request bodies are checked against the schema that validates them
+  
+  `ConnectToolOAuthBody` and `ConnectToolHttpBody` are hand-written in this package
+  and the CLI's request literal is typechecked against them. Nothing compared them
+  to `ConnectToolBodySchema` — the schema the handler actually validates the body
+  with — so the chain contract → SDK → CLI stopped one link short of the server.
+  Renaming a field on the contract side left every consumer compiling perfectly
+  and shipping a body that can only 400 (NEX-3535).
+  
+  Three pairs join the drift gate in `types-match-the-v1-contract.test.ts`: the two
+  arms and the union over them, each against the schema's `_input`, because a
+  request body is what a caller SENDS. Proven by mutation rather than by reading —
+  renaming `service` to `serviceName` upstream takes the OAuth pair and the union
+  pair to `TS2344` and leaves the HTTP pair green.
+  
+  No runtime behaviour changes; this is a compile-time gate.
+- d8661f4: The workflow wire types cite the gate that exists
+  
+  `types/workflows.ts` told anyone reading it that
+  `workflows-wire-types.conformance.ts` was what kept these declarations honest
+  against the server. No file by that name exists, so a reader who checked found
+  nothing and had to conclude the declarations were unheld.
+  
+  They are held — by `workflow-types-match-the-v1-contract.test.ts`, whose
+  assertions fail `tsc` the moment a declaration here stops matching the v1 schema
+  the server validates its own responses against. The doc comments now name that
+  file, the table inside it that lists every gated pair, and the table that names
+  what it deliberately cannot reach.
+  
+  Comments only. No type changes, and `NexusApiCategory` gains no member.
+
 ## 2.1.0
 ### Minor Changes
 

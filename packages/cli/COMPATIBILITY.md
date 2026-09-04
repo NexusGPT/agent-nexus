@@ -12,26 +12,26 @@ rather than trust it.
 
 ## The version number today
 
-The package is `0.x`. Under semver that alone permits any release to break
-anything, and the README calls the CLI BETA. That is not the promise we intend to
-keep, and it is not how the package has behaved: every release so far has been a
-minor or a patch, and every breaking change in `CHANGELOG.md` names what a script
-loses. The FORM varies: one carries a `🔴 BREAKING` heading and the rest lead with
-a bold sentence inside the entry. Search that file for the word `breaking`, never
-for the heading — the heading finds one of them.
+The package is `1.x`, so the version number carries the full semver signal: a
+major bump means something a script relied on is gone. The README calls the CLI
+BETA, and that is a statement about how fast the surface still moves, not a
+licence to break it silently — every breaking change in `CHANGELOG.md` names what
+a script loses. The FORM varies: one carries a `🔴 BREAKING` heading and the rest
+lead with a bold sentence inside the entry. Search that file for the word
+`breaking`, never for the heading — the heading finds one of them.
 
-So read the version like this, from today until 1.0:
+So read the version like this:
 
-| Change                                                          | Version bump today                                   | Version bump after 1.0 |
-| --------------------------------------------------------------- | ---------------------------------------------------- | ---------------------- |
-| A break in a STABLE surface                                     | a MINOR bump, announced at the top of `CHANGELOG.md` | major                  |
-| A removal from an EVOLVING surface, after its deprecation cycle | minor                                                | minor                  |
-| An addition anywhere                                            | minor                                                | minor                  |
-| A change in an UNSTABLE surface                                 | patch or minor, no announcement owed                 | patch or minor         |
+| Change                                                          | Version bump                                  |
+| --------------------------------------------------------------- | --------------------------------------------- |
+| A break in a STABLE surface                                     | major, announced at the top of `CHANGELOG.md` |
+| A removal from an EVOLVING surface, after its deprecation cycle | minor                                         |
+| An addition anywhere                                            | minor                                         |
+| A change in an UNSTABLE surface                                 | patch or minor, no announcement owed          |
 
-A `0.x` minor is the strongest signal the version number can carry before 1.0. It
-is not a substitute for reading the changelog entry, and this document does not
-pretend it is.
+A major bump is the strongest signal the version number can carry. It is not a
+substitute for reading the changelog entry, and this document does not pretend it
+is.
 
 **Node.js 18 or newer** (`engines.node: ">=18"`). Raising that floor is a breaking
 change under this document.
@@ -52,7 +52,7 @@ change under this document.
 ## STABLE
 
 Breaking any of the following is a deliberate act. It ships with a changelog entry
-that names the old behaviour and the new one, and — after 1.0 — a major version.
+that names the old behaviour and the new one, and a major version.
 
 ### The binary and its installation
 
@@ -70,24 +70,24 @@ runtime dependency.
 ### Command names and required arguments
 
 The CLI registers **52 top-level commands**, of which **52 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **643 command nodes**
-and **548 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+hidden — there are none at all (see INTERNAL). Under them sit **614 command nodes**
+and **524 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
 The 52 visible namespaces:
 
 ```
-access-card       admin       agent          agent-collection  agent-eval
-agent-skill       agent-tool  analytics      api               apps
-asset             auth        channel        chat              claude-code
-cloud-import      collection  conversation   credential        cue
-custom-model      customer    deployment     docs              document
-emulator          execution   external-tool  folder            html-template
-known-issues      mcp         model          permissions       phone-number
-prompt-assistant  role        score          skill-folder      skills
-task              task-eval   template       ticket            tool
-tracing           tracks      upgrade        user-group        version
+access-card       admin          agent        agent-collection  agent-skill
+agent-tool        analytics      api          apps              asset
+auth              channel        chat         claude-code       cloud-import
+collection        conversation   credential   cue               custom-model
+customer          deployment     docs         document          emulator
+execution         external-tool  folder       html-template     known-issues
+mcp               model          permissions  phone-number      prompt
+prompt-assistant  role           score        skill-folder      skills
+task              task-eval      template     ticket            tool
+tracing           tracks         upgrade      user-group        version
 workflow          workspace
 ```
 
@@ -207,12 +207,12 @@ with what it does about `--json`, so the next one cannot arrive in silence.
 
 `emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
 document is the payload and goes to stdout; anything after it is diverted to
-stderr. **101 leaves build their own document with a bare `console.log`** rather
+stderr. **74 leaves build their own document with a bare `console.log`** rather
 than going through a printer — the `writes-its-own-json` count in the generated
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **541 of the 548 leaves** and parses each one's stdout, and
+gate, which drives **517 of the 524 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -248,7 +248,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 541 leaves the gate drives. And on every terminal path — `--help`,
+the 517 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -311,7 +311,7 @@ category a particular failure falls into is EVOLVING — see below.
 
 ### A destructive command with no terminal refuses
 
-**46 commands declare `--yes`**, and every one of them behaves identically:
+**41 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
 - No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
@@ -321,11 +321,11 @@ category a particular failure falls into is EVOLVING — see below.
 The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
 the prompt and `nexus … > log.txt` cannot delete silently.
 
-All 46 declare the flag through `confirmable()` and ask through
+All 41 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
 one helper, and no command parses `--yes` for itself.
 
-**All 46 refuse, and that is DRIVEN rather than asserted from the source.**
+**All 41 refuse, and that is DRIVEN rather than asserted from the source.**
 `destructive-confirmation.driven.test.ts` runs each one with `stdin.isTTY` forced
 false and no `--yes`, in a sandboxed `HOME` and working directory with the network
 seams stubbed, and requires the refusal. Its spy calls THROUGH to the real helper
@@ -342,14 +342,14 @@ Refusing costs one retry; proceeding costs the data.
 
 🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 21 DESTRUCTIVE
 COMMANDS DO NOT CONFIRM.** `destructiveCandidates()` in
-`destructive-confirmation.scan.ts` derives **72** candidates by verb —
+`destructive-confirmation.scan.ts` derives **66** candidates by verb —
 `delete`, `purge`, `revoke`, `rotate`, `wipe` and 18 more — and every one must
 appear in exactly one of three declared sets:
 
 | Set                       | Count | What it means                                             |
 | ------------------------- | ----- | --------------------------------------------------------- |
-| `CONFIRMS_BEFORE_ACTING`  | 46    | destroys, and confirms. The promise above covers these.   |
-| `NOT_DESTRUCTIVE`         | 5     | carries a destructive-sounding verb and destroys nothing. |
+| `CONFIRMS_BEFORE_ACTING`  | 41    | destroys, and confirms. The promise above covers these.   |
+| `NOT_DESTRUCTIVE`         | 4     | carries a destructive-sounding verb and destroys nothing. |
 | `UNCONFIRMED_DESTRUCTIVE` | 21    | **destroys and does NOT confirm.** Named debt.            |
 
 **Those 21 are a hole in the promise above, and they are written down rather than
@@ -391,14 +391,14 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**414 of the 548 leaves** carry a derived shape line on their `--help`, generated
+**417 of the 524 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
 line describing the old shape.
 
 The remaining 134 carry **no** shape line, and that is the honest output rather
-than a gap: 101 write their own document, 17 branch to two shapes, 10 have no
+than a gap: 74 write their own document, 17 branch to two shapes, 10 have no
 registration the scan can read, 5 reach no printer, and 1 is ambiguous. A default
 would be a claim nobody measured.
 
@@ -530,7 +530,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-548 leaves, **0 unclassified, 0 stale**, 64 classified `safe`.
+524 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -731,7 +731,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 643 nodes, and the root program is a 644th
+`src/command-universe.ts` renders all 614 nodes, and the root program is a 615th
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
@@ -804,7 +804,7 @@ A removal is a mechanism, not a review comment. **A command that stops answering
 without an alias or a served deprecation cycle fails the build**, so the promises
 above are enforced rather than merely stated.
 
-**0 leaves are on a deprecation cycle today**, out of the **547 paths** the last
+**0 leaves are on a deprecation cycle today**, out of the **514 paths** the last
 release promised. An empty list is the ordinary state — a release that retires
 nothing is the normal release — so read the list, never this sentence:
 `src/deprecations.ts` is the declaration and it is the whole of it.
@@ -879,7 +879,7 @@ today.
    one, in that order, and says plainly which is which. The register to copy is
    the one already in that file: state what a script doing the old thing will now
    experience, not what the code now does.
-2. It bumps the minor version today; the major after 1.0.
+2. It bumps the major version.
 3. Where the old form can keep working, it keeps working — an alias for a rename
    (`task-eval` kept `eval`), a fallback for a moved field.
 4. A removal from an EVOLVING surface is announced one release before it happens,

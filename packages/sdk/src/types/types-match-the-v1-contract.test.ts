@@ -5,7 +5,7 @@
 // internal namesakes, which `contract-layering.test.ts` pins. Same schema
 // objects either way, so the gate below is against the exact symbols the
 // handler validates with.
-import { WorkspaceSummarySchema } from "@nexus/types";
+import { WorkspaceSummarySchema } from "@nexus/types/contracts";
 import {
   AgentFolderSchema,
   AgentModelSchema,

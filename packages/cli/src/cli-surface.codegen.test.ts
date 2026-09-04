@@ -270,7 +270,7 @@ describe("cli-surface — COMPATIBILITY.md's tiers are checkable, not merely sta
       expect(tierOf({ path: "agent get", hidden: false })).toBe("STABLE");
       expect(tierOf({ path: "workflow node create", hidden: false })).toBe("STABLE");
       // A namespace that merely STARTS with a carved-out name is not carved out.
-      expect(tierOf({ path: "agent-eval run get", hidden: false })).toBe("STABLE");
+      expect(tierOf({ path: "agent-collection list", hidden: false })).toBe("STABLE");
     });
 
     it("CONTROL — the rule discriminates rather than answering one tier", () => {

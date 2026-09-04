@@ -315,12 +315,22 @@ describe("safe-with-fixture", () => {
     expect(seed).toMatch(/exit \$\(\([^)]*FAILED[^)]*\)\)/);
   });
 
-  it("is not run by CI, and says why where somebody would wire it up", () => {
-    // `cli-sweep` holds a READ-ONLY key precisely so the gate cannot mutate the
-    // environment it measures. Someone will try to automate this seed; the
-    // reason it stays manual has to be at the top of the file they open.
+  it("says which CI job runs it, and why the SWEEP's own job still cannot", () => {
+    // 🚨 THIS ASSERTED `NOT RUN BY CI` AND PINNED A CLAIM THAT HAD STOPPED BEING
+    // TRUE. `cli-e2e.yml` runs this script as "Reseed sweep fixtures if empty",
+    // with that job's write-scoped key — so a non-zero exit here reds a CI job.
+    // The header still opened with "IT IS NOT RUN BY CI", which is the first
+    // thing anybody debugging that red reads, and it sent them to look anywhere
+    // but the workflow that was running it. A spec holding a stale sentence in
+    // place is worse than no spec: it makes the wrong claim load-bearing.
+    //
+    // The half that is still true is the one worth pinning — the sweep's OWN
+    // gate holds a read-only key on purpose, so the repair can never live inside
+    // the job that measures the thing being repaired. Someone will try to move
+    // it there; the reason it cannot has to be at the top of the file they open.
     const seed = readFileSync(SEED, "utf8");
-    expect(seed).toContain("NOT RUN BY CI");
     expect(seed).toContain("READ-ONLY");
+    expect(seed).toContain("cli-e2e.yml");
+    expect(seed).not.toContain("IT IS NOT RUN BY CI");
   });
 });

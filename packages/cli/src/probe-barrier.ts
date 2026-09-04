@@ -236,30 +236,6 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
     why: "generates an image through a paid provider"
   },
 
-  // ── agent-eval ────────────────────────────────────────────────────────────
-  "agent-eval batch create": {
-    barrier: "money",
-    why: "creates AND enqueues a batch over a conversation filter, so it bills for every conversation the filter matches"
-  },
-  "agent-eval run execute": {
-    barrier: "money",
-    why: "enqueues the run, which drives the agent against a model provider and is billed per token",
-    safeCheck: "`agent-eval run create` leaves the run in DRAFT and spends nothing"
-  },
-  "agent-eval schedule create": {
-    barrier: "money",
-    why: "installs a cron that executes runs unattended, so it bills on every tick",
-    safeCheck: "`agent-eval schedule list` reads the installed schedules"
-  },
-  "agent-eval schedule resume": {
-    barrier: "money",
-    why: "restarts an unattended cron that bills on every tick"
-  },
-  "agent-eval trigger upsert": {
-    barrier: "money",
-    why: "installs an automatic trigger that executes runs on conversation close, so it bills without an operator"
-  },
-
   // ── apps ──────────────────────────────────────────────────────────────────
   "apps approvals decide": {
     barrier: "third-party",

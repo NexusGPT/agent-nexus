@@ -374,10 +374,10 @@ describe("the authored-suggestion ledger describes the tree it ships with", () =
  * The namespace an id belongs to.
  *
  * 🚨 STRIP THE ORDINAL — never `startsWith(ns + "-")`. That spelling makes
- * `agent` swallow `agent-skill`, `agent-tool`, `agent-collection` and
- * `agent-eval`, so reviewing `agent` silently claimed 4 other namespaces and 11
- * rows nobody had looked at. The first version of this file did exactly that
- * and the case below is what caught it.
+ * `agent` swallow `agent-skill`, `agent-tool` and `agent-collection`, so
+ * reviewing `agent` silently claimed sibling namespaces and rows nobody had
+ * looked at. The first version of this file did exactly that and the case
+ * below is what caught it.
  */
 function namespaceOf(id: string): string {
   return id.replace(/-\d+$/, "");

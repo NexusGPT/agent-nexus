@@ -1,0 +1,20 @@
+{
+  // Declaration emit. tsup owns the JavaScript; `tsc` owns the `.d.ts`, because
+  // tsup's dts program injects `baseUrl` unconditionally
+  // (tsup/dist/rollup.js: `baseUrl: compilerOptions.baseUrl || "."`) and that
+  // option raises TS5101 under TypeScript 6 and is removed in 7. This program
+  // sets no `baseUrl`, so it compiles clean with nothing silenced.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    // Off deliberately: `files` publishes no `src/`, so a map emitted here would
+    // ship pointing at sources that are not in the tarball.
+    "declarationMap": false,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx"]
+}

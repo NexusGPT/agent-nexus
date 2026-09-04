@@ -1,7 +1,7 @@
 import {
   OrganizationAutomationSettingsInputSchema,
   RoleWorkingYearInputSchema
-} from "@nexus/types";
+} from "@nexus/types/domain";
 
 /**
  * A ROLE'S WORKING YEAR AND AN ORGANIZATION'S WORKING-TIME MODEL HOLD DISJOINT

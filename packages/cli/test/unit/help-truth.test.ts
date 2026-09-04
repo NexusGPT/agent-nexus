@@ -134,7 +134,7 @@ test("CONTROL: R4 was proved to have JUDGED, not merely to have run", () => {
   // PathVars arity does not match. All three produce NO violation, which is
   // byte-for-byte what "asked and found nothing" produces. Measured 2026-08-15,
   // before this counter existed: across the tree R4 skipped 146 operands and the
-  // whole gate was green, with `agent-eval` certified clean on 0 judged / 32
+  // whole gate was green, with one namespace certified clean on 0 judged / 32
   // skipped and `conversation` on 1 / 28.
   //
   // 462 judged against 97 skipped when this landed, tree-wide. The floor is 150
@@ -593,12 +593,11 @@ test("PROGRESS 4: a namespace declared clean was MEASURED, not abstained on", ()
   // FORM WAS SATISFIED BY THE DEFECT IT EXISTS TO CATCH.
   //
   // Those resolved routes were a property of the TREE, not of the detector. All
-  // six of them were `agent-eval`'s — measured, by breaking the count down per
-  // namespace before anything was changed: `run delete`, `template delete`,
-  // `template detach`, `schedule delete`, `trigger delete`, `webhook delete`,
-  // and nothing else in 540 leaves. `agent-eval` was also the only SDK-BYPASS
-  // namespace, so CLOSING the gap took the count to 0 and turned this assertion
-  // red for having succeeded. A control whose green depends on the defect still
+  // six of them belonged to one namespace (system B's eval CLI, since deleted)
+  // — measured, by breaking the count down per namespace before anything was
+  // changed: its six destructive leaves and nothing else in 540 leaves. It was
+  // also the only SDK-BYPASS namespace, so CLOSING the gap took the count to 0
+  // and turned this assertion red for having succeeded. A control whose green depends on the defect still
   // being there is one that gets deleted the day the defect is fixed, and it
   // takes the real check with it.
   //

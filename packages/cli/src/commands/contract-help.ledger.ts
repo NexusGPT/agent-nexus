@@ -120,24 +120,6 @@ export const GENERATED_NAMESPACE_LEDGER = [
     ]
   },
   {
-    namespace: "agent-eval",
-    descriptors: [
-      "ConversationEvalRunCreate",
-      "ConversationEvalRunList",
-      "ConversationEvalBatchCreate",
-      "ConversationEvalBatchList",
-      "ConversationEvalTemplateCreate",
-      "ConversationEvalTemplateList",
-      "ConversationEvalTemplateListImportable",
-      "ConversationEvalScheduleCreate",
-      "ConversationEvalScheduleList",
-      "ConversationEvalScheduleUpdate",
-      "ConversationEvalTriggerList",
-      "ConversationEvalTriggerUpsert",
-      "ConversationEvalWebhookUpsert"
-    ]
-  },
-  {
     namespace: "credential",
     descriptors: ["CredentialList"]
   },
@@ -522,6 +504,20 @@ export const GENERATED_NAMESPACE_LEDGER = [
   {
     namespace: "score",
     descriptors: ["ScoreList", "ScoreRecord"]
+  },
+  {
+    namespace: "prompt",
+    descriptors: [
+      "PromptVariantList",
+      "PromptVariantCreate",
+      "PromptVariantRename",
+      "PromptVariantArchive",
+      "PromptVariantPromote",
+      "PromptVariantSaveVersion",
+      "PromptVariantVersionList",
+      "PromptGraph",
+      "PromptCompare"
+    ]
   }
 ] as const satisfies readonly LedgerEntry[];
 

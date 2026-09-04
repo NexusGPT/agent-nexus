@@ -46,7 +46,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { UC_ORG_WORKSPACE_MOUNT_ROOT, UC_SHARED_WORKSPACE_SIBLING_ROOT } from "@nexus/types";
+import { UC_ORG_WORKSPACE_MOUNT_ROOT, UC_SHARED_WORKSPACE_SIBLING_ROOT } from "@nexus/types/domain";
 import { describe, expect, it } from "vitest";
 
 import { getHookFiles } from "../../src/skills-content.generated";

@@ -58,12 +58,6 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "List, attach, and detach the knowledge collections an agent can retrieve from — straight from the command line."
   },
-  "agent-eval": {
-    title: "Agent Evaluation CLI",
-    icon: "chart-bar",
-    description:
-      "Run LLM-as-judge evaluations over multi-turn agent conversations from the command line — create and execute runs, batch-audit inbox conversations, manage tester/judge/summary templates, schedule recurring checks, and wire up automation triggers and webhooks."
-  },
   "agent-skill": {
     title: "Agent Skills CLI",
     icon: "sparkles",
@@ -248,6 +242,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     icon: "gauge",
     description:
       "Record a measured value against a chat, message, trace or workflow execution, and read back everything scored on one entity — the universal score store, from the command line."
+  },
+  prompt: {
+    title: "Prompt Lab CLI",
+    icon: "git-branch",
+    description:
+      "Branch-based prompt versioning: fork variants from any version, iterate with saves, compare any two points in history, and promote a variant to Main — without ever rewriting history."
   },
   "skill-folder": {
     title: "Skill Folders CLI",

@@ -38,10 +38,19 @@
  * WHY IT READS THE PATTERN OUT OF THE SCRIPT
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * The regex is extracted from `sweep.sh` and executed with the same `grep -E`
- * the script uses, rather than restated here. A copy in this file would be a
- * second place for the rule to live, and the copy would keep passing after the
- * original was broadened — the spec would go green about a matcher nothing runs.
+ * The regex is extracted from `scripts/policy-refusal.sh` and executed with the
+ * same `grep -E` the script uses, rather than restated here. A copy in this file
+ * would be a second place for the rule to live, and the copy would keep passing
+ * after the original was broadened — the spec would go green about a matcher
+ * nothing runs.
+ *
+ * It moved out of `sweep.sh` when `seed-sweep-fixtures.sh` came to need the same
+ * answer. That is the same argument one level up: two scripts asking "is this
+ * refusal policy" from two copies of the phrase list would drift, and the drift
+ * would be silent in the direction that matters — the seeder would keep treating
+ * a permanently-refused leaf as a fixture somebody has to create. So the spec
+ * now asserts three things rather than two: the pattern is narrow, ONE file
+ * holds it, and BOTH callers reach for that file instead of restating it.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * WHAT THIS SPEC CANNOT DO
@@ -72,21 +81,28 @@ import { classifyCommandUniverse } from "./command-universe";
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SWEEP = join(PACKAGE_ROOT, "scripts", "sweep.sh");
 const SWEEP_SOURCE = readFileSync(SWEEP, "utf8");
+const SEED = join(PACKAGE_ROOT, "scripts", "seed-sweep-fixtures.sh");
+const SEED_SOURCE = readFileSync(SEED, "utf8");
+const MATCHER = join(PACKAGE_ROOT, "scripts", "policy-refusal.sh");
+const MATCHER_SOURCE = readFileSync(MATCHER, "utf8");
+
+/** The call both scripts make, and the only spelling either one may write. */
+const CALL = 'is_policy_refusal "$out"';
 
 /**
- * The live skip pattern, lifted from `sweep.sh` rather than restated.
+ * The live skip pattern, lifted from `policy-refusal.sh` rather than restated.
  *
- * Anchored on the `-qE '<pattern>'` form the script actually runs. A failure to
- * find it is thrown rather than defaulted: a spec that silently fell back to a
- * hardcoded pattern would keep asserting after the script stopped containing
- * one, which is the exact false green this file is about.
+ * Anchored on the assignment the file actually holds. A failure to find it is
+ * thrown rather than defaulted: a spec that silently fell back to a hardcoded
+ * pattern would keep asserting after the script stopped containing one, which is
+ * the exact false green this file is about.
  */
 function skipPattern(): string {
-  const match = SWEEP_SOURCE.match(/grep -qE '("message":[^']+)'/);
+  const match = MATCHER_SOURCE.match(/^POLICY_REFUSAL_PATTERN='("message":[^']+)'$/m);
   if (!match) {
     throw new Error(
-      "Could not find the SKIP matcher in sweep.sh. If the `grep -qE '\"message\"...'` " +
-        "form moved, update this extraction — do NOT inline a copy of the pattern here."
+      "Could not find POLICY_REFUSAL_PATTERN in scripts/policy-refusal.sh. If the " +
+        "assignment moved, update this extraction — do NOT inline a copy of the pattern here."
     );
   }
   return match[1];
@@ -198,11 +214,66 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // to the first `return` would cut the SKIP emission off entirely and this
     // assertion would fail for a reason that has nothing to do with wiring.
     const branch = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf(skipPattern()),
+      SWEEP_SOURCE.indexOf(CALL),
       SWEEP_SOURCE.indexOf("# One pass answers both questions")
     );
+    expect(SWEEP_SOURCE).toContain(CALL);
     expect(branch.length).toBeGreaterThan(0);
     expect(branch).toContain("printf 'SKIP|%s|%s — DECLARED");
+  });
+
+  it("keeps ONE copy of the phrase list, and both callers reach for it", () => {
+    // 🚨 THE FAILURE THIS CATCHES IS A SECOND COPY REGROWING, WHICH IS SILENT
+    // AND WHICH PASSES EVERY OTHER ASSERTION IN THIS FILE. The six cases above
+    // execute whatever `skipPattern()` returns; they say nothing about how many
+    // places that pattern lives. `seed-sweep-fixtures.sh` needs the identical
+    // answer — a leaf refused by policy cannot be seeded by anyone — and the
+    // cheapest way to give it one is to paste the regex. The paste would keep
+    // agreeing with itself after this file's copy was narrowed or widened, so
+    // the two scripts would disagree about what "policy" means with nothing
+    // anywhere to notice.
+    //
+    // So: the pattern appears in the matcher file and NOWHERE ELSE, and each
+    // caller sources it. Asserting only that they source it would pass a script
+    // that sources the file and then greps its own inline copy anyway.
+    for (const [name, source] of [
+      ["sweep.sh", SWEEP_SOURCE],
+      ["seed-sweep-fixtures.sh", SEED_SOURCE]
+    ] as const) {
+      expect(source, `${name} inlines a second copy of the phrase list`).not.toContain(
+        skipPattern()
+      );
+      expect(source, `${name} does not source the matcher`).toContain(
+        '. "$SCRIPT_DIR/policy-refusal.sh"'
+      );
+      expect(source, `${name} does not call the shared matcher`).toMatch(/\bis_policy_refusal\b/);
+    }
+  });
+
+  it("REFUSES when the matcher cannot be sourced, in both callers", () => {
+    // Neither script runs under `set -e`, so a missing file leaves
+    // `is_policy_refusal` undefined and every call fails — and the two scripts
+    // fail in OPPOSITE, both-wrong directions: the sweep would score every
+    // policy refusal as a CLI regression, and the seed would report a
+    // permanently-unseedable leaf as a fixture somebody has to create. A
+    // degraded run is worse than no run in both, so both refuse.
+    for (const [name, source] of [
+      ["sweep.sh", SWEEP_SOURCE],
+      ["seed-sweep-fixtures.sh", SEED_SOURCE]
+    ] as const) {
+      // Anchored on the shellcheck directive that sits ABOVE the source line —
+      // slicing from the source line itself starts one token past the `if !`
+      // this then asserts on, and the assertion fails for a reason that has
+      // nothing to do with the guard being present.
+      const start = source.indexOf("# shellcheck source=./policy-refusal.sh");
+      expect(start, `${name} has no shellcheck directive on the source`).toBeGreaterThan(-1);
+      const guard = source.slice(start);
+      const refusal = guard.slice(0, guard.indexOf("\nfi") + 3);
+      expect(refusal, `${name} sources the matcher unguarded`).toMatch(
+        /if\s+!\s+\.\s+"\$SCRIPT_DIR\/policy-refusal\.sh";\s+then/
+      );
+      expect(refusal, `${name} does not exit on a failed source`).toMatch(/exit 8/);
+    }
   });
 
   it("reports the skip with its reason, so a shrunken suite cannot read as a green one", () => {
@@ -229,7 +300,7 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // Before this branch the two were the same answer, so a leaf going dark cost
     // its whole coverage and moved one digit in a line nobody reads.
     const branch = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf(skipPattern()),
+      SWEEP_SOURCE.indexOf(CALL),
       SWEEP_SOURCE.indexOf("# One pass answers both questions")
     );
 

@@ -182,12 +182,6 @@ export function destructiveCandidates(root: Command): string[] {
  */
 export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "agent delete",
-  "agent-eval run delete",
-  "agent-eval schedule delete",
-  "agent-eval template delete",
-  "agent-eval template detach",
-  "agent-eval trigger delete",
-  "agent-eval webhook delete",
   "agent-skill delete",
   "agent-tool delete",
   "apps delete",
@@ -210,6 +204,7 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "html-template delete",
   "phone-number buy",
   "phone-number release",
+  "prompt variant archive",
   "prompt-assistant delete-thread",
   "skill-folder delete",
   "skills update",
@@ -238,9 +233,6 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
  * line names the property that makes destruction impossible.
  */
 export const NOT_DESTRUCTIVE: Readonly<Record<string, string>> = {
-  "agent-eval run abort":
-    "Stops an in-flight run and moves it to ABORTED. The run row, its results and its " +
-    "transcript all survive; nothing stored is removed.",
   "auth unpin":
     "Removes ./.nexusrc, a one-line POINTER at a profile. It holds no credential of its " +
     "own and `auth pin` writes it back, so nothing is lost that a second command cannot undo.",
@@ -280,8 +272,8 @@ export const UNCONFIRMED_DESTRUCTIVE: Readonly<Record<string, string>> = {
     "Opts an org out of its dedicated cluster. DISABLED_RETAINED keeps the data, and the " +
     "org still loses its cluster with nobody asked.",
   "agent-collection detach":
-    "Takes knowledge collections off an agent. The sibling `agent-eval template detach` and " +
-    "`deployment template detach` both confirm; this one does not.",
+    "Takes knowledge collections off an agent. The sibling " +
+    "`deployment template detach` confirms; this one does not.",
   "apps env rm": "Deletes an environment variable from a Vibe app; the value is not recoverable.",
   "auth logout":
     "Deletes a stored profile — the API key and its org metadata. The key is not " +

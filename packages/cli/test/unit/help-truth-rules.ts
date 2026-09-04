@@ -138,7 +138,7 @@ export interface ScanReport {
    * separate grounds, and a namespace where it declined EVERY time produces the
    * same empty violation list as one where it asked every time and found
    * nothing. Only one of those is protection. Measured 2026-08-15 before this
-   * counter existed: `agent-eval` was recorded clean on 0 judged / 32 skipped,
+   * counter existed: one namespace was recorded clean on 0 judged / 32 skipped,
    * and `conversation` on 1 / 28.
    */
   readonly pathOperandsJudged: Readonly<Record<string, number>>;

@@ -1,9 +1,9 @@
+import { type WorkflowDisplayTypeValue } from "@nexus/types";
 import {
   CONDITION_OPERATORS,
   CONDITION_OPERATORS_BY_FIELD_TYPE,
-  WorkflowDisplayType,
-  type WorkflowDisplayTypeValue
-} from "@nexus/types";
+  WorkflowDisplayType
+} from "@nexus/types/domain";
 
 /**
  * WHICH `field.type` VALUES EACH BRANCHING OPERATOR IS MEANINGFUL ON — read off

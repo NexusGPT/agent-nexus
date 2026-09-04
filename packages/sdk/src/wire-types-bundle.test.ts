@@ -55,6 +55,16 @@ const IMPORTS_NEXUS_TYPES =
  *
  * Mirrors `packages/cli/src/wire-types-bundle.test.ts`, which guards the same
  * boundary in the other mirrored package for the same reason.
+ *
+ * ── What this file does NOT cover, and what does ───────────────────────────
+ *
+ * This is a claim about SOURCE. `UNPUBLISHABLE` also happens to match the
+ * `exclude` list in `tsconfig.build.json`, and nothing keeps those two in step —
+ * a third suffix added here leaves this spec green while the declaration build
+ * emits a `.d.ts` naming `@nexus/types`. `scripts/assert-published-imports.mjs`,
+ * wired into the `build` script, covers the emitted output directly, so adding a
+ * suffix here needs no matching edit anywhere: the build says whether the
+ * published declarations still resolve.
  */
 describe("@nexus/types stays out of the published bundle", () => {
   const files = sourceFiles();

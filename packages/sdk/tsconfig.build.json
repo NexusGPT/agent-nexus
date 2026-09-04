@@ -1,0 +1,40 @@
+{
+  // Declaration emit. tsup owns the JavaScript; `tsc` owns the `.d.ts`, because
+  // tsup's dts program injects `baseUrl` unconditionally
+  // (tsup/dist/rollup.js: `baseUrl: compilerOptions.baseUrl || "."`) and that
+  // option raises TS5101 under TypeScript 6 and is removed in 7. This program
+  // sets no `baseUrl`, so it compiles clean with nothing silenced.
+  //
+  // The exclusions are load-bearing on THIS package rather than cosmetic:
+  // `@nexus/types` is a devDependency and is never published, so a declaration
+  // that names it is unresolvable for anyone installing @agent-nexus/sdk from
+  // npm. The only sources that reach it are the specs and
+  // src/resources/v1-route-scan.conformance.ts, a spec helper nothing in the
+  // library imports.
+  //
+  // The excluded suffixes below happen to match `UNPUBLISHABLE` in
+  // src/wire-types-bundle.test.ts, which is the standing guard that no
+  // publishable SOURCE imports `@nexus/types`. That agreement is a coincidence
+  // and nothing keeps the two lists in step: add a third suffix there, put a
+  // file with it in src/, and that spec passes while this program emits a
+  // `.d.ts` naming a package the consumer cannot resolve.
+  //
+  // What closes it is not a third copy of the list. `scripts/assert-published-imports.mjs`
+  // runs after this program, on the `build` script, and asserts the property
+  // itself: every module specifier in the emitted output must be relative, a Node
+  // builtin, or a package this manifest declares as a runtime dependency. So the
+  // exclusions below are a means, and the end is checked directly.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    // Off deliberately: `files` publishes no `.d.ts.map` and no `src/`, so a map
+    // emitted here would ship pointing at sources that are not in the tarball.
+    "declarationMap": false,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "**/*.conformance.ts"]
+}

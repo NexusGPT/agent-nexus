@@ -90,7 +90,10 @@ const gate = shrinkOnlyLedger({
   // this call moves a Role's published coverage figure. There is no read-only
   // form of it to call instead. A row here is the honest place for that, not a
   // `declared-unsweepable` entry, which would claim it cannot be reached.
-  ceiling: 340,
+  //
+  // 340 -> 319: system B's eval namespace and its 21 unreachable id-taking
+  // leaves left the tree when it was deleted outright (Prompt Lab phase 0).
+  ceiling: 319,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

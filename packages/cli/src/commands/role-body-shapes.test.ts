@@ -6,6 +6,7 @@ import {
   ROLE_JOB_TYPES_CREATE_CONTRACT,
   ROLE_JOB_TYPES_UPDATE_CONTRACT
 } from "./role.contract.generated";
+import { ROLE_NAMESPACE_GAP_SUBJECTS } from "./role-body-shapes";
 
 /**
  * THE `--body` HELP NAMES EVERY FIELD THE ROUTE REQUIRES.
@@ -37,6 +38,33 @@ import {
  * ⚠️ AND IT PINS THE KEY SET, NEVER THE SENTENCE. `fte number` where the
  * contract says `number | null` passes every assertion below.
  */
+
+/** Every `nexus role` subcommand name, off the live commander tree. */
+function roleVerbs(): ReadonlySet<string> {
+  const program = new Command();
+  program.name("nexus").exitOverride();
+  registerRoleCommands(program);
+  const role = program.commands.find((c) => c.name() === "role");
+  return new Set((role?.commands ?? []).map((c) => c.name()));
+}
+
+/**
+ * The live verbs whose name carries `token` as a `-`-separated segment, singular
+ * or plural — so one token answers for a whole family (`board` finds `boards`,
+ * `add-board` and `reorder-boards` alike) without any of them being typed here.
+ *
+ * Segment equality rather than substring is deliberate: `impact` as a substring
+ * would match nothing today but would silently start matching any future verb
+ * that merely contains the letters, and a matcher nobody can predict is one
+ * nobody maintains.
+ */
+function verbsCarrying(token: string, verbs: ReadonlySet<string>): string[] {
+  const singular = (word: string): string => word.replace(/s$/, "");
+  const want = singular(token);
+  return [...verbs]
+    .filter((verb) => verb.split("-").some((segment) => singular(segment) === want))
+    .sort();
+}
 
 /** Render a leaf command's `--help` exactly as an operator sees it. */
 function renderHelp(path: readonly string[]): string {
@@ -380,11 +408,16 @@ describe("set-variables names every key of a variable, and which of them take nu
 });
 
 describe("role --help names the capabilities that have no verb here", () => {
-  it("names all five, and says they exist in the product", () => {
+  it("names all four, and says they exist in the product", () => {
     const help = renderHelp(["role"]);
 
+    // `boards and card placement` was the fifth and is deliberately gone: the six
+    // board verbs ship, so naming it here denied a capability the caller has.
+    // The four below were audited against the live tree at the same time and all
+    // four hold. Task graduation especially — it was requested alongside the
+    // board verbs and REFUSED on purpose, because its input schema spreads the
+    // impacts-write schema that v1 already refuses. It is true on purpose.
     for (const capability of [
-      "boards and card placement",
       "the system map",
       "a Role's workload",
       "a system's impact model",
@@ -401,11 +434,7 @@ describe("role --help names the capabilities that have no verb here", () => {
   });
 
   it("does not list a verb the namespace actually has", () => {
-    const program = new Command();
-    program.name("nexus").exitOverride();
-    registerRoleCommands(program);
-    const role = program.commands.find((c) => c.name() === "role");
-    const verbs = new Set((role?.commands ?? []).map((c) => c.name()));
+    const verbs = roleVerbs();
 
     // Control: the enumeration is real, and `coverage` IS a verb — so a gap list
     // that named it would be wrong in the direction that sends a caller away
@@ -413,11 +442,50 @@ describe("role --help names the capabilities that have no verb here", () => {
     expect(verbs.size).toBeGreaterThan(50);
     expect(verbs.has("coverage")).toBe(true);
 
+    // 🔴 THE CONTROL THAT THE PREVIOUS FORM OF THIS CASE LACKED. It probed the
+    // SUBJECT WORDS of the prose — `board`, `card`, `graduate` — against a tree
+    // that spells them `boards` and `move-card`. `Set.has` is exact, so all six
+    // probes were false and the case passed green while every one of the six
+    // board verbs shipped. Its own control (`coverage` is a verb) passed
+    // honestly and proved only that the tree was built, never that the probes
+    // were spelled the way the tree spells them.
+    //
+    // So the matcher is asserted to HAVE POWER over the exact defect first: a
+    // matcher that found nothing would satisfy every expectation below while
+    // reading identically to one that found nothing to report.
+    expect(verbsCarrying("board", verbs)).toEqual([
+      "add-board",
+      "boards",
+      "remove-board",
+      "reorder-boards",
+      "update-board"
+    ]);
+    expect(verbsCarrying("card", verbs)).toEqual(["move-card"]);
+    expect(verbsCarrying("no-such-subject", verbs)).toEqual([]);
+
+    for (const { bullet, token } of ROLE_NAMESPACE_GAP_SUBJECTS) {
+      const shipped = verbsCarrying(token, verbs);
+      expect(
+        shipped,
+        `"${bullet}" is listed as having NO verb at any version, but these ship: ${shipped.join(", ")}`
+      ).toEqual([]);
+    }
+  });
+
+  // The declaration and the prose are two statements of one fact, so they can
+  // drift apart — and a bullet with no declaration is simply unchecked by the
+  // case above, which is the same silent hole one level up.
+  it("every rendered bullet is declared, and every declaration is rendered", () => {
     const help = renderHelp(["role"]);
     const gaps = help.slice(help.indexOf("WHAT THIS NAMESPACE DOES NOT COVER"));
-    for (const verb of ["board", "card", "graduate", "system-map", "workload", "impact"]) {
-      expect(verbs.has(verb), `"${verb}" is listed as absent but is a real verb`).toBe(false);
-    }
     expect(gaps.length).toBeGreaterThan(200);
+
+    for (const { bullet } of ROLE_NAMESPACE_GAP_SUBJECTS) {
+      expect(gaps, `"${bullet}" is declared but never rendered`).toContain(`• ${bullet}`);
+    }
+    expect(
+      (gaps.match(/^ +• /gm) ?? []).length,
+      "a bullet was added to the block without a ROLE_NAMESPACE_GAP_SUBJECTS entry, so nothing checks it"
+    ).toBe(ROLE_NAMESPACE_GAP_SUBJECTS.length);
   });
 });

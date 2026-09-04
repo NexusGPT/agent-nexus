@@ -14,7 +14,7 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  *
  * ── THE SURFACE AT 1.1.0 ────────────────────────────────────────────────────
  *
- * 547 promised paths — 488 STABLE, 59 UNSTABLE.
+ * 514 promised paths — 455 STABLE, 59 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
@@ -60,39 +60,6 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "agent-collection attach", shape: "5f316dcc340c", tier: "STABLE" },
     { path: "agent-collection detach", shape: "4a228fc8da41", tier: "STABLE" },
     { path: "agent-collection list", shape: "3ce5cf647daa", tier: "STABLE" },
-    { path: "agent-eval batch create", shape: "5e24f337d3b6", tier: "STABLE" },
-    { path: "agent-eval batch get", shape: "6e250e1a060c", tier: "STABLE" },
-    { path: "agent-eval batch list", shape: "a70f83a85a14", tier: "STABLE" },
-    { path: "agent-eval run abort", shape: "57298315656d", tier: "STABLE" },
-    { path: "agent-eval run compare", shape: "792f65fb5a00", tier: "STABLE" },
-    { path: "agent-eval run create", shape: "cef03e4d46ac", tier: "STABLE" },
-    { path: "agent-eval run delete", shape: "41603a6f68a7", tier: "STABLE" },
-    { path: "agent-eval run execute", shape: "8b50c7c6037a", tier: "STABLE" },
-    { path: "agent-eval run get", shape: "57fb86dd7ac0", tier: "STABLE" },
-    { path: "agent-eval run list", shape: "96bb51df6d43", tier: "STABLE" },
-    { path: "agent-eval run results", shape: "1052e2cf9c5a", tier: "STABLE" },
-    { path: "agent-eval run transcript", shape: "f7c7147c8819", tier: "STABLE" },
-    { path: "agent-eval schedule create", shape: "e025cd02d600", tier: "STABLE" },
-    { path: "agent-eval schedule delete", shape: "496019ea5d0e", tier: "STABLE" },
-    { path: "agent-eval schedule list", shape: "0482642ad033", tier: "STABLE" },
-    { path: "agent-eval schedule pause", shape: "55fc29abeae9", tier: "STABLE" },
-    { path: "agent-eval schedule resume", shape: "09800a2be001", tier: "STABLE" },
-    { path: "agent-eval schedule update", shape: "947bbac75f40", tier: "STABLE" },
-    { path: "agent-eval template attach", shape: "c35a4708b280", tier: "STABLE" },
-    { path: "agent-eval template clone", shape: "04c1d3792dc4", tier: "STABLE" },
-    { path: "agent-eval template create", shape: "f126ed3a1015", tier: "STABLE" },
-    { path: "agent-eval template delete", shape: "035321e9bff5", tier: "STABLE" },
-    { path: "agent-eval template detach", shape: "602ac98775bc", tier: "STABLE" },
-    { path: "agent-eval template get", shape: "343066004b44", tier: "STABLE" },
-    { path: "agent-eval template importable", shape: "03bf57d94a00", tier: "STABLE" },
-    { path: "agent-eval template list", shape: "a2cef7bbca60", tier: "STABLE" },
-    { path: "agent-eval template update", shape: "aadac118bcaa", tier: "STABLE" },
-    { path: "agent-eval trigger delete", shape: "3f15481bf2ce", tier: "STABLE" },
-    { path: "agent-eval trigger list", shape: "3b82cbbd8d59", tier: "STABLE" },
-    { path: "agent-eval trigger upsert", shape: "bae7efea5a73", tier: "STABLE" },
-    { path: "agent-eval webhook delete", shape: "6d5e2dad9e7a", tier: "STABLE" },
-    { path: "agent-eval webhook get", shape: "4f5bffaf3a91", tier: "STABLE" },
-    { path: "agent-eval webhook upsert", shape: "2a9795fdfdd6", tier: "STABLE" },
     { path: "agent-skill add-preset", shape: "70267e6a832a", tier: "STABLE" },
     { path: "agent-skill create", shape: "c5cc46facdf4", tier: "STABLE" },
     { path: "agent-skill delete", shape: "2f7dae69528e", tier: "STABLE" },

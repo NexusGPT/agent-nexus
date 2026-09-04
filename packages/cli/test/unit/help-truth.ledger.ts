@@ -193,14 +193,13 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // because `sdkCallsIn` matched two path segments and their SDK calls have
   // three — `client.agents.versions.list(…)`, `client.credentials.cards.get(…)`.
   // Once the detector could read them, 39 of their examples turned out to name
-  // an id the route refuses. Those are fixed, so this list is 47/47 again and
-  // the second 47/47 is the stronger claim: four namespaces are now MEASURED
+  // an id the route refuses. Those are fixed, so this list is complete again
+  // and that is the stronger claim: four namespaces are now MEASURED
   // rather than exempt by blindness.
   "access-card",
   "admin",
   "agent",
   "agent-collection",
-  "agent-eval",
   "agent-skill",
   "agent-tool",
   "analytics",
@@ -272,6 +271,7 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // UUID" is not a UUID, and the route said so.
   "permissions",
   "phone-number",
+  "prompt",
   "prompt-assistant",
   "role",
   "score",

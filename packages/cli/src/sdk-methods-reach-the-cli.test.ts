@@ -52,6 +52,12 @@ const SDK_RESOURCES = path.resolve(__dirname, "../../sdk/src/resources");
  * "unexposed" and "forgotten" look identical from here.
  */
 const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
+  // The variant-scoped fork door. The CLI's `prompt variant create
+  // --from-version <verId>` reaches the SAME behavior through the collection
+  // route (the phase-1 test plan fixes the command tree to that one spelling);
+  // the /fork route exists for API/SDK callers holding a variant rather than a
+  // version. A `prompt variant fork` verb would be a second spelling of create.
+  "promptVariants.fork": "covered by `prompt variant create --from-version` — one CLI spelling",
   // The v1 channels resource carries phone-number methods that the dedicated
   // `phoneNumbers` resource also carries; `nexus phone-number` drives that one.
   "channels.searchAvailablePhoneNumbers": "duplicated by phoneNumbers.searchAvailable",

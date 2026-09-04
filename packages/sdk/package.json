@@ -31,7 +31,6 @@
     "dist/**/*.js",
     "dist/**/*.mjs",
     "dist/**/*.d.ts",
-    "dist/**/*.d.mts",
     "README.md",
     "LICENSE"
   ],
@@ -43,8 +42,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist && node ../../scripts/assert-published-imports.mjs dist",
+    "dev": "tsup --watch --onSuccess \"tsc -p tsconfig.build.json\"",
     "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.scripts.json",
     "lint": "eslint . --max-warnings 0",
     "prepublishOnly": "pnpm run build",

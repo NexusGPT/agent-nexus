@@ -785,7 +785,7 @@ export function sdkCallsIn(slice: string): string[] {
  * that reach the API without going through an SDK resource at all. Both spellings
  * are real and neither is a hypothetical —
  *
- *   http().request("DELETE", `/agent-evals/runs/${id}`)   // positional
+ *   http().request("DELETE", `/agents/${id}`)             // positional
  *   { method: "GET", path: "/api/vibe/cluster" }          // object literal
  *
  * — and the DIFFERENCE between them is the whole reason this exists. A route

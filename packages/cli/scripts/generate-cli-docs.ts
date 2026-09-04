@@ -50,10 +50,9 @@
  * the projection is then adopted in a reviewed pass — never by this script
  * quietly winning a race against the file it was about to delete.
  *
- * The two held today are refusals with an argument, recorded in that spec:
- * `agent-eval`, whose projection repeats a false claim the authored page does
- * not make, and `agent-skill`, the only page carrying the packaging rules, the
- * size limits and the scopes.
+ * The one held today is a refusal with an argument, recorded in that spec:
+ * `agent-skill`, the only page carrying the packaging rules, the size limits
+ * and the scopes.
  *
  * `--out` still has no default, deliberately: this guard protects an authored
  * page that EXISTS, and nothing protects a directory nobody meant to name.

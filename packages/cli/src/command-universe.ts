@@ -177,9 +177,7 @@ export interface DriftReport {
  *     leaf behind a gate the sweep organisation has not been granted lands as a
  *     FAIL rather than a SKIP. The remedy is to enable the feature for that
  *     organisation, never to broaden the grep: a wider grep turns a real outage
- *     into a SKIP everywhere. The `agent-eval` reads below are swept because
- *     `conversation_eval` IS granted to the sweep organisation, and they revert
- *     to that FAIL the moment it is revoked.
+ *     into a SKIP everywhere.
  *   - AN EMPTY COLLECTION. It exercises auth, routing, tenancy scoping and the
  *     envelope, and it asserts nothing whatever about item shape. Six leaves
  *     already classified `safe` read empty against staging, so this is a REASON
@@ -241,41 +239,6 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "agent-collection attach": "registration-only",
   "agent-collection detach": "registration-only",
   "agent-collection list": "registration-only",
-
-  // ── agent-eval ─────────────────────────────────────────────────────────────
-  "agent-eval batch create": "registration-only",
-  "agent-eval batch get": "registration-only",
-  "agent-eval batch list": "safe",
-  "agent-eval run abort": "registration-only",
-  "agent-eval run compare": "registration-only",
-  "agent-eval run create": "registration-only",
-  "agent-eval run delete": "registration-only",
-  "agent-eval run execute": "registration-only",
-  "agent-eval run get": "registration-only",
-  "agent-eval run list": "safe",
-  "agent-eval run results": "registration-only",
-  "agent-eval run transcript": "registration-only",
-  "agent-eval schedule create": "registration-only",
-  "agent-eval schedule delete": "registration-only",
-  "agent-eval schedule list": "safe",
-  "agent-eval schedule pause": "registration-only",
-  "agent-eval schedule resume": "registration-only",
-  "agent-eval schedule update": "registration-only",
-  "agent-eval template attach": "registration-only",
-  "agent-eval template clone": "registration-only",
-  "agent-eval template create": "registration-only",
-  "agent-eval template delete": "registration-only",
-  "agent-eval template detach": "registration-only",
-  "agent-eval template get": "registration-only",
-  "agent-eval template importable": "registration-only",
-  "agent-eval template list": "safe",
-  "agent-eval template update": "registration-only",
-  "agent-eval trigger delete": "registration-only",
-  "agent-eval trigger list": "safe",
-  "agent-eval trigger upsert": "registration-only",
-  "agent-eval webhook delete": "registration-only",
-  "agent-eval webhook get": "registration-only",
-  "agent-eval webhook upsert": "registration-only",
 
   // ── agent-skill ────────────────────────────────────────────────────────────
   "agent-skill add-preset": "registration-only",
@@ -635,6 +598,17 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // above. `record` is a mutation as well.
   "score record": "registration-only",
   "score list": "registration-only",
+  // Every prompt verb takes a REQUIRED --agent-id (and the writes mutate), so
+  // none can run unanchored in the docs probe.
+  "prompt variant list": "registration-only",
+  "prompt variant create": "registration-only",
+  "prompt variant rename": "registration-only",
+  "prompt variant archive": "registration-only",
+  "prompt save": "registration-only",
+  "prompt history": "registration-only",
+  "prompt promote": "registration-only",
+  "prompt compare": "registration-only",
+  "prompt graph": "registration-only",
   "role create": "registration-only",
   "role create-job-type": "registration-only",
   "role create-permission-set": "registration-only",

@@ -29,12 +29,12 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * string to see the spread; nothing asserts that breakdown, so read it rather
  * than trusting a figure.
  *
- * The largest cluster this gate ever held was `agent-evals` — 33 rows, one
- * reason, an entire domain that shipped on the public API and reached neither
- * the SDK nor the CLI. It is gone: `client.agentEvals` reaches all 33. Kept here
- * because it is the worked example of what the ceiling below is FOR — the block
- * arrived one row at a time with every arm green, and an equality asserted in
- * both directions cannot refuse that.
+ * The largest cluster this gate ever held was system B's eval domain — 33
+ * rows, one reason, an entire domain that shipped on the public API and reached
+ * neither the SDK nor the CLI (NEX-3909 closed it; the domain itself was later
+ * deleted outright). Kept here because it is the worked example of what the
+ * ceiling below is FOR — the block arrived one row at a time with every arm
+ * green, and an equality asserted in both directions cannot refuse that.
  *
  * **The size of the v1 surface, and how much of it the SDK reaches, are
  * deliberately NOT written here.** Both grow with every route landed, so a
@@ -175,18 +175,19 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * exist to carry, and the one that told a sweep which of its candidates were
  * actually buildable.
  *
- * 56 → 23. THE `agent-evals` BLOCK, ALL OF IT (NEX-3909). `client.agentEvals`
- * reaches all 33 routes — runs, batches, templates, schedules, triggers and
- * webhooks — so every row left in one commit and this figure fell by the same
- * 33. It was the largest single block this ledger ever held and the reason the
- * ceiling existed: 33 rows, one reason, landed one at a time with every arm
- * green, which is exactly the growth an equality cannot refuse.
+ * 56 → 23. System B's eval block, ALL OF IT (NEX-3909): an SDK resource grew
+ * to reach all 33 of its routes — runs, batches, templates, schedules,
+ * triggers and webhooks — so every row left in one commit and this figure fell
+ * by the same 33. It was the largest single block this ledger ever held and
+ * the reason the ceiling existed: 33 rows, one reason, landed one at a time
+ * with every arm green, which is exactly the growth an equality cannot refuse.
+ * (The whole domain — routes, resource and CLI — was later deleted outright.)
  *
  * ⚠️ The deleted block's own comment read "34 routes" against 33 rows. The rows
- * were right — `grep -oE '"(GET|POST|PATCH|PUT|DELETE) /agent-evals[^"]*"'` over
- * `../response-contract.generated.ts` returns 33 distinct routes, and all 33 are
- * now reached. A prose count beside a list nothing sums is a count that drifts;
- * this note is the last one, because the list is gone.
+ * were right — measured by grepping the domain's route keys out of
+ * `../response-contract.generated.ts`, which returned 33 distinct routes. A
+ * prose count beside a list nothing sums is a count that drifts; this note is
+ * the last one, because the list is gone.
  *
  * ⚠️ AND THE ROW COUNT IS THE ONLY THING THAT SETTLES THIS FIGURE, BECAUSE TWO
  * REDUCTIONS COMPOSED HERE. Both entries above deleted rows from the same

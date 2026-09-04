@@ -3,7 +3,6 @@ import { Command } from "commander";
 import { registerAccessCardCommands } from "./access-card";
 import { registerAgentCommands } from "./agent";
 import { registerAgentCollectionCommands } from "./agent-collection";
-import { registerAgentEvalCommands } from "./agent-eval";
 import { registerAgentSkillCommands } from "./agent-skill";
 import { registerAgentToolCommands } from "./agent-tool";
 import { registerAnalyticsCommands } from "./analytics";
@@ -31,6 +30,7 @@ import { registerHtmlMessageTemplateCommands } from "./html-message-template";
 import { registerKnownIssuesCommand } from "./known-issues";
 import { registerPermissionsCommands } from "./permissions";
 import { registerPhoneNumberCommands } from "./phone-number";
+import { registerPromptCommands } from "./prompt";
 import { registerPromptAssistantCommands } from "./prompt-assistant";
 import { registerRoleCommands } from "./role";
 import { registerScoreCommands } from "./score";
@@ -437,7 +437,6 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   analytics: registerAnalyticsCommands,
   "custom-model": registerCustomModelCommands,
   deployment: registerDeploymentCommands,
-  "agent-eval": registerAgentEvalCommands,
   credential: registerCredentialCommands,
   "prompt-assistant": registerPromptAssistantCommands,
   task: registerTaskCommands,
@@ -477,7 +476,8 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   execution: registerExecutionCommands,
   apps: registerAppsCommands,
   "known-issues": registerKnownIssuesCommand,
-  score: registerScoreCommands
+  score: registerScoreCommands,
+  prompt: registerPromptCommands
 };
 
 /**

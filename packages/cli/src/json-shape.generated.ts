@@ -8,12 +8,12 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 414 of 548 leaves are answered here. The
+ * 417 of 524 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
  *      1  ambiguous
- *    101  writes-its-own-json
+ *     74  writes-its-own-json
  *      5  no-printer
  *     17  branches
  *
@@ -56,12 +56,6 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "agent update": "success",
   "agent upload-profile-picture": "success",
   "agent-collection list": "array",
-  "agent-eval run delete": "success",
-  "agent-eval schedule delete": "success",
-  "agent-eval template delete": "success",
-  "agent-eval template detach": "success",
-  "agent-eval trigger delete": "success",
-  "agent-eval webhook delete": "success",
   "agent-skill create": "success",
   "agent-skill delete": "success",
   "agent-skill get": "record",
@@ -233,6 +227,15 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "phone-number list": "list",
   "phone-number release": "success",
   "phone-number search": "array",
+  "prompt compare": "envelope",
+  "prompt graph": "envelope",
+  "prompt history": "envelope",
+  "prompt promote": "envelope",
+  "prompt save": "envelope",
+  "prompt variant archive": "envelope",
+  "prompt variant create": "envelope",
+  "prompt variant list": "envelope",
+  "prompt variant rename": "envelope",
   "prompt-assistant await-thread": "envelope",
   "prompt-assistant chat": "record",
   "prompt-assistant delete-thread": "success",

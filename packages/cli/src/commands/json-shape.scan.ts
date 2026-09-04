@@ -64,8 +64,8 @@ import ts from "typescript";
  * ── WHY THE PATH IS RESOLVED FROM THE RECEIVER ──────────────────────────────
  *
  * A `.command("get")` literal is not a command path, and `(file, name)` is not
- * a key: 98 of 507 leaves share a name with a sibling in the same file —
- * `agent-eval` alone has five `list`s. So the receiver of each `.command()`
+ * a key: many leaves share a name with a sibling in the same file (a namespace
+ * can easily carry several `list`s). So the receiver of each `.command()`
  * call is resolved back through local variables and wrapper calls
  * (`confirmable(x)`, `addPaginationOptions(x)`) until it bottoms out at the
  * registrar's own parameter, which yields a path RELATIVE to whatever that

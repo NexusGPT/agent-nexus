@@ -41,7 +41,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist",
     "dev": "tsup --watch",
     "start:stdio": "node dist/cli.js",
     "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit --skipLibCheck",

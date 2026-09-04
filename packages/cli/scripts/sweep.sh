@@ -116,6 +116,23 @@ read -ra NEXUS_CMD <<< "${NEXUS_BIN:-nexus}"
 # first time anything calls `run_leaf` earlier.
 SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 
+# The policy-refusal matcher, shared with `seed-sweep-fixtures.sh`. Sourced
+# rather than inlined because both scripts need the same answer and a second
+# copy would keep agreeing with itself after this one was broadened.
+#
+# The source is GUARDED. `set -e` is deliberately not on in this script, so a
+# missing file would leave `is_policy_refusal` undefined, every call would fail,
+# and every policy refusal would silently become a FAIL — a wall of red that
+# says nothing about the environment. That is the same failure direction the
+# derivation refusals below are written to prevent, so it gets the same refusal.
+# shellcheck source=./policy-refusal.sh
+if ! . "$SCRIPT_DIR/policy-refusal.sh"; then
+  echo "FATAL: could not source $SCRIPT_DIR/policy-refusal.sh" >&2
+  echo "Refusing to sweep without it — every policy refusal would read as a CLI" >&2
+  echo "regression and the run would be red for a reason that is not about the CLI." >&2
+  exit 8
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Inventory — resolved from src/command-universe.ts, never written down here
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,41 +183,18 @@ run_leaf() {
     # the gap and don't fail CI. The reason is preserved in the report so
     # an unexpected SKIP still stands out to a human reader.
     #
-    # Matched phrases come straight from current backend error messages.
-    # Add new ones as new features adopt the same "feature not configured"
-    # convention; resist the urge to broaden into generic 5xx matching —
-    # that would mask real outages.
-    #
-    # 🚨 MATCH THE SENTENCE, NEVER THE STATUS. Every phrase here is a specific
-    # declaration by the backend that a feature is unavailable BY POLICY. A
-    # broader rule — "403 means skip", or the `FEATURE_NOT_ENABLED` wire code —
-    # is the tempting shape and it is the wrong one: the code is shared with
-    # refusals that are real regressions, and a status is shared with every
-    # permissions bug there is. `sweep-skips-only-a-declared-opt-out.test.ts`
-    # holds that line by asserting a plain 401 and a 500 still FAIL.
-    #
-    # `opted out of this feature` is the OPT-OUT branch of
-    # `apps/backend/src/feature-flags/infrastructure/guards/feature-flag.guard.ts`:
-    # the org asked not to have the feature, so the 403 is the environment
-    # answering correctly and there is no CLI defect to find. It is a distinct
-    # sentence from the positive branch on purpose — the flag IS enabled, which
-    # is precisely why the route refuses — so it needs its own phrase here.
-    #
-    # ⚠️ THE POSITIVE BRANCH IS NOT MATCHED, AND THAT IS A DECISION RATHER THAN
-    # AN OVERSIGHT. The same guard also emits "This feature is not enabled for
-    # your organization" (2 sites), which no phrase above matches — so a leaf
-    # behind a feature flag the org simply lacks FAILS here exactly as the four
-    # `role *` leaves once did. It is left unmatched because no swept leaf
-    # reaches it today, so adding the phrase would be untested surface on the
-    # one matcher that must never over-broaden. If a red sweep brought you here:
-    # that is the case, adding the sentence is the fix, and
-    # `sweep-skips-only-a-declared-opt-out.test.ts` is where to prove it both
-    # ways before you do.
-    if printf '%s' "$out" | grep -qE '"message":[[:space:]]*"[^"]*(not configured|feature is disabled|feature not enabled|opted out of this feature)'; then
+    # 🚨 MATCH THE SENTENCE, NEVER THE STATUS — and the phrase list itself lives
+    # in `policy-refusal.sh`, sourced above, because `seed-sweep-fixtures.sh`
+    # needs the identical answer. That file carries the reasoning in full: which
+    # backend branch each sentence comes from, which branch is deliberately NOT
+    # matched, and why every tempting broadening ("403 means skip", the
+    # `FEATURE_NOT_ENABLED` wire code, "non-zero exit means skip") is silent and
+    # permanent. `sweep-skips-only-a-declared-opt-out.test.ts` holds that line by
+    # reading the pattern out of that file and asserting a plain 401 and a 500
+    # still FAIL.
+    if is_policy_refusal "$out"; then
       local reason
-      reason=$(printf '%s' "$out" \
-        | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('error',{}).get('message',''))" 2>/dev/null \
-        | tr -d '\n' | cut -c1-80)
+      reason=$(policy_refusal_reason "$out")
 
       # 🚨 THE PHRASE SAYS THE REFUSAL IS POLICY. IT DOES NOT SAY ANYONE DECIDED
       # TO ACCEPT IT. Those are different facts and only the second is a reason

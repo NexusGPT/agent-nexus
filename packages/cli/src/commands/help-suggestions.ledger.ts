@@ -178,10 +178,14 @@ export interface HelpSuggestion {
  * number. That is the friction, and it is the feature — a figure nobody has to
  * update is a figure nobody can trust.
  */
-export const PLACED_COUNT = 211;
+export const PLACED_COUNT = 209;
 
 /**
- * The DENOMINATOR of "N of 237" — the audit's own total, as a CEILING.
+ * The DENOMINATOR of "N of 235" — the audit's own total, as a CEILING.
+ *
+ * 237 → 235: two rows left the table when their namespace (system B's eval CLI) was
+ * deleted outright with system B (Prompt Lab phase 0) — their subject no longer
+ * exists, so they were rows about nothing.
  *
  * 🚨 AN UPPER BOUND, NEVER AN EQUALITY, AND THE DIRECTION IT REFUSES IS THE ONE
  * THIS NUMBER IS FOR. A 238th row is what makes "N of 237" stop meaning what the
@@ -194,7 +198,7 @@ export const PLACED_COUNT = 211;
  * state partition in the spec is asserted against this table's OWN length rather
  * than against a literal, so a deleted `placed` row still reds by name.
  */
-export const AUDIT_TOTAL = 237;
+export const AUDIT_TOTAL = 235;
 
 /**
  * The KNOWN-DEFECTIVE subset of that numerator, recorded so it can be WRONG.
@@ -395,22 +399,6 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     state: "placed",
     leaf: "agent-collection",
     probe: "TWO WAYS TO GIVE AN AGENT A COLLECTION"
-  },
-  {
-    id: "agent-eval-01",
-    target: "agent-eval",
-    summary: "put the feature-flag NAME in the server error, or say how to check it",
-    state: "placed",
-    leaf: "agent-eval",
-    probe: "ASK WITH THE ONE READ THAT CHANGES NOTHING"
-  },
-  {
-    id: "agent-eval-02",
-    target: "agent-eval run create",
-    summary: "ship a complete run.json the reader can copy",
-    state: "placed",
-    leaf: "agent-eval run create",
-    probe: "A COMPLETE run.json, INLINE"
   },
   {
     id: "agent-skill-01",
@@ -2224,7 +2212,6 @@ export const REVIEWED_NAMESPACES: readonly string[] = [
   "admin",
   "agent",
   "agent-collection",
-  "agent-eval",
   "agent-skill",
   "agent-tool",
   "analytics",

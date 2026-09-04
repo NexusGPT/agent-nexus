@@ -1,25 +1,23 @@
 import assert from "node:assert/strict";
 
-import { DbEnum, NodeType } from "@nexus/types";
+import { DbEnum } from "@nexus/types/core";
+import { NodeType } from "@nexus/types/domain";
 import {
   AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1,
   AgentToolConfigTypeSchema,
   ApiTriggerTypeSchema,
   BatchRequestBodySchema,
-  ConversationEvalRunStatusSchema,
   CreateAgentToolBodySchema,
   CreateEdgeBodySchema,
   ExecutionStatusSchema,
   ListWorkflowsParamsSchema,
   UpdateAgentToolBodySchema,
-  UpsertConversationEvalWebhookBodySchema,
   WritableAgentToolConfigTypeSchema
 } from "@nexus/types/public-api-v1";
 import { Command } from "commander";
 import { test } from "vitest";
 
 import { registerAgentCommands } from "../../src/commands/agent";
-import { registerAgentEvalCommands } from "../../src/commands/agent-eval";
 import { registerAgentToolCommands } from "../../src/commands/agent-tool";
 import { registerExecutionCommands } from "../../src/commands/execution";
 import { registerWorkflowCommands } from "../../src/commands/workflow";
@@ -367,77 +365,5 @@ test("every execution subcommand has an Examples block", () => {
   for (const sub of subcommandsOf(registerExecutionCommands, "execution")) {
     const help = helpFor(registerExecutionCommands, ["execution", sub.name()]);
     assert.notEqual(examplesIn(help).length, 0, `execution ${sub.name()} has no example`);
-  }
-});
-
-// ── agent-eval ────────────────────────────────────────────────────────────
-
-test("every agent-eval leaf subcommand has an Examples block", () => {
-  // This namespace shipped with no Examples and no Notes anywhere, across six
-  // groups. The bar is per-leaf: `agent-eval run create` is where a caller lands.
-  for (const group of subcommandsOf(registerAgentEvalCommands, "agent-eval")) {
-    for (const leaf of group.commands.filter((c) => c.name() !== "help")) {
-      const help = helpFor(registerAgentEvalCommands, ["agent-eval", group.name(), leaf.name()]);
-      assert.notEqual(
-        examplesIn(help).length,
-        0,
-        `agent-eval ${group.name()} ${leaf.name()} has no example`
-      );
-    }
-  }
-});
-
-test("agent-eval run list --help states the whole run-status enum", () => {
-  // A two-state poll (COMPLETED / FAILED) never terminates on a run that stops at
-  // TIMED_OUT or BUDGET_EXCEEDED, so the help has to name all twelve.
-  const help = helpFor(registerAgentEvalCommands, ["agent-eval", "run", "list"]);
-  for (const status of ConversationEvalRunStatusSchema.options) {
-    assert.ok(help.includes(status), `run list --help omits status ${status}`);
-  }
-});
-
-test("agent-eval webhook upsert --help names the event enum exactly", () => {
-  const help = helpFor(registerAgentEvalCommands, ["agent-eval", "webhook", "upsert"]);
-  const events = UpsertConversationEvalWebhookBodySchema.shape.events.element.options as string[];
-  assert.ok(events.length > 0, "events enum was not readable from the contract");
-  for (const event of events) {
-    assert.ok(help.includes(event), `webhook upsert --help omits event ${event}`);
-  }
-});
-
-test("every agent-eval destructive verb documents the refusal contract", () => {
-  // The behaviour a script author has to know BEFORE running one of these: with
-  // no terminal and no --yes the command refuses and exits non-zero. A help page
-  // that omits it leaves the reader to discover the refusal from a failed run.
-  //
-  // Six leaves, not five: `template detach` is destructive too and was the one
-  // this check used to miss.
-  const DESTRUCTIVE = [
-    ["run", "delete"],
-    ["template", "delete"],
-    ["template", "detach"],
-    ["schedule", "delete"],
-    ["trigger", "delete"],
-    ["webhook", "delete"]
-  ];
-
-  for (const path of DESTRUCTIVE) {
-    const help = helpFor(registerAgentEvalCommands, ["agent-eval", ...path]);
-    assert.match(
-      help,
-      /--yes IS REQUIRED IN A SCRIPT/,
-      `agent-eval ${path.join(" ")} does not state that --yes is required in a script`
-    );
-    assert.match(
-      help,
-      /REFUSES/,
-      `agent-eval ${path.join(" ")} does not say it refuses with no terminal`
-    );
-    // The example is what a reader copies. Without a --yes line they copy the
-    // interactive form into a script and it refuses.
-    assert.ok(
-      examplesIn(help).some((example) => example.includes("--yes")),
-      `agent-eval ${path.join(" ")} has no --yes example to copy into a script`
-    );
   }
 });

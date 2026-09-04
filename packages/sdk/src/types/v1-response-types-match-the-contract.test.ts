@@ -173,6 +173,56 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"VersionPublish">, MethodResult<NexusClient["agents"]["versions"]["publish"]>>
   >,
+  // PromptVariantList  GET /public/v1/agents/:agentId/prompt-variants  ->  client.promptVariants.list()
+  Expect<
+    Equals<ResponseOf<"PromptVariantList">, MethodResult<NexusClient["promptVariants"]["list"]>>
+  >,
+  // PromptVariantCreate  POST /public/v1/agents/:agentId/prompt-variants  ->  client.promptVariants.create()
+  Expect<
+    Equals<ResponseOf<"PromptVariantCreate">, MethodResult<NexusClient["promptVariants"]["create"]>>
+  >,
+  // PromptVariantRename  PATCH /public/v1/agents/:agentId/prompt-variants/:variantRef  ->  client.promptVariants.rename()
+  Expect<
+    Equals<ResponseOf<"PromptVariantRename">, MethodResult<NexusClient["promptVariants"]["rename"]>>
+  >,
+  // PromptVariantArchive  DELETE /public/v1/agents/:agentId/prompt-variants/:variantRef  ->  client.promptVariants.archive()
+  Expect<
+    Equals<
+      ResponseOf<"PromptVariantArchive">,
+      MethodResult<NexusClient["promptVariants"]["archive"]>
+    >
+  >,
+  // PromptVariantFork  POST /public/v1/agents/:agentId/prompt-variants/:variantRef/fork  ->  client.promptVariants.fork()
+  Expect<
+    Equals<ResponseOf<"PromptVariantFork">, MethodResult<NexusClient["promptVariants"]["fork"]>>
+  >,
+  // PromptVariantPromote  POST /public/v1/agents/:agentId/prompt-variants/:variantRef/promote  ->  client.promptVariants.promote()
+  Expect<
+    Equals<
+      ResponseOf<"PromptVariantPromote">,
+      MethodResult<NexusClient["promptVariants"]["promote"]>
+    >
+  >,
+  // PromptVariantSaveVersion  POST /public/v1/agents/:agentId/prompt-variants/:variantRef/versions  ->  client.promptVariants.saveVersion()
+  Expect<
+    Equals<
+      ResponseOf<"PromptVariantSaveVersion">,
+      MethodResult<NexusClient["promptVariants"]["saveVersion"]>
+    >
+  >,
+  // PromptVariantVersionList  GET /public/v1/agents/:agentId/prompt-variants/:variantRef/versions  ->  client.promptVariants.listVersions()
+  Expect<
+    Equals<
+      ResponseOf<"PromptVariantVersionList">,
+      MethodResult<NexusClient["promptVariants"]["listVersions"]>
+    >
+  >,
+  // PromptGraph  GET /public/v1/agents/:agentId/prompt-graph  ->  client.promptVariants.graph()
+  Expect<Equals<ResponseOf<"PromptGraph">, MethodResult<NexusClient["promptVariants"]["graph"]>>>,
+  // PromptCompare  GET /public/v1/agents/:agentId/prompt-compare  ->  client.promptVariants.compare()
+  Expect<
+    Equals<ResponseOf<"PromptCompare">, MethodResult<NexusClient["promptVariants"]["compare"]>>
+  >,
   // ToolDiscoverySearch  GET /public/v1/tools/search  ->  client.tools.search()
   Expect<Equals<ResponseOf<"ToolDiscoverySearch">, MethodResult<NexusClient["tools"]["search"]>>>,
   // ToolDiscoveryGet  GET /public/v1/tools/:toolId  ->  client.tools.get()
@@ -1601,176 +1651,6 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"TrackAppendEvent">, MethodResult<NexusClient["tracks"]["appendEvent"]>>
   >,
-  // ── agent-evals (NEX-3909) ────────────────────────────────────────────────
-  // Six of these are `[paged]`: the contract's `Response` is the bare array, and
-  // `requestPage` wraps it in the SDK's own `{ data, meta }`. Which form each
-  // takes is read off the HELPER the method calls, never guessed — and
-  // `triggers.list` is the control for that rule inside this block: it is the
-  // one list route the backend serves with NO pagination meta
-  // (`createApiSuccess(triggers)` with no second argument), so it calls
-  // `request` and is compared WITHOUT `PageItems`. Wrapping it would be a
-  // silent lie about the payload's shape.
-  // ConversationEvalRunCreate  POST /public/v1/agent-evals/runs  ->  client.agentEvals.runs.create()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalRunCreate">,
-      MethodResult<NexusClient["agentEvals"]["runs"]["create"]>
-    >
-  >,
-  // ConversationEvalRunList  GET /public/v1/agent-evals/runs  ->  client.agentEvals.runs.list()  [paged]
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalRunList">,
-      PageItems<MethodResult<NexusClient["agentEvals"]["runs"]["list"]>>
-    >
-  >,
-  // ConversationEvalRunGet  GET /public/v1/agent-evals/runs/:id  ->  client.agentEvals.runs.get()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalRunGet">,
-      MethodResult<NexusClient["agentEvals"]["runs"]["get"]>
-    >
-  >,
-  // ConversationEvalRunResults  GET /public/v1/agent-evals/runs/:id/results  ->  client.agentEvals.runs.results()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalRunResults">,
-      MethodResult<NexusClient["agentEvals"]["runs"]["results"]>
-    >
-  >,
-  // ConversationEvalBatchCreate  POST /public/v1/agent-evals/batches  ->  client.agentEvals.batches.create()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalBatchCreate">,
-      MethodResult<NexusClient["agentEvals"]["batches"]["create"]>
-    >
-  >,
-  // ConversationEvalBatchList  GET /public/v1/agent-evals/batches  ->  client.agentEvals.batches.list()  [paged]
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalBatchList">,
-      PageItems<MethodResult<NexusClient["agentEvals"]["batches"]["list"]>>
-    >
-  >,
-  // ConversationEvalBatchGet  GET /public/v1/agent-evals/batches/:id  ->  client.agentEvals.batches.get()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalBatchGet">,
-      MethodResult<NexusClient["agentEvals"]["batches"]["get"]>
-    >
-  >,
-  // ConversationEvalTemplateList  GET /public/v1/agent-evals/templates  ->  client.agentEvals.templates.list()  [paged]
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateList">,
-      PageItems<MethodResult<NexusClient["agentEvals"]["templates"]["list"]>>
-    >
-  >,
-  // ConversationEvalTemplateListImportable  GET /public/v1/agent-evals/templates/importable  ->  client.agentEvals.templates.listImportable()  [paged]
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateListImportable">,
-      PageItems<MethodResult<NexusClient["agentEvals"]["templates"]["listImportable"]>>
-    >
-  >,
-  // ConversationEvalTemplateCreate  POST /public/v1/agent-evals/templates  ->  client.agentEvals.templates.create()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateCreate">,
-      MethodResult<NexusClient["agentEvals"]["templates"]["create"]>
-    >
-  >,
-  // ConversationEvalTemplateGet  GET /public/v1/agent-evals/templates/:id  ->  client.agentEvals.templates.get()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateGet">,
-      MethodResult<NexusClient["agentEvals"]["templates"]["get"]>
-    >
-  >,
-  // ConversationEvalTemplateUpdate  PATCH /public/v1/agent-evals/templates/:id  ->  client.agentEvals.templates.update()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateUpdate">,
-      MethodResult<NexusClient["agentEvals"]["templates"]["update"]>
-    >
-  >,
-  // ConversationEvalTemplateClone  POST /public/v1/agent-evals/templates/:id/clone  ->  client.agentEvals.templates.clone()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateClone">,
-      MethodResult<NexusClient["agentEvals"]["templates"]["clone"]>
-    >
-  >,
-  // ConversationEvalTemplateAttach  POST /public/v1/agent-evals/templates/:id/attach  ->  client.agentEvals.templates.attach()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTemplateAttach">,
-      MethodResult<NexusClient["agentEvals"]["templates"]["attach"]>
-    >
-  >,
-  // ConversationEvalScheduleCreate  POST /public/v1/agent-evals/schedules  ->  client.agentEvals.schedules.create()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalScheduleCreate">,
-      MethodResult<NexusClient["agentEvals"]["schedules"]["create"]>
-    >
-  >,
-  // ConversationEvalScheduleList  GET /public/v1/agent-evals/schedules  ->  client.agentEvals.schedules.list()  [paged]
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalScheduleList">,
-      PageItems<MethodResult<NexusClient["agentEvals"]["schedules"]["list"]>>
-    >
-  >,
-  // ConversationEvalScheduleUpdate  PATCH /public/v1/agent-evals/schedules/:id  ->  client.agentEvals.schedules.update()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalScheduleUpdate">,
-      MethodResult<NexusClient["agentEvals"]["schedules"]["update"]>
-    >
-  >,
-  // ConversationEvalSchedulePause  POST /public/v1/agent-evals/schedules/:id/pause  ->  client.agentEvals.schedules.pause()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalSchedulePause">,
-      MethodResult<NexusClient["agentEvals"]["schedules"]["pause"]>
-    >
-  >,
-  // ConversationEvalScheduleResume  POST /public/v1/agent-evals/schedules/:id/resume  ->  client.agentEvals.schedules.resume()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalScheduleResume">,
-      MethodResult<NexusClient["agentEvals"]["schedules"]["resume"]>
-    >
-  >,
-  // ConversationEvalTriggerUpsert  PUT /public/v1/agent-evals/triggers  ->  client.agentEvals.triggers.upsert()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTriggerUpsert">,
-      MethodResult<NexusClient["agentEvals"]["triggers"]["upsert"]>
-    >
-  >,
-  // ConversationEvalTriggerList  GET /public/v1/agent-evals/triggers  ->  client.agentEvals.triggers.list()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalTriggerList">,
-      MethodResult<NexusClient["agentEvals"]["triggers"]["list"]>
-    >
-  >,
-  // ConversationEvalWebhookUpsert  PUT /public/v1/agent-evals/webhooks  ->  client.agentEvals.webhooks.upsert()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalWebhookUpsert">,
-      MethodResult<NexusClient["agentEvals"]["webhooks"]["upsert"]>
-    >
-  >,
-  // ConversationEvalWebhookGet  GET /public/v1/agent-evals/webhooks/:id  ->  client.agentEvals.webhooks.get()
-  Expect<
-    Equals<
-      ResponseOf<"ConversationEvalWebhookGet">,
-      MethodResult<NexusClient["agentEvals"]["webhooks"]["get"]>
-    >
-  >,
   // EvaluationCreate  POST /public/v1/skills/tasks/:taskId/evaluations  ->  client.evaluations.createSession()
   Expect<
     Equals<
@@ -1825,30 +1705,6 @@ export type V1ResponseAssertions = [
  * source makes it agree with itself for free.
  */
 const GATED_ROUTES = [
-  // ── agent-evals (NEX-3909) ──
-  "ConversationEvalRunCreate",
-  "ConversationEvalRunList",
-  "ConversationEvalRunGet",
-  "ConversationEvalRunResults",
-  "ConversationEvalBatchCreate",
-  "ConversationEvalBatchList",
-  "ConversationEvalBatchGet",
-  "ConversationEvalTemplateList",
-  "ConversationEvalTemplateListImportable",
-  "ConversationEvalTemplateCreate",
-  "ConversationEvalTemplateGet",
-  "ConversationEvalTemplateUpdate",
-  "ConversationEvalTemplateClone",
-  "ConversationEvalTemplateAttach",
-  "ConversationEvalScheduleCreate",
-  "ConversationEvalScheduleList",
-  "ConversationEvalScheduleUpdate",
-  "ConversationEvalSchedulePause",
-  "ConversationEvalScheduleResume",
-  "ConversationEvalTriggerUpsert",
-  "ConversationEvalTriggerList",
-  "ConversationEvalWebhookUpsert",
-  "ConversationEvalWebhookGet",
   "ChatStopTurn",
   "ChatTurnStatus",
   "CueTranscriptsListConversations",
@@ -1868,6 +1724,17 @@ const GATED_ROUTES = [
   "VersionDelete",
   "VersionRestore",
   "VersionPublish",
+  // ── prompt variants (Prompt Lab phase 1) ──
+  "PromptVariantList",
+  "PromptVariantCreate",
+  "PromptVariantRename",
+  "PromptVariantArchive",
+  "PromptVariantFork",
+  "PromptVariantPromote",
+  "PromptVariantSaveVersion",
+  "PromptVariantVersionList",
+  "PromptGraph",
+  "PromptCompare",
   "ToolDiscoverySearch",
   "ToolDiscoveryGet",
   "ToolDiscoveryCredentials",
@@ -2213,9 +2080,6 @@ const GATED_ROUTES = [
  *   `string | null` type, so a `=== null` check misses it.
  */
 const V1_RESPONSE_DRIFT: Record<string, string> = {
-  // GET /public/v1/agent-evals/runs/:id/transcript  ->  client.agentEvals.runs.transcript()
-  ConversationEvalRunTranscript:
-    "Measured with the checker in BOTH directions, and it fails both ways on two different properties. SDK -> contract: `Types of property 'createdAt' are incompatible. Type 'string' is not assignable to type 'Date'.` The contract's `_output` infers `Date` because the schema spells it `z.date()`, while the SDK types the wire, where it is an ISO string — JSON has no Date. Contract -> SDK: `Types of property 'speakerLabel' are incompatible. Type 'string | null | undefined' is not assignable to type 'string | undefined'.` The SDK cannot represent the `null` the contract permits, so a null arrives as a value no caller can name. NOT a rename and not a transcription slip: both sides describe the same field under the same name and disagree about its type. Fixing it is two contract decisions — whether the schema should spell the timestamp as a string on the wire, and whether the SDK should widen to accept null.",
   // GET /public/v1/skills/tasks/:taskId/evaluations/:sessionId/results  ->  client.evaluations.getResults()
   EvaluationResults:
     "Measured with the checker: `Types of property 'status' are incompatible. Type 'string' is not assignable to type 'EvalRowStatus'.` The contract leaves `status` an unconstrained `string`; the SDK publishes the narrower named union `EvalRowStatus`. The SDK is NARROWER than the server, the same shape as the `AgentGet`/`AgentCreate` entries above: a legacy or newly-added status arrives as a value no caller can name and an exhaustive switch falls through silently. `judgeStatus` is `string` on both sides today but carries the same latent asymmetry; the checker stops at the first incompatible property, so it is unmeasured rather than known-equal. Fixing it is a decision about whether the contract should narrow or this package should widen, not a type edit.",
@@ -2607,16 +2471,6 @@ export type V1ResponseDrift = [
       false
     >
   >,
-  // ConversationEvalRunTranscript  ->  client.agentEvals.runs.transcript()
-  Expect<
-    Equals<
-      Equals<
-        ResponseOf<"ConversationEvalRunTranscript">,
-        MethodResult<NexusClient["agentEvals"]["runs"]["transcript"]>
-      >,
-      false
-    >
-  >,
   // EvaluationResults  ->  client.evaluations.getResults()
   Expect<
     Equals<
@@ -2808,7 +2662,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 333;
+const GATED_ROUTE_COUNT = 320;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

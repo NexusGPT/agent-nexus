@@ -1,15 +1,5 @@
 {
   "compilerOptions": {
-    // debt: blanket opt-out of every TypeScript 6.0-era deprecation diagnostic
-    //       for this package. Measured on tsc 6.0.3: it currently suppresses
-    //       NOTHING here — removing it leaves TS5101 at 0 — so it is inert
-    //       cover, not a silenced warning. What it costs is future warnings:
-    //       add a deprecated option and the error that would flag it never
-    //       appears.
-    //       Upgrade trigger: TypeScript 7.0, which REMOVES what 6.0 deprecates.
-    //       Nothing announces the drift in the meantime — a stale value is
-    //       accepted silently (`"5.0"` under 6.0.3 exits 0 with no output).
-    "ignoreDeprecations": "6.0",
     "target": "es2020",
     "module": "esnext",
     "lib": ["es2020"],

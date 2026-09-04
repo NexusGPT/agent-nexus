@@ -1,11 +1,25 @@
 import { defineConfig } from "tsup";
 
-export default defineConfig({
+export default defineConfig((options) => ({
   entry: ["src/index.ts", "src/stdio.ts", "src/cli.ts"],
   format: ["cjs", "esm"],
-  dts: true,
+  // Off: `tsc -p tsconfig.build.json` emits the declarations instead, and the
+  // `build` script owns that second half. tsup's dts program sets `baseUrl` on
+  // its own program whatever the package config says
+  // (tsup/dist/rollup.js: `baseUrl: compilerOptions.baseUrl || "."`), and
+  // `baseUrl` raises TS5101 under TypeScript 6 and is removed in 7, so a dts
+  // build here cannot compile clean without silencing a diagnostic.
+  dts: false,
   splitting: false,
-  clean: true,
+  // Never clean during watch. `clean` deletes dist/ — including the declarations
+  // tsc now owns, which tsup would not regenerate. Unlike the sibling packages,
+  // `dev` here does NOT pass --onSuccess: a CLI --onSuccess REPLACES the
+  // config's own, and the config's own is what puts the shebang on dist/cli.js.
+  // Losing that would leave `bin.nexus-mcp` pointing at a file the shell cannot
+  // execute, which is the exact failure the onSuccess block below exists to
+  // prevent. Declarations therefore go stale during a watch; nothing in this
+  // repo imports this package's types, and a full build regenerates them.
+  clean: !options.watch,
   target: "es2020",
   outDir: "dist",
   skipNodeModulesBundle: true,
@@ -40,4 +54,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));

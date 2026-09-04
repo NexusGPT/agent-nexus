@@ -349,10 +349,10 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // asks whether the namespace exists. A hand-written page for a deleted
     // command satisfies both.
     //
-    // The held pages need no exemption: `agent-eval` and `agent-skill` are
-    // authored rather than projected, but they are authored pages FOR REAL
-    // NAMESPACES, so they belong in this set on both sides. A page earns its
-    // place here by naming a command, not by how it was produced.
+    // The held page needs no exemption: `agent-skill` is authored rather than
+    // projected, but it is an authored page FOR A REAL NAMESPACE, so it belongs
+    // in this set on both sides. A page earns its place here by naming a
+    // command, not by how it was produced.
     const pageNames = pages.map((file) => file.replace(/\.mdx$/, "")).sort();
     const namespaceNames = namespaces.map((n) => n.name).sort();
 
@@ -460,13 +460,13 @@ describe("CLI docs are generated, and authored pages carry no command reference"
         return !source.includes(GENERATED_MARKER);
       });
 
-    // RATCHET, downward. 39 → 2. Both survivors are REFUSALS with an argument,
-    // not leftovers: `agent-eval`, whose projection repeats a FALSE claim three
-    // times that the authored page does not make, and `agent-skill`, the one
-    // page materially better than its projection — it is the only place carrying
-    // the packaging rules, the size limits and the scopes. Each drops to 0 when
-    // its content lands in the CLI source. Reaches 0, never rises.
-    expect(orphaned.length).toBeLessThanOrEqual(2);
+    // RATCHET, downward. 39 → 2 → 1. The survivor is a REFUSAL with an
+    // argument, not a leftover: `agent-skill`, the one page materially better
+    // than its projection — it is the only place carrying the packaging rules,
+    // the size limits and the scopes. (The other former survivor left when its
+    // namespace was deleted outright with system B.) Drops to 0
+    // when its content lands in the CLI source. Reaches 0, never rises.
+    expect(orphaned.length).toBeLessThanOrEqual(1);
   });
 
   // ── The consumer contract: frontmatter, and reachability. ───────────────────

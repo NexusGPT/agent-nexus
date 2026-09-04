@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.1.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.2.0 ────────────────────────────────────────────────────
  *
- * 514 promised paths — 455 STABLE, 59 UNSTABLE.
+ * 524 promised paths — 465 STABLE, 59 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.1.0",
+  version: "1.2.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -112,7 +112,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps provision-repo", shape: "12967747a942", tier: "UNSTABLE" },
     { path: "apps register-as-tool", shape: "9272117616b7", tier: "UNSTABLE" },
     { path: "apps reprovision-repo", shape: "1edbb67deaa8", tier: "UNSTABLE" },
-    { path: "apps rollback", shape: "d71cd63a0167", tier: "UNSTABLE" },
+    { path: "apps rollback", shape: "e9a2f5c3647b", tier: "UNSTABLE" },
     { path: "apps rotate-edge-token", shape: "34066257f565", tier: "UNSTABLE" },
     { path: "apps update", shape: "a340453f69bd", tier: "UNSTABLE" },
     { path: "apps visibility", shape: "64732e5a68af", tier: "UNSTABLE" },
@@ -304,6 +304,15 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "phone-number list", shape: "b817e364caca", tier: "STABLE" },
     { path: "phone-number release", shape: "ae5b18679e65", tier: "STABLE" },
     { path: "phone-number search", shape: "50665ac17c4f", tier: "STABLE" },
+    { path: "prompt compare", shape: "b011b8436cf8", tier: "STABLE" },
+    { path: "prompt graph", shape: "e6bb1764a7e9", tier: "STABLE" },
+    { path: "prompt history", shape: "2241039fd498", tier: "STABLE" },
+    { path: "prompt promote", shape: "82cfe361b902", tier: "STABLE" },
+    { path: "prompt save", shape: "04f27aa8f72a", tier: "STABLE" },
+    { path: "prompt variant archive", shape: "cd45a5270103", tier: "STABLE" },
+    { path: "prompt variant create", shape: "a01775077ab6", tier: "STABLE" },
+    { path: "prompt variant list", shape: "2c2408d4e809", tier: "STABLE" },
+    { path: "prompt variant rename", shape: "43248f9d3d6b", tier: "STABLE" },
     { path: "prompt-assistant await-thread", shape: "9cf17ca3045a", tier: "STABLE" },
     { path: "prompt-assistant chat", shape: "b87e671707d5", tier: "STABLE" },
     { path: "prompt-assistant delete-thread", shape: "7f25ecda7a7c", tier: "STABLE" },
@@ -356,6 +365,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "role scope-lines", shape: "4fc25abeb9c3", tier: "STABLE" },
     { path: "role set-automation-settings", shape: "359fe7881344", tier: "STABLE" },
     { path: "role set-scope-lines", shape: "b3bb9945d0ea", tier: "STABLE" },
+    { path: "role set-system-lifecycle", shape: "2991609a3bf2", tier: "STABLE" },
     { path: "role set-system-policy", shape: "7e6895460198", tier: "STABLE" },
     { path: "role set-task-duties", shape: "4571ec466de1", tier: "STABLE" },
     { path: "role set-tasks", shape: "52ddb5455dd3", tier: "STABLE" },

@@ -203,8 +203,9 @@ Notes:
   FIVE data FIELDS ARE READ-ONLY AND SILENTLY STRIPPED FROM YOUR WRITE:
   runOutput, testExecutionId, outputFormat, testWebhookUrl and the editor's own
   state. runOutput is the exception that matters — it IS writable, but only on an
-  agentInputTrigger, a webhookTrigger or a humanInput node. On any other node,
-  scheduleTrigger included, it is dropped and the 200 says nothing.
+  agentInputTrigger, a webhookTrigger, a pluginTrigger or a humanInput node. On
+  any other node, scheduleTrigger included, it is dropped and the 200 says
+  nothing.
   Set trigger seed data on the trigger node here; "workflow trigger" refuses it.`
     )
     .action(async (wfId: string, nodeId: string, opts) => {

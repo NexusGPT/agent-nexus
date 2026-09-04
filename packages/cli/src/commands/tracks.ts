@@ -1058,6 +1058,20 @@ Notes:
   A TASK WAITING ON A SECTION PARENT APPEARS HERE ONCE THAT PARENT'S SUBTREE IS
   DONE. Nobody has to tick the parent: a blocker with children is satisfied by
   every STEP leaf beneath it being done, the same set the rollup counts.
+  IT ANSWERS TWO QUESTIONS AND PRINTS TWO TABLES. The first is what you can pick
+  up: unblocked AND nextOwner CUE. The second, printed only when it has rows, is
+  what is unblocked and waiting on somebody else — USER means a person has to act,
+  EVENT means something outside has to happen first.
+  COUNT THE FIRST TABLE, NEVER THE TWO TOGETHER. That sum is "how much is
+  unblocked", which is a different question and the one that used to be reported
+  as readiness: one board read 29 ready when 6 were workable.
+  A WAITING ROW IS NOT BLOCKED. Every blocker on it is satisfied. It is absent
+  from the first table because it is not your turn, not because anything is
+  holding it, so "nexus tracks task why-not-ready" will not explain it and should
+  not — it answers the blocker axis, and this is the owner axis.
+  nextOwner IS SET AT PLAN IMPORT AND NOWHERE ELSE, because that is the only door
+  a task row is born through. A plan whose entries name no owner imports every row
+  as CUE, which is what every row meant before the field existed.
   A TASK ANOTHER AGENT HOLDS IS STILL IN THIS LIST, and the rows do not say so.
   The query tests done, leaf and blocker state and never reads the claim, so
   READY means unblocked rather than unattended. Read the task itself with
@@ -1080,17 +1094,50 @@ Notes:
         const result = await client.tracks.listReadyTasks(trackId, { limit: opts.limit });
 
         printEnvelope(result, () => {
-          printTable(result.tasks, [
+          // 🔴 TWO TABLES, NEVER ONE WITH A COLUMN, AND THAT IS THE WHOLE POINT
+          // OF THE ROUTE'S NEW SHAPE. The wire already refuses to hand a caller
+          // one summable array; rendering both halves back into a single table
+          // with a `WAITING ON` column would put the defect back on the surface a
+          // person actually reads — 29 rows under one heading, six of them
+          // workable. `tracks ready` one grain up DOES use that column, and it is
+          // right there: it is a navigation read, and nothing picks work off it.
+          printTable(result.workable, [
             { key: "title", label: "TITLE", width: 52 },
             { key: "gate", label: "GATE", width: 6 },
             { key: "acceptance", label: "ACCEPTANCE", width: 52 },
             { key: "id", label: "ID", width: 38 }
           ]);
 
+          // 🔴 PRINTED ONLY WHEN IT HAS ROWS, AND NEVER AS AN EMPTY TABLE. On a
+          // board with no owner decisions at all — which is every board that has
+          // not been curated, so most of them — a permanent empty second section
+          // is a heading that teaches the reader to skip the region. On the day it
+          // carries rows, it does not get read.
+          if (result.waiting.length > 0) {
+            console.log(
+              color.dim(
+                `\nWAITING ON SOMEBODY ELSE — unblocked, but not yours to pick up.\n` +
+                  `Move one to you with a plan that names its owner, or settle it and tick it.`
+              )
+            );
+            printTable(result.waiting, [
+              { key: "title", label: "TITLE", width: 52 },
+              { key: "nextOwner", label: "WAITING ON", width: 12 },
+              { key: "acceptance", label: "ACCEPTANCE", width: 52 },
+              { key: "id", label: "ID", width: 38 }
+            ]);
+          }
+
           // 🔴 AN EMPTY READY SET AND A FINISHED BOARD RENDER IDENTICALLY, and
           // that is the whole complaint this pointer answers: a board at
           // 127 of 156 with 29 rows open answers ZERO here and reads as nearly
           // done. Nothing else on this surface said where to look.
+          //
+          // 🔴 IT ASKS ABOUT `workable` ALONE, WHICH IS THE QUESTION A CALLER
+          // STANDING HERE HAS — "is there anything for me". A board whose every
+          // ready row is parked on a person offers the agent NOTHING, and that is
+          // exactly a case somebody needs to be told about rather than one to
+          // suppress because the second table happens to be non-empty.
           //
           // ⚠️ IT IS A POINTER, NOT A DIAGNOSIS — deliberately. Deciding whether
           // rows remain open needs the whole plan, which is a SECOND call on the
@@ -1100,7 +1147,7 @@ Notes:
           //
           // Human channel only: `printEnvelope` does not run this callback under
           // `--json`, so a script's document cannot be contaminated by it.
-          if (result.tasks.length === 0) {
+          if (result.workable.length === 0) {
             console.log(
               color.dim(
                 `\nNothing is offered. That reads the same whether the board is finished or stuck —\n` +
@@ -1121,10 +1168,18 @@ Notes:
           // No denominator and no repeated ceiling, for the reasons `tracks ready`
           // gives. Silent when `hasMore` is false.
           if (result.hasMore) {
+            // 🔴 THE SUM IS PRINTED HERE AND NOWHERE ELSE, and here it is the
+            // right number: this line is about the PAGE, and the page is one
+            // query over both halves. Everywhere a caller decides what to do,
+            // `workable` is the count.
+            //
+            // The server sorts workable rows to the front, so the rows that fell
+            // off are `waiting` ones unless `workable` alone filled the page —
+            // which is what makes "raise --limit" honest advice rather than a
+            // shrug.
+            const shown = result.workable.length + result.waiting.length;
             console.log(
-              color.dim(
-                `\n${result.tasks.length} row(s) shown. MORE TASKS ARE READY — raise --limit and re-read.`
-              )
+              color.dim(`\n${shown} row(s) shown. MORE ROWS ARE READY — raise --limit and re-read.`)
             );
           }
         });
@@ -1212,6 +1267,12 @@ Notes:
   this domain reserves a region of a track or refuses a second worker, so
   collision avoidance is a live instruction that arrives with the thing you
   asked for. It names the exact command to run to take the task.
+  nextOwner IS WHOSE TURN IT IS, AND IT IS A THIRD AXIS. CUE means an agent can
+  proceed, USER that a person has to act, EVENT that something outside has to
+  happen first. It is not the banner (who is on it right now), not doneByUserId
+  (who ticked it), and not a permission — it grants and refuses nothing.
+  A ROW CAN BE USER AND UNCLAIMED, OR CUE AND HELD. The two say nothing about each
+  other, so read both.
   THE BANNER REPORTS WHO IS ON THE TASK, NEVER WHETHER IT CAN BE STARTED. It is
   rendered from the holding agent and a clock, and reads nothing about blockers
   or done state, so "nobody is on this" is not a claim that the task is
@@ -1495,7 +1556,18 @@ Notes:
           client.tracks.listTaskEdges(trackId)
         ]);
 
-        const serverReadyIds = ready.tasks.map((row) => row.id);
+        // 🔴 THE UNION OF BOTH HALVES, NEVER `workable` ALONE. This report is
+        // the BLOCKER axis: it explains every open row the ready set does not
+        // offer. A `waiting` row is not blocked — every one of its blockers is
+        // satisfied and it is simply somebody else's turn — so feeding only the
+        // workable half would put every owner-parked row into the unready set and
+        // invent a blocker for it. The answer would be well-formed, plausible and
+        // wrong, and nothing would go red.
+        //
+        // `nextOwner` and blocker state are two axes, exactly as the claim axis
+        // and this one already are; this composition reads the blocker axis, so it
+        // takes every row the server considers ready.
+        const serverReadyIds = [...ready.workable, ...ready.waiting].map((row) => row.id);
         const report = explainUnreadyTasks(
           plan.tasks,
           edges.edges,
@@ -1559,6 +1631,15 @@ Notes:
   STEP is the ordinary shape, so each node declares its own.
     {"tasks":[{"title":"Rule: every fix ships with its judge","kind":"DEFINITION"},
               {"title":"Extract the lifecycle skeleton"}]}
+  SAY WHOSE TURN IT IS, WITH nextOwner. THIS IS THE ONLY DOOR IT ARRIVES
+  THROUGH — there is no single-task create and no task update — so a plan that
+  names no owner imports every row as CUE and "tracks task ready" can never show
+  a waiting half. USER means a person has to act, EVENT that something outside
+  has to happen first. Like kind it does NOT propagate: a USER parent whose
+  sub-steps are ordinary agent work is the common shape, and inheriting would
+  park that whole subtree on somebody who was only asked about the parent.
+    {"tasks":[{"title":"Pick the empty-state copy","nextOwner":"USER",
+               "children":[{"title":"Wire the three strings"}]}]}
   IT IS ALL OR NOTHING. Any refusal — a circle, an acceptance over 400
   characters, a missing parent — rolls the entire import back, so a half
   imported plan is not a state this command can leave behind.
@@ -1584,25 +1665,38 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
-  // `kind` SITS ON A PLAN NODE, AT EVERY DEPTH, AND NO FLAG CAN REACH IT. A plan
-  // is a tree of tasks and each node declares its own kind — a DEFINITION under a
-  // STEP is the ordinary shape, which is exactly why it does not propagate — so a
-  // `--kind` could only ever set one of many. The whole tree arrives through
+  // `kind` AND `nextOwner` SIT ON A PLAN NODE, AT EVERY DEPTH, AND NO FLAG CAN
+  // REACH EITHER. A plan is a tree of tasks and each node declares its own kind —
+  // a DEFINITION under a STEP is the ordinary shape, which is exactly why it does
+  // not propagate — so a `--kind` could only ever set one of many. `nextOwner` is
+  // the same shape for a sharper reason: a `USER` parent whose sub-steps are
+  // ordinary agent work is the common case ("decide the copy" over "wire the three
+  // strings"), so the contract refuses to inherit it, and a single `--next-owner`
+  // would either park a whole subtree on a person who was only asked about the
+  // parent or silently apply to the roots alone. The whole tree arrives through
   // `--body`, which on THIS leaf really is the JSON body (`--body <json>`, a file
   // path or `-` for stdin), unlike `channel whatsapp template create` where
   // `--body` is message text and the JSON arrives on `--body-file`.
   //
-  // Four paths rather than one because `TrackPlanNodeSchema` declares its nesting
-  // with an explicit depth of four rather than a `z.lazy()` recursion — the
-  // contract's own refusal of an attacker-controlled recursion depth — so the
-  // projection sees four distinct paths for one field.
+  // Four paths per field rather than one because `TrackPlanNodeSchema` declares
+  // its nesting with an explicit depth of four rather than a `z.lazy()` recursion
+  // — the contract's own refusal of an attacker-controlled recursion depth — so
+  // the projection sees four distinct paths for one field.
   bindCommand(planImport, TRACK_IMPORT_PLAN_CONTRACT, {
     "Body.tasks[].kind": "--body only; one kind per node, and a plan is a tree of nodes",
     "Body.tasks[].children[].kind": "--body only; one kind per node, and a plan is a tree of nodes",
     "Body.tasks[].children[].children[].kind":
       "--body only; one kind per node, and a plan is a tree of nodes",
     "Body.tasks[].children[].children[].children[].kind":
-      "--body only; one kind per node, and a plan is a tree of nodes"
+      "--body only; one kind per node, and a plan is a tree of nodes",
+    "Body.tasks[].nextOwner":
+      "--body only; one owner per node, and an owner does not propagate to children",
+    "Body.tasks[].children[].nextOwner":
+      "--body only; one owner per node, and an owner does not propagate to children",
+    "Body.tasks[].children[].children[].nextOwner":
+      "--body only; one owner per node, and an owner does not propagate to children",
+    "Body.tasks[].children[].children[].children[].nextOwner":
+      "--body only; one owner per node, and an owner does not propagate to children"
   });
 
   // ── tracks agent ──────────────────────────────────────────────────────────

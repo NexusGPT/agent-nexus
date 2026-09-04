@@ -59,12 +59,30 @@ export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_KIND = {
   ]
 } as const satisfies ContractEnum;
 
+export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_NEXT_OWNER = {
+  path: "TrackImportPlan.Body.tasks[].nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
+  ]
+} as const satisfies ContractEnum;
+
 export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_KIND = {
   path: "TrackImportPlan.Body.tasks[].children[].kind",
   contractValues: [
     "STEP",
     "DECISION",
     "DEFINITION"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_NEXT_OWNER = {
+  path: "TrackImportPlan.Body.tasks[].children[].nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
   ]
 } as const satisfies ContractEnum;
 
@@ -77,12 +95,30 @@ export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_KIND
   ]
 } as const satisfies ContractEnum;
 
+export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_NEXT_OWNER = {
+  path: "TrackImportPlan.Body.tasks[].children[].children[].nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
+  ]
+} as const satisfies ContractEnum;
+
 export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_KIND = {
   path: "TrackImportPlan.Body.tasks[].children[].children[].children[].kind",
   contractValues: [
     "STEP",
     "DECISION",
     "DEFINITION"
+  ]
+} as const satisfies ContractEnum;
+
+export const TRACK_IMPORT_PLAN__BODY_TASKS_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_CHILDREN_ITEM_NEXT_OWNER = {
+  path: "TrackImportPlan.Body.tasks[].children[].children[].children[].nextOwner",
+  contractValues: [
+    "CUE",
+    "USER",
+    "EVENT"
   ]
 } as const satisfies ContractEnum;
 
@@ -299,24 +335,28 @@ export const TRACK_IMPORT_PLAN_CONTRACT = {
     { path: "Body.tasks[].acceptance", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.tasks[].gate", slot: "Body", type: "boolean", required: false, depth: 1 },
     { path: "Body.tasks[].kind", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["STEP", "DECISION", "DEFINITION"] },
+    { path: "Body.tasks[].nextOwner", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["CUE", "USER", "EVENT"] },
     { path: "Body.tasks[].children", slot: "Body", type: "array", required: false, depth: 1 },
     { path: "Body.tasks[].children[].title", slot: "Body", type: "string", required: true, depth: 2 },
     { path: "Body.tasks[].children[].shortTitle", slot: "Body", type: "string", required: false, depth: 2 },
     { path: "Body.tasks[].children[].acceptance", slot: "Body", type: "string", required: false, depth: 2 },
     { path: "Body.tasks[].children[].gate", slot: "Body", type: "boolean", required: false, depth: 2 },
     { path: "Body.tasks[].children[].kind", slot: "Body", type: "string", required: false, depth: 2, enumValues: ["STEP", "DECISION", "DEFINITION"] },
+    { path: "Body.tasks[].children[].nextOwner", slot: "Body", type: "string", required: false, depth: 2, enumValues: ["CUE", "USER", "EVENT"] },
     { path: "Body.tasks[].children[].children", slot: "Body", type: "array", required: false, depth: 2 },
     { path: "Body.tasks[].children[].children[].title", slot: "Body", type: "string", required: true, depth: 3 },
     { path: "Body.tasks[].children[].children[].shortTitle", slot: "Body", type: "string", required: false, depth: 3 },
     { path: "Body.tasks[].children[].children[].acceptance", slot: "Body", type: "string", required: false, depth: 3 },
     { path: "Body.tasks[].children[].children[].gate", slot: "Body", type: "boolean", required: false, depth: 3 },
     { path: "Body.tasks[].children[].children[].kind", slot: "Body", type: "string", required: false, depth: 3, enumValues: ["STEP", "DECISION", "DEFINITION"] },
+    { path: "Body.tasks[].children[].children[].nextOwner", slot: "Body", type: "string", required: false, depth: 3, enumValues: ["CUE", "USER", "EVENT"] },
     { path: "Body.tasks[].children[].children[].children", slot: "Body", type: "array", required: false, depth: 3 },
     { path: "Body.tasks[].children[].children[].children[].title", slot: "Body", type: "string", required: true, depth: 4 },
     { path: "Body.tasks[].children[].children[].children[].shortTitle", slot: "Body", type: "string", required: false, depth: 4 },
     { path: "Body.tasks[].children[].children[].children[].acceptance", slot: "Body", type: "string", required: false, depth: 4 },
     { path: "Body.tasks[].children[].children[].children[].gate", slot: "Body", type: "boolean", required: false, depth: 4 },
     { path: "Body.tasks[].children[].children[].children[].kind", slot: "Body", type: "string", required: false, depth: 4, enumValues: ["STEP", "DECISION", "DEFINITION"] },
+    { path: "Body.tasks[].children[].children[].children[].nextOwner", slot: "Body", type: "string", required: false, depth: 4, enumValues: ["CUE", "USER", "EVENT"] },
     { path: "Body.edges", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.edges[].blockerIndex", slot: "Body", type: "integer", required: true, depth: 1 },
     { path: "Body.edges[].blockedIndex", slot: "Body", type: "integer", required: true, depth: 1 }

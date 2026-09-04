@@ -132,7 +132,16 @@ export interface ListVibeOrgCostSafetyStatesResponse {
 
 /** Discriminated outcome of an operator-triggered provision. */
 export type VibeTenantClusterProvisionOutcome =
-  | { kind: "provisioning"; reprovisioned: boolean }
+  | {
+      kind: "provisioning";
+      reprovisioned: boolean;
+      /**
+       * Present and true only when the operator re-fired a provision against a
+       * row already PROVISIONING, so the request declared nothing. Absent on a
+       * fresh create and on a reprovision.
+       */
+      reusedExistingRow?: boolean;
+    }
   | { kind: "already_active"; status: VibeTenantClusterStatus };
 
 /** Discriminated outcome of an operator-triggered disable. */

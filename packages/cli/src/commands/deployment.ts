@@ -395,10 +395,13 @@ Notes:
   other top-level objects and DISCARDS every other key inside embedSettings.
   Read "nexus deployment get <id>" first and send the branch back complete.
 
-  phoneNumberId, oauthConnectionId and apiKeyConnectionId ARE ACCEPTED HERE
-  AND SILENTLY DISCARDED. The body validates, the call returns 200, and the
-  deployment still points at the old connection. Rebinding a number or a
-  connection is not expressible through this command today.
+  phoneNumberId, oauthConnectionId and apiKeyConnectionId REBIND the
+  deployment when sent in --body. Send JSON null to unbind one.
+
+  Each id must belong to your organization. One that does not is refused with
+  404, which is the SAME answer an id that does not exist gets — so a refusal
+  never reveals whether another organization holds that id. A number that is
+  yours but not ACTIVE is a different refusal and answers 400.
 
   --active false stops the channel serving but does NOT free its WhatsApp
   number: the number is held by every non-deleted WHATSAPP deployment, active

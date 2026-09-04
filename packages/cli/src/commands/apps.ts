@@ -27,7 +27,7 @@ import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError, reportFailure } from "../errors";
+import { handleError, refuse, reportFailure } from "../errors";
 import { EXIT_CODES } from "../exit-codes";
 import {
   color,
@@ -118,6 +118,11 @@ import {
   VIBE_LOG_CLI_DEFAULT_SINCE,
   VIBE_LOG_CLI_LIMIT_HELP
 } from "./apps-logs";
+import {
+  parseTargetVersion,
+  resolveRollbackTargetByVersion,
+  type RollbackTargetRefusalKind
+} from "./apps-rollback-target";
 import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./apps-watch";
 
 // ============================================================
@@ -216,7 +221,16 @@ interface GetVibeClusterResponse {
 
 /** Discriminated outcome of an org's own opt-in. Mirrors the operator surface's. */
 type ProvisionVibeClusterOutcome =
-  | { kind: "provisioning"; reprovisioned: boolean }
+  | {
+      kind: "provisioning";
+      reprovisioned: boolean;
+      /**
+       * Present and true only when the request declared nothing — a row was
+       * already PROVISIONING and was reused. Absent on a fresh create and on a
+       * reprovision.
+       */
+      reusedExistingRow?: boolean;
+    }
   | { kind: "already_active"; status: VibeTenantClusterStatus };
 
 interface ProvisionVibeClusterResponse {
@@ -1177,10 +1191,50 @@ Notes:
 // apps rollback
 // ============================================================
 
+/**
+ * How each resolution refusal leaves the process, and what `code` its error
+ * document carries.
+ *
+ * A `Record` over the closed union rather than a `switch` with a default: a new
+ * refusal kind is then a COMPILE ERROR here until somebody decides what it
+ * exits with, instead of silently shipping as a generic `failed`. That is the
+ * argument `errors.ts` makes for `FAILURE_CAUSE_EXIT_CATEGORIES`, one layer down.
+ *
+ * The split is between "you named something that is not there" and "you named
+ * something that is there and is not a legal target":
+ *
+ *  - `not-found` — no such version, or no versions at all. The named thing does
+ *    not exist, which is exactly what that cause is for.
+ *  - `invalid-input` (via `refuse`) — the version exists but cannot be this
+ *    flag's argument. `refuse` has no `code` parameter by design, so the label
+ *    cannot be got wrong here.
+ *  - `remote-error` for ambiguity, and it is the least comfortable of the
+ *    three: the HTTP call SUCCEEDED, so nothing "failed" remotely in the usual
+ *    sense. It is still a remote fault — the server returned a list that
+ *    contradicts its own `@@unique([vibeAppId, versionNumber])` constraint —
+ *    and of the six causes this is the only one that puts the fault where it
+ *    actually is. Calling it `invalid-input` would blame the operator for a
+ *    string they typed correctly.
+ */
+const ROLLBACK_TARGET_REFUSALS: Readonly<
+  Record<RollbackTargetRefusalKind, (message: string, hint: string) => number>
+> = {
+  "no-deployments": (message, hint) => reportFailure("not-found", message, hint),
+  "no-such-version": (message, hint) => reportFailure("not-found", message, hint),
+  "already-serving": (message, hint) => refuse(message, hint),
+  "not-restorable": (message, hint) => refuse(message, hint),
+  "target-has-no-image": (message, hint) => refuse(message, hint),
+  "ambiguous-version": (message, hint) => reportFailure("remote-error", message, hint)
+};
+
 function registerRollbackCommand(apps: Command, program: Command): void {
   apps
     .command("rollback <appId>")
     .description("Roll an app back to its previous healthy version")
+    .option(
+      "--to-version <n>",
+      "Restore this version number instead of the previous one. Atomic, no rebuild."
+    )
     .option("--to <sha>", "Redeploy this specific commit sha instead of the previous version.")
     .option(
       "--skip-verification",
@@ -1195,23 +1249,44 @@ function registerRollbackCommand(apps: Command, program: Command): void {
       "after",
       `
 Notes:
-Without --to this is NON-DESTRUCTIVE and deletes nothing: the server
-re-activates the app's previous SUPERSEDED deployment and its retained
-image in one atomic transaction, onto the slot opposite the current one.
-The version serving now keeps every request until the restored one is
-healthy, so availability never regresses.
+THREE OPERATIONS WEAR THIS ONE NAME. Which you get depends on the flag:
+
+  rollback <appId>                   restore the version before this one
+  rollback <appId> --to-version <n>  restore a SPECIFIC earlier version
+  rollback <appId> --to <sha>        BUILD AND DEPLOY a commit again
+
+THE FIRST TWO ARE THE SAME OPERATION and differ only in which version they
+name. Both are NON-DESTRUCTIVE and delete nothing: the server re-activates
+an already-built SUPERSEDED deployment and its retained image in one atomic
+transaction, onto the slot opposite the current one. Nothing is rebuilt, no
+new version number is spent, and the version serving now keeps every request
+until the restored one is healthy — so availability never regresses.
+
+--to-version takes the number in the Version column of
+"apps deployments list"; 7 and v7 are the same argument. It is resolved to
+the one deployment carrying that version before anything is sent, and the
+command REFUSES rather than guessing when that version is missing, is the
+one already serving, or never served. Only a SUPERSEDED version can be
+restored — a version that failed or was displaced kept no usable image, and
+the refusal names the commit to redeploy instead.
+
+--to <sha> IS A DIFFERENT OPERATION wearing the same name, and is offered
+because it is what you reach for when every earlier version is also bad: it
+triggers an ordinary build+deploy of that sha, exactly like \`deploy --sha\`.
+It is NOT atomic, it REBUILDS, and it spends a new version number. Prefer
+--to-version whenever the version you want is still in the listing.
+
+--to and --to-version cannot be combined: they are two different operations
+and there is no correct way to do both.
 
 409 means there is nothing to roll back to — no live version, no previous
 version, or a deploy already in flight.
 
---to <sha> is a different operation wearing the same name, and is offered
-because it is what you reach for when the previous version is ALSO bad:
-it triggers an ordinary build+deploy of that sha, exactly like
-\`deploy --sha\`. It is not atomic and it rebuilds.
-
 Examples:
   $ nexus apps rollback 11111111-2222-4333-8444-555555555555
   $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --watch
+  $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --to-version 7
+  $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --to-version v7 --watch
   $ nexus apps rollback 11111111-2222-4333-8444-555555555555 --to 1a2b3c4
 `
     )
@@ -1220,6 +1295,7 @@ Examples:
         appId: string,
         cmdOpts: {
           to?: string;
+          toVersion?: string;
           confirmOverage?: boolean;
           watch?: boolean;
           skipVerification?: boolean;
@@ -1227,6 +1303,20 @@ Examples:
       ) => {
         try {
           const opts = resolveTenantOpts(program);
+
+          // Refused rather than given a precedence, because there is no
+          // precedence that is not a wrong guess: one restores an existing
+          // version without building, the other builds a commit and spends a
+          // new version number. Silently honouring either would perform an
+          // operation the operator did not ask for, and the two differ in
+          // whether an app gets rebuilt.
+          if (cmdOpts.to !== undefined && cmdOpts.toVersion !== undefined) {
+            process.exitCode = refuse(
+              "--to and --to-version are different operations, so they cannot be combined.",
+              "--to-version restores an already-built version and rebuilds nothing; --to builds and deploys a commit again. Pass exactly one."
+            );
+            return;
+          }
 
           // --to is a redeploy, not a restore: same endpoint as `deploy --sha`,
           // so it inherits the overage question and every other deploy rule
@@ -1268,9 +1358,51 @@ Examples:
             return;
           }
 
+          // Resolve BEFORE the POST, so a version that cannot be a target costs
+          // one read and no state change. `targetDeploymentId` stays undefined
+          // for a bare `rollback`, which is what selects the server's own
+          // auto-pick of the most recent SUPERSEDED predecessor.
+          //
+          // 🚨 Never fall back to that auto-pick when a NAMED version fails to
+          // resolve. Omitting the field would roll the app onto whatever came
+          // last — a different version from the one the operator typed, applied
+          // silently. Every path below either sends a resolved id or returns.
+          let targetDeploymentId: string | undefined;
+          if (cmdOpts.toVersion !== undefined) {
+            const version = parseTargetVersion(cmdOpts.toVersion);
+            if (version === null) {
+              process.exitCode = refuse(
+                `Invalid --to-version "${cmdOpts.toVersion}". Expected a version number, like 7 or v7.`,
+                `Run "nexus apps deployments list ${appId}" — the Version column is where these come from.`
+              );
+              return;
+            }
+
+            const listed = await tenantRequest<ListDeploymentsResponse>(opts, {
+              method: "GET",
+              path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`
+            });
+
+            const resolution = resolveRollbackTargetByVersion(appId, listed.deployments, version);
+            if (!resolution.ok) {
+              process.exitCode = ROLLBACK_TARGET_REFUSALS[resolution.kind](
+                resolution.message,
+                resolution.hint
+              );
+              return;
+            }
+            targetDeploymentId = resolution.target.id;
+          }
+
           const data = await tenantRequest<RollbackAppResponse>(opts, {
             method: "POST",
-            path: `/api/vibe/apps/${encodeURIComponent(appId)}/rollback`
+            path: `/api/vibe/apps/${encodeURIComponent(appId)}/rollback`,
+            // Spread conditionally rather than sending `{ targetDeploymentId:
+            // undefined }`: the body schema is `.default({})` for callers that
+            // predate the field, and an explicit undefined would serialise to
+            // `{}` anyway — but only the conditional form makes "no body at
+            // all" and "a body naming a target" visibly different at this site.
+            ...(targetDeploymentId === undefined ? {} : { body: { targetDeploymentId } })
           });
 
           const watching = cmdOpts.watch === true;

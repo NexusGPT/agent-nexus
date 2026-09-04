@@ -389,16 +389,65 @@ export interface ReadyTrackTask {
   acceptance: string | null;
   /** `true` when ticking this task requires evidence. */
   gate: boolean;
+  /**
+   * Whose turn it is on this row.
+   *
+   * 🔴 IT IS ON EVERY ROW OF **BOTH** HALVES, which is what makes the binary
+   * split lossless: `waiting` merges `USER` and `EVENT` because the question an
+   * agent loop asks is binary, and this field is how you get the difference back
+   * without a second call.
+   *
+   * ⚠️ NOT A PERSON AND NOT A PERMISSION. `CUE` means an agent may proceed,
+   * `USER` that a human has to act, `EVENT` that something outside has to happen
+   * first. It grants and refuses nothing.
+   */
+  nextOwner: TrackNextOwner;
 }
 
+/**
+ * A track's ready rows, SPLIT BY WHOSE TURN IT IS.
+ *
+ * 🔴 `tasks` STILL EXISTS AND IS DEPRECATED. A caller that summed it reported every
+ * unblocked row as workable — including the ones only a person can settle. Ask
+ * `workable.length` for "how much can be picked up"; a total across both halves is
+ * "how much is unblocked", which is a different question. `tasks` is kept because
+ * removing a field from a published response breaks every CLI already installed,
+ * which upgrades on its own schedule and long after the server does.
+ */
 export interface ListReadyTrackTasksResponse {
-  tasks: ReadyTrackTask[];
   /**
-   * `true` when this track has more ready tasks than this page.
+   * Every ready row, both halves, workable first.
+   *
+   * @deprecated Counting this is the defect the split exists to fix — it is "how
+   * much is unblocked", never "how much can be worked on". Read `workable`.
+   * It is kept so the change is purely additive for CLIs and scripts already in
+   * the field; it is not going away without a major.
+   */
+  tasks: ReadyTrackTask[];
+  /** Ready by dependency AND `nextOwner: "CUE"` — what an agent may pick up now. */
+  workable: ReadyTrackTask[];
+  /**
+   * Ready by dependency, but NOT the agent's turn — every blocker satisfied,
+   * waiting on a person (`USER`) or on something outside (`EVENT`).
+   *
+   * They are published rather than filtered away: a board that cannot see what it
+   * is waiting on cannot chase it, and these rows are NOT blocked, so
+   * `listTaskEdges()`-based reasoning must count them as ready.
+   */
+  waiting: ReadyTrackTask[];
+  /**
+   * `true` when this track has more ready rows than this page, ACROSS BOTH
+   * HALVES — they are one page of one query.
    *
    * The same signal as {@link ListReadyTracksResponse.hasMore}, and this is the
    * route where truncation is reachable today: one production track holds 165
    * tasks against a default page of 50.
+   *
+   * 🔴 THE SERVER SORTS `workable` ROWS TO THE FRONT OF THE PAGE, so a page that
+   * is cut always drops `waiting` rows first. The guarantee that buys you:
+   * **`workable` is complete unless it alone filled the page** — if
+   * `workable.length` is below your `limit`, you are seeing all of it however many
+   * `waiting` rows fell off.
    */
   hasMore: boolean;
 }
@@ -549,6 +598,19 @@ export interface TrackTask {
    * "a person is missing".
    */
   doneByUserId: string | null;
+  /**
+   * Whose turn it is on this row: `CUE`, `USER` or `EVENT`.
+   *
+   * ⚠️ NOT `claimedByAgentId` BELOW, WHICH IS THE OTHER AXIS ENTIRELY. That is a
+   * live claim by an identified agent right now, and the banner renders it; this
+   * is a standing statement about which KIND of actor is expected to act next,
+   * set whether or not anybody has claimed anything. A row can be `USER` and
+   * unclaimed, or `CUE` and held.
+   *
+   * Every row written before the column existed reads `CUE`, and so does every
+   * plan entry that does not name one.
+   */
+  nextOwner: TrackNextOwner;
   claimedByAgentId: string | null;
   /**
    * ISO-8601. When this row joined the plan.
@@ -810,6 +872,19 @@ export interface TrackPlanNode {
    * node declares its own.
    */
   kind?: TrackTaskKind;
+  /**
+   * Whose turn this entry is. `CUE` — the agent's — when omitted.
+   *
+   * 🔴 THE IMPORT IS THE ONLY DOOR A TASK IS BORN THROUGH, so this is the only
+   * place a row's owner can ever be set. A plan whose owner-decision entries do
+   * not name `USER` becomes a plan every agent believes it can finish, and every
+   * one of those rows lands in `listReadyTasks().workable`.
+   *
+   * ⚠️ IT DOES NOT PROPAGATE TO `children`. A `USER` parent whose sub-steps are
+   * ordinary agent work is the ordinary shape — "decide the copy" over "wire the
+   * three strings" — so each node declares its own.
+   */
+  nextOwner?: TrackNextOwner;
   children?: TrackPlanNode[];
 }
 

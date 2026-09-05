@@ -21,36 +21,30 @@ import type { ProjectedDescriptor } from "../contract-help.render";
 export const ANALYTICS_EXPORT__PARAMS_TIME_PERIOD = {
   path: "AnalyticsExport.Params.timePeriod",
   contractValues: [
-    "last_24_hours",
     "last_7_days",
     "last_30_days",
     "last_90_days",
-    "last_12_months",
-    "all_time"
+    "last_12_months"
   ]
 } as const satisfies ContractEnum;
 
 export const ANALYTICS_FEEDBACK__PARAMS_TIME_PERIOD = {
   path: "AnalyticsFeedback.Params.timePeriod",
   contractValues: [
-    "last_24_hours",
     "last_7_days",
     "last_30_days",
     "last_90_days",
-    "last_12_months",
-    "all_time"
+    "last_12_months"
   ]
 } as const satisfies ContractEnum;
 
 export const ANALYTICS_OVERVIEW__PARAMS_TIME_PERIOD = {
   path: "AnalyticsOverview.Params.timePeriod",
   contractValues: [
-    "last_24_hours",
     "last_7_days",
     "last_30_days",
     "last_90_days",
-    "last_12_months",
-    "all_time"
+    "last_12_months"
   ]
 } as const satisfies ContractEnum;
 
@@ -116,7 +110,7 @@ export const ANALYTICS_EXPORT_CONTRACT = {
   method: "GET",
   route: "/public/v1/analytics/export",
   fields: [
-    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_24_hours", "last_7_days", "last_30_days", "last_90_days", "last_12_months", "all_time"] },
+    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_7_days", "last_30_days", "last_90_days", "last_12_months"] },
     { path: "Params.deploymentId", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -128,7 +122,7 @@ export const ANALYTICS_FEEDBACK_CONTRACT = {
   fields: [
     { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
-    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_24_hours", "last_7_days", "last_30_days", "last_90_days", "last_12_months", "all_time"] },
+    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_7_days", "last_30_days", "last_90_days", "last_12_months"] },
     { path: "Params.deploymentId", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.score", slot: "Params", type: "number", required: false, depth: 0 },
     { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 }
@@ -140,7 +134,7 @@ export const ANALYTICS_OVERVIEW_CONTRACT = {
   method: "GET",
   route: "/public/v1/analytics/overview",
   fields: [
-    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_24_hours", "last_7_days", "last_30_days", "last_90_days", "last_12_months", "all_time"] },
+    { path: "Params.timePeriod", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["last_7_days", "last_30_days", "last_90_days", "last_12_months"] },
     { path: "Params.deploymentId", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

@@ -32,22 +32,43 @@ const SHORTHAND_MAP: Record<string, TimePeriod> = {
 };
 
 /**
- * The shorthand spellings, as a list.
+ * The shorthands that normalise INTO a given set of canonical values.
  *
- * Exported so a `--time-period` flag can offer them as `.choices()` alongside
- * the canonical values instead of retyping them. A flag that normalises a
- * spelling it does not advertise is a flag whose help is wrong.
+ * A flag offers these as `.choices()` alongside the canonical ones instead of
+ * retyping them: a flag that normalises a spelling it does not advertise is a
+ * flag whose help is wrong. It takes the set rather than returning all of them,
+ * because the flags this feeds no longer share one enum.
+ *
+ * 🔴 **A flag whose contract enum is narrower than this module's must offer the
+ * matching subset, or its help advertises a spelling its own parser refuses.**
+ * `enumOption` normalises first and then validates the OUTPUT against the
+ * descriptor's values, so `--time-period all` on a route that does not serve
+ * `all_time` becomes `all_time` and is refused locally — correct behaviour, and
+ * a lie in `--help` if `all` is still listed as accepted. The three
+ * dashboard-backed analytics routes are exactly that case: `all_time` and
+ * `last_24_hours` are served by the query endpoints and by neither of them.
  */
-export const TIME_PERIOD_SHORTHANDS = Object.keys(SHORTHAND_MAP) as readonly string[];
+export function timePeriodShorthandsFor(canonical: readonly string[]): readonly string[] {
+  const allowed = new Set(canonical);
+  return Object.entries(SHORTHAND_MAP)
+    .filter(([, value]) => allowed.has(value))
+    .map(([shorthand]) => shorthand);
+}
 
 const VALID_ENUM = new Set<string>(TIME_PERIOD_VALUES);
 
 /**
- * Human-readable summary of every accepted value, for `--help` text.
+ * Human-readable summary of the accepted values, for `--help` text.
+ *
+ * The shorthand half is DERIVED rather than typed out: the hand-written list
+ * here read `24h, 7d, 30d, 90d, 12mo, all` while the map also accepted `12m` and
+ * `1y`, so two working spellings were undocumented.
  */
-export const TIME_PERIOD_HELP = `Time period: ${TIME_PERIOD_VALUES.join(
-  ", "
-)} (shorthands: 24h, 7d, 30d, 90d, 12mo, all)`;
+export function timePeriodHelpFor(canonical: readonly string[]): string {
+  return `Time period: ${canonical.join(", ")} (shorthands: ${timePeriodShorthandsFor(
+    canonical
+  ).join(", ")})`;
+}
 
 /**
  * Normalize a user-supplied `--time-period` value to the canonical enum.

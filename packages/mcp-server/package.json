@@ -1,6 +1,6 @@
 {
   "name": "@agent-nexus/mcp-server",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "MCP bridge for the Nexus Public API — exposes the full Public API v1 tool surface to any MCP client. Tools are derived from the API at request time, never hand-maintained.",
   "license": "MIT",
   "keywords": [

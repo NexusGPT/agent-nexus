@@ -1,5 +1,61 @@
 # @agent-nexus/mcp-server
 
+## 1.1.3
+### Patch Changes
+
+- 2af4940: The published types are one file per module, and the duplicate `.d.mts` copy is gone
+  
+  The shape of `dist/` in the published tarball changes. Nothing you import changes
+  with it — this is the same API, emitted differently and shipped smaller.
+  
+  **`dist/index.d.ts` was one rolled-up file and is now a tree.** On
+  `@agent-nexus/sdk` a single 741,380-byte declaration becomes 112 declarations
+  mirroring `src/`, so `dist/` goes from 4 files to 114. On
+  `@agent-nexus/mcp-server` three rolled-up declarations become 9, and `dist/` goes
+  from 12 files to 15. The entry point is unchanged in both: `exports["."].types`
+  still names `./dist/index.d.ts`, and that file still exists.
+  
+  **`dist/index.d.mts` no longer ships, and nothing ever read it.** It was a
+  byte-for-byte duplicate of `index.d.ts` — both 741,380 bytes on the SDK — emitted
+  only because the bundler wrote one declaration per output format. No resolver
+  reached it: the `types` condition in `exports` is unconditional and listed first,
+  so it answers `import` and `require` alike, and it names `index.d.ts`. Dropping
+  the copy takes **708,166 bytes** off an SDK install, about 30% of `dist/`.
+  
+  **Your types are the same types.** The SDK's entry point exports **908** names
+  before and after, and the two sets are identical in both directions. Resolution
+  was checked from a consumer's side rather than argued: a project importing
+  `NexusClient`, `NexusClientOptions` and a list method typechecks with **0 errors**
+  against both the old and the new output, under `moduleResolution` `bundler`,
+  `node16` and `node10`, with `skipLibCheck` off so that a declaration that failed
+  to resolve its own neighbours would be reported. Importing a name the package does
+  not export fails in all six of those runs, which is what makes the zeros mean
+  something.
+  
+  **Your JavaScript is the same bytes.** `dist/index.js` and `dist/index.mjs` are
+  sha256-identical either side of this change on both packages, as are the
+  `mcp-server` `cli.js` and `stdio.js` bundles and the shebang on the `nexus-mcp`
+  binary. Only declaration emission moved.
+  
+  **What you gain besides the smaller install:** go-to-definition now lands in the
+  module that declares the symbol instead of at a line number inside one enormous
+  file, and an editor no longer parses three quarters of a megabyte to answer a
+  hover.
+  
+  **The one way to be affected** is a deep import of `@agent-nexus/sdk/dist/index.d.mts`
+  by path. The `exports` map never offered that path, so an exports-aware resolver
+  could not have reached it; if you reference it directly, point at
+  `dist/index.d.ts`.
+  
+  **A new guarantee comes with the split.** `@nexus/types` is a private package and
+  one of the SDK's development dependencies. A single rolled-up declaration inlined
+  everything and could not name it; per-file declarations can, and a declaration
+  naming a package that is not on the registry is broken for everyone who installs
+  this one. The SDK build now reads its own emitted output and requires every module
+  specifier in it to be relative, a Node builtin, or a package this manifest
+  declares as a runtime dependency — 323 specifiers across 114 files on this
+  release, all resolvable. A build that would ship an unresolvable one fails instead.
+
 ## 1.1.2
 ### Patch Changes
 

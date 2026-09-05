@@ -1,5 +1,163 @@
 # @agent-nexus/sdk
 
+## 3.1.0
+### Minor Changes
+
+- 8335b08: A prompt can branch without ever rewriting history
+  
+  Prompt versions were one flat lineage per agent: iterating on a rewrite meant
+  editing the live draft, and comparing two candidate prompts meant keeping them
+  in files outside the platform. Phase 1 of the Prompt Lab rework makes
+  `AgentPromptVersion` branch-based: every agent has exactly one **Main** variant
+  (the production lineage — the name is reserved) plus named variants that fork
+  from any version and iterate independently. There is no merge and no rebase,
+  deliberately: a variant reaches Main only through **promote**, which appends a
+  NEW Main version recording `promotedFromVersionId`. Nothing is ever rewritten
+  and archiving deletes nothing.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.promptVariants`** — `list`, `create` (fork; default source = Main
+  tip), `fork`, `rename`, `archive`, `saveVersion`, `listVersions`, `promote`,
+  `graph`, `compare`. Variant refs accept an id, a name (case-insensitive), or
+  `"main"`; compare refs additionally accept a bare version id.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus prompt`** — `variant list|create|rename|archive`, `save`, `history`,
+  `promote`, `compare`, `graph`. A save NEVER publishes; going live is
+  `nexus prompt promote --variant <name> --publish` and nothing else.
+  
+  ## Existing behavior, unchanged
+  
+  The `agents/:agentId/versions` routes and `agent update --prompt` keep working
+  exactly as before — their writes now land on the Main variant, with ordinals
+  allocated under a variant row lock. Pre-existing versions were backfilled onto
+  each agent's Main in `createdAt` order by the migration.
+- 543bec5: Task ready answers two questions instead of one
+  
+  `tracks task ready` used to return one flat list, and every caller that took its
+  `.length` was answering a question nobody asked. The rows in it were unblocked —
+  which is not the same as workable. One board reported **29 ready** over a set in
+  which 23 needed a human decision and 6 could actually be picked up.
+  
+  The response now splits on whose turn it is. `ready` holds the rows an agent may
+  take right now — unblocked AND `nextOwner: "CUE"` — and it is the only array
+  whose length answers "how much can be worked on". `waiting` holds the rows that
+  are unblocked and somebody else's turn, and it is printed only when it has rows.
+  `tasks` stays on the wire as a deprecated union of the two, so a client built
+  against the previous shape keeps working; the SDK's own result type does not
+  carry it, so no call site inside this repo can drift back onto the sum.
+  
+  **A waiting row is not blocked.** Every blocker on it is satisfied — it is absent
+  from `ready` because it is not your turn, not because anything is holding it. So
+  `tracks task why-not-ready` will not explain one, and should not: that command
+  answers the blocker axis and this is the owner axis.
+  
+  `nextOwner` is `CUE` (an agent may proceed), `USER` (a person has to act) or
+  `EVENT` (something outside has to happen first). It is not the banner, not who
+  ticked the task, and not a permission — it grants and refuses nothing.
+  
+  **`tracks plan import` is the only door it arrives through**, because that is the
+  only way a task row is born: there is no single-task create and no task update on
+  either surface. A plan naming no owner imports every row as `CUE`, which is what
+  every row meant before the field existed, so nothing changes for a plan you
+  already have. Like `kind`, an owner does NOT propagate to children — a `USER`
+  parent whose sub-steps are ordinary agent work is the common shape, and
+  inheriting would park that whole subtree on somebody who was only asked about the
+  parent.
+- 11b9954: BREAKING: the conversation-eval surface is deleted — `nexus agent-eval` and `client.agentEvals` are gone
+  
+  The Agent Conversation Evaluation system ("system B") has been torn out of the
+  platform entirely: its 263-file backend module, all 33 `/public/v1/agent-evals/*`
+  routes, the `conversation_evals:*` scopes, its frontend module and its 11 tables.
+  The server no longer answers anything these clients could call, so both client
+  surfaces go in the same release rather than serving a deprecation cycle against a
+  dead API:
+  
+  - **CLI:** the whole `agent-eval` namespace — `agent-eval run create`,
+    `agent-eval run list`, `agent-eval run get`, `agent-eval run results`,
+    `agent-eval run transcript`, `agent-eval run compare`, `agent-eval run execute`,
+    `agent-eval run abort`, `agent-eval run delete`, `agent-eval batch create`,
+    `agent-eval batch get`, `agent-eval batch list`, `agent-eval template create`,
+    `agent-eval template get`, `agent-eval template list`,
+    `agent-eval template importable`, `agent-eval template update`,
+    `agent-eval template clone`, `agent-eval template attach`,
+    `agent-eval template detach`, `agent-eval template delete`,
+    `agent-eval schedule create`, `agent-eval schedule list`,
+    `agent-eval schedule update`, `agent-eval schedule pause`,
+    `agent-eval schedule resume`, `agent-eval schedule delete`,
+    `agent-eval trigger upsert`, `agent-eval trigger list`,
+    `agent-eval trigger delete`, `agent-eval webhook upsert`,
+    `agent-eval webhook get`, `agent-eval webhook delete`. A script running any of
+    them now gets commander's unknown-command error; before this release it got a
+    `404` from the server.
+  - **SDK:** the `client.agentEvals` resource and every `ConversationEval*` type.
+  
+  This removal did NOT serve the two-release deprecation cycle COMPATIBILITY.md
+  promises for STABLE commands — it cannot: the routes the warnings would have
+  pointed at were deleted in the same change, by a locked product decision
+  (prompt-eval-rework-spec.md, "Teardown of system B"). The 33 baseline rows were
+  removed by hand in the same commit, in the open, which COMPATIBILITY.md names as
+  the visible form of this act. A replacement evaluation system (prompt variants +
+  golden conversations, under `nexus prompt` / `nexus eval`) ships in the
+  following releases.
+
+### Patch Changes
+
+- 2af4940: The published types are one file per module, and the duplicate `.d.mts` copy is gone
+  
+  The shape of `dist/` in the published tarball changes. Nothing you import changes
+  with it — this is the same API, emitted differently and shipped smaller.
+  
+  **`dist/index.d.ts` was one rolled-up file and is now a tree.** On
+  `@agent-nexus/sdk` a single 741,380-byte declaration becomes 112 declarations
+  mirroring `src/`, so `dist/` goes from 4 files to 114. On
+  `@agent-nexus/mcp-server` three rolled-up declarations become 9, and `dist/` goes
+  from 12 files to 15. The entry point is unchanged in both: `exports["."].types`
+  still names `./dist/index.d.ts`, and that file still exists.
+  
+  **`dist/index.d.mts` no longer ships, and nothing ever read it.** It was a
+  byte-for-byte duplicate of `index.d.ts` — both 741,380 bytes on the SDK — emitted
+  only because the bundler wrote one declaration per output format. No resolver
+  reached it: the `types` condition in `exports` is unconditional and listed first,
+  so it answers `import` and `require` alike, and it names `index.d.ts`. Dropping
+  the copy takes **708,166 bytes** off an SDK install, about 30% of `dist/`.
+  
+  **Your types are the same types.** The SDK's entry point exports **908** names
+  before and after, and the two sets are identical in both directions. Resolution
+  was checked from a consumer's side rather than argued: a project importing
+  `NexusClient`, `NexusClientOptions` and a list method typechecks with **0 errors**
+  against both the old and the new output, under `moduleResolution` `bundler`,
+  `node16` and `node10`, with `skipLibCheck` off so that a declaration that failed
+  to resolve its own neighbours would be reported. Importing a name the package does
+  not export fails in all six of those runs, which is what makes the zeros mean
+  something.
+  
+  **Your JavaScript is the same bytes.** `dist/index.js` and `dist/index.mjs` are
+  sha256-identical either side of this change on both packages, as are the
+  `mcp-server` `cli.js` and `stdio.js` bundles and the shebang on the `nexus-mcp`
+  binary. Only declaration emission moved.
+  
+  **What you gain besides the smaller install:** go-to-definition now lands in the
+  module that declares the symbol instead of at a line number inside one enormous
+  file, and an editor no longer parses three quarters of a megabyte to answer a
+  hover.
+  
+  **The one way to be affected** is a deep import of `@agent-nexus/sdk/dist/index.d.mts`
+  by path. The `exports` map never offered that path, so an exports-aware resolver
+  could not have reached it; if you reference it directly, point at
+  `dist/index.d.ts`.
+  
+  **A new guarantee comes with the split.** `@nexus/types` is a private package and
+  one of the SDK's development dependencies. A single rolled-up declaration inlined
+  everything and could not name it; per-file declarations can, and a declaration
+  naming a package that is not on the registry is broken for everyone who installs
+  this one. The SDK build now reads its own emitted output and requires every module
+  specifier in it to be relative, a Node builtin, or a package this manifest
+  declares as a runtime dependency — 323 specifiers across 114 files on this
+  release, all resolvable. A build that would ship an unresolvable one fails instead.
+
 ## 3.0.0
 ### Major Changes
 

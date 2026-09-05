@@ -1,5 +1,150 @@
 # @agent-nexus/cli
 
+## 1.3.0
+### Minor Changes
+
+- 8335b08: A prompt can branch without ever rewriting history
+  
+  Prompt versions were one flat lineage per agent: iterating on a rewrite meant
+  editing the live draft, and comparing two candidate prompts meant keeping them
+  in files outside the platform. Phase 1 of the Prompt Lab rework makes
+  `AgentPromptVersion` branch-based: every agent has exactly one **Main** variant
+  (the production lineage — the name is reserved) plus named variants that fork
+  from any version and iterate independently. There is no merge and no rebase,
+  deliberately: a variant reaches Main only through **promote**, which appends a
+  NEW Main version recording `promotedFromVersionId`. Nothing is ever rewritten
+  and archiving deletes nothing.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.promptVariants`** — `list`, `create` (fork; default source = Main
+  tip), `fork`, `rename`, `archive`, `saveVersion`, `listVersions`, `promote`,
+  `graph`, `compare`. Variant refs accept an id, a name (case-insensitive), or
+  `"main"`; compare refs additionally accept a bare version id.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus prompt`** — `variant list|create|rename|archive`, `save`, `history`,
+  `promote`, `compare`, `graph`. A save NEVER publishes; going live is
+  `nexus prompt promote --variant <name> --publish` and nothing else.
+  
+  ## Existing behavior, unchanged
+  
+  The `agents/:agentId/versions` routes and `agent update --prompt` keep working
+  exactly as before — their writes now land on the Main variant, with ordinals
+  allocated under a variant row lock. Pre-existing versions were backfilled onto
+  each agent's Main in `createdAt` order by the migration.
+- d4be9e0: A provision outcome says when it reused a row
+  
+  `VibeTenantClusterProvisionOutcome` (the operator surface, `admin-wire-types.ts`) and
+  `ProvisionVibeClusterOutcome` (the org's own opt-in, `commands/apps.ts`) both gain an
+  optional `reusedExistingRow` field on the `"provisioning"` branch. It is present and
+  `true` only when the request found a row already `PROVISIONING` and reused it instead of
+  declaring anything new; it is absent on a fresh create and on a genuine reprovision. A
+  caller reading `reprovisioned` alone could not tell "this call started something" from
+  "this call landed on a row already in flight and changed nothing" — those are now two
+  different shapes on the wire, not one flag doing both jobs.
+  
+  `nexus workflow node update --help` also names `pluginTrigger` alongside
+  `agentInputTrigger`, `webhookTrigger` and `humanInput` as accepting a writable
+  `runOutput` seed (NEX-1992) — persistence now keeps that field for `pluginTrigger`
+  nodes instead of silently dropping it after a 200 that echoed it back.
+- 543bec5: Task ready answers two questions instead of one
+  
+  `tracks task ready` used to return one flat list, and every caller that took its
+  `.length` was answering a question nobody asked. The rows in it were unblocked —
+  which is not the same as workable. One board reported **29 ready** over a set in
+  which 23 needed a human decision and 6 could actually be picked up.
+  
+  The response now splits on whose turn it is. `ready` holds the rows an agent may
+  take right now — unblocked AND `nextOwner: "CUE"` — and it is the only array
+  whose length answers "how much can be worked on". `waiting` holds the rows that
+  are unblocked and somebody else's turn, and it is printed only when it has rows.
+  `tasks` stays on the wire as a deprecated union of the two, so a client built
+  against the previous shape keeps working; the SDK's own result type does not
+  carry it, so no call site inside this repo can drift back onto the sum.
+  
+  **A waiting row is not blocked.** Every blocker on it is satisfied — it is absent
+  from `ready` because it is not your turn, not because anything is holding it. So
+  `tracks task why-not-ready` will not explain one, and should not: that command
+  answers the blocker axis and this is the owner axis.
+  
+  `nextOwner` is `CUE` (an agent may proceed), `USER` (a person has to act) or
+  `EVENT` (something outside has to happen first). It is not the banner, not who
+  ticked the task, and not a permission — it grants and refuses nothing.
+  
+  **`tracks plan import` is the only door it arrives through**, because that is the
+  only way a task row is born: there is no single-task create and no task update on
+  either surface. A plan naming no owner imports every row as `CUE`, which is what
+  every row meant before the field existed, so nothing changes for a plan you
+  already have. Like `kind`, an owner does NOT propagate to children — a `USER`
+  parent whose sub-steps are ordinary agent work is the common shape, and
+  inheriting would park that whole subtree on somebody who was only asked about the
+  parent.
+- 11b9954: BREAKING: the conversation-eval surface is deleted — `nexus agent-eval` and `client.agentEvals` are gone
+  
+  The Agent Conversation Evaluation system ("system B") has been torn out of the
+  platform entirely: its 263-file backend module, all 33 `/public/v1/agent-evals/*`
+  routes, the `conversation_evals:*` scopes, its frontend module and its 11 tables.
+  The server no longer answers anything these clients could call, so both client
+  surfaces go in the same release rather than serving a deprecation cycle against a
+  dead API:
+  
+  - **CLI:** the whole `agent-eval` namespace — `agent-eval run create`,
+    `agent-eval run list`, `agent-eval run get`, `agent-eval run results`,
+    `agent-eval run transcript`, `agent-eval run compare`, `agent-eval run execute`,
+    `agent-eval run abort`, `agent-eval run delete`, `agent-eval batch create`,
+    `agent-eval batch get`, `agent-eval batch list`, `agent-eval template create`,
+    `agent-eval template get`, `agent-eval template list`,
+    `agent-eval template importable`, `agent-eval template update`,
+    `agent-eval template clone`, `agent-eval template attach`,
+    `agent-eval template detach`, `agent-eval template delete`,
+    `agent-eval schedule create`, `agent-eval schedule list`,
+    `agent-eval schedule update`, `agent-eval schedule pause`,
+    `agent-eval schedule resume`, `agent-eval schedule delete`,
+    `agent-eval trigger upsert`, `agent-eval trigger list`,
+    `agent-eval trigger delete`, `agent-eval webhook upsert`,
+    `agent-eval webhook get`, `agent-eval webhook delete`. A script running any of
+    them now gets commander's unknown-command error; before this release it got a
+    `404` from the server.
+  - **SDK:** the `client.agentEvals` resource and every `ConversationEval*` type.
+  
+  This removal did NOT serve the two-release deprecation cycle COMPATIBILITY.md
+  promises for STABLE commands — it cannot: the routes the warnings would have
+  pointed at were deleted in the same change, by a locked product decision
+  (prompt-eval-rework-spec.md, "Teardown of system B"). The 33 baseline rows were
+  removed by hand in the same commit, in the open, which COMPATIBILITY.md names as
+  the visible form of this act. A replacement evaluation system (prompt variants +
+  golden conversations, under `nexus prompt` / `nexus eval`) ships in the
+  following releases.
+
+### Patch Changes
+
+- f6738dc: `nexus role --help` no longer lists boards among what it cannot do
+  
+  The help text closed with a block naming what the `role` namespace does **not**
+  cover — things that exist in the product and are served only to a logged-in
+  dashboard session. `boards and card placement` sat in that block while six board
+  verbs shipped in the same namespace:
+  
+  ```
+  $ nexus role boards
+  $ nexus role add-board
+  $ nexus role reorder-boards
+  $ nexus role update-board
+  $ nexus role remove-board
+  $ nexus role move-card
+  ```
+  
+  A reader who trusted the block went to the dashboard for work the CLI already
+  does. The bullet is gone, and the sentence that told you to author those items on
+  the Role's own screens now says **four** rather than five.
+  
+  The four remaining entries are unchanged and still true: the system map, a Role's
+  workload, a system's impact model, and task graduation have no verb here at any
+  version. Nothing else about `nexus role` changes — no command, no flag, no
+  output shape.
+
 ## 1.2.0
 ### Minor Changes
 

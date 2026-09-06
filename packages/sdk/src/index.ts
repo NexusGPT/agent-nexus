@@ -49,6 +49,14 @@ export { createBrowserChatClient } from "./browser-chat";
 // Response-contract checking — the seam that lets a caller SEE a payload that
 // no longer matches the shape its route publishes. Off unless a reporter is
 // installed; see `./response-contract.ts` for why it never alters a payload.
+//
+// 🔴 THE MANIFEST ITSELF IS NOT HERE, AND ITS ABSENCE IS THE FEATURE.
+// `V1_RESPONSE_CONTRACT` is the published shape of every v1 route and is bigger
+// than the whole of the rest of this package; exporting it from the main entry
+// is what made every consumer ship it, reporter or no reporter. It lives behind
+// `@agent-nexus/sdk/v1-response-contract` and is passed in as
+// `responseContract`. Adding it to this file re-creates the defect exactly, and
+// `the-entry-bundle-carries-no-route-manifest.test.ts` is what refuses that.
 export type {
   ContractIssue,
   ContractReport,

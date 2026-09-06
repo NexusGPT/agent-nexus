@@ -9,9 +9,9 @@ import {
   checkResponse,
   type CompiledManifest,
   compileManifest,
-  type ContractReporter
+  type ContractReporter,
+  type RouteShapeManifest
 } from "./response-contract";
-import { V1_RESPONSE_CONTRACT } from "./response-contract.generated";
 import {
   decideRetry,
   DEFAULT_MAX_RETRIES,
@@ -126,8 +126,31 @@ export interface HttpClientOptions {
    *
    * A reporter that throws is caught and ignored: an observer must not be able
    * to fail a request that succeeded.
+   *
+   * A reporter alone checks nothing — {@link responseContract} is what it is
+   * checked AGAINST, and without one every read comes back `unchecked` naming
+   * the import that supplies it.
    */
   onResponseContract?: ContractReporter;
+  /**
+   * The manifest {@link onResponseContract} scores payloads against.
+   *
+   * SUPPLIED, never bundled. The published v1 manifest is the largest thing this
+   * package ships and one code path reads it, so it lives behind its own entry
+   * point and a consumer who never imports it never receives the bytes:
+   *
+   * ```ts
+   * import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+   * ```
+   *
+   * Absent while a reporter is installed, every read is reported `unchecked`
+   * with that import named as the reason. That is deliberate and it is the
+   * whole of the migration: a silent return would be indistinguishable from a
+   * contract that passed, which is the failure mode this feature exists to
+   * detect. See `./v1-response-contract.ts` for why the table is not compiled
+   * in.
+   */
+  responseContract?: RouteShapeManifest;
 }
 
 /**
@@ -528,13 +551,22 @@ export class HttpClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
   private readonly onResponseContract: ContractReporter | undefined;
+  private readonly responseContract: RouteShapeManifest | undefined;
   /**
-   * The manifest, indexed for matching.
+   * Compiled manifests, keyed by the manifest object a caller handed in.
    *
-   * Built lazily and shared by every client, because compiling the whole v1
-   * manifest — every route the API publishes — for a client that never reads a
-   * payload is work nobody asked for, and the module is a `const`, so one index
-   * is correct for all of them.
+   * Built lazily, because compiling a whole route manifest for a client that
+   * never reads a payload is work nobody asked for. Shared across clients,
+   * because two clients given the SAME manifest should index it once.
+   *
+   * 🔴 KEYED, NOT A SINGLE SLOT, AND THE DIFFERENCE ONLY EXISTS NOW THAT THE
+   * MANIFEST IS THE CALLER'S. The compiled index this replaces was one static
+   * field, which was correct while there was exactly one manifest in the world
+   * and one `const` to hold it. With the table supplied per client, a single
+   * slot would compile the FIRST manifest it ever saw and then score every
+   * later client's payloads against it — silently, with both clients internally
+   * consistent and every report well-formed. A `WeakMap` cannot do that and
+   * still lets a manifest be collected when its last client is.
    *
    * The route count is deliberately not quoted: this file cannot compute it,
    * and the figure that used to sit here read 448 against a true 491. The
@@ -542,7 +574,7 @@ export class HttpClient {
    * `scripts/response-contract.codegen.test.ts` asserts them against the
    * shipped entries.
    */
-  private static compiledContract: CompiledManifest | undefined;
+  private static readonly compiledContracts = new WeakMap<RouteShapeManifest, CompiledManifest>();
 
   constructor(opts: HttpClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -587,6 +619,7 @@ export class HttpClient {
       opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     this.random = opts.random ?? Math.random;
     this.onResponseContract = opts.onResponseContract;
+    this.responseContract = opts.responseContract;
   }
 
   /**
@@ -602,9 +635,38 @@ export class HttpClient {
     const report = this.onResponseContract;
     if (!report) return;
 
+    const manifest = this.responseContract;
+    if (!manifest) {
+      // NOT a silent return, and that is the point. A reporter was installed, so
+      // the caller is waiting to hear about drift; scoring nothing and saying
+      // nothing is byte-identical to a payload that passed, which is the exact
+      // failure this feature exists to detect. It gets the `unchecked` verdict
+      // every other unscorable read gets, naming the one import that fixes it.
+      // 🔴 THE WORDING IS CONSTRAINED AND THE CONSTRAINT IS NOT COSMETIC. This
+      // string survives verbatim into `dist/index.js`, and
+      // `scripts/assert-published-imports.mjs` scans the emitted bundles for
+      // module specifiers — it preserves string literals on purpose, so a
+      // reason spelled `... from "@agent-nexus/sdk/v1-response-contract"` reads
+      // as this package importing ITSELF and FAILS THE BUILD. (It did; that is
+      // how the shape is known.) The gate is right to be conservative, so the
+      // sentence carries the subpath as bare prose, never as an import.
+      this.reportUnread(
+        method,
+        path,
+        "no response contract was supplied, so there is nothing to check against — " +
+          "set `responseContract` to the `V1_RESPONSE_CONTRACT` exported by the " +
+          "@agent-nexus/sdk/v1-response-contract subpath"
+      );
+      return;
+    }
+
     try {
-      HttpClient.compiledContract ??= compileManifest(V1_RESPONSE_CONTRACT);
-      report(checkResponse(HttpClient.compiledContract, method, path, payload));
+      let compiled = HttpClient.compiledContracts.get(manifest);
+      if (!compiled) {
+        compiled = compileManifest(manifest);
+        HttpClient.compiledContracts.set(manifest, compiled);
+      }
+      report(checkResponse(compiled, method, path, payload));
     } catch {
       // Deliberately silent. The alternative is a diagnostic that can fail the
       // thing it is diagnosing.

@@ -10,6 +10,7 @@ import {
   matchRoute,
   type RouteShapeManifest
 } from "./response-contract";
+import { V1_RESPONSE_CONTRACT } from "./v1-response-contract";
 
 /**
  * The checker, against a manifest written by hand.
@@ -224,7 +225,11 @@ describe("the client hands back what the server sent, whatever the verdict", () 
           status: 200,
           headers: { "Content-Type": "application/json" }
         })) as unknown as typeof globalThis.fetch,
-      onResponseContract: (report) => reports.push(report)
+      onResponseContract: (report) => reports.push(report),
+      // SUPPLIED, because the client no longer carries it. The arms below score
+      // against real routes of the shipped manifest, so this is the same table
+      // they always used — it now arrives through the door a consumer uses.
+      responseContract: V1_RESPONSE_CONTRACT
     });
   }
 
@@ -248,16 +253,77 @@ describe("the client hands back what the server sent, whatever the verdict", () 
 
   it("checks nothing and reports nothing when no reporter is installed", async () => {
     // A published SDK must not start spending cycles because it was upgraded.
+    // The manifest is supplied HERE deliberately: it makes the arm say that the
+    // REPORTER is the switch, not the table. Without it the assertion would
+    // hold for the wrong reason.
     const client = new HttpClient({
       baseUrl: "https://example.invalid",
       apiKey: "k",
       fetch: (async () =>
         new Response(JSON.stringify({ success: true, data: DRIFTED }), {
           status: 200
-        })) as unknown as typeof globalThis.fetch
+        })) as unknown as typeof globalThis.fetch,
+      responseContract: V1_RESPONSE_CONTRACT
     });
 
     await expect(client.request("GET", "/agents/abc")).resolves.toEqual(DRIFTED);
+  });
+
+  it("says a read was unchecked when a reporter has no contract to check against", async () => {
+    // The migration, stated as behaviour. A caller who installed a reporter
+    // before the manifest moved behind its own entry hears about it on the
+    // first read, in the channel they already read — never by a silent pass,
+    // which is byte-identical to a payload that matched.
+    const reports: ContractReport[] = [];
+    const client = new HttpClient({
+      baseUrl: "https://example.invalid",
+      apiKey: "k",
+      fetch: (async () =>
+        new Response(JSON.stringify({ success: true, data: DRIFTED }), {
+          status: 200
+        })) as unknown as typeof globalThis.fetch,
+      onResponseContract: (report) => reports.push(report)
+    });
+
+    await expect(client.request("GET", "/agents/abc")).resolves.toEqual(DRIFTED);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({ state: "unchecked", route: null, path: "/agents/abc" });
+    expect(reports[0].reason).toContain("@agent-nexus/sdk/v1-response-contract");
+  });
+
+  it("scores each client against ITS OWN manifest, never the first one compiled", async () => {
+    // The compiled index used to be one static field, which was correct while
+    // one `const` was the only manifest there could be. Now that the table is
+    // the caller's, a single slot would score every later client against
+    // whichever manifest happened to be compiled first — silently, with both
+    // reports well-formed. Two clients, two manifests, one route path.
+    const only: RouteShapeManifest = {
+      "GET /agents/:agentId": {
+        name: "OnlyKnownRoute",
+        method: "GET",
+        path: "/agents/:agentId",
+        payload: { kind: "object", fields: { widgetId: "s" }, required: ["widgetId"] }
+      }
+    };
+    const reads = (manifest: RouteShapeManifest, reports: ContractReport[]) =>
+      new HttpClient({
+        baseUrl: "https://example.invalid",
+        apiKey: "k",
+        fetch: (async () =>
+          new Response(JSON.stringify({ success: true, data: DRIFTED }), {
+            status: 200
+          })) as unknown as typeof globalThis.fetch,
+        onResponseContract: (report) => reports.push(report),
+        responseContract: manifest
+      });
+
+    const first: ContractReport[] = [];
+    const second: ContractReport[] = [];
+    await reads(only, first).request("GET", "/agents/abc");
+    await reads(V1_RESPONSE_CONTRACT, second).request("GET", "/agents/abc");
+
+    expect(first[0]).toMatchObject({ route: "OnlyKnownRoute" });
+    expect(second[0]).toMatchObject({ route: "AgentGet" });
   });
 
   it("survives a reporter that throws", async () => {
@@ -271,7 +337,8 @@ describe("the client hands back what the server sent, whatever the verdict", () 
         })) as unknown as typeof globalThis.fetch,
       onResponseContract: () => {
         throw new Error("the sink is broken");
-      }
+      },
+      responseContract: V1_RESPONSE_CONTRACT
     });
 
     await expect(client.request("GET", "/agents/abc")).resolves.toEqual(DRIFTED);

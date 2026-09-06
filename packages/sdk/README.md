@@ -51,6 +51,34 @@ const client = new NexusClient({
 });
 ```
 
+### Checking responses against the published contract
+
+An installed client can talk to a server that has moved on without it — a field
+renamed, a shape changed — and nothing anywhere says so. Install a reporter and
+hand it the manifest to check against:
+
+```typescript
+import { formatContractReport, NexusClient } from "@agent-nexus/sdk";
+import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+
+const client = new NexusClient({
+  apiKey: "nxs_...",
+  responseContract: V1_RESPONSE_CONTRACT,
+  onResponseContract: (report) => {
+    if (report.state === "mismatch") console.warn(formatContractReport(report));
+  }
+});
+```
+
+The check never alters a value: a mismatch is described and the payload handed
+back exactly as the server sent it, including fields the manifest does not know
+about.
+
+The manifest is its own entry point rather than part of the main one, because it
+is the largest thing this package contains and only this feature reads it — a
+consumer who does not write that import does not receive those bytes. A reporter
+installed without a manifest is told so on every read rather than told nothing.
+
 ### Timeouts
 
 Each operation runs under the deadline it needs, so nothing has to be configured

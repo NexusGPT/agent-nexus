@@ -55,6 +55,7 @@
  */
 export const WORKSPACE_SOURCE_ALIASES: Record<string, string> = {
   "@agent-nexus/sdk": "../sdk/src/index.ts",
+  "@agent-nexus/sdk/v1-response-contract": "../sdk/src/v1-response-contract.ts",
   "@nexus/types": "../types/src/index.ts",
   "@nexus/types/core": "../types/src/core/index.ts",
   "@nexus/types/domain": "../types/src/shared/domain/index.ts",

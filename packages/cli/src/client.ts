@@ -1,4 +1,5 @@
 import { NexusClient, type RetryNotice } from "@agent-nexus/sdk";
+import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
 import { InvalidArgumentError } from "commander";
 
 import {
@@ -161,7 +162,13 @@ export function createClient(opts?: {
     // Warn on stderr when the server answers with a shape the API does not
     // publish. `undefined` when the user switched it off, which also switches
     // off the work behind it. See `./contract-warnings.ts`.
-    onResponseContract: createContractReporter()
+    onResponseContract: createContractReporter(),
+    // The manifest is no longer compiled into the SDK's main entry — a browser
+    // consumer embedding the client for chat was shipping the shape of every v1
+    // route to run a check it never installed. The CLI is the consumer that DOES
+    // want it, so the CLI is what imports it; `tsup` bundles it into `dist/`
+    // here exactly as it did when it arrived for free.
+    responseContract: V1_RESPONSE_CONTRACT
   });
 }
 

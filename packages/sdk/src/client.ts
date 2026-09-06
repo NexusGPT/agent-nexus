@@ -42,7 +42,7 @@ import { UserGroupsResource } from "./resources/user-groups";
 import { WorkflowExecutionsResource } from "./resources/workflow-executions";
 import { WorkflowsResource } from "./resources/workflows";
 import { WorkspacesResource } from "./resources/workspaces";
-import type { ContractReporter } from "./response-contract";
+import type { ContractReporter, RouteShapeManifest } from "./response-contract";
 
 // ============================================================================
 // Client options
@@ -142,8 +142,24 @@ export interface NexusClientOptions {
    * Installing one turns the check ON; with none, nothing is checked and this
    * client behaves exactly as it did before. It NEVER changes what a call
    * returns — a mismatch is described and the payload handed back untouched.
+   *
+   * A reporter alone checks nothing. {@link responseContract} is what it is
+   * checked against.
    */
   onResponseContract?: ContractReporter;
+
+  /**
+   * The manifest {@link onResponseContract} scores payloads against.
+   *
+   * ```ts
+   * import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+   * ```
+   *
+   * Supplied rather than bundled, so a consumer with no reporter never receives
+   * the table. `./v1-response-contract.ts` has the reasoning; `HttpClientOptions`
+   * has what happens when a reporter is installed without one.
+   */
+  responseContract?: RouteShapeManifest;
 }
 
 // ============================================================================
@@ -404,7 +420,8 @@ export class NexusClient {
       maxRetries: opts.maxRetries,
       maxTotalRetryWaitMs: opts.maxTotalRetryWaitMs,
       onRetry: opts.onRetry,
-      onResponseContract: opts.onResponseContract
+      onResponseContract: opts.onResponseContract,
+      responseContract: opts.responseContract
     });
 
     this.agents = new AgentsResource(http);

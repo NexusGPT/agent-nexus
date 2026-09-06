@@ -25,6 +25,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./v1-response-contract": {
+      "types": "./dist/v1-response-contract.d.ts",
+      "import": "./dist/v1-response-contract.mjs",
+      "require": "./dist/v1-response-contract.js"
     }
   },
   "files": [

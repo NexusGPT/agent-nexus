@@ -90,9 +90,16 @@ export interface ContractReport {
 /**
  * A caller notified of every read's verdict.
  *
- * Installing one is what turns the check ON: with no sink the manifest is never
+ * Installing one is what turns the check ON: with no sink no manifest is
  * consulted and the client behaves exactly as it did before. A published SDK
  * should not start spending cycles, or start printing, because it was upgraded.
+ *
+ * The manifest itself arrives with it, through
+ * `HttpClientOptions.responseContract`, and is imported from
+ * `@agent-nexus/sdk/v1-response-contract` — it is not compiled into the client,
+ * because it is larger than everything else the package ships and one opt-in
+ * path reads it. A reporter installed without one is told so, per read, rather
+ * than told nothing; see `./v1-response-contract.ts`.
  */
 export type ContractReporter = (report: ContractReport) => void;
 

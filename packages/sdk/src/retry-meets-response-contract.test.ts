@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { HttpClient } from "./http-client";
 import type { ContractReport } from "./response-contract";
+import { V1_RESPONSE_CONTRACT } from "./v1-response-contract";
 
 /**
  * Does the 429-for-every-method widening survive the response-contract seam?
@@ -28,7 +29,12 @@ function client(script: readonly number[], reports: ContractReport[]) {
     apiKey: "nxs_test",
     fetch: fetchFn as unknown as typeof globalThis.fetch,
     sleep: async () => undefined,
-    onResponseContract: (r) => reports.push(r)
+    onResponseContract: (r) => reports.push(r),
+    // Supplied, so these arms keep exercising a REAL check. Every assertion
+    // below is about the count and the request identity, both of which an
+    // `unchecked` verdict also satisfies — so without this the file would stay
+    // green over a client that checks nothing.
+    responseContract: V1_RESPONSE_CONTRACT
   });
   return { http, calls };
 }

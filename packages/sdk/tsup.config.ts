@@ -1,7 +1,22 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig((options) => ({
-  entry: ["src/index.ts"],
+  // TWO entries, and the second one is the whole point of the split.
+  //
+  // `v1-response-contract` is the published route manifest — the largest single
+  // thing this package contains, read by one opt-in code path. As a second
+  // entry it becomes its own file in `dist/`, reachable only through the
+  // `./v1-response-contract` subpath in `exports`, so a consumer who never
+  // writes that import never receives the bytes. Keyed rather than an array
+  // because the key IS the emitted basename and the `exports` map names it.
+  //
+  // `splitting: false` below is what keeps this honest: each entry is bundled
+  // whole and independently, so nothing of the manifest can be hoisted into a
+  // shared chunk that `index.mjs` then pulls back in.
+  entry: {
+    index: "src/index.ts",
+    "v1-response-contract": "src/v1-response-contract.ts"
+  },
   format: ["cjs", "esm"],
   // Off: `tsc -p tsconfig.build.json` emits the declarations instead, and the
   // `build` script owns that second half. tsup's dts program sets `baseUrl` on

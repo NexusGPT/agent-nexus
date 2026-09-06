@@ -1,4 +1,5 @@
 import { HttpClient } from "@agent-nexus/sdk";
+import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
 import { Command } from "commander";
 
 import { timeoutSecondsToMs } from "../client";
@@ -172,7 +173,9 @@ Notes:
           // --timeout <ms> was replaced by it (NEX-2760) so the flag cannot
           // mean two different units depending on where it sits in argv.
           timeout: timeoutSecondsToMs(globals.timeout),
-          onResponseContract: createContractReporter()
+          onResponseContract: createContractReporter(),
+          // Supplied rather than bundled — see the same pair in `../client.ts`.
+          responseContract: V1_RESPONSE_CONTRACT
         });
 
         const jsonBody = await resolveBody(opts.body);

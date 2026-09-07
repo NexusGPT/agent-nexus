@@ -17,7 +17,8 @@ import {
   compareVersions,
   nextBaseline,
   type RemovalFinding,
-  renderBaselineModule
+  renderBaselineModule,
+  retargetCompatibilityFigures
 } from "./deprecation-cycle";
 import { type DeprecationRecord, DEPRECATIONS } from "./deprecations";
 import { buildRootProgram, VERSION } from "./root-program";
@@ -802,5 +803,77 @@ describe("deprecation cycle — the changelog has to announce THIS command", () 
     // and this file would not say which four mattered.
     const nearMisses = CASES.filter((row) => !row.announced && row.entry.includes(row.path));
     expect(nearMisses.map((row) => row.name).length).toBe(4);
+  });
+});
+
+describe("deprecation cycle — COMPATIBILITY.md's promised-path figure moves with the baseline", () => {
+  /**
+   * THE COUPLING THIS BLOCK EXISTS FOR. The figure is a statement ABOUT the
+   * baseline, and it lives in a different file from it. Every hand advance so
+   * far had to discover that for itself, because nothing names the document
+   * until `compatibility-figures.test.ts` reds on a later run — in a third file,
+   * which the author of the advance never opened.
+   */
+  const sentence = (deprecations: number, paths: number): string =>
+    `above are enforced rather than merely stated.\n\n` +
+    `**${deprecations} leaves are on a deprecation cycle today**, out of the **${paths} paths** the last\n` +
+    `release promised. An empty list is the ordinary state`;
+
+  const baselineOf = (count: number): SurfaceBaseline => ({
+    version: "9.9.9",
+    leaves: Array.from({ length: count }, (_, index) =>
+      leaf(`agent leaf-${index}`, `${index}`.padStart(12, "0"), "STABLE")
+    ),
+    deprecations: []
+  });
+
+  it("rewrites the promised-path count and nothing else", () => {
+    const before = sentence(0, 514);
+    const after = retargetCompatibilityFigures(before, baselineOf(524));
+    expect(after).toBe(sentence(0, 524));
+  });
+
+  it("leaves the deprecation count alone — that figure is DEPRECATIONS.length, not the baseline's", () => {
+    // The two numbers in this sentence come from different places and only one of
+    // them is derivable here. Rewriting the first would put a value in the document
+    // that `compatibility-figures.test.ts` checks against a different source.
+    const after = retargetCompatibilityFigures(sentence(3, 514), baselineOf(524));
+    expect(after).toBe(sentence(3, 524));
+  });
+
+  it("is a no-op ON THE TEXT when the figure is already right", () => {
+    const before = sentence(0, 524);
+    expect(retargetCompatibilityFigures(before, baselineOf(524))).toBe(before);
+  });
+
+  it("REFUSES a document that does not carry the sentence", () => {
+    // Returning the input unchanged would be indistinguishable from the case
+    // above, so the generator would write a baseline whose document silently
+    // disagrees with it. `null` is the only answer a caller cannot mistake for
+    // success.
+    expect(retargetCompatibilityFigures("no such sentence here", baselineOf(524))).toBeNull();
+  });
+
+  it("REFUSES a document that carries the sentence twice", () => {
+    // Two matches means the figure has no single home, and picking one would
+    // leave the other stale — the exact half-applied state the generator's
+    // compute-both-write-both order exists to prevent.
+    const doubled = `${sentence(0, 514)}\n\n${sentence(0, 514)}`;
+    expect(retargetCompatibilityFigures(doubled, baselineOf(524))).toBeNull();
+  });
+
+  it("CONTROL — the real COMPATIBILITY.md is a document this function accepts", () => {
+    // Every case above is constructed. Without this one they would all pass over a
+    // shape the shipped document has not had for months, and the generator would
+    // refuse the first time a release ran it.
+    const doc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "COMPATIBILITY.md"),
+      "utf8"
+    );
+    const retargeted = retargetCompatibilityFigures(doc, CLI_SURFACE_BASELINE);
+    expect(retargeted).not.toBeNull();
+    // …and it agrees with the baseline on disk, which is the invariant
+    // `compatibility-figures.test.ts` pins from the other side.
+    expect(retargeted).toBe(doc);
   });
 });

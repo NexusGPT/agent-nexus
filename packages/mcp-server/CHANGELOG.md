@@ -1,5 +1,25 @@
 # @agent-nexus/mcp-server
 
+## 1.1.4
+### Patch Changes
+
+- be6f4e2: Pin `@modelcontextprotocol/sdk` to the `~1.25.3` line.
+  
+  This reaches consumers: the published package's `dependencies` decide what an
+  install resolves, so this is a release rather than a bytes-only change.
+  
+  From 1.29 the SDK adds a `types` condition to every `exports` entry, the `./*`
+  wildcard included. The wildcard captures the specifier's `.js` suffix, so
+  `server/stdio.js` resolves its types to `dist/esm/server/stdio.js.d.ts`, which
+  the tarball does not contain — it ships `stdio.d.ts`. Node never reads `types`
+  and `tsc` does its own `.js` -> `.d.ts` rewrite, so only a resolver that prefers
+  `types` misses. 1.25.3 is the last release before that condition, and it still
+  satisfies `@google/genai`'s `^1.25.2`.
+  
+  `~` and not `^` is deliberate: a caret admits 1.30.0 and walks straight back into
+  it. The pin's ceiling and the event that lifts it are recorded beside the
+  `Upgrade trigger:` marker in `pnpm-workspace.yaml`.
+
 ## 1.1.3
 ### Patch Changes
 

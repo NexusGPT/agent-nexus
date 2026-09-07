@@ -1,5 +1,83 @@
 # @agent-nexus/sdk
 
+## 4.0.0
+### Major Changes
+
+- 7ca9f12: The v1 response contract is now SUPPLIED by the caller instead of compiled into every bundle
+  
+  `V1_RESPONSE_CONTRACT` — the published shape of every Public API v1 route — was
+  imported statically by `http-client.ts`, so it reached the entry graph of every
+  consumer whether or not they had ever installed a reporter. It is larger than the
+  whole of the rest of the client put together, and exactly one code path reads it:
+  `onResponseContract`, an opt-in diagnostic. A browser embedding this client for a
+  chat widget was shipping the shape of 470 routes it can never call, to run a check
+  it never asked for. No bundler can drop it — the import is static and the value is
+  reachable from a live branch.
+  
+  The mechanism was already opt-in at the callback. The DATA now follows it.
+  
+  ## What changed
+  
+  `HttpClientOptions` and `NexusClientOptions` take a `responseContract`, and the
+  manifest ships behind its own entry point:
+  
+  ```ts
+  import { NexusClient, formatContractReport } from "@agent-nexus/sdk";
+  import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+  
+  const client = new NexusClient({
+    apiKey,
+    responseContract: V1_RESPONSE_CONTRACT,
+    onResponseContract: (report) => {
+      if (report.state === "mismatch") console.warn(formatContractReport(report));
+    }
+  });
+  ```
+  
+  Two options rather than one, deliberately: `onResponseContract` says where verdicts
+  go, `responseContract` says what to check against. Separating them also makes it
+  possible for the first time to check against a manifest that is not this one — a
+  pinned older copy, or a projection of a private deployment's own routes.
+  
+  ## Breaking, and how it announces itself
+  
+  **A caller who sets `onResponseContract` and nothing else no longer gets contract
+  verdicts.** That is the break, and it is the only one; every other option, export
+  and method is unchanged, and a caller who never used this feature is unaffected in
+  every respect but size.
+  
+  It is not silent. A reporter installed without a manifest receives an `unchecked`
+  verdict on every read, naming the import that fixes it — because a silent return
+  is byte-for-byte what a payload that MATCHED looks like, which is the failure this
+  feature exists to detect.
+  
+  ## Why a subpath and not a second package
+  
+  The manifest is a projection of the same commit's v1 schemas, so it has to move in
+  lockstep with the client that reads it. A separate package introduces a version
+  pair that can skew, and a skew here is silent: an older manifest against a newer
+  client reports drift on routes that never drifted. One package, one version, one
+  publish — and a consumer who never writes the import never receives the bytes.
+  
+  ## Measured
+  
+  One command, same conditions, `dist/` removed and rebuilt on both sides:
+  
+  | entry            | raw before | raw after |    delta | gzip -9 before | gzip -9 after |   delta |
+  | ---------------- | ---------: | --------: | -------: | -------------: | ------------: | ------: |
+  | `dist/index.mjs` |    419,924 |   266,800 | −153,124 |         86,246 |        66,590 | −19,656 |
+  | `dist/index.js`  |    424,013 |   270,883 | −153,130 |         87,219 |        67,611 | −19,608 |
+  
+  That is what a consumer bundles. The TARBALL grows about 10 kB, because the table
+  is now emitted once per format as its own file (`dist/v1-response-contract.{js,mjs}`,
+  156,100 / 154,993 raw) instead of inlined into the two entries — an installed
+  package is slightly larger and every bundled application that does not opt in is
+  36% smaller. That trade is the entire point and it is stated rather than hidden.
+  
+  `@agent-nexus/cli` is the one consumer in this repository that wants the check, so
+  it now imports the manifest at its two client-construction sites and behaves
+  exactly as before.
+
 ## 3.1.0
 ### Minor Changes
 

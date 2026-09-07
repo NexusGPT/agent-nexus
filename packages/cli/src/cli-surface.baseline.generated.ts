@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.2.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.3.1 ────────────────────────────────────────────────────
  *
  * 524 promised paths — 465 STABLE, 59 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.2.0",
+  version: "1.3.1",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -75,10 +75,10 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "agent-tool get", shape: "82d735a4b5a5", tier: "STABLE" },
     { path: "agent-tool list", shape: "4685e811594a", tier: "STABLE" },
     { path: "agent-tool update", shape: "873bb8e0ffe9", tier: "STABLE" },
-    { path: "analytics export", shape: "62857a059fa6", tier: "STABLE" },
-    { path: "analytics feedback", shape: "5c91df788dbf", tier: "STABLE" },
+    { path: "analytics export", shape: "8afcbf5eac18", tier: "STABLE" },
+    { path: "analytics feedback", shape: "991c4dfb35f3", tier: "STABLE" },
     { path: "analytics metrics", shape: "23136fa0bd7b", tier: "STABLE" },
-    { path: "analytics overview", shape: "5fc0f290239b", tier: "STABLE" },
+    { path: "analytics overview", shape: "6c9aa12b7874", tier: "STABLE" },
     { path: "analytics query", shape: "f2f79c9b29ef", tier: "STABLE" },
     { path: "api", shape: "a6d946e88236", tier: "UNSTABLE" },
     { path: "apps approvals decide", shape: "6fe6fad7be43", tier: "UNSTABLE" },

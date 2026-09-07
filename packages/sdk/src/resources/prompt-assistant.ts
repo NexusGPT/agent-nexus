@@ -167,12 +167,16 @@ export interface WaitForThreadOptions {
   /**
    * Message count observed BEFORE this turn was sent, if a turn was just sent.
    *
-   * A reply is "new" only past this count, which is what makes the wait
-   * survive the one state the status field cannot describe: a follow-up sent on
-   * an already-`completed` thread. The server appends the user message and
-   * leaves the status alone, so `completed` is stale from the previous turn
-   * until the assistant either answers or flips the thread to `generating`.
-   * Waiting on status alone returns the PREVIOUS turn's prompt instantly.
+   * A reply is "new" only past this count, and that is what adds the REPLY exit
+   * to the wait. Without it the status is the only thing that can end the wait,
+   * so a turn the assistant answers in prose — a follow-up question, no
+   * generation — leaves the thread `in_progress` and the wait burns its whole
+   * budget on an answer that is already sitting there.
+   *
+   * ⚠️ IT IS NO LONGER WHAT PROTECTS YOU FROM A STALE VERDICT. The server clears
+   * a terminal status when it accepts a turn (NEX-4782 / NEX-4783), so a
+   * follow-up on an already-`completed` thread reads `in_progress` from the
+   * moment `chat` returns, and there is no previous verdict left to return.
    *
    * Omit when no turn was sent — then only a terminal status ends the wait.
    */
@@ -369,17 +373,22 @@ export class PromptAssistantResource extends BaseResource {
     let thread = await this.pollThread(threadId, deadline);
     // ── Telling THIS turn's verdict from the PREVIOUS turn's ────────────────
     //
-    // The server never resets `status` when a new user message arrives, so a
-    // second turn on a `completed` thread starts life reading `completed` and
-    // carrying the previous turn's `promptResult`. Reading that as an answer
-    // hands the caller a stale prompt in the time it takes to make one request.
+    // NOTHING IS CARRIED ACROSS POLLS ANY MORE, AND THE SERVER IS WHY.
+    // NEX-4782 / NEX-4783.
     //
-    // A prompt is only ever produced by passing THROUGH `generating`, so a
-    // terminal status is this turn's verdict when the wait saw `generating`, or
-    // when the status moved at all since the wait began. Otherwise it is
-    // left-over furniture and only the assistant's reply ends the wait.
-    const initialStatus = thread.status;
-    let sawGenerating = thread.status === "generating";
+    // This used to compute `initialStatus` and `sawGenerating` from its first
+    // poll and only trust a terminal status once one of them said the status had
+    // moved. That guard fails on a turn that finishes BEFORE the first poll —
+    // the status is already terminal, it never "moves", and a turn answered by a
+    // bare tool call persists no assistant message either, so the wait polls out
+    // its whole deadline against a thread that is over.
+    //
+    // `PromptAssistantService.chat` now clears a terminal status before it saves
+    // the turn's user message, so a live turn never leaves one behind and a
+    // terminal status read here is this turn's. The backend's own
+    // `decidePromptAssistantWaitOutcome` was the duplicate copy of this rule and
+    // was changed in the same commit; a fix landed on one side only leaves the
+    // other with the identical defect.
 
     for (;;) {
       // Narration is the caller's, and it cannot be allowed to end the wait: a
@@ -395,7 +404,6 @@ export class PromptAssistantResource extends BaseResource {
       const terminal = isPromptAssistantTerminalStatus(thread.status);
       const replied =
         replyArrivesAfter !== undefined && this.hasAssistantReplyAfter(thread, replyArrivesAfter);
-      const verdictIsThisTurn = sawGenerating || thread.status !== initialStatus;
 
       if (replyArrivesAfter === undefined) {
         // No turn was sent, so there is no stale-verdict problem to solve and
@@ -417,7 +425,7 @@ export class PromptAssistantResource extends BaseResource {
         // turned a prompt return into a five-minute timeout.
         //
         // So the STATUS is read first and the reply is the fallback.
-        if (terminal && verdictIsThisTurn) {
+        if (terminal) {
           return { thread, outcome: "terminal", waitedMs };
         }
         if (thread.status === "generating") {
@@ -425,9 +433,9 @@ export class PromptAssistantResource extends BaseResource {
           // wait ends here; `until: "prompt"` is waiting for what comes next.
           if (until === "assistant-reply") return { thread, outcome: "generating", waitedMs };
         } else if (replied) {
-          // Either still `in_progress` — the assistant asked a follow-up
-          // question and is waiting for the user, which no amount of waiting
-          // changes — or a terminal status this turn did not produce.
+          // Still `in_progress` — the assistant asked a follow-up question and
+          // is waiting for the user, which no amount of waiting changes. A
+          // terminal status can no longer reach here; it returned above.
           return { thread, outcome: "assistant-replied", waitedMs };
         }
       }
@@ -443,7 +451,6 @@ export class PromptAssistantResource extends BaseResource {
       await new Promise((r) => setTimeout(r, Math.min(intervalMs, remainingMs)));
       intervalMs = Math.min(intervalMs * 2, maxIntervalMs);
       thread = await this.pollThread(threadId, deadline);
-      if (thread.status === "generating") sawGenerating = true;
     }
   }
 

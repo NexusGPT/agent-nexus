@@ -39,6 +39,7 @@
     "gen:skills": "tsx scripts/bundle-skills.ts",
     "check:skills-lock": "tsx scripts/check-skills-lock.ts",
     "check:skills-drift": "tsx scripts/check-skills-drift.ts",
+    "check:publish-pin": "tsx scripts/check-publish-pin.ts",
     "build": "tsup",
     "build:refresh-skills": "pnpm run gen:skills && tsup",
     "dev": "tsup --watch",

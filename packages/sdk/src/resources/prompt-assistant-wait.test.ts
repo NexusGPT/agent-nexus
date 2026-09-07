@@ -220,19 +220,32 @@ describe("waitForThread waits THROUGH generating, which is the whole point", () 
 });
 
 describe("a terminal status left over from the previous turn is not this turn's answer", () => {
-  const staleCompleted = {
-    status: "completed" as const,
-    promptResult: { prompt: "OLD PROMPT", name: "Old", description: "" }
-  };
+  const oldPrompt = { prompt: "OLD PROMPT", name: "Old", description: "" };
+
+  /**
+   * 🚨 THE STALE VERDICT IS NOW IMPOSSIBLE TO OBSERVE, AND THAT IS WHY THESE
+   * FIXTURES OPEN AT `in_progress`. NEX-4782 / NEX-4783.
+   *
+   * `PromptAssistantService.chat` clears a terminal status before it saves the
+   * turn's user message, so turn 2 on a completed thread is `in_progress` by the
+   * time `chat` returns — before any caller can poll. A fixture opening at
+   * `completed` with a turn declared describes a state the server no longer
+   * produces, and an arm built on one proves nothing about the running system.
+   *
+   * This resource used to guard the case client-side with
+   * `sawGenerating || status !== initialStatus`, computed from its FIRST poll.
+   * That guard could not tell "left over" from "finished before I looked", so a
+   * turn that completed inside the previous hold never satisfied the wait at all.
+   */
+  const secondTurnAccepted = { status: "in_progress" as const, promptResult: oldPrompt };
 
   it("keeps waiting while a second turn is still being answered", async () => {
-    // Turn 2 on a completed thread: the status says `completed` from turn 1 and
-    // the promptResult is turn 1's. Returning here hands back a stale prompt in
-    // the time it takes to make one request.
+    // Turn 1's promptResult is still on the row. Returning at the first poll
+    // hands the caller a stale prompt in the time it takes to make one request.
     const { resource } = resourceReturning([
-      { ...staleCompleted, messages: [msg("user"), msg("assistant"), msg("user")] },
+      { ...secondTurnAccepted, messages: [msg("user"), msg("assistant"), msg("user")] },
       {
-        ...staleCompleted,
+        ...secondTurnAccepted,
         status: "generating",
         messages: [msg("user"), msg("assistant"), msg("user"), msg("assistant")]
       },
@@ -252,13 +265,12 @@ describe("a terminal status left over from the previous turn is not this turn's 
   });
 
   it("reports a reply, not a verdict, when the turn never regenerated", async () => {
-    // Same stale `completed`, but this turn was a question-and-answer that
-    // produced no new prompt. Calling that "terminal" would let a caller read
-    // turn 1's prompt as turn 2's output.
+    // This turn was a question-and-answer that produced no new prompt, so the
+    // status never left `in_progress` and only the reply can end the wait.
     const { resource } = resourceReturning([
-      { ...staleCompleted, messages: [msg("user"), msg("assistant"), msg("user")] },
+      { ...secondTurnAccepted, messages: [msg("user"), msg("assistant"), msg("user")] },
       {
-        ...staleCompleted,
+        ...secondTurnAccepted,
         messages: [msg("user"), msg("assistant"), msg("user"), msg("assistant", "Which tone?")]
       }
     ]);
@@ -270,10 +282,55 @@ describe("a terminal status left over from the previous turn is not this turn's 
     expect(result.outcome).toBe("assistant-replied");
   });
 
+  it("ends on a turn that finished before the first poll (NEX-4783)", async () => {
+    // The whole turn — generation included — ran between `chat` returning and
+    // the first poll, and it was answered by a bare tool call, so no assistant
+    // message was ever written. The old guard needed to WATCH the status move;
+    // it never did, the reply branch could not fire either, and the wait ran its
+    // full budget against a thread that was already over.
+    const { resource } = resourceReturning([
+      {
+        status: "completed",
+        messages: [msg("user"), msg("assistant"), msg("user")],
+        promptResult: { prompt: "NEW PROMPT", name: "New", description: "" }
+      }
+    ]);
+
+    const result = await runWait(() =>
+      resource.waitForThread("t-1", { afterMessageCount: 2, timeoutMs: 30 * 60 * 1000 })
+    );
+
+    expect(result.outcome).toBe("terminal");
+    expect(result.thread.promptResult?.prompt).toBe("NEW PROMPT");
+  });
+
+  it("reports a failure as terminal even when the turn wrote prose first (NEX-4782)", async () => {
+    // The assistant answered, THEN the generation failed — both before the first
+    // poll. An assistant message sits past the index, so the old guard fell
+    // through to `assistant-replied`, and the CLI (which gates its non-zero exit
+    // on `terminal`) exited 0 over a generation that produced no prompt.
+    const { resource } = resourceReturning([
+      {
+        status: "failed",
+        messages: [msg("user"), msg("assistant"), msg("user"), msg("assistant", "On it")],
+        promptResult: undefined
+      }
+    ]);
+
+    const result = await runWait(() =>
+      resource.waitForThread("t-1", { afterMessageCount: 2, timeoutMs: 30 * 60 * 1000 })
+    );
+
+    expect(result.outcome).toBe("terminal");
+    expect(result.thread.status).toBe("failed");
+  });
+
   it("takes the status at face value when no turn was sent", async () => {
-    // `get-thread --wait` has no baseline: the caller is asking about the
-    // thread, not about a turn, so the status IS the answer.
-    const { resource } = resourceReturning([staleCompleted]);
+    // `get-thread --wait` has no turn: the caller is asking about the thread,
+    // not about a turn, so the status IS the answer.
+    const { resource } = resourceReturning([
+      { status: "completed" as const, promptResult: oldPrompt }
+    ]);
 
     const result = await runWait(() => resource.waitForThread("t-1", { timeoutMs: 60_000 }));
 

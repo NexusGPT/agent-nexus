@@ -168,9 +168,15 @@ const GET_THREAD_FIELDS = [
  * what the caller typed. Two ways a hint goes wrong, and both have shipped:
  * naming the other verb (sending an `await-thread` user to `get-thread --wait`
  * hands them back the client-side poll they chose the server-held one to
- * avoid), and dropping `--after-message-count` — following THAT hint answers
- * instantly with the previous turn's verdict, which is the stale-prompt trap
- * the flag exists to close.
+ * avoid), and dropping `--after-message-count` — a wait with no turn declared
+ * ends on the STATUS alone, so it cannot end on the assistant's reply and burns
+ * its whole budget on a turn that answers with prose and generates nothing.
+ *
+ * That second hint used to be about a STALE verdict, and it no longer is: the
+ * server clears a terminal status when it accepts a turn (NEX-4782 / NEX-4783),
+ * so a finished thread reads `in_progress` for as long as the new turn is live
+ * and there is no previous verdict left to return. What the flag still buys is
+ * the reply exit, which is the only exit a prose-only turn ever reaches.
  */
 function waitExitCode(
   result: WaitForThreadResult,

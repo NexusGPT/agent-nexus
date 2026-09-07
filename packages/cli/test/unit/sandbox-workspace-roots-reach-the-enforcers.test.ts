@@ -31,17 +31,20 @@
  * already pins that every root shares one parent; this file pins that every root reaches
  * the code that guards it. Same subject, the two halves nobody could see together.
  *
- * ── Why it does not fail today ──────────────────────────────────────────────────────
+ * ── Reading `hook_core.py` does not answer the question this file asks ──────────────
  *
- * The fix is `NexusGPT/claude-code-skills-nexus#42` and the pin has not moved, so the
- * bundle on disk still predates it. That is stated as a POSITIVE assertion rather than
- * skipped: the pending branch requires the lock to be exactly the pre-fix sha, so bumping
- * the lock to anything else without the fix is red, and it is red BY NAME. There is no
- * allowlist of roots anywhere in this file — the escape is keyed on a fact about the
- * bundle (the symbol is absent), never on a list somebody can append to.
+ * The constant and the code that consults it are in DIFFERENT FILES, so a bundle can
+ * declare all three roots and enforce one. That is not hypothetical — it is what
+ * `@agent-nexus/cli@1.3.0` shipped, and it is the state this file used to pass over:
+ * every assertion here read `lib/hook_core.py`, where `SANDBOX_WORKSPACE_ROOTS` was
+ * present and correct, while `nexus-fs-firewall.py` still carried
+ * `("/mnt/workspace", "/mnt/workspace/_shared")` and `destructive_guard.py` still tested
+ * `path == "/mnt/workspace"`. Measured against the published bundle:
+ * `rm -rf /mnt/workspace` denied, `rm -rf /mnt/workspace-shared` and
+ * `rm -rf /mnt/workspaces` NO VERDICT.
  *
- * A characterisation test of the broken state would be worse than none, which is why the
- * pending branch asserts the pin and not the subset.
+ * A declaration nothing reads is the reassuring shape of this defect, and the arms below
+ * exist because `hook_core.py` cannot report it. They read the ENFORCERS.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -49,7 +52,7 @@ import path from "node:path";
 import { UC_ORG_WORKSPACE_MOUNT_ROOT, UC_SHARED_WORKSPACE_SIBLING_ROOT } from "@nexus/types/domain";
 import { describe, expect, it } from "vitest";
 
-import { getHookFiles } from "../../src/skills-content.generated";
+import { getHookFiles, getSettingsJson } from "../../src/skills-content.generated";
 
 /**
  * `packages/cli/test/unit` -> the monorepo root.
@@ -99,22 +102,77 @@ const DECLARED_ROOTS = [
   readCodeInterpreterRoot()
 ] as const;
 
-/** The sha the enforcers' subset was measured on. The pending branch below pins it. */
-const PRE_FIX_SKILLS_SHA = "bc52b93c42b6d9cda80746e5ef43856984d96c57";
-
-function lockedSkillsSha(): string {
-  return fs.readFileSync(path.join(REPO_ROOT, "packages/cli/skills-nexus.lock"), "utf8").trim();
-}
-
-function bundledHookCore(): string {
-  const entry = getHookFiles().find((f) => f.path === "lib/hook_core.py");
+function bundledHookFile(hookPath: string): string {
+  const entry = getHookFiles().find((f) => f.path === hookPath);
   if (!entry) {
     throw new Error(
-      "lib/hook_core.py is not in the shipped hook bundle. Every adapter imports it, so " +
-        "its absence is a broken bundle, not a reason to skip this check."
+      `${hookPath} is not in the shipped hook bundle. A file this check reads being absent ` +
+        "is a broken bundle, not a reason to skip the check."
     );
   }
   return entry.content;
+}
+
+function bundledHookCore(): string {
+  return bundledHookFile("lib/hook_core.py");
+}
+
+/**
+ * The two files that actually DECIDE. `hook_core.py` is where the shared list is
+ * declared; these are where a path is judged against it.
+ *
+ * The distinction is the whole reason the arms below exist. `@agent-nexus/cli@1.3.0`
+ * shipped a bundle in which `hook_core.SANDBOX_WORKSPACE_ROOTS` was present and correct
+ * and NEITHER of these files referenced it — the constant was declared and no enforcer
+ * consumed it. Every assertion that reads only `hook_core.py` is green over that state,
+ * which is exactly what happened: this file's own docblock names these two enforcers and
+ * every check in it read a third file.
+ */
+const ENFORCERS = ["nexus-fs-firewall.py", "lib/destructive_guard.py"] as const;
+
+/**
+ * Python source with `#` comments and triple-quoted blocks removed.
+ *
+ * Load-bearing, not tidiness. `main` mentions `SANDBOX_WORKSPACE_ROOTS` inside prose in
+ * both enforcers ("The sandbox roots are `hook_core.SANDBOX_WORKSPACE_ROOTS`, not a
+ * literal…"), so a raw `includes()` is satisfied by a SENTENCE ABOUT the fix and cannot
+ * tell it from the fix. That is the single commonest way an assertion over a large text
+ * passes for the wrong reason, and the state this file must catch is precisely one where
+ * the prose is right and the code is not.
+ *
+ * Over-stripping fails toward a RED, which is the safe direction: it cannot manufacture a
+ * pass. `strips prose and keeps code` below pins both directions.
+ */
+function pythonCodeOnly(source: string): string {
+  return source
+    .replace(/"""[\s\S]*?"""/g, " ")
+    .replace(/'''[\s\S]*?'''/g, " ")
+    .replace(/(^|\n)[^\n]*?#[^\n]*/g, (m) => m.split("#")[0]);
+}
+
+/** The tool names `settings.json` routes to the firewall on PreToolUse. */
+function toolsRoutedToFirewall(): string[] {
+  const settings = JSON.parse(getSettingsJson()) as {
+    hooks?: { PreToolUse?: { matcher?: string; hooks?: { command?: string }[] }[] };
+  };
+  const entries = settings.hooks?.PreToolUse ?? [];
+  const routed = new Set<string>();
+  for (const entry of entries) {
+    const hitsFirewall = (entry.hooks ?? []).some((h) =>
+      (h.command ?? "").includes("nexus-fs-firewall.py")
+    );
+    if (!hitsFirewall) continue;
+    // A matcher built only from names, `|` and spaces is an exact-name list rather than a
+    // regex — `Write|Edit` matches `Write` or `Edit` and never `MultiEdit`. Anything
+    // carrying regex metacharacters is a pattern this check cannot enumerate, so it is
+    // skipped rather than guessed at.
+    const matcher = entry.matcher ?? "";
+    if (!/^[A-Za-z0-9_ |,-]+$/.test(matcher)) continue;
+    for (const name of matcher.split("|").map((s) => s.trim())) {
+      if (name) routed.add(name);
+    }
+  }
+  return [...routed];
 }
 
 describe("sandbox workspace roots reach the shipped enforcers", () => {
@@ -140,13 +198,13 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
   it("every declared root is known to the bundled enforcers", () => {
     const hookCore = bundledHookCore();
 
-    if (!hookCore.includes("SANDBOX_WORKSPACE_ROOTS")) {
-      // PENDING — NexusGPT/claude-code-skills-nexus#42 is not in the pinned bundle yet.
-      // Asserting the pin, not the subset: any other sha reaching this branch means the
-      // lock moved and the fix did not come with it.
-      expect(lockedSkillsSha()).toBe(PRE_FIX_SKILLS_SHA);
-      return;
-    }
+    // No pending escape. There was one — it returned early when the bundle predated
+    // NexusGPT/claude-code-skills-nexus#42 and asserted the lock was exactly the pre-fix
+    // sha instead. That was correct while the fix was unlanded and became a hole the
+    // moment it shipped: rolling the lock BACK to that one sha would take the early
+    // return and pass, over a bundle carrying the fail-open this suite exists to catch.
+    // An escape keyed on the defect being present cannot outlive the defect.
+    expect(hookCore).toContain("SANDBOX_WORKSPACE_ROOTS");
 
     for (const root of DECLARED_ROOTS) {
       expect(
@@ -161,10 +219,7 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
 
   it("the dead nested layout is not reintroduced as a root", () => {
     const hookCore = bundledHookCore();
-    if (!hookCore.includes("SANDBOX_WORKSPACE_ROOTS")) {
-      expect(lockedSkillsSha()).toBe(PRE_FIX_SKILLS_SHA);
-      return;
-    }
+    expect(hookCore).toContain("SANDBOX_WORKSPACE_ROOTS");
     // `/mnt/workspace/_shared` cannot exist under in-sandbox mount-s3: the kernel refuses
     // to attach a mount at a path resolving through a mountpoint-s3 filesystem. It is
     // still COVERED, as a subtree of the org root; it must not come back as a root of its
@@ -172,5 +227,59 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
     const declaration = /SANDBOX_WORKSPACE_ROOTS\s*=\s*\(([\s\S]*?)\)/.exec(hookCore);
     expect(declaration).not.toBeNull();
     expect(declaration?.[1]).not.toContain(`${UC_ORG_WORKSPACE_MOUNT_ROOT}/_shared`);
+  });
+
+  it("strips prose and keeps code (the anchor control for the two arms below)", () => {
+    // Both directions. Without the first two, the enforcer arm is satisfied by a docstring
+    // and reports the fix present over a bundle that does not have it. Without the third,
+    // the stripper could delete everything and the arm would red for the wrong reason.
+    expect(pythonCodeOnly("# see SANDBOX_WORKSPACE_ROOTS\nx = 1\n")).not.toContain(
+      "SANDBOX_WORKSPACE_ROOTS"
+    );
+    expect(
+      pythonCodeOnly('"""\nThe roots are SANDBOX_WORKSPACE_ROOTS.\n"""\nx = 1\n')
+    ).not.toContain("SANDBOX_WORKSPACE_ROOTS");
+    expect(pythonCodeOnly("roots = SANDBOX_WORKSPACE_ROOTS\n")).toContain(
+      "SANDBOX_WORKSPACE_ROOTS"
+    );
+  });
+
+  it("every enforcer CONSUMES the shared root list rather than a literal of its own", () => {
+    for (const enforcer of ENFORCERS) {
+      const code = pythonCodeOnly(bundledHookFile(enforcer));
+      expect(
+        /SANDBOX_WORKSPACE_ROOTS|under_sandbox_workspace/.test(code),
+        `${enforcer} does not reference hook_core's shared root list anywhere in its CODE, ` +
+          "so it is judging mount roots against a literal of its own. That is the W69 defect " +
+          "exactly: `/mnt/workspace` reads as covering its siblings and covers one member, " +
+          'because "/mnt/workspace-shared".startsWith("/mnt/workspace/") is false. Land ' +
+          "NexusGPT/claude-code-skills-nexus#45 and bump packages/cli/skills-nexus.lock — a " +
+          "root the enforcers do not consult is a root they do not guard."
+      ).toBe(true);
+    }
+  });
+
+  it("the firewall examines every tool settings.json routes to it", () => {
+    // A matcher is an exact-name list, so widening it does not widen the adapter: shipped
+    // 1.3.0 routed `Write|Edit|MultiEdit|NotebookEdit` to the firewall while the adapter
+    // tested `("Write", "Edit")`, and the two extra tools arrived and left unexamined. The
+    // config then DECLARED coverage the code did not perform, which is worse than not
+    // routing them at all — the wiring is where a reader checks.
+    const firewall = pythonCodeOnly(bundledHookFile("nexus-fs-firewall.py"));
+    const routed = toolsRoutedToFirewall();
+
+    // Control: an empty routed set would make the loop below vacuous, and a matcher
+    // rename upstream is exactly how that happens silently.
+    expect(routed.length).toBeGreaterThanOrEqual(3);
+    expect(routed).toContain("Bash");
+
+    for (const tool of routed) {
+      expect(
+        firewall.includes(`"${tool}"`),
+        `settings.json routes ${tool} to nexus-fs-firewall.py and the adapter never names ` +
+          `it, so every ${tool} call reaches the firewall and falls straight through ` +
+          "unexamined. Either the adapter must handle it or the matcher must stop claiming it."
+      ).toBe(true);
+    }
   });
 });

@@ -3,7 +3,7 @@
  *
  * YAML frontmatter is read server-side at upload time, so the CLI only parses
  * explicit `key=value` flags here. Values are always strings or string arrays —
- * the shape the Public API and ZeroEntropy accept.
+ * the shape the Public API accepts.
  */
 
 export type DocumentMetadata = Record<string, string | string[]>;
@@ -26,8 +26,10 @@ export function parseMetadataPairs(pairs: string[]): DocumentMetadata {
  * Parse repeated `--filter key=value` flags into a metadata filter. Unlike
  * {@link parseMetadataPairs}, a key repeated across flags accumulates into an
  * array — `--filter region=eu --filter region=us` → `{ region: ["eu", "us"] }` —
- * which the backend turns into a ZeroEntropy `$in` (match any). A single
- * occurrence stays a scalar (`$eq`).
+ * which the backend turns into an `$in` (match any). A single occurrence stays
+ * a scalar (`$eq`). Those operators are the retrieval filter's contract and hold
+ * whichever provider is bound — `translate-ze-filter-to-pinecone.ts` is a
+ * validating pass-through, not a rewrite.
  */
 export function parseFilterPairs(pairs: string[]): DocumentMetadata {
   const grouped = new Map<string, string[]>();

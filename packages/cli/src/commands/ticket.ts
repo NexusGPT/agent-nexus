@@ -28,6 +28,20 @@ import {
   TICKET_UPDATE_CONTRACT
 } from "./ticket.contract.generated";
 
+/*
+ * The three reserved label names are written out by hand in the `create`
+ * epilogue below, and a backend governance spec asserts they still match the
+ * server's own constant. This package publishes standalone, so it cannot import
+ * that constant to interpolate it: `wire-types-bundle.test.ts` refuses
+ * `@nexus/types` from anything the binary reaches, because it drags Zod and the
+ * generated Prisma enums into a bundle whose whole point is being small. A
+ * checked copy is what is left, and the check lives on the side that owns the
+ * fact.
+ *
+ * Keep the rationale here rather than in the epilogue: that string is projected
+ * verbatim onto the public docs site, where a monorepo path means nothing.
+ */
+
 /**
  * Parse a `--labels` value into the array the API expects. An empty value
  * yields `[]`, which on update clears the ticket's non-type labels.
@@ -216,10 +230,10 @@ Notes:
   too, so a row can look like an arbitrary hit — the text that matched it is not
   in this output. "ticket get" is where you see why.
 
-  LABELS AND TYPE OVERLAP — LABELS IS NOT SAFE TO FEED BACK. The label a ticket
-  was typed with stays in LABELS as well as being surfaced as TYPE, so passing
-  the LABELS list straight into --labels on update re-sends a reserved label.
-  Drop the type-bearing label before you send it back.
+  LABELS FEEDS BACK AS-IS. The label a ticket was typed with is surfaced as
+  TYPE and left out of LABELS, so the list goes straight into --labels on
+  update without editing. Every name in it already exists, which is what
+  --labels requires.
 
   TYPE IS OFTEN EMPTY, AND THAT IS NOT A DATA FAULT. A ticket filed outside this
   CLI carries its type as an ordinary label and never gets the typed field set,
@@ -361,9 +375,11 @@ Notes:
   DEFAULTS ARE APPLIED, NOT LEFT EMPTY: type defaults to BUG and priority to
   MEDIUM. Say so explicitly rather than letting a feature request file as a bug.
 
-  --labels ADDS LINEAR LABELS and creates them on the team if absent (max 20).
-  "bug", "feature-request" and "improvement" are reserved for --type and are
-  refused here. Use CUE to mark an agent-filed ticket.
+  --labels ADDS LINEAR LABELS, up to 20. A name matching no label this team or
+  workspace can attach is refused, naming the allowed set — it is never
+  created. "Bug", "Feature request", "Improvement" are reserved for --type,
+  matched case-insensitively, and refused here too. Use CUE to mark an
+  agent-filed ticket.
 
   ONE LINEAR TEAM BACKS EVERY ORGANIZATION, so the ticket you are about to file
   may already exist under another one of yours. Run
@@ -432,7 +448,7 @@ Notes:
       `
 Examples:
   $ nexus ticket update NEX-3469 --priority URGENT
-  $ nexus ticket update NEX-3469 --labels "CUE,needs-triage"
+  $ nexus ticket update NEX-3469 --labels "CUE,Backend"
   $ nexus ticket update NEX-3469 --labels ""
   $ nexus ticket update NEX-3469 --title "Updated title" --type BUG
   $ nexus ticket update NEX-3469 --status "In Progress"
@@ -444,8 +460,10 @@ Notes:
 
   --labels REPLACES THE TICKET'S LABELS WHOLESALE — it does not add. Sending a
   subset removes the rest; --labels "" clears them all. Read the current set
-  with "nexus ticket get" and send it back plus your addition. The type label
-  is preserved regardless and cannot be passed here.
+  with "nexus ticket get" and send it back plus your addition — and that
+  addition must already exist on the team, since a name matching no label is
+  refused rather than created. The type label is preserved regardless and
+  cannot be passed here.
 
   --description REPLACES THE WHOLE DESCRIPTION, INCLUDING THE CONTEXT BLOCK the
   ticket was filed with. That block is where context lives, so overwriting it

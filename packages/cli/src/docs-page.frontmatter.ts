@@ -18,8 +18,16 @@
  *     ("List the AI models available to your organization … including each
  *     model's provider, ID, and context window"). `command.description()` is a
  *     terse operator string ("Manage AI models"). It feeds the nav subtitle, the
- *     `<Card>` blurb, the ZeroEntropy index and the `llms-full.txt` blockquote,
- *     so replacing it with the terse form degrades four surfaces at once.
+ *     `<Card>` blurb, the `/docs/query` keyword search (which scores it at
+ *     `descriptionWeight: 5`) and the `llms-full.txt` blockquote, so replacing
+ *     it with the terse form degrades four surfaces at once.
+ *
+ *     ⚠️ It does NOT reach the vendor docs index that
+ *     `scripts/sync-docs-to-zero-entropy.ts` maintains. That script reads the
+ *     raw file itself rather than going through `docs-content.ts`, and indexes
+ *     `stripFrontmatter(content)` with metadata of only `title`, `section`
+ *     (derived from the PATH, not the frontmatter key), `url` and `indexed_at`.
+ *     Of the keys in this table only `title` reaches that index.
  *   · `title` — "Access Cards CLI", not "access-card CLI".
  *
  * So they are harvested from the pages as they stood before the migration and

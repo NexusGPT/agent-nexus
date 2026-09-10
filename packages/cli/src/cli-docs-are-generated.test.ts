@@ -6,21 +6,28 @@
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * 🚨 PLACEMENT DECIDES WHETHER A GATE RUNS AT ALL, AND THE OBVIOUS PLACEMENT IS
- * THE DEAD ONE. `scripts/ci-affected.ts` maps `content/` to `@nexus/backend` and
- * `@nexus/frontend` and to nothing else. A docs-only change therefore woke
- * neither the CLI's lint nor its tests: someone hand-edits a generated page, CI
- * is green because no job that could look at it ever ran, and the hand-written
- * copy is back.
+ * THE DEAD ONE. `content/` owns no workspace package, so the derived dependency
+ * graph sees no edge to it: a docs-only change wakes nothing on its own. Someone
+ * hand-edits a generated page, CI is green because no job that could look at it
+ * ever ran, and the hand-written copy is back.
  *
- * This spec is useless without the matching line in `EXTRA_PATH_PACKAGES`:
+ * This spec is useless without the entry that turns its job on. In
+ * `scripts/ci-affected.ts`, `content/` sits in `PATH_ONLY_PREFIXES` — classified,
+ * so it never reaches the unclassified global fallback — and the `test_vitest`
+ * rule names it directly:
  *
- *     ["content/", "@agent-nexus/cli"]
+ *     paths: ["content/"]
  *
- * which puts `content/**` into the `test_vitest` and `lint_packages` outputs.
- * That line is part of this change. If it is ever removed, this file keeps
- * passing forever by never being run — the exact shape of
- * `scripts/verify-docs-links.ts`, which checks the same tree, is referenced by a
- * comment in one backend spec, and is invoked by no CI job at all.
+ * Both halves are required and the pair is checked rather than asserted: check 6
+ * of `collectVerifyErrors` reds `What changed` on a `PATH_ONLY_PREFIXES` entry
+ * that no `JOB_RULES.paths` names, because such an entry is a silent ignore
+ * wearing a classification's clothes — it would switch this file off while
+ * looking deliberate. Read the pair off that file, never off this sentence:
+ *
+ *     git grep -n 'PATH_ONLY_PREFIXES\|paths: \["content/"\]' -- scripts/ci-affected.ts
+ *
+ * If the `test_vitest` entry is ever removed, this file keeps passing forever by
+ * never being run.
  *
  * ── DIRECTION 0: THE PAGE EXISTS AT ALL ─────────────────────────────────────
  *
@@ -175,6 +182,31 @@ function navigableSlugPaths(): Set<string> {
     extract(tab.groups);
   }
   return slugs;
+}
+
+/**
+ * Whether a navigation slug path resolves to a page a reader can actually be
+ * served — a MODEL of `createDocsContent().getDocBySlug()`, candidate for
+ * candidate, in `packages/docs-content/src/docs-content.ts`.
+ *
+ * 🚨 THE FOUR CANDIDATES ARE THE CONTRACT, NOT A CONVENIENCE. `getDocBySlug`
+ * tries `<slug>.mdx`, `<slug>/index.mdx`, `<slug>.md`, `<slug>/index.md` and
+ * returns `null` when none exists. Model fewer and correct entries go red;
+ * model more and the check stops catching the thing it is for. Both directions
+ * are covered by the negative control beside the live case below.
+ *
+ * The traversal guard in `getDocBySlug` is deliberately NOT modelled. It exists
+ * because that resolver takes an untrusted slug off the public docs API; the
+ * entries here come from a file in this repository, so reproducing it would be
+ * modelling a threat this population does not have.
+ */
+function navEntryResolves(slugPath: string, root: string = DOCS_ROOT): boolean {
+  return [
+    `${slugPath}.mdx`,
+    `${slugPath}/index.mdx`,
+    `${slugPath}.md`,
+    `${slugPath}/index.md`
+  ].some((candidate) => existsSync(join(root, candidate)));
 }
 
 /**
@@ -482,10 +514,15 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // Enumerated from the corpus as it stood before the migration: title,
     // description and section are on 48/48 pages and icon on 47/48. All four
     // are read by `docs-content.ts` into `DocPage.frontmatter` and flow to the
-    // nav sidebar, every <Card>, the ZeroEntropy index and the `llms-full.txt`
-    // blockquote. `docs-content` defaults each one, so a missing key does not
-    // throw anywhere — it renders as an empty subtitle or a missing icon, which
-    // reads as a design choice rather than as a bug.
+    // nav sidebar, every <Card>, the `/docs/query` keyword search and the
+    // `llms-full.txt` blockquote. `docs-content` defaults each one, so a missing
+    // key does not throw anywhere — it renders as an empty subtitle or a missing
+    // icon, which reads as a design choice rather than as a bug.
+    //
+    // The vendor docs index is NOT one of those consumers. Its sync script
+    // (`scripts/sync-docs-to-zero-entropy.ts`) reads the raw files itself rather
+    // than through `docs-content.ts`, and strips the frontmatter before
+    // indexing — so of these four keys only `title` reaches it.
     const required = ["title:", "description:", "icon:", "section:"];
     const broken: string[] = [];
     for (const file of pages) {
@@ -533,6 +570,52 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     expect(syncedDocPages().length).toBeGreaterThan(200);
     expect(reachable.size).toBeGreaterThan(200);
     expect(dark).toEqual([]);
+  });
+
+  it("every navigation.json entry names a page that exists", () => {
+    // 🚨 THE INVERSE OF THE CASE ABOVE, AND NOTHING GATED IT. That one asks
+    // whether every PAGE is reachable; this one asks whether every ENTRY is
+    // resolvable. They are different populations and neither implies the other:
+    // a dangling entry ADDS to `reachable`, so it can only make the dark set
+    // SMALLER — the arm above goes greener as this defect gets worse.
+    //
+    // What a dangling entry costs, end to end: `getAllDocSlugs()` emits it,
+    // `DocsSidebar.tsx` renders a link for it, and `getDocBySlug()` returns
+    // `null` — silently, with no throw and no log anywhere in
+    // `packages/docs-content`. So a customer clicks a sidebar item and gets a
+    // 404, and no build, no boot and no suite says a word.
+    //
+    // MEASURED on this tree before the arm existed: a coined entry appended to
+    // the manifest over a page that does not exist left
+    // `scripts/__tests__/docs-links-resolve.spec.ts` at 17/17 and this very file
+    // at 15/15. That checker reads links out of MDX PROSE; the manifest is
+    // JSON and carries none, so it is not in its population at all.
+    const unresolvable = [...navigableSlugPaths()]
+      .filter((slugPath) => !navEntryResolves(slugPath))
+      .sort();
+
+    // Anti-vacuity. A nav parse that resolved nothing satisfies
+    // `unresolvable === []` and reads exactly like a clean manifest — the same
+    // hole the case above guards, and it needs its own guard because an arm
+    // borrows nothing from its neighbour's assertions.
+    expect(navigableSlugPaths().size).toBeGreaterThan(200);
+    expect(unresolvable).toEqual([]);
+  });
+
+  it("refuses a manifest entry whose page is absent, and accepts one whose page is there", () => {
+    // The live case above passes today because the manifest is clean, so on its
+    // own it is a claim about coverage that has never been watched refuse. This
+    // drives the same resolver both ways over the same tree.
+    //
+    // 🔴 BOTH HALVES ARE LOAD-BEARING. Without the accept half, a resolver that
+    // returned `false` for everything would satisfy the refuse half and turn the
+    // live case into a permanent red on a correct manifest — a gate that refuses
+    // correct work, which is a gate someone deletes.
+    expect(navEntryResolves("user-manual/no-such-page-anywhere")).toBe(false);
+
+    const real = [...navigableSlugPaths()];
+    expect(real.length).toBeGreaterThan(200);
+    expect(navEntryResolves(real[0])).toBe(true);
   });
 
   it("a --out that does not exist is refused, in both modes", () => {

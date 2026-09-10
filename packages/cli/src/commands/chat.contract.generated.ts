@@ -43,7 +43,8 @@ export const CHAT_SEND_MESSAGE_STREAM_CONTRACT = {
     { path: "Body.trigger", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.messageId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.knowledgeIds", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.images", slot: "Body", type: "array", required: false, depth: 0 }
+    { path: "Body.images", slot: "Body", type: "array", required: false, depth: 0 },
+    { path: "Body.metadata", slot: "Body", type: "object", required: false, depth: 0, opaque: true }
   ]
 } as const satisfies ProjectedDescriptor;
 

@@ -38,6 +38,26 @@ import {
 const TRIGGER_TYPES: readonly ReplaceTriggerBody["type"][] =
   WORKFLOW_NODE_REPLACE_TRIGGER__BODY_TYPE.contractValues;
 
+/**
+ * Narrow a `--type` string to the SDK's own trigger union.
+ *
+ * A PREDICATE rather than a bare `.includes` followed by an assertion, and the
+ * difference is what the compiler can say. `opts.type as ReplaceTriggerBody["type"]`
+ * is an assertion: nothing links it to the check above it, so moving that check,
+ * or deleting it, still compiles. Narrowing through this predicate makes the
+ * annotated binding at the call site an ASSIGNMENT the compiler checks, so
+ * deleting the guard is a `TS2322` rather than a silent widening.
+ *
+ * The one cast left is on the HAYSTACK: `Array.prototype.includes` declares its
+ * parameter as the array's own element type, so a `readonly ApiTriggerType[]`
+ * refuses a `string` needle. Widening the array switches no check off — every
+ * member of the union is a `string` — and the needle is what the predicate then
+ * narrows.
+ */
+function isTriggerType(value: string): value is ReplaceTriggerBody["type"] {
+  return (TRIGGER_TYPES as readonly string[]).includes(value);
+}
+
 export function registerWorkflowBuilderCommands(workflow: Command, program: Command): void {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Node sub-group
@@ -1101,23 +1121,29 @@ Notes:
     .action(async (wfId: string, opts: { type: string; body?: string }) => {
       try {
         // Commander refuses anything outside the contract list before this runs,
-        // so this narrow is what makes the assertion below honest rather than a
-        // second gate: `TRIGGER_TYPES` is annotated as the SDK union, so a value
-        // that survives the check is a member of it.
-        if (!(TRIGGER_TYPES as readonly string[]).includes(opts.type)) {
+        // so this narrow is a second gate rather than the only one: `TRIGGER_TYPES`
+        // is annotated as the SDK union, so a value that survives the check is a
+        // member of it.
+        if (!isTriggerType(opts.type)) {
           throw new Error(
             `--type must be one of: ${TRIGGER_TYPES.join(", ")} (got '${opts.type}')`
           );
         }
-        const triggerType = opts.type as ReplaceTriggerBody["type"];
+        // An ANNOTATED binding, not an assertion. `opts.type` is `ApiTriggerType`
+        // by control flow after the guard, so the compiler checks this line;
+        // delete the guard and it stops compiling. It is redundant to the naked
+        // eye and it is the thing that binds the runtime narrow to the type.
+        const triggerType: ReplaceTriggerBody["type"] = opts.type;
         const client = createClient(program.optsWithGlobals());
         const extra = await resolveBody(opts.body);
-        // Narrow at the SDK boundary: `type` is runtime-validated above,
-        // and `--body` may carry trigger-specific config the SDK type
-        // intentionally elides. mergeBodyWithFlags returns a generic Record.
-        const body = mergeBodyWithFlags(extra, {
-          type: triggerType
-        }) as unknown as ReplaceTriggerBody;
+        // `--body` is operator JSON that nothing here can narrow, so it crosses
+        // into a typed SDK argument at `asRequestBody` — the ONE named boundary
+        // for that crossing, which every other call in this file already uses.
+        // Spelling the same double cast inline is what that helper exists to
+        // stop: it reads as a local shortcut instead of as the one door.
+        const body = asRequestBody<ReplaceTriggerBody>(
+          mergeBodyWithFlags(extra, { type: triggerType })
+        );
         const result = await client.workflows.replaceTrigger(wfId, body);
         printRecord(result);
       } catch (err) {

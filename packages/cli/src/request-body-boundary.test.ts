@@ -133,25 +133,14 @@ const UNGATED_WITH_REASON: readonly { file: string; code: string; reason: string
       "change, not a typing one. The CLI cannot import Zod (see `asRequestBody`'s docblock)."
   },
   {
-    file: "commands/workflow-builder.ts",
-    code: "mergeBodyWithFlags(extra, { type: triggerType }) as unknown as ReplaceTriggerBody",
-    reason:
-      "Open PR #2583 rewrites this file and the workflow wire types it asserts against. " +
-      "Two PRs editing it have already conflicted three times."
-  },
-  {
-    file: "commands/workflow-builder.ts",
-    code: "client.workflows.replaceTrigger(wfId, body)",
-    reason: "Same file, same open PR #2583. It is the call site of the assertion above."
-  },
-  {
     file: "commands/workflow.ts",
     code: "(await client.workflows.testWorkflow(id, body)) as unknown as Record< string, unknown >",
     reason:
       "A RESPONSE, widened so a `status` column can be read off it. The service returns " +
-      "`{ executionId, status: 'RUNNING' }` from both arms while the SDK's `TestResult` " +
+      "`{ executionId, status: 'RUNNING' }` from both arms while the SDK's `TestWorkflowResult` " +
       "declares only `executionId` — so removing this widening deletes a column that is " +
-      "real. The fix belongs in `packages/sdk/src/types/workflows.ts`, which open PR #2583 owns."
+      "real. The fix is in `packages/sdk/src/types/workflows.ts` and it is unowned: this " +
+      "entry named PR #2583 as its blocker, and that PR merged on 2026-08-06."
   }
 ];
 

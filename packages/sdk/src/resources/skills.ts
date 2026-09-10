@@ -865,8 +865,8 @@ export class SkillsResource extends BaseResource {
   }
 
   /**
-   * Semantic content retrieval within a collection (ZeroEntropy) — matches
-   * document content, unlike searchCollection which matches document names.
+   * Semantic content retrieval within a collection — matches document
+   * content, unlike searchCollection which matches document names.
    */
   async queryCollection(
     collectionId: string,

@@ -44,6 +44,12 @@
  * cannot be asked for - it needs another job to delete a row inside a window
  * nobody controls. See the block that reads it.
  *
+ * FAKE_EMPTY_PRODUCERS is PARTIAL emptiness: named producers return zero rows
+ * while every other one answers normally. `FAKE_MODE=empty` empties EVERY
+ * producer at once, which is the total outage the sweep reserves its own code
+ * for, so it cannot produce a run that reaches something AND is thin. See the
+ * block that reads it.
+ *
  * FAKE_UNREADABLE_REREAD (+ FAKE_STATE_DIR) is the fifth: a producer whose first
  * read is a good list and whose every later read answers EXIT 0 with a body that
  * is not a list at all. It composes with FAKE_VANISH_PRODUCERS, and it is the
@@ -85,6 +91,46 @@ if (mode === "unreachable") {
     1
   );
 }
+
+// FAKE_EMPTY_PRODUCERS: a comma-separated list of PRODUCER leaves that return
+// zero rows while every other producer answers normally.
+//
+// ══════════════════════════════════════════════════════════════════════════════
+// 🚨 THE ONE STATE `FAKE_MODE=empty` STRUCTURALLY CANNOT PRODUCE
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// `empty` empties EVERY producer, so every leaf skips, nothing is reached, and
+// the sweep exits on its nothing-reached rung. That is a TOTAL outage. The state
+// the provisioned floor is about is the partial one — some producers hold rows,
+// some do not, so the run reaches something and is still too thin to be
+// coverage. Without this knob no case can land a run at a chosen `provisioned`,
+// and the floor's arms cannot exist at all.
+//
+// ⚠️ IT REFUSES A VALUE IT CAN JUDGE, RATHER THAN SILENTLY MATCHING NOTHING. A
+// leaf path is compared EXACTLY, so `"tracks list, agent list"` — the spelling
+// everyone types — leaves the second entry matching no leaf, the run lands at a
+// provisioned count nobody chose, and the arm passes for the wrong reason. This
+// fixture is spawned once per call and sees only its own argv, so it cannot
+// check an entry against the producer set (the same reason `FAKE_FAIL_N` could
+// not be implemented here). Whitespace and a stray comma it CAN judge alone, and
+// it does, loudly — the same discipline as the race knobs refusing without
+// FAKE_STATE_DIR.
+const emptyProducers = ((): string[] => {
+  const raw = process.env.FAKE_EMPTY_PRODUCERS;
+  if (raw === undefined || raw === "") return [];
+  const entries = raw.split(",");
+  for (const entry of entries) {
+    if (entry === "")
+      die("FAKE_EMPTY_PRODUCERS has an empty entry - a stray or trailing comma\n", 1);
+    if (entry !== entry.trim())
+      die(
+        `FAKE_EMPTY_PRODUCERS entry ${JSON.stringify(entry)} carries whitespace - ` +
+          `leaf paths are matched EXACTLY, so this one would match nothing\n`,
+        1
+      );
+  }
+  return entries;
+})();
 
 if (args[0] === "auth" && args[1] === "status")
   say({ success: true, data: { organization: "fake-org" } });
@@ -163,6 +209,10 @@ const DOOMED = /-doomed$/;
 
 if (isProducer) {
   if (mode === "empty") say({ success: true, data: [] });
+  // The same shape as `empty`, for NAMED producers only. Placed with it rather
+  // than further down so the two live side by side: they differ in POPULATION,
+  // never in what a producer answers.
+  if (emptyProducers.includes(leaf)) say({ success: true, data: [] });
 
   const slug = leaf.replace(/\s+/g, "-");
   const survivor = { id: `fake-${slug}-1`, slug: `fake-slug-1` };

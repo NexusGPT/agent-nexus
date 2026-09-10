@@ -447,15 +447,17 @@ export class RolesResource extends BaseResource {
    * that person between the two rather than failing. Read `tier` off the result
    * instead of assuming this was an insert.
    *
-   * 🚨 A MEMBERSHIP ROW IS NOT A LABEL, AND IT IS NOT A CAPABILITY GRANT. It is how
+   * 🚨 A MEMBERSHIP ROW ON ITS OWN IS NOT A CAPABILITY GRANT. It is how
    * the server resolves a person's reach into the Role's systems, collections and
-   * workspaces. It writes no permission-set membership, so on its own it carries no
-   * Role capability at all — {@link RolesResource.addPermissionSetMember} is what
-   * grants those.
+   * workspaces, and it writes no permission-set membership by itself —
+   * {@link RolesResource.addPermissionSetMember} is how a CUSTOM set is joined.
    *
-   * ⚠️ THE TIER IS RECORDED AND NOTHING READS IT. `ADMIN` and `MEMBER` resolve to the
-   * same reach and the same capabilities, so `tier` states an intent rather than
-   * conferring anything.
+   * ⚠️ `tier` NOW SEATS THE PERSON INTO A REAL PERMISSION SET. `ADMIN` is seated
+   * into `maintainer` — every capability the catalog defines except deleting the
+   * Role (owner- or org-admin-only) and creating one (org-scoped-only) —  and
+   * `MEMBER` into `member` (every read, plus filing an access request). Reach
+   * into the Role's systems, collections and workspaces stays identical either
+   * way; the CAPABILITY set does not.
    *
    * ⚠️ THE USER MUST ALREADY BE IN YOUR ORGANIZATION. A user id from another
    * tenant answers 404 with the same body an id that exists nowhere gets — the

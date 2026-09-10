@@ -47,9 +47,10 @@ import { planThread } from "../src/id-graph.thread";
  *   REFUSED        the run could not establish its own preconditions, so it
  *                  reports no per-leaf verdicts at all.
  *
- * Exit codes: 0 all reached · 1 at least one FAILED · 4 preflight refusal ·
- * 5 empty population · 7 nothing reached. The status names the KIND of outcome;
- * the COUNT is in the output and never in the status.
+ * Exit codes: 0 at or above the provisioned floor with nothing failing ·
+ * 1 at least one FAILED · 4 preflight refusal · 5 empty population ·
+ * 7 nothing reached · 8 below the provisioned floor. The status names the KIND
+ * of outcome; the COUNT is in the output and never in the status.
  *
  * "No agent existed to test with" and "the route is broken" are opposite facts,
  * and a harness that renders both as a non-green is not a control. Worse in the
@@ -61,6 +62,13 @@ import { planThread } from "../src/id-graph.thread";
  * An all-skipped run is the failure mode this harness exists to prevent, and
  * shipping one inside the fix for it would be the joke writing itself.
  * See {@link EXIT_NOTHING_REACHED}.
+ *
+ * AND A RUN THAT REACHED ONE LEAF IS THE SAME FAILURE MODE WITH A NUMERATOR.
+ * Every count above is on STDOUT, and the thing branch protection and a reviewer
+ * read is the STATUS. So a floor sits beside the disclosure rather than replacing
+ * it: a run whose PROVISIONED population - the leaves whose id-producer returned
+ * at least one row - falls under {@link PROVISIONED_FLOOR} exits non-zero with a
+ * code of its own. See {@link EXIT_BELOW_FLOOR}.
  *
  * -- READ-ONLY, PROVEN RATHER THAN INTENDED ----------------------------------
  *
@@ -99,6 +107,60 @@ const EXIT_PREFLIGHT = 4;
 const EXIT_EMPTY_POPULATION = 5;
 /** Leaves were considered and NONE was reached. Never a pass, even with 0 failures. */
 const EXIT_NOTHING_REACHED = 7;
+/**
+ * Something was reached and nothing failed, and still too little of the
+ * population had an id to test with. See {@link PROVISIONED_FLOOR}.
+ *
+ * It is its OWN number rather than a reuse of 7. Both mean "this run is not
+ * coverage", and they mean it about different worlds: 7 is a total outage,
+ * where every producer came back empty and no route was touched at all, and 8
+ * is a run that genuinely exercised part of the tree. Spending one number on
+ * both would be the failure this file's own exit-code block was written about,
+ * arriving through the fix for a different one.
+ */
+const EXIT_BELOW_FLOOR = 8;
+
+/**
+ * THE LEAST OF THIS HARNESS'S POPULATION THAT MUST HAVE HAD AN ID TO TEST WITH.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE FLOOR IS ON `provisioned`, NEVER ON `reached`, AND THAT IS THE DESIGN
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `provisioned` is `executable - SKIPPED_NO_ID`: the leaves whose id-producer
+ * came back with at least one row, whatever became of them afterwards. It is
+ * the population that SURVIVES every cure, which is the only kind of population
+ * a floor may sit on. `packages/types/src/testing/shrink-only-ledger.ts` states
+ * the same rule for the same reason, over its own `floor`.
+ *
+ *   - Seeding a fixture RAISES it. The repair moves the number the right way.
+ *   - Fixing a broken route leaves it FLAT. A cured leaf always had an id.
+ *   - The concurrent-delete race CANNOT MOVE IT. A `SKIPPED_ID_VANISHED` row
+ *     had a fixture - it was listed, and a concurrent writer deleted it between
+ *     the list call and the read - so it is provisioned and stays provisioned.
+ *     That race is live rather than theoretical: {@link NOT_FOUND_REATTEMPTS}
+ *     bounds it and does not remove it.
+ *
+ * A floor on `reached` goes red on all three, and calls each of them a coverage
+ * outage. It is the same threshold on the wrong noun.
+ *
+ * 🚨 A CHECKED-IN LITERAL, NEVER `graph.executable.length` MINUS ANYTHING AT
+ * RUNTIME. A floor derived from the population it bounds bounds itself: every
+ * leaf could lose its fixture and the comparison would still hold, silently and
+ * forever. `src/id-graph.ledger.test.ts` carries the same warning verbatim over
+ * its own `ceiling`.
+ *
+ * debt: floor 10, below the 14 provisioned last measured live on 2026-09-01,
+ *       because no PR-time run can observe staging to confirm 14.
+ *       Upgrade trigger: the first green promotion run prints `provisioned=N` -
+ *       raise this literal to that N.
+ *
+ * What 10 buys, against that measurement: the 14 come from nine producers, the
+ * largest of which feeds 3 leaves, so no single producer going empty can cross
+ * it and it takes at least two to. It catches a multi-namespace fixture outage
+ * and deliberately does not catch a single-leaf one.
+ */
+const PROVISIONED_FLOOR = 10;
 
 /**
  * The vocabulary is declared ONCE, in `src/id-graph.outcome.ts`, and this file
@@ -416,6 +478,11 @@ function main(): void {
   const skippedNeedsInput = countOf("SKIPPED_NEEDS_INPUT");
   const skipped = skippedNoId + skippedIdVanished + skippedNeedsInput;
   const failed = countOf("FAILED");
+  // The leaves whose id-producer returned at least one row. `SKIPPED_NO_ID` is
+  // the ONLY outcome that means no id existed, so it is the only subtraction —
+  // a vanished row, a needs-input refusal and a failure all had one. See
+  // PROVISIONED_FLOOR for why this is the population the floor sits on.
+  const provisioned = graph.executable.length - skippedNoId;
 
   if (AS_JSON) {
     process.stdout.write(
@@ -435,8 +502,13 @@ function main(): void {
             skippedIdVanished,
             skippedNeedsInput,
             failed,
+            // ADDED, never renamed over an existing key: this shape is a
+            // contract even though nothing consumes it today, and the next
+            // reader ratchets PROVISIONED_FLOOR off this number.
+            provisioned,
             total: results.length
           },
+          floor: { provisioned: PROVISIONED_FLOOR },
           results
         },
         null,
@@ -466,6 +538,16 @@ function main(): void {
         `(${skippedNoId} no-id, ${skippedIdVanished} vanished, ${skippedNeedsInput} needs-input) · ` +
         `${failed} failed\n`
     );
+    // 🚨 ITS OWN LINE, BESIDE THE SUMMARY AND NEVER INSIDE IT. The `Summary:`
+    // line is parsed by a regex in `test/id-thread/id-thread-sweep.test.ts`, and
+    // every case there reads it — a new field inside it throws
+    // `no summary line in:` from the PARSER, which reads as this runner having
+    // broken. It is also a different question: the summary counts OUTCOMES, and
+    // this is how much of the population could be tested at all.
+    process.stdout.write(
+      `provisioned=${provisioned} of ${graph.executable.length} executable ` +
+        `(floor ${PROVISIONED_FLOOR}) - leaves whose id-producer returned at least one row\n`
+    );
 
     const inert = inertNamespaces(results, graph.executable.length);
     if (inert.length > 0) {
@@ -477,7 +559,15 @@ function main(): void {
     }
   }
 
-  // Zero reached is a refusal even with zero failures. See the header.
+  // ══════════════════════════════════════════════════════════════════════════
+  // THE EXIT LADDER. WHICH KIND, never HOW MANY — see the exit-code block at
+  // the top of this file. The ORDER is a decision, and each rung states its own.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // 7 FIRST. A run that reached nothing is also, necessarily, below the floor —
+  // and it keeps its own reserved code, because "every producer came back empty
+  // and no route was touched" is a different world from "part of the tree was
+  // exercised and it was too little". 7 is already published for the first.
   if (reached === 0) {
     process.stderr.write(
       `REFUSED: ${results.length} leaves considered and NONE was reached ` +
@@ -485,8 +575,34 @@ function main(): void {
     );
     process.exit(EXIT_NOTHING_REACHED);
   }
-  // WHICH KIND, never HOW MANY. See the exit-code block at the top of this file.
-  process.exit(failed > 0 ? EXIT_FAILURES : 0);
+
+  // 🚨 1 SECOND, AND AHEAD OF THE FLOOR. A FAILED leaf is a positive finding
+  // about a ROUTE; the floor is a statement about the ENVIRONMENT. The floor's
+  // entire marginal value is stopping a run that would OTHERWISE REPORT A PASS
+  // — on a run already exiting non-zero it adds nothing at all, while putting
+  // it first would overwrite the one signal a reader acts on, replacing "a
+  // route is broken, fix it" with "seed more fixtures". Nothing is lost by
+  // deferring: fix the route, re-run, and the floor still bites.
+  //
+  // The failing leaves are named on stdout either way — and stdout is precisely
+  // what the exit code exists because nobody reads.
+  if (failed > 0) process.exit(EXIT_FAILURES);
+
+  // 8 LAST, on the only runs where it changes an answer: the ones that would
+  // otherwise be green.
+  if (provisioned < PROVISIONED_FLOOR) {
+    process.stderr.write(
+      `REFUSED: BELOW THE PROVISIONED FLOOR - ${provisioned} of ` +
+        `${graph.executable.length} executable leaves had an id to test with, ` +
+        `and the floor is ${PROVISIONED_FLOOR}.\n` +
+        `${reached} leaf/leaves answered correctly and nothing failed, so this is a ` +
+        `COVERAGE outage rather than a broken route.\n` +
+        `Seed with scripts/seed-sweep-fixtures.sh (write-scoped key). This job's key is read-only.\n`
+    );
+    process.exit(EXIT_BELOW_FLOOR);
+  }
+
+  process.exit(0);
 }
 
 main();

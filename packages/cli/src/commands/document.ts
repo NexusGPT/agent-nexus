@@ -550,8 +550,8 @@ Notes:
 
         const doc = await client.documents.update(id, asRequestBody<UpdateDocumentBody>(body));
         printSuccess("Document updated.", { id: doc.id ?? id });
-        // A metadata edit only writes the DB column; ZeroEntropy stays stale
-        // until the document is reprocessed. Nudge the user so the change is
+        // A metadata edit only writes the DB column; the retrieval index stays
+        // stale until the document is reprocessed. Nudge the user so the change is
         // not silently invisible to search/retrieval.
         if (metadataFlags.length > 0) {
           printWarning(

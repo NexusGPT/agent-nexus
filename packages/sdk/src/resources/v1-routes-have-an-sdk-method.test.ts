@@ -141,19 +141,23 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * from this gate for ever, and nothing re-tests it. Prefer a reason naming what
  * would have to change.
  *
- * 57 → 58. `DeploymentAnonymousChatSessionCreate` is one row up, and the
- * argument is deliberately NOT "no caller yet". `NexusClient`'s constructor
- * throws without an API key — `opts.apiKey ?? getEnv("NEXUS_API_KEY")`, then
- * `if (!apiKey) throw` — and the whole contract of that route is a caller who
- * presents none. So this SDK cannot represent its principal at all, and a
- * method here would be an inferior duplicate of `chat.createSession`: same
- * credential in the constructor, same response, and strictly less capability,
- * since the anonymous door can neither resume a conversation nor carry an
- * identity.
+ * 57 → 58. `DeploymentAnonymousChatSessionCreate` is one row up, and the lesson
+ * directly above is the reason its row names a property of THIS SDK rather than
+ * of the route. A credential-less caller already exists:
+ * `createBrowserChatClient` constructs an `HttpClient` with no `apiKey` at all.
+ * What blocks the method is one line inside it — `HttpClient.credentialHeaders`
+ * throws unless it resolves a chat-session token or an API key, and this route's
+ * whole contract is a caller presenting neither. The day a send path can issue a
+ * deliberately uncredentialled request, the method is three lines and this
+ * figure comes back down.
  *
- * Per the lesson directly above, the row names what would have to change: a
- * `NexusClient` constructible with NO credential. On the day that exists the
- * method is three lines and this figure comes back down.
+ * ⚠️ AND THIS ROUTE IS NOT THE LESSER DOOR, SO THE ROW IS DEBT RATHER THAN A
+ * DESIGN. It accepts `externalUserId` and `identityHash`, so it mints a session
+ * carrying a VERIFIED IDENTITY with no organization API key ever reaching the
+ * browser — which is precisely what `chat.createSession` cannot offer a
+ * static-host embed, and the reason the route exists. It still cannot resume a
+ * conversation, and the org-key mint can; that is the one axis on which it is
+ * narrower. A method here is wanted on capability grounds, not merely permitted.
  *
  * 58 → 61 for `ChatResumeStream`, `ChatStopTurn` and `ChatTurnStatus`, the
  * resume half of the browser chat surface. THREE ORDINARY DEBT ROWS, and the
@@ -244,10 +248,10 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   VibeRegisterAppAsTool: "vibe app surface is driven by the vibe SDK, not this one",
   DeploymentVoiceSessionCreate: "voice session handshake is driven by the realtime client",
   DeploymentAnonymousChatSessionCreate:
-    "the route's principal is a browser presenting NO credential, and NexusClient throws " +
-    "without an API key — so this SDK cannot construct the caller it is for. Writable when a " +
-    "credential-less client exists; until then a method would duplicate chat.createSession " +
-    "with less capability.",
+    "the route's principal presents NO credential, and HttpClient.credentialHeaders throws " +
+    "unless it resolves a chat-session token or an api-key — so no send path in this SDK can " +
+    "issue a deliberately uncredentialled request. Writable the day one can; the route carries " +
+    "a verified identity an org-key mint cannot give a browser, so this is debt, not a design.",
   // `DeploymentChatSessionCreate` and `ChatSendMessageStream` were both here and
   // are both gone: `ChatResource.createSession` / `.stream` / `.streamRaw` reach
   // them. Do not re-add either — see the ceiling's docblock for why the second

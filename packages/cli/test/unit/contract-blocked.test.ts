@@ -14,6 +14,7 @@ import {
   censusNamespaces,
   renderAudit
 } from "./contract-blocked-audit";
+import { buildProgram } from "./help-truth-scan";
 
 /**
  * THE GATE OVER `BLOCKED_DESCRIPTORS` — a refusal must be true TODAY, not on the
@@ -95,6 +96,43 @@ test("every visible namespace is in some list", () => {
   // through the SDK, declared no enum, and appeared in no list at all — while
   // the rollout ratio was being quoted as 39/46 against a tree of 47.
   assert.deepEqual(audit.namespaces.unaccounted, [], `\n\n${renderAudit(audit)}\n`);
+});
+
+test("the REAL tree's census still NAMES an unaccounted namespace when one exists", () => {
+  // 🔴 THE ARM ABOVE IS FULLY SATISFIED BY A CENSUS THAT CAN NEVER FIRE.
+  // Measured 2026-09-09: hardwire `unaccounted: []` in `censusNamespaces` and it
+  // stays GREEN, because this tree genuinely has zero unaccounted namespaces —
+  // so "the census looked and found none" and "the census cannot report one"
+  // are the same empty list, and reading it cannot tell them apart.
+  //
+  // The synthetic-tree arm below DOES die on that mutation, and it is not a
+  // substitute: it judges a five-command toy built in this file. It says
+  // nothing about the census applied to THIS tree — this `isHiddenCommand`,
+  // these three ledgers, these 50-odd real namespaces — which is the only
+  // population the arm above is about.
+  //
+  // So plant one coined namespace on the REAL program and require the REAL
+  // census to name it. `known-issues` shipped in exactly this shape: a
+  // namespace added to the CLI and to no list. The branch is the one production
+  // takes, and the token is coined only so a hit on it cannot come from
+  // anything else.
+  const PLANTED = "zz-sentinel-coined-unaccounted-namespace";
+
+  const planted = buildProgram();
+  planted.command(PLANTED).description("coined by this spec; never shipped");
+  const census = censusNamespaces(planted);
+
+  // CONTROL FIRST: a plant the walk never saw would make the assertion below
+  // fail for the wrong reason, and a plant the census classified into some
+  // other bucket would make it fail for a third one.
+  assert.ok(census.visible.includes(PLANTED), "the planted namespace is not even visible");
+  assert.ok(!census.converted.includes(PLANTED));
+  assert.ok(!census.uncontracted.includes(PLANTED));
+  assert.ok(!census.blockedOnly.includes(PLANTED));
+
+  // The plant, and NOTHING ELSE — so this arm carries the real-tree claim above
+  // as well, and cannot go green on a census that reports nothing.
+  assert.deepEqual(census.unaccounted, [PLANTED]);
 });
 
 test("the namespace census is real, and its verdict is not vacuous", () => {

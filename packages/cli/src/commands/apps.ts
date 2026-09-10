@@ -930,17 +930,19 @@ badly once impossible to correct without an empty commit. Use it after a
 builder or base-image fix; it costs a full build, so it is not the default.
 
 --skip-verification ships past the server-side gate on an app that has
-verification turned on. Without it, such a deploy is REFUSED after its
-build succeeds if the repo's declared artifacts (docs/feature-manifest.md,
-docs/DESIGN.md, docs/SPEC.md, journeys/.last-pass, docs/COVERAGE.md) are
-missing at the deployed commit, or if COVERAGE.md records a FAIL/BLOCKED
-journey. The refusal is terminal FAILED and names the artifacts.
+verification turned on. Without it, such a deploy is REFUSED at dispatch,
+before any build starts, if the repo's declared artifacts
+(docs/feature-manifest.md, docs/DESIGN.md, docs/SPEC.md,
+journeys/.last-pass, docs/COVERAGE.md) are missing at the deployed commit,
+or if COVERAGE.md records a FAIL/BLOCKED journey. The refusal is terminal
+FAILED, names the artifacts, and costs no build minute: no builder is
+contacted. A WARN-mode finding is recorded and the build proceeds.
 
 It is a DELIBERATE, RECORDED bypass, not a quiet one: it writes a
 DEPLOYMENT_VERIFICATION_OVERRIDDEN audit row naming you and the commit. On
 an app that does not require verification it changes nothing and records
-nothing. Nothing is rebuilt either way — the gate runs after the build, so
-the image already exists and an override ships it as-is.
+nothing. A refused deploy built nothing, so an override is a fresh deploy of
+the same commit and builds it normally.
 
 Examples:
   $ nexus apps deploy 11111111-2222-4333-8444-555555555555 --sha 1a2b3c4

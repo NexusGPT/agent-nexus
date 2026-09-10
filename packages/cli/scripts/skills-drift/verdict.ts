@@ -261,10 +261,25 @@ export async function detectDrift(params: {
   // The forward compare is MERGE-BASE-relative — measured, not assumed:
   // `pin...tip` and `merge_base...tip` return byte-identical arrays. So it
   // shows only what upstream ADDED since the fork point, and commits unique to
-  // the pin side are absent from it ENTIRELY rather than shown reversed. Live
-  // today that is 7 pin-only commits over 6 files, one of them a 416-line skill
-  // that exists at the pin and not on main: a bump would DELETE it, and a
-  // forward-only reading would never say so.
+  // the pin side are absent from it ENTIRELY rather than shown reversed. Where
+  // that side is non-empty a bump DELETES those files, and a forward-only
+  // reading never says so.
+  //
+  // The pin is a strict ancestor of the tip: `pin...tip` answers `ahead` with
+  // the merge base equal to the pin ITSELF, and the reverse `tip...pin` answers
+  // `behind` with an EMPTY file list. Nothing is pin-only, so a bump today drops
+  // nothing. That is a reading of two moving refs, taken 2026-09-09 — re-derive
+  // it rather than trusting this line:
+  //
+  //   gh api repos/NexusGPT/claude-code-skills-nexus/compare/<pin>...<tip> \
+  //     --jq '{status,ahead_by,behind_by,merge_base:.merge_base_commit.sha}'
+  //
+  // 🚨 THE TRAP HAS A SECOND FACE, AND IT IS HOW A WRONG PIN-ONLY READING GETS
+  // WRITTEN DOWN IN THE FIRST PLACE: a reverse compare's `added` entries are
+  // added relative to the MERGE BASE, never relative to the other tip. Reading
+  // one as "absent from the other side" is this same merge-base mistake pointed
+  // the other way — a file can be `added` on the pin side and have existed on
+  // main the whole time.
   //
   // `behind_by > 0` is the exact condition for that side being non-empty, so it
   // is the gate — not the `status` STRING, which spells the same fact two ways

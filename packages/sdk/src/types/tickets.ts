@@ -104,8 +104,13 @@ export interface CreateTicketBody {
   context?: TicketContext;
   /**
    * Extra Linear labels to attach, e.g. `["CUE"]` to mark an agent-filed ticket.
-   * Created on demand when the team does not have them yet. The reserved type
-   * labels ("bug", "feature-request", "improvement") are rejected — use `type`.
+   * A name matching no label this team or workspace can attach is refused with
+   * a 400 naming the unknown names and the allowed set — never created.
+   *
+   * The three reserved type labels — "Bug", "Feature request" and "Improvement",
+   * matched case-insensitively — are rejected here; set the ticket type with
+   * `type` instead. The retired spelling "feature-request" is refused too, so a
+   * caller still sending it gets an error rather than a stray label.
    */
   labels?: string[];
 }

@@ -220,30 +220,36 @@ function bodyWritesJsonItself(body: ts.Node): boolean {
  */
 function reachesSelfJson(
   seed: ReadonlySet<string>,
-  bodies: Map<string, ts.Node[]>,
-  graph: Map<string, Set<string>>,
+  file: string,
+  index: SourceIndex,
   ownBody: ts.Node
 ): boolean {
   if (bodyWritesJsonItself(ownBody)) return true;
 
-  const seen = new Set<string>();
-  const queue = [...seed];
+  const seen = new Map<string, Set<string>>();
+  const queue: WalkStep[] = [...seed].map((call) => ({ file, call }));
 
   while (queue.length > 0) {
-    const name = queue.pop() as string;
-    if (seen.has(name)) continue;
-    seen.add(name);
+    const step = queue.pop() as WalkStep;
+    const short = shortName(step.call);
 
-    const short = name.includes(".") ? (name.split(".").pop() as string) : name;
-    if (PRINTER_SET.has(name) || PRINTER_SET.has(short)) continue;
-    if (ERROR_EMITTERS.has(name) || ERROR_EMITTERS.has(short)) continue;
+    if (PRINTER_SET.has(step.call) || PRINTER_SET.has(short)) continue;
+    if (ERROR_EMITTERS.has(step.call) || ERROR_EMITTERS.has(short)) continue;
 
-    for (const declared of bodies.get(name) ?? bodies.get(short) ?? []) {
+    const site = resolveDeclaration(index, step.file, step.call);
+    if (site === null) continue;
+
+    if (!markSeen(seen, site)) continue;
+
+    const declaring = index.get(site.file);
+    if (declaring === undefined) continue;
+
+    for (const declared of declaring.bodies.get(site.name) ?? []) {
       if (bodyWritesJsonItself(declared)) return true;
     }
 
-    for (const next of graph.get(name) ?? graph.get(short) ?? []) {
-      if (!seen.has(next)) queue.push(next);
+    for (const next of declaring.calls.get(site.name) ?? []) {
+      queue.push({ file: site.file, call: next });
     }
   }
 
@@ -311,12 +317,79 @@ function callsIn(body: ts.Node): Set<string> {
   return names;
 }
 
+/** A function as DECLARED: the file it is written in, and its name in that file. */
+interface DeclarationSite {
+  readonly file: string;
+  readonly name: string;
+}
+
+/** One position in a walk: a call name, and the file whose scope it was written in. */
+interface WalkStep {
+  readonly file: string;
+  readonly call: string;
+}
+
+/**
+ * One file's declarations and the bindings it imported.
+ *
+ * 🚨 THE KEY IS THE FILE PLUS THE NAME, AND THAT IS THE WHOLE POINT OF THIS
+ * STRUCTURE. A single tree-wide map keyed by the bare name makes two files that
+ * each declare `visit` ONE node, so a walk that starts in either can fall into
+ * the other's body. Measured on this package: 851 declared names the scan
+ * reads, 25 of them declared in more than one file, `visit` in 13.
+ *
+ * The failure that surfaced it: `mcp.ts` calls `transport.send(...)`, which
+ * resolved to a file-scope `send` in the agent-eval command module — a function
+ * `mcp.ts` neither imports nor can reach. `mcp serve` was classified from that
+ * body.
+ *
+ * ⚠️ AND IT IS BIDIRECTIONAL, WHICH IS WHY UNIONING WAS NOT A SAFE DEFAULT. The
+ * comment this replaced argued a union "can add printers and never remove one,
+ * so the worst outcome is MORE than one printer, which is refused". That holds
+ * only for a leaf that already reaches one. A leaf reaching ZERO printers on
+ * its own, handed a foreign body that reaches exactly one, is CLASSIFIED — a
+ * confidently wrong `--help` sentence rather than a missing one. The same union
+ * over `bodies` marks a leaf `selfJson` from a stranger's `JSON.stringify`,
+ * which deletes a correct line.
+ */
+interface ModuleIndex {
+  /** Declared name -> every call made by a declaration of that name in THIS file. */
+  readonly calls: Map<string, Set<string>>;
+  /** Declared name -> every body declared under that name in THIS file. */
+  readonly bodies: Map<string, ts.Node[]>;
+  /** Local binding -> the file it came from and the name it is declared under there. */
+  readonly imports: Map<string, DeclarationSite>;
+  /** `import * as ns` binding -> the file it names. */
+  readonly namespaces: Map<string, string>;
+}
+
+type SourceIndex = ReadonlyMap<string, ModuleIndex>;
+
+/** The last segment of a dotted call name, which is how the function is DECLARED. */
+function shortName(call: string): string {
+  return call.includes(".") ? (call.split(".").pop() as string) : call;
+}
+
+/**
+ * Mark a declaration visited; false when it already was.
+ *
+ * Nested — file, then name — rather than a single key joining the two with a
+ * separator. A joined key needs a byte neither half can contain, which means a
+ * NUL, and a literal NUL in source is invisible: it renders as a SPACE, it
+ * survives tsc, ESLint and every spec in this package, and an edit made against
+ * that rendering delivers a second one. Nesting removes the delimiter, so there
+ * is nothing left to corrupt.
+ */
+function markSeen(seen: Map<string, Set<string>>, site: DeclarationSite): boolean {
+  const names = seen.get(site.file) ?? new Set<string>();
+  if (names.has(site.name)) return false;
+  names.add(site.name);
+  seen.set(site.file, names);
+  return true;
+}
+
 /** Every named function in a file, with the calls it makes and its body. */
-function functionCalls(
-  source: ts.SourceFile,
-  into: Map<string, Set<string>>,
-  bodies: Map<string, ts.Node[]>
-): void {
+function indexDeclarations(source: ts.SourceFile, into: ModuleIndex): void {
   const visit = (node: ts.Node): void => {
     let name: string | undefined;
     let body: ts.Node | undefined;
@@ -335,16 +408,13 @@ function functionCalls(
     }
 
     if (name !== undefined && body !== undefined) {
-      // UNION on a repeated name rather than last-wins. Two files really do
-      // declare a `confirmDestructive`, and a walk that considers both errs
-      // toward LOOKING — which, for a scan whose failure mode is a wrong
-      // sentence in shipped help, is the wrong direction. It is safe here only
-      // because the union can add printers and never remove one, so the worst
-      // outcome is MORE than one printer, which is refused as unclassified.
-      const existing = into.get(name) ?? new Set<string>();
+      // Union WITHIN one file only — an overload pair, or a name declared in two
+      // branches of the same module. That union is bounded by the file, so it
+      // cannot reach a body the caller has no way of calling.
+      const existing = into.calls.get(name) ?? new Set<string>();
       for (const call of callsIn(body)) existing.add(call);
-      into.set(name, existing);
-      bodies.set(name, [...(bodies.get(name) ?? []), body]);
+      into.calls.set(name, existing);
+      into.bodies.set(name, [...(into.bodies.get(name) ?? []), body]);
     }
 
     ts.forEachChild(node, visit);
@@ -353,27 +423,153 @@ function functionCalls(
 }
 
 /**
+ * A relative specifier resolved onto a file this scan actually indexed.
+ *
+ * Bare specifiers (`node:fs`, `commander`, `typescript`) resolve to nothing on
+ * purpose: they are outside the tree, so no walk can continue through them.
+ */
+function resolveSpecifier(
+  fromFile: string,
+  specifier: string,
+  known: ReadonlySet<string>
+): string | null {
+  if (!specifier.startsWith(".")) return null;
+  const base = path.resolve(path.dirname(fromFile), specifier);
+  for (const candidate of [base, `${base}.ts`, path.join(base, "index.ts")]) {
+    if (known.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** The bindings a file imported, so a call can be followed to its real module. */
+function indexImports(
+  source: ts.SourceFile,
+  file: string,
+  known: ReadonlySet<string>,
+  into: ModuleIndex
+): void {
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+
+    const target = resolveSpecifier(file, statement.moduleSpecifier.text, known);
+    if (target === null) continue;
+
+    const clause = statement.importClause;
+    if (clause === undefined) continue;
+
+    // 🚨 A DEFAULT IMPORT IS DELIBERATELY NOT BOUND, AND THE BINDING THAT USED
+    // TO SIT HERE COULD NEVER HAVE FIRED. `indexDeclarations` records a function
+    // under its own identifier, and no function can be named `default`, so a
+    // binding stored under that name is looked up and missed on every walk —
+    // coverage in appearance, a dropped edge in fact.
+    //
+    // Dropping it is the CORRECT behaviour and not merely the honest one: an
+    // unresolved call ends the walk everywhere else in this module, and a leaf
+    // that reaches no printer is reported unclassified rather than guessed.
+    // Measured on this package: ZERO `export default` in the files the scan
+    // reads, against 181 files carrying some `export`. Should one appear, it
+    // costs a classification — never a wrong one.
+
+    const bindings = clause.namedBindings;
+    if (bindings === undefined) continue;
+
+    if (ts.isNamespaceImport(bindings)) {
+      into.namespaces.set(bindings.name.text, target);
+      continue;
+    }
+
+    for (const element of bindings.elements) {
+      // `import { a as b }` is declared `a` over there and called `b` here.
+      into.imports.set(element.name.text, {
+        file: target,
+        name: element.propertyName?.text ?? element.name.text
+      });
+    }
+  }
+}
+
+/** Index every parsed file: its declarations, and where its imported names live. */
+function buildIndex(parsed: readonly { file: string; source: ts.SourceFile }[]): SourceIndex {
+  const known = new Set(parsed.map((entry) => entry.file));
+  const index = new Map<string, ModuleIndex>();
+
+  for (const { file, source } of parsed) {
+    const module: ModuleIndex = {
+      calls: new Map(),
+      bodies: new Map(),
+      imports: new Map(),
+      namespaces: new Map()
+    };
+    indexDeclarations(source, module);
+    indexImports(source, file, known, module);
+    index.set(file, module);
+  }
+
+  return index;
+}
+
+/**
+ * Which DECLARATION does a call written in `file` actually reach?
+ *
+ * The file's own declarations win, then its own imports. 🚨 A NAME THAT IS
+ * NEITHER IS UNRESOLVED, AND THE EDGE IS DROPPED RATHER THAN GUESSED — falling
+ * back to a tree-wide lookup would reinstate the exact collision this index
+ * exists to remove, and it would do it only on the names most likely to collide.
+ *
+ * `transport.send` in a file that neither declares nor imports `send` therefore
+ * ends the walk, which is the correct reading: nothing syntactic here knows what
+ * `transport` is.
+ */
+function resolveDeclaration(
+  index: SourceIndex,
+  file: string,
+  call: string
+): DeclarationSite | null {
+  const module = index.get(file);
+  if (module === undefined) return null;
+
+  const parts = call.split(".");
+
+  if (parts.length > 1) {
+    const namespaceFile = module.namespaces.get(parts[0]);
+    if (namespaceFile !== undefined && index.get(namespaceFile)?.calls.has(parts[1]) === true) {
+      return { file: namespaceFile, name: parts[1] };
+    }
+  }
+
+  for (const candidate of parts.length > 1 ? [call, shortName(call)] : [call]) {
+    if (module.calls.has(candidate)) return { file, name: candidate };
+
+    const imported = module.imports.get(candidate);
+    if (imported !== undefined && index.get(imported.file)?.calls.has(imported.name) === true) {
+      return imported;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Which of the six does this set of calls reach, transitively?
  *
  * The six are TERMINALS: reaching one records it and stops. See the header for
  * why expanding `printList` classifies all 53 list commands as ambiguous.
  */
-function reachedPrinters(seed: ReadonlySet<string>, graph: Map<string, Set<string>>): Set<string> {
-  const seen = new Set<string>();
+function reachedPrinters(seed: ReadonlySet<string>, file: string, index: SourceIndex): Set<string> {
+  const seen = new Map<string, Set<string>>();
   const found = new Set<string>();
-  const queue = [...seed];
+  const queue: WalkStep[] = [...seed].map((call) => ({ file, call }));
 
   while (queue.length > 0) {
-    const name = queue.pop() as string;
-    if (seen.has(name)) continue;
-    seen.add(name);
+    const step = queue.pop() as WalkStep;
 
     // A method call (`this.render`, `client.agents.get`) is keyed by its last
     // segment, because that is how the function is DECLARED.
-    const short = name.includes(".") ? (name.split(".").pop() as string) : name;
+    const short = shortName(step.call);
 
-    if (PRINTER_SET.has(name)) {
-      found.add(name);
+    if (PRINTER_SET.has(step.call)) {
+      found.add(step.call);
       continue;
     }
     if (PRINTER_SET.has(short)) {
@@ -381,8 +577,13 @@ function reachedPrinters(seed: ReadonlySet<string>, graph: Map<string, Set<strin
       continue;
     }
 
-    for (const next of graph.get(name) ?? graph.get(short) ?? []) {
-      if (!seen.has(next)) queue.push(next);
+    const site = resolveDeclaration(index, step.file, step.call);
+    if (site === null) continue;
+
+    if (!markSeen(seen, site)) continue;
+
+    for (const next of index.get(site.file)?.calls.get(site.name) ?? []) {
+      queue.push({ file: site.file, call: next });
     }
   }
 
@@ -620,9 +821,7 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
     source: ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true)
   }));
 
-  const graph = new Map<string, Set<string>>();
-  const bodies = new Map<string, ts.Node[]>();
-  for (const { source } of parsed) functionCalls(source, graph, bodies);
+  const index = buildIndex(parsed);
 
   const leaves: ScannedLeaf[] = [];
 
@@ -635,7 +834,7 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
 
         if (relative !== null && body !== null) {
           const own = callsIn(body);
-          const printers = [...reachedPrinters(own, graph)]
+          const printers = [...reachedPrinters(own, file, index)]
             .filter((name): name is ShapePrinter => PRINTER_SET.has(name))
             .sort();
 
@@ -643,7 +842,7 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
             sourceModule: path.basename(file),
             relativePath: relative.join(" "),
             printers,
-            selfJson: reachesSelfJson(own, bodies, graph, body)
+            selfJson: reachesSelfJson(own, file, index, body)
           });
         }
       }

@@ -1539,15 +1539,17 @@ Notes:
   ADMIN and MEMBER rather than failing. The TIER line printed below is the tier
   that now stands, which is the only way to tell a promotion from an addition.
 
-  A MEMBERSHIP ROW IS NOT A LABEL, AND IT IS NOT A CAPABILITY GRANT. It is how
-  the server resolves a person's reach into the Role's systems, collections and
-  workspaces. It seats nobody in a permission set, so on its own it carries no
-  Role capability at all — run "nexus role add-permission-set-member" next to
-  grant those.
+  A MEMBERSHIP ROW ON ITS OWN IS NOT A CAPABILITY GRANT. It is how the server
+  resolves a person's reach into the Role's systems, collections and
+  workspaces. Run "nexus role add-permission-set-member" to put someone into a
+  CUSTOM permission set.
 
-  THE TIER IS RECORDED AND NOTHING READS IT. ADMIN and MEMBER resolve to the
-  same reach and the same capabilities, so --tier ADMIN states an intent rather
-  than conferring anything a MEMBER does not already hold.
+  --TIER NOW SEATS THE PERSON INTO A REAL PERMISSION SET. ADMIN is seated into
+  "maintainer" — every capability except deleting the Role (owner- or
+  org-admin-only) and creating one (org-scoped-only) — and MEMBER into
+  "member" (every read, plus filing an access request). Reach into the Role's
+  systems, collections and workspaces is identical either way; the
+  capabilities that reach unlocks are not.
 
   THE USER MUST ALREADY BE IN YOUR ORGANIZATION. A user id from another tenant
   is refused as "not found" — the same answer an id that exists nowhere gets,

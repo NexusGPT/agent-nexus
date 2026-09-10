@@ -145,6 +145,20 @@ function counts(stdout: string): {
   };
 }
 
+/** `provisioned=<n> of <n> executable (floor <n>) - ...` — its OWN line, beside
+ * the summary. The runner keeps it out of the `Summary:` line on purpose, so
+ * `counts` above stays byte-compatible and every case that predates the floor
+ * keeps measuring what it always did. */
+function provisionedOf(stdout: string): {
+  provisioned: number;
+  executable: number;
+  floor: number;
+} {
+  const line = /provisioned=(\d+) of (\d+) executable \(floor (\d+)\)/.exec(stdout);
+  if (line === null) throw new Error(`no provisioned line in:\n${stdout.slice(-500)}`);
+  return { provisioned: Number(line[1]), executable: Number(line[2]), floor: Number(line[3]) };
+}
+
 describe("the id-thread sweep, end to end", () => {
   it("exits 0 and reports what it reached when everything answers", async () => {
     const run = await sweep({ FAKE_MODE: "normal" });
@@ -358,4 +372,164 @@ describe("a producer re-read that comes back unreadable", () => {
     expect(run.stdout).toMatch(/^FAILED\s+version list/m);
     expect(run.stdout).toMatch(/^FAILED\s+agent-tool list/m);
   }, 90_000);
+});
+
+/**
+ * A RUN THAT REACHED ONE LEAF AND SKIPPED TWENTY-FIVE USED TO EXIT 0.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHY THESE CASES ARE ABOUT THE POPULATION AND NOT ABOUT THE NUMBER
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The floor sits on `provisioned` — `executable` minus `SKIPPED_NO_ID` — and the
+ * whole design is which noun that is. Three properties, and each has a case
+ * below that fails if the floor is moved onto `reached`:
+ *
+ *   · seeding a fixture RAISES provisioned, so the repair moves it the right way
+ *   · fixing a route leaves it FLAT, so a cure cannot trip it
+ *   · the concurrent-delete race CANNOT MOVE IT — a vanished row HAD a fixture
+ *
+ * The third is the discriminating one and it is live: `NOT_FOUND_REATTEMPTS`
+ * bounds that race and does not remove it. `the floor does NOT fire on the
+ * concurrent-delete race` below is the case that refuses a floor on `reached`,
+ * and `exits 8` is the case that refuses a floor of zero. Neither one kills the
+ * other's mutant, which is what makes them a pair rather than a duplicate.
+ *
+ * ── HOW A CASE LANDS AT A CHOSEN `provisioned` ──────────────────────────────
+ *
+ * 26 executable leaves. `tracks list` feeds 10 of them, `agent list` 3,
+ * `collection list` 3, `execution list` 2. `FAKE_EMPTY_PRODUCERS` empties named
+ * producers only, so the arithmetic is exact and the boundary is reachable from
+ * both sides. Every case asserts the number it landed on rather than only the
+ * exit code: a leaf added to the graph then reds these cases by NAME with the
+ * new figure, instead of sliding one of them past the boundary in silence.
+ */
+
+/** 26 - (10 + 3 + 3) = 10, EXACTLY the floor, which must pass. */
+const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list";
+/** 26 - (10 + 3 + 3 + 2) = 8, under the floor, which must not. */
+const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list";
+
+describe("the provisioned floor", () => {
+  it("exits 8 when too few leaves had an id, with something reached and nothing failed", async () => {
+    const run = await sweep({
+      FAKE_MODE: "normal",
+      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
+    });
+    const summary = counts(run.stdout);
+    const provisioned = provisionedOf(run.stdout);
+
+    expect(provisioned).toEqual({ provisioned: 8, executable: 26, floor: 10 });
+    // Neither of the other two non-zero rungs applies, so 8 is the only code
+    // that can be under test here.
+    expect(summary.reached).toBe(8);
+    expect(summary.failed).toBe(0);
+    expect(summary.noId).toBe(18);
+    expect(run.code).toBe(8);
+    expect(run.stderr).toContain("BELOW THE PROVISIONED FLOOR");
+    // NOT the nothing-reached refusal — that one is a different world.
+    expect(run.stderr).not.toContain("NONE was reached");
+  }, 60_000);
+
+  it("passes at EXACTLY the floor, so the comparison is `<` and not `<=`", async () => {
+    const run = await sweep({
+      FAKE_MODE: "normal",
+      FAKE_EMPTY_PRODUCERS: AT_FLOOR_PRODUCERS
+    });
+    const provisioned = provisionedOf(run.stdout);
+
+    expect(provisioned.provisioned).toBe(provisioned.floor);
+    expect(provisioned).toEqual({ provisioned: 10, executable: 26, floor: 10 });
+    expect(counts(run.stdout).failed).toBe(0);
+    expect(run.code).toBe(0);
+  }, 60_000);
+
+  it("does NOT fire on the concurrent-delete race, however many rows it takes", async () => {
+    // 🔴 THE SELECTIVITY CASE. 18 leaves are SKIPPED_ID_VANISHED, so only 8 are
+    // reached — UNDER the floor of 10 — and every one of those 18 HAD a
+    // fixture, so provisioned is still the full 26 and the run passes. A floor
+    // keyed on `reached` exits 8 here and calls a race a coverage outage.
+    const state = mkdtempSync(join(tmpdir(), "id-thread-floor-race-"));
+    const run = await sweep({
+      FAKE_MODE: "normal",
+      FAKE_VANISH_PRODUCERS: BELOW_FLOOR_PRODUCERS,
+      FAKE_VANISH_LEAVES_NOTHING: "1",
+      FAKE_STATE_DIR: state
+    });
+    const summary = counts(run.stdout);
+
+    expect(summary.vanished).toBe(18);
+    expect(summary.noId).toBe(0);
+    expect(summary.failed).toBe(0);
+    // The half that makes this discriminating: fewer reached than the floor.
+    //
+    // 🚨 AGAINST A LITERAL, NEVER AGAINST THE FLOOR THIS RUN PRINTED. Reading it
+    // back off the subject couples THIS arm to the floor's VALUE — and then the
+    // mutant that neuters the value to 0 kills this arm too, so the
+    // population-swap mutant's kill set becomes a SUBSET of the value mutant's
+    // and the pair stops proving anything the value mutant did not already
+    // prove. Measured: with `toBeLessThan(provisionedOf(...).floor)` here, the
+    // value mutant killed 4 arms including this one and the population mutant
+    // killed only this one; without it, 3 and 1, disjoint.
+    expect(summary.reached).toBe(8);
+    expect(summary.reached).toBeLessThan(10);
+    expect(provisionedOf(run.stdout).provisioned).toBe(26);
+    expect(run.code).toBe(0);
+  }, 90_000);
+
+  it("keeps NOTHING EXISTED TO TEST WITH and all three skip counters beside it", async () => {
+    // The floor is an ADDITION. A run one namespace short is still green, and
+    // the disclosure that says which namespace is unexercised — and what share
+    // of the harness's reach that is — must still be printed.
+    const run = await sweep({ FAKE_MODE: "normal", FAKE_EMPTY_PRODUCERS: "tracks list" });
+    const summary = counts(run.stdout);
+
+    expect(run.code).toBe(0);
+    expect(provisionedOf(run.stdout).provisioned).toBe(16);
+    expect(run.stdout).toContain("NOTHING EXISTED TO TEST WITH");
+    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 38% of this harness/m);
+    expect(run.stdout).toContain("seed-sweep-fixtures.sh");
+    // Three counters, still separate, still in the Summary line.
+    expect(summary.noId).toBe(10);
+    expect(summary.vanished).toBe(0);
+    expect(summary.needsInput).toBe(0);
+  }, 60_000);
+
+  it("gives the thin run a code of its OWN, never the nothing-reached one", async () => {
+    // The exit codes are a vocabulary and no two may mean two things. A total
+    // outage and a thin run are different worlds, so they get different numbers
+    // and different refusals.
+    const outage = await sweep({ FAKE_MODE: "empty" });
+    const thin = await sweep({
+      FAKE_MODE: "normal",
+      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
+    });
+
+    expect(outage.code).toBe(7);
+    expect(thin.code).toBe(8);
+    expect(thin.code).not.toBe(outage.code);
+    expect(outage.stderr).toContain("NONE was reached");
+    expect(thin.stderr).not.toContain("NONE was reached");
+    expect(thin.stderr).toContain("BELOW THE PROVISIONED FLOOR");
+    expect(outage.stderr).not.toContain("BELOW THE PROVISIONED FLOOR");
+  }, 90_000);
+
+  it("lets a FAILED leaf keep exit 1 even when the same run is below the floor", async () => {
+    // 🚨 THE PRECEDENCE, PINNED. A broken route is a finding about the product;
+    // the floor is a finding about the environment. The floor's only marginal
+    // value is on a run that would otherwise be GREEN, so it must not overwrite
+    // the one code a reader acts on. Moving it above this rung reds here.
+    const run = await sweep({
+      FAKE_MODE: "normal",
+      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS,
+      FAKE_FAIL_LEAVES: "asset get"
+    });
+    const summary = counts(run.stdout);
+
+    expect(summary.failed).toBe(1);
+    // Genuinely below the floor, so both rungs are live at once.
+    expect(provisionedOf(run.stdout).provisioned).toBe(8);
+    expect(run.code).toBe(1);
+    expect(run.stdout).toMatch(/^FAILED\s+asset get/m);
+  }, 60_000);
 });

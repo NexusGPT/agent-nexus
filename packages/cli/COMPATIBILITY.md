@@ -207,7 +207,7 @@ with what it does about `--json`, so the next one cannot arrive in silence.
 
 `emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
 document is the payload and goes to stdout; anything after it is diverted to
-stderr. **74 leaves build their own document with a bare `console.log`** rather
+stderr. **73 leaves build their own document with a bare `console.log`** rather
 than going through a printer — the `writes-its-own-json` count in the generated
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
@@ -391,14 +391,14 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**417 of the 524 leaves** carry a derived shape line on their `--help`, generated
+**418 of the 524 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
 line describing the old shape.
 
-The remaining 134 carry **no** shape line, and that is the honest output rather
-than a gap: 74 write their own document, 17 branch to two shapes, 10 have no
+The remaining 106 carry **no** shape line, and that is the honest output rather
+than a gap: 73 write their own document, 17 branch to two shapes, 10 have no
 registration the scan can read, 5 reach no printer, and 1 is ambiguous. A default
 would be a claim nobody measured.
 

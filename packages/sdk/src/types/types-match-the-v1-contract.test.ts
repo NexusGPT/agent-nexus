@@ -750,6 +750,7 @@ const GATED_PAIRS = [
   "ModelConfig ↔ ModelConfigSchema",
   "AgentModel ↔ AgentModelSchema",
   "AgentToolConfigType ↔ AgentToolConfigTypeSchema",
+  "WritableAgentToolConfigType ↔ WritableAgentToolConfigTypeSchema",
 
   "RolesListResponse ↔ RolesListV1ResponseSchema",
   "RoleResponse ↔ RoleV1ResponseSchema",
@@ -950,7 +951,14 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // one because the RESULT is echoed back for a caller retrying after a timeout,
 // and an unchecked echo is how a retry reads the wrong state as confirmed.
 //
-// 🚨 101 + 3 + 2 = 106, AND THAT IS COUNTED FROM THE MERGED ARRAY RATHER THAN
+// +1: `WritableAgentToolConfigType ↔ WritableAgentToolConfigTypeSchema`. The
+// assertion was added when `MEMORY` separated the write set from the read set,
+// and its roster row was not — so the tuple held 107 entries against a roster
+// and a floor of 106, and NOTHING went red, because both assertions below read
+// `GATED_PAIRS` and neither can see the tuple. That gap is what
+// `V1ContractAssertionsAreFloored` below now closes.
+//
+// 🚨 101 + 3 + 2 + 1 = 107, AND THAT IS COUNTED FROM THE MERGED ARRAY RATHER THAN
 // ADDED UP. Two branches each raised this constant off the same base of 101 —
 // staging to 104, `cluster/roles-v1-lifecycle` to 103 — so NEITHER side's number
 // is correct after the merge, and taking either one is silent: 104 leaves the two
@@ -959,7 +967,67 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // parents and false only in their join, which no member PR can catch. The `toBe`
 // assertion at the bottom of this file is what refuses a wrong value in EITHER
 // direction; count the list, never take a side.
-const GATED_PAIR_FLOOR = 106;
+const GATED_PAIR_FLOOR = 107;
+
+/**
+ * The COMPILE-TIME half of the ratchet.
+ *
+ * 🚨 EVERY ASSERTION IN THIS FILE'S `describe` READS `GATED_PAIRS`, AND NONE OF
+ * THEM CAN READ `V1ContractAssertions` AT ALL. The tuple is a TYPE, so it has no
+ * runtime value and no vitest arm can ask for its length. Deleting an
+ * `Expect<...>` entry therefore shrinks real compile-time coverage while the
+ * whole suite stays green BY CONSTRUCTION — measured: at 107 entries, removing
+ * one left `typecheck` at exit 0 and vitest at `4 passed (4)`.
+ *
+ * This line is the only place that can see a tuple's arity, and it is what makes
+ * the floor a statement about COVERAGE rather than about the length of a list.
+ *
+ * ## Why the FLOOR and not `GATED_PAIRS.length`
+ *
+ * Not vacuity — neither pairing is vacuous, since the tuple and the floor are
+ * two independent hand-written sources, which is the property the `GATED_PAIRS`
+ * docblock actually requires. Both candidates were scored, with both arms in the
+ * file at once so the runs are comparable. Each row moves the populations the
+ * way one realistic edit would:
+ *
+ *     tuple/roster/floor    >=(above)  toBe(below)  vs FLOOR  vs GATED_PAIRS.length
+ *     107/107/107 pristine    green      green       green      green
+ *     106/107/107 -1 Expect   green      green       RED        RED
+ *     107/106/107 -1 row      RED        RED         green      RED
+ *     107/108/107 +1 row      green      RED         green      RED
+ *     107/107/108 +1 floor    RED        RED         RED        green
+ *     108/108/107 MERGE       green      RED         RED        green
+ *     108/108/108 remedy      green      green       green      green
+ *
+ * Row 2 is the hole this arm exists for, and BOTH candidates catch it while the
+ * two assertions below stay GREEN — that is what says the new arm is not
+ * decoration. On raw detection the two are a near-tie: every other row is caught
+ * by a pre-existing arm either way, so neither candidate detects anything the
+ * suite would otherwise miss beyond row 2.
+ *
+ * The tiebreak is row 6, which is the auto-merged-constant hazard documented
+ * above rather than a synthetic one: two branches each add a pair, both write
+ * the SAME floor, git merges the identical text and a pair is lost. There `>=`
+ * passes, `toBe` is the only runtime arm that reds, and this arm reds too — in
+ * `Typecheck`, a different job, so one defect gets two independent signals.
+ * Against `GATED_PAIRS.length` the arm is GREEN on that row, because after such
+ * a merge the tuple and the roster agree with each other and only the constant
+ * is wrong. Row 5 is NOT part of this argument: all three arms red there, so an
+ * arm that reds on it adds nothing.
+ *
+ * The design reason, independent of the scoring: this floor is the constant
+ * documented "never lower it". Tying the tuple's arity to it is a direct
+ * encoding of the invariant the gate is about — compile-time coverage must not
+ * shrink — where tying it to the roster borrows that monotonicity from `toBe`.
+ *
+ * Raise all three together — an `Expect<...>` entry, its `GATED_PAIRS` row, and
+ * this floor — or two of the three go red and name which one you forgot. Row 7
+ * is that remedy, scored, and green: this gate is proven to pass as well as to
+ * fail.
+ */
+export type V1ContractAssertionsAreFloored = Expect<
+  Equals<V1ContractAssertions["length"], typeof GATED_PAIR_FLOOR>
+>;
 
 describe("the SDK's types match the Public API v1 contract", () => {
   /**

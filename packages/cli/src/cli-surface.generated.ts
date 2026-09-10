@@ -19,7 +19,7 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *   tier         465 STABLE, 59 UNSTABLE
  *   disposition  22 never-execute, 438 registration-only, 59 safe, 5 safe-with-fixture
  *   --yes        41 destructive — 41 confirmable
- *   --json       417 answered, 107 abstain
+ *   --json       418 answered, 106 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -91,7 +91,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "admin vibe-tenant-cluster complete-teardown", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--confirmation <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "111cf7bc58c6" },
   { path: "admin vibe-tenant-cluster disable", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "bfa787b98a85" },
   { path: "admin vibe-tenant-cluster force-converge", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--reason <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "cc41f495c1fa" },
-  { path: "admin vibe-tenant-cluster provision", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--region <region>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c3c1782649e6" },
+  { path: "admin vibe-tenant-cluster provision", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--region <region>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "c3c1782649e6" },
   { path: "agent create", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: [], flags: ["--first-name <name>", "--last-name <name>", "--role <role>", "--bio <text>", "--short-bio <text>", "--model <model> {DEFAULT|GPT_4_TURBO|GPT_4|GPT_4_5|GPT_4_1|GPT_4_1_MINI|GPT_4_1_NANO|GPT_3_5_TURBO|GPT_3_5_TURBO_16K|MISTRAL_LARGE|OPENAI_O1|OPENAI_O1_MINI|OPENAI_O3_MINI|OPENAI_O3|OPENAI_O3_PRO|OPENAI_O4_MINI}", "--model-name <name>", "--model-provider <provider> {OPEN_AI|ANTHROPIC|GOOGLE_AI|KIMI}", "--custom-model-id <id>", "--prompt <file-or-->", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "b957247eba24" },
   { path: "agent delete", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes", "--dry-run"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "1d1b32b62f25" },
   { path: "agent duplicate", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "success", shape: "a895387dc781" },
@@ -210,7 +210,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "collection documents", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "8301bae390fd" },
   { path: "collection get", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "ca7309624567" },
   { path: "collection list", tier: "STABLE", module: "collection.ts", disposition: "safe", args: [], flags: ["--search <query>", "--limit <number>", "--offset <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "array", shape: "6b2e4d4dde12" },
-  { path: "collection query", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--filter <key=value...>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "7c4c3075ffaf" },
+  { path: "collection query", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--filter <key=value...>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f263ac1e134c" },
   { path: "collection remove-document", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>", "<document-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "1b01878ed460" },
   { path: "collection search", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3dc20a12dcce" },
   { path: "collection search-multiple", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: [], flags: ["!--query <query>", "!--collection-ids <ids>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "e36c673b9971" },

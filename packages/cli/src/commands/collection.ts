@@ -404,7 +404,7 @@ Notes:
   // ── query (semantic content retrieval) ─────────────────────────────────
   const query = collection
     .command("query")
-    .description("Query a collection's content (semantic retrieval via ZeroEntropy)")
+    .description("Query a collection's content (semantic retrieval — not names)")
     .argument("<id>", "Collection ID")
     .requiredOption("--query <query>", "Natural-language question or phrase")
     .option("--limit <number>", "Max results", parseInt)

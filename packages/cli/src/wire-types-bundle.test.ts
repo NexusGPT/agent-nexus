@@ -61,14 +61,18 @@ const IMPORTS_NEXUS_TYPES =
 describe("@nexus/types stays out of the published bundle", () => {
   const files = sourceFiles();
   const conformance = files.filter((f) => f.endsWith(CONFORMANCE_SUFFIX));
+  const wireTypes = files.filter((f) => f.endsWith(WIRE_TYPES_SUFFIX));
 
   it("finds source files, and finds the gates", () => {
-    // Guards the gate itself. A moved `src/`, a broken walk, or a renamed suffix
-    // would otherwise scan an empty list and report a clean pass over nothing —
-    // and the "only a conformance module may import it" assertion below is
-    // VACUOUSLY TRUE when the set is empty, which is the worse half.
+    // Guards the gates themselves. A moved `src/`, a broken walk, or either
+    // suffix constant renamed would otherwise scan an empty list and report a
+    // clean pass over nothing — every assertion below is VACUOUSLY TRUE over an
+    // empty set, which is the worse half. One floor per discovered population,
+    // because each is the only arm that can see its own set drain: `conformance`
+    // for the import rules below, `wireTypes` for the pairing gate.
     expect(files.length).toBeGreaterThan(10);
     expect(conformance.length).toBeGreaterThan(0);
+    expect(wireTypes.length).toBeGreaterThan(0);
   });
 
   /**
@@ -85,8 +89,7 @@ describe("@nexus/types stays out of the published bundle", () => {
    * guards — and cannot be satisfied by deleting one.
    */
   it("every wire-types module has a conformance module beside it", () => {
-    const ungated = files
-      .filter((f) => f.endsWith(WIRE_TYPES_SUFFIX))
+    const ungated = wireTypes
       .map((f) => f.replace(WIRE_TYPES_SUFFIX, `-wire-types${CONFORMANCE_SUFFIX}`))
       .filter((expected) => !conformance.includes(expected));
 

@@ -15,12 +15,10 @@
  * URL, where it outlives the command entirely and travels with any copy of the
  * directory.
  *
- * So we do what the backend already does for the Ch26 CODE-workspace checkout
- * (`SyncSandboxWriter.cloneShallow`): write the credential to a throwaway
- * 0600 file, point `credential.helper=store --file=…` at it, clone the
- * TOKEN-FREE URL, and delete the file in a `finally`. The token is then absent
- * from argv, absent from `.git/config`, and gone from disk when the command
- * returns.
+ * So: write the credential to a throwaway 0600 file, point
+ * `credential.helper=store --file=…` at it, clone the TOKEN-FREE URL, and
+ * delete the file in a `finally`. The token is then absent from argv, absent
+ * from `.git/config`, and gone from disk when the command returns.
  */
 
 import { execFileSync } from "node:child_process";

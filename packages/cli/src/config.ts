@@ -91,6 +91,36 @@ export interface ResolvedProfile {
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether `config.json` is ABSENT, readable, or there and unreadable.
+ *
+ * 🔴 {@link loadConfig} cannot answer this and must not be changed to: it
+ * returns an empty config for a missing file AND for a damaged one, which is
+ * right for its callers — they want a config or a blank slate. It is wrong for
+ * anyone DIAGNOSING, because "you have no profiles" and "I could not read your
+ * profiles" lead to opposite advice, and the advice for the first one
+ * (`nexus auth login`) writes a fresh config over the file that was merely
+ * unreadable, taking every other profile with it.
+ *
+ * Parses rather than stats, because a truncated file exists and still cannot be
+ * read. No migration and no permission warning: this answers one question.
+ */
+export function configFileState(): "absent" | "readable" | "unreadable" {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(CONFIG_FILE, "utf-8");
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    return code === "ENOENT" ? "absent" : "unreadable";
+  }
+  try {
+    JSON.parse(raw);
+    return "readable";
+  } catch {
+    return "unreadable";
+  }
+}
+
+/**
  * Load config from disk. Auto-migrates V1 → V2 on first read.
  * Returns an empty V2 config if the file doesn't exist.
  */

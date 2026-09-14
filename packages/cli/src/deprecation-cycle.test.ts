@@ -617,16 +617,18 @@ describe("deprecation cycle — the SHIPPED artifacts agree with the rule", () =
   });
 
   it("CONTROL — an alias on the real tree is not read as a removal", () => {
-    // `task-eval` carries the alias `eval`, and COMPATIBILITY.md names it as the
-    // shape a rename takes here. If this ever reads as a removal, the mechanism
-    // refuses the one rename the contract sanctions.
-    expect(resolveCommandPath(program, "task-eval")).toBeDefined();
+    // `upgrade` carries the alias `update`, and COMPATIBILITY.md names aliasing
+    // as the shape a rename takes here. If this ever reads as a removal, the
+    // mechanism refuses the one rename the contract sanctions. (This control
+    // used `task-eval`'s `eval` alias until Prompt Lab phase 2 retired it —
+    // `nexus eval` now belongs to golden conversations.)
+    expect(resolveCommandPath(program, "upgrade")).toBeDefined();
     const aliasPath = CLI_SURFACE_BASELINE.leaves
       .map((row) => row.path)
-      .find((row) => row.startsWith("task-eval "));
-    expect(aliasPath, "no task-eval leaf in the baseline").toBeDefined();
+      .find((row) => row === "upgrade");
+    expect(aliasPath, "no upgrade leaf in the baseline").toBeDefined();
 
-    const aliased = (aliasPath ?? "").replace(/^task-eval /, "eval ");
+    const aliased = (aliasPath ?? "").replace(/^upgrade$/, "update");
     expect(resolveCommandPath(program, aliased), `${aliased} stopped resolving`).toBeDefined();
 
     const finding = auditSurfaceRemovals({

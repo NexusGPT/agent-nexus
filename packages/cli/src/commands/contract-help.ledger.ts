@@ -168,7 +168,14 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     namespace: "document",
-    descriptors: ["DocumentAddWebsite", "DocumentList"]
+    descriptors: [
+      "DocumentAddWebsite",
+      "DocumentDownload",
+      "DocumentGet",
+      "DocumentList",
+      "DocumentListChildren",
+      "DocumentPreview"
+    ]
   },
   {
     namespace: "permissions",
@@ -295,6 +302,7 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "WorkspaceCreate",
       "WorkspaceDelete",
       "WorkspaceList",
+      "WorkspaceMintMountCredentials",
       "WorkspaceRename",
       "WorkspaceRestore",
       "WorkspaceSearch"
@@ -517,6 +525,27 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "PromptVariantVersionList",
       "PromptGraph",
       "PromptCompare"
+    ]
+  },
+  {
+    namespace: "eval",
+    descriptors: [
+      "GoldenConversationCreate",
+      "GoldenConversationList",
+      "GoldenConversationGet",
+      "GoldenConversationDelete",
+      "GoldenConversationAddUserTurn",
+      "GoldenConversationGenerate",
+      "GoldenConversationAccept",
+      "GoldenConversationSetTurnContent",
+      "GoldenConversationSetCheckpoint",
+      "GoldenConversationReady",
+      "PromptEvalRunCreate",
+      "PromptEvalRunPreview",
+      "PromptEvalRunList",
+      "PromptEvalRunGet",
+      "PromptEvalRunAbort",
+      "PromptEvalRunResults"
     ]
   }
 ] as const satisfies readonly LedgerEntry[];

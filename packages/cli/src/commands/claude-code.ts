@@ -4,7 +4,16 @@ import { Command } from "commander";
 
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printSuccess } from "../output";
-import { getSkillList, getSkills } from "../skills-content.generated";
+import {
+  type CorpusFlags,
+  corpusJson,
+  describeCorpus,
+  platformIo,
+  resolveCorpusForCommand,
+  withCorpusFlags
+} from "../skills-corpus/command";
+import type { PlatformIo } from "../skills-corpus/platform";
+import type { ResolvedCorpus } from "../skills-corpus/resolve";
 import { confirmable } from "../util/confirm";
 import {
   agentInstallables,
@@ -30,12 +39,12 @@ import {
 export function registerClaudeCodeCommands(program: Command): void {
   const cc = program
     .command("claude-code")
-    .description("Install Claude Code skills bundled with this CLI version into your project");
+    .description("Install the Nexus Claude Code skills into your project");
 
   // ── list ───────────────────────────────────────────────────────────────────
 
-  cc.command("list")
-    .description("List Claude Code skills bundled with this CLI version")
+  withCorpusFlags(cc.command("list"))
+    .description("List the Claude Code skills an install would write")
     .addHelpText(
       "after",
       `
@@ -51,31 +60,36 @@ Notes:
   copying a name out of this table is refused rather than silently ignored.
   --json carries the unstripped slug, plus each skill's description and its file
   count.
-  Skills are version-locked to the CLI binary — \`nexus skills update\`
-  writes the same set this command lists. Run \`nexus --version\` to see the
-  CLI / skill bundle version, or upgrade with \`pnpm add -g @agent-nexus/cli@latest\`.`
+  THIS LISTS WHAT AN INSTALL WOULD WRITE, FROM THE SAME SOURCE. By default that
+  is the latest skills corpus on the platform, fetched the same way "nexus skills
+  update" fetches it, and the skills bundled with this CLI when the platform
+  cannot be reached. --bundled and --skills-ref pick the source here exactly as
+  they do on the install.`
     )
-    .action(() => {
+    .action(async (opts: CorpusFlags, command: Command) => {
+      const resolved = await resolveCorpusForCommand(opts, platformIo(command));
+      if (!resolved) return;
+      const { corpus } = resolved;
+
       if (isJsonMode()) {
-        const bundled = getSkills();
-        const skills = getSkillList().map((slug) => ({
+        const skills = corpus.skillList.map((slug) => ({
           slug,
-          description: bundled[slug].description,
-          files: bundled[slug].files.length
+          description: corpus.skills[slug].description,
+          files: corpus.skills[slug].files.length
         }));
         console.log(JSON.stringify(skills, null, 2));
         return;
       }
 
-      const bundled = getSkills();
-      console.log(color.bold(`\nBundled Claude Code skills (${getSkillList().length}):\n`));
-      for (const slug of getSkillList()) {
-        const entry = bundled[slug];
+      console.log(color.bold(`\nClaude Code skills (${corpus.skillList.length}):\n`));
+      for (const slug of corpus.skillList) {
+        const entry = corpus.skills[slug];
         const name = slug.replace("nexus-", "");
         console.log(`  ${color.cyan(name.padEnd(22))} ${entry.description}`);
         console.log(`  ${"".padEnd(22)} ${color.dim(`${entry.files.length} files`)}`);
         console.log();
       }
+      console.log(color.dim(describeCorpus(resolved, platformIo(command))));
       console.log(
         color.dim(
           `Install the latest skills: nexus skills update\nInstall specific ones: nexus skills update <skill>\n`
@@ -85,16 +99,15 @@ Notes:
 
   // ── install ────────────────────────────────────────────────────────────────
   //
-  // Reads the embedded skills bundle (skills-content.generated.ts, produced
-  // at build time from the canonical claude-code-skills-nexus repo) and
-  // writes the selected skills to the target dir. No network call, no
-  // auth — the bundle is version-locked to the CLI binary.
+  // Writes the selected skills from the corpus `resolveCorpusForCommand` picks:
+  // the platform's latest by default, the bundle compiled into this CLI as the
+  // fallback. No API key either way (NEX-5177).
   //
   // This is the original entry point; `nexus skills update` (skills.ts) wraps
   // the same machinery with project-root auto-detection. Kept for back-compat.
 
-  confirmable(cc.command("install"))
-    .description("Install the Claude Code skills bundled with this CLI version to your project")
+  withCorpusFlags(confirmable(cc.command("install")))
+    .description("Install the Nexus Claude Code skills into your project")
     .argument("[skills...]", "Skill slugs to install (omit for all)")
     .option("--dir <path>", "Target directory", ".claude/skills")
     .option("--force", "Replace files this CLI did not write (see Notes) without prompting")
@@ -116,6 +129,8 @@ Examples:
   $ nexus claude-code install --force                         # Overwrite without prompting
   $ nexus claude-code install --no-claude-md                  # Skills only, leave CLAUDE.md alone
   $ nexus claude-code install --no-settings                   # Skip the settings.json + hooks posture
+  $ nexus claude-code install --bundled                       # Offline: the skills bundled with this CLI
+  $ nexus claude-code install --skills-ref 416b57391347212330eb85fc78f27f86b2303b59   # One exact commit
 
 Tip: \`nexus skills update\` runs the same install but auto-detects your
 project's existing .claude folder instead of always writing to the current
@@ -160,11 +175,22 @@ Notes:
   the directory you named. Run "nexus skills where --dir <path>" to see every
   path before writing.
 
-Skills are bundled with the CLI binary at build time from the canonical
-claude-code-skills-nexus repository. No network calls, no API key required.
-Run "nexus --version" to see which CLI version (and skill set) you have, or
-"pnpm add -g @agent-nexus/cli@latest" to upgrade to the latest bundled
-skills.`
+  WHERE THE SKILLS COME FROM. The latest skills corpus the platform serves, read
+  with no API key: GET <base-url>/api/cli/skills/manifest, then the corpus it
+  names, refused unless its bytes match the manifest's sha256. The skills
+  repository's deploy publishes that corpus after its checks pass, so a skills
+  change reaches this command without a new CLI release.
+  WHEN THE PLATFORM CANNOT BE USED, THE BUNDLED SKILLS ARE INSTALLED INSTEAD —
+  offline, a timeout, an error, a checksum mismatch, or a corpus that declares
+  it needs a newer CLI (that last one also tells you to run "nexus upgrade").
+  The reason is printed on stderr, and "corpus.fallbackReason" carries it under
+  --json.
+  --bundled installs the skills bundled with this CLI and makes no network call.
+  --skills-ref <commit> installs exactly that commit and NEVER falls back: a pin
+  that quietly installed something else would not be reproducible, so a failed
+  read is an error. It takes the full 40-character sha.
+  The commit installed is printed, and recorded as "corpus" in
+  .claude/.nexus-install-manifest.json.`
     )
     .action(
       async (
@@ -176,9 +202,16 @@ skills.`
           dryRun?: boolean;
           claudeMd?: boolean;
           settings?: boolean;
-        }
+          bundled?: boolean;
+          skillsRef?: string;
+        },
+        command: Command
       ) => {
-        await runSkillsInstall(skillArgs, opts);
+        if (await refusedBeforeCorpus(opts)) return;
+        const io = platformIo(command);
+        const resolved = await resolveCorpusForCommand(opts, io);
+        if (!resolved) return;
+        await runSkillsInstall(skillArgs, opts, resolved, io);
       }
     );
 }
@@ -202,11 +235,27 @@ export interface SkillsInstallOpts {
   settings?: boolean;
 }
 
+/**
+ * Refuse, before the corpus is fetched, an install that could never be confirmed:
+ * no terminal to ask, no `--yes`, no `--force`, and not a `--dry-run`. The same
+ * refusal would come after the plan anyway, but by then the corpus has been
+ * downloaded, and "I could not ask" has to resolve to "I did not act" with no
+ * network in between (destructive-confirmation.driven.test.ts).
+ *
+ * @returns true when the install was refused and the exit code is set.
+ */
+export async function refusedBeforeCorpus(opts: SkillsInstallOpts): Promise<boolean> {
+  if (opts.dryRun || opts.yes || opts.force || process.stdin.isTTY) return false;
+  return !(await confirmOrAbort("Proceed? [Y/n] ", opts));
+}
+
 export async function runSkillsInstall(
   skillArgs: string[],
-  opts: SkillsInstallOpts
+  opts: SkillsInstallOpts,
+  resolved: ResolvedCorpus,
+  io: PlatformIo
 ): Promise<void> {
-  await runSkillsInstallToTarget(skillArgs, resolveClaudeTarget(opts), opts);
+  await runSkillsInstallToTarget(skillArgs, resolveClaudeTarget(opts), opts, resolved, io);
 }
 
 /**
@@ -218,22 +267,25 @@ export async function runSkillsInstall(
 export async function runSkillsInstallToTarget(
   skillArgs: string[],
   target: ClaudeTarget,
-  opts: SkillsInstallOpts
+  opts: SkillsInstallOpts,
+  resolved: ResolvedCorpus,
+  io: PlatformIo
 ): Promise<void> {
   try {
     const skillsDir = target.skillsDir;
     const claudeMdTarget = target.claudeMdPath;
+    const { corpus } = resolved;
 
     // Filter to the requested subset (or all)
-    const availableSlugs = new Set(getSkillList());
-    let selectedSlugs: readonly string[] = getSkillList();
+    const availableSlugs = new Set(corpus.skillList);
+    let selectedSlugs: readonly string[] = corpus.skillList;
 
     if (skillArgs.length > 0) {
       const unknown = skillArgs.filter((s) => !availableSlugs.has(s));
       if (unknown.length > 0) {
         process.exitCode = refuse(
           `Unknown skill${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.\n\n` +
-            `Available skills in this CLI bundle:\n` +
+            `Available skills in skills commit ${corpus.commitSha.slice(0, 12)}:\n` +
             [...availableSlugs]
               .sort()
               .map((s) => `  ${s}`)
@@ -242,17 +294,17 @@ export async function runSkillsInstallToTarget(
         return;
       }
       const requested = new Set(skillArgs);
-      selectedSlugs = getSkillList().filter((s) => requested.has(s));
+      selectedSlugs = corpus.skillList.filter((s) => requested.has(s));
     }
 
-    const selected = bundleToInstallables(selectedSlugs);
-    const shared = sharedInstallable();
+    const selected = bundleToInstallables(corpus, selectedSlugs);
+    const shared = sharedInstallable(corpus);
     const skillInstallables = [...selected, shared];
 
     // CLAUDE.md is the cross-cutting Cue system prompt every SKILL.md
     // cross-references; it goes to the project root (not .claude/skills)
     // so Claude Code auto-loads it. Opt out with --no-claude-md.
-    const content = claudeMdContent();
+    const content = claudeMdContent(corpus);
     const installClaudeMd = opts.claudeMd !== false && content.length > 0;
 
     // settings.json + hooks/ — the scoped permission posture. Coupled under one
@@ -266,8 +318,8 @@ export async function runSkillsInstallToTarget(
     // user-global `~/.claude` would (a) leave the global hooks unreachable and
     // (b) impose Nexus's permission rules on every project the user opens. So
     // for a global target we skip it and tell the user to install per-project.
-    const settingsContent = settingsJsonContent();
-    const hooks = hookInstallables();
+    const settingsContent = settingsJsonContent(corpus);
+    const hooks = hookInstallables(corpus);
     const settingsSupported = target.reason !== "global";
     const installSettings =
       opts.settings !== false &&
@@ -280,7 +332,7 @@ export async function runSkillsInstallToTarget(
     // shared/, they are always installed (no opt-out) and resolve fine at any
     // scope, so unlike settings.json + hooks they ship for --global too. Gated
     // only on the bundle actually carrying them (older bundles ship none).
-    const agents = agentInstallables();
+    const agents = agentInstallables(corpus);
     const installAgents = agents.files.length > 0;
 
     const totalFiles =
@@ -291,6 +343,7 @@ export async function runSkillsInstallToTarget(
 
     // Show plan
     if (!isJsonMode()) {
+      console.log(color.dim(describeCorpus(resolved, io)));
       console.log(
         color.bold(
           `\nInstalling ${selected.length} Claude Code skill${selected.length === 1 ? "" : "s"} to ${skillsDir}\n`
@@ -344,7 +397,8 @@ export async function runSkillsInstallToTarget(
               settingsSkippedForGlobal,
               directory: skillsDir,
               targetReason: target.reason,
-              fileCount: totalFiles
+              fileCount: totalFiles,
+              corpus: corpusJson(resolved)
             },
             null,
             2
@@ -418,7 +472,12 @@ export async function runSkillsInstallToTarget(
       preservedPaths.push(...agentsResult.preserved.map((p) => path.join(target.agentsDir, p)));
     }
 
-    commitInstallLedger(ledger);
+    commitInstallLedger(ledger, {
+      commitSha: corpus.commitSha,
+      source: resolved.source,
+      cliVersion: io.cliVersion,
+      installedAt: new Date().toISOString()
+    });
 
     // Summary
     if (isJsonMode()) {
@@ -439,7 +498,8 @@ export async function runSkillsInstallToTarget(
             created: totalCreated,
             updated: totalUpdated,
             skipped: totalSkipped,
-            preserved: preservedPaths
+            preserved: preservedPaths,
+            corpus: corpusJson(resolved)
           },
           null,
           2
@@ -449,6 +509,7 @@ export async function runSkillsInstallToTarget(
       printSuccess(
         `Installed ${selected.length} skill${selected.length === 1 ? "" : "s"} (${totalCreated + totalUpdated} files) to ${skillsDir}`
       );
+      console.log(color.dim(`  skills commit ${corpus.commitSha} (${resolved.source})`));
       if (totalSkipped > 0) {
         console.log(color.dim(`  ${totalSkipped} files already up to date`));
       }

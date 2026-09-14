@@ -15,7 +15,16 @@
 // `workspace.ts` and printed in --help. The contract has already been the
 // wrong one: it lists a deployment type the server 500s on.
 
+import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
+
+export const WORKSPACE_MINT_MOUNT_CREDENTIALS__BODY_ACCESS = {
+  path: "WorkspaceMintMountCredentials.Body.access",
+  contractValues: [
+    "read",
+    "read-write"
+  ]
+} as const satisfies ContractEnum;
 
 export const WORKSPACE_CREATE_CONTRACT = {
   name: "WorkspaceCreate",
@@ -41,6 +50,17 @@ export const WORKSPACE_LIST_CONTRACT = {
   route: "/public/v1/workspaces",
   fields: [
     { path: "Params.include", slot: "Params", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const WORKSPACE_MINT_MOUNT_CREDENTIALS_CONTRACT = {
+  name: "WorkspaceMintMountCredentials",
+  method: "POST",
+  route: "/public/v1/workspaces/:slug/mount-credentials",
+  fields: [
+    { path: "PathVars.slug", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.workspaceId", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.access", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["read", "read-write"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { bundledCorpus } from "../skills-corpus/corpus";
 import {
   agentInstallables,
   detectProjectRoot,
@@ -196,7 +197,7 @@ describe("resolveClaudeTarget", () => {
 
 describe("agentInstallables", () => {
   it("returns the bundled Nexus subagent definitions as flat .md files", () => {
-    const agents = agentInstallables();
+    const agents = agentInstallables(bundledCorpus());
     expect(agents.slug).toBe("agents");
     // The bundle ships at least one subagent definition; every entry is a
     // flat .md file (no nested skill-style subdirectories) with content.
@@ -210,7 +211,7 @@ describe("agentInstallables", () => {
 
   it("writes the agents into a flat .claude/agents directory", () => {
     const agentsDir = path.join(tmpHome, ".claude", "agents");
-    const agents = agentInstallables();
+    const agents = agentInstallables(bundledCorpus());
     const res = writeSkillFiles(agentsDir, agents.files, { ledger: led });
     expect(res.created.length).toBe(agents.files.length);
     for (const f of agents.files) {
@@ -376,7 +377,7 @@ describe("the real bundle installs its documented scripts executable", () => {
   const documented = ["scripts/precheck.py", "scripts/deploy_watch.sh"];
 
   it("ships those two files with a shebang", () => {
-    const shared = sharedInstallable();
+    const shared = sharedInstallable(bundledCorpus());
     for (const rel of documented) {
       const entry = shared.files.find((f) => f.path === rel);
       expect(entry, `${rel} missing from SHARED_FILES`).toBeDefined();
@@ -386,7 +387,7 @@ describe("the real bundle installs its documented scripts executable", () => {
 
   it("installs them executable, alongside non-executable docs", () => {
     const skillsDir = path.join(tmpHome, ".claude", "skills");
-    const shared = sharedInstallable();
+    const shared = sharedInstallable(bundledCorpus());
     writeSkillFiles(path.join(skillsDir, shared.slug), shared.files, { ledger: led });
 
     for (const rel of documented) {
@@ -406,7 +407,7 @@ describe("the real bundle installs its documented scripts executable", () => {
 
   it("installs every hook entry point executable", () => {
     const hooksDir = path.join(tmpHome, ".claude", "hooks");
-    const hooks = hookInstallables();
+    const hooks = hookInstallables(bundledCorpus());
     writeSkillFiles(hooksDir, hooks.files, { ledger: led });
 
     const scripts = hooks.files.filter((f) => f.content.subarray(0, 2).toString() === "#!");

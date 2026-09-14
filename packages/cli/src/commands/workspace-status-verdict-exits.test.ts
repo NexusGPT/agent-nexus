@@ -40,15 +40,28 @@ import { describeStdout } from "./json-one-document.scan";
  */
 const { readMounts } = vi.hoisted(() => ({ readMounts: vi.fn() }));
 
-// 🚨 ONLY THE REGISTRY IS REPLACED, AND LIVENESS IS NOT MOCKED AT ALL.
+// 🚨 ONLY THE REGISTRY IS REPLACED, AND THE LIVENESS PREDICATE IS NOT.
 // `isMountLive` is a LOCAL function in `workspace.ts` — for the rclone engine it
-// is `process.kill(pid, 0)`. A spec that stubbed the liveness test would assert
-// against its own boolean; driving a REAL pid exercises the shipped predicate,
-// and `process.pid` is the one pid a test can be certain is alive.
+// is `process.kill(pid, 0)` AND a read of that pid's command line through `ps`,
+// which must name an rclone mount. A spec that stubbed the predicate would
+// assert against its own boolean; driving a REAL pid exercises the shipped
+// signal check, and `process.pid` is the one pid a test can be certain is
+// alive. That one process is not rclone, so `ps` alone answers as if it were —
+// every other child_process call stays real.
 vi.mock("../workspace-mounts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../workspace-mounts")>()),
   readMounts
 }));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    execFileSync: (command: string, ...rest: unknown[]) =>
+      command === "ps"
+        ? "rclone mount nxws: /mnt\n"
+        : (actual.execFileSync as unknown as (...a: unknown[]) => unknown)(command, ...rest)
+  };
+});
 
 import { registerWorkspaceCommands } from "./workspace";
 

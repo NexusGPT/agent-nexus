@@ -30,6 +30,7 @@ import { registerDeploymentCommands } from "./commands/deployment";
 import { registerDocsCommand } from "./commands/docs";
 import { registerDocumentCommands } from "./commands/document";
 import { registerEmulatorCommands } from "./commands/emulator";
+import { registerEvalCommands } from "./commands/eval";
 import { registerEvaluationCommands } from "./commands/evaluation";
 import { registerExecutionCommands } from "./commands/execution";
 import { registerExternalToolCommands } from "./commands/external-tool";
@@ -476,6 +477,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerExternalToolCommands(program);
   registerPromptAssistantCommands(program);
   registerPromptCommands(program);
+  registerEvalCommands(program);
   registerSkillFolderCommands(program);
   registerModelCommands(program);
   registerCustomModelCommands(program);
@@ -594,6 +596,11 @@ if (isProcessEntryPoint()) {
       // Skip auto-update when running `nexus upgrade` (or any alias) — it handles its own update
       const ranCommand = process.argv[2];
       if (ranCommand === "upgrade" || UPGRADE_ALIASES.includes(ranCommand)) return;
+      // The credential refresh helper runs unattended under rclone's AWS SDK,
+      // which kills it at 60 s: an install or a detached registry fetch does
+      // not belong inside that window, and the banner would land in rclone's
+      // log.
+      if (ranCommand === "workspace" && process.argv[3] === "credential-process") return;
 
       const opts = program.opts();
 

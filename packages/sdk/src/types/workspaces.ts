@@ -198,3 +198,54 @@ export interface RestoreWorkspaceResponse {
   /** Convenience count of `restored.length`. */
   count: number;
 }
+
+/** The access a mount credential carries. `read-write` includes delete. */
+export type WorkspaceMountAccess = "read" | "read-write";
+
+/** Request body for `client.workspaces.mintMountCredentials()`. */
+export interface MintWorkspaceMountCredentialsBody {
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+  /**
+   * The CEILING asked for, never a promise. Defaults to `read-write` server-side;
+   * the server grades it down to what the key's scopes, the workspace kind and
+   * the shared write grant allow, and the response's `access` says what was
+   * granted. A downgrade is an ordinary response, not a refusal.
+   */
+  access?: WorkspaceMountAccess;
+}
+
+/**
+ * Response from `client.workspaces.mintMountCredentials()`.
+ *
+ * 🚨 `credentials` IS A BEARER SECRET. AWS honours the triplet until
+ * `expiresAt` whatever happens to the API key afterwards — there is no revoke
+ * call — so never log it and never persist it outside an owner-only file.
+ */
+export interface WorkspaceMountCredentials {
+  /** The workspace the credential reaches — the resolved copy, never the request's. `name` is what a mount labels the volume with. */
+  workspace: Pick<Workspace, "id" | "slug" | "name" | "kind" | "isShared">;
+  /**
+   * The ACTING organization — the one whose key is mounting, which for a shared
+   * (ownerless) workspace is not an owner. Label a drive from this rather than
+   * from anything the client cached at sign-in: `name` is what the server holds
+   * NOW, so it survives a rename. `null` when no row answered; fall back to
+   * whatever name you already had rather than showing none.
+   */
+  organization: { id: string; name: string | null };
+  /** GRANTED access — may be lower than the `access` the body requested. */
+  access: WorkspaceMountAccess;
+  storage: {
+    bucket: string;
+    /** Always `<slug>/`: the one key prefix the credentials reach. */
+    prefix: string;
+    region: string;
+  };
+  credentials: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+  };
+  /** ISO 8601 instant after which AWS refuses the triplet. */
+  expiresAt: string;
+}

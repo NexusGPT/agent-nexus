@@ -202,20 +202,37 @@ LEAF_STATE=""
 LEAF_REASON=""
 
 classify_leaf() {
-  local leaf="$1" out code
+  local leaf="$1" out code transcript errfile
   LEAF_STATE=""
   LEAF_REASON=""
+  # 🚨 THE STREAMS ARE KEPT APART FOR THE REASON THE COMMENT BELOW GIVES: the
+  # emptiness question has to be asked with the SAME instrument `sweep.sh` uses,
+  # and that sweep now hands `scan-response.py` STDOUT alone. Folding stderr in
+  # here would make the two disagree about the same leaf — the sweep reporting
+  # rows while this reported `empty` and seeded over it — which is precisely the
+  # drift that comment forbids. `src/id-graph.streams.ts` carries the argument:
+  # the scanner parses before it walks, so one byte of commentary turns any
+  # response into `NOT-JSON`, and the CLI writes commentary on healthy runs.
+  errfile=$(mktemp) || {
+    LEAF_STATE="error"
+    LEAF_REASON="could not create a temp file to capture stderr"
+    return
+  }
   # shellcheck disable=SC2086
-  out=$(nx $leaf --json 2>&1)
+  out=$(nx $leaf --json 2>"$errfile")
   code=$?
+  transcript="$out$(cat "$errfile")"
+  rm -f "$errfile"
 
   if [[ $code -ne 0 ]]; then
-    if is_policy_refusal "$out"; then
+    # A REFUSAL still needs both streams: the sentence `is_policy_refusal`
+    # matches is printed on stderr.
+    if is_policy_refusal "$transcript"; then
       LEAF_STATE="policy"
-      LEAF_REASON=$(policy_refusal_reason "$out")
+      LEAF_REASON=$(policy_refusal_reason "$transcript")
     else
       LEAF_STATE="error"
-      LEAF_REASON=$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-90)
+      LEAF_REASON=$(printf '%s' "$transcript" | tr '\n' ' ' | cut -c1-90)
     fi
     return
   fi

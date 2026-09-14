@@ -397,18 +397,19 @@ describe("a producer re-read that comes back unreadable", () => {
  *
  * ── HOW A CASE LANDS AT A CHOSEN `provisioned` ──────────────────────────────
  *
- * 26 executable leaves. `tracks list` feeds 10 of them, `agent list` 3,
- * `collection list` 3, `execution list` 2. `FAKE_EMPTY_PRODUCERS` empties named
+ * 28 executable leaves. `tracks list` feeds 10 of them, `agent list` 3,
+ * `collection list` 3, `execution list` 2, `document list` 2.
+ * `FAKE_EMPTY_PRODUCERS` empties named
  * producers only, so the arithmetic is exact and the boundary is reachable from
  * both sides. Every case asserts the number it landed on rather than only the
  * exit code: a leaf added to the graph then reds these cases by NAME with the
  * new figure, instead of sliding one of them past the boundary in silence.
  */
 
-/** 26 - (10 + 3 + 3) = 10, EXACTLY the floor, which must pass. */
-const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list";
-/** 26 - (10 + 3 + 3 + 2) = 8, under the floor, which must not. */
-const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list";
+/** 28 - (10 + 3 + 3 + 2) = 10, EXACTLY the floor, which must pass. */
+const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list";
+/** 28 - (10 + 3 + 3 + 2 + 2) = 8, under the floor, which must not. */
+const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list,document list";
 
 describe("the provisioned floor", () => {
   it("exits 8 when too few leaves had an id, with something reached and nothing failed", async () => {
@@ -419,12 +420,12 @@ describe("the provisioned floor", () => {
     const summary = counts(run.stdout);
     const provisioned = provisionedOf(run.stdout);
 
-    expect(provisioned).toEqual({ provisioned: 8, executable: 26, floor: 10 });
+    expect(provisioned).toEqual({ provisioned: 8, executable: 28, floor: 10 });
     // Neither of the other two non-zero rungs applies, so 8 is the only code
     // that can be under test here.
     expect(summary.reached).toBe(8);
     expect(summary.failed).toBe(0);
-    expect(summary.noId).toBe(18);
+    expect(summary.noId).toBe(20);
     expect(run.code).toBe(8);
     expect(run.stderr).toContain("BELOW THE PROVISIONED FLOOR");
     // NOT the nothing-reached refusal — that one is a different world.
@@ -439,15 +440,15 @@ describe("the provisioned floor", () => {
     const provisioned = provisionedOf(run.stdout);
 
     expect(provisioned.provisioned).toBe(provisioned.floor);
-    expect(provisioned).toEqual({ provisioned: 10, executable: 26, floor: 10 });
+    expect(provisioned).toEqual({ provisioned: 10, executable: 28, floor: 10 });
     expect(counts(run.stdout).failed).toBe(0);
     expect(run.code).toBe(0);
   }, 60_000);
 
   it("does NOT fire on the concurrent-delete race, however many rows it takes", async () => {
-    // 🔴 THE SELECTIVITY CASE. 18 leaves are SKIPPED_ID_VANISHED, so only 8 are
-    // reached — UNDER the floor of 10 — and every one of those 18 HAD a
-    // fixture, so provisioned is still the full 26 and the run passes. A floor
+    // 🔴 THE SELECTIVITY CASE. 20 leaves are SKIPPED_ID_VANISHED, so only 8 are
+    // reached — UNDER the floor of 10 — and every one of those 20 HAD a
+    // fixture, so provisioned is still the full 28 and the run passes. A floor
     // keyed on `reached` exits 8 here and calls a race a coverage outage.
     const state = mkdtempSync(join(tmpdir(), "id-thread-floor-race-"));
     const run = await sweep({
@@ -458,7 +459,7 @@ describe("the provisioned floor", () => {
     });
     const summary = counts(run.stdout);
 
-    expect(summary.vanished).toBe(18);
+    expect(summary.vanished).toBe(20);
     expect(summary.noId).toBe(0);
     expect(summary.failed).toBe(0);
     // The half that makes this discriminating: fewer reached than the floor.
@@ -473,7 +474,7 @@ describe("the provisioned floor", () => {
     // killed only this one; without it, 3 and 1, disjoint.
     expect(summary.reached).toBe(8);
     expect(summary.reached).toBeLessThan(10);
-    expect(provisionedOf(run.stdout).provisioned).toBe(26);
+    expect(provisionedOf(run.stdout).provisioned).toBe(28);
     expect(run.code).toBe(0);
   }, 90_000);
 
@@ -485,9 +486,9 @@ describe("the provisioned floor", () => {
     const summary = counts(run.stdout);
 
     expect(run.code).toBe(0);
-    expect(provisionedOf(run.stdout).provisioned).toBe(16);
+    expect(provisionedOf(run.stdout).provisioned).toBe(18);
     expect(run.stdout).toContain("NOTHING EXISTED TO TEST WITH");
-    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 38% of this harness/m);
+    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 36% of this harness/m);
     expect(run.stdout).toContain("seed-sweep-fixtures.sh");
     // Three counters, still separate, still in the Summary line.
     expect(summary.noId).toBe(10);

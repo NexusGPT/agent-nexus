@@ -609,6 +609,41 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "prompt promote": "registration-only",
   "prompt compare": "registration-only",
   "prompt graph": "registration-only",
+  // Golden-conversation authoring. `conv list` is a read with no required
+  // input, but it is NOT `safe`: the namespace is whitelist-gated on
+  // PROMPT_EVAL and the swept organization holds no opt-in, so the deployed
+  // API answers the flag guard's generic 403 ("This feature is not enabled
+  // for your organization") — a sentence `policy-refusal.sh` deliberately
+  // does not match (broadening that list is the silent-and-permanent failure
+  // its own header warns about). A `safe` row here would be a permanently
+  // red sweep leaf, red for the flag working as designed. Every other verb
+  // needs an id or mutates, and `conv new` is an interactive REPL that
+  // creates a conversation the moment it starts.
+  "eval conv list": "registration-only",
+  "eval conv create": "registration-only",
+  "eval conv get": "registration-only",
+  "eval conv delete": "registration-only",
+  "eval conv add-user": "registration-only",
+  "eval conv generate": "registration-only",
+  "eval conv accept": "registration-only",
+  "eval conv set-golden": "registration-only",
+  "eval conv checkpoint": "registration-only",
+  "eval conv ready": "registration-only",
+  "eval conv new": "never-execute",
+  // Eval runs. `run list` is a read with no required input and is NOT `safe`,
+  // for the same reason `conv list` above is not: the namespace is
+  // whitelist-gated on PROMPT_EVAL, and the swept organization holds no
+  // opt-in, so the deployed API answers the flag guard's generic 403 that
+  // `policy-refusal.sh` deliberately does not match. Every other verb needs an
+  // id or mutates — and `run create` is the one leaf in this CLI that would
+  // spend real money on every sweep, because each cell runs the agent live
+  // with its tools and then calls a judge.
+  "eval run create": "registration-only",
+  "eval run preview": "registration-only",
+  "eval run list": "registration-only",
+  "eval run get": "registration-only",
+  "eval run abort": "registration-only",
+  "eval run results": "registration-only",
   "role create": "registration-only",
   "role create-job-type": "registration-only",
   "role create-permission-set": "registration-only",
@@ -953,9 +988,15 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
 
   // ── workspace ──────────────────────────────────────────────────────────────
   "workspace create": "registration-only",
+  // Returns an AWS credential triplet on stdout — the shape the docblock above
+  // refuses no matter how well it reads. Not `registration-only`: that
+  // disposition admits a leaf with a required positional into the id-graph
+  // ledger, and a `<mountId>` is not a route parameter anything can thread.
+  "workspace credential-process": "never-execute",
   "workspace delete": "registration-only",
   "workspace list": "safe",
   "workspace mount": "never-execute", // mounts a FUSE drive on the caller's filesystem
+  "workspace remount": "never-execute", // mints and mounts a drive on the caller's filesystem
   "workspace rename": "registration-only",
   "workspace restore": "registration-only",
   "workspace search": "registration-only",

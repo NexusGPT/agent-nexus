@@ -117,7 +117,7 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     title: "Claude Code Skills CLI",
     icon: "sparkles",
     description:
-      "List and install the Claude Code skills bundled with your Nexus CLI version into your project — no network calls, no API key required."
+      "List and install the latest Nexus Claude Code skills into your project — no API key required, with the skills bundled in the CLI as the offline fallback."
   },
   chat: {
     title: "Chat CLI",
@@ -257,6 +257,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "Branch-based prompt versioning: fork variants from any version, iterate with saves, compare any two points in history, and promote a variant to Main — without ever rewriting history."
   },
+  eval: {
+    title: "Golden Conversations CLI",
+    icon: "message-square-quote",
+    description:
+      "Author golden conversations for prompt evaluation: play the end user, let the agent generate each reply on the variant under test, and accept, edit, or regenerate until every checkpoint is the reference answer."
+  },
   "skill-folder": {
     title: "Skill Folders CLI",
     icon: "folder-tree",
@@ -357,7 +363,8 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
   skills: {
     title: "Skills CLI",
     icon: "sparkles",
-    description: "Browse and install the skills bundled with the CLI."
+    description:
+      "Browse and install the latest Nexus Claude Code skills, and see which commit you have."
   },
   "user-group": {
     title: "User Groups CLI",

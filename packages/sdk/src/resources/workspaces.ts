@@ -4,12 +4,14 @@ import type {
   ListWorkspaceFilesParams,
   ListWorkspacesParams,
   ListWorkspacesResponse,
+  MintWorkspaceMountCredentialsBody,
   RenameWorkspaceBody,
   RestoreWorkspaceBody,
   RestoreWorkspaceResponse,
   Workspace,
   WorkspaceFileUrl,
   WorkspaceListing,
+  WorkspaceMountCredentials,
   WorkspaceSearchParams,
   WorkspaceSearchResponse
 } from "../types/workspaces";
@@ -112,6 +114,31 @@ export class WorkspacesResource extends BaseResource {
     return this.http.request<RestoreWorkspaceResponse>(
       "POST",
       `/workspaces/${encodeURIComponent(slug)}/restore`,
+      { body }
+    );
+  }
+
+  /**
+   * Mint the credential a DIRECT mount of this workspace signs S3 requests
+   * with: a one-hour STS bearer session whose policy reaches exactly
+   * `storage.bucket/storage.prefix` (`<slug>/`) and no other key.
+   *
+   * `access` is the CEILING asked for (default `read-write`), never a promise.
+   * The server grades it down to what the key's scopes, the workspace kind and
+   * the shared write grant allow, and the response's `access` says what was
+   * granted — a downgrade is an ordinary response, not a refusal.
+   *
+   * 🚨 THE RESULT IS A CREDENTIAL. AWS honours it until `expiresAt` whatever
+   * happens to the API key afterwards, so never log the response and never
+   * persist it outside an owner-only file.
+   */
+  async mintMountCredentials(
+    slug: string,
+    body: MintWorkspaceMountCredentialsBody = {}
+  ): Promise<WorkspaceMountCredentials> {
+    return this.http.request<WorkspaceMountCredentials>(
+      "POST",
+      `/workspaces/${encodeURIComponent(slug)}/mount-credentials`,
       { body }
     );
   }

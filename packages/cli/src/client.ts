@@ -35,9 +35,9 @@ export type Seconds = number & { readonly __brand: unique symbol };
 /**
  * State that a number is in seconds.
  *
- * Deliberately unvalidated beyond finiteness: `timeoutSecondsToMs` owns the
- * range refusal, and duplicating it here would put two ceilings in the code
- * that could disagree.
+ * Deliberately unvalidated beyond finiteness: `secondsToMs` owns the range
+ * refusal, and duplicating it here would put two ceilings in the code that
+ * could disagree.
  */
 export function seconds(value: number): Seconds {
   return value as Seconds;
@@ -82,20 +82,19 @@ export function parseTimeoutSeconds(raw: string): Seconds {
 }
 
 /**
- * Convert a timeout expressed in SECONDS to the milliseconds the HTTP clients
- * expect. Every command path that builds its own client (SDK client, raw
- * `nexus api` HttpClient, vibe tenant transport) converts through here, so the
- * global `--timeout <seconds>` flag and every command's own default mean the
- * same thing everywhere.
+ * Convert SECONDS to milliseconds. This is the one place the unit changes, so
+ * it is where an out-of-range value is REFUSED rather than left to Node's
+ * silent clamp-to-1ms. A value already in milliseconds is the way this goes
+ * wrong: it is multiplied by 1000 a second time, overflows, and every request
+ * aborts instantly (NEX-3707). Refusing is louder than clamping — a clamp to
+ * 24.8 days is indistinguishable from working.
  *
- * This is the one place the unit changes, so it is where an out-of-range value
- * is REFUSED rather than left to Node's silent clamp-to-1ms. A value already in
- * milliseconds is the way this goes wrong: it is multiplied by 1000 a second
- * time, overflows, and every request aborts instantly (NEX-3707). Refusing is
- * louder than clamping — a clamp to 24.8 days is indistinguishable from working.
+ * Takes a DEFINED number and returns one, for a caller that has already
+ * chosen its value and needs the milliseconds as a number — a deadline it
+ * keeps itself. `timeoutSecondsToMs` is the same conversion for an optional
+ * flag value.
  */
-export function timeoutSecondsToMs(seconds: number | undefined): number | undefined {
-  if (seconds === undefined) return undefined;
+export function secondsToMs(seconds: number): number {
   const ms = seconds * 1000;
   if (!Number.isFinite(ms) || ms > MAX_TIMEOUT_MS) {
     throw new RangeError(
@@ -105,6 +104,18 @@ export function timeoutSecondsToMs(seconds: number | undefined): number | undefi
     );
   }
   return ms;
+}
+
+/**
+ * Convert a timeout expressed in SECONDS to the milliseconds the HTTP clients
+ * expect. Every command path that builds its own client (SDK client, raw
+ * `nexus api` HttpClient, vibe tenant transport) converts through here, so the
+ * global `--timeout <seconds>` flag and every command's own default mean the
+ * same thing everywhere. An unset flag stays unset, so the receiver applies
+ * its own default.
+ */
+export function timeoutSecondsToMs(seconds: number | undefined): number | undefined {
+  return seconds === undefined ? undefined : secondsToMs(seconds);
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +143,25 @@ export function createClient(opts?: {
    * passed here at all; mint one with `seconds(...)`.
    */
   timeout?: Seconds;
+  /**
+   * The organization this client acts on, PINNED by the caller rather than
+   * resolved from the environment and the profile.
+   *
+   * Only a caller that recorded the org at an earlier moment passes this: a
+   * direct-engine mount's credential refresh acts on the organization the
+   * mount was made for, so `auth use-org` or an exported
+   * `NEXUS_ORGANIZATION_ID` after mounting cannot re-point a live drive at
+   * another tenant. Every other caller leaves it unset and gets the shared
+   * precedence below.
+   */
+  organizationId?: string;
+  /**
+   * How many times the SDK may replay a retryable failure. Unset means the
+   * SDK's own default; `0` disables retrying, which a caller running under an
+   * external deadline (rclone's credential_process kills the helper at 60 s)
+   * needs so its own bounded retry is the only one.
+   */
+  maxRetries?: number;
 }): NexusClient {
   const resolved = resolveProfile(opts);
   _lastResolved = resolved;
@@ -148,7 +178,12 @@ export function createClient(opts?: {
   // ORG_SCOPED_KEY_ORG_MISMATCH rather than answered from the key's own org, so
   // setting NEXUS_ORGANIZATION_ID to another tenant fails loudly instead of
   // returning the wrong tenant's rows (NEX-3175).
-  const { organizationId } = resolveOrganization(resolved.profile);
+  //
+  // A caller-pinned `organizationId` bypasses that chain entirely: the org was
+  // decided when the caller recorded it, and re-resolving it now is how a
+  // refresh for one tenant's mount would be served from another.
+  const organizationId =
+    opts?.organizationId ?? resolveOrganization(resolved.profile).organizationId;
 
   return new NexusClient({
     apiKey: opts?.apiKey ?? resolved.profile.apiKey,
@@ -156,6 +191,7 @@ export function createClient(opts?: {
       opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
     ...(organizationId ? { organizationId } : {}),
     timeout: timeoutSecondsToMs(opts?.timeout),
+    maxRetries: opts?.maxRetries,
     // Both of these write to stderr and neither writes to stdout, so a `--json`
     // document stays a single parseable value with either or both firing.
     onRetry: reportRetryOnStderr,

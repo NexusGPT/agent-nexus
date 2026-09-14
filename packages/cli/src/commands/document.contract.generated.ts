@@ -76,6 +76,24 @@ export const DOCUMENT_ADD_WEBSITE_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const DOCUMENT_DOWNLOAD_CONTRACT = {
+  name: "DocumentDownload",
+  method: "GET",
+  route: "/public/v1/documents/:documentId/download",
+  fields: [
+    { path: "PathVars.documentId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const DOCUMENT_GET_CONTRACT = {
+  name: "DocumentGet",
+  method: "GET",
+  route: "/public/v1/documents/:documentId",
+  fields: [
+    { path: "PathVars.documentId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const DOCUMENT_LIST_CONTRACT = {
   name: "DocumentList",
   method: "GET",
@@ -89,5 +107,25 @@ export const DOCUMENT_LIST_CONTRACT = {
     { path: "Params.collectionId", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.isFolder", slot: "Params", type: "boolean", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const DOCUMENT_LIST_CHILDREN_CONTRACT = {
+  name: "DocumentListChildren",
+  method: "GET",
+  route: "/public/v1/documents/:documentId/children",
+  fields: [
+    { path: "PathVars.documentId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const DOCUMENT_PREVIEW_CONTRACT = {
+  name: "DocumentPreview",
+  method: "GET",
+  route: "/public/v1/documents/:documentId/preview",
+  fields: [
+    { path: "PathVars.documentId", slot: "PathVars", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

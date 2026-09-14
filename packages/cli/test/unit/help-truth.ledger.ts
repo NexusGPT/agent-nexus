@@ -99,7 +99,7 @@ export const LEDGER_CEILING = 0;
  * {@link NAMESPACE_TOTAL} namespaces and the two agree — which is exactly when a
  * dropped filter stops being visible in the number.
  */
-export const NAMESPACE_TOTAL = 52;
+export const NAMESPACE_TOTAL = 53;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -247,6 +247,7 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "docs",
   "document",
   "emulator",
+  "eval",
   "execution",
   "external-tool",
   "folder",

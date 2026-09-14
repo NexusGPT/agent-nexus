@@ -1,9 +1,12 @@
 /**
  * Build-time script: fetches the canonical claude-code-skills-nexus tarball
  * from GitHub at the SHA pinned in `packages/cli/skills-nexus.lock`, extracts
- * it to a temp directory, and emits a TypeScript module with skill file
- * contents as string constants. This gets compiled into the CLI binary so
- * `nexus claude-code list` and `install` work without filesystem access.
+ * it to a temp directory, and emits the skills bundle the CLI ships with.
+ *
+ * THE BUNDLE IS THE FALLBACK (NEX-5177). `nexus skills install` installs the
+ * latest corpus the platform serves, and uses this bundle only offline, on an
+ * error, or with `--bundled`. Both go through `buildCorpusFromFiles`, so a
+ * bundle and a download of the same commit install the same files.
  *
  * Run: pnpm run gen:skills
  *
@@ -35,7 +38,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { selectSkillDirs, SHARED_DIR } from "./skills-bundle/select-skill-dirs";
+import { buildCorpusFromFiles } from "../src/skills-corpus/build-corpus";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = path.resolve(__dirname, "..");
@@ -52,58 +55,40 @@ const ASSET_BASENAME = "skills-content.generated.json";
 const ASSET_FILE = path.join(CLI_ROOT, "src", ASSET_BASENAME);
 const REPO = "NexusGPT/claude-code-skills-nexus";
 
-interface FileEntry {
-  path: string;
-  content: string;
-}
-
 /**
- * Recursively collect every file in a directory.
+ * Every file under `root`, as a path relative to it with forward slashes.
  *
- * This used to filter on `/\.(md|ts)$/`, which silently dropped every other
- * asset in the skills tree: JSON schemas, example specs, evaluation-suite
- * templates, and the .mjs/.sh/.py scripts the skill docs tell an agent to run.
- * Those files exist in skills-nexus and simply never reached a user, so an
- * instruction like "read `reference/pa-output-schema.json`" dead-ended on an
- * absent file at the far end of `nexus claude-code install`.
+ * Nothing is filtered here and nothing is read. Which files ship is decided in
+ * ONE place, `buildCorpusFromFiles` (src/skills-corpus/build-corpus.ts), which
+ * the CLI also runs over a corpus it downloads — so the bundle and a download of
+ * the same commit cannot disagree about what a skill contains.
  *
- * The repo is the source of truth for what ships. An extension allowlist here
- * is a second, weaker source that drifts the moment someone adds a file type,
- * which is exactly how that bug arose — so there is no allowlist. Only editor
- * and OS cruft is skipped (dotfiles, __pycache__, compiled .pyc).
+ * That selection has no extension allowlist, and the reason is recorded here
+ * because this is where it was learned: collection used to filter on
+ * `/\.(md|ts)$/`, which silently dropped every JSON schema, example spec and
+ * .mjs/.sh/.py script the skill docs tell an agent to run. Only editor and OS
+ * cruft is skipped (dotfiles, __pycache__, compiled .pyc).
  */
-function collectFiles(dir: string, basePath: string = ""): FileEntry[] {
-  const entries: FileEntry[] = [];
-  if (!fs.existsSync(dir)) return entries;
-
-  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (item.name.startsWith(".") || item.name === "__pycache__") continue;
-    const relPath = basePath ? `${basePath}/${item.name}` : item.name;
-    const fullPath = path.join(dir, item.name);
-
-    if (item.isDirectory()) {
-      entries.push(...collectFiles(fullPath, relPath));
-    } else if (!item.name.endsWith(".pyc")) {
-      entries.push({
-        path: relPath,
-        content: readUtf8OrThrow(fullPath, relPath)
-      });
-    }
+function listFiles(root: string, prefix = ""): string[] {
+  const paths: string[] = [];
+  for (const item of fs.readdirSync(root, { withFileTypes: true })) {
+    const relPath = prefix ? `${prefix}/${item.name}` : item.name;
+    if (item.isDirectory()) paths.push(...listFiles(path.join(root, item.name), relPath));
+    else paths.push(relPath);
   }
-
-  return entries;
+  return paths;
 }
 
 /**
  * Read a file as UTF-8, refusing anything that does not round-trip.
  *
- * The bundle stores contents as TypeScript string constants and the installer
- * writes them back with `Buffer.from(content, "utf-8")`, so a non-UTF-8 file
- * (an image, a font, a compiled binary) would be re-encoded with replacement
- * characters and written to disk corrupted — silently, since nothing compares
- * the bytes afterwards. Now that collection is unfiltered, the first binary
- * asset committed to skills-nexus would hit exactly that. Fail the build
- * instead: a broken build is fixable, a corrupted install is not diagnosable.
+ * The bundle stores contents as strings and the installer writes them back with
+ * `Buffer.from(content, "utf-8")`, so a non-UTF-8 file (an image, a font, a
+ * compiled binary) would be re-encoded with replacement characters and written
+ * to disk corrupted — silently, since nothing compares the bytes afterwards.
+ * Fail the build instead: a broken build is fixable, a corrupted install is not
+ * diagnosable. Only files the corpus ships are ever read, so a binary file
+ * somewhere no skill reaches does not fail the build.
  */
 function readUtf8OrThrow(fullPath: string, relPath: string): string {
   const raw = fs.readFileSync(fullPath);
@@ -111,37 +96,12 @@ function readUtf8OrThrow(fullPath: string, relPath: string): string {
   if (!Buffer.from(decoded, "utf-8").equals(raw)) {
     throw new Error(
       `${relPath} is not valid UTF-8. The skills bundle stores file contents as ` +
-        `TypeScript strings, so binary assets cannot round-trip and would install ` +
+        `strings, so binary assets cannot round-trip and would install ` +
         `corrupted. Either remove it from skills-nexus or teach the bundle to carry ` +
         `base64 payloads.`
     );
   }
-  return decoded.trim();
-}
-
-/** Extract first meaningful paragraph from SKILL.md as description. */
-function extractDescription(skillDir: string): string {
-  const skillMd = path.join(skillDir, "SKILL.md");
-  if (!fs.existsSync(skillMd)) return "";
-
-  const content = fs.readFileSync(skillMd, "utf-8");
-  const lines = content.split("\n");
-
-  let inFrontmatter = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === "---") {
-      inFrontmatter = !inFrontmatter;
-      continue;
-    }
-    if (inFrontmatter) continue;
-    if (trimmed.startsWith("#")) continue;
-    if (trimmed === "") continue;
-
-    return trimmed.length > 120 ? trimmed.slice(0, 117) + "..." : trimmed;
-  }
-
-  return "";
+  return decoded;
 }
 
 function tryResolveToken(): string | null {
@@ -248,62 +208,28 @@ async function main(): Promise<void> {
   console.log(`Building skills bundle from ${REPO}@${sha.slice(0, 12)} (source: ${source})`);
 
   const extracted = await downloadAndExtractTarball(sha, token);
-  const skillsRoot = path.join(extracted, "skills");
-  const claudeMdPath = path.join(extracted, "CLAUDE.md");
-  const settingsJsonPath = path.join(extracted, "settings.json");
-  const hooksRoot = path.join(extracted, "hooks");
-  const agentsRoot = path.join(extracted, "agents");
-
-  if (!fs.existsSync(skillsRoot)) {
-    throw new Error(`Tarball is missing a top-level skills/ directory: ${skillsRoot}`);
+  if (!fs.existsSync(path.join(extracted, "skills"))) {
+    throw new Error(`Tarball is missing a top-level skills/ directory: ${extracted}/skills`);
   }
 
-  // Selection AND its report, in one call. `selectSkillDirs` names every
-  // top-level entry it did not bundle, on stderr, so a directory added upstream
-  // that matches nothing cannot reach zero users in silence the way
-  // `skills/plain/` did. See that module's header for why it warns rather than
-  // failing, and why nothing here decides `plain`'s fate.
-  const skillDirs = selectSkillDirs(fs.readdirSync(skillsRoot, { withFileTypes: true }), {
-    log: (message) => console.log(message),
-    warn: (message) => console.warn(message)
-  });
-
-  const skillsRecord: Record<string, { slug: string; description: string; files: FileEntry[] }> =
-    {};
-  let totalFiles = 0;
-
-  for (const slug of skillDirs) {
-    const dir = path.join(skillsRoot, slug);
-    const files = collectFiles(dir);
-    const description = extractDescription(dir);
-    totalFiles += files.length;
-
-    skillsRecord[slug] = { slug, description, files };
-  }
-
-  const claudeMd = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, "utf-8").trim() : "";
-
-  // `SHARED_DIR`, not a second literal: this call IS the reason `shared` is
-  // declared in `NON_SKILL_DIRS` as "consumed elsewhere", and the two must not
-  // be able to drift into a declaration nothing honours.
-  const sharedFiles = collectFiles(path.join(skillsRoot, SHARED_DIR));
-
-  // settings.json + hooks/ — the scoped permission posture (NEX-2461). The
-  // top-level settings.json installs to .claude/settings.json; the hooks/ tree
-  // (Python firewall + lib/ + docs) installs to .claude/hooks/.
-  const settingsJson = fs.existsSync(settingsJsonPath)
-    ? fs.readFileSync(settingsJsonPath, "utf-8").trim()
-    : "";
-  const hookFiles = collectFiles(hooksRoot);
-  console.log(
-    `Found settings.json (${settingsJson.length} bytes) and ${hookFiles.length} hook files`
+  // The selection AND its report, in one call. The report names every top-level
+  // entry under skills/ that was not bundled, on stderr, so a directory added
+  // upstream that matches nothing cannot reach zero users in silence the way
+  // `skills/plain/` did. See `select-skill-dirs.ts` for why it warns rather than
+  // failing.
+  const corpus = buildCorpusFromFiles(
+    sha,
+    {
+      paths: listFiles(extracted),
+      read: (relPath) => readUtf8OrThrow(path.join(extracted, relPath), relPath)
+    },
+    { log: (message) => console.log(message), warn: (message) => console.warn(message) }
   );
-
-  // agents/ — the Nexus-owned subagent definitions (flat .md files). They land
-  // under .claude/agents and, like the skill files, are refreshed in place on
-  // every install. Collected the same way skills/ and shared/ are.
-  const agentFiles = collectFiles(agentsRoot);
-  console.log(`Found ${agentFiles.length} agent files`);
+  const totalFiles = corpus.skillList.reduce((n, slug) => n + corpus.skills[slug].files.length, 0);
+  console.log(
+    `Found settings.json (${corpus.settingsJson.length} bytes) and ${corpus.hookFiles.length} hook files`
+  );
+  console.log(`Found ${corpus.agentFiles.length} agent files`);
 
   const output = [
     "// AUTO-GENERATED — do not edit. Run: pnpm run gen:skills",
@@ -446,13 +372,13 @@ async function main(): Promise<void> {
 
   const payload = {
     sha,
-    SKILLS: skillsRecord,
-    SKILL_LIST: skillDirs,
-    CLAUDE_MD: claudeMd,
-    SHARED_FILES: sharedFiles,
-    SETTINGS_JSON: settingsJson,
-    HOOK_FILES: hookFiles,
-    AGENT_FILES: agentFiles
+    SKILLS: corpus.skills,
+    SKILL_LIST: corpus.skillList,
+    CLAUDE_MD: corpus.claudeMd,
+    SHARED_FILES: corpus.sharedFiles,
+    SETTINGS_JSON: corpus.settingsJson,
+    HOOK_FILES: corpus.hookFiles,
+    AGENT_FILES: corpus.agentFiles
   };
   const payloadJson = JSON.stringify(payload);
 
@@ -468,7 +394,7 @@ async function main(): Promise<void> {
 
   console.log(
     `Generated ${path.relative(CLI_ROOT, OUTPUT_FILE)} ` +
-      `(${skillDirs.length} skills, ${totalFiles} files, ${agentFiles.length} agents) ` +
+      `(${corpus.skillList.length} skills, ${totalFiles} files, ${corpus.agentFiles.length} agents) ` +
       `+ ${path.relative(CLI_ROOT, ASSET_FILE)} (${payloadJson.length} bytes)`
   );
 }

@@ -12,7 +12,7 @@ that shape-only sweeps cannot catch.
 | ------------------------ | ---------------------------------------- | ------------------------------------------------------------------------- |
 | `01-hello-agent.sh`      | agent → deployment → emulator round-trip | agent persistence, deployment lifecycle, message dispatch, response shape |
 | `02-workflow-attach.sh`  | workflow + node/edge + agent attach      | cross-domain references, publish lifecycle, validation gate               |
-| `03-knowledge-attach.sh` | document + collection + agent + RAG      | KB ingestion, retrieval, agent-KB binding                                 |
+| `03-knowledge-attach.sh` | document + collection + agent + RAG      | KB ingestion, agent-KB binding; **retrieval only when `STRICT_RAG=1`**    |
 
 Sequentially independent — failure in one does not poison the next. Each
 script provisions, asserts, then cleans up via `trap`.
@@ -47,15 +47,16 @@ is invisible to the reaper and will accumulate forever.
 
 ## Required environment
 
-| Variable                  | Purpose                                                                   | Default                                                                                         |
-| ------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `NEXUS_BIN`               | Command used to invoke the CLI (split on whitespace)                      | `nexus` on PATH, else `node dist/index.js`                                                      |
-| `NEXUS_PROFILE`           | Profile to scope every CLI call (CI uses `ci`)                            | unset (refuses to run unless `NEXUS_E2E_ALLOW_DEFAULT=1` is also set)                           |
-| `NEXUS_BASE_URL`          | Explicit target host (overrides the profile's persisted baseUrl)          | unset (then the profile's stored baseUrl is used; refuses if the resolved URL is empty or prod) |
-| `NEXUS_E2E_ALLOW_DEFAULT` | Acknowledge using the active CLI profile (developer escape hatch)         | unset                                                                                           |
-| `NEXUS_E2E_ALLOW_PROD`    | Acknowledge the resolved URL matches `api.nexusgpt.io`. Almost never set. | unset                                                                                           |
-| `E2E_PREFIX`              | Artifact name prefix                                                      | `nexus_e2e`                                                                                     |
-| `E2E_RUN_ID`              | Per-run suffix (epoch, PID, random)                                       | computed                                                                                        |
+| Variable                  | Purpose                                                                                                                                                                             | Default                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `NEXUS_BIN`               | Command used to invoke the CLI (split on whitespace)                                                                                                                                | `nexus` on PATH, else `node dist/index.js`                                                      |
+| `NEXUS_PROFILE`           | Profile to scope every CLI call (CI uses `ci`)                                                                                                                                      | unset (refuses to run unless `NEXUS_E2E_ALLOW_DEFAULT=1` is also set)                           |
+| `NEXUS_BASE_URL`          | Explicit target host (overrides the profile's persisted baseUrl)                                                                                                                    | unset (then the profile's stored baseUrl is used; refuses if the resolved URL is empty or prod) |
+| `NEXUS_E2E_ALLOW_DEFAULT` | Acknowledge using the active CLI profile (developer escape hatch)                                                                                                                   | unset                                                                                           |
+| `NEXUS_E2E_ALLOW_PROD`    | Acknowledge the resolved URL matches `api.nexusgpt.io`. Almost never set.                                                                                                           | unset                                                                                           |
+| `E2E_PREFIX`              | Artifact name prefix                                                                                                                                                                | `nexus_e2e`                                                                                     |
+| `E2E_RUN_ID`              | Per-run suffix (epoch, PID, random)                                                                                                                                                 | computed                                                                                        |
+| `STRICT_RAG`              | Flow C only. `1` requires an AI reply in 60s **and** the canary token `teal` in it — a retrieval-quality assertion. Read at `03-knowledge-attach.sh:224`; any value but `1` is off. | `0` (the script's default is opt-in and stays that way; CI arms it — see below)                 |
 
 CI exports `NEXUS_BASE_URL=https://api-staging.gpt.nexus` once at the job
 level and logs in to a `ci` profile with `NEXUS_E2E_API_KEY` — distinct
@@ -101,9 +102,25 @@ NEXUS_E2E_ALLOW_DEFAULT=1 ./packages/cli/test/e2e/01-hello-agent.sh
 
 - PRs touching `packages/cli/**`, `packages/sdk/**`, or
   `packages/types/src/api/public/**`
+- `push` of those same paths to `staging` or `main` — without it, "green on
+  staging" meant "nothing ran", since a PR run tests `refs/pull/N/merge` and
+  that ref dies with the PR
+- `workflow_run` after `Porter Backend Staging` completes — these flows run
+  against the live host, so a deploy changes the system under test
 - manual `workflow_dispatch`
-- a 6-hourly cron against staging (catches contract drift from backend
-  deploys even when no CLI change is in flight)
+- a 6-hourly cron against staging, now a BACKSTOP rather than the primary
+  environment signal (staging data, an expiring credential, a third party)
+
+**`STRICT_RAG` is armed on every one of those except `pull_request`.** PR runs
+fire on `synchronize` — every push to every open PR on these paths — against one
+shared staging org, so they contend for the same RAG ingestion pipeline and miss
+the 60s window most often when several are in flight. A red no author's diff
+caused, on the surface a human is watching, is how a check gets ignored. On the
+other triggers the run rate is bounded (one per deploy, per trunk merge, per six
+hours) and `CLI: E2E flows` is not a required context, so the red blocks nobody
+and lands in Actions history as the environmental signal it is. The workflow uses
+a negative condition rather than a list of trigger names, so a trigger added
+later is armed rather than silently unasserted.
 
 All three flow steps share one gate: `!cancelled() && steps.auth.outcome == 'success'`.
 Auth/build/install failure short-circuits to one error rather than three
@@ -126,4 +143,10 @@ cheapest way to keep them debuggable.
   resist — it tightens coupling and complicates reaper logic.
 - **Don't gate on flaky assertions.** If a step depends on LLM latency or
   generation quality, mark it as a soft check (e.g. assert ≥1 assistant
-  message, not "the answer contains 'hello'") unless deterministic.
+  message, not "the answer contains 'hello'") unless deterministic. The rule is
+  about GATING, not about asserting: Flow C's canary stays soft by default and
+  off on `pull_request` for exactly this reason, and is armed only where the run
+  rate is bounded and the red gates nobody. A flaky assertion nobody is blocked
+  by is a signal; the same assertion in front of a merge is how the check dies.
+  Raising the 60s window is not the alternative — it makes a miss rarer, never
+  absent, and buys a slower suite for a hole the same shape.

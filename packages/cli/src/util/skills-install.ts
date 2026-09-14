@@ -3,15 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  getAgentFiles,
-  getClaudeMd,
-  getHookFiles,
-  getSettingsJson,
-  getSharedFiles,
-  getSkills,
-  type SkillEntry
-} from "../skills-content.generated";
+import type { SkillEntry } from "../skills-content.generated";
+import type { SkillsCorpus } from "../skills-corpus/corpus";
+import type { CorpusSourceKind } from "../skills-corpus/resolve";
 import { confirmDestructive } from "./confirm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -70,19 +64,27 @@ export interface ClaudeTarget {
   reason: TargetReason;
 }
 
-// ── Bundle → installable ──────────────────────────────────────────────────────
+// ── Corpus → installable ──────────────────────────────────────────────────────
+//
+// Every builder below takes the corpus it reads, and none has a default. The
+// corpus is either the one bundled into this CLI or the one the platform served
+// (`skills-corpus/resolve.ts`), and one install must read every file from the
+// SAME one: a builder that fell back to the bundle on its own would mix two
+// commits into one tree with nothing to notice it.
 
 /**
- * Convert the build-time bundle into the byte-shaped form `writeSkillFiles`
- * expects. The bundle stores file contents as UTF-8 strings (they're inlined
- * into TypeScript constants) and `writeSkillFiles` writes raw buffers, so the
- * round-trip is lossless exactly while every bundled file is valid UTF-8.
- * `bundle-skills.ts` enforces that at build time rather than leaving it to
- * chance: a non-UTF-8 asset fails the bundle instead of installing corrupted.
+ * Convert the corpus into the byte-shaped form `writeSkillFiles` expects. The
+ * corpus stores file contents as UTF-8 strings and `writeSkillFiles` writes raw
+ * buffers, so the round-trip is lossless exactly while every file is valid
+ * UTF-8. Both sources enforce that before a corpus exists: `bundle-skills.ts`
+ * fails the build, and the platform refuses the upload.
  */
-export function bundleToInstallables(slugs: readonly string[]): InstallableSkill[] {
+export function bundleToInstallables(
+  corpus: SkillsCorpus,
+  slugs: readonly string[]
+): InstallableSkill[] {
   return slugs.map((slug) => {
-    const entry: SkillEntry = getSkills()[slug];
+    const entry: SkillEntry = corpus.skills[slug];
     return {
       slug: entry.slug,
       files: entry.files.map((f) => ({
@@ -99,17 +101,18 @@ export function bundleToInstallables(slugs: readonly string[]): InstallableSkill
  * `.claude/skills/shared` whenever any skill is installed, otherwise those
  * imports dangle.
  */
-export function sharedInstallable(): InstallableSkill {
+export function sharedInstallable(corpus: SkillsCorpus): InstallableSkill {
   return {
     slug: "shared",
-    files: getSharedFiles().map((f) => ({
+    files: corpus.sharedFiles.map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
   };
 }
 
-export const claudeMdContent = (): Buffer => Buffer.from(getClaudeMd(), "utf-8");
+export const claudeMdContent = (corpus: SkillsCorpus): Buffer =>
+  Buffer.from(corpus.claudeMd, "utf-8");
 
 /**
  * The scoped permission posture (NEX-2461): `.claude/settings.json` declares
@@ -117,7 +120,8 @@ export const claudeMdContent = (): Buffer => Buffer.from(getClaudeMd(), "utf-8")
  * hooks. Like CLAUDE.md it lands at a path a user may have customised, so it
  * gets the same preserve-unless-`--force` treatment.
  */
-export const settingsJsonContent = (): Buffer => Buffer.from(getSettingsJson(), "utf-8");
+export const settingsJsonContent = (corpus: SkillsCorpus): Buffer =>
+  Buffer.from(corpus.settingsJson, "utf-8");
 
 /**
  * The `hooks/` tree (Python firewall + lifecycle scripts, their `lib/`, and
@@ -125,10 +129,10 @@ export const settingsJsonContent = (): Buffer => Buffer.from(getSettingsJson(), 
  * like the skill files — it is Nexus-owned and refreshed in place on every
  * install rather than preserved.
  */
-export function hookInstallables(): InstallableSkill {
+export function hookInstallables(corpus: SkillsCorpus): InstallableSkill {
   return {
     slug: "hooks",
-    files: getHookFiles().map((f) => ({
+    files: corpus.hookFiles.map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
@@ -142,10 +146,10 @@ export function hookInstallables(): InstallableSkill {
  * preserved. Unlike settings.json + hooks, they resolve fine at any scope, so
  * they install for both project and `--global` targets.
  */
-export function agentInstallables(): InstallableSkill {
+export function agentInstallables(corpus: SkillsCorpus): InstallableSkill {
   return {
     slug: "agents",
-    files: getAgentFiles().map((f) => ({
+    files: corpus.agentFiles.map((f) => ({
       path: f.path,
       content: Buffer.from(f.content, "utf-8")
     }))
@@ -463,9 +467,24 @@ function grantExecute(fullPath: string): void {
  */
 export const INSTALL_MANIFEST_BASENAME = ".nexus-install-manifest.json";
 
+/**
+ * Which corpus the last install wrote. Read by a person — "which skills am I
+ * running" — and by nothing in this CLI, so a manifest without it (every install
+ * before this field existed) is simply one that does not say.
+ */
+export interface InstalledCorpusRecord {
+  /** The skills repository commit the files were cut from. */
+  commitSha: string;
+  source: CorpusSourceKind;
+  /** The CLI that wrote them. */
+  cliVersion: string;
+  installedAt: string;
+}
+
 interface InstallManifestFile {
   version: 1;
   files: Record<string, string>;
+  corpus?: InstalledCorpusRecord;
 }
 
 export interface InstallLedger {
@@ -508,10 +527,11 @@ export function openInstallLedger(claudeDir: string): InstallLedger {
 }
 
 /** Persist what this install wrote. Best-effort: a manifest we cannot write must not fail an install. */
-export function commitInstallLedger(ledger: InstallLedger): void {
+export function commitInstallLedger(ledger: InstallLedger, corpus: InstalledCorpusRecord): void {
   const body: InstallManifestFile = {
     version: 1,
-    files: Object.fromEntries(Object.entries(ledger.next).sort(([a], [b]) => a.localeCompare(b)))
+    files: Object.fromEntries(Object.entries(ledger.next).sort(([a], [b]) => a.localeCompare(b))),
+    corpus
   };
   try {
     fs.mkdirSync(ledger.claudeDir, { recursive: true });

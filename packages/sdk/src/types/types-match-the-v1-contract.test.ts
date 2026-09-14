@@ -215,7 +215,11 @@ import type {
   UserGroupMemberBody,
   UserGroupResponse
 } from "./user-groups";
-import type { WorkspaceSummary } from "./workspaces";
+import type {
+  MintWorkspaceMountCredentialsBody,
+  WorkspaceMountCredentials,
+  WorkspaceSummary
+} from "./workspaces";
 
 /**
  * THE DRIFT GATE between this package's hand-written types and the Zod contract
@@ -640,6 +644,26 @@ export type V1ContractAssertions = [
   // read the absence as coverage.
   Expect<Equals<WorkspaceSummary, Received<typeof WorkspaceSummarySchema>>>,
 
+  // The mount-credential mint, both halves through the DESCRIPTOR: the response
+  // schema is not exported from `@nexus/types`' root barrel, and the pair is
+  // the one a CLI consumer turns into an AWS `credential_process` document —
+  // a field renamed here would reach rclone as a missing key, not a type error.
+  // `Sent<>` for the body: `access` carries a `.default()`, so its INPUT is the
+  // optional field a caller supplies and its OUTPUT is the required one the
+  // handler reads.
+  Expect<
+    Equals<
+      MintWorkspaceMountCredentialsBody,
+      Sent<typeof ZPublicApiV1.WorkspaceMintMountCredentials.Body>
+    >
+  >,
+  Expect<
+    Equals<
+      WorkspaceMountCredentials,
+      Received<typeof ZPublicApiV1.WorkspaceMintMountCredentials.Response>
+    >
+  >,
+
   Expect<Equals<UpsertRoleMemberBody, Sent<typeof ZPublicApiV1.RolesUpsertMember.Body>>>,
   Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>,
 
@@ -791,6 +815,8 @@ const GATED_PAIRS = [
   "RoleSystemLifecycleResult ↔ ZPublicApiV1.RolesTransitionSystemLifecycle.Response",
 
   "WorkspaceSummary ↔ WorkspaceSummarySchema",
+  "MintWorkspaceMountCredentialsBody ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Body",
+  "WorkspaceMountCredentials ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Response",
 
   "UpsertRoleMemberBody ↔ ZPublicApiV1.RolesUpsertMember.Body",
   "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response",
@@ -967,7 +993,17 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // parents and false only in their join, which no member PR can catch. The `toBe`
 // assertion at the bottom of this file is what refuses a wrong value in EITHER
 // direction; count the list, never take a side.
-const GATED_PAIR_FLOOR = 107;
+//
+// +2: the mount-credential mint's REQUEST body and its RESPONSE —
+// `MintWorkspaceMountCredentialsBody ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Body`
+// and `WorkspaceMountCredentials ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Response`.
+// The response is the only v1 payload a consumer turns into an AWS
+// `credential_process` document, so a renamed field there reaches rclone as a
+// missing key and a dead mount rather than as a compile error anywhere.
+//
+// COUNTED after this merge, not taken from either side — this is row 6 of the
+// table below, live: HEAD wrote 108 and staging wrote 107 off different bases.
+const GATED_PAIR_FLOOR = 109;
 
 /**
  * The COMPILE-TIME half of the ratchet.

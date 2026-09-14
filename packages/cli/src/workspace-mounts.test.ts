@@ -1,20 +1,101 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
+  NexusApiError,
+  NexusAuthenticationError,
+  NexusConnectionError,
+  NexusTimeoutError
+} from "@agent-nexus/sdk";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * The state directory is resolved from HOME when `./workspace-mounts` loads,
+ * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
+ * wherever it sits in the file. The health cases below write real session and
+ * cache files under it; nothing here may reach the developer's own
+ * `~/.nexus-mcp`.
+ */
+const SANDBOX = vi.hoisted(() => {
+  const dir = `${process.env.TMPDIR ?? "/tmp"}/nexus-workspace-mounts-${process.pid}`;
+  process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
+  return dir;
+});
+
+import {
+  accessIsLower,
+  announced,
+  awsConfigFor,
+  cacheHoldsEntries,
+  cacheProvenanceRefusal,
+  checkRefreshPath,
+  countPendingUploads,
+  describePendingUploads,
+  describeRefresh,
+  DIRECT_REMOTE,
+  directMountArgv,
+  directMountHealth,
+  EXPIRATION_LEAD_MS,
+  formatAgo,
+  formatExpiry,
+  isMountSession,
+  MOUNT_CACHE_DIR,
+  MOUNT_CREDENTIALS_DIR,
+  mountIdFor,
+  type MountSession,
+  NOTIFICATION_DEBOUNCE_MS,
+  notificationArgv,
+  parseAwsConfig,
+  PENDING_UPLOADS_UNKNOWN,
+  preflightProblemMessage,
+  processCredentialsDocument,
+  rcloneBuildVerdict,
+  rcloneEnvFor,
+  rcloneInstallHint,
+  redactBucketNames,
+  REFRESH_ATTEMPTS,
+  REFRESH_BUDGET_MS,
+  REFRESH_COOLDOWN_MS,
+  REFRESH_EXIT_CAUSE,
+  REFRESH_FAILURE_TABLE,
+  REFRESH_RETRY_DELAY_MS,
+  refreshCooldownFailure,
+  refreshFailureReasonFor,
+  refreshJson,
+  refreshMayRetry,
+  refreshVerdictIsUnhealthy,
+  sessionPathsFor,
+  shouldNotify,
+  stableNodePath,
+  toVolumeName,
+  VOLUME_NAME_MAX_CHARS,
+  writeCacheOwner,
+  writeSession
+} from "./workspace-direct-mount";
+import {
   claimMountPoint,
+  defaultMountPath,
   describeOwner,
   describeScope,
+  ENGINE_LIVENESS,
   findMount,
   findMountsByPath,
   findMountsBySlug,
   isLegacyKey,
   mountKey,
+  mountPathOrgSegment,
   type MountRecord,
   type MountScope,
   mountScopeId,
   scopeCandidateKeys,
   unmountMissMessage
 } from "./workspace-mounts";
+
+afterAll(() => {
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
 
 function rec(over: Partial<MountRecord> & { slug: string }): MountRecord {
   return {
@@ -424,9 +505,9 @@ describe("findMountsBySlug", () => {
 });
 
 describe("findMountsByPath — the collision the org-scoped KEY cannot see", () => {
-  // `rec()` defaults to /Users/me/nexus/<slug>, i.e. exactly what
-  // `defaultMountPath` produces: the same directory for every org, because the
-  // default mount point has no org segment.
+  // `rec()` defaults to /Users/me/nexus/<slug>: the org-less path a row written
+  // before the default carried an org segment sits at, and any path `--at`
+  // names. Two orgs can still aim at one directory.
   const DEFAULT_PATH = "/Users/me/nexus/general-context";
 
   it("finds another org's row on the path that a scoped findMount misses", () => {
@@ -618,5 +699,1091 @@ describe("unmountMissMessage — the remedy has to be one the caller can perform
     expect(msg).toContain("could not be resolved");
     expect(msg).toContain("--profile <name>");
     expect(msg).not.toContain("nexus auth switch");
+  });
+});
+
+// ── The direct engine's pure half (`workspace-direct-mount.ts`) ───────────────
+
+const NOW = new Date("2026-09-07T12:00:00.000Z");
+const MOUNT_ID = "0123456789abcdef";
+const BUCKET = "nxw-d-0123456789ab";
+const CTX = { slug: "support-docs", profile: "work" };
+
+function at(offsetMs: number): string {
+  return new Date(NOW.getTime() + offsetMs).toISOString();
+}
+
+function session(over: Partial<MountSession> = {}): MountSession {
+  return {
+    version: 1,
+    mountId: MOUNT_ID,
+    profile: "work",
+    baseUrl: "https://api.nexusgpt.io",
+    orgId: "org_aaa",
+    workspace: { id: "ws-1", slug: "support-docs", shared: false },
+    access: "read-write",
+    volumeName: "Support Docs (Acme)",
+    credentials: {
+      accessKeyId: "ASIA_TEST_KEY_ID",
+      secretAccessKey: "not-a-secret",
+      sessionToken: "not-a-token"
+    },
+    expiresAt: at(60 * 60 * 1000),
+    mintedAt: NOW.toISOString(),
+    ...over
+  };
+}
+
+describe("mountIdFor / sessionPathsFor", () => {
+  it("is 16 hex digits, stable for one registry key and distinct across orgs", () => {
+    const id = mountIdFor(mountKey(orgA, "support-docs"));
+    expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(mountIdFor(mountKey(orgA, "support-docs"))).toBe(id);
+    expect(mountIdFor(mountKey(orgB, "support-docs"))).not.toBe(id);
+    expect(mountIdFor(mountKey(orgA, "other"))).not.toBe(id);
+  });
+
+  it("puts the session, the aws config and the cache under the 0700 state tree", () => {
+    expect(sessionPathsFor(MOUNT_ID)).toEqual({
+      dir: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}`,
+      sessionFile: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}/session.json`,
+      awsConfigFile: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}/aws.config`,
+      cacheDir: `${MOUNT_CACHE_DIR}/${MOUNT_ID}`,
+      // INSIDE the cache, so it shares its lifetime exactly: kept while saves
+      // are pending, removed with the empty cache it describes.
+      cacheOwnerFile: `${MOUNT_CACHE_DIR}/${MOUNT_ID}/owner.json`
+    });
+    expect(MOUNT_CREDENTIALS_DIR).toMatch(/\.nexus-mcp\/mount-credentials$/);
+    expect(MOUNT_CACHE_DIR).toMatch(/\.nexus-mcp\/cache$/);
+  });
+
+  it("REFUSES an id that is not 16 hex digits, because two of these paths are recursively deleted", () => {
+    // `readMounts` parses and casts `workspace-mounts.json`, so `MountRecord.mountId`
+    // is a claim about a JSON file rather than a fact. `removeDirectSession` hands
+    // `dir` and `cacheDir` to `fs.rmSync(…, { recursive: true, force: true })`, so a
+    // hand-edited or corrupted row must not be allowed to aim them.
+    for (const bad of ["../../..", "", "0123456789ABCDEF", "0123456789abcde", "../etc"]) {
+      expect(() => sessionPathsFor(bad)).toThrow(/not 16 hex digits/);
+    }
+    // The positive control: the real shape still resolves.
+    expect(sessionPathsFor(MOUNT_ID).dir).toBe(`${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}`);
+  });
+});
+
+describe("rcloneEnvFor — the bucket lives in the environment and nowhere else", () => {
+  const inherited: NodeJS.ProcessEnv = {
+    HOME: "/Users/me",
+    PATH: "/usr/bin",
+    AWS_ACCESS_KEY_ID: "AKIA_SHELL_KEY",
+    AWS_SECRET_ACCESS_KEY: "shell-secret",
+    AWS_PROFILE: "work-shell",
+    AWS_REGION: "us-east-1",
+    NEXUS_API_KEY: "nxs_shell",
+    NEXUS_PROFILE: "shell",
+    NEXUS_ORGANIZATION_ID: "org_shell",
+    RCLONE_S3_ENDPOINT: "http://127.0.0.1:1",
+    RCLONE_S3_ACCESS_KEY_ID: "AKIA_MINIO_KEY",
+    RCLONE_CONFIG_NXS3_ENDPOINT: "http://127.0.0.1:1",
+    RCLONE_CONFIG: "/Users/me/.config/rclone/other.conf"
+  };
+  const env = rcloneEnvFor({
+    inherited,
+    awsConfigFile: `/Users/me/.nexus-mcp/mount-credentials/${MOUNT_ID}/aws.config`,
+    mountId: MOUNT_ID,
+    region: "eu-west-3",
+    bucket: BUCKET,
+    prefix: "support-docs/"
+  });
+
+  it("points rclone at an EMPTY config, so a user's own `nxs3` remote cannot supply the key", () => {
+    // Stripping the environment is not enough: rclone merges the user's own
+    // remotes from `~/.config/rclone/rclone.conf` BY NAME, and `nxs3` is a name
+    // we chose. Their `access_key_id` is then present, and the s3 backend
+    // honours `env_auth` only while it is blank — so the drive would sign with
+    // their identity. Observed against the real bucket as `InvalidAccessKeyId`.
+    expect(env.RCLONE_CONFIG).toBe("/dev/null");
+    // And it is OURS, not the inherited one, which named a real file.
+    expect(env.RCLONE_CONFIG).not.toBe(inherited.RCLONE_CONFIG);
+  });
+
+  it("names the bucket in the alias remote (positive control) while the argv names only the alias", () => {
+    // The argv the engine will build names `nxws:`; the bucket reaches rclone
+    // through the alias remote defined here. Both halves asserted, so a
+    // regression that moved the bucket into argv could not pass by dropping it
+    // from both.
+    const argv = ["mount", "nxws:", "/Users/me/nexus/support-docs", "--vfs-cache-mode", "writes"];
+    expect(env.RCLONE_CONFIG_NXWS_REMOTE).toBe(`nxs3:${BUCKET}/support-docs/`);
+    expect(argv.join(" ")).not.toContain(BUCKET);
+    expect(argv).toContain("nxws:");
+  });
+
+  it("strips every inherited AWS_* and RCLONE_* key and the three NEXUS_* selectors, keeping the rest", () => {
+    const awsKeys = Object.keys(env)
+      .filter((key) => key.startsWith("AWS_"))
+      .sort();
+    expect(awsKeys).toEqual([
+      "AWS_CONFIG_FILE",
+      "AWS_EC2_METADATA_DISABLED",
+      "AWS_PROFILE",
+      "AWS_SHARED_CREDENTIALS_FILE"
+    ]);
+    expect(env.AWS_ACCESS_KEY_ID).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.AWS_REGION).toBeUndefined();
+    expect(env.NEXUS_API_KEY).toBeUndefined();
+    expect(env.NEXUS_PROFILE).toBeUndefined();
+    expect(env.NEXUS_ORGANIZATION_ID).toBeUndefined();
+    // An inherited RCLONE_S3_ENDPOINT re-points the env-defined remote at
+    // another host with the mount's signed requests; an RCLONE_S3_ACCESS_KEY_ID
+    // outranks env_auth. The only RCLONE_* keys rclone sees are the eight set
+    // here — `RCLONE_CONFIG` among them, because the environment is only half of
+    // what rclone reads and the file is the other half.
+    const rcloneKeys = Object.keys(env)
+      .filter((key) => key.startsWith("RCLONE_"))
+      .sort();
+    expect(rcloneKeys).toEqual([
+      "RCLONE_CONFIG",
+      "RCLONE_CONFIG_NXS3_ENV_AUTH",
+      "RCLONE_CONFIG_NXS3_NO_CHECK_BUCKET",
+      "RCLONE_CONFIG_NXS3_PROVIDER",
+      "RCLONE_CONFIG_NXS3_REGION",
+      "RCLONE_CONFIG_NXS3_TYPE",
+      "RCLONE_CONFIG_NXWS_REMOTE",
+      "RCLONE_CONFIG_NXWS_TYPE"
+    ]);
+    expect(env.RCLONE_S3_ENDPOINT).toBeUndefined();
+    expect(env.RCLONE_CONFIG_NXS3_ENDPOINT).toBeUndefined();
+    // Positive control: a stripped-nothing env would also satisfy every
+    // `toBeUndefined` above. Two ordinary keys must SURVIVE.
+    expect(env.HOME).toBe("/Users/me");
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  it("points the SDK at the mount's own profile and config, with no shared credentials file", () => {
+    expect(env.AWS_PROFILE).toBe(`nexus-mount-${MOUNT_ID}`);
+    expect(env.AWS_CONFIG_FILE).toBe(
+      `/Users/me/.nexus-mcp/mount-credentials/${MOUNT_ID}/aws.config`
+    );
+    expect(env.AWS_SHARED_CREDENTIALS_FILE).toBe("/dev/null");
+    expect(env.AWS_EC2_METADATA_DISABLED).toBe("true");
+  });
+
+  it("defines the S3 remote from env auth with the bucket check off", () => {
+    expect(env.RCLONE_CONFIG_NXS3_TYPE).toBe("s3");
+    expect(env.RCLONE_CONFIG_NXS3_PROVIDER).toBe("AWS");
+    expect(env.RCLONE_CONFIG_NXS3_ENV_AUTH).toBe("true");
+    expect(env.RCLONE_CONFIG_NXS3_REGION).toBe("eu-west-3");
+    // HeadBucket is denied under a prefix-conditioned ListBucket; without this
+    // the mount fails at startup while a raw PutObject would have succeeded.
+    expect(env.RCLONE_CONFIG_NXS3_NO_CHECK_BUCKET).toBe("true");
+    expect(env.RCLONE_CONFIG_NXWS_TYPE).toBe("alias");
+  });
+});
+
+describe("stableNodePath — the node spelling that survives a node upgrade", () => {
+  const binary = path.basename(process.execPath);
+  const stableBin = path.join(SANDBOX, "stable-node", "bin");
+  const strangerBin = path.join(SANDBOX, "stranger-node", "bin");
+
+  afterEach(() => {
+    fs.rmSync(path.join(SANDBOX, "stable-node"), { recursive: true, force: true });
+    fs.rmSync(path.join(SANDBOX, "stranger-node"), { recursive: true, force: true });
+  });
+
+  it("prefers the PATH entry that resolves to this very binary, whatever else PATH holds", () => {
+    fs.mkdirSync(stableBin, { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(stableBin, binary));
+    const pathEnv = ["/nonexistent/bin", stableBin].join(path.delimiter);
+    expect(stableNodePath(process.execPath, pathEnv)).toBe(path.join(stableBin, binary));
+  });
+
+  it("never names a different node: a same-named binary that is NOT this one falls back to execPath", () => {
+    fs.mkdirSync(strangerBin, { recursive: true });
+    fs.writeFileSync(path.join(strangerBin, binary), "#!/bin/sh\nexit 1\n");
+    expect(stableNodePath(process.execPath, strangerBin)).toBe(process.execPath);
+    // The positive control: the same PATH plus the real symlink picks the symlink.
+    fs.mkdirSync(stableBin, { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(stableBin, binary));
+    expect(stableNodePath(process.execPath, [strangerBin, stableBin].join(path.delimiter))).toBe(
+      path.join(stableBin, binary)
+    );
+  });
+
+  it("ignores a RELATIVE PATH entry, which resolves against a working directory rclone does not share", () => {
+    // `.` and `./bin` are ordinary in a dev shell. A line built from one passes
+    // `credential-process --check` here — same working directory — and then
+    // fails at the first renewal an hour later, run by rclone from its own.
+    fs.mkdirSync(stableBin, { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(stableBin, binary));
+    const relative = path.relative(process.cwd(), stableBin);
+    expect(path.isAbsolute(relative)).toBe(false);
+    expect(stableNodePath(process.execPath, relative)).toBe(process.execPath);
+    // Positive control: the SAME directory spelled absolutely is taken.
+    expect(stableNodePath(process.execPath, stableBin)).toBe(path.join(stableBin, binary));
+  });
+
+  it("falls back to execPath with an empty PATH, or a binary that does not exist", () => {
+    expect(stableNodePath(process.execPath, "")).toBe(process.execPath);
+    expect(stableNodePath("/nonexistent/node", "/usr/bin")).toBe("/nonexistent/node");
+  });
+});
+
+describe("awsConfigFor — the credential_process line", () => {
+  const execPath = "/Users/Jane Doe/.nvm/versions/node/v24.6.0/bin/node";
+  const entry =
+    "/Users/Jane Doe/.nvm/versions/node/v24.6.0/lib/node_modules/@agent-nexus/cli/dist/index.js";
+
+  it("quotes both paths and ends on the unquoted subcommand, so a space in HOME survives", () => {
+    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID });
+    expect(result).toEqual({
+      ok: true,
+      text:
+        `[profile nexus-mount-${MOUNT_ID}]\n` +
+        `credential_process = "${execPath}" "${entry}" workspace credential-process ${MOUNT_ID}\n`
+    });
+    if (!result.ok) return;
+    // The ini reader strips outer quotes only when the WHOLE value is one
+    // quoted token — a value ending on a quote would reach the shell bare.
+    const value = result.text.split("credential_process = ")[1].trimEnd();
+    expect(value.endsWith('"')).toBe(false);
+    expect(value.endsWith(`workspace credential-process ${MOUNT_ID}`)).toBe(true);
+  });
+
+  it("reads its own line back, and refuses anything else", () => {
+    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID });
+    if (!result.ok) throw new Error("fixture must be writable");
+    expect(parseAwsConfig(result.text)).toEqual({ execPath, entry, mountId: MOUNT_ID });
+    expect(parseAwsConfig("[default]\nregion = eu-west-3\n")).toBeNull();
+    // The line without its profile header is not the file this CLI writes.
+    expect(parseAwsConfig(result.text.split("\n")[1] + "\n")).toBeNull();
+  });
+
+  it.each([
+    ["execPath", '/opt/no"de', "double-quote"],
+    ["entry", "/opt/cli\nindex.js", "newline"],
+    ["execPath", "/opt/node #x", "comment-start"],
+    ["entry", "/opt/cli\t;index.js", "comment-start"],
+    ["entry", "/opt/cli ;index.js", "comment-start"],
+    // `sh -c` still expands these inside the double quotes the paths sit in.
+    ["execPath", "/Volumes/data$backup/node", "shell-special"],
+    ["entry", "/opt/`cli`/index.js", "shell-special"],
+    ["entry", "C:\\cli\\index.js", "shell-special"]
+  ] as const)(
+    "refuses a %s of %j (%s) rather than writing a line that tokenises differently",
+    (field, bad, because) => {
+      const input = { execPath, entry, mountId: MOUNT_ID, [field]: bad };
+      expect(awsConfigFor(input)).toEqual({ ok: false, refusal: { field, because } });
+    }
+  );
+
+  it("accepts `#` and `;` that no whitespace precedes (positive control for the refusal)", () => {
+    expect(
+      awsConfigFor({ execPath: "/opt/c#/node", entry: "/opt/a;b/index.js", mountId: MOUNT_ID }).ok
+    ).toBe(true);
+  });
+});
+
+describe("processCredentialsDocument — Expiration is five minutes early and never in the past", () => {
+  it("is the AWS process-credentials shape with Expiration = expiresAt − 5 min", () => {
+    const fresh = session({ expiresAt: at(60 * 60 * 1000) });
+    expect(processCredentialsDocument(fresh, NOW)).toEqual({
+      Version: 1,
+      AccessKeyId: "ASIA_TEST_KEY_ID",
+      SecretAccessKey: "not-a-secret",
+      SessionToken: "not-a-token",
+      Expiration: at(55 * 60 * 1000)
+    });
+    expect(EXPIRATION_LEAD_MS).toBe(5 * 60 * 1000);
+  });
+
+  it("answers null — never a past Expiration — once the lead has been reached", () => {
+    // AT the lead: reported expiration equals now, which the SDK reads as
+    // already expired and would rerun the helper on every request.
+    expect(
+      processCredentialsDocument(session({ expiresAt: at(EXPIRATION_LEAD_MS) }), NOW)
+    ).toBeNull();
+    expect(processCredentialsDocument(session({ expiresAt: at(-1000) }), NOW)).toBeNull();
+    // One second past the lead is the first servable instant.
+    const doc = processCredentialsDocument(
+      session({ expiresAt: at(EXPIRATION_LEAD_MS + 1000) }),
+      NOW
+    );
+    expect(doc?.Expiration).toBe(at(1000));
+    for (const offset of [1000, 60_000, 3_600_000]) {
+      const served = processCredentialsDocument(
+        session({ expiresAt: at(EXPIRATION_LEAD_MS + offset) }),
+        NOW
+      );
+      expect(served && new Date(served.Expiration).getTime() > NOW.getTime()).toBe(true);
+    }
+  });
+});
+
+describe("redactBucketNames", () => {
+  it("rewrites the bucket in a real rclone AccessDenied line (positive control) and leaves the rest", () => {
+    const line =
+      "2026/09/04 12:00:01 ERROR : probe.txt: Failed to copy: AccessDenied: User: " +
+      "arn:aws:sts::123456789012:assumed-role/nexus-workspaces-sandbox/cli-abc is not authorized to " +
+      `perform: s3:PutObject on resource: "arn:aws:s3:::${BUCKET}/other-slug/probe.txt"`;
+    const redacted = redactBucketNames(line);
+    expect(redacted).not.toContain(BUCKET);
+    expect(redacted).toContain('"arn:aws:s3:::<bucket>/other-slug/probe.txt"');
+    expect(redacted).toContain("AccessDenied");
+  });
+
+  it("covers every environment letter and the platform bucket, and nothing shaped otherwise", () => {
+    expect(redactBucketNames("nxw-p-shared nxw-s-abcdefabcdef nxw-d-000000000000")).toBe(
+      "<bucket> <bucket> <bucket>"
+    );
+    // Not a workspace bucket: an unknown env letter, and thirteen hex digits.
+    expect(redactBucketNames("nxw-x-0123456789ab nxw-d-0123456789abc")).toBe(
+      "nxw-x-0123456789ab nxw-d-0123456789abc"
+    );
+  });
+});
+
+describe("REFRESH_FAILURE_TABLE — one row per reason, texts a user can act on", () => {
+  // Removing a row is refused by `satisfies Record<RefreshFailureReason, …>`
+  // at compile time, not here — a mutant that deletes the `remote-error` row
+  // fails `tsc` with "Property 'remote-error' is missing". This runtime pin is
+  // the population's identity, so a mutant that also widens the union is seen.
+  it("keys exactly the CLI's six failure causes plus the two helper refusals", () => {
+    expect(Object.keys(REFRESH_FAILURE_TABLE).sort()).toEqual(
+      [
+        "access-downgraded",
+        "connection-failed",
+        "local-failed",
+        "not-authenticated",
+        "not-found",
+        "remote-error",
+        "timed-out",
+        "workspace-replaced"
+      ].sort()
+    );
+  });
+
+  it("marks exactly the two network failures transient", () => {
+    const transient = Object.entries(REFRESH_FAILURE_TABLE)
+      .filter(([, row]) => row.transient)
+      .map(([reason]) => reason)
+      .sort();
+    expect(transient).toEqual(["connection-failed", "timed-out"]);
+  });
+
+  it("never names a bucket, a prefix, a mount id or the word credential in any text", () => {
+    for (const [reason, row] of Object.entries(REFRESH_FAILURE_TABLE)) {
+      for (const text of [row.title, row.body(CTX), row.statusHint(CTX)]) {
+        expect(text, `${reason}: ${text}`).not.toMatch(
+          /bucket|prefix|credential|nxw-|[0-9a-f]{16}/i
+        );
+        expect(text.length, `${reason} has an empty text`).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("names the pinned profile in the sign-in fix and the slug in the unmount/remount fixes", () => {
+    expect(REFRESH_FAILURE_TABLE["not-authenticated"].body(CTX)).toContain(
+      "nexus auth login --profile work"
+    );
+    // The two fixes a fresh mount cures name the `remount` leaf, which keeps
+    // the mount point, the mode, the copy and the cache directory.
+    expect(REFRESH_FAILURE_TABLE["access-downgraded"].body(CTX)).toContain(
+      "nexus workspace remount support-docs"
+    );
+    expect(REFRESH_FAILURE_TABLE["local-failed"].statusHint(CTX)).toContain(
+      "nexus workspace remount support-docs"
+    );
+    // 🔴 The sign-in fixes the LOGIN and rewrites nothing here: this line IS the
+    // last renewal's record, and only a renewal rewrites it. So `status` keeps
+    // reporting the failure — and keeps exiting non-zero — until the drive is
+    // next touched, which on an idle drive is never. The hint used to say "no
+    // remount needed", true of the drive and false of this line, so a caller who
+    // had just fixed the cause read a red status as the fix not working.
+    const signIn = REFRESH_FAILURE_TABLE["not-authenticated"].statusHint(CTX);
+    expect(signIn).toContain("nexus auth login --profile work");
+    expect(signIn).toContain("nexus workspace remount support-docs");
+    expect(signIn).not.toContain("no remount needed");
+    // A workspace that is GONE or REPLACED is not remounted: a remount would
+    // bind the old cache's unsent saves to whatever now answers to the slug.
+    for (const reason of ["workspace-replaced", "not-found"] as const) {
+      for (const text of [
+        REFRESH_FAILURE_TABLE[reason].body(CTX),
+        REFRESH_FAILURE_TABLE[reason].statusHint(CTX)
+      ]) {
+        expect(text).toContain("nexus workspace unmount support-docs");
+        expect(text).not.toContain("workspace remount");
+      }
+    }
+  });
+
+  it("exits the two helper-side refusals as local-failed and every cause as itself", () => {
+    expect(REFRESH_EXIT_CAUSE["access-downgraded"]).toBe("local-failed");
+    expect(REFRESH_EXIT_CAUSE["workspace-replaced"]).toBe("local-failed");
+    expect(REFRESH_EXIT_CAUSE["not-authenticated"]).toBe("not-authenticated");
+    expect(REFRESH_EXIT_CAUSE["connection-failed"]).toBe("connection-failed");
+  });
+});
+
+describe("refresh decisions", () => {
+  it("accessIsLower: read under a read-write mount is lower; anything else is not", () => {
+    expect(accessIsLower("read", "read-write")).toBe(true);
+    expect(accessIsLower("read-write", "read")).toBe(false);
+    expect(accessIsLower("read", "read")).toBe(false);
+    expect(accessIsLower("read-write", "read-write")).toBe(false);
+  });
+
+  it("refreshCooldownFailure: a failure inside 30 s is still cooling down, an older one is not", () => {
+    const failed = { at: at(-10_000), outcome: "failed", reason: "not-authenticated" } as const;
+    expect(refreshCooldownFailure(session({ lastRefresh: failed }), NOW)).toEqual(failed);
+    expect(REFRESH_COOLDOWN_MS).toBe(30_000);
+    expect(
+      refreshCooldownFailure(session({ lastRefresh: { ...failed, at: at(-31_000) } }), NOW)
+    ).toBeNull();
+    expect(
+      refreshCooldownFailure(session({ lastRefresh: { at: at(-1000), outcome: "ok" } }), NOW)
+    ).toBeNull();
+    expect(refreshCooldownFailure(session(), NOW)).toBeNull();
+    // An UNPARSEABLE stamp cools down. `isMountSession` only checks `at` is a
+    // string, and every comparison against NaN is false — which would have
+    // opened the gate and turned each Finder poll on a broken mount into a POST.
+    expect(
+      refreshCooldownFailure(session({ lastRefresh: { ...failed, at: "not-an-instant" } }), NOW)
+    ).toEqual({ ...failed, at: "not-an-instant" });
+    // A failure stamped in the future (the clock stepped back since) would
+    // otherwise cool down until the clock caught up with it.
+    expect(
+      refreshCooldownFailure(session({ lastRefresh: { ...failed, at: at(10 * 60_000) } }), NOW)
+    ).toBeNull();
+  });
+
+  it("refreshMayRetry: the attempt count caps fast failures, the budget bounds hung ones", () => {
+    // rclone's AWS SDK kills credential_process at 60 s (processcreds
+    // DefaultTimeout), and a kill records nothing — so every attempt must end
+    // inside the budget, with room left for start-up and the record.
+    expect(REFRESH_BUDGET_MS).toBeLessThan(60_000);
+    expect(REFRESH_ATTEMPTS).toBe(3);
+    expect(REFRESH_RETRY_DELAY_MS).toBe(2000);
+    const timeoutMs = 20_000;
+    // Refused connections come back at once: three attempts, then stop.
+    expect(refreshMayRetry({ attempt: 1, elapsedMs: 10, timeoutMs })).toBe(true);
+    expect(refreshMayRetry({ attempt: 2, elapsedMs: 2020, timeoutMs })).toBe(true);
+    expect(refreshMayRetry({ attempt: 3, elapsedMs: 4030, timeoutMs })).toBe(false);
+    // A backend that never answers costs the full timeout per attempt: the
+    // second fits (20 + 2 + 20 = 42 s), the third would end at 64 s.
+    expect(refreshMayRetry({ attempt: 1, elapsedMs: 20_000, timeoutMs })).toBe(true);
+    expect(refreshMayRetry({ attempt: 2, elapsedMs: 42_000, timeoutMs })).toBe(false);
+    // A --timeout longer than the budget leaves room for one attempt only.
+    expect(refreshMayRetry({ attempt: 1, elapsedMs: 0, timeoutMs: REFRESH_BUDGET_MS })).toBe(false);
+  });
+
+  it("shouldNotify: transitions only, debounced by the last announcement of the same outcome", () => {
+    const failed = { at: NOW.toISOString(), outcome: "failed", reason: "not-found" } as const;
+    const ok = { at: NOW.toISOString(), outcome: "ok" } as const;
+    const failedEarlier = { ...failed, at: at(-60_000) };
+    // A mount with no refresh yet counts as ok: its first failure notifies.
+    expect(shouldNotify(session(), failed, NOW)).toBe(true);
+    expect(shouldNotify(session({ lastRefresh: ok }), failed, NOW)).toBe(true);
+    expect(shouldNotify(session({ lastRefresh: failedEarlier }), failed, NOW)).toBe(false);
+    expect(shouldNotify(session({ lastRefresh: failedEarlier }), ok, NOW)).toBe(true);
+    expect(shouldNotify(session(), ok, NOW)).toBe(false);
+    // Debounce: the same outcome was announced a minute ago.
+    expect(
+      shouldNotify(session({ lastRefresh: ok, lastNotified: { failed: at(-60_000) } }), failed, NOW)
+    ).toBe(false);
+    expect(
+      shouldNotify(
+        session({ lastRefresh: ok, lastNotified: { failed: at(-NOTIFICATION_DEBOUNCE_MS) } }),
+        failed,
+        NOW
+      )
+    ).toBe(true);
+    // A notification about the OTHER outcome never suppresses this one.
+    expect(
+      shouldNotify(session({ lastRefresh: ok, lastNotified: { ok: at(-1000) } }), failed, NOW)
+    ).toBe(true);
+    // An announcement stamped in the future (the clock stepped back) does not
+    // suppress, or the window would last until the clock caught up with it.
+    expect(
+      shouldNotify(session({ lastRefresh: ok, lastNotified: { failed: at(60_000) } }), failed, NOW)
+    ).toBe(true);
+  });
+
+  it("shouldNotify: a drive flapping ok→failed→ok→failed inside the window announces each state ONCE", () => {
+    // The debounce is only reachable when the announcement record survives the
+    // transition to the OTHER outcome. A single last-announcement record is
+    // overwritten by the ok→failed→ok round trip, so the second failure reads
+    // as never announced and posts again — which is what made the ten-minute
+    // promise in the help text unreachable.
+    let stored = session();
+    const step = (record: (typeof stored)["lastRefresh"] & object): boolean => {
+      const notify = shouldNotify(stored, record, new Date(record.at));
+      stored = session({
+        lastRefresh: record,
+        lastNotified: notify ? announced(stored, record) : stored.lastNotified
+      });
+      return notify;
+    };
+    expect(step({ at: at(0), outcome: "failed", reason: "not-found" })).toBe(true);
+    expect(step({ at: at(60_000), outcome: "ok" })).toBe(true);
+    expect(step({ at: at(120_000), outcome: "failed", reason: "not-found" })).toBe(false);
+    expect(step({ at: at(180_000), outcome: "ok" })).toBe(false);
+    // Past the window, the same transition speaks again.
+    expect(
+      step({ at: at(NOTIFICATION_DEBOUNCE_MS + 1000), outcome: "failed", reason: "not-found" })
+    ).toBe(true);
+    expect(stored.lastNotified).toEqual({
+      failed: at(NOTIFICATION_DEBOUNCE_MS + 1000),
+      ok: at(60_000)
+    });
+  });
+
+  it("notificationArgv escapes the AppleScript string delimiters", () => {
+    const argv = notificationArgv(
+      'Nexus drive "Q3 \\ plans"',
+      "Access expired",
+      'Run: nexus auth login --profile "work"'
+    );
+    expect(argv[0]).toBe("-e");
+    expect(argv[1]).toBe(
+      'display notification "Run: nexus auth login --profile \\"work\\"" with title ' +
+        '"Nexus drive \\"Q3 \\\\ plans\\"" subtitle "Access expired"'
+    );
+  });
+
+  it.each([
+    [new NexusTimeoutError(20_000), "timed-out"],
+    [new NexusConnectionError("offline"), "connection-failed"],
+    [new NexusAuthenticationError("expired", "API_KEY_EXPIRED"), "not-authenticated"],
+    [new NexusApiError("INSUFFICIENT_SCOPE", "no", 403), "not-authenticated"],
+    [new NexusApiError("WORKSPACE_NOT_FOUND", "gone", 404), "not-found"],
+    [new NexusApiError("WORKSPACE_STORAGE_FAILED", "sts", 500), "remote-error"],
+    [new Error("something else"), "remote-error"]
+  ] as const)("refreshFailureReasonFor(%o) is %s", (error, reason) => {
+    expect(refreshFailureReasonFor(error)).toBe(reason);
+  });
+});
+
+describe("toVolumeName", () => {
+  it("strips path separators, collapses whitespace, appends the org and caps the length", () => {
+    expect(toVolumeName("Q3: Plans / Drafts")).toBe("Q3 Plans Drafts");
+    expect(toVolumeName("Support   Docs", "Acme")).toBe("Support Docs (Acme)");
+    expect(toVolumeName("   ")).toBe("Nexus workspace");
+    expect(toVolumeName("x".repeat(100))).toHaveLength(VOLUME_NAME_MAX_CHARS);
+  });
+
+  it("cuts by code point, so a name capped mid-emoji never ends in half a character", () => {
+    // `slice` cuts UTF-16 units. A pair straddling the cap would leave a lone
+    // surrogate: invalid UTF-8 for the FUSE layer, a bare \udXXX escape inside
+    // session.json that every later read carries, a tofu glyph in Finder.
+    const name = "x".repeat(VOLUME_NAME_MAX_CHARS - 1) + "🙂" + "tail";
+    const volume = toVolumeName(name);
+    expect([...volume]).toHaveLength(VOLUME_NAME_MAX_CHARS);
+    expect(volume.endsWith("🙂")).toBe(true);
+    // The defect stated directly: no unpaired surrogate anywhere in the result.
+    expect(/[\uD800-\uDFFF]/.test(volume.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ""))).toBe(
+      false
+    );
+  });
+});
+
+describe("isMountSession — a damaged file is a typed miss, never a crash", () => {
+  it("accepts the session this CLI writes, with and without its optional records", () => {
+    expect(isMountSession(session())).toBe(true);
+    expect(
+      isMountSession(
+        session({
+          lastRefresh: { at: NOW.toISOString(), outcome: "failed", reason: "timed-out" },
+          lastNotified: { ok: NOW.toISOString(), failed: at(-60_000) }
+        })
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    ["not an object", "{}"],
+    ["another version", { ...session(), version: 2 }],
+    ["a mount id that is not 16 hex", { ...session(), mountId: "abc" }],
+    // An empty pin reads as unset downstream, so the refresh would follow the
+    // shell or the active profile instead of the mount.
+    ["an empty profile pin", { ...session(), profile: "" }],
+    ["an empty base URL pin", { ...session(), baseUrl: "" }],
+    ["an empty organization pin", { ...session(), orgId: "" }],
+    ["no organization pin", { ...session(), orgId: undefined }],
+    ["no credentials", { ...session(), credentials: undefined }],
+    [
+      "a failed refresh with no reason",
+      { ...session(), lastRefresh: { at: NOW.toISOString(), outcome: "failed" } }
+    ],
+    [
+      "a reason outside the union",
+      { ...session(), lastRefresh: { at: NOW.toISOString(), outcome: "failed", reason: "eio" } }
+    ],
+    [
+      "an announcement record keyed by something that is not an outcome",
+      { ...session(), lastNotified: { at: NOW.toISOString(), outcome: "ok" } }
+    ],
+    ["a truncated write", JSON.parse('{"version":1,"mountId":"0123456789abcdef"}')]
+  ])("refuses %s", (_name, value) => {
+    expect(isMountSession(value)).toBe(false);
+  });
+});
+
+// ── Slice 5: engines, preflight, argv, health, default path ──────────────────
+
+describe("ENGINE_LIVENESS / defaultMountPath", () => {
+  it("probes the two rclone-backed engines by pid and the native one by the mount table", () => {
+    expect(ENGINE_LIVENESS).toEqual({ webdav: "mount-table", rclone: "pid", direct: "pid" });
+  });
+
+  it("puts the org NAME, slugified, between ~/nexus and the slug", () => {
+    expect(mountPathOrgSegment({ orgId: "org_aaa", orgName: "Acme Corp." })).toBe("acme-corp");
+    expect(mountPathOrgSegment({ orgId: "org_aaa", orgName: "  Globex / R&D  " })).toBe(
+      "globex-r-d"
+    );
+    expect(defaultMountPath("support-docs", orgA)).toBe(
+      path.join(os.homedir(), "nexus", "acme", "support-docs")
+    );
+  });
+
+  it("falls back to the org id when the name is unknown, and to the org-less path when nothing identifies one", () => {
+    // An env override naming another org yields an id and no name.
+    expect(mountPathOrgSegment({ orgId: "org_env" })).toBe("org_env");
+    expect(defaultMountPath("support-docs", { orgId: "org_env" })).toBe(
+      path.join(os.homedir(), "nexus", "org_env", "support-docs")
+    );
+    // A name that slugifies to nothing is no name.
+    expect(mountPathOrgSegment({ orgId: "org_x", orgName: "   " })).toBe("org_x");
+
+    // 🔴 THE ID IS SANITISED TOO. It is not checked anywhere on the way here —
+    // `resolveOrganization` hands back `NEXUS_ORGANIZATION_ID` verbatim — so it
+    // is caller input reaching `path.join`, where `..` climbs out of `~/nexus`
+    // and `createMountDir` then creates the result. The slug half has refused
+    // exactly this all along.
+    // Refused, not rewritten: the org-less path is a real layout, while a
+    // "cleaned" id would name an organization that does not exist.
+    for (const hostile of ["../../tmp/x", "..", "a/b", "a\\b", ""]) {
+      expect(mountPathOrgSegment({ orgId: hostile })).toBeUndefined();
+      expect(defaultMountPath("notes", { orgId: hostile })).toBe(
+        path.join(os.homedir(), "nexus", "notes")
+      );
+    }
+    // The positive control, and the reason the id is not slugified: a REAL id
+    // is used verbatim, so no existing mount point is renamed by this guard.
+    expect(mountPathOrgSegment({ orgId: "org_39FoxcMixrC5rGX65cZutTJ3x7a" })).toBe(
+      "org_39FoxcMixrC5rGX65cZutTJ3x7a"
+    );
+    // A raw --api-key with no NEXUS_ORGANIZATION_ID: the pre-org-segment path.
+    expect(mountPathOrgSegment({})).toBeUndefined();
+    expect(defaultMountPath("support-docs", {})).toBe(
+      path.join(os.homedir(), "nexus", "support-docs")
+    );
+  });
+});
+
+describe("rcloneBuildVerdict — the token is the capability", () => {
+  const official = [
+    "rclone v1.74.4",
+    "- os/version: darwin 15.5 (64 bit)",
+    "- go/version: go1.25.0",
+    "- go/tags: cmount",
+    ""
+  ].join("\n");
+  const homebrew = official.replace("- go/tags: cmount", "- go/tags: none");
+
+  it("reads cmount off the official build and refuses Homebrew's `none`", () => {
+    expect(rcloneBuildVerdict(official)).toBe("mount-capable");
+    expect(rcloneBuildVerdict(homebrew)).toBe("no-mount-support");
+  });
+
+  it("refuses a version output with no go/tags line at all", () => {
+    expect(rcloneBuildVerdict("rclone v1.50.0\n- os/arch: darwin/amd64\n")).toBe("no-tags-line");
+    expect(rcloneBuildVerdict("")).toBe("no-tags-line");
+  });
+
+  it("does not take a tag that merely CONTAINS the token, and reads a multi-tag list", () => {
+    expect(rcloneBuildVerdict("- go/tags: nocmount")).toBe("no-mount-support");
+    expect(rcloneBuildVerdict("- go/tags: noselfupdate,cmount")).toBe("mount-capable");
+  });
+
+  it("every preflight problem opens with the engine flag; the darwin hint names the official binary and both FUSE layers", () => {
+    const problems = [
+      { kind: "rclone-missing" },
+      { kind: "no-mount-support", verdict: "no-mount-support" },
+      { kind: "no-mount-support", verdict: "no-tags-line" },
+      { kind: "no-fuse-library" },
+      { kind: "macfuse-not-approved" }
+    ] as const;
+    for (const problem of problems) {
+      expect(preflightProblemMessage(problem, "direct")).toContain("--engine direct");
+      // The gateway engine runs the same preflight and is named as itself.
+      expect(preflightProblemMessage(problem, "rclone")).toContain("--engine rclone");
+      expect(preflightProblemMessage(problem, "rclone")).not.toContain("--engine direct");
+    }
+    expect(
+      preflightProblemMessage({ kind: "no-mount-support", verdict: "no-mount-support" }, "direct")
+    ).toContain("cmount");
+    expect(preflightProblemMessage({ kind: "macfuse-not-approved" }, "direct")).toContain(
+      "load_macfuse"
+    );
+    const darwin = rcloneInstallHint("darwin");
+    expect(darwin).toContain("https://rclone.org/downloads/");
+    expect(darwin).not.toContain("brew install");
+    expect(darwin).toContain("macFUSE");
+    expect(darwin).toContain("FUSE-T");
+    expect(darwin).toContain("drop --engine direct");
+    // The other platforms have no engine that needs nothing, so no such offer.
+    expect(rcloneInstallHint("linux")).toContain("fuse3");
+    expect(rcloneInstallHint("linux")).not.toContain("drop --engine");
+    expect(rcloneInstallHint("win32")).toContain("WinFsp");
+  });
+});
+
+describe("directMountArgv — the bucket never enters argv", () => {
+  const argv = directMountArgv({
+    mountPath: "/Users/me/nexus/acme/support-docs",
+    cacheDir: `/Users/me/.nexus-mcp/cache/${MOUNT_ID}`,
+    slug: "support-docs",
+    volumeName: "Support Docs (Acme)",
+    readOnly: false
+  });
+
+  it("mounts the alias with the two labels and the mount-keyed cache, no bucket anywhere", () => {
+    expect(argv.slice(0, 3)).toEqual(["mount", DIRECT_REMOTE, "/Users/me/nexus/acme/support-docs"]);
+    expect(argv[argv.indexOf("--devname") + 1]).toBe("nexus-support-docs");
+    expect(argv[argv.indexOf("--volname") + 1]).toBe("Support Docs (Acme)");
+    expect(argv[argv.indexOf("--cache-dir") + 1]).toBe(`/Users/me/.nexus-mcp/cache/${MOUNT_ID}`);
+    expect(argv[argv.indexOf("--vfs-cache-mode") + 1]).toBe("writes");
+    expect(argv[argv.indexOf("--poll-interval") + 1]).toBe("0");
+    expect(argv).not.toContain("--allow-other");
+    expect(argv).not.toContain("--read-only");
+    // Positive control for the absence claim: the env that pairs with this
+    // argv DOES carry the bucket, so the split is real rather than vacuous.
+    const env = rcloneEnvFor({
+      inherited: {},
+      awsConfigFile: `/Users/me/.nexus-mcp/mount-credentials/${MOUNT_ID}/aws.config`,
+      mountId: MOUNT_ID,
+      region: "eu-west-3",
+      bucket: BUCKET,
+      prefix: "support-docs/"
+    });
+    expect(JSON.stringify(env)).toContain(BUCKET);
+    expect(argv.join(" ")).not.toContain(BUCKET);
+  });
+
+  it("adds --read-only when asked, and only then", () => {
+    const readOnly = directMountArgv({
+      mountPath: "/m",
+      cacheDir: "/c",
+      slug: "s",
+      volumeName: "v",
+      readOnly: true
+    });
+    expect(readOnly).toContain("--read-only");
+    expect(readOnly.length).toBe(argv.length + 1);
+  });
+});
+
+describe("relative time for the status table", () => {
+  it("formatAgo / formatExpiry use the coarsest unit that is at least one", () => {
+    expect(formatAgo(at(-12_000), NOW)).toBe("12s ago");
+    expect(formatAgo(at(-41 * 60_000), NOW)).toBe("41m ago");
+    expect(formatAgo(at(-3 * 3_600_000 - 5), NOW)).toBe("3h ago");
+    expect(formatAgo(at(-2 * 86_400_000), NOW)).toBe("2d ago");
+    expect(formatAgo(NOW.toISOString(), NOW)).toBe("just now");
+    expect(formatAgo(at(5000), NOW)).toBe("just now");
+    expect(formatExpiry(at(41 * 60_000), NOW)).toBe("in 41m");
+    expect(formatExpiry(at(-3 * 60_000), NOW)).toBe("expired 3m ago");
+  });
+});
+
+describe("the VFS cache: pending uploads and what unmount may delete", () => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-vfs-cache-"));
+  const metaRoot = path.join(cacheDir, "vfsMeta", "nxws{abc}", "support-docs");
+
+  afterAll(() => {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  });
+
+  it("counts zero and holds nothing when the cache is absent (positive control below)", () => {
+    expect(countPendingUploads(path.join(cacheDir, "absent"))).toBe(0);
+    expect(cacheHoldsEntries(path.join(cacheDir, "absent"))).toBe(false);
+  });
+
+  it("a cache holding the OTHER copy's saves is refused, not drained into this workspace", () => {
+    // The mount id hashes `<kind>:<id>|<slug>`, and a slug can name TWO
+    // workspaces — the organization's own and the ownerless admin-shared one.
+    // They differ only in a field that key never carries, so both land on one
+    // cache directory. That is only dangerous because a dirty cache outlives
+    // its mount by design: `unmount` keeps it, and the next direct mount drains
+    // it — into the OTHER bucket, if the other copy mounts next.
+    const dir = path.join(cacheDir, "provenance");
+    const paths = { cacheDir: dir, cacheOwnerFile: path.join(dir, "owner.json") };
+    fs.mkdirSync(path.join(dir, "vfsMeta", "x"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "vfsMeta", "x", "item"), '{"Dirty":true}');
+    writeCacheOwner(paths.cacheOwnerFile, { shared: false });
+
+    // The other copy, with saves pending: refused, and told where they belong.
+    const refusal = cacheProvenanceRefusal(paths, true, "support-docs");
+    expect(refusal).toContain("unsent saves");
+    expect(refusal).toContain("wrong workspace");
+    // The SAME copy drains normally — the positive control, without which a
+    // guard that refused everything would pass the assertion above.
+    expect(cacheProvenanceRefusal(paths, false, "support-docs")).toBeNull();
+
+    // An EMPTY cache misdelivers nothing, so a stale marker never blocks.
+    fs.rmSync(path.join(dir, "vfsMeta"), { recursive: true, force: true });
+    expect(cacheProvenanceRefusal(paths, true, "support-docs")).toBeNull();
+
+    // No marker at all — every cache written before this file existed — is not
+    // a provenance, so it is not a refusal either.
+    fs.rmSync(paths.cacheOwnerFile, { force: true });
+    fs.mkdirSync(path.join(dir, "vfsMeta", "x"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "vfsMeta", "x", "item"), '{"Dirty":true}');
+    expect(cacheProvenanceRefusal(paths, true, "support-docs")).toBeNull();
+  });
+
+  it("an UNREADABLE cache is not an empty one — the count is unknown and the cache is held", () => {
+    // The whole point: `unmount` deletes a cache it believes is empty. A
+    // directory read can fail for reasons that say nothing about emptiness, and
+    // reading those as zero is how an unsent save disappears. Chmod 000 the
+    // metadata root and both answers must refuse to call it clean.
+    const unreadable = path.join(cacheDir, "unreadable");
+    fs.mkdirSync(path.join(unreadable, "vfsMeta", "locked"), { recursive: true });
+    fs.writeFileSync(path.join(unreadable, "vfsMeta", "locked", "item"), '{"Dirty":true}');
+    fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o000);
+    try {
+      expect(countPendingUploads(unreadable)).toBe(PENDING_UPLOADS_UNKNOWN);
+      // Both comparisons in the two decision sites must fail SAFE, and they
+      // compare in opposite directions — this is why the sentinel is infinite.
+      expect(countPendingUploads(unreadable) === 0).toBe(false);
+      expect(countPendingUploads(unreadable) > 0).toBe(true);
+      expect(cacheHoldsEntries(unreadable)).toBe(true);
+      expect(describePendingUploads(PENDING_UPLOADS_UNKNOWN)).toBe("An unknown number of");
+      expect(describePendingUploads(3)).toBe("3");
+    } finally {
+      fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o700);
+    }
+  });
+
+  it("counts the DIRTY items, a metadata file it cannot parse, and nothing that is clean", () => {
+    // Asymmetric on purpose: two dirty, one clean. A reader that inverted the
+    // flag would count one clean plus the torn file and still answer 2 against
+    // a one-and-one fixture, which is how this case first stayed green.
+    fs.mkdirSync(path.join(metaRoot, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(metaRoot, "clean.md"), JSON.stringify({ Size: 3, Dirty: false }));
+    fs.writeFileSync(
+      path.join(metaRoot, "notes", "dirty.md"),
+      JSON.stringify({ Size: 3, Dirty: true })
+    );
+    fs.writeFileSync(path.join(metaRoot, "draft.md"), JSON.stringify({ Size: 9, Dirty: true }));
+    fs.writeFileSync(path.join(metaRoot, "torn.md"), '{"Size": 3, "Dirty": tr');
+    expect(countPendingUploads(cacheDir)).toBe(3);
+    expect(cacheHoldsEntries(cacheDir)).toBe(true);
+  });
+
+  it("holds entries while only the data tree has a file, so a clean cache is still not deleted", () => {
+    fs.rmSync(path.join(cacheDir, "vfsMeta"), { recursive: true, force: true });
+    const dataRoot = path.join(cacheDir, "vfs", "nxws{abc}", "support-docs");
+    fs.mkdirSync(dataRoot, { recursive: true });
+    fs.writeFileSync(path.join(dataRoot, "clean.md"), "abc");
+    expect(countPendingUploads(cacheDir)).toBe(0);
+    expect(cacheHoldsEntries(cacheDir)).toBe(true);
+  });
+});
+
+describe("checkRefreshPath / directMountHealth — the status verdict from local reads", () => {
+  const profileExists = (name: string): boolean => name === "work";
+  const input = { mountId: MOUNT_ID, slug: "support-docs", profileExists, now: NOW };
+
+  function writeGoodConfig(): void {
+    const config = awsConfigFor({
+      execPath: process.execPath,
+      entry: __filename,
+      mountId: MOUNT_ID
+    });
+    if (!config.ok) throw new Error("fixture must be writable");
+    fs.writeFileSync(sessionPathsFor(MOUNT_ID).awsConfigFile, config.text);
+  }
+
+  afterEach(() => {
+    fs.rmSync(sessionPathsFor(MOUNT_ID).dir, { recursive: true, force: true });
+    fs.rmSync(sessionPathsFor(MOUNT_ID).cacheDir, { recursive: true, force: true });
+  });
+
+  it("is broken when the session is missing, and names the file and the remount", () => {
+    const health = directMountHealth(input);
+    expect(health.verdict).toEqual({
+      kind: "broken",
+      what: `${sessionPathsFor(MOUNT_ID).sessionFile} missing`,
+      fix: "nexus workspace remount support-docs"
+    });
+    expect(health.expiresAt).toBeNull();
+    expect(refreshVerdictIsUnhealthy(health.verdict)).toBe(true);
+    expect(describeRefresh(health.verdict, NOW, true)).toBe(
+      `broken: ${sessionPathsFor(MOUNT_ID).sessionFile} missing — run: nexus workspace remount support-docs`
+    );
+  });
+
+  it("is broken when the profile the session pins is gone from config.json, naming the sign-in", () => {
+    writeSession(session({ profile: "gone" }));
+    writeGoodConfig();
+    const health = directMountHealth(input);
+    expect(health.verdict).toEqual({
+      kind: "broken",
+      what: 'profile "gone" missing from config.json',
+      fix: "nexus auth login --profile gone"
+    });
+    expect(health.expiresAt).toBe(session().expiresAt);
+  });
+
+  it("is broken when aws.config is missing or names a node that is not there", () => {
+    writeSession(session());
+    const paths = sessionPathsFor(MOUNT_ID);
+    expect(checkRefreshPath(session())).toEqual({
+      ok: false,
+      problem: `${paths.awsConfigFile} missing`
+    });
+    expect(directMountHealth(input).verdict).toMatchObject({
+      kind: "broken",
+      what: `${paths.awsConfigFile} missing`
+    });
+
+    const moved = awsConfigFor({
+      execPath: "/nonexistent/node",
+      entry: __filename,
+      mountId: MOUNT_ID
+    });
+    if (!moved.ok) throw new Error("fixture must be writable");
+    fs.writeFileSync(paths.awsConfigFile, moved.text);
+    const probe = checkRefreshPath(session());
+    expect(probe.ok).toBe(false);
+    if (probe.ok) return;
+    expect(probe.problem).toContain("/nonexistent/node");
+    expect(probe.problem).toContain("missing or not usable");
+
+    fs.writeFileSync(paths.awsConfigFile, "[default]\nregion = eu-west-3\n");
+    expect(checkRefreshPath(session())).toMatchObject({ ok: false });
+  });
+
+  it("is ok, dated by the last renewal or the mint, while the access is valid and the path usable", () => {
+    writeSession(session());
+    writeGoodConfig();
+    expect(checkRefreshPath(session())).toEqual({ ok: true });
+    const fresh = directMountHealth(input);
+    expect(fresh.verdict).toEqual({ kind: "ok", at: NOW.toISOString() });
+    expect(fresh.expiresAt).toBe(session().expiresAt);
+    expect(fresh.pendingUploads).toBe(0);
+    expect(refreshVerdictIsUnhealthy(fresh.verdict)).toBe(false);
+    expect(describeRefresh(fresh.verdict, new Date(at(3 * 60_000)), true)).toBe("ok 3m ago");
+    expect(refreshJson(fresh.verdict)).toEqual({
+      outcome: "ok",
+      at: NOW.toISOString(),
+      reason: null,
+      transient: false,
+      fix: null
+    });
+
+    fs.rmSync(sessionPathsFor(MOUNT_ID).sessionFile);
+    writeSession(session({ lastRefresh: { at: at(-60_000), outcome: "ok" } }));
+    expect(directMountHealth(input).verdict).toEqual({ kind: "ok", at: at(-60_000) });
+  });
+
+  it("answers BROKEN, not ok, when expiresAt cannot be read", () => {
+    // `isMountSession` checks `expiresAt` is a STRING, not that it is an
+    // instant, so a truncated stamp survives a round trip. `NaN <= now` is
+    // FALSE, which fell past the staleness arm to `ok` — and `status` exits 0,
+    // the half a script gates on. `isFresh` fails safe on the very same field,
+    // so the two readers of one value disagreed about which way to fail.
+    writeSession(session({ expiresAt: "not-an-instant" }));
+    writeGoodConfig();
+    const health = directMountHealth(input);
+    expect(health.verdict.kind).toBe("broken");
+    expect(refreshVerdictIsUnhealthy(health.verdict)).toBe(true);
+
+    // Positive control: the SAME setup with a readable expiry reads ok, so the
+    // assertion above cannot be satisfied by a verdict that refuses everything.
+    writeSession(session());
+    writeGoodConfig();
+    expect(directMountHealth(input).verdict.kind).toBe("ok");
+  });
+  it("is stale — not broken, exit 0 — when the access expired with no failure recorded", () => {
+    writeSession(session({ expiresAt: at(-3 * 60_000) }));
+    writeGoodConfig();
+    const health = directMountHealth(input);
+    expect(health.verdict).toEqual({ kind: "stale", expiredAt: at(-3 * 60_000) });
+    expect(refreshVerdictIsUnhealthy(health.verdict)).toBe(false);
+    expect(describeRefresh(health.verdict, NOW, true)).toBe(
+      "stale: expired 3m ago, refreshes on next access"
+    );
+    // Nothing accesses a dead mount, so "next access" is not a promise it can keep.
+    expect(describeRefresh(health.verdict, NOW, false)).toBe(
+      "stale: expired 3m ago, mount is not live — remount"
+    );
+    expect(refreshJson(health.verdict)).toMatchObject({ outcome: "stale", at: at(-3 * 60_000) });
+  });
+
+  it("is failed with the table's title and hint; transient stays healthy, the rest does not", () => {
+    writeSession(
+      session({
+        lastRefresh: { at: at(-2 * 60_000), outcome: "failed", reason: "not-authenticated" }
+      })
+    );
+    writeGoodConfig();
+    const notAuthenticated = directMountHealth(input);
+    expect(notAuthenticated.verdict).toEqual({
+      kind: "failed",
+      at: at(-2 * 60_000),
+      reason: "not-authenticated",
+      transient: false,
+      fix: REFRESH_FAILURE_TABLE["not-authenticated"].statusHint(CTX)
+    });
+    expect(refreshVerdictIsUnhealthy(notAuthenticated.verdict)).toBe(true);
+    expect(describeRefresh(notAuthenticated.verdict, NOW, true)).toBe(
+      `failed 2m ago: Access expired — ${REFRESH_FAILURE_TABLE["not-authenticated"].statusHint(CTX)}`
+    );
+    expect(refreshJson(notAuthenticated.verdict)).toEqual({
+      outcome: "failed",
+      at: at(-2 * 60_000),
+      reason: "not-authenticated",
+      transient: false,
+      fix: REFRESH_FAILURE_TABLE["not-authenticated"].statusHint(CTX)
+    });
+
+    fs.rmSync(sessionPathsFor(MOUNT_ID).sessionFile);
+    writeSession(
+      session({ lastRefresh: { at: at(-60_000), outcome: "failed", reason: "connection-failed" } })
+    );
+    const offline = directMountHealth(input);
+    expect(offline.verdict).toMatchObject({ kind: "failed", transient: true });
+    expect(refreshVerdictIsUnhealthy(offline.verdict)).toBe(false);
+  });
+
+  it("counts the cache's pending uploads alongside the verdict, whatever the verdict", () => {
+    const metaRoot = path.join(
+      sessionPathsFor(MOUNT_ID).cacheDir,
+      "vfsMeta",
+      "nxws{abc}",
+      "support-docs"
+    );
+    fs.mkdirSync(metaRoot, { recursive: true });
+    fs.writeFileSync(path.join(metaRoot, "a.md"), JSON.stringify({ Dirty: true }));
+    fs.writeFileSync(path.join(metaRoot, "b.md"), JSON.stringify({ Dirty: true }));
+    fs.writeFileSync(path.join(metaRoot, "c.md"), JSON.stringify({ Dirty: false }));
+    expect(directMountHealth(input).pendingUploads).toBe(2);
+    writeSession(session());
+    writeGoodConfig();
+    expect(directMountHealth(input).pendingUploads).toBe(2);
+  });
+
+  it("never names a bucket, a prefix or a credential value in any verdict text", () => {
+    writeSession(
+      session({ lastRefresh: { at: at(-1000), outcome: "failed", reason: "remote-error" } })
+    );
+    writeGoodConfig();
+    const health = directMountHealth(input);
+    const text =
+      describeRefresh(health.verdict, NOW, true) + JSON.stringify(refreshJson(health.verdict));
+    expect(text).not.toMatch(/nxw-|not-a-secret|not-a-token|ASIA_/);
+    expect(text).not.toContain("support-docs/");
   });
 });

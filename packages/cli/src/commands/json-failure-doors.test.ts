@@ -58,7 +58,11 @@ const { docsSearch, testExternalTool } = vi.hoisted(() => ({
 // mock serves all six doors. Four of them never reach it: their branch is
 // decided before the client is built, which is the property that makes them
 // deterministic here.
-vi.mock("../client", () => ({
+// PARTIAL, via `importOriginal`: `workspace.ts` reads the `seconds` brand
+// constructor off this module at load, and a total mock makes the whole
+// command graph fail to COLLECT — which reports as no tests, not as a red.
+vi.mock("../client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../client")>()),
   createClient: () => ({
     docs: { search: docsSearch },
     skills: { testExternalTool }

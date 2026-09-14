@@ -69,13 +69,13 @@ runtime dependency.
 
 ### Command names and required arguments
 
-The CLI registers **52 top-level commands**, of which **52 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **614 command nodes**
-and **524 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+The CLI registers **53 top-level commands**, of which **53 are visible** and 0 are
+hidden — there are none at all (see INTERNAL). Under them sit **636 command nodes**
+and **543 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
-The 52 visible namespaces:
+The 53 visible namespaces:
 
 ```
 access-card       admin          agent        agent-collection  agent-skill
@@ -83,15 +83,15 @@ agent-tool        analytics      api          apps              asset
 auth              channel        chat         claude-code       cloud-import
 collection        conversation   credential   cue               custom-model
 customer          deployment     docs         document          emulator
-execution         external-tool  folder       html-template     known-issues
-mcp               model          permissions  phone-number      prompt
-prompt-assistant  role           score        skill-folder      skills
-task              task-eval      template     ticket            tool
-tracing           tracks         upgrade      user-group        version
-workflow          workspace
+eval              execution      external-tool  folder          html-template
+known-issues      mcp            model        permissions       phone-number
+prompt            prompt-assistant  role      score             skill-folder
+skills            task           task-eval    template          ticket
+tool              tracing        tracks       upgrade           user-group
+version           workflow       workspace
 ```
 
-⚠️ **Two of those 52 are carved out of this tier: `apps` and `admin`.** They are
+⚠️ **Two of those 53 are carved out of this tier: `apps` and `admin`.** They are
 visible because operators need to find them, not because they are stable. See
 UNSTABLE.
 
@@ -103,9 +103,10 @@ an id at position 1 and will keep taking one there.
 name as an alias, adding a new required positional, or reordering existing ones.
 Making a required argument optional is not a break.
 
-`task-eval` is the one top-level command with an alias: `eval`. It was renamed and
-the old name still resolves. That is the shape a rename takes here — the old
-spelling keeps working.
+`upgrade` is the top-level command with aliases (`update`, `latest`, `up`); the
+old spellings keep resolving. `task-eval` carried the alias `eval` from its own
+rename until Prompt Lab phase 2 reassigned `nexus eval` to golden-conversation
+authoring — type `task-eval` for AI-task evaluations.
 
 ### Global flags
 
@@ -207,12 +208,12 @@ with what it does about `--json`, so the next one cannot arrive in silence.
 
 `emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
 document is the payload and goes to stdout; anything after it is diverted to
-stderr. **73 leaves build their own document with a bare `console.log`** rather
+stderr. **75 leaves build their own document with a bare `console.log`** rather
 than going through a printer — the `writes-its-own-json` count in the generated
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **517 of the 524 leaves** and parses each one's stdout, and
+gate, which drives **536 of the 543 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -248,7 +249,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 517 leaves the gate drives. And on every terminal path — `--help`,
+the 536 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -311,7 +312,7 @@ category a particular failure falls into is EVOLVING — see below.
 
 ### A destructive command with no terminal refuses
 
-**41 commands declare `--yes`**, and every one of them behaves identically:
+**43 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
 - No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
@@ -321,11 +322,11 @@ category a particular failure falls into is EVOLVING — see below.
 The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
 the prompt and `nexus … > log.txt` cannot delete silently.
 
-All 41 declare the flag through `confirmable()` and ask through
+All 43 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
 one helper, and no command parses `--yes` for itself.
 
-**All 41 refuse, and that is DRIVEN rather than asserted from the source.**
+**All 43 refuse, and that is DRIVEN rather than asserted from the source.**
 `destructive-confirmation.driven.test.ts` runs each one with `stdin.isTTY` forced
 false and no `--yes`, in a sandboxed `HOME` and working directory with the network
 seams stubbed, and requires the refusal. Its spy calls THROUGH to the real helper
@@ -342,13 +343,13 @@ Refusing costs one retry; proceeding costs the data.
 
 🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 21 DESTRUCTIVE
 COMMANDS DO NOT CONFIRM.** `destructiveCandidates()` in
-`destructive-confirmation.scan.ts` derives **66** candidates by verb —
+`destructive-confirmation.scan.ts` derives **68** candidates by verb —
 `delete`, `purge`, `revoke`, `rotate`, `wipe` and 18 more — and every one must
 appear in exactly one of three declared sets:
 
 | Set                       | Count | What it means                                             |
 | ------------------------- | ----- | --------------------------------------------------------- |
-| `CONFIRMS_BEFORE_ACTING`  | 41    | destroys, and confirms. The promise above covers these.   |
+| `CONFIRMS_BEFORE_ACTING`  | 43    | destroys, and confirms. The promise above covers these.   |
 | `NOT_DESTRUCTIVE`         | 4     | carries a destructive-sounding verb and destroys nothing. |
 | `UNCONFIRMED_DESTRUCTIVE` | 21    | **destroys and does NOT confirm.** Named debt.            |
 
@@ -391,14 +392,14 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**418 of the 524 leaves** carry a derived shape line on their `--help`, generated
+**434 of the 543 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
 line describing the old shape.
 
-The remaining 106 carry **no** shape line, and that is the honest output rather
-than a gap: 73 write their own document, 17 branch to two shapes, 10 have no
+The remaining 108 carry **no** shape line, and that is the honest output rather
+than a gap: 75 write their own document, 17 branch to two shapes, 10 have no
 registration the scan can read, 5 reach no printer, and 1 is ambiguous. A default
 would be a claim nobody measured.
 
@@ -530,7 +531,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-524 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
+543 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -655,7 +656,7 @@ hidden commands at all: they are declared aliases on `upgrade`, so they appear i
 STABLE for the same reason every other command name is — a rename without an alias
 is a breaking change.
 
-Verified by walking the tree: 52 top-level commands, 52 visible, 0 hidden, and no
+Verified by walking the tree: 53 top-level commands, 53 visible, 0 hidden, and no
 hidden command anywhere in the tree.
 
 **This section is kept because the tier still exists and its population is empty.**
@@ -731,7 +732,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 614 nodes, and the root program is a 615th
+`src/command-universe.ts` renders all 636 nodes, and the root program is a 630th
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as
@@ -881,7 +882,7 @@ today.
    experience, not what the code now does.
 2. It bumps the major version.
 3. Where the old form can keep working, it keeps working — an alias for a rename
-   (`task-eval` kept `eval`), a fallback for a moved field.
+   (`upgrade` kept `update`), a fallback for a moved field.
 4. A removal from an EVOLVING surface is announced one release before it happens,
    in `--help` and in the changelog.
 

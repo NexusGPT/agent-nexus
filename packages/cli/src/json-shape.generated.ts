@@ -8,13 +8,13 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 418 of 524 leaves are answered here. The
+ * 434 of 543 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
  *      1  ambiguous
- *     73  writes-its-own-json
- *      5  no-printer
+ *     75  writes-its-own-json
+ *      6  no-printer
  *     17  branches
  *
  * `json-shape.codegen.test.ts` recomputes this file and fails on any
@@ -186,6 +186,22 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "emulator session delete": "success",
   "emulator session get": "record",
   "emulator session list": "list",
+  "eval conv accept": "envelope",
+  "eval conv add-user": "envelope",
+  "eval conv checkpoint": "envelope",
+  "eval conv create": "envelope",
+  "eval conv delete": "envelope",
+  "eval conv generate": "envelope",
+  "eval conv get": "envelope",
+  "eval conv list": "envelope",
+  "eval conv ready": "envelope",
+  "eval conv set-golden": "envelope",
+  "eval run abort": "envelope",
+  "eval run create": "envelope",
+  "eval run get": "envelope",
+  "eval run list": "envelope",
+  "eval run preview": "envelope",
+  "eval run results": "envelope",
   "execution cancel": "success",
   "execution export": "record",
   "execution get": "record",

@@ -162,7 +162,7 @@ run_universe() {
 
 run_leaf() {
   local path="$1"
-  local out exit_code
+  local out exit_code diag diag_bytes transcript errfile
   # Second argument, not a global lookup: the caller already knows, and a
   # function that re-derives its own inputs is a second place for the two lists
   # to disagree.
@@ -172,9 +172,39 @@ run_leaf() {
   # is a second place for the two lists to disagree.
   local expected_skip="${3:-false}"
 
+  # 🚨 THE TWO STREAMS ARE KEPT APART, AND `2>&1` HERE WAS A HOLE IN THE SECRET
+  # SCAN RATHER THAN AN EXTENSION OF IT.
+  #
+  # `scan-response.py` parses BEFORE it walks — its `scan()` returns `1, []` the
+  # moment `json.loads` fails, so `findings()`, the credential walk this whole
+  # gate exists for, never runs on a body that did not parse. Folding stderr in
+  # therefore did not scan stderr; it DISABLED the scan over stdout. One byte of
+  # commentary blinded it to the entire response. Measured 2026-09-09 on one
+  # document: stdout alone `exit 2 pushToken (len 40)`, the same stdout plus 332
+  # bytes of stderr `exit 1 NOT-JSON`, stdout alone again `exit 2` as a control.
+  #
+  # And the CLI writes to stderr on runs where nothing is wrong, deliberately —
+  # the contract warning (on by default), the retry notice and the deprecation
+  # notice all do, none gated on `--json`, because the promise is "ONE JSON
+  # document on STDOUT and nothing else". So the fold also reported a healthy
+  # leaf as "exit=0 but JSON parse failed". `src/id-graph.streams.ts` carries
+  # the full argument; this is the same split in the sibling sweep.
+  #
+  # A REFUSAL still needs both: an error's text is on stderr, and
+  # `is_policy_refusal` matches that sentence. That is what `$transcript` is for.
+  errfile=$(mktemp) || {
+    printf 'FAIL|%s|could not create a temp file to capture stderr; refusing to sweep this leaf with the streams merged\n' "$path"
+    return
+  }
   # shellcheck disable=SC2086
-  out=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} $path --json 2>&1)
+  out=$("${NEXUS_CMD[@]}" ${NEXUS_ARGS[@]+"${NEXUS_ARGS[@]}"} $path --json 2>"$errfile")
   exit_code=$?
+  diag=$(cat "$errfile")
+  # Off the FILE, never off `$diag`: `$(cat …)` strips trailing newlines and
+  # `${#var}` counts characters, so both under-report and the label says bytes.
+  diag_bytes=$(wc -c < "$errfile" | tr -d ' ')
+  rm -f "$errfile"
+  transcript="$out$diag"
 
   if [[ $exit_code -ne 0 ]]; then
     # SKIP: the backend explicitly declared the feature unavailable in this
@@ -192,9 +222,9 @@ run_leaf() {
     # permanent. `sweep-skips-only-a-declared-opt-out.test.ts` holds that line by
     # reading the pattern out of that file and asserting a plain 401 and a 500
     # still FAIL.
-    if is_policy_refusal "$out"; then
+    if is_policy_refusal "$transcript"; then
       local reason
-      reason=$(policy_refusal_reason "$out")
+      reason=$(policy_refusal_reason "$transcript")
 
       # 🚨 THE PHRASE SAYS THE REFUSAL IS POLICY. IT DOES NOT SAY ANYONE DECIDED
       # TO ACCEPT IT. Those are different facts and only the second is a reason
@@ -222,7 +252,7 @@ run_leaf() {
       return
     fi
     local err
-    err=$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100)
+    err=$(printf '%s' "$transcript" | tr '\n' ' ' | cut -c1-100)
     printf 'FAIL|%s|exit=%d: %s\n' "$path" "$exit_code" "$err"
     return
   fi
@@ -247,7 +277,20 @@ run_leaf() {
   # So: preview ONLY on exit 1 AND the scanner's own `NOT-JSON` marker. Anything
   # else is UNMEASURED, and UNMEASURED is a failure with nothing quoted.
   case $scan_code in
-    0) printf 'PASS|%s|json ok\n' "$path" ;;
+    0)
+      # A leaf that wrote to stderr on a clean read has SAID something — a
+      # contract-drift warning, a retry notice, a deprecation announcement. None
+      # of those is a failure, and all three are invisible now that the streams
+      # are apart, so the VOLUME is reported to keep the signal. Never the text:
+      # this line reaches a CI log and stderr is the one stream `scan-response.py`
+      # structurally cannot clear, because it parses JSON before it walks.
+      if [[ "$diag_bytes" -gt 0 ]]; then
+        printf 'PASS|%s|json ok · %d bytes on stderr (diagnostics, not the document)\n' \
+          "$path" "$diag_bytes"
+      else
+        printf 'PASS|%s|json ok\n' "$path"
+      fi
+      ;;
     2)
       # LEAK. The field and its length, never the payload, and never the preview
       # below. A FAIL in every mode, `--strict` included: a leaf that returns a

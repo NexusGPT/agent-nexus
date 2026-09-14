@@ -16,12 +16,12 @@ import {
 } from "./task-eval.contract.generated";
 
 export function registerEvaluationCommands(program: Command): void {
+  // No "eval" alias any more: Prompt Lab phase 2 gave `nexus eval` to golden
+  // conversations (spec §9.1 — the namespace was freed by system B's removal,
+  // and system A keeps `task-eval`).
   const eval_ = program
     .command("task-eval")
-    .alias("eval")
-    .description(
-      'Manage evaluations for AI tasks (renamed from "eval"; the "eval" alias still works)'
-    );
+    .description('Manage evaluations for AI tasks (formerly also reachable as "eval")');
 
   eval_.addHelpText(
     "after",

@@ -6,7 +6,11 @@ import { setJsonMode } from "../output";
 const search = vi.fn();
 const fakeClient = { workspaces: { search } };
 
-vi.mock("../client", () => ({
+// PARTIAL, via `importOriginal`: `workspace.ts` reads the `seconds` brand
+// constructor off this module at load, and a total mock makes the suite fail
+// to COLLECT — which reports as no tests, not as a red.
+vi.mock("../client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../client")>()),
   createClient: () => fakeClient
 }));
 

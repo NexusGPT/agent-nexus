@@ -4,17 +4,22 @@ import path from "node:path";
 import { Command } from "commander";
 
 import { color, isJsonMode } from "../output";
-import { getSkillList, getSkills, SKILLS_NEXUS_SHA } from "../skills-content.generated";
+import { getSkillList, SKILLS_NEXUS_SHA } from "../skills-content.generated";
+import {
+  type CorpusFlags,
+  describeCorpus,
+  platformIo,
+  resolveCorpusForCommand,
+  withCorpusFlags
+} from "../skills-corpus/command";
+import { fetchManifest, PlatformCorpusError } from "../skills-corpus/platform";
 import { confirmable, promptLine, promptStream } from "../util/confirm";
 import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
-import { runSkillsInstallToTarget, type SkillsInstallOpts } from "./claude-code";
-
-// Short, human-friendly skills version: CLI version + bundled-skills commit.
-function skillsVersion(): { cli: string; sha: string; short: string } {
-  const cli = (require("../../package.json") as { version: string }).version;
-  const sha = SKILLS_NEXUS_SHA;
-  return { cli, sha, short: sha.slice(0, 12) };
-}
+import {
+  refusedBeforeCorpus,
+  runSkillsInstallToTarget,
+  type SkillsInstallOpts
+} from "./claude-code";
 
 function describeReason(reason: TargetReason, root: string): string {
   switch (reason) {
@@ -123,7 +128,7 @@ async function maybePickLocation(
 export function registerSkillsCommands(program: Command): void {
   const skills = program
     .command("skills")
-    .description("Manage the Claude Code skills + CLAUDE.md bundled with this CLI version");
+    .description("Install and inspect the Nexus Claude Code skills + CLAUDE.md");
 
   // ── update ──────────────────────────────────────────────────────────────────
   //
@@ -133,10 +138,10 @@ export function registerSkillsCommands(program: Command): void {
   // project's .claude folder so it never drops a stray copy into a subfolder
   // or overrides another project's CLAUDE.md.
 
-  confirmable(skills.command("update"))
+  withCorpusFlags(confirmable(skills.command("update")))
     .alias("install")
     .alias("sync")
-    .description("Install/refresh the bundled Claude Code skills + CLAUDE.md into your project")
+    .description("Install/refresh the latest Claude Code skills + CLAUDE.md into your project")
     .argument("[skills...]", "Skill slugs to install (omit for all)")
     .option("--dir <path>", "Explicit target skills directory (skips auto-detection)")
     .option("--global", "Install into the user-global ~/.claude instead of a project")
@@ -159,6 +164,8 @@ Examples:
   $ nexus skills update --dir ./x/.claude/skills   # Explicit target
   $ nexus skills update --dry-run            # Preview only
   $ nexus skills update nexus-workflow-builder      # A single skill
+  $ nexus skills update --bundled            # Offline: the skills bundled with this CLI
+  $ nexus skills update --skills-ref 416b57391347212330eb85fc78f27f86b2303b59   # One exact commit
 
 How the target is chosen (most specific first):
   --dir > --global > --here > auto-detect.
@@ -174,7 +181,7 @@ Auto-detect walks UP from the current directory, notes the nearest ancestor
 --dir names the target outright: nothing is derived from the directory you are
   standing in. "nexus skills where --dir <path>" prints every path first.
 
-THIS COMMAND AND "nexus claude-code install" RUN THE SAME INSTALLER. Same bundle,
+THIS COMMAND AND "nexus claude-code install" RUN THE SAME INSTALLER. Same corpus,
 same files, same manifest, same --force / --dry-run / --no-claude-md /
 --no-settings. Exactly one thing differs, and it is WHERE THEY WRITE:
   nexus skills update          auto-detects the owning project root, and takes
@@ -201,33 +208,47 @@ Notes:
   record has no checksums, so its differing files are preserved as well — pass
   --force once to adopt them.
 
-Skills are version-locked to the CLI binary — run "nexus skills version" to
-see the bundle commit, and "nexus upgrade" (then re-run this) to pull newer
-skills. No network calls, no API key required.`
+  WHERE THE SKILLS COME FROM. The latest skills corpus the platform serves, read
+  with no API key: GET <base-url>/api/cli/skills/manifest, then the corpus it
+  names, refused unless its bytes match the manifest's sha256. The skills
+  repository's deploy publishes that corpus after its checks pass, so new skills
+  reach this command without a new CLI release — no "nexus upgrade" needed.
+  WHEN THE PLATFORM CANNOT BE USED, THE BUNDLED SKILLS ARE INSTALLED INSTEAD —
+  offline, a timeout, an error, a checksum mismatch, or a corpus that declares
+  it needs a newer CLI (that last one also tells you to run "nexus upgrade").
+  The reason is printed on stderr, and "corpus.fallbackReason" carries it under
+  --json.
+  --bundled installs the skills bundled with this CLI and makes no network call.
+  --skills-ref <commit> installs exactly that commit and NEVER falls back: a pin
+  that quietly installed something else would not be reproducible, so a failed
+  read is an error. It takes the full 40-character sha.
+  The commit installed is printed, and recorded as "corpus" in
+  .claude/.nexus-install-manifest.json.`
     )
-    .action(async (skillArgs: string[], opts: SkillsInstallOpts) => {
-      const cwd = process.cwd();
-      const homeDir = os.homedir();
-      const detected = resolveClaudeTarget(opts, cwd, homeDir);
-      const chosen = await maybePickLocation(detected, opts, cwd, homeDir);
-      if (!chosen) {
-        process.exitCode = 1;
-        return;
-      }
+    .action(
+      async (skillArgs: string[], opts: SkillsInstallOpts & CorpusFlags, command: Command) => {
+        const cwd = process.cwd();
+        const homeDir = os.homedir();
+        const detected = resolveClaudeTarget(opts, cwd, homeDir);
+        const chosen = await maybePickLocation(detected, opts, cwd, homeDir);
+        if (!chosen) {
+          process.exitCode = 1;
+          return;
+        }
 
-      if (!isJsonMode()) {
-        const v = skillsVersion();
-        console.log(color.dim(`Skills bundle: CLI ${v.cli} · skills-nexus @ ${v.short}`));
-      }
+        if (await refusedBeforeCorpus(opts)) return;
+        const io = platformIo(command);
+        const resolved = await resolveCorpusForCommand(opts, io);
+        if (!resolved) return;
 
-      await runSkillsInstallToTarget(skillArgs, chosen, opts);
-    });
+        await runSkillsInstallToTarget(skillArgs, chosen, opts, resolved, io);
+      }
+    );
 
   // ── list ────────────────────────────────────────────────────────────────────
 
-  skills
-    .command("list")
-    .description("List the Claude Code skills bundled with this CLI version")
+  withCorpusFlags(skills.command("list"))
+    .description("List the Claude Code skills an install would write")
     .addHelpText(
       "after",
       `
@@ -242,21 +263,31 @@ Notes:
   SLUG exactly and refuses anything else, printing the full available list — so
   copying a name out of this table is refused rather than silently ignored.
   --json carries the unstripped slug on every row, so it is the form to read a
-  name FROM. It also wraps the rows in cliVersion and skillsSha, which the table
-  does not show at all — "nexus skills version" prints those two on their own.`
+  name FROM. It also wraps the rows in cliVersion, skillsSha and source, which
+  the table shows only in its last line.
+  THIS LISTS WHAT AN INSTALL WOULD WRITE, FROM THE SAME SOURCE: the latest skills
+  corpus on the platform, or the skills bundled with this CLI when the platform
+  cannot be used. skillsSha is the commit listed, and source says which it was
+  ("platform", "pinned" or "bundled"). --bundled and --skills-ref pick the
+  source here exactly as they do on "nexus skills update".`
     )
-    .action(() => {
+    .action(async (opts: CorpusFlags, command: Command) => {
+      const io = platformIo(command);
+      const resolved = await resolveCorpusForCommand(opts, io);
+      if (!resolved) return;
+      const { corpus } = resolved;
+
       if (isJsonMode()) {
-        const v = skillsVersion();
         console.log(
           JSON.stringify(
             {
-              cliVersion: v.cli,
-              skillsSha: v.sha,
-              skills: getSkillList().map((slug) => ({
+              cliVersion: io.cliVersion,
+              skillsSha: corpus.commitSha,
+              source: resolved.source,
+              skills: corpus.skillList.map((slug) => ({
                 slug,
-                description: getSkills()[slug].description,
-                files: getSkills()[slug].files.length
+                description: corpus.skills[slug].description,
+                files: corpus.skills[slug].files.length
               }))
             },
             null,
@@ -266,22 +297,23 @@ Notes:
         return;
       }
 
-      console.log(color.bold(`\nBundled Claude Code skills (${getSkillList().length}):\n`));
-      for (const slug of getSkillList()) {
-        const entry = getSkills()[slug];
+      console.log(color.bold(`\nClaude Code skills (${corpus.skillList.length}):\n`));
+      for (const slug of corpus.skillList) {
+        const entry = corpus.skills[slug];
         const name = slug.replace("nexus-", "");
         console.log(`  ${color.cyan(name.padEnd(22))} ${entry.description}`);
         console.log(`  ${"".padEnd(22)} ${color.dim(`${entry.files.length} files`)}`);
         console.log();
       }
-      console.log(color.dim(`Install the latest skills: nexus skills update\n`));
+      console.log(color.dim(describeCorpus(resolved, io)));
+      console.log(color.dim(`Install them: nexus skills update\n`));
     });
 
   // ── version ─────────────────────────────────────────────────────────────────
 
   skills
     .command("version")
-    .description("Show the CLI + bundled-skills commit this binary ships")
+    .description("Show this CLI's version, its bundled skills commit, and the latest one")
     .addHelpText(
       "after",
       `
@@ -290,29 +322,61 @@ Examples:
   $ nexus skills version --json
 
 Notes:
-  Skills are baked into the CLI binary, so the skills version moves with the CLI
-  version. To pull newer skills: "nexus upgrade" then "nexus skills update".
-  THE SKILLS COMMIT IS THE ONE THAT ANSWERS "am I running what I think I am".
-  cliVersion is this binary; skillsSha is the commit its bundled skills were cut
-  from. Upgrading moves both together, so a stale skillsSha means the upgrade did
-  not land, never that the skills drifted from the binary.`
+  TWO COMMITS, AND THEY ANSWER DIFFERENT QUESTIONS. skillsSha is the commit the
+  skills BUNDLED WITH THIS CLI were cut from — the fallback an install uses
+  offline, or with --bundled — and skillCount counts those skills. Both move only
+  when the CLI is upgraded.
+  latestSkillsSha is the latest corpus the platform serves — what "nexus skills
+  update" installs by default. It moves every time the skills repository
+  deploys, with no CLI release. null means the platform could not be read, and
+  latestError says why; nothing else in the output changes.
+  latestMinCliVersion is the oldest CLI that latest corpus declares it is written
+  for. When it is newer than cliVersion, "nexus skills update" installs the
+  bundled skills instead and tells you to run "nexus upgrade".
+  The commit a project actually has installed is recorded as "corpus" in its
+  .claude/.nexus-install-manifest.json.`
     )
-    .action(() => {
-      const v = skillsVersion();
+    .action(async (_opts: unknown, command: Command) => {
+      const io = platformIo(command);
+      let latestSkillsSha: string | null = null;
+      let latestMinCliVersion: string | null = null;
+      let latestError: string | null = null;
+      try {
+        const manifest = await fetchManifest(io, "latest");
+        latestSkillsSha = manifest.commitSha;
+        latestMinCliVersion = manifest.minCliVersion;
+      } catch (error: unknown) {
+        if (!(error instanceof PlatformCorpusError)) throw error;
+        latestError = error.message;
+      }
+
       if (isJsonMode()) {
         console.log(
           JSON.stringify(
-            { cliVersion: v.cli, skillsSha: v.sha, skillCount: getSkillList().length },
+            {
+              cliVersion: io.cliVersion,
+              skillsSha: SKILLS_NEXUS_SHA,
+              skillCount: getSkillList().length,
+              latestSkillsSha,
+              latestMinCliVersion,
+              latestError
+            },
             null,
             2
           )
         );
         return;
       }
-      console.log(`\n  CLI version:   ${color.cyan(v.cli)}`);
-      console.log(`  Skills commit: ${color.cyan(v.sha)}`);
-      console.log(`  Skills:        ${color.cyan(String(getSkillList().length))} bundled`);
-      console.log(color.dim(`\n  Refresh: nexus upgrade && nexus skills update\n`));
+      console.log(`\n  CLI version:           ${color.cyan(io.cliVersion)}`);
+      console.log(`  Bundled skills commit: ${color.cyan(SKILLS_NEXUS_SHA)}`);
+      console.log(`  Bundled skills:        ${color.cyan(String(getSkillList().length))}`);
+      console.log(
+        latestSkillsSha === null
+          ? `  Latest skills commit:  ${color.yellow(`unknown — ${latestError}`)}`
+          : `  Latest skills commit:  ${color.cyan(latestSkillsSha)}` +
+              (latestMinCliVersion ? color.dim(` (needs CLI ${latestMinCliVersion}+)`) : "")
+      );
+      console.log(color.dim(`\n  Install the latest: nexus skills update\n`));
     });
 
   // ── where ───────────────────────────────────────────────────────────────────

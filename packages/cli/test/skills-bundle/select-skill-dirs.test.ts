@@ -9,7 +9,7 @@ import {
   selectSkillDirs,
   SHARED_DIR,
   type SkillsRootEntry
-} from "../../scripts/skills-bundle/select-skill-dirs";
+} from "../../src/skills-corpus/select-skill-dirs";
 
 /**
  * The generator's directory selection, and the report that is the whole point

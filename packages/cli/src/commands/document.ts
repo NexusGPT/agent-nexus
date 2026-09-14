@@ -22,9 +22,13 @@ import { resolveInputValue } from "../util/stdin";
 import {
   DOCUMENT_ADD_WEBSITE__BODY_MODE,
   DOCUMENT_ADD_WEBSITE_CONTRACT,
+  DOCUMENT_DOWNLOAD_CONTRACT,
+  DOCUMENT_GET_CONTRACT,
   DOCUMENT_LIST__PARAMS_STATUS,
   DOCUMENT_LIST__PARAMS_TYPE,
-  DOCUMENT_LIST_CONTRACT
+  DOCUMENT_LIST_CHILDREN_CONTRACT,
+  DOCUMENT_LIST_CONTRACT,
+  DOCUMENT_PREVIEW_CONTRACT
 } from "./document.contract.generated";
 
 /** Commander collector for repeatable `--metadata key=value` options. */
@@ -135,7 +139,7 @@ Notes:
   });
 
   // ── get ───────────────────────────────────────────────────────────────
-  document
+  const get = document
     .command("get")
     .description("Get document details")
     .argument("<id>", "Document ID")
@@ -422,7 +426,7 @@ Notes:
     });
 
   // ── preview ───────────────────────────────────────────────────────────
-  document
+  const preview = document
     .command("preview")
     .description("Get a preview URL for inline viewing of a document")
     .argument("<id>", "Document ID")
@@ -565,7 +569,7 @@ Notes:
     });
 
   // ── download ──────────────────────────────────────────────────────────
-  document
+  const download = document
     .command("download")
     .description("Get a signed download URL for a document")
     .argument("<id>", "Document ID")
@@ -604,7 +608,7 @@ Notes:
     });
 
   // ── children ──────────────────────────────────────────────────────────
-  addPaginationOptions(
+  const children = addPaginationOptions(
     document
       .command("children")
       .description("List child documents in a folder")
@@ -811,4 +815,36 @@ Notes:
   // Bound LAST, after every option exists.
   bindCommand(list, DOCUMENT_LIST_CONTRACT);
   bindCommand(addWebsite, DOCUMENT_ADD_WEBSITE_CONTRACT);
+  // THE FOUR ID-TAKING READS. Binding them proves `method: "GET"` off the v1
+  // contract, which is the only thing `id-graph.ts` accepts as evidence that a
+  // leaf is safe for the id-threaded sweep to call. Until this, all four sat in
+  // `id-graph.uncovered.generated.ts` as `unbound-no-provable-method` — not
+  // because they mutate, but because nothing had proved they do not.
+  //
+  // 🚨 ONLY TWO OF THE FOUR ARE SWEEPABLE, AND `preview`/`download` ARE BOUND
+  // ANYWAY ON PURPOSE — DO NOT DELETE THESE TWO CALLS. Both route through one
+  // `if (!document.storageUrl) throw new NotFoundException(...)`, so they 404
+  // for every folder, text document and crawled page — which `document list`
+  // lists, and which the sweep threads because it takes the FIRST row. A 404 on
+  // an id the producer is still listing is a FAILED row, and `CLI: Sweep` gates
+  // staging, so that would red the repository on ordinary tenant data.
+  //
+  // The binding is still right: it makes the method provable, ships
+  // `--print-contract`, and is what lets `id-graph.leaf-residue.ts` classify
+  // them `declared-unsweepable` — a DECLARED refusal with the reason at hand.
+  // Unbinding them instead would return them to `unbound-no-provable-method`,
+  // which is true by accident and reads as an invitation to bind them again.
+  // Found by bugbot on PR #5680; the entry in `id-graph.leaf-residue.ts` owns
+  // the evidence.
+  //
+  // The four mutating leaves of this namespace — upload, update, delete,
+  // reprocess — are deliberately NOT bound here. A binding would make their
+  // methods provable and move them to `bound-but-mutates`, which is a truer
+  // reason and still an excluded row: the sweep calls what it reaches, and
+  // there is no read-only form of a DELETE to call instead. Binding them is a
+  // help-text decision, not a coverage one, and it belongs to whoever makes it.
+  bindCommand(get, DOCUMENT_GET_CONTRACT);
+  bindCommand(preview, DOCUMENT_PREVIEW_CONTRACT);
+  bindCommand(download, DOCUMENT_DOWNLOAD_CONTRACT);
+  bindCommand(children, DOCUMENT_LIST_CHILDREN_CONTRACT);
 }

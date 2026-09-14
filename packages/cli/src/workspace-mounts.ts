@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import type { WorkspaceMountAccess } from "@agent-nexus/sdk";
+
 import { ensureSecretDir, writeSecretFile } from "./util/secret-file";
 
 // ── Workspace mount registry ─────────────────────────────────────────────────
@@ -57,34 +59,88 @@ import { ensureSecretDir, writeSecretFile } from "./util/secret-file";
 // Switching orgs later (`nexus auth use-org`) does NOT retarget existing mounts;
 // they stay pinned to the org recorded when they were created.
 //
-// Scoping the KEY does not scope the mount POINT: the default mount point is
-// `~/nexus/<slug>`, with no org segment, so two orgs mounting one slug on the
-// same machine aim at the same directory. `claimMountPoint` holds the invariant
-// the key alone cannot — one registry row per mount point, across every scope —
-// so a second org is told to pass `--at <path>` instead of silently stacking a
-// mount, and unmounting one org's row can never detach another org's live drive.
+// Scoping the KEY does not scope the mount POINT. The default mount point is
+// `~/nexus/<org>/<slug>` (`defaultMountPath`), so two orgs mounting one slug
+// land in two directories by default — but `--at` names any path, rows written
+// before the org segment existed sit at `~/nexus/<slug>`, and two orgs whose
+// names slugify alike share a segment. `claimMountPoint` holds the invariant the
+// key alone cannot — one registry row per mount point, across every scope — so a
+// clash is refused with `--at <path>` named instead of silently stacking a mount,
+// and unmounting one org's row can never detach another org's live drive.
 //
 // Migration: legacy bare-slug entries (pre-NEX-2360) remain readable and are
 // matched as a fallback (see `findMount`). They migrate on first touch — a new
 // mount of the slug replaces the stale legacy row with a scoped one, and an
 // unmount removes it. No proactive rewrite of the registry file is performed.
 
-export type Engine = "webdav" | "rclone";
+/**
+ * How a recorded mount is served. `webdav` and `rclone` both speak WebDAV to
+ * the gateway — the native macOS client and rclone over FUSE, the latter the
+ * Linux and Windows default; `direct` is rclone signing S3 requests itself with
+ * a one-hour credential the CLI refreshes through `workspace credential-process`.
+ * The one list every engine gate and table derives from.
+ */
+export const ENGINES = ["webdav", "rclone", "direct"] as const;
+export type Engine = (typeof ENGINES)[number];
 
+/**
+ * How a recorded mount's liveness is probed: by signalling the detached
+ * process it recorded, or by reading the OS mount table. Keyed exhaustively
+ * on `Engine` so a new engine cannot default to the wrong probe.
+ */
+export const ENGINE_LIVENESS = {
+  webdav: "mount-table",
+  rclone: "pid",
+  direct: "pid"
+} as const satisfies Record<Engine, "pid" | "mount-table">;
+
+/**
+ * The engines that spawn rclone, so the preflight and its message speak of the
+ * one the caller actually asked for. Derived, so a fourth engine cannot join
+ * the pair by being spelled into a second list.
+ */
+export type RcloneEngine = Extract<Engine, "rclone" | "direct">;
+
+/** The access a direct-engine mount was granted, as the server graded it — the SDK's own grade type. */
+export type MountAccess = WorkspaceMountAccess;
+
+/**
+ * One recorded mount.
+ *
+ * 🚨 NO BUCKET, PREFIX, REGION OR CREDENTIAL FIELD. `workspace status --json`
+ * projects a fixed field set from these records, so what reaches a script's
+ * stdout is decided at that projection — and a projection can only print what
+ * the row holds. Keeping storage names out of the row means no field added to
+ * the projection can leak one. The direct engine keeps what rclone needs in
+ * the mount's own owner-only session file and in the rclone process env; the
+ * registry row carries only what `status`, `unmount` and a later mount of the
+ * same workspace need to find them again.
+ */
 export interface MountRecord {
   slug: string;
   engine: Engine;
   mountPath: string;
   baseUrl: string;
+  /**
+   * The direct engine's per-mount id: the first 16 hex digits of the sha256 of
+   * the registry key, so one org + slug always maps to one session directory
+   * and one rclone cache directory across remounts. Absent on other engines.
+   */
+  mountId?: string;
+  /** The access the server GRANTED at mint time. Direct engine only. */
+  access?: MountAccess;
   /** True when the admin-shared workspace was mounted (via `--shared`), not the
    *  same-slug org-owned one. Absent on records written before NEX-2362. */
   shared?: boolean;
   /** Immutable id of the mounted workspace, when resolved from the list. */
   workspaceId?: string;
-  /** True when mounted read-only (`--read-only`). Absent on records written
-   *  before NEX-2372 — mode was unobservable until a write failed. */
+  /** True when read-only was ASKED FOR (`--read-only`, or a CODE kind). Absent on
+   *  records written before NEX-2372 — mode was unobservable until a write
+   *  failed. The effective mode of a direct row also reads `access`: a `read`
+   *  grant makes the drive read-only whatever was asked, and `remount` asks for
+   *  this flag again rather than replaying the grant. */
   readOnly?: boolean;
-  /** Present only for the rclone engine; native WebDAV has no tracked process. */
+  /** Present only for the engines that spawn rclone; native WebDAV has no tracked process. */
   pid?: number;
   mountedAt: string;
   /** Acting org pinned at mount time (absent on legacy pre-NEX-2360 entries,
@@ -106,6 +162,61 @@ export interface MountScope {
 export const STATE_DIR = path.join(os.homedir(), ".nexus-mcp");
 export const STATE_FILE = path.join(STATE_DIR, "workspace-mounts.json");
 export const LOG_DIR = path.join(STATE_DIR, "logs");
+
+/**
+ * An id may be used as a directory name VERBATIM or not at all.
+ *
+ * Verbatim because it is an identity, not a label: `org_39FoxcMixrC5rGX65cZ…`
+ * is what the folder is called today, and rewriting it — lowercasing, turning
+ * `_` into `-` — would rename every existing default mount point. Refused
+ * outright when it does not match, because there is no honest way to "clean" an
+ * identity: the result would name an organization that does not exist.
+ */
+const SAFE_PATH_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * The `<org>` segment of a default mount point: the organization's NAME
+ * slugified (lowercase, `[a-z0-9-]`) when it is known, its id when only that is,
+ * and nothing when the scope names no organization at all (a raw --api-key with
+ * no NEXUS_ORGANIZATION_ID) — then the path is the org-less `~/nexus/<slug>`.
+ *
+ * 🔴 BOTH HALVES ARE SANITISED, and the id half is the one that was not. The
+ * name is slugified because it is a display string; the id looked safe because
+ * it looks like `org_2rES0…`. It is not checked anywhere on the way here —
+ * `resolveOrganization` returns `NEXUS_ORGANIZATION_ID` verbatim — so it is
+ * caller input reaching `path.join`, and `../../tmp/x` there resolves the
+ * default mount point OUTSIDE `~/nexus`, which `createMountDir` then creates.
+ * `assertMountableSlug` refuses exactly this on the other half of the same path,
+ * for exactly this reason; this is that guard, applied to the segment the
+ * `~/nexus/<org>/<slug>` default added.
+ *
+ * An id that survives no character is dropped rather than replaced: an empty
+ * segment falls back to the org-less path, which is a real layout, where a
+ * placeholder would invent a directory name no organization owns.
+ */
+export function mountPathOrgSegment(
+  scope: Pick<MountScope, "orgId" | "orgName">
+): string | undefined {
+  const fromName =
+    scope.orgName === undefined
+      ? ""
+      : scope.orgName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+  if (fromName !== "") return fromName;
+  return scope.orgId !== undefined && SAFE_PATH_SEGMENT.test(scope.orgId) ? scope.orgId : undefined;
+}
+
+/** `~/nexus/<org>/<slug>` — see {@link mountPathOrgSegment} for the `<org>` half. */
+export function defaultMountPath(
+  slug: string,
+  scope: Pick<MountScope, "orgId" | "orgName">
+): string {
+  const org = mountPathOrgSegment(scope);
+  const segments = org === undefined ? [slug] : [org, slug];
+  return path.join(os.homedir(), "nexus", ...segments);
+}
 
 /** Separator between the scope id and the slug in a registry key. */
 const KEY_SEP = "|";
@@ -368,10 +479,10 @@ export function findMount(
  * Every recorded mount whose mount POINT is `mountPath`, excluding `exceptKey`
  * (the caller's own row, which it handles itself).
  *
- * Registry keys are org-scoped (NEX-2360); mount points are not. The default
- * mount point is `~/nexus/<slug>` — no org segment — so two orgs mounting the
- * same slug on one machine target the same directory, and a scope-filtered
- * `findMount` never sees the other org's row. Two rows naming one mount point
+ * Registry keys are org-scoped (NEX-2360); mount points are not. `--at` names
+ * any directory, rows written before the default carried an org segment sit at
+ * `~/nexus/<slug>`, and a scope-filtered `findMount` never sees another org's
+ * row on the same path. Two rows naming one mount point
  * corrupt each other: every OS-level action keys off `mountPath`, so unmounting
  * one row detaches whatever is mounted there — including another org's live
  * drive — and a webdav row reads "live" merely because the OTHER org's mount
@@ -488,14 +599,95 @@ export function describeScope(scope: MountScope): string {
  * caller who mounted with a raw `--api-key` and has since logged in, and the
  * advice would leave them circling a live mount forever.
  */
+/** One line per candidate row: who owns it, and where it sits. */
+function candidateList(candidates: readonly { readonly record: MountRecord }[]): string {
+  return candidates
+    .map((candidate) => `  - ${describeOwner(candidate.record)} at ${candidate.record.mountPath}`)
+    .join("\n");
+}
+
+/**
+ * The slug IS recorded, but for other owners than the acting scope. `unmount`
+ * says the rows are "mounted", `remount` that they are "recorded" — the drive
+ * may be dead by then — and both name the same remedy.
+ */
+export function ownedElsewhereMessage(
+  slug: string,
+  candidates: readonly { readonly record: MountRecord }[],
+  scope: MountScope,
+  state: "mounted" | "recorded"
+): string {
+  return (
+    `No mount of "${slug}" is recorded for ${describeScope(scope)}, but it is ${state} for:\n` +
+    `${candidateList(candidates)}\nSwitch to the owning profile/org (nexus auth switch / nexus auth use-org) and retry.`
+  );
+}
+
+/**
+ * What `mount <slug>` says when this scope already holds a LIVE mount of it.
+ *
+ * Pure, and here rather than inline in the action, for the reason
+ * {@link unmountMissMessage} states: this text IS the remedy, and inside a
+ * commander action nothing can assert it. Three situations, three different
+ * ways out, written as early returns because advice that does not hold for the
+ * caller reading it is worse than none:
+ *
+ *   - an OWNED row: it is theirs, so "unmount it first" is safe to say.
+ *   - an UNOWNED row and an IDENTIFIED caller: the anonymous base-URL bucket is
+ *     already unreachable for them, so the only unowned row left to match is a
+ *     legacy bare-slug entry from before org scoping. Logging in is what put
+ *     them here, so it cannot be the fix — name the row and leave the judgement
+ *     with the one person who can make it.
+ *   - an UNOWNED row and an ANONYMOUS caller: every raw `--api-key` caller with
+ *     no NEXUS_ORGANIZATION_ID shares one entry per base URL + slug, so the row
+ *     may be someone else's. Identifying themselves is the real escape: it
+ *     moves them to a key of their own and `scopeCandidateKeys` stops offering
+ *     them this bucket at all.
+ */
+export function alreadyMountedMessage(
+  slug: string,
+  record: MountRecord,
+  scope: MountScope
+): string {
+  const head =
+    `Workspace "${slug}" is already mounted at ${record.mountPath} for ` +
+    `${describeOwner(record)}. `;
+  if (record.orgId || record.profile) return `${head}Unmount it first.`;
+  if (scope.orgId || scope.profile) {
+    return (
+      `${head}That record predates org-scoped mounts and names no organization, so the ` +
+      `CLI cannot tell whether it is yours. Unmount it only if you know it is — ` +
+      `otherwise mount at a different path with --at.`
+    );
+  }
+  return (
+    `${head}That record names no organization: mounts made with a raw ` +
+    `--api-key/NEXUS_API_KEY and no NEXUS_ORGANIZATION_ID all share one registry ` +
+    `entry per base URL + slug, so it may belong to a different org than yours. ` +
+    "Run `nexus auth login` or set NEXUS_ORGANIZATION_ID so the two can be told " +
+    `apart — do not unmount it unless you know it is yours.`
+  );
+}
+
+/** What `mount` says when another scope's row already holds the mount POINT. */
+export function mountPointTakenMessage(
+  mountPath: string,
+  other: MountRecord,
+  slug: string
+): string {
+  return (
+    `Mount point ${mountPath} is already in use by ${describeOwner(other)}'s mount of ` +
+    `"${other.slug}". Mount points are machine-wide, whatever org a row belongs to. ` +
+    `Mount "${slug}" elsewhere with --at <path>, or unmount that workspace first.`
+  );
+}
+
 export function unmountMissMessage(
   slug: string,
   candidates: readonly { readonly record: MountRecord }[],
   scope?: MountScope
 ): string {
-  const list = candidates
-    .map((c) => `  - ${describeOwner(c.record)} at ${c.record.mountPath}`)
-    .join("\n");
+  const list = candidateList(candidates);
 
   // Unknown scope covers a typo'd `--profile` (the lookup throws and
   // resolveScopeBestEffort swallows it), a raw `--api-key` with no
@@ -522,8 +714,5 @@ export function unmountMissMessage(
     );
   }
 
-  return (
-    `No mount of "${slug}" is recorded for ${describeScope(scope)}, but it is mounted for:\n` +
-    `${list}\nSwitch to the owning profile/org (nexus auth switch / nexus auth use-org) and retry.`
-  );
+  return ownedElsewhereMessage(slug, candidates, scope, "mounted");
 }

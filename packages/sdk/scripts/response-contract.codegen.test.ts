@@ -75,6 +75,24 @@ const GENERATED = "../src/response-contract.generated.ts";
  * per descriptor declaring a `Response` that projects to an object or an array.
  */
 const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
+  // ── golden conversations (Prompt Lab phase 2) ──
+  "GoldenConversationAccept",
+  "GoldenConversationAddUserTurn",
+  "GoldenConversationCreate",
+  "GoldenConversationDelete",
+  "GoldenConversationGenerate",
+  "GoldenConversationGet",
+  "GoldenConversationList",
+  "GoldenConversationReady",
+  "GoldenConversationSetCheckpoint",
+  "GoldenConversationSetTurnContent",
+  "PromptEvalRunAbort",
+  "PromptEvalRunCaseGet",
+  "PromptEvalRunCreate",
+  "PromptEvalRunGet",
+  "PromptEvalRunList",
+  "PromptEvalRunPreview",
+  "PromptEvalRunResults",
   // ── prompt variants (Prompt Lab phase 1) ──
   "PromptCompare",
   "PromptGraph",
@@ -399,6 +417,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "WorkspaceGetFile",
   "WorkspaceList",
   "WorkspaceListFolder",
+  "WorkspaceMintMountCredentials",
   "WorkspaceRename",
   "WorkspaceRestore",
   "WorkspaceSearch",

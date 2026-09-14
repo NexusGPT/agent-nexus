@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetLoosePermissionWarning } from "./util/secret-file";
+// Type-only, so it is erased and cannot load the module before HOME moves.
+import type { MountSession } from "./workspace-direct-mount";
 
 /**
  * `~/.nexus-mcp/config.json` HOLDS A LIVE API KEY IN PLAINTEXT, AND ITS MODE IS
@@ -107,6 +109,74 @@ describe("saveConfig", () => {
     mod.saveProfile("staging", { apiKey: "nxs_not_a_real_key" });
 
     expect(MODE(configFile)).toBe(0o600);
+  });
+});
+
+/**
+ * The direct engine's session file holds an AWS bearer triplet and goes through
+ * the same helper. Dynamic import for the same reason `./config` is: the state
+ * directory is resolved from HOME at module load.
+ */
+describe("writeSession", () => {
+  type DirectMountModule = typeof import("./workspace-direct-mount");
+  let direct: DirectMountModule;
+
+  beforeAll(async () => {
+    direct = await import("./workspace-direct-mount");
+  });
+
+  const SESSION: MountSession = {
+    version: 1,
+    mountId: "0123456789abcdef",
+    profile: "default",
+    baseUrl: "https://api.nexusgpt.io",
+    orgId: "org_aaa",
+    workspace: { id: "ws-1", slug: "support-docs", shared: false },
+    access: "read-write",
+    volumeName: "Support Docs (Acme)",
+    credentials: {
+      accessKeyId: "ASIA_TEST_KEY_ID",
+      secretAccessKey: "not-a-secret",
+      sessionToken: "not-a-token"
+    },
+    expiresAt: "2026-09-07T13:00:00.000Z",
+    mintedAt: "2026-09-07T12:00:00.000Z"
+  };
+
+  it("leaves a PRE-EXISTING 0644 session.json at 0600, its directory at 0700, and no temp file behind", () => {
+    const paths = direct.sessionPathsFor(SESSION.mountId);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.sessionFile, "{}");
+    fs.chmodSync(paths.sessionFile, 0o644);
+    fs.chmodSync(paths.dir, 0o755);
+    // The level between the state dir and the mount's own dir is the one the
+    // write has to tighten itself; the secret-file helper reaches only the leaf.
+    fs.chmodSync(direct.MOUNT_CREDENTIALS_DIR, 0o755);
+    expect(MODE(paths.sessionFile)).toBe(0o644); // the precondition is real, not assumed
+
+    direct.writeSession(SESSION);
+
+    expect(MODE(paths.sessionFile)).toBe(0o600);
+    expect(MODE(paths.dir)).toBe(0o700);
+    expect(MODE(direct.MOUNT_CREDENTIALS_DIR)).toBe(0o700);
+    expect(MODE(configDir)).toBe(0o700);
+    // The write is tmp + rename: the live file is the whole document and the
+    // temp file is gone, so a reader never sees a half-written session.
+    expect(fs.readdirSync(paths.dir)).toEqual(["session.json"]);
+    expect(direct.readSession(SESSION.mountId)).toEqual({ ok: true, session: SESSION });
+  });
+
+  it("reads a missing file as `missing` and a truncated or unreadable one as `malformed`, never throwing", () => {
+    expect(direct.readSession(SESSION.mountId)).toEqual({ ok: false, why: "missing" });
+    const paths = direct.sessionPathsFor(SESSION.mountId);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.sessionFile, JSON.stringify(SESSION).slice(0, 80));
+    expect(direct.readSession(SESSION.mountId)).toEqual({ ok: false, why: "malformed" });
+    // Only ENOENT is "no session recorded": a path the process cannot read is
+    // a damaged mount, and telling the user nothing is recorded there is wrong.
+    fs.rmSync(paths.sessionFile);
+    fs.mkdirSync(paths.sessionFile);
+    expect(direct.readSession(SESSION.mountId)).toEqual({ ok: false, why: "malformed" });
   });
 });
 

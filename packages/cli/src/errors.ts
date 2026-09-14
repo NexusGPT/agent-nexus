@@ -801,6 +801,27 @@ export function reportFailure(cause: FailureCause, message: string, hint?: strin
 }
 
 /**
+ * The THROWN form of {@link reportFailure}, for a helper deep inside a command
+ * that has to unwind before the document is printed: `handleError` catches it
+ * and prints the same document with the same exit code. The cause picks both
+ * the code and the category, so a throw site cannot pair a `local-failed`
+ * code with an `invalid-input` exit.
+ */
+export function failure(cause: FailureCause, message: string, hint?: string): CategorizedCliError {
+  return new CategorizedCliError(
+    FAILURE_CAUSE_EXIT_CATEGORIES[cause],
+    FAILURE_CAUSE_CODES[cause],
+    message,
+    hint
+  );
+}
+
+/** The thrown form of {@link refuse}: the caller's own input is wrong, exit `invalid-input`. */
+export function invalidInput(message: string, hint?: string): CategorizedCliError {
+  return new CategorizedCliError("invalid-input", CLI_CODES.INVALID_ARGUMENTS, message, hint);
+}
+
+/**
  * The error document, with NO opinion about the exit code.
  *
  * {@link refuse} and {@link reportFailure} each decide their own exit code from

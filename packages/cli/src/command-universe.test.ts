@@ -319,8 +319,10 @@ describe("one walk carries the metadata a rendering throws away", () => {
   it("reads aliases and .choices() through the accessors that hold the casts", async () => {
     const nodes = await deriveCommandNodes();
 
-    const taskEval = nodes.find((node) => node.path === "task-eval");
-    expect(taskEval?.aliases).toContain("eval");
+    // `upgrade` carries the alias set now that task-eval's `eval` alias is
+    // retired (Prompt Lab phase 2 gave `nexus eval` to golden conversations).
+    const upgrade = nodes.find((node) => node.path === "upgrade");
+    expect(upgrade?.aliases).toContain("update");
 
     // `_hidden` and `argChoices` have no public getter in commander 13, so
     // reading them needs a cast. Both casts live in `command-universe.ts` and

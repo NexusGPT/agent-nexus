@@ -13,6 +13,14 @@ import {
   writeSkillFiles
 } from "./skills-install";
 
+/** What an install records about the corpus it wrote; its contents do not matter here. */
+const CORPUS_RECORD = {
+  commitSha: "0".repeat(40),
+  source: "bundled",
+  cliVersion: "0.0.0",
+  installedAt: "2026-09-14T00:00:00.000Z"
+} as const;
+
 let tmp: string;
 
 beforeEach(() => {
@@ -104,7 +112,7 @@ describe("the install ledger", () => {
     expect(writeSkillFiles(base(), [file("guard.py", "v1")], { ledger: first }).created).toEqual([
       "guard.py"
     ]);
-    commitInstallLedger(first);
+    commitInstallLedger(first, CORPUS_RECORD);
 
     const second = openInstallLedger(claudeDir());
     const res = writeSkillFiles(base(), [file("guard.py", "v2")], { ledger: second });
@@ -117,7 +125,7 @@ describe("the install ledger", () => {
   it("PRESERVES a file the user edited after the install that wrote it", () => {
     const first = openInstallLedger(claudeDir());
     writeSkillFiles(base(), [file("guard.py", "v1")], { ledger: first });
-    commitInstallLedger(first);
+    commitInstallLedger(first, CORPUS_RECORD);
 
     fs.writeFileSync(path.join(base(), "guard.py"), "the user's own guardrail");
 
@@ -132,7 +140,7 @@ describe("the install ledger", () => {
   it("replaces an edited file only when --force is passed", () => {
     const first = openInstallLedger(claudeDir());
     writeSkillFiles(base(), [file("guard.py", "v1")], { ledger: first });
-    commitInstallLedger(first);
+    commitInstallLedger(first, CORPUS_RECORD);
     fs.writeFileSync(path.join(base(), "guard.py"), "edited");
 
     const second = openInstallLedger(claudeDir());
@@ -165,7 +173,7 @@ describe("the install ledger", () => {
 
     const adopt = openInstallLedger(claudeDir());
     writeSkillFiles(base(), [file("guard.py", "v2")], { ledger: adopt, force: true });
-    commitInstallLedger(adopt);
+    commitInstallLedger(adopt, CORPUS_RECORD);
 
     // Now an ordinary install refreshes it — no --force needed any more.
     const next = openInstallLedger(claudeDir());
@@ -182,7 +190,7 @@ describe("the install ledger", () => {
     expect(writeSkillFiles(base(), [file("guard.py", "v1")], { ledger: first }).skipped).toEqual([
       "guard.py"
     ]);
-    commitInstallLedger(first);
+    commitInstallLedger(first, CORPUS_RECORD);
 
     const second = openInstallLedger(claudeDir());
     expect(writeSkillFiles(base(), [file("guard.py", "v2")], { ledger: second }).updated).toEqual([
@@ -200,7 +208,7 @@ describe("the install ledger", () => {
   it("treats a corrupt manifest as no manifest, never as a match", () => {
     const first = openInstallLedger(claudeDir());
     writeSkillFiles(base(), [file("guard.py", "v1")], { ledger: first });
-    commitInstallLedger(first);
+    commitInstallLedger(first, CORPUS_RECORD);
     fs.writeFileSync(installManifestPath(claudeDir()), "{ not json");
 
     const res = writeSkillFiles(base(), [file("guard.py", "v2")], {
@@ -212,13 +220,33 @@ describe("the install ledger", () => {
   it("writes the manifest into the .claude directory", () => {
     const ledger = openInstallLedger(claudeDir());
     writeSkillFiles(base(), [file("guard.py", "v1")], { ledger });
-    commitInstallLedger(ledger);
+    commitInstallLedger(ledger, CORPUS_RECORD);
 
     const onDisk: unknown = JSON.parse(read(claudeDir(), INSTALL_MANIFEST_BASENAME));
     expect(onDisk).toMatchObject({ version: 1 });
     expect(Object.keys((onDisk as { files: Record<string, string> }).files)).toEqual([
       "hooks/guard.py"
     ]);
+  });
+
+  it("records which skills commit it wrote, and where it came from", () => {
+    const ledger = openInstallLedger(claudeDir());
+    writeSkillFiles(base(), [file("guard.py", "v1")], { ledger });
+    commitInstallLedger(ledger, {
+      ...CORPUS_RECORD,
+      commitSha: "a".repeat(40),
+      source: "platform"
+    });
+
+    const onDisk: unknown = JSON.parse(read(claudeDir(), INSTALL_MANIFEST_BASENAME));
+    expect((onDisk as { corpus: unknown }).corpus).toEqual({
+      commitSha: "a".repeat(40),
+      source: "platform",
+      cliVersion: "0.0.0",
+      installedAt: "2026-09-14T00:00:00.000Z"
+    });
+    // A manifest that carries the record still reads as a ledger.
+    expect(openInstallLedger(claudeDir()).previous).toHaveProperty("hooks/guard.py");
   });
 
   it("does not mark a preserved file executable", () => {

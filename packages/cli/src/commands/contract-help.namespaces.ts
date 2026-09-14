@@ -22,6 +22,7 @@ import { registerDeploymentCommands } from "./deployment";
 import { registerDocsCommand } from "./docs";
 import { registerDocumentCommands } from "./document";
 import { registerEmulatorCommands } from "./emulator";
+import { registerEvalCommands } from "./eval";
 import { registerEvaluationCommands } from "./evaluation";
 import { registerExecutionCommands } from "./execution";
 import { registerExternalToolCommands } from "./external-tool";
@@ -345,8 +346,9 @@ export interface UncontractedNamespace {
  *
  * 🚨 IT IS NOT A CLAIM THAT THE CONTRACT DECLARES NOTHING BY THIS NAME.
  * `ZPublicApiV1` holds `ClaudeCodeSkillDownload` and `ClaudeCodeSkillExists`;
- * the CLI's `claude-code` namespace calls neither, because it installs from a
- * bundle compiled into the binary. Server routes with no CLI caller are the
+ * the CLI's `claude-code` namespace calls neither. It reads the unauthenticated
+ * `/api/cli/skills` routes, which sit outside `/api/public/v1`, and falls back to
+ * a bundle compiled into the binary. Server routes with no CLI caller are the
  * audit's own first exclusion, and this const records the same fact from the
  * command side.
  */
@@ -371,11 +373,14 @@ export const UNCONTRACTED_NAMESPACES: readonly UncontractedNamespace[] = [
   },
   {
     namespace: "claude-code",
-    surface: "(no network)",
+    surface: "/api/cli/skills, unauthenticated",
     because:
-      "installs skills from src/skills-content.generated.ts, compiled into the " +
-      "binary. No fetch, no HttpClient, no API key. The contract's own " +
-      "ClaudeCodeSkillDownload and ClaudeCodeSkillExists routes have no caller here."
+      "installs the latest skills corpus from GET /api/cli/skills/manifest and " +
+      "/api/cli/skills/:commitSha/corpus — routes outside /api/public/v1 that take " +
+      "no API key, contracted by ZCliSkills rather than ZPublicApiV1 — and falls " +
+      "back to src/skills-content.generated.ts, compiled into the binary. The " +
+      "contract's own ClaudeCodeSkillDownload and ClaudeCodeSkillExists routes " +
+      "have no caller here."
   },
   {
     namespace: "mcp",
@@ -393,10 +398,10 @@ export const UNCONTRACTED_NAMESPACES: readonly UncontractedNamespace[] = [
   },
   {
     namespace: "skills",
-    surface: "(no network)",
+    surface: "/api/cli/skills, unauthenticated",
     because:
-      "the same bundle as claude-code, wrapped in project-root detection. Its own " +
-      "--help says so: no network calls, no API key required."
+      "the same installer and the same corpus source as claude-code, wrapped in " +
+      "project-root detection. No API key; --bundled makes no network call at all."
   },
   {
     namespace: "upgrade",
@@ -477,7 +482,8 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   apps: registerAppsCommands,
   "known-issues": registerKnownIssuesCommand,
   score: registerScoreCommands,
-  prompt: registerPromptCommands
+  prompt: registerPromptCommands,
+  eval: registerEvalCommands
 };
 
 /**

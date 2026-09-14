@@ -86,8 +86,23 @@ const SEED_SOURCE = readFileSync(SEED, "utf8");
 const MATCHER = join(PACKAGE_ROOT, "scripts", "policy-refusal.sh");
 const MATCHER_SOURCE = readFileSync(MATCHER, "utf8");
 
-/** The call both scripts make, and the only spelling either one may write. */
-const CALL = 'is_policy_refusal "$out"';
+/**
+ * The call both scripts make, and the only spelling either one may write.
+ *
+ * ⚠️ `$transcript`, NOT `$out`, and the rename is load-bearing rather than
+ * cosmetic. Both scripts used to invoke a leaf with `2>&1` and hold one merged
+ * string; they now capture the two streams apart, because `scan-response.py`
+ * parses before it walks and a single byte on stderr made it answer `NOT-JSON`
+ * before its credential walk ever ran. A REFUSAL is the one question that still
+ * needs both streams — the sentence this matcher looks for is printed on
+ * stderr — so it reads `$transcript` while the scanner reads `$out`, which is
+ * now stdout alone. `src/id-graph.streams.ts` carries the measurement.
+ *
+ * Handing this matcher `$out` again would be silent: every policy refusal would
+ * stop matching, every declared skip would become an `error`, and the sweep
+ * would go red for a reason that says nothing about the environment.
+ */
+const CALL = 'is_policy_refusal "$transcript"';
 
 /**
  * The live skip pattern, lifted from `policy-refusal.sh` rather than restated.

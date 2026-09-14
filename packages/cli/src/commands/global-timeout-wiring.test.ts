@@ -72,7 +72,7 @@ vi.mock("../util/tenant-http", () => ({
   }
 }));
 
-import { parseTimeoutSeconds } from "../client";
+import { createClient, parseTimeoutSeconds } from "../client";
 import { registerApiCommand } from "./api";
 import { registerAppsCommands } from "./apps";
 import { registerCredentialCommands } from "./credential";
@@ -142,5 +142,41 @@ describe("global --timeout reaches every HTTP path, always in seconds", () => {
 
     expect(tenantOpts).toHaveLength(1);
     expect(tenantOpts[0].timeout).toBe(45_000);
+  });
+});
+
+/**
+ * The two options a direct-engine credential refresh needs on the same
+ * constructor: the organization PINNED at mount time, which must beat the
+ * shell's selector, and a retry count of zero under an external deadline.
+ * Captured at the SDK constructor, the same instrument the cases above use.
+ */
+describe("createClient pins a caller-supplied organization ahead of the shell and the profile", () => {
+  const last = (): Record<string, unknown> => nexusClientOpts[nexusClientOpts.length - 1];
+
+  beforeEach(() => {
+    nexusClientOpts.length = 0;
+    delete process.env.NEXUS_ORGANIZATION_ID;
+  });
+
+  it("sends the pinned organizationId even when NEXUS_ORGANIZATION_ID names another org", () => {
+    process.env.NEXUS_ORGANIZATION_ID = "org-from-env";
+    createClient({ organizationId: "org-pinned" });
+    expect(last().organizationId).toBe("org-pinned");
+    delete process.env.NEXUS_ORGANIZATION_ID;
+  });
+
+  it("CONTROL: with no pin the shared precedence decides, and the env var is first", () => {
+    process.env.NEXUS_ORGANIZATION_ID = "org-from-env";
+    createClient({});
+    expect(last().organizationId).toBe("org-from-env");
+    delete process.env.NEXUS_ORGANIZATION_ID;
+  });
+
+  it("forwards maxRetries when given and leaves the SDK default in charge otherwise", () => {
+    createClient({ maxRetries: 0 });
+    expect(last().maxRetries).toBe(0);
+    createClient({});
+    expect(last().maxRetries).toBeUndefined();
   });
 });

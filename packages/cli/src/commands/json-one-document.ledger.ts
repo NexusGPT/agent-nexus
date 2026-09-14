@@ -131,8 +131,14 @@ export const MISCODED_CEILING = 0;
  * 1 when this landed: one leaf the real root program registers no command for.
  * A CEILING rather than an equality, so improving drivability is never blocked
  * by this file; only losing coverage is.
+ *
+ * 2 since Prompt Lab phase 2: `eval conv new` is an interactive REPL — it
+ * creates a conversation and then reads stdin for the authoring loop, so the
+ * scan cannot drive it to a document. Its scriptable twins (`eval conv
+ * create/add-user/generate/...`) are the checked surface; the REPL is sugar
+ * over them by contract (its own help says so).
  */
-export const UNCHECKED_CEILING = 1;
+export const UNCHECKED_CEILING = 2;
 
 /**
  * The floor on runs that reached a real payload document.

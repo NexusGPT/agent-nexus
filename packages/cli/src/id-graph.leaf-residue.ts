@@ -56,7 +56,28 @@ export type LeafResidueReason =
    * "expected" exit codes — would be a second, unchecked opinion about a
    * vocabulary `src/exit-codes.ts` already owns.
    */
-  | "exit-carries-resource-state";
+  | "exit-carries-resource-state"
+  /**
+   * 🚨 THE ROUTE IS A READ, AND IT ANSWERS 404 FOR A WHOLE CLASS OF THE IDS ITS
+   * OWN PRODUCER LISTS.
+   *
+   * The leaf is bound, the contract says `GET`, the id threads perfectly, and
+   * the call still fails — because success is conditional on a PROPERTY of the
+   * resource the id names, and the producer offers no way to select for it. The
+   * sweep takes `usable[0]` (`id-graph.thread.ts`), so the verdict is decided by
+   * whichever row the list happened to return first.
+   *
+   * ⚠️ THIS IS NOT `exit-carries-resource-state`, AND CONFLATING THEM LOSES THE
+   * DISTINCTION THAT MATTERS. There the command reports a resource's status and
+   * is working perfectly when it exits non-zero. Here the ROUTE returns a real
+   * 404 that the harness is right to call a failure — the defect is that the
+   * harness cannot ask for an id the route can serve.
+   *
+   * A 404 on an id the producer is STILL LISTING is a `FAILED` row, not a skip,
+   * so this shape reds a gating check intermittently on ordinary tenant data.
+   * That is strictly worse than the coverage it buys.
+   */
+  | "route-conditional-on-resource-shape";
 
 export interface LeafResidueEntry {
   readonly leaf: string;
@@ -104,6 +125,33 @@ export const LEAF_RESIDUE: readonly LeafResidueEntry[] = [
       "doing its job. Threading it a discovered execution id means the verdict is decided by " +
       "whichever run the list happened to return first, so the same healthy route reds or greens " +
       "by luck. See the reason's docblock for why a zero here would be no better."
+  },
+  {
+    leaf: "document preview",
+    reason: "route-conditional-on-resource-shape",
+    evidence: "This document does not have a downloadable file",
+    because:
+      "🚨 THE `evidence` ABOVE IS READ FROM THE HANDLER, NOT FROM A SWEEP RUN, which is a " +
+      "deviation from this file's header and is stated rather than hidden. It is the verbatim " +
+      "`NotFoundException` message in " +
+      "`apps/backend/src/documents/application/use-cases/shared/resolve-document-signed-url.ts`, " +
+      "which both `getPreviewUrl` and `getDownloadUrl` route through: `if (!document.storageUrl) " +
+      "throw new NotFoundException(...)`. " +
+      "`Document.storageUrl` is nullable in `schema.prisma`, and `DocumentsService.createFolder` " +
+      "writes no `storageUrl` and then sets status READY — so a folder is listed, READY, and 404s " +
+      "here. `add-website` and `create-google-sheet` both return folders too. The v1 `list` " +
+      "`where` filters scope and `deletedAt` only, so nothing excludes them, and the sweep passes " +
+      "no filters. This leaf's own `--help` already said it: \"A text document, a crawled page or " +
+      'a folder has no file behind it and answers 404 here."'
+  },
+  {
+    leaf: "document download",
+    reason: "route-conditional-on-resource-shape",
+    evidence: "This document does not have a downloadable file",
+    because:
+      "The same single function and the same branch as `document preview` — the two differ only " +
+      "in `attachFileName`, so they are one hazard with two names and neither can be swept while " +
+      "the other cannot."
   }
 ];
 

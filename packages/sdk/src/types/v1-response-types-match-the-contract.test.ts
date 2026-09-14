@@ -223,6 +223,113 @@ export type V1ResponseAssertions = [
   Expect<
     Equals<ResponseOf<"PromptCompare">, MethodResult<NexusClient["promptVariants"]["compare"]>>
   >,
+  // GoldenConversationCreate  POST /public/v1/prompt-eval/golden-conversations  ->  client.goldenConversations.create()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationCreate">,
+      MethodResult<NexusClient["goldenConversations"]["create"]>
+    >
+  >,
+  // GoldenConversationList  GET /public/v1/prompt-eval/golden-conversations  ->  client.goldenConversations.list()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationList">,
+      MethodResult<NexusClient["goldenConversations"]["list"]>
+    >
+  >,
+  // GoldenConversationGet  GET /public/v1/prompt-eval/golden-conversations/:conversationId  ->  client.goldenConversations.get()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationGet">,
+      MethodResult<NexusClient["goldenConversations"]["get"]>
+    >
+  >,
+  // GoldenConversationDelete  DELETE /public/v1/prompt-eval/golden-conversations/:conversationId  ->  client.goldenConversations.delete()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationDelete">,
+      MethodResult<NexusClient["goldenConversations"]["delete"]>
+    >
+  >,
+  // GoldenConversationAddUserTurn  POST /public/v1/prompt-eval/golden-conversations/:conversationId/turns/user  ->  client.goldenConversations.addUserTurn()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationAddUserTurn">,
+      MethodResult<NexusClient["goldenConversations"]["addUserTurn"]>
+    >
+  >,
+  // GoldenConversationGenerate  POST /public/v1/prompt-eval/golden-conversations/:conversationId/generate  ->  client.goldenConversations.generate()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationGenerate">,
+      MethodResult<NexusClient["goldenConversations"]["generate"]>
+    >
+  >,
+  // GoldenConversationAccept  POST /public/v1/prompt-eval/golden-conversations/:conversationId/accept  ->  client.goldenConversations.accept()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationAccept">,
+      MethodResult<NexusClient["goldenConversations"]["accept"]>
+    >
+  >,
+  // GoldenConversationSetTurnContent  PUT /public/v1/prompt-eval/golden-conversations/:conversationId/turns/:index/content  ->  client.goldenConversations.setTurnContent()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationSetTurnContent">,
+      MethodResult<NexusClient["goldenConversations"]["setTurnContent"]>
+    >
+  >,
+  // GoldenConversationSetCheckpoint  PUT /public/v1/prompt-eval/golden-conversations/:conversationId/turns/:index/checkpoint  ->  client.goldenConversations.setCheckpoint()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationSetCheckpoint">,
+      MethodResult<NexusClient["goldenConversations"]["setCheckpoint"]>
+    >
+  >,
+  // GoldenConversationReady  POST /public/v1/prompt-eval/golden-conversations/:conversationId/ready  ->  client.goldenConversations.ready()
+  Expect<
+    Equals<
+      ResponseOf<"GoldenConversationReady">,
+      MethodResult<NexusClient["goldenConversations"]["ready"]>
+    >
+  >,
+  // PromptEvalRunCreate  POST /public/v1/prompt-eval/runs  ->  client.promptEvalRuns.create()
+  Expect<
+    Equals<ResponseOf<"PromptEvalRunCreate">, MethodResult<NexusClient["promptEvalRuns"]["create"]>>
+  >,
+  // PromptEvalRunPreview  POST /public/v1/prompt-eval/runs/preview  ->  client.promptEvalRuns.preview()
+  Expect<
+    Equals<
+      ResponseOf<"PromptEvalRunPreview">,
+      MethodResult<NexusClient["promptEvalRuns"]["preview"]>
+    >
+  >,
+  // PromptEvalRunList  GET /public/v1/prompt-eval/runs  ->  client.promptEvalRuns.list()
+  Expect<
+    Equals<ResponseOf<"PromptEvalRunList">, MethodResult<NexusClient["promptEvalRuns"]["list"]>>
+  >,
+  // PromptEvalRunGet  GET /public/v1/prompt-eval/runs/:runId  ->  client.promptEvalRuns.get()
+  Expect<
+    Equals<ResponseOf<"PromptEvalRunGet">, MethodResult<NexusClient["promptEvalRuns"]["get"]>>
+  >,
+  // PromptEvalRunAbort  POST /public/v1/prompt-eval/runs/:runId/abort  ->  client.promptEvalRuns.abort()
+  Expect<
+    Equals<ResponseOf<"PromptEvalRunAbort">, MethodResult<NexusClient["promptEvalRuns"]["abort"]>>
+  >,
+  // PromptEvalRunResults  GET /public/v1/prompt-eval/runs/:runId/results  ->  client.promptEvalRuns.results()
+  Expect<
+    Equals<
+      ResponseOf<"PromptEvalRunResults">,
+      MethodResult<NexusClient["promptEvalRuns"]["results"]>
+    >
+  >,
+  // PromptEvalRunCaseGet  GET /public/v1/prompt-eval/runs/:runId/cases/:caseId  ->  client.promptEvalRuns.getCase()
+  Expect<
+    Equals<
+      ResponseOf<"PromptEvalRunCaseGet">,
+      MethodResult<NexusClient["promptEvalRuns"]["getCase"]>
+    >
+  >,
   // ToolDiscoverySearch  GET /public/v1/tools/search  ->  client.tools.search()
   Expect<Equals<ResponseOf<"ToolDiscoverySearch">, MethodResult<NexusClient["tools"]["search"]>>>,
   // ToolDiscoveryGet  GET /public/v1/tools/:toolId  ->  client.tools.get()
@@ -953,6 +1060,13 @@ export type V1ResponseAssertions = [
   // WorkspaceRestore  POST /public/v1/workspaces/:slug/restore  ->  client.workspaces.restore()
   Expect<
     Equals<ResponseOf<"WorkspaceRestore">, MethodResult<NexusClient["workspaces"]["restore"]>>
+  >,
+  // WorkspaceMintMountCredentials  POST /public/v1/workspaces/:slug/mount-credentials  ->  client.workspaces.mintMountCredentials()
+  Expect<
+    Equals<
+      ResponseOf<"WorkspaceMintMountCredentials">,
+      MethodResult<NexusClient["workspaces"]["mintMountCredentials"]>
+    >
   >,
   // AgentCollectionList  GET /public/v1/agents/:agentId/collections  ->  client.agentCollections.list()
   Expect<
@@ -1735,6 +1849,25 @@ const GATED_ROUTES = [
   "PromptVariantVersionList",
   "PromptGraph",
   "PromptCompare",
+  // ── golden conversations (Prompt Lab phase 2) ──
+  "GoldenConversationCreate",
+  "GoldenConversationList",
+  "GoldenConversationGet",
+  "GoldenConversationDelete",
+  "GoldenConversationAddUserTurn",
+  "GoldenConversationGenerate",
+  "GoldenConversationAccept",
+  "GoldenConversationSetTurnContent",
+  "GoldenConversationSetCheckpoint",
+  "GoldenConversationReady",
+  // ── prompt eval runs (Prompt Lab phase 3) ──
+  "PromptEvalRunCreate",
+  "PromptEvalRunPreview",
+  "PromptEvalRunList",
+  "PromptEvalRunGet",
+  "PromptEvalRunAbort",
+  "PromptEvalRunResults",
+  "PromptEvalRunCaseGet",
   "ToolDiscoverySearch",
   "ToolDiscoveryGet",
   "ToolDiscoveryCredentials",
@@ -1870,6 +2003,7 @@ const GATED_ROUTES = [
   "WorkspaceGetFile",
   "WorkspaceSearch",
   "WorkspaceRestore",
+  "WorkspaceMintMountCredentials",
   "AgentCollectionList",
   "AgentCollectionAttach",
   "AgentCollectionDetach",
@@ -2662,7 +2796,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 320;
+const GATED_ROUTE_COUNT = 338;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

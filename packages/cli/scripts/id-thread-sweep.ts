@@ -8,6 +8,7 @@ import { rowsFrom } from "../src/id-graph.ids";
 import type { ThreadableLeaf } from "../src/id-graph.model";
 import { type LeafOutcome, outcomeForExitCode } from "../src/id-graph.outcome";
 import { isNotFound, raceVerdict, type ThreadedId } from "../src/id-graph.race";
+import { type LeafOutput, splitLeafOutput } from "../src/id-graph.streams";
 import { planThread } from "../src/id-graph.thread";
 
 /**
@@ -191,12 +192,21 @@ const PLAN_ONLY = hasFlag("--plan");
 const NEXUS_CMD = (process.env.NEXUS_BIN ?? "nexus").split(/\s+/);
 const GLOBAL_ARGS = PROFILE ? ["--profile", PROFILE] : [];
 
-function run(args: readonly string[]): { code: number; out: string } {
+/**
+ * Invoke one leaf and split what it wrote.
+ *
+ * 🚨 `body` AND `transcript` ARE NOT INTERCHANGEABLE, and the whole reason this
+ * returns both is that it used to return only the merged one. Parse and scan
+ * `body`; diagnose a non-zero exit from `transcript`. `src/id-graph.streams.ts`
+ * carries the measurement — a single byte on stderr made `scan-response.py`
+ * return `NOT-JSON` before its credential walk ever ran.
+ */
+function run(args: readonly string[]): LeafOutput & { code: number } {
   const proc = spawnSync(NEXUS_CMD[0], [...NEXUS_CMD.slice(1), ...GLOBAL_ARGS, ...args], {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024
   });
-  return { code: proc.status ?? 1, out: `${proc.stdout ?? ""}${proc.stderr ?? ""}` };
+  return { code: proc.status ?? 1, ...splitLeafOutput(proc) };
 }
 
 function refuse(code: number, lines: readonly string[]): never {
@@ -226,10 +236,33 @@ function fromExitCode(path: string, code: number, out: string): Result {
   return { status: verdict.status, path, note: verdict.note };
 }
 
-/** Turn one scanner verdict into a result. Split out so every arm is visible at once. */
-function fromScan(path: string, scanned: { code: number; out: string }, threaded: number): Result {
-  if (scanned.code === 0)
-    return { status: "REACHED", path, note: `json ok, ${threaded} id(s) threaded` };
+/**
+ * Turn one scanner verdict into a result. Split out so every arm is visible at once.
+ *
+ * `diagnosticBytes` is REPORTED and never quoted. A leaf that wrote to stderr
+ * on an otherwise clean read has said something — a contract-drift warning, a
+ * retry notice, a deprecation announcement — and all three are the CLI working
+ * as designed, so none of them is a failure. But a REACHED row that said
+ * nothing and a REACHED row that raised a warning are different facts, and
+ * collapsing them is how the drift behind `document get` would go dark the
+ * moment this harness stopped mislabelling it. The VOLUME is the most that can
+ * be said safely: this line reaches a CI log, and stderr is the one stream
+ * `scan-response.py` structurally cannot clear, since it parses JSON before it
+ * walks for credentials.
+ */
+function fromScan(
+  path: string,
+  scanned: { code: number; out: string },
+  threaded: number,
+  diagnosticBytes = 0
+): Result {
+  if (scanned.code === 0) {
+    const said =
+      diagnosticBytes > 0
+        ? ` · ${diagnosticBytes} bytes on stderr (diagnostics, not the document)`
+        : "";
+    return { status: "REACHED", path, note: `json ok, ${threaded} id(s) threaded${said}` };
+  }
   if (scanned.code === 2) {
     return { status: "FAILED", path, note: `SECRET-SHAPED RESPONSE: ${scanned.out.slice(0, 100)}` };
   }
@@ -330,9 +363,9 @@ function refreshProducers(
   for (const entry of threaded) {
     if (refreshed.has(entry.producer)) continue;
     const res = run([...entry.producer.split(" "), "--json"]);
-    if (res.code === 0 && rowsFrom(res.out) !== undefined) {
-      bodyOf.set(entry.producer, res.out);
-      refreshed.set(entry.producer, res.out);
+    if (res.code === 0 && rowsFrom(res.body) !== undefined) {
+      bodyOf.set(entry.producer, res.body);
+      refreshed.set(entry.producer, res.body);
     } else {
       refreshed.set(entry.producer, undefined);
     }
@@ -360,14 +393,15 @@ function runLeaf(
     }
 
     const res = run([...leaf.path.split(" "), ...plan.args, "--json"]);
-    if (res.code === 0) return fromScan(leaf.path, scan(res.out), plan.args.length);
-    if (!isNotFound(res.code)) return fromExitCode(leaf.path, res.code, res.out);
+    if (res.code === 0)
+      return fromScan(leaf.path, scan(res.body), plan.args.length, res.diagnosticBytes);
+    if (!isNotFound(res.code)) return fromExitCode(leaf.path, res.code, res.transcript);
 
     // A not-found, which is the ONE code that could mean the row is gone. Ask
     // the producer; never infer it from the code alone.
     const verdict = raceVerdict(plan.threaded, refreshProducers(plan.threaded, bodyOf));
     if (verdict.kind !== "vanished") {
-      const base = fromExitCode(leaf.path, res.code, res.out);
+      const base = fromExitCode(leaf.path, res.code, res.transcript);
       // 🚨 PREFIXED, NEVER APPENDED. `base.note` ends in a 120-char slice of the
       // error DOCUMENT, which `emitDocument` pretty-prints, so it carries
       // newlines and the report's aligned row ends at its first one. A suffix
@@ -419,14 +453,14 @@ function main(): void {
   }
 
   const version = run(["--version"]);
-  if (version.code !== 0 || version.out.trim() === "") {
-    refuse(EXIT_PREFLIGHT, ["REFUSED: nexus binary unavailable.", version.out.trim()]);
+  if (version.code !== 0 || version.transcript.trim() === "") {
+    refuse(EXIT_PREFLIGHT, ["REFUSED: nexus binary unavailable.", version.transcript.trim()]);
   }
   const auth = run(["auth", "status"]);
   if (auth.code !== 0) {
     refuse(EXIT_PREFLIGHT, [
       "REFUSED: not authenticated, so nothing below would be evidence about the API.",
-      auth.out.trim()
+      auth.transcript.trim()
     ]);
   }
 
@@ -450,10 +484,10 @@ function main(): void {
       // A producer that ERRORED is not a producer that is EMPTY. Conflating them
       // would report a broken list route as "nothing to test with", which is the
       // exact substitution this harness exists to refuse.
-      producerBroke.set(producer, res.out.trim().slice(0, 120));
+      producerBroke.set(producer, res.transcript.trim().slice(0, 120));
       continue;
     }
-    bodyOf.set(producer, res.out);
+    bodyOf.set(producer, res.body);
   }
 
   // -- Threading -------------------------------------------------------------

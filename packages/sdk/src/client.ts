@@ -21,6 +21,7 @@ import { DocumentsResource } from "./resources/documents";
 import { EmulatorResource } from "./resources/emulator";
 import { EvaluationsResource } from "./resources/evaluations";
 import { FoldersResource } from "./resources/folders";
+import { GoldenConversationsResource } from "./resources/golden-conversations";
 import { HtmlMessageTemplatesResource } from "./resources/html-message-templates";
 import { KnownIssuesResource } from "./resources/known-issues";
 import { MeResource } from "./resources/me";
@@ -28,6 +29,7 @@ import { ModelsResource } from "./resources/models";
 import { PermissionsResource } from "./resources/permissions";
 import { PhoneNumbersResource } from "./resources/phone-numbers";
 import { PromptAssistantResource } from "./resources/prompt-assistant";
+import { PromptEvalRunsResource } from "./resources/prompt-eval-runs";
 import { PromptVariantsResource } from "./resources/prompt-variants";
 import { RolesResource } from "./resources/roles";
 import { ScoresResource } from "./resources/scores";
@@ -309,6 +311,10 @@ export class NexusClient {
 
   /** Prompt variants: branch-based prompt versioning — fork, save, promote to Main, compare, graph. */
   public readonly promptVariants: PromptVariantsResource;
+  public readonly goldenConversations: GoldenConversationsResource;
+
+  /** Prompt eval runs: variants x golden checkpoints, judged. 🔴 Runs the agent live and costs money. */
+  public readonly promptEvalRuns: PromptEvalRunsResource;
 
   /** Organize workflows and AI tasks into skill folders. */
   public readonly skillFolders: SkillFoldersResource;
@@ -450,6 +456,8 @@ export class NexusClient {
     this.cloudImports = new CloudImportsResource(http);
     this.promptAssistant = new PromptAssistantResource(http);
     this.promptVariants = new PromptVariantsResource(http);
+    this.goldenConversations = new GoldenConversationsResource(http);
+    this.promptEvalRuns = new PromptEvalRunsResource(http);
     this.skillFolders = new SkillFoldersResource(http);
     this.phoneNumbers = new PhoneNumbersResource(http);
     this.tickets = new TicketsResource(http);

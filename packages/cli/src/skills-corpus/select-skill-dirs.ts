@@ -203,7 +203,7 @@ export function formatSkillDirReport(selection: SkillDirSelection): {
         selection.skipped.map((name) => `      skills/${name}/`).join("\n") +
         `\n    Not matched by the "${BUNDLED_SKILL_PREFIX}" prefix and not declared in ` +
         `NON_SKILL_DIRS\n` +
-        `    (packages/cli/scripts/skills-bundle/select-skill-dirs.ts).\n` +
+        `    (packages/cli/src/skills-corpus/select-skill-dirs.ts).\n` +
         `    Decide: rename it upstream, declare it there with the reason it must not ship, ` +
         `or widen\n` +
         `    the selector. This warning is not the problem — it is the first time anyone ` +

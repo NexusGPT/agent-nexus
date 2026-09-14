@@ -200,6 +200,8 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "document delete",
   "emulator scenario delete",
   "emulator session delete",
+  "eval conv delete",
+  "eval run abort",
   "folder delete",
   "html-template delete",
   "phone-number buy",
@@ -244,7 +246,11 @@ export const NOT_DESTRUCTIVE: Readonly<Record<string, string>> = {
     "help states live files are never overwritten — so there is nothing to lose by running it.",
   "workspace unmount":
     "A local mount-registry edit that makes no API call at all. The workspace and every " +
-    "file in it are untouched, and `workspace mount` puts the mount point back."
+    "file in it are untouched, and `workspace mount` puts the mount point back. On a direct " +
+    "row it also deletes the mount's session directory (a key `workspace mount --engine direct` " +
+    "mints again) and its cache ONLY when that holds nothing: saves not yet uploaded stay " +
+    "there, counted, and the next direct mount of the workspace under the same organization " +
+    "uploads them."
 };
 
 /**

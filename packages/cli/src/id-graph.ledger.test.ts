@@ -93,7 +93,30 @@ const gate = shrinkOnlyLedger({
   //
   // 340 -> 319: system B's eval namespace and its 21 unreachable id-taking
   // leaves left the tree when it was deleted outright (Prompt Lab phase 0).
-  ceiling: 319,
+  //
+  // 319 -> 317: `document get` and `document children` were bound to their v1
+  // descriptors, so their `GET` is provable and both are threadable AND fully
+  // resolved — `document list` serves the `:documentId` each takes, by the
+  // route-prefix rule and with no residue.
+  //
+  // 🚨 A BINDING CLEARS A ROW ONLY FOR AN UNCONDITIONAL READ, AND THE `document`
+  // NAMESPACE SHOWS ALL THREE OUTCOMES AT ONCE. Eight rows, one remedy:
+  //
+  //   · `get`, `children`      — bound, swept, rows GONE. 2 of 8.
+  //   · `preview`, `download`  — bound, and `declared-unsweepable`. Both route
+  //     through one `if (!document.storageUrl) throw new NotFoundException`, so
+  //     they 404 for every folder, text document and crawled page — which
+  //     `document list` lists and the sweep threads, because it takes the FIRST
+  //     row. Binding them without declaring them would have reddened this
+  //     GATING check on ordinary tenant data. See `id-graph.leaf-residue.ts`.
+  //   · `upload`, `update`, `delete`, `reprocess` — POST/PATCH/DELETE/POST.
+  //     Binding makes the method provable and moves them to
+  //     `bound-but-mutates`: a truer reason and the same excluded row.
+  //
+  // So "N rows blocked on a missing `bindCommand`" is true of an UNCONDITIONAL
+  // READ and false of the other two thirds. The reason column is what separates
+  // them — never the count.
+  ceiling: 317,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

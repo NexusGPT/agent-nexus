@@ -1,5 +1,253 @@
 # @agent-nexus/sdk
 
+## 4.1.0
+### Minor Changes
+
+- 8f2afc1: A golden conversation is authored one accepted turn at a time
+  
+  Phase 2 of the Prompt Lab rework ships golden-conversation authoring: you play
+  the end user, the agent generates each reply — on the prompt variant you name,
+  via a fresh ephemeral emulator session seeded with the golden prefix — and you
+  accept, edit, or regenerate until every **checkpoint** (an agent turn selected
+  as a per-message test case; on by default) is the reference answer. Marking a
+  conversation READY closes authoring; eval runs over these checkpoints arrive
+  in phase 3. Feature-flag gated (`PROMPT_EVAL`, whitelist): organizations
+  without the flag receive 403 on every route below.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus eval conv`** — `create` (`--agent-id --deployment-id --title`
+  `[--variant]` — the variant's TIP becomes the authoring version, resolved at
+  creation), `list`, `get`, `delete` (`--yes`), `add-user --text`, `generate`,
+  `accept [--file]` (accept-with-edit flags the turn `edited`), `set-golden
+  --index --file`, `checkpoint --index --on|--off [--criteria file.json]`, and
+  `ready`. **`nexus eval conv new`** is an interactive REPL over exactly those
+  subcommands ([a]ccept [e]dit [r]egenerate [c]heckpoint [d]one) and works with
+  scripted stdin.
+  
+  **`task-eval` no longer answers to `eval`.** The alias came from task-eval's
+  own rename and is now retired: `nexus eval` belongs to golden conversations,
+  and a script that typed `nexus eval session create` must type
+  `nexus task-eval session create` — the canonical name, which is unchanged.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.goldenConversations`** — `create`, `list`, `get`, `delete`,
+  `addUserTurn`, `generate` (blocks for the full agent turn; tools execute
+  live), `accept`, `setTurnContent`, `setCheckpoint`, `ready`.
+- 7de86e8: A Role ADMIN now holds the Maintainer permission set
+  
+  `RoleMemberTier` (`ADMIN` / `MEMBER`) is per-Role and scoped to `roleId` — it is
+  not Clerk's `org:admin` / `org:member`, which is org-wide. Until now, seating
+  someone at `ADMIN` recorded the tier and granted nothing: `templateKeyForMemberTier`
+  mapped both `ADMIN` and `MEMBER` to the same `member` permission set, so the two
+  tiers were behaviourally identical everywhere capability was resolved. The SDK's
+  `upsertMember()` docblock and the CLI's `role add-member` help said this outright.
+  
+  They no longer can, because it is no longer true. `ADMIN` now seats the person
+  into the `maintainer` permission set — every catalog capability except deleting
+  the Role (`role.delete`, owner- or org-admin-only) and creating one
+  (`role.create`, org-scoped-only) — and `MEMBER` still seats into `member` (every
+  read, plus filing an access request). Concretely, `ADMIN` now grants:
+  
+  `role.update`, `role.pause`, `role.resume`, `team.manage`, `group.manage`,
+  `resource.attach`, `resource.detach`, `collection_grant.manage`,
+  `workspace_grant.manage`, `external_tool_grant.manage`, `coverage.manage`,
+  `board.manage`, `access_request.review`
+  
+  Nobody's access changes retroactively. This seats a member into a permission
+  set at the moment `upsertMember()` / `nexus role add-member` runs; it does not
+  re-seat an existing `RoleMember` row. An operator who wants an existing ADMIN
+  to actually hold these capabilities re-runs `upsertMember()` (or
+  `add-member --tier ADMIN`) for them.
+  
+  `role.delete` is never granted this way — only the Role's owner or an org
+  admin can delete it, unconditionally, and that is unchanged.
+- 49eff77: A workspace drive can talk straight to storage, and two existing behaviours change
+  
+  `nexus workspace mount <slug> --engine direct` mounts one workspace as a local
+  drive that reaches S3 directly instead of going through the Nexus gateway.
+  Measured on 20 small files: 244 seconds through the gateway, 0.6 seconds direct.
+  Nothing about it asks you for a key — the backend mints a one-hour session scoped
+  to that one workspace, and the drive renews it on its own while you use it.
+  
+  **Two things change for you even if you never type `--engine`.**
+  
+  `--engine rclone` is now refused on macOS. It did the same job as the WebDAV
+  default, less well, and `--engine direct` covers the rest. Drop the flag for the
+  default, or pass `--engine direct` for the fast one. On Linux and Windows
+  `rclone` is unchanged and is still what `auto` picks.
+  
+  The default mount point moved from `~/nexus/<slug>` to
+  `~/nexus/<org-name>/<slug>`, so two organizations mounting a same-named workspace
+  no longer land on one folder. **Your old folder is left behind, empty** — a script
+  pointing at `~/nexus/<slug>` will find nothing there and will not error about it.
+  Pass `--at <path>` to put a drive anywhere you like.
+  
+  **Also in this release.** `workspace remount` and
+  `workspace credential-process` are new leaves; `workspace status` gains health
+  columns and exits non-zero when a recorded drive is gone or cannot renew.
+  A drive is labelled with the organization name the SERVER holds, so an
+  organization renamed after you signed in is no longer shown under its old name.
+  `remount` refuses a registry row written before the CLI recorded read-only mode
+  rather than assuming the drive was writable — unmount and mount it once to
+  restate the mode.
+  
+  `workspaces.mintMountCredentials()` is the SDK method behind all of it. Its
+  response is a bearer credential that AWS honours until `expiresAt` whatever
+  happens to the API key afterwards: never log it, and never store it outside an
+  owner-only file.
+- f6e3b04: An eval run scores every variant against the goldens
+  
+  Phase 1 made prompts branch and phase 2 made a reference conversation
+  authorable; neither could answer whether a variant was actually better. Phase 3
+  closes that loop. An **eval run** is a matrix of **candidate prompt versions ×
+  selected checkpoints × golden conversations**, and every cell is the same
+  question: given this conversation's prefix, generate the next agent message
+  under this candidate prompt, then judge it against the golden one. Feature-flag
+  gated (`PROMPT_EVAL`, whitelist): organizations without the flag receive 403 on
+  every route below.
+  
+  🔴 **A run spends real money.** Every cell runs the agent live — its tools
+  execute for real — and then calls a judge, four cells at a time. Preview first,
+  and pass a budget cap: the run aborts with `abortReason: "BUDGET_CAP"` once its
+  accrued cost reaches the ceiling.
+  
+  ## `@agent-nexus/cli`
+  
+  **`nexus eval run`** — `create` (`--conversations --checkpoints <conv>:<n,..|all>
+  --variants --baseline main|none|<variant> [--name] [--budget-cap-usd]
+  [--judge-model] [--repetitions] [--dry-run]`), `preview`, `list`, `get`
+  (`[--case <caseId>]`), `abort` (`--yes`), and `results`.
+  
+  `results` renders the matrix — rows are checkpoints grouped by conversation,
+  columns are the candidate variants, each cell its score and P/F, then an
+  aggregate row. **The delta row appears only when the run chose a baseline**: a
+  variants-only run has nothing to compare against, so it carries no delta
+  anywhere rather than an empty column. `get --case` opens one cell to the golden
+  reply beside the candidate reply, both with their tool calls, and the judge's
+  reasoning per criterion.
+  
+  `create --dry-run` and `preview` are the same call: the same validation and the
+  same matrix expansion the real creation runs, answering with the case count and
+  any warnings, creating nothing and costing nothing.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`client.promptEvalRuns`** — `create`, `preview`, `list`, `get`, `abort`,
+  `results`, `getCase`. `create` returns immediately with the run `QUEUED`; poll
+  `get` until `status` leaves `QUEUED`/`RUNNING`.
+  
+  ## How a run ends, which is the part worth knowing
+  
+  - **A failed cell never fails the run.** Each cell settles itself, so a run
+    reaches `COMPLETED` with its failed cells recorded rather than collapsing.
+  - **An abort stops dispatch, not flight.** Cells already running finish and
+    persist; cells never started become `SKIPPED`. Nothing already computed — or
+    already paid for — is discarded.
+  - **Scores are 0..1, and an unscorable cell is not a zero.** A judge that
+    cannot answer records `INCONCLUSIVE`, which is excluded from every mean: a
+    judge outage is not evidence that a prompt is bad. For the same reason
+    `meanScore` and `passRate` are `null`, never `0`, when nothing scored.
+  - **What a run compared is snapshotted.** Each candidate's prompt text is
+    copied onto the run and each cell's golden reply and prefix are copied onto
+    the cell, so editing a variant or a golden afterwards can never change what a
+    past run says it measured.
+
+### Patch Changes
+
+- ba5a466: A live prompt-assistant turn leaves no terminal status behind, and the CLI's skills bundle advances with its pin
+  
+  Two published packages changed in this cluster with no release declared. This
+  declares them.
+  
+  **`prompt-assistant` — a live turn must leave no terminal status behind (#5500).**
+  Both packages carry the same fix: `packages/sdk/src/resources/prompt-assistant.ts`
+  and `packages/cli/src/commands/prompt-assistant.ts`. A turn that was still
+  running could leave a terminal status readable behind it, so a consumer polling
+  the resource — or reading the CLI's output — could see a finished state for work
+  that had not finished. The status a caller reads now belongs to the turn that
+  produced it.
+  
+  **The CLI's vendored skills bundle advances with its pin (#5428).**
+  `skills-content.generated.json` and `.ts` moved together with
+  `packages/cli/skills-nexus.lock` in the same commit. The lock is the only thing
+  that decides what an agent reads after `nexus claude-code install`, so a consumer
+  of the CLI gets the bundle that lock names.
+  
+  ⚠️ **The generated files are not drifted, and their source is not in this
+  repository.** `scripts/generated-drift.mjs` records them as "COMMITTED, built
+  from a DIFFERENT and private repository" — regenerating them needs a
+  cross-repository token and would reach the network, which is why `Skills bundle
+  pinned` covers them by comparing the artifact's recorded sha against the lock
+  rather than by rebuilding. The pin and the artifact advanced in one commit, so
+  there is nothing stale here to name.
+  
+  **Why patch and not minor.** No public surface was added: `git diff
+  --diff-filter=A` over `packages/cli/src` and `packages/sdk/src` across this
+  cluster returns nothing, and #5500 adds no new SDK method — it changes the status
+  an existing one reports. The remaining changes in the diff
+  (`deprecation-cycle.ts` and two test files) are docblock and test text, which
+  reach no consumer.
+- 785f019: A ticket label must already exist before it can be attached
+  
+  Passing a label name the workspace does not have used to create it. Any client
+  filing with a slightly-off spelling therefore widened the team's vocabulary
+  permanently, and the duplicate was invisible until someone compared the two
+  names by hand — one such pair cost a manual re-tag across sixteen tickets.
+  
+  **An unrecognised name is now refused** with a 400 that lists every unknown
+  entry, enumerates the names the team does accept, and tells you to create the
+  label in Linear first. Names are still matched case-insensitively, leading and
+  trailing spaces are still trimmed, and workspace-scoped labels still resolve —
+  only a genuinely different name is refused.
+  
+  `ticket create --labels` and `ticket update --labels` are affected, as is
+  `CreateTicketBody.labels` / `UpdateTicketBody.labels` in the SDK. Both surfaces'
+  help text and docblocks now say so; neither's shape changed.
+  
+  ⚠️ **A call that used to succeed can now fail.** If you file with a name that
+  does not exist yet, create it in Linear and retry — or send a name that already
+  does. `ticket update --labels` reads back safely: the labels a ticket returns
+  all exist by construction, so feeding them straight into an update still works.
+  
+  Label groups are not attachable and are no longer offered as if they were —
+  Linear rejects a group id at write, so the allowed set names only the labels you
+  can actually apply.
+- a232676: Collection query stops naming a retrieval vendor in its own documentation
+  
+  `nexus collection query --help` described itself as "semantic retrieval via
+  ZeroEntropy", and `SkillsResource.queryCollection`'s JSDoc — the text your
+  editor shows on autocomplete — carried the same parenthetical. Both were
+  stale. The retrieval provider is an implementation detail behind the API, it
+  has changed, and neither string moved with it.
+  
+  Neither was actionable to begin with. You cannot select a retrieval provider,
+  configure one, or do anything differently on learning its name, so the words
+  occupied the one line each surface has for the thing you CAN act on: which of
+  the collection verbs matches document CONTENT and which matches document
+  NAMES.
+  
+  Both now say that instead. The `--help` line reads `(semantic retrieval — not
+  names)`, mirroring `collection search`'s existing `(slug match — not
+  content)`, so the three collection search verbs distinguish themselves from
+  one another at a glance.
+  
+  Documentation only. No request, response, flag, argument or method signature
+  changed.
+- 13eacba: The reserved ticket-type labels are now named as the Linear workspace spells
+  them — `"Bug"`, `"Feature request"` and `"Improvement"` — in `ticket create`'s
+  `--labels` help and in the SDK's `CreateTicketBody.labels` docblock. Both
+  previously said `"bug"`, `"feature-request"` and `"improvement"`, which is what
+  the server was sending: `"feature-request"` matched no label on the workspace,
+  so every `type: FEATURE_REQUEST` filing created a second one beside
+  `Feature request` rather than attaching it.
+  
+  The retired `"feature-request"` spelling is still refused in `--labels`, so a
+  caller who kept sending it gets an error instead of quietly re-creating the
+  duplicate. Both surfaces are now pinned to the server's own constant by a
+  backend spec, so the two cannot drift apart again without a red build.
+
 ## 4.0.0
 ### Major Changes
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 /**
  * THE FOUR-OUTCOME CONTRACT, END TO END, THROUGH THE REAL RUNNER.
@@ -270,32 +270,101 @@ describe("a row deleted between the list call and the read", () => {
     expect(run.stdout).toMatch(/^REACHED\s+agent-tool list/m);
   }, 90_000);
 
-  it("reports SKIPPED_ID_VANISHED — not SKIPPED_NO_ID — when the race takes the last row", async () => {
-    // 🔴 THE RACE AT FULL STRENGTH, END TO END. The doomed row was the
-    // producer's ONLY row, so the re-read that proves the deletion comes back
-    // empty — byte-identical to a producer that simply has nothing. Reported as
-    // "returned zero rows" this renders as the ordinary skip a reader scrolls
-    // past, which is the fifth outcome being hollowed out in the one case it
-    // was added for.
-    const state = mkdtempSync(join(tmpdir(), "id-thread-race-last-"));
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_VANISH_PRODUCERS: "agent list",
-      FAKE_VANISH_LEAVES_NOTHING: "1",
-      FAKE_STATE_DIR: state
-    });
-    const summary = counts(run.stdout);
+  /**
+   * 🔴 THE RACE AT FULL STRENGTH, END TO END. The doomed row was the producer's
+   * ONLY row, so the re-read that proves the deletion comes back empty —
+   * byte-identical to a producer that simply has nothing. Reported as "returned
+   * zero rows" this renders as the ordinary skip a reader scrolls past, which is
+   * the fifth outcome being hollowed out in the one case it was added for.
+   *
+   * ══════════════════════════════════════════════════════════════════════════
+   * 🚨 ONE ARM PER `it`, AND ORDERING THEM IS NOT AN ALTERNATIVE TO IT
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * A failing assertion THROWS, so it aborts the rest of its own `it`. The unit
+   * of a test result is the BLOCK: a block that reds under a mutant proves ONE
+   * of its arms can fail — the first one that did — and the report has no field
+   * for the arms below it, which did not pass, did not fail and did not run.
+   *
+   * This block held seven arms and every mutant scored exactly one of them.
+   * Measured on this file, `-t "when the race takes the last row"`, reading what
+   * vitest's own `→` lines NAME rather than the colour of the block:
+   *
+   *   · N1, `bindCommand(list, AGENT_SKILL_LIST_CONTRACT)` deleted — the leaf
+   *     leaves the graph, so its row is gone AND `vanished` falls 4 -> 3.
+   *     One arrow: the `agent-skill list` name. The count, `failed`, the
+   *     `not.toMatch` and `reached` were UNSCORED.
+   *   · N2, `bindCommand(list, TOOL_LIST_CONTRACT)` deleted — `agent-tool list`
+   *     is the fourth `agentId` consumer and the one this block does not name,
+   *     so only the count moves. One arrow: `expected 3 to be 4`.
+   *
+   * ⚠️ SO THE ORDER OF THE ARMS IS NOT THE VARIABLE, AND MOVING THEM FIXES ONE
+   * MUTANT RATHER THAN THE CLASS. With the count first, N1 scores the count and
+   * shields all three names; with the names first — the shape this replaces —
+   * N1 scores one name and shields the count. Which arm goes unscored depends on
+   * the MUTANT, so no ordering convention closes it — the same pair measured in
+   * an isolated lab, on a two-arm subject with nothing else in it, reaches the
+   * same conclusion.
+   *
+   * ✅ ONE ARM PER `it` IS THE ONLY SHAPE THAT SAYS WHICH PROPERTY SURVIVED, AND
+   * HERE IT COSTS NOTHING. The stated price of this cure is re-running the setup
+   * per block, which would be real at this file's ~5s process spawn; hoisting the
+   * spawn into one `beforeAll` for the whole `describe` pays it ONCE, so seven
+   * `it`s cost one sweep exactly as the single block did. `expect.soft` was the
+   * cheaper candidate and is refused: it does not exist under jest, so the shape
+   * would not transfer to `apps/backend`, it does not survive a non-assertion
+   * throw — `counts()` above throws when there is no summary line — and its arms
+   * still collapse into one `it` result.
+   */
+  describe("when the race takes the last row", () => {
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    // Three leaves take `agentId`, and none of them may be called a no-id skip.
-    expect(summary.vanished).toBe(3);
-    expect(summary.failed).toBe(0);
-    expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+agent-collection list/m);
-    expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+version list/m);
-    // The whole point: this row is NOT the one that says "returned zero rows".
-    expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+agent-collection list/m);
-    // Other producers are untouched, so the run still reaches things.
-    expect(summary.reached).toBeGreaterThan(0);
-  }, 90_000);
+    // ONE spawn for every arm below. `hookTimeout` is its own budget and does not
+    // inherit the 90_000 the cases carry, so it is stated here.
+    beforeAll(async () => {
+      const state = mkdtempSync(join(tmpdir(), "id-thread-race-last-"));
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_VANISH_PRODUCERS: "agent list",
+        FAKE_VANISH_LEAVES_NOTHING: "1",
+        FAKE_STATE_DIR: state
+      });
+      summary = counts(run.stdout);
+    }, 90_000);
+
+    it("reports SKIPPED_ID_VANISHED for agent-collection list", () => {
+      expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+agent-collection list/m);
+    });
+
+    it("reports SKIPPED_ID_VANISHED for version list", () => {
+      expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+version list/m);
+    });
+
+    it("reports SKIPPED_ID_VANISHED for agent-skill list", () => {
+      expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+agent-skill list/m);
+    });
+
+    it("counts every agentId consumer as vanished", () => {
+      // Four leaves take `agentId`, and none of them may be called a no-id skip.
+      // The three named above are three of the four; this is the only arm that
+      // sees the fourth, which is why it must be able to fail on its own.
+      expect(summary.vanished).toBe(4);
+    });
+
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    it("does NOT report the vanished row as SKIPPED_NO_ID", () => {
+      // The whole point: this row is NOT the one that says "returned zero rows".
+      expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+agent-collection list/m);
+    });
+
+    it("still reaches the producers the race did not touch", () => {
+      expect(summary.reached).toBeGreaterThan(0);
+    });
+  });
 
   it("still FAILS on a not-found whose row its own producer is still listing", async () => {
     // The negative control, and the whole reason the cure is a second READ and
@@ -397,7 +466,7 @@ describe("a producer re-read that comes back unreadable", () => {
  *
  * ── HOW A CASE LANDS AT A CHOSEN `provisioned` ──────────────────────────────
  *
- * 28 executable leaves. `tracks list` feeds 10 of them, `agent list` 3,
+ * 29 executable leaves. `tracks list` feeds 10 of them, `agent list` 4,
  * `collection list` 3, `execution list` 2, `document list` 2.
  * `FAKE_EMPTY_PRODUCERS` empties named
  * producers only, so the arithmetic is exact and the boundary is reachable from
@@ -406,9 +475,9 @@ describe("a producer re-read that comes back unreadable", () => {
  * new figure, instead of sliding one of them past the boundary in silence.
  */
 
-/** 28 - (10 + 3 + 3 + 2) = 10, EXACTLY the floor, which must pass. */
+/** 29 - (10 + 4 + 3 + 2) = 10, EXACTLY the floor, which must pass. */
 const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list";
-/** 28 - (10 + 3 + 3 + 2 + 2) = 8, under the floor, which must not. */
+/** 29 - (10 + 4 + 3 + 2 + 2) = 8, under the floor, which must not. */
 const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list,document list";
 
 describe("the provisioned floor", () => {
@@ -420,12 +489,12 @@ describe("the provisioned floor", () => {
     const summary = counts(run.stdout);
     const provisioned = provisionedOf(run.stdout);
 
-    expect(provisioned).toEqual({ provisioned: 8, executable: 28, floor: 10 });
+    expect(provisioned).toEqual({ provisioned: 8, executable: 29, floor: 10 });
     // Neither of the other two non-zero rungs applies, so 8 is the only code
     // that can be under test here.
     expect(summary.reached).toBe(8);
     expect(summary.failed).toBe(0);
-    expect(summary.noId).toBe(20);
+    expect(summary.noId).toBe(21);
     expect(run.code).toBe(8);
     expect(run.stderr).toContain("BELOW THE PROVISIONED FLOOR");
     // NOT the nothing-reached refusal — that one is a different world.
@@ -440,15 +509,15 @@ describe("the provisioned floor", () => {
     const provisioned = provisionedOf(run.stdout);
 
     expect(provisioned.provisioned).toBe(provisioned.floor);
-    expect(provisioned).toEqual({ provisioned: 10, executable: 28, floor: 10 });
+    expect(provisioned).toEqual({ provisioned: 10, executable: 29, floor: 10 });
     expect(counts(run.stdout).failed).toBe(0);
     expect(run.code).toBe(0);
   }, 60_000);
 
   it("does NOT fire on the concurrent-delete race, however many rows it takes", async () => {
-    // 🔴 THE SELECTIVITY CASE. 20 leaves are SKIPPED_ID_VANISHED, so only 8 are
-    // reached — UNDER the floor of 10 — and every one of those 20 HAD a
-    // fixture, so provisioned is still the full 28 and the run passes. A floor
+    // 🔴 THE SELECTIVITY CASE. 21 leaves are SKIPPED_ID_VANISHED, so only 8 are
+    // reached — UNDER the floor of 10 — and every one of those 21 HAD a
+    // fixture, so provisioned is still the full 29 and the run passes. A floor
     // keyed on `reached` exits 8 here and calls a race a coverage outage.
     const state = mkdtempSync(join(tmpdir(), "id-thread-floor-race-"));
     const run = await sweep({
@@ -459,7 +528,7 @@ describe("the provisioned floor", () => {
     });
     const summary = counts(run.stdout);
 
-    expect(summary.vanished).toBe(20);
+    expect(summary.vanished).toBe(21);
     expect(summary.noId).toBe(0);
     expect(summary.failed).toBe(0);
     // The half that makes this discriminating: fewer reached than the floor.
@@ -474,7 +543,7 @@ describe("the provisioned floor", () => {
     // killed only this one; without it, 3 and 1, disjoint.
     expect(summary.reached).toBe(8);
     expect(summary.reached).toBeLessThan(10);
-    expect(provisionedOf(run.stdout).provisioned).toBe(28);
+    expect(provisionedOf(run.stdout).provisioned).toBe(29);
     expect(run.code).toBe(0);
   }, 90_000);
 
@@ -486,9 +555,9 @@ describe("the provisioned floor", () => {
     const summary = counts(run.stdout);
 
     expect(run.code).toBe(0);
-    expect(provisionedOf(run.stdout).provisioned).toBe(18);
+    expect(provisionedOf(run.stdout).provisioned).toBe(19);
     expect(run.stdout).toContain("NOTHING EXISTED TO TEST WITH");
-    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 36% of this harness/m);
+    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 34% of this harness/m);
     expect(run.stdout).toContain("seed-sweep-fixtures.sh");
     // Three counters, still separate, still in the Summary line.
     expect(summary.noId).toBe(10);

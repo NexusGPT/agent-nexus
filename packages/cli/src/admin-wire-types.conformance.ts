@@ -41,7 +41,7 @@
  *
  * `src/index.ts` cannot reach this module, so tsup's bundle graph never visits
  * it and the `@nexus/types` import below stays out of `dist/`.
- * `vibe-wire-types.test.ts` holds that as an assertion over EVERY module the
+ * `wire-types-bundle.test.ts` holds that as an assertion over EVERY module the
  * binary can reach, so it covers this file too without being told about it.
  */
 

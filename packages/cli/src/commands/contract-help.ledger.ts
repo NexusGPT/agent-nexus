@@ -310,7 +310,7 @@ export const GENERATED_NAMESPACE_LEDGER = [
   },
   {
     namespace: "agent-skill",
-    descriptors: ["AgentSkillCreate"]
+    descriptors: ["AgentSkillCreate", "AgentSkillList"]
   },
   {
     namespace: "external-tool",

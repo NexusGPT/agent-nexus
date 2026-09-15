@@ -59,7 +59,6 @@ export const ID_GRAPH_UNCOVERED: readonly (readonly [string, string])[] = [
   ["agent-skill delete", "unbound-no-provable-method"],
   ["agent-skill download", "unbound-no-provable-method"],
   ["agent-skill get", "unbound-no-provable-method"],
-  ["agent-skill list", "unbound-no-provable-method"],
   ["agent-skill update", "unbound-no-provable-method"],
   ["agent-skill upload", "unbound-no-provable-method"],
   ["agent-tool attach-collection", "bound-but-mutates"],

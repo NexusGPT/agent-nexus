@@ -398,9 +398,9 @@ into `src/json-shape.generated.ts` from the printer each action actually reaches
 command whose printer changes turns the build red rather than shipping a `--help`
 line describing the old shape.
 
-The remaining 108 carry **no** shape line, and that is the honest output rather
+The remaining 109 carry **no** shape line, and that is the honest output rather
 than a gap: 75 write their own document, 17 branch to two shapes, 10 have no
-registration the scan can read, 5 reach no printer, and 1 is ambiguous. A default
+registration the scan can read, 6 reach no printer, and 1 is ambiguous. A default
 would be a claim nobody measured.
 
 `envelope` is the route's own response object, unnarrowed — the same document

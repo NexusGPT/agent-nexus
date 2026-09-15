@@ -1,4 +1,13 @@
-import { cpSync, linkSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  cpSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync
+} from "node:fs";
 import { join } from "node:path";
 
 import { PACKAGE_ROOT, tempDir } from "./install-harness";
@@ -7,8 +16,8 @@ import { PACKAGE_ROOT, tempDir } from "./install-harness";
  * The directory handed to `npm pack`: PACKAGE_ROOT with `node_modules` omitted.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 THIS IS NOT A FOURTH SUBSTITUTION. EVERY FILE IS HARD-LINKED, SO npm READS
- *    THE SAME INODES IT WOULD READ IN THE REAL TREE.
+ * 🚨 THIS IS NOT A FOURTH SUBSTITUTION. EVERY FILE IS HARD-LINKED AND EVERY
+ *    SYMLINK POINTS AT THE SAME FILE, SO npm SEES WHAT IT SEES IN THE REAL TREE.
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `npm pack` DESCENDS `node_modules` and then discards everything it finds
@@ -41,9 +50,10 @@ import { PACKAGE_ROOT, tempDir } from "./install-harness";
  * would not — so that is refused BY NAME rather than assumed absent.
  *
  * The mirror's completeness is ASSERTED, never trusted: the same relative-path
- * set with the same sizes, everywhere outside `node_modules`. A mirror that
- * silently lost a file would pack a smaller tarball and every case in the spec
- * would still pass, which is exactly the failure this assertion exists to catch.
+ * set with the same sizes — and for a symlink, the same resolved file —
+ * everywhere outside `node_modules`. A mirror that silently lost a file would
+ * pack a smaller tarball and every case in the spec would still pass, which is
+ * exactly the failure this assertion exists to catch.
  */
 let cached: string | null = null;
 
@@ -63,8 +73,7 @@ export function packSource(): string {
   }
 
   const mirror = tempDir("packroot");
-  mirrorTree(PACKAGE_ROOT, mirror, true);
-  assertMirrorIsComplete(PACKAGE_ROOT, mirror);
+  mirrorPackageInto(PACKAGE_ROOT, mirror);
   cached = mirror;
   return mirror;
 }
@@ -72,6 +81,16 @@ export function packSource(): string {
 /** Forget the mirror, so a suite that cleaned its temp dirs cannot reuse a path. */
 export function forgetPackSource(): void {
   cached = null;
+}
+
+/**
+ * Mirror `root` into `into`, then assert the mirror is complete. The seam
+ * `packSource()` runs against `PACKAGE_ROOT`; exported so a spec can drive it
+ * against a throwaway fixture directly.
+ */
+export function mirrorPackageInto(root: string, into: string): void {
+  mirrorTree(root, into, true);
+  assertMirrorIsComplete(root, into);
 }
 
 function mirrorTree(from: string, into: string, isRoot: boolean): void {
@@ -83,6 +102,14 @@ function mirrorTree(from: string, into: string, isRoot: boolean): void {
     if (entry.isDirectory()) {
       mkdirSync(target, { recursive: true });
       mirrorTree(source, target, false);
+    } else if (entry.isSymbolicLink()) {
+      // A worktree links its canon (`CLAUDE.md` here) into the main checkout.
+      // `npm pack` drops a symlinked file from the tarball whatever names it,
+      // so a link stays a link — as a plain file it would pack bytes the real
+      // tree never ships. A link that does not resolve to a regular file falls
+      // through unmirrored, like everything below.
+      const file = symlinkTargetFile(source);
+      if (file !== undefined) symlinkSync(file.path, target);
     } else if (entry.isFile()) {
       // A hard link is the point: npm reads the same inode, so the mirror cannot
       // hold different bytes from the real tree. Some machines put `os.tmpdir()`
@@ -94,27 +121,60 @@ function mirrorTree(from: string, into: string, isRoot: boolean): void {
         cpSync(source, target);
       }
     }
-    // Anything else — a symlink outside node_modules — is deliberately NOT
-    // mirrored, so `assertMirrorIsComplete` fails naming it rather than packing
-    // a tree that quietly differs. There are none in this package today.
+    // Anything else is deliberately NOT mirrored, so `assertMirrorIsComplete`
+    // fails naming it rather than packing a tree that quietly differs.
   }
 }
 
-/** `<relative path>\t<size>` for every file, sorted. `node_modules` excluded at the root only. */
+/**
+ * The regular file a symlink resolves to — `undefined` when it dangles or lands
+ * on anything else. The mirror and the completeness check both ask this, so
+ * they cannot disagree about which links are acceptable.
+ */
+function symlinkTargetFile(
+  link: string
+): { readonly path: string; readonly size: number } | undefined {
+  try {
+    const path = realpathSync(link);
+    const target = statSync(path);
+    return target.isFile() ? { path, size: target.size } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `<relative path>\t<size>` for a regular file, `<relative path>\tLINK:<resolved
+ * path>:<size>` for a symlink that resolves to one — so a mirror that replaced
+ * a link with a regular file, or pointed it at a different file, differs from
+ * the real tree here. Everything else is `<relative path>\tNOT-A-REGULAR-FILE`.
+ * `node_modules` excluded at the root only.
+ */
 function entriesOf(root: string, skipNodeModules: boolean, prefix = ""): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (skipNodeModules && entry.name === "node_modules") continue;
     const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
     const full = join(root, entry.name);
-    if (entry.isDirectory()) out.push(...entriesOf(full, false, relative));
-    else if (entry.isFile()) out.push(`${relative}\t${statSync(full).size}`);
-    else out.push(`${relative}\tNOT-A-REGULAR-FILE`);
+    if (entry.isDirectory()) {
+      out.push(...entriesOf(full, false, relative));
+    } else if (entry.isFile()) {
+      out.push(`${relative}\t${statSync(full).size}`);
+    } else if (entry.isSymbolicLink()) {
+      const file = symlinkTargetFile(full);
+      out.push(
+        file === undefined
+          ? `${relative}\tNOT-A-REGULAR-FILE`
+          : `${relative}\tLINK:${file.path}:${file.size}`
+      );
+    } else {
+      out.push(`${relative}\tNOT-A-REGULAR-FILE`);
+    }
   }
   return out.sort();
 }
 
-function assertMirrorIsComplete(real: string, mirror: string): void {
+export function assertMirrorIsComplete(real: string, mirror: string): void {
   // The mirror is walked WITHOUT the node_modules skip on purpose: if one ever
   // appeared in there, this comparison must report it rather than hide it.
   const expected = entriesOf(real, true);

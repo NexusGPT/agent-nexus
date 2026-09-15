@@ -13,7 +13,7 @@
  * accept a response the server can never send.
  *
  * `src/index.ts` cannot reach this module, so the `@nexus/types` import below
- * never enters `dist/`; `vibe-wire-types.test.ts` asserts that for every module
+ * never enters `dist/`; `wire-types-bundle.test.ts` asserts that for every module
  * the binary can reach.
  */
 

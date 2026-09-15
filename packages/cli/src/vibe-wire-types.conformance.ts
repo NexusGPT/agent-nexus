@@ -44,7 +44,7 @@
  *
  * `src/index.ts` cannot reach this module, so tsup's bundle graph never visits
  * it and the `@nexus/types` import below (which pulls Zod, and transitively the
- * generated Prisma enums) stays out of `dist/`. `vibe-wire-types.test.ts` holds
+ * generated Prisma enums) stays out of `dist/`. `wire-types-bundle.test.ts` holds
  * that property as an assertion rather than as this paragraph: it fails if any
  * module the binary CAN reach imports `@nexus/types`.
  */

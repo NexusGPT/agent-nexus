@@ -22,7 +22,10 @@ import {
   SKILL_ZIP_LIMITS
 } from "../util/skill-bundle";
 import type { ZipEntry } from "../util/zip";
-import { AGENT_SKILL_CREATE_CONTRACT } from "./agent-skill.contract.generated";
+import {
+  AGENT_SKILL_CREATE_CONTRACT,
+  AGENT_SKILL_LIST_CONTRACT
+} from "./agent-skill.contract.generated";
 
 /**
  * `nexus agent-skill` — attach Claude Code skill bundles to a code-interpreter
@@ -84,7 +87,7 @@ with only :write cannot clean up after itself.`
   );
 
   // ── list ────────────────────────────────────────────────────────────────
-  skill
+  const list = skill
     .command("list")
     .description("List the skills attached to an agent")
     .argument("<agent-id>", "Agent ID")
@@ -627,10 +630,45 @@ Notes:
       }
     );
 
-  // Bound LAST, after every option exists — see `bindCommand`. `AgentSkillCreate`
-  // is the one route in this namespace the v1 contract declares; the rest reach
-  // routes it does not.
+  // Bound LAST, after every option exists — see `bindCommand`.
+  //
+  // The v1 contract declares SEVEN descriptors for this namespace — List, Create,
+  // Get, Update, Delete, Upload and DownloadUrl, all in
+  // `packages/types/src/api/public/v1/contract/agent-skills.ts`. What names the two
+  // bound here is the ROLLOUT LEDGER in `contract-help.ledger.ts`: the generator
+  // projects only the descriptors that file lists, so the other five are UNROLLED,
+  // not uncontracted.
+  //
+  // 🚨 BINDING ONE OF THOSE FIVE DOES NOT LEAVE IT HONESTLY UNSWEPT — IT THREADS
+  // THE WRONG ID, AND THE GATE GOES GREEN ON IT. All five take `:skillId`, and
+  // `resolveProducer` in `id-graph.ts` answers it like this:
+  //
+  //   · The route-prefix rule lands on `/public/v1/agents/:agentId/skills`, which is
+  //     `agent-skill list`'s OWN route. A producer must be param-free — the runner
+  //     calls every producer with no arguments — so the rule declines.
+  //   · The param-name rule then looks for the unique param-free bound GET
+  //     collection whose last segment is a plural of `skill`, and finds exactly
+  //     one: `tool skills` (`GET /public/v1/tools/skills`). That is the MARKETPLACE
+  //     skill catalogue, not the bundles attached to an agent. One candidate is not
+  //     ambiguity, so the rule ACCEPTS it.
+  //
+  // Measured by binding `agent-skill get` and running `deriveIdGraph()`: it comes
+  // back `fullyResolved: true` with `skillId` sourced from `tool skills`. So the
+  // sweep would call `agent-skill get <agentId> <marketplaceSkillId>`, take a 404,
+  // and report FAILED on a healthy route — the false FAILED that
+  // `id-graph.leaf-residue.ts` exists to avoid, on `CLI: Sweep`, a required context.
+  //
+  // ⚠️ THIS IS NOT THE `agent-tool get` / `toolId` CASE, THOUGH IT LOOKS LIKE IT.
+  // There the param-name rule finds NO param-free collection ending in `tools`, so
+  // it falls through to a declared residue in `id-graph.residue.ts` and the leaf is
+  // honestly `fullyResolved: false`. The two diverge only because `skills` happens
+  // to name a collection elsewhere in the API. A residue row cannot repair this one:
+  // `sourceFor` never consults `residueFor` once a producer resolves. Binding any of
+  // the five needs either a `LEAF_RESIDUE` row — which `deriveIdGraph` tests before
+  // it resolves sources — or a producer rule that can say "list the agents, then
+  // list that agent's skills".
   bindCommand(create, AGENT_SKILL_CREATE_CONTRACT);
+  bindCommand(list, AGENT_SKILL_LIST_CONTRACT);
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

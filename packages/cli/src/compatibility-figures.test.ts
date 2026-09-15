@@ -105,7 +105,23 @@ beforeAll(async () => {
   // difference, so reading it here is reading a derived artifact rather than a
   // number somebody typed.
   const generated = readFileSync(join(dirname(DOC), "src", "json-shape.generated.ts"), "utf-8");
-  const selfJson = /(\d+)\s+writes-its-own-json/.exec(generated);
+
+  /**
+   * One term of the generated file's unclassified breakdown.
+   *
+   * Anchored to its own line — ` *     10  no-registration` — rather than
+   * matched loosely, because a loose `(\d+)\s+ambiguous` would happily take the
+   * first such pair anywhere in that header's prose and report a number from a
+   * sentence instead of from the table.
+   *
+   * Returns -1, never 0, when the line is gone: the control above treats a
+   * negative as "the derivation failed" and 0 as data, and 0 is a legitimate
+   * value for every one of these terms.
+   */
+  const breakdown = (term: string): number => {
+    const hit = new RegExp(`^\\s*\\*\\s+(\\d+)\\s+${term}\\s*$`, "m").exec(generated);
+    return hit === null ? -1 : Number(hit[1]);
+  };
 
   derived = {
     topLevel: tops.length,
@@ -134,7 +150,16 @@ beforeAll(async () => {
     shapeLines: Object.keys(JSON_SHAPES).length,
     exempt: EXEMPT_LEAVES.length,
     driven: leaves.length - EXEMPT_LEAVES.length,
-    writesItsOwnJson: selfJson === null ? -1 : Number(selfJson[1]),
+    writesItsOwnJson: breakdown("writes-its-own-json"),
+    noPrinter: breakdown("no-printer"),
+    branches: breakdown("branches"),
+    noRegistration: breakdown("no-registration"),
+    ambiguousShape: breakdown("ambiguous"),
+    // The headline of the abstain sentence, derived INDEPENDENTLY of the
+    // breakdown above: every leaf the shape map does not answer for. The doc has
+    // to satisfy both, so a tree where the two disagree cannot be documented
+    // into green.
+    abstain: leaves.length - Object.keys(JSON_SHAPES).length,
     // The deprecation mechanism's two figures. ZERO IS A LEGITIMATE VALUE for
     // the first and will be the value again after every cycle completes, so the
     // control below treats `< 0` as "the derivation failed" and 0 as data.
@@ -224,6 +249,29 @@ const CLAIMS: readonly Claim[] = [
     claim: "N of the M leaves carry a derived shape line",
     pattern: /\*\*(\d+) of the (\d+) leaves\*\* carry a derived shape line/,
     keys: ["shapeLines", "leaves"]
+  },
+  // 🚨 THE ABSTAIN SENTENCE CARRIES SIX FIGURES AND NOTHING WAS CHECKING ANY OF
+  // THEM. It drifted TWICE before these two rows existed: once to a headline of
+  // 134 against an itemisation summing to 107, and again — after that repair —
+  // to a headline of 108 and a `reach no printer` of 5 where the derivation said
+  // 109 and 6. Both survived every run of this file, because the two rows above
+  // anchor to OTHER sentences. A figure nobody matches is a figure nobody
+  // checks, which is the defect this whole file exists to remove.
+  //
+  // Every space is `\s+`: the document is hard-wrapped, so a number that gains a
+  // digit moves the line break and a pattern written with literal spaces would
+  // stop matching — reported as "the sentence was reworded", which is a red for
+  // the wrong reason.
+  {
+    claim: "the remaining N carry no shape line",
+    pattern: /The\s+remaining\s+(\d+)\s+carry\s+\*\*no\*\*\s+shape\s+line/,
+    keys: ["abstain"]
+  },
+  {
+    claim: "the abstain sentence itemises every reason",
+    pattern:
+      /than\s+a\s+gap:\s+(\d+)\s+write\s+their\s+own\s+document,\s+(\d+)\s+branch\s+to\s+two\s+shapes,\s+(\d+)\s+have\s+no\s+registration\s+the\s+scan\s+can\s+read,\s+(\d+)\s+reach\s+no\s+printer,\s+and\s+(\d+)\s+is\s+ambiguous/,
+    keys: ["writesItsOwnJson", "branches", "noRegistration", "noPrinter", "ambiguousShape"]
   },
   {
     claim: "today: N leaves, M classified safe",

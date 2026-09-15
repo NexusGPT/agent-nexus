@@ -187,13 +187,60 @@ export function renderCaseDetail(detail: PromptEvalCaseDetail): void {
     console.log(color.dim("(not scored)"));
     return;
   }
-  for (const score of detail.scores) {
-    const suffix = score.repetition > 1 ? ` #${score.repetition}` : "";
-    console.log(
-      `${color.bold(score.criterion + suffix)}  ${score.score.toFixed(2)}  ${score.verdict}`
-    );
-    console.log(`  ${score.reasoning}`);
+  for (const [criterion, scores] of groupByCriterion(detail.scores)) {
+    const summary = repetitionSummary(scores);
+    if (summary !== null) console.log(`${color.bold(criterion)}  ${summary}`);
+    for (const score of scores) {
+      const suffix = score.repetition > 1 ? ` #${score.repetition}` : "";
+      const heading = summary === null ? color.bold(criterion + suffix) : `  #${score.repetition}`;
+      console.log(`${heading}  ${score.score.toFixed(2)}  ${score.verdict}`);
+      console.log(`  ${score.reasoning}`);
+    }
   }
+}
+
+type CaseScore = PromptEvalCaseDetail["scores"][number];
+
+/** Criteria in first-seen order, each holding its repetitions in the order judged. */
+function groupByCriterion(scores: readonly CaseScore[]): Map<string, CaseScore[]> {
+  const byCriterion = new Map<string, CaseScore[]>();
+  for (const score of scores) {
+    const bucket = byCriterion.get(score.criterion);
+    if (bucket === undefined) byCriterion.set(score.criterion, [score]);
+    else bucket.push(score);
+  }
+  return byCriterion;
+}
+
+/**
+ * The mean and the AGREEMENT across one criterion's repetitions, or `null` when
+ * there is only one sample to report.
+ *
+ * Agreement is the share of conclusive repetitions that returned the criterion's
+ * most common verdict — "3/3 PASS" when the judge said the same thing every
+ * time, "2/3 PASS" when it did not. That is the number worth showing, because
+ * the measured failure mode (spec §5.5) is not a noisy score around a stable
+ * verdict, it is the judge flipping PASS to FAIL on effectively the same reply.
+ * A mean of 0.55 hides that; `2/3 PASS` states it.
+ *
+ * INCONCLUSIVE repetitions are excluded from both, matching the rollup: they
+ * record that the judge produced no usable answer, and counting one as
+ * disagreement would report a judge outage as judge uncertainty.
+ */
+function repetitionSummary(scores: readonly CaseScore[]): string | null {
+  if (scores.length < 2) return null;
+  const conclusive = scores.filter((s) => s.verdict !== "INCONCLUSIVE");
+  if (conclusive.length === 0) return color.dim(`${scores.length} repetitions, none conclusive`);
+
+  const mean = conclusive.reduce((sum, s) => sum + s.score, 0) / conclusive.length;
+  const counts = new Map<string, number>();
+  for (const score of conclusive) counts.set(score.verdict, (counts.get(score.verdict) ?? 0) + 1);
+  const [verdict, agreed] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  const agreement = `${agreed}/${conclusive.length} ${verdict}`;
+  return `mean ${mean.toFixed(2)}  agreement ${
+    agreed === conclusive.length ? agreement : color.yellow(agreement)
+  }`;
 }
 
 /** The run header, for `run get` without `--case`. */
@@ -209,7 +256,13 @@ export function renderRun(run: PromptEvalRun): void {
     `variants: ${run.candidates.map((c) => c.variantName).join(", ")}` +
       (run.baselineVersionId === null ? "" : " (with baseline)")
   );
-  console.log(`judge: ${run.judgeConfig.model} x${run.judgeConfig.repetitions}`);
+  // `repetitions` governs CUSTOM criteria only — `golden_match` is judged once
+  // whatever it says — so the line names what the number applies to rather than
+  // reading as the run's global judge count.
+  console.log(
+    `judge: ${run.judgeConfig.model} ` +
+      `(custom criteria x${run.judgeConfig.repetitions}, golden_match x1)`
+  );
   console.log(
     `cost: ${formatUsd(run.cost.totalUsdTenThousandths)} ` +
       `(${formatUsd(run.cost.generationUsdTenThousandths)} agent, ` +

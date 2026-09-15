@@ -27,3 +27,12 @@ export const AGENT_SKILL_CREATE_CONTRACT = {
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
+
+export const AGENT_SKILL_LIST_CONTRACT = {
+  name: "AgentSkillList",
+  method: "GET",
+  route: "/public/v1/agents/:agentId/skills",
+  fields: [
+    { path: "PathVars.agentId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;

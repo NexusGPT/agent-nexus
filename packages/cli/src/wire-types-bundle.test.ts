@@ -87,10 +87,22 @@ describe("@nexus/types stays out of the published bundle", () => {
    * third. Pairing `<name>-wire-types.ts` with `<name>-wire-types.conformance.ts`
    * costs nothing to add a gate — the requirement appears with the module it
    * guards — and cannot be satisfied by deleting one.
+   *
+   * The expected name is DERIVED, never rebuilt. It used to be spelled
+   * `` `-wire-types${CONFORMANCE_SUFFIX}` ``, which restates `WIRE_TYPES_SUFFIX`
+   * minus its extension: one rule with two declarations that can be edited apart.
+   * Rename the convention and discovery follows the constant while the expectation
+   * stays pinned to the old spelling, so the gate reports on a rule nobody
+   * declared — failing correctly-named files, or passing over a stale pair. Every
+   * discovered module already ENDS in `WIRE_TYPES_SUFFIX`, and `sourceFiles`
+   * collects nothing but `.ts`, so swapping that trailing extension for
+   * `CONFORMANCE_SUFFIX` yields the required gate name whatever either constant
+   * says. `$` is load-bearing: `String.replace` with a string pattern takes the
+   * FIRST occurrence anywhere in the path, and these are paths.
    */
   it("every wire-types module has a conformance module beside it", () => {
     const ungated = wireTypes
-      .map((f) => f.replace(WIRE_TYPES_SUFFIX, `-wire-types${CONFORMANCE_SUFFIX}`))
+      .map((f) => f.replace(/\.ts$/, CONFORMANCE_SUFFIX))
       .filter((expected) => !conformance.includes(expected));
 
     expect(

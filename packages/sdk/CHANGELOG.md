@@ -1,5 +1,57 @@
 # @agent-nexus/sdk
 
+## 4.1.1
+### Patch Changes
+
+- cba1a50: A marketplace search can filter to MCP servers
+  
+  `MCP` joins the closed set of integration kinds `GET /public/v1/tools/search`
+  accepts as `type`, so `nexus tool search --type MCP` is a valid choice and
+  `client.tools.search({ type: "MCP" })` is no longer refused with
+  `400 VALIDATION_ERROR`. The set is derived from the platform's own tool types,
+  which now include remote Model Context Protocol servers registered as tool
+  sources.
+  
+  An MCP server is always private to the organization that registered it, so the
+  filter only ever returns your own. Until servers can be registered it returns an
+  empty list, which is the correct answer rather than a missing feature.
+  
+  Nothing is removed and no existing value changes meaning.
+- 739f2bb: Every Prompt Lab route is held callable, with no ledger and no exemption
+  
+  A new suite, `prompt-lab-routes-are-callable.test.ts`, asserts that all 27
+  public Prompt Lab routes — 10 prompt-variant, 10 golden-conversation, 7 eval-run
+  — are reachable from this package. No shipped code changes.
+  
+  The repo already has `v1-routes-have-an-sdk-method.test.ts`, and it is the right
+  shape for 300+ routes of varying age: a shrink-only ledger with a ceiling, whose
+  contract is "the unreached set never grows". That shape is the wrong one for a
+  feature shipping now. Under it, a Prompt Lab route could be added to the ledger
+  with a plausible reason and the repo-wide gate would stay green — the route would
+  simply have stopped being watched.
+  
+  This file makes the stronger, narrower claim the feature owes: for this route
+  family the unreached set is EMPTY. A new Prompt Lab route with no SDK method reds
+  it the day it lands.
+  
+  "Callable" is asserted twice, because the two halves fail independently. The
+  first reuses the repo-wide scan — the live `ZPublicApiV1` contract for what
+  exists, a source scan for a matching `this.http.request` call site. The second
+  constructs a client and reads the methods off it, because a resource can hold a
+  perfectly good call site and be wired to nothing: `TracingResource` and
+  `ScoresResource` really did ship attached to the client and missing from the
+  barrel, and a source scan says nothing about that.
+  
+  Both directions are held. `EXPECTED_SURFACE` names every method, and a method
+  added to a Prompt Lab resource without being named there fails the suite —
+  otherwise the list would document a subset and read as the whole.
+  
+  Drain-proofing, because "every route in an empty set is reached" is the vacuous
+  pass this must never report: the path prefixes are string literals, so one
+  rename upstream would empty the population silently. An exact expected count per
+  family, a total, a no-double-counting check, and a matcher control asserting
+  `reachedBySdk` can still answer `false` all guard it.
+
 ## 4.1.0
 ### Minor Changes
 

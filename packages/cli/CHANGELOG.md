@@ -1,5 +1,115 @@
 # @agent-nexus/cli
 
+## 1.5.0
+### Minor Changes
+
+- cba1a50: A marketplace search can filter to MCP servers
+  
+  `MCP` joins the closed set of integration kinds `GET /public/v1/tools/search`
+  accepts as `type`, so `nexus tool search --type MCP` is a valid choice and
+  `client.tools.search({ type: "MCP" })` is no longer refused with
+  `400 VALIDATION_ERROR`. The set is derived from the platform's own tool types,
+  which now include remote Model Context Protocol servers registered as tool
+  sources.
+  
+  An MCP server is always private to the organization that registered it, so the
+  filter only ever returns your own. Until servers can be registered it returns an
+  empty list, which is the correct answer rather than a missing feature.
+  
+  Nothing is removed and no existing value changes meaning.
+- 739f2bb: A repeated criterion reports whether the judge agreed with itself
+  
+  `nexus eval run get --case <id>` now groups a cell's scores by criterion and,
+  for any criterion judged more than once, prints a summary line above the
+  repetitions:
+  
+  ```
+  asks_order_number
+    mean 0.63  agreement 2/3 PASS
+    #1  0.80  PASS  …
+    #2  0.30  FAIL  …
+    #3  0.80  PASS  …
+  ```
+  
+  **Agreement, not just a mean, because the mean is the number that hides the
+  problem.** Phase 3's live acceptance measured the judge disagreeing with itself
+  on custom criteria — the same rubric over effectively the same reply scored 0.8
+  on one call and 0.3 on another, at temperature 0.2. The failure mode is not a
+  noisy score around a stable verdict, it is the VERDICT FLIPPING, and `mean 0.63`
+  renders identically whether three calls agreed on a mediocre answer or two
+  called it a pass and one a failure. Those are different facts and a reader acts
+  differently on them. Disagreement is highlighted; unanimity is not.
+  
+  INCONCLUSIVE repetitions are excluded from both figures, matching the rollup: a
+  judge outage is not a judge being unsure, and counting one as disagreement would
+  report an outage as rubric ambiguity.
+  
+  The run header also stops implying one repetition count governs everything. It
+  now reads `judge: claude-sonnet-5 (custom criteria x3, golden_match x1)`, because
+  that is what the number applies to — `golden_match` was measured stable and is
+  judged once whatever the run asks for.
+  
+  A criterion judged once is unchanged: no summary line, same single row as before.
+
+### Patch Changes
+
+- b1210e9: `agent-skill list` prints the contract behind it
+  
+  `nexus agent-skill list` is now bound to the Public API v1 descriptor it calls,
+  so it gains `--print-contract` and a generated contract block under its existing
+  Examples and Notes. The values and field names in that block come from the v1
+  Zod schemas rather than a hand-typed list, so they cannot drift from the route
+  the command actually calls.
+  
+  The other five descriptors this namespace declares — Get, Update, Delete, Upload
+  and DownloadUrl — are deliberately left unbound, and the comment at the binding
+  site records why, because the reason is not the one it looks like. All five take
+  `:skillId`, and the id-graph's param-name rule resolves that to `tool skills`
+  (`GET /public/v1/tools/skills`) — the marketplace skill catalogue, not the
+  bundles attached to an agent. It is the only param-free bound GET collection
+  whose last segment pluralises `skill`, and one candidate is not ambiguity, so
+  the rule accepts it. Binding any of the five therefore does not leave it
+  honestly unswept: it threads the wrong id, the graph comes back
+  `fullyResolved: true`, and the sweep calls the leaf with a marketplace id, takes
+  a 404 and reports FAILED on a healthy route — on `CLI: Sweep`, a required
+  context. A residue row cannot repair it, because `sourceFor` never consults
+  `residueFor` once a producer resolves.
+  
+  `execution poll` gains a `debt:` marker rather than a binding. It carries the
+  same `exit-carries-resource-state` property that earned `execution diagnose` a
+  row in `id-graph.leaf-residue.ts`, and nothing declared it: `judgeRunStatus` →
+  `reportRunRefusal` returns `remote-error` for FAILED and `unmeasured` for
+  CANCELLED, PENDING and RUNNING, so all four non-COMPLETED statuses map to
+  FAILED and under `--json` the record is not printed at all. The leaf stays out
+  of the id-graph population for exactly one reason — its id positional is
+  optional — so the marker sits at the line whose edit would arm the hazard.
+- e58ab52: `COMPATIBILITY.md` reports the right figures for the commands whose `--json`
+  shape it does not document.
+  
+  The sentence accounting for those commands said 108 of them carry no shape line
+  where 109 do, and that 5 reach no printer where 6 do. Both numbers ship inside
+  the package, so anyone who read them for a count of what `--json` does not
+  describe read a wrong one. The breakdown beside them — how many build their own
+  document, branch to two shapes, carry no readable registration, or are ambiguous
+  — was already right and is unchanged.
+- 0b69ee1: The mount CLI is one file per verb and per engine
+  
+  `nexus workspace mount / remount / unmount / status` behave as before; every
+  `--help` page is byte-identical. What ships differently:
+  
+  - The engine × platform rule is one table, read by `mount` and `remount` alike.
+    Before, the `remount` copy had no exhaustiveness check, so a future engine
+    could compile and be replayed on a platform that cannot run it.
+  - `mount`'s token mint refuses a mount-token response whose `token` is not a
+    string, with the same "returned no token" error the missing-token path
+    already raised. Before, a non-string token was URL-encoded into the mount
+    path.
+  - When `mount_webdav` fails, a `stderr` that is not a Buffer is dropped from the
+    message instead of being stringified into it.
+  - An unreachable API during `mount` reports `CLI_CONNECTION_FAILED` and a 401
+    reports the authentication error with its "nexus auth login" hint, the same
+    codes every other command uses.
+
 ## 1.4.0
 ### Minor Changes
 

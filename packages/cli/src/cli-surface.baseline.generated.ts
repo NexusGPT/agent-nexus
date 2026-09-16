@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.4.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.5.0 ────────────────────────────────────────────────────
  *
  * 543 promised paths — 484 STABLE, 59 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.4.0",
+  version: "1.5.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -65,7 +65,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "agent-skill delete", shape: "2f7dae69528e", tier: "STABLE" },
     { path: "agent-skill download", shape: "cf45dacbe437", tier: "STABLE" },
     { path: "agent-skill get", shape: "21e622125c97", tier: "STABLE" },
-    { path: "agent-skill list", shape: "5952e87abea2", tier: "STABLE" },
+    { path: "agent-skill list", shape: "65321c582cbc", tier: "STABLE" },
     { path: "agent-skill presets", shape: "3892530e2b72", tier: "STABLE" },
     { path: "agent-skill update", shape: "c9a9d9386a7b", tier: "STABLE" },
     { path: "agent-skill upload", shape: "09f8a2959561", tier: "STABLE" },
@@ -456,7 +456,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "tool execute", shape: "34e020f20c7d", tier: "STABLE" },
     { path: "tool get", shape: "08102e702153", tier: "STABLE" },
     { path: "tool resolve-options", shape: "1ea0f94abecb", tier: "STABLE" },
-    { path: "tool search", shape: "f5af83ef5e1d", tier: "STABLE" },
+    { path: "tool search", shape: "5fce0707c439", tier: "STABLE" },
     { path: "tool skills", shape: "b89269150941", tier: "STABLE" },
     { path: "tool test", shape: "8bdc3d998386", tier: "STABLE" },
     { path: "tracing cost-breakdown", shape: "6005b3d4bd75", tier: "STABLE" },

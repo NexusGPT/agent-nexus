@@ -12,7 +12,7 @@ export interface MarketplaceToolItem {
   description: string;
   /**
    * The integration kind: `"PIPEDREAM"`, `"CUSTOM_MANIFEST"`, `"API"`,
-   * `"MANIFEST"`, `"WEBHOOK"` or `"APIFY"`. Send it straight back as
+   * `"MANIFEST"`, `"WEBHOOK"`, `"APIFY"` or `"MCP"`. Send it straight back as
    * {@link SearchMarketplaceToolsParams.type} to filter on it.
    */
   type: string;
@@ -30,7 +30,7 @@ export interface SearchMarketplaceToolsParams {
   category?: string;
   /**
    * Filter by integration kind — one of `"PIPEDREAM"`, `"CUSTOM_MANIFEST"`,
-   * `"API"`, `"MANIFEST"`, `"WEBHOOK"` or `"APIFY"`. Anything else is refused
+   * `"API"`, `"MANIFEST"`, `"WEBHOOK"`, `"APIFY"` or `"MCP"`. Anything else is refused
    * with `400 VALIDATION_ERROR` naming the whole set.
    *
    * This is the same closed set {@link MarketplaceToolItem.type} carries, so a

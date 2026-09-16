@@ -26,7 +26,8 @@ export const TOOL_DISCOVERY_SEARCH__PARAMS_TYPE = {
     "MANIFEST",
     "CUSTOM_MANIFEST",
     "APIFY",
-    "PIPEDREAM"
+    "PIPEDREAM",
+    "MCP"
   ]
 } as const satisfies ContractEnum;
 
@@ -46,7 +47,7 @@ export const TOOL_DISCOVERY_SEARCH_CONTRACT = {
   fields: [
     { path: "Params.q", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.category", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["WEBHOOK", "API", "MANIFEST", "CUSTOM_MANIFEST", "APIFY", "PIPEDREAM"] },
+    { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["WEBHOOK", "API", "MANIFEST", "CUSTOM_MANIFEST", "APIFY", "PIPEDREAM", "MCP"] },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.offset", slot: "Params", type: "integer", required: false, depth: 0 }
   ]

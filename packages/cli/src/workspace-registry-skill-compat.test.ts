@@ -18,7 +18,7 @@
  *
  * That is a shipped reader broken by a format change inside the very package
  * that ships it, which is precisely the coupling nobody looks for: an audit of
- * the registry's WRITERS finds only `workspace-mounts.ts` and concludes no
+ * the registry's WRITERS finds only `mount-registry.ts` and concludes no
  * migration is needed. So the coupling gets a test instead of a comment.
  *
  * ── Why this cannot be fixed in this repository ──────────────────────────────
@@ -89,6 +89,7 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { mountKey } from "./mount-registry";
 import {
   getAgentFiles,
   getClaudeMd,
@@ -98,7 +99,6 @@ import {
   getSkills,
   type SkillFile
 } from "./skills-content.generated";
-import { mountKey } from "./workspace-mounts";
 
 /**
  * Does this CLI still write bare-slug registry keys? Derived from `mountKey`

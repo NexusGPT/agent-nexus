@@ -11,13 +11,13 @@ import {
 } from "@agent-nexus/sdk";
 
 import type { FailureCause } from "./errors";
-import { writeSecretFile } from "./util/secret-file";
 import {
   ensureStateSubdir,
   type MountAccess,
   type RcloneEngine,
   STATE_DIR
-} from "./workspace-mounts";
+} from "./mount-registry";
+import { writeSecretFile } from "./util/secret-file";
 
 // ── Direct-engine mount: the pure half ────────────────────────────────────────
 //
@@ -36,7 +36,7 @@ import {
 // left behind.
 //
 // This module is spawn-free and reads no environment of its own: every function
-// takes what it needs as a parameter, so `workspace-mounts.test.ts` can pin each
+// takes what it needs as a parameter, so `mount-registry.test.ts` can pin each
 // one without a FUSE, a network or a real home directory. The command file owns
 // the spawns, the clock and the exit codes.
 

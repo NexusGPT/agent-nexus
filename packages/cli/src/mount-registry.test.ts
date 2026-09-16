@@ -11,7 +11,7 @@ import {
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The state directory is resolved from HOME when `./workspace-mounts` loads,
+ * The state directory is resolved from HOME when `./mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
  * wherever it sits in the file. The health cases below write real session and
  * cache files under it; nothing here may reach the developer's own
@@ -24,6 +24,24 @@ const SANDBOX = vi.hoisted(() => {
   return dir;
 });
 
+import {
+  claimMountPoint,
+  defaultMountPath,
+  describeOwner,
+  describeScope,
+  ENGINE_LIVENESS,
+  findMount,
+  findMountsByPath,
+  findMountsBySlug,
+  isLegacyKey,
+  mountKey,
+  mountPathOrgSegment,
+  type MountRecord,
+  type MountScope,
+  mountScopeId,
+  scopeCandidateKeys,
+  unmountMissMessage
+} from "./mount-registry";
 import {
   accessIsLower,
   announced,
@@ -74,24 +92,6 @@ import {
   writeCacheOwner,
   writeSession
 } from "./workspace-direct-mount";
-import {
-  claimMountPoint,
-  defaultMountPath,
-  describeOwner,
-  describeScope,
-  ENGINE_LIVENESS,
-  findMount,
-  findMountsByPath,
-  findMountsBySlug,
-  isLegacyKey,
-  mountKey,
-  mountPathOrgSegment,
-  type MountRecord,
-  type MountScope,
-  mountScopeId,
-  scopeCandidateKeys,
-  unmountMissMessage
-} from "./workspace-mounts";
 
 afterAll(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });

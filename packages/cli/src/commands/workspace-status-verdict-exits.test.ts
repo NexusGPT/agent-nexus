@@ -41,15 +41,15 @@ import { describeStdout } from "./json-one-document.scan";
 const { readMounts } = vi.hoisted(() => ({ readMounts: vi.fn() }));
 
 // 🚨 ONLY THE REGISTRY IS REPLACED, AND THE LIVENESS PREDICATE IS NOT.
-// `isMountLive` is a LOCAL function in `workspace.ts` — for the rclone engine it
+// `isMountLive` lives in `workspace-mount-shared.ts` — for the rclone engine it
 // is `process.kill(pid, 0)` AND a read of that pid's command line through `ps`,
 // which must name an rclone mount. A spec that stubbed the predicate would
 // assert against its own boolean; driving a REAL pid exercises the shipped
 // signal check, and `process.pid` is the one pid a test can be certain is
 // alive. That one process is not rclone, so `ps` alone answers as if it were —
 // every other child_process call stays real.
-vi.mock("../workspace-mounts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../workspace-mounts")>()),
+vi.mock("../mount-registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mount-registry")>()),
   readMounts
 }));
 vi.mock("node:child_process", async (importOriginal) => {

@@ -2,7 +2,7 @@ import type { WorkspaceKind } from "@agent-nexus/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createClient } from "../client";
-import { resolveMountTarget } from "./workspace";
+import { resolveMountTarget } from "./workspace-mount-shared";
 
 /**
  * NEX-2362: the mount must learn whether a slug is org-owned, admin-shared, or

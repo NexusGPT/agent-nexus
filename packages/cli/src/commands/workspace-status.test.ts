@@ -13,7 +13,7 @@ import { Command } from "commander";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The state directory is resolved from HOME when `../workspace-mounts` loads,
+ * The state directory is resolved from HOME when `../mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
  * wherever it sits in the file. The direct-engine cases below write real
  * session files under it; nothing here may reach the developer's own

@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The state directory is resolved from HOME when `../workspace-mounts` loads,
+ * The state directory is resolved from HOME when `../mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
  * wherever it sits in the file. The direct-engine cases below write real
  * session files under it; nothing here may reach the developer's own
@@ -24,6 +24,7 @@ const SANDBOX = vi.hoisted(() => {
 });
 
 import type { ResolvedProfile } from "../config";
+import { LOG_DIR } from "../mount-registry";
 import { setJsonMode } from "../output";
 import {
   DIRECT_MOUNT_INTRO_MARKER,
@@ -36,7 +37,6 @@ import {
   stableNodePath,
   writeSession
 } from "../workspace-direct-mount";
-import { LOG_DIR } from "../workspace-mounts";
 
 /**
  * NEX-2360 follow-up: org-scoping the registry KEY does not scope the mount

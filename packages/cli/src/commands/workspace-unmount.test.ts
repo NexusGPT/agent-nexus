@@ -6,7 +6,7 @@ import type { WorkspaceMountCredentials } from "@agent-nexus/sdk";
 import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 /**
- * The state directory is resolved from HOME when `../workspace-mounts` loads,
+ * The state directory is resolved from HOME when `../mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
  * wherever it sits in the file. The direct-engine cases below write real
  * session and cache files under it; nothing here may reach the developer's own
@@ -24,6 +24,7 @@ const SANDBOX = vi.hoisted(() => {
 
 import type { ResolvedProfile } from "../config";
 import { buildRootProgram } from "../index";
+import { mountKey } from "../mount-registry";
 import { setJsonMode } from "../output";
 import {
   awsConfigFor,
@@ -35,7 +36,6 @@ import {
   stableNodePath,
   writeSession
 } from "../workspace-direct-mount";
-import { mountKey } from "../workspace-mounts";
 
 /**
  * NEX-2360: `unmount` disambiguates by the org recorded at mount time.

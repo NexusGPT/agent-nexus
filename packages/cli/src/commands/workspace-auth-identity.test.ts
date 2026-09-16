@@ -19,7 +19,7 @@ vi.mock("../config", async (importOriginal) => {
   return { ...actual, resolveProfile: (...args: unknown[]) => resolveProfile(...args) };
 });
 
-import { resolveAuth } from "./workspace";
+import { resolveAuth } from "./workspace-mount-shared";
 
 const PROFILE: ResolvedProfile = {
   name: "orange",

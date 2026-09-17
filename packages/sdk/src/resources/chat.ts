@@ -1,5 +1,7 @@
 import { UI_MESSAGE_STREAM_PROTOCOL_HEADER } from "../http-client";
+import { appendFilePart } from "../multipart";
 import type {
+  ChatAttachmentUpload,
   ChatResumeCursor,
   ChatResumeOptions,
   ChatSession,
@@ -10,7 +12,8 @@ import type {
   ChatTurnStatus,
   CreateChatSessionBody,
   SendChatMessageBody,
-  StopChatTurnBody
+  StopChatTurnBody,
+  UploadChatAttachmentsResponse
 } from "../types/chat";
 import { BaseResource } from "./base-resource";
 
@@ -368,6 +371,66 @@ export class ChatResource extends BaseResource {
     return this.http.request<ChatTurnStatus>("GET", `/deployments/${deploymentId}/chat/status`, {
       chatSessionToken: auth.token
     });
+  }
+
+  /**
+   * Store files a visitor attached and hand back one id per file.
+   *
+   * ══════════════════════════════════════════════════════════════════════════
+   * THIS IS THE ONLY DOOR THAT MINTS A `knowledgeIds` VALUE
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * {@link stream} CONSUMES ids through `knowledgeIds`; nothing else on this
+   * surface produces one. A browser holding only a session token therefore had
+   * no way to attach a file at all before this route existed.
+   *
+   * Uses the SESSION TOKEN, like every method here except {@link createSession}.
+   *
+   * ```ts
+   * const { attachments } = await client.chat.uploadAttachments(
+   *   deploymentId,
+   *   [{ file, fileName: file.name }],
+   *   auth
+   * );
+   * const knowledgeIds = attachments
+   *   .filter((a) => a.status === "DONE")
+   *   .map((a) => a.id);
+   * await client.chat.stream(deploymentId, { content: "what is in this?", knowledgeIds }, auth);
+   * ```
+   *
+   * 🔴 **READ EVERY RESULT — A 2xx IS NOT "ALL FILES STORED".** Each file
+   * reports its own outcome, so one refused file does not discard the rest.
+   * A caller that treats the call as a boolean silently drops the ids of the
+   * files that did store, or spends an id the `ERROR` arm never carried.
+   *
+   * ⚠️ **NO URL COMES BACK, AND THAT IS THE POINT** — see
+   * {@link ChatAttachmentUploadResult}. Render the local file for a preview.
+   *
+   * ⚠️ Sending NO file is a legitimate request that stores nothing and answers a
+   * zero summary rather than a 400. The per-file count and the total request
+   * size are both bounded server-side; exceeding either is refused for the whole
+   * request, not per file.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param files - The files, each with the name to store it under. They all
+   *   travel under the one field name the route declares.
+   * @param auth - The session token. The conversation is its own claim.
+   */
+  async uploadAttachments(
+    deploymentId: string,
+    files: readonly ChatAttachmentUpload[],
+    auth: ChatStreamAuth
+  ): Promise<UploadChatAttachmentsResponse> {
+    const formData = new FormData();
+    for (const entry of files) {
+      appendFilePart(formData, "files", entry.file, entry.fileName);
+    }
+
+    return this.http.request<UploadChatAttachmentsResponse>(
+      "POST",
+      `/deployments/${deploymentId}/chat/attachments`,
+      { body: formData, chatSessionToken: auth.token }
+    );
   }
 
   /**

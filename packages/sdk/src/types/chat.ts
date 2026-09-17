@@ -451,3 +451,78 @@ export interface ChatResumeCursor {
 
 /** Options for {@link ChatResource.resume}, the frame-parsing resume door. */
 export interface ChatResumeOptions extends ChatResumeCursor, ChatStreamOptions {}
+
+/**
+ * One file handed to {@link ChatResource.uploadAttachments}.
+ *
+ * The name is carried separately because a `Blob` has none, and the server
+ * stores what it is sent and displays it back — so a `Blob` uploaded without one
+ * becomes an attachment nobody can identify. A `File` already carries its own
+ * name and may omit this.
+ */
+export interface ChatAttachmentUpload {
+  /** The bytes, as a `Blob` or a `File`. */
+  file: Blob | File;
+  /**
+   * Name to send. Omit it to let a `File` keep its own; a bare `Blob` sent
+   * without one is stored under whatever the server defaults to.
+   */
+  fileName?: string;
+}
+
+/**
+ * One file's outcome, discriminated on `status`.
+ *
+ * 🔴 **THE SUCCESS ARM CARRIES AN `id` AND NO URL, DELIBERATELY.** The id is the
+ * knowledge row the bytes were stored as, and the only sanctioned way to put it
+ * into a turn is `knowledgeIds` on {@link ChatResource.stream} — where it is
+ * looked up scoped to the organization the session token resolved, so an id
+ * belonging to another tenant returns no row and is dropped. The neighbouring
+ * `images` field takes a free-form string, is replayed into every later turn,
+ * reaches the model as prompt text and is dereferenced by the provider with no
+ * ownership check of any kind, so a URL here would point callers at that
+ * channel. A client showing the visitor a preview renders the local `File` it
+ * already holds.
+ *
+ * The `ERROR` arm carries NO `id`: the row is minted before the upload is
+ * attempted, so a failed file's id addresses nothing and spending it in
+ * `knowledgeIds` would be a silent no-op.
+ */
+export type ChatAttachmentUploadResult =
+  | {
+      /** The knowledge id. Send it back in `knowledgeIds` on the next turn. */
+      id: string;
+      /** The original filename, so a caller can match a result to what it sent. */
+      name: string;
+      status: "DONE";
+    }
+  | {
+      /** The original filename. */
+      name: string;
+      status: "ERROR";
+      error: {
+        message: string;
+        code: string;
+      };
+    };
+
+/**
+ * What {@link ChatResource.uploadAttachments} hands back.
+ *
+ * 🔑 **PARTIAL SUCCESS IS NORMAL AND IS REPORTED PER FILE.** A visitor who
+ * attached four files and had one refused for its type keeps the other three,
+ * and a caller can only act on that if it reads `attachments` rather than
+ * treating the call as one boolean. `summary.failed > 0` on an otherwise
+ * successful request is the ordinary case, not an error.
+ */
+export interface UploadChatAttachmentsResponse {
+  attachments: ChatAttachmentUploadResult[];
+  summary: {
+    /** Files submitted. */
+    total: number;
+    /** Files stored, and therefore carrying an id. */
+    succeeded: number;
+    /** Files refused. */
+    failed: number;
+  };
+}

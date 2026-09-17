@@ -113,6 +113,15 @@ const SDK_UPLOAD_METHODS: Readonly<Record<string, UploadCall>> = {
     ids: [],
     call: (client, _ids, file, fileName) => client.assets.upload(file, fileName)
   },
+  // The only entry authenticated by a CHAT-SESSION TOKEN rather than the org
+  // api-key, and the only one taking a LIST of files. The token is a fixture:
+  // `captureOneRequest` never reaches a server, and `credentialHeaders` only
+  // has to resolve SOME credential for the request to be built at all.
+  ChatUploadAttachments: {
+    ids: ["deployment-1"],
+    call: (client, [deploymentId], file, fileName) =>
+      client.chat.uploadAttachments(deploymentId, [{ file, fileName }], { token: "session-token" })
+  },
   DocumentUploadFile: {
     ids: [],
     call: (client, _ids, file, fileName) => client.documents.uploadFile(file, fileName)

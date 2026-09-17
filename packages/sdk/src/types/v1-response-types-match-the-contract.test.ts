@@ -796,6 +796,13 @@ export type V1ResponseAssertions = [
   Expect<Equals<ResponseOf<"ChatStopTurn">, MethodResult<NexusClient["chat"]["stop"]>>>,
   // ChatTurnStatus  GET /public/v1/deployments/:deploymentId/chat/status  ->  client.chat.status()
   Expect<Equals<ResponseOf<"ChatTurnStatus">, MethodResult<NexusClient["chat"]["status"]>>>,
+  // ChatUploadAttachments  POST /public/v1/deployments/:deploymentId/chat/attachments  ->  client.chat.uploadAttachments()
+  Expect<
+    Equals<
+      ResponseOf<"ChatUploadAttachments">,
+      MethodResult<NexusClient["chat"]["uploadAttachments"]>
+    >
+  >,
   // DeploymentStatistics  GET /public/v1/deployments/:deploymentId/statistics  ->  client.deployments.getStatistics()
   Expect<
     Equals<
@@ -1821,6 +1828,7 @@ export type V1ResponseAssertions = [
 const GATED_ROUTES = [
   "ChatStopTurn",
   "ChatTurnStatus",
+  "ChatUploadAttachments",
   "CueTranscriptsListConversations",
   "CueTranscriptsGetTranscript",
   "AgentDelete",
@@ -2796,7 +2804,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 338;
+const GATED_ROUTE_COUNT = 339;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

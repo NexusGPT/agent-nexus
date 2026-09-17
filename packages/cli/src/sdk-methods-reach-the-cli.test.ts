@@ -87,6 +87,17 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   // key. On the day one exists, this row comes out and the command is four
   // lines.
   "chat.refresh": "the terminal re-mints with --chat-id; refresh is for a caller with no api key",
+  // A PENDING GAP, not a design. This is the only v1 door that MINTS a value
+  // `chat send --knowledge-id` can spend: that flag takes a `Knowledge` id, and
+  // `document upload` writes a `Document` row, which is a different model — so
+  // today the flag has no terminal-side producer at all. Nothing about this SDK
+  // or the route blocks a command: `chat send` already mints and holds the
+  // session token this method needs. What is missing is a `chat attach
+  // <deploymentId> <file...>` verb that prints the ids. Written here rather
+  // than built because the branch carrying it is a narrow repair to an
+  // already-shipped cluster.
+  "chat.uploadAttachments":
+    "no `chat attach` verb yet — buildable today on the session token `chat send` already mints",
   // Reading one connection by id: `nexus channel list-connections` covers the
   // discovery case, and nothing in the CLI takes a connection id yet.
   "channels.getConnection": "no command takes a connection id",

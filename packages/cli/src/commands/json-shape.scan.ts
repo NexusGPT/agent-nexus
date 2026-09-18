@@ -3,6 +3,9 @@ import path from "node:path";
 
 import ts from "typescript";
 
+import { commandName, resolveCommandPath } from "./json-shape.command-path";
+import { RegistrarPrefixes } from "./json-shape.registrar-prefix";
+
 /**
  * WHICH OF THE FIVE `--json` SHAPES EACH LEAF PRINTS — DERIVED FROM THE CODE.
  *
@@ -69,8 +72,10 @@ import ts from "typescript";
  * call is resolved back through local variables and wrapper calls
  * (`confirmable(x)`, `addPaginationOptions(x)`) until it bottoms out at the
  * registrar's own parameter, which yields a path RELATIVE to whatever that
- * parameter is at runtime. The caller joins that suffix onto the real command
- * tree, where the absolute path is known.
+ * parameter is at runtime. That parameter is then resolved through the
+ * registrar's call site where one exists (`json-shape.registrar-prefix.ts`),
+ * and the caller joins the resulting suffix onto the real command tree, where
+ * the absolute path is known.
  */
 
 /** The six, and nothing else. Each is a terminal in the walk below. */
@@ -260,7 +265,12 @@ function reachesSelfJson(
 export interface ScannedLeaf {
   /** `src/commands/*.ts` basename the registration is written in. */
   readonly sourceModule: string;
-  /** Space-joined path from the registrar's own `Command` parameter, e.g. `node get`. */
+  /**
+   * Space-joined path from the registrar's own `Command` parameter, e.g. `node
+   * get` — extended upward through that registrar's call site wherever it
+   * resolves, so a leaf registered on a handed-in `role` reads `role list`. See
+   * `json-shape.registrar-prefix.ts`.
+   */
   readonly relativePath: string;
   /**
    * The printers this registration's action reaches, sorted. Exactly one is a
@@ -590,144 +600,6 @@ function reachedPrinters(seed: ReadonlySet<string>, file: string, index: SourceI
   return found.has(DOMINANT_PRINTER) ? new Set([DOMINANT_PRINTER]) : found;
 }
 
-/** Strip `await` and parentheses, so `await confirmable(x)` reads as `confirmable(x)`. */
-function unwrap(expression: ts.Expression): ts.Expression {
-  let cursor = expression;
-  while (ts.isAwaitExpression(cursor) || ts.isParenthesizedExpression(cursor)) {
-    cursor = cursor.expression;
-  }
-  return cursor;
-}
-
-/** Is this call `<something>.command("<literal>")`? */
-function commandName(node: ts.Node): string | null {
-  if (!ts.isCallExpression(node)) return null;
-  if (!ts.isPropertyAccessExpression(node.expression)) return null;
-  if (node.expression.name.text !== "command") return null;
-
-  const first = node.arguments[0];
-  if (first === undefined || !ts.isStringLiteralLike(first)) return null;
-
-  // `.command("node get <id>")` — commander takes the name up to the first
-  // space, and the rest declares arguments.
-  return first.text.split(/\s+/)[0] ?? null;
-}
-
-/**
- * The path a `.command()` call sits at, relative to the registrar's own
- * `Command` parameter, or `null` when the receiver cannot be resolved.
- *
- * Resolution walks three shapes and refuses everything else:
- *   · `parent.command("x")`               — the receiver is another `.command()`
- *   · `someVariable.command("x")`         — resolved through its initializer
- *   · `wrapper(parent.command("x")).opt()` — descends into the wrapper's argument
- */
-function relativePathOf(call: ts.CallExpression, source: ts.SourceFile): string[] | null {
-  const segments: string[] = [];
-  let cursor: ts.Node = call;
-  const guard = new Set<ts.Node>();
-
-  for (;;) {
-    if (guard.has(cursor)) return null;
-    guard.add(cursor);
-
-    const name = commandName(cursor);
-    if (name === null) return null;
-    segments.unshift(name);
-
-    // The receiver: the expression `.command` was read off.
-    let receiver: ts.Expression = unwrap(
-      ((cursor as ts.CallExpression).expression as ts.PropertyAccessExpression).expression
-    );
-
-    // Peel any chained builder calls back to whatever produced the object:
-    // `parent.command("x").description(…).option(…)` -> `parent.command("x")`.
-    for (;;) {
-      if (
-        ts.isCallExpression(receiver) &&
-        ts.isPropertyAccessExpression(receiver.expression) &&
-        receiver.expression.name.text !== "command"
-      ) {
-        receiver = unwrap(receiver.expression.expression);
-        continue;
-      }
-      // `confirmable(x)`, `addPaginationOptions(x)` — a wrapper returning its
-      // own argument. Descend into the first argument; a wrapper that returned
-      // something else would resolve to a path that does not exist in the tree,
-      // which the caller reports rather than trusts.
-      if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
-        const inner = receiver.arguments[0];
-        if (inner === undefined) return null;
-        receiver = unwrap(inner);
-        continue;
-      }
-      break;
-    }
-
-    if (ts.isCallExpression(receiver) && commandName(receiver) !== null) {
-      cursor = receiver;
-      continue;
-    }
-
-    if (ts.isIdentifier(receiver)) {
-      const initializer = initializerOf(receiver.text, source);
-      // No initializer means the identifier is the registrar's own parameter —
-      // the bottom of the chain, and the point the path is relative TO.
-      if (initializer === null) return segments;
-
-      const resolved = unwrap(initializer);
-      let inner: ts.Expression = resolved;
-      for (;;) {
-        if (
-          ts.isCallExpression(inner) &&
-          ts.isPropertyAccessExpression(inner.expression) &&
-          inner.expression.name.text !== "command"
-        ) {
-          inner = unwrap(inner.expression.expression);
-          continue;
-        }
-        if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression)) {
-          const arg = inner.arguments[0];
-          if (arg === undefined) return null;
-          inner = unwrap(arg);
-          continue;
-        }
-        break;
-      }
-
-      if (ts.isCallExpression(inner) && commandName(inner) !== null) {
-        cursor = inner;
-        continue;
-      }
-      return null;
-    }
-
-    return null;
-  }
-}
-
-/** The initializer of a `const x = …` declared anywhere in this file, or null. */
-function initializerOf(name: string, source: ts.SourceFile): ts.Expression | null {
-  let found: ts.Expression | null = null;
-
-  const visit = (node: ts.Node): void => {
-    if (
-      found === null &&
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === name &&
-      node.initializer !== undefined
-    ) {
-      found = node.initializer;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-
-  return found;
-}
-
 /** The body of a `.action(fn)` call's handler. */
 function handlerBody(outer: ts.CallExpression): ts.Node | null {
   const handler = outer.arguments[0];
@@ -791,7 +663,26 @@ function actionBodyOf(call: ts.CallExpression, source: ts.SourceFile): ts.Node |
   }
 }
 
-/** `<name>.action(fn)` written as its own statement, or null. */
+/**
+ * Is `expression` the variable `name`, or a builder chain on it —
+ * `overview.addHelpText(…)` — whose next call would be `.action(…)`?
+ */
+function isBuiltFrom(expression: ts.Expression, name: string): boolean {
+  let cursor = expression;
+  while (
+    ts.isCallExpression(cursor) &&
+    ts.isPropertyAccessExpression(cursor.expression) &&
+    cursor.expression.name.text !== "command"
+  ) {
+    cursor = cursor.expression.expression;
+  }
+  return ts.isIdentifier(cursor) && cursor.text === name;
+}
+
+/**
+ * `<name>.action(fn)` written as its own statement, or null — with or without
+ * builder calls between: `overview.addHelpText(…).action(fn)` is the same shape.
+ */
 function deferredActionBody(name: string, source: ts.SourceFile): ts.Node | null {
   let found: ts.Node | null = null;
 
@@ -801,8 +692,7 @@ function deferredActionBody(name: string, source: ts.SourceFile): ts.Node | null
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === "action" &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === name
+      isBuiltFrom(node.expression.expression, name)
     ) {
       found = handlerBody(node);
       return;
@@ -822,6 +712,7 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
   }));
 
   const index = buildIndex(parsed);
+  const prefixes = new RegistrarPrefixes(parsed);
 
   const leaves: ScannedLeaf[] = [];
 
@@ -829,10 +720,10 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
     const visit = (node: ts.Node): void => {
       if (commandName(node) !== null) {
         const call = node as ts.CallExpression;
-        const relative = relativePathOf(call, source);
+        const resolved = resolveCommandPath(call, source);
         const body = actionBodyOf(call, source);
 
-        if (relative !== null && body !== null) {
+        if (resolved !== null && body !== null) {
           const own = callsIn(body);
           const printers = [...reachedPrinters(own, file, index)]
             .filter((name): name is ShapePrinter => PRINTER_SET.has(name))
@@ -840,7 +731,7 @@ export function scanJsonShapes(root: string): ScannedLeaf[] {
 
           leaves.push({
             sourceModule: path.basename(file),
-            relativePath: relative.join(" "),
+            relativePath: [...prefixes.above(call, resolved.base), ...resolved.segments].join(" "),
             printers,
             selfJson: reachesSelfJson(own, file, index, body)
           });

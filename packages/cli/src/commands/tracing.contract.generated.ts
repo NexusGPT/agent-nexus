@@ -67,7 +67,8 @@ export const TRACING_LIST_GENERATIONS__PARAMS_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -193,7 +194,7 @@ export const TRACING_LIST_GENERATIONS_CONTRACT = {
     { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.traceId", slot: "Params", type: "string", required: false, depth: 0 },
-    { path: "Params.provider", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Params.provider", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Params.modelName", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PENDING", "RUNNING", "COMPLETED", "FAILED"] },
     { path: "Params.agentId", slot: "Params", type: "string", required: false, depth: 0 },

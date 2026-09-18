@@ -36,6 +36,58 @@ import { beforeAll, describe, expect, it } from "vitest";
  * for the preflight case, which refuses before running any leaf.
  *
  * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 ONE ARM PER `it`, FILE-WIDE. ORDERING THEM IS NOT AN ALTERNATIVE TO IT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A failing assertion THROWS, so it aborts the rest of its own `it`. The unit of
+ * a test result is the BLOCK: a block that reds under a mutant proves ONE of its
+ * arms can fail — the first one that did — and the report has no field for the
+ * arms below it, which did not pass, did not fail and did not run. A mutation
+ * battery structurally cannot see this, because the score's granularity IS the
+ * block: every arm below the first failure is scored by nothing while the badge
+ * says the block was executed.
+ *
+ * This is not vitest-specific. jest's `expect` throws identically, so the same
+ * shielding holds in `apps/backend`.
+ *
+ * ── MEASURED ON THIS FILE, READING WHAT THE `→` LINES NAME ──────────────────
+ *
+ * vitest prints one `→` line per assertion that FIRED. An arm absent from that
+ * text was NOT SCORED, whatever colour its block is.
+ *
+ *   · N1, `bindCommand(list, AGENT_SKILL_LIST_CONTRACT)` deleted — the leaf
+ *     leaves the graph, so its row is gone AND `vanished` falls 4 -> 3.
+ *     In the old single-block shape, one arrow: the `agent-skill list` name.
+ *     The count, `failed`, the `not.toMatch` and `reached` were UNSCORED.
+ *   · N2, `bindCommand(list, TOOL_LIST_CONTRACT)` deleted — `agent-tool list`
+ *     is the fourth `agentId` consumer and the one that block does not name,
+ *     so only the count moves. One arrow: `expected 3 to be 4`.
+ *
+ * ⚠️ SO THE ORDER OF THE ARMS IS NOT THE VARIABLE, AND MOVING THEM FIXES ONE
+ * MUTANT RATHER THAN THE CLASS. With the count first, N1 scores the count and
+ * shields all three names; with the names first, N1 scores one name and shields
+ * the count. Which arm goes unscored depends on the MUTANT, so no ordering
+ * convention closes it — the same pair measured in an isolated lab, on a
+ * two-arm subject with nothing else in it, reaches the same conclusion.
+ *
+ * ✅ ONE ARM PER `it` IS THE ONLY SHAPE THAT SAYS WHICH PROPERTY SURVIVED, AND
+ * HERE IT COSTS NOTHING. The stated price of this cure is re-running the setup
+ * per block, which would be real at this file's ~5s process spawn; hoisting the
+ * spawn into one `beforeAll` per `describe` pays it ONCE, so N `it`s cost one
+ * sweep exactly as the single block did. The spawn count is unchanged by this
+ * shape — only the number of results it reports.
+ *
+ * `expect.soft` was the cheaper candidate and is refused: it does not exist
+ * under jest, so the shape would not transfer to `apps/backend`; it does not
+ * survive a non-assertion throw — `counts()` below throws when there is no
+ * summary line — and its arms still collapse into one `it` result.
+ *
+ * ⚠️ A `beforeAll` THAT THROWS REDS EVERY `it` UNDER IT, AND THAT IS THE HONEST
+ * RENDERING RATHER THAN A REGRESSION. When `counts()` finds no summary line the
+ * whole `describe` is unproven, which is exactly what the report then says — in
+ * the old shape the same throw retired one block and left the others silent.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
  * 🚨 `sweep()` IS ASYNC ON PURPOSE. NEVER PUT `spawnSync` BACK.
  * ══════════════════════════════════════════════════════════════════════════════
  *
@@ -72,11 +124,13 @@ import { beforeAll, describe, expect, it } from "vitest";
  *
  * debt: each case still shells out through `pnpm exec tsx`, and most of a case is
  *       that startup rather than the sweep — measured 5-10s per case on the
- *       Endurance, so this file's wall time scales at roughly 7s x cases. Calling
- *       the tsx binary directly would cut it, at the cost of resolving that binary
- *       ourselves in both a local pnpm workspace and CI, which is a different
- *       change with a different blast radius. It is no longer a CORRECTNESS
- *       ceiling: async `spawn` means a slow file is only slow.
+ *       Endurance, so this file's wall time scales at roughly 7s x SWEEPS. Note
+ *       the multiplier is sweeps and not `it`s: one-arm-per-`it` multiplies the
+ *       results, never the spawns. Calling the tsx binary directly would cut it,
+ *       at the cost of resolving that binary ourselves in both a local pnpm
+ *       workspace and CI, which is a different change with a different blast
+ *       radius. It is no longer a CORRECTNESS ceiling: async `spawn` means a slow
+ *       file is only slow.
  *       Upgrade trigger: this file passing ~2 minutes on CI, or the CLI step
  *       becoming the critical path of the `Tests: Vitest` job.
  */
@@ -91,7 +145,7 @@ interface Run {
   readonly stderr: string;
 }
 
-/** Async on purpose — the file header holds the whole argument. Keep every case
+/** Async on purpose — the file header holds the whole argument. Keep every hook
  * `async`, and never reach for `spawnSync` here. */
 function sweep(env: Readonly<Record<string, string>>): Promise<Run> {
   return new Promise<Run>((resolve, reject) => {
@@ -159,68 +213,162 @@ function provisionedOf(stdout: string): {
   return { provisioned: Number(line[1]), executable: Number(line[2]), floor: Number(line[3]) };
 }
 
+/** Hook budget for a `describe` whose `beforeAll` spawns ONE sweep. `hookTimeout`
+ * is its own budget and does not inherit a case's, so every hook states it. */
+const ONE_SWEEP = 60_000;
+/** Two sweeps in one hook, or a sweep whose fixture writes a state directory. */
+const SLOW_SWEEP = 90_000;
+
 describe("the id-thread sweep, end to end", () => {
-  it("exits 0 and reports what it reached when everything answers", async () => {
-    const run = await sweep({ FAKE_MODE: "normal" });
-    const summary = counts(run.stdout);
+  describe("when everything answers", () => {
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(0);
-    expect(summary.reached).toBeGreaterThan(0);
-    expect(summary.failed).toBe(0);
-    // Both skip kinds named separately, never one total.
-    expect(summary.noId).toBe(0);
-    expect(summary.needsInput).toBe(0);
-  }, 60_000);
+    beforeAll(async () => {
+      run = await sweep({ FAKE_MODE: "normal" });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
 
-  it("exits 1 and NAMES the leaf when a route answers with the wrong shape", async () => {
-    const run = await sweep({ FAKE_MODE: "badshape" });
+    it("exits 0", () => {
+      expect(run.code).toBe(0);
+    });
 
-    expect(run.code).toBe(1);
-    expect(counts(run.stdout).failed).toBe(1);
-    expect(run.stdout).toMatch(/^FAILED\s+agent-tool list/m);
-  }, 60_000);
+    it("reports what it reached", () => {
+      expect(summary.reached).toBeGreaterThan(0);
+    });
 
-  it("exits 7 and SKIPS rather than passing when the id source is empty", async () => {
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    // Both skip kinds named separately, never one total — so each gets its own
+    // block, or one of them is only ever scored by the other's failure.
+    it("reports no no-id skips", () => {
+      expect(summary.noId).toBe(0);
+    });
+
+    it("reports no needs-input skips", () => {
+      expect(summary.needsInput).toBe(0);
+    });
+  });
+
+  describe("when a route answers with the wrong shape", () => {
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
+
+    beforeAll(async () => {
+      run = await sweep({ FAKE_MODE: "badshape" });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
+
+    it("exits 1", () => {
+      expect(run.code).toBe(1);
+    });
+
+    it("counts exactly one failure", () => {
+      expect(summary.failed).toBe(1);
+    });
+
+    it("NAMES the leaf that failed", () => {
+      expect(run.stdout).toMatch(/^FAILED\s+agent-tool list/m);
+    });
+  });
+
+  describe("when the id source is empty", () => {
     // The row that matters most: nothing existed to test with is not a pass,
     // and a run that reached nothing must not report success.
-    const run = await sweep({ FAKE_MODE: "empty" });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(7);
-    expect(summary.reached).toBe(0);
-    expect(summary.noId).toBeGreaterThan(0);
-    expect(summary.failed).toBe(0);
-    expect(run.stderr).toContain("NONE was reached");
-    // Every skip names the producer that came back empty.
-    expect(run.stdout).toMatch(/^SKIPPED_NO_ID\s+\S+.*returned zero rows/m);
-  }, 60_000);
+    beforeAll(async () => {
+      run = await sweep({ FAKE_MODE: "empty" });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
 
-  it("exits 4 and reports NO per-leaf verdicts when the API is unreachable", async () => {
-    const run = await sweep({ FAKE_MODE: "unreachable" });
+    it("exits 7", () => {
+      expect(run.code).toBe(7);
+    });
 
-    expect(run.code).toBe(4);
-    expect(run.stderr).toContain("not authenticated");
-    // A refusal claims nothing about any leaf.
-    expect(run.stdout).not.toMatch(/^(REACHED|SKIPPED_NO_ID|SKIPPED_NEEDS_INPUT|FAILED)\s/m);
-  }, 60_000);
+    it("reaches nothing", () => {
+      expect(summary.reached).toBe(0);
+    });
 
-  it("separates a client-side refusal from a server rejection in ONE run", async () => {
+    it("SKIPS rather than passing", () => {
+      expect(summary.noId).toBeGreaterThan(0);
+    });
+
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    it("refuses on stderr with NONE was reached", () => {
+      expect(run.stderr).toContain("NONE was reached");
+    });
+
+    it("names the producer that came back empty on every skip", () => {
+      expect(run.stdout).toMatch(/^SKIPPED_NO_ID\s+\S+.*returned zero rows/m);
+    });
+  });
+
+  describe("when the API is unreachable", () => {
+    // No `counts()` here on purpose: a refusal prints no summary line, so
+    // hoisting one would throw in the hook and red these arms for the wrong
+    // reason.
+    let run: Run;
+
+    beforeAll(async () => {
+      run = await sweep({ FAKE_MODE: "unreachable" });
+    }, ONE_SWEEP);
+
+    it("exits 4", () => {
+      expect(run.code).toBe(4);
+    });
+
+    it("says it is not authenticated", () => {
+      expect(run.stderr).toContain("not authenticated");
+    });
+
+    it("reports NO per-leaf verdicts, because a refusal claims nothing about any leaf", () => {
+      expect(run.stdout).not.toMatch(/^(REACHED|SKIPPED_NO_ID|SKIPPED_NEEDS_INPUT|FAILED)\s/m);
+    });
+  });
+
+  describe("a client-side refusal beside a server rejection, in ONE run", () => {
     // Both leaves exit 5. `CLI_INVALID_ARGUMENTS` means nothing was sent, so the
     // route is untested; `VALIDATION_ERROR` means the server refused a complete
     // request, so the route answered badly. A rule that softened every 5 would
     // report two skips and exit 0.
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_REFUSE_LEAVES: "asset get:5:CLI_INVALID_ARGUMENTS,collection get:5:VALIDATION_ERROR"
-    });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(1);
-    expect(summary.needsInput).toBe(1);
-    expect(summary.failed).toBe(1);
-    expect(run.stdout).toMatch(/^SKIPPED_NEEDS_INPUT\s+asset get/m);
-    expect(run.stdout).toMatch(/^FAILED\s+collection get/m);
-  }, 60_000);
+    beforeAll(async () => {
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_REFUSE_LEAVES: "asset get:5:CLI_INVALID_ARGUMENTS,collection get:5:VALIDATION_ERROR"
+      });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
+
+    it("exits 1", () => {
+      expect(run.code).toBe(1);
+    });
+
+    it("counts the client-side refusal as ONE needs-input skip", () => {
+      expect(summary.needsInput).toBe(1);
+    });
+
+    it("counts the server rejection as ONE failure", () => {
+      expect(summary.failed).toBe(1);
+    });
+
+    it("names the refused leaf as SKIPPED_NEEDS_INPUT", () => {
+      expect(run.stdout).toMatch(/^SKIPPED_NEEDS_INPUT\s+asset get/m);
+    });
+
+    it("names the rejected leaf as FAILED", () => {
+      expect(run.stdout).toMatch(/^FAILED\s+collection get/m);
+    });
+  });
 });
 
 /**
@@ -248,27 +396,50 @@ describe("the id-thread sweep, end to end", () => {
  * whether the row is still listed.
  */
 describe("a row deleted between the list call and the read", () => {
-  it("re-threads and REACHES rather than reporting a route that answered correctly", async () => {
+  describe("when the producer still lists other rows", () => {
     // `agent list` publishes a doomed row once, then never again; any consumer
     // handed it answers `not-found` (4) with a NOT_FOUND document - which is
     // precisely what the live 404s were. Three leaves consume `agentId`.
-    const state = mkdtempSync(join(tmpdir(), "id-thread-race-"));
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_VANISH_PRODUCERS: "agent list",
-      FAKE_STATE_DIR: state
-    });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(0);
-    expect(summary.failed).toBe(0);
-    expect(summary.vanished).toBe(0);
+    beforeAll(async () => {
+      const state = mkdtempSync(join(tmpdir(), "id-thread-race-"));
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_VANISH_PRODUCERS: "agent list",
+        FAKE_STATE_DIR: state
+      });
+      summary = counts(run.stdout);
+    }, SLOW_SWEEP);
+
+    it("exits 0", () => {
+      expect(run.code).toBe(0);
+    });
+
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    it("counts nothing as vanished, because the row was re-threaded", () => {
+      expect(summary.vanished).toBe(0);
+    });
+
     // The three agentId consumers were re-threaded onto the surviving row and
-    // actually invoked - not skipped, not tolerated.
-    expect(run.stdout).toMatch(/^REACHED\s+agent-collection list/m);
-    expect(run.stdout).toMatch(/^REACHED\s+version list/m);
-    expect(run.stdout).toMatch(/^REACHED\s+agent-tool list/m);
-  }, 90_000);
+    // actually invoked - not skipped, not tolerated. One `it` each, because a
+    // mutant that unbinds ONE of them must not be able to shield the other two.
+    it("REACHES agent-collection list", () => {
+      expect(run.stdout).toMatch(/^REACHED\s+agent-collection list/m);
+    });
+
+    it("REACHES version list", () => {
+      expect(run.stdout).toMatch(/^REACHED\s+version list/m);
+    });
+
+    it("REACHES agent-tool list", () => {
+      expect(run.stdout).toMatch(/^REACHED\s+agent-tool list/m);
+    });
+  });
 
   /**
    * 🔴 THE RACE AT FULL STRENGTH, END TO END. The doomed row was the producer's
@@ -277,44 +448,8 @@ describe("a row deleted between the list call and the read", () => {
    * zero rows" this renders as the ordinary skip a reader scrolls past, which is
    * the fifth outcome being hollowed out in the one case it was added for.
    *
-   * ══════════════════════════════════════════════════════════════════════════
-   * 🚨 ONE ARM PER `it`, AND ORDERING THEM IS NOT AN ALTERNATIVE TO IT
-   * ══════════════════════════════════════════════════════════════════════════
-   *
-   * A failing assertion THROWS, so it aborts the rest of its own `it`. The unit
-   * of a test result is the BLOCK: a block that reds under a mutant proves ONE
-   * of its arms can fail — the first one that did — and the report has no field
-   * for the arms below it, which did not pass, did not fail and did not run.
-   *
-   * This block held seven arms and every mutant scored exactly one of them.
-   * Measured on this file, `-t "when the race takes the last row"`, reading what
-   * vitest's own `→` lines NAME rather than the colour of the block:
-   *
-   *   · N1, `bindCommand(list, AGENT_SKILL_LIST_CONTRACT)` deleted — the leaf
-   *     leaves the graph, so its row is gone AND `vanished` falls 4 -> 3.
-   *     One arrow: the `agent-skill list` name. The count, `failed`, the
-   *     `not.toMatch` and `reached` were UNSCORED.
-   *   · N2, `bindCommand(list, TOOL_LIST_CONTRACT)` deleted — `agent-tool list`
-   *     is the fourth `agentId` consumer and the one this block does not name,
-   *     so only the count moves. One arrow: `expected 3 to be 4`.
-   *
-   * ⚠️ SO THE ORDER OF THE ARMS IS NOT THE VARIABLE, AND MOVING THEM FIXES ONE
-   * MUTANT RATHER THAN THE CLASS. With the count first, N1 scores the count and
-   * shields all three names; with the names first — the shape this replaces —
-   * N1 scores one name and shields the count. Which arm goes unscored depends on
-   * the MUTANT, so no ordering convention closes it — the same pair measured in
-   * an isolated lab, on a two-arm subject with nothing else in it, reaches the
-   * same conclusion.
-   *
-   * ✅ ONE ARM PER `it` IS THE ONLY SHAPE THAT SAYS WHICH PROPERTY SURVIVED, AND
-   * HERE IT COSTS NOTHING. The stated price of this cure is re-running the setup
-   * per block, which would be real at this file's ~5s process spawn; hoisting the
-   * spawn into one `beforeAll` for the whole `describe` pays it ONCE, so seven
-   * `it`s cost one sweep exactly as the single block did. `expect.soft` was the
-   * cheaper candidate and is refused: it does not exist under jest, so the shape
-   * would not transfer to `apps/backend`, it does not survive a non-assertion
-   * throw — `counts()` above throws when there is no summary line — and its arms
-   * still collapse into one `it` result.
+   * This `describe` is the worked example the file header generalises: it was
+   * split first, and the N1/N2 measurements quoted up there were taken on it.
    */
   describe("when the race takes the last row", () => {
     let run: Run;
@@ -331,7 +466,7 @@ describe("a row deleted between the list call and the read", () => {
         FAKE_STATE_DIR: state
       });
       summary = counts(run.stdout);
-    }, 90_000);
+    }, SLOW_SWEEP);
 
     it("reports SKIPPED_ID_VANISHED for agent-collection list", () => {
       expect(run.stdout).toMatch(/^SKIPPED_ID_VANISHED\s+agent-collection list/m);
@@ -366,28 +501,44 @@ describe("a row deleted between the list call and the read", () => {
     });
   });
 
-  it("still FAILS on a not-found whose row its own producer is still listing", async () => {
+  describe("when the row its own producer is STILL listing answers not-found", () => {
     // The negative control, and the whole reason the cure is a second READ and
     // not a tolerance. Same exit code, same document, same category - and the
     // row never vanishes, so nothing may retire the red.
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_REFUSE_LEAVES: "collection get:4:NOT_FOUND"
-    });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(1);
-    expect(summary.failed).toBe(1);
-    expect(summary.vanished).toBe(0);
-    // ANCHORED to the leaf's own row rather than searched for anywhere in the
-    // output. The note ends in a slice of a PRETTY-PRINTED error document, so a
-    // free substring assertion would pass with the discriminator buried several
-    // lines below the row a reader actually scans - which is where it landed
-    // before it was moved to the front.
-    expect(run.stdout).toMatch(
-      /^FAILED\s+collection get\s+\[the id is STILL listed by its producer/m
-    );
-  }, 90_000);
+    beforeAll(async () => {
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_REFUSE_LEAVES: "collection get:4:NOT_FOUND"
+      });
+      summary = counts(run.stdout);
+    }, SLOW_SWEEP);
+
+    it("exits 1", () => {
+      expect(run.code).toBe(1);
+    });
+
+    it("still FAILS the leaf", () => {
+      expect(summary.failed).toBe(1);
+    });
+
+    it("retires nothing into the vanished count", () => {
+      expect(summary.vanished).toBe(0);
+    });
+
+    it("puts the discriminator on the leaf's OWN row", () => {
+      // ANCHORED to the leaf's own row rather than searched for anywhere in the
+      // output. The note ends in a slice of a PRETTY-PRINTED error document, so a
+      // free substring assertion would pass with the discriminator buried several
+      // lines below the row a reader actually scans - which is where it landed
+      // before it was moved to the front.
+      expect(run.stdout).toMatch(
+        /^FAILED\s+collection get\s+\[the id is STILL listed by its producer/m
+      );
+    });
+  });
 });
 
 /**
@@ -410,37 +561,62 @@ describe("a row deleted between the list call and the read", () => {
  * gone, "did not parse" proves nothing.
  */
 describe("a producer re-read that comes back unreadable", () => {
-  it("keeps the stored list instead of reporting later leaves as zero rows", async () => {
-    // `agent list` publishes the doomed row once, so a consumer threads it and
-    // gets a not-found — and the re-read that not-found triggers answers exit 0
-    // with an error page. Three leaves consume `agentId`.
+  // `agent list` publishes the doomed row once, so a consumer threads it and
+  // gets a not-found — and the re-read that not-found triggers answers exit 0
+  // with an error page. Three leaves consume `agentId`.
+  let run: Run;
+  let summary: ReturnType<typeof counts>;
+
+  beforeAll(async () => {
     const state = mkdtempSync(join(tmpdir(), "id-thread-unreadable-"));
-    const run = await sweep({
+    run = await sweep({
       FAKE_MODE: "normal",
       FAKE_VANISH_PRODUCERS: "agent list",
       FAKE_UNREADABLE_REREAD: "agent list",
       FAKE_STATE_DIR: state
     });
-    const summary = counts(run.stdout);
+    summary = counts(run.stdout);
+  }, SLOW_SWEEP);
 
-    // 🔴 THE WHOLE ASSERTION. Nothing here may be called an empty producer: the
-    // run holds `agent list`'s good body and never stopped holding it.
+  // 🔴 THE WHOLE ASSERTION. Nothing here may be called an empty producer: the
+  // run holds `agent list`'s good body and never stopped holding it.
+  it("keeps the stored list rather than counting a no-id skip", () => {
     expect(summary.noId).toBe(0);
+  });
 
-    // ANCHORED per leaf rather than a free search for "returned zero rows" — the
-    // notes carry pretty-printed error documents, so an unanchored negative can
-    // pass for the wrong reason.
+  // ANCHORED per leaf rather than a free search for "returned zero rows" — the
+  // notes carry pretty-printed error documents, so an unanchored negative can
+  // pass for the wrong reason. One `it` per leaf, so a mutant that removes one
+  // leaf cannot shield the other two negatives or anything below them.
+  it("does not report agent-collection list as SKIPPED_NO_ID", () => {
     expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+agent-collection list/m);
-    expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+version list/m);
-    expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+agent-tool list/m);
+  });
 
-    // The re-read measured NOTHING, so the not-found is NOT retired into a race.
-    // It stands as a failure, which is the conservative half of the same rule.
+  it("does not report version list as SKIPPED_NO_ID", () => {
+    expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+version list/m);
+  });
+
+  it("does not report agent-tool list as SKIPPED_NO_ID", () => {
+    expect(run.stdout).not.toMatch(/^SKIPPED_NO_ID\s+agent-tool list/m);
+  });
+
+  // The re-read measured NOTHING, so the not-found is NOT retired into a race.
+  // It stands as a failure, which is the conservative half of the same rule.
+  it("retires nothing into the vanished count", () => {
     expect(summary.vanished).toBe(0);
+  });
+
+  it("FAILS agent-collection list", () => {
     expect(run.stdout).toMatch(/^FAILED\s+agent-collection list/m);
+  });
+
+  it("FAILS version list", () => {
     expect(run.stdout).toMatch(/^FAILED\s+version list/m);
+  });
+
+  it("FAILS agent-tool list", () => {
     expect(run.stdout).toMatch(/^FAILED\s+agent-tool list/m);
-  }, 90_000);
+  });
 });
 
 /**
@@ -481,125 +657,262 @@ const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution lis
 const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list,document list";
 
 describe("the provisioned floor", () => {
-  it("exits 8 when too few leaves had an id, with something reached and nothing failed", async () => {
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
-    });
-    const summary = counts(run.stdout);
-    const provisioned = provisionedOf(run.stdout);
+  describe("when too few leaves had an id", () => {
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
+    let provisioned: ReturnType<typeof provisionedOf>;
 
-    expect(provisioned).toEqual({ provisioned: 8, executable: 29, floor: 10 });
+    beforeAll(async () => {
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
+      });
+      summary = counts(run.stdout);
+      provisioned = provisionedOf(run.stdout);
+    }, ONE_SWEEP);
+
+    it("reports the provisioned population it landed on", () => {
+      expect(provisioned).toEqual({ provisioned: 8, executable: 29, floor: 10 });
+    });
+
     // Neither of the other two non-zero rungs applies, so 8 is the only code
-    // that can be under test here.
-    expect(summary.reached).toBe(8);
-    expect(summary.failed).toBe(0);
-    expect(summary.noId).toBe(21);
-    expect(run.code).toBe(8);
-    expect(run.stderr).toContain("BELOW THE PROVISIONED FLOOR");
-    // NOT the nothing-reached refusal — that one is a different world.
-    expect(run.stderr).not.toContain("NONE was reached");
-  }, 60_000);
-
-  it("passes at EXACTLY the floor, so the comparison is `<` and not `<=`", async () => {
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_EMPTY_PRODUCERS: AT_FLOOR_PRODUCERS
+    // that can be under test here — and each of those three facts is its own
+    // block, because together they are what makes that true.
+    it("reached 8", () => {
+      expect(summary.reached).toBe(8);
     });
-    const provisioned = provisionedOf(run.stdout);
 
-    expect(provisioned.provisioned).toBe(provisioned.floor);
-    expect(provisioned).toEqual({ provisioned: 10, executable: 29, floor: 10 });
-    expect(counts(run.stdout).failed).toBe(0);
-    expect(run.code).toBe(0);
-  }, 60_000);
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
 
-  it("does NOT fire on the concurrent-delete race, however many rows it takes", async () => {
+    it("counts 21 no-id skips", () => {
+      expect(summary.noId).toBe(21);
+    });
+
+    it("exits 8", () => {
+      expect(run.code).toBe(8);
+    });
+
+    it("refuses on stderr with BELOW THE PROVISIONED FLOOR", () => {
+      expect(run.stderr).toContain("BELOW THE PROVISIONED FLOOR");
+    });
+
+    it("is NOT the nothing-reached refusal, which is a different world", () => {
+      expect(run.stderr).not.toContain("NONE was reached");
+    });
+  });
+
+  describe("at EXACTLY the floor", () => {
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
+    let provisioned: ReturnType<typeof provisionedOf>;
+
+    beforeAll(async () => {
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_EMPTY_PRODUCERS: AT_FLOOR_PRODUCERS
+      });
+      summary = counts(run.stdout);
+      provisioned = provisionedOf(run.stdout);
+    }, ONE_SWEEP);
+
+    it("sits exactly on the floor, so the comparison is `<` and not `<=`", () => {
+      expect(provisioned.provisioned).toBe(provisioned.floor);
+    });
+
+    it("reports the provisioned population it landed on", () => {
+      expect(provisioned).toEqual({ provisioned: 10, executable: 29, floor: 10 });
+    });
+
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    it("exits 0", () => {
+      expect(run.code).toBe(0);
+    });
+  });
+
+  describe("on the concurrent-delete race, however many rows it takes", () => {
     // 🔴 THE SELECTIVITY CASE. 21 leaves are SKIPPED_ID_VANISHED, so only 8 are
     // reached — UNDER the floor of 10 — and every one of those 21 HAD a
     // fixture, so provisioned is still the full 29 and the run passes. A floor
     // keyed on `reached` exits 8 here and calls a race a coverage outage.
-    const state = mkdtempSync(join(tmpdir(), "id-thread-floor-race-"));
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_VANISH_PRODUCERS: BELOW_FLOOR_PRODUCERS,
-      FAKE_VANISH_LEAVES_NOTHING: "1",
-      FAKE_STATE_DIR: state
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
+
+    beforeAll(async () => {
+      const state = mkdtempSync(join(tmpdir(), "id-thread-floor-race-"));
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_VANISH_PRODUCERS: BELOW_FLOOR_PRODUCERS,
+        FAKE_VANISH_LEAVES_NOTHING: "1",
+        FAKE_STATE_DIR: state
+      });
+      summary = counts(run.stdout);
+    }, SLOW_SWEEP);
+
+    it("counts 21 rows as vanished", () => {
+      expect(summary.vanished).toBe(21);
     });
-    const summary = counts(run.stdout);
 
-    expect(summary.vanished).toBe(21);
-    expect(summary.noId).toBe(0);
-    expect(summary.failed).toBe(0);
-    // The half that makes this discriminating: fewer reached than the floor.
-    //
-    // 🚨 AGAINST A LITERAL, NEVER AGAINST THE FLOOR THIS RUN PRINTED. Reading it
-    // back off the subject couples THIS arm to the floor's VALUE — and then the
-    // mutant that neuters the value to 0 kills this arm too, so the
-    // population-swap mutant's kill set becomes a SUBSET of the value mutant's
-    // and the pair stops proving anything the value mutant did not already
-    // prove. Measured: with `toBeLessThan(provisionedOf(...).floor)` here, the
-    // value mutant killed 4 arms including this one and the population mutant
-    // killed only this one; without it, 3 and 1, disjoint.
-    expect(summary.reached).toBe(8);
-    expect(summary.reached).toBeLessThan(10);
-    expect(provisionedOf(run.stdout).provisioned).toBe(29);
-    expect(run.code).toBe(0);
-  }, 90_000);
+    it("counts none of them as a no-id skip", () => {
+      expect(summary.noId).toBe(0);
+    });
 
-  it("keeps NOTHING EXISTED TO TEST WITH and all three skip counters beside it", async () => {
+    it("fails nothing", () => {
+      expect(summary.failed).toBe(0);
+    });
+
+    it("reached 8", () => {
+      // The half that makes this discriminating: fewer reached than the floor.
+      expect(summary.reached).toBe(8);
+    });
+
+    it("reached FEWER than the floor, which is what makes the case discriminating", () => {
+      // 🚨 AGAINST A LITERAL, NEVER AGAINST THE FLOOR THIS RUN PRINTED. Reading
+      // it back off the subject couples THIS arm to the floor's VALUE — and then
+      // the mutant that neuters the value to 0 kills this arm too, so the
+      // population-swap mutant's kill set becomes a SUBSET of the value mutant's
+      // and the pair stops proving anything the value mutant did not already
+      // prove. Measured: with `toBeLessThan(provisionedOf(...).floor)` here, the
+      // value mutant killed 4 arms including this one and the population mutant
+      // killed only this one; without it, 3 and 1, disjoint.
+      expect(summary.reached).toBeLessThan(10);
+    });
+
+    it("keeps the FULL provisioned population, because a vanished row HAD a fixture", () => {
+      expect(provisionedOf(run.stdout).provisioned).toBe(29);
+    });
+
+    it("exits 0", () => {
+      expect(run.code).toBe(0);
+    });
+  });
+
+  describe("one namespace short", () => {
     // The floor is an ADDITION. A run one namespace short is still green, and
     // the disclosure that says which namespace is unexercised — and what share
     // of the harness's reach that is — must still be printed.
-    const run = await sweep({ FAKE_MODE: "normal", FAKE_EMPTY_PRODUCERS: "tracks list" });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(run.code).toBe(0);
-    expect(provisionedOf(run.stdout).provisioned).toBe(19);
-    expect(run.stdout).toContain("NOTHING EXISTED TO TEST WITH");
-    expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 34% of this harness/m);
-    expect(run.stdout).toContain("seed-sweep-fixtures.sh");
-    // Three counters, still separate, still in the Summary line.
-    expect(summary.noId).toBe(10);
-    expect(summary.vanished).toBe(0);
-    expect(summary.needsInput).toBe(0);
-  }, 60_000);
+    beforeAll(async () => {
+      run = await sweep({ FAKE_MODE: "normal", FAKE_EMPTY_PRODUCERS: "tracks list" });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
 
-  it("gives the thin run a code of its OWN, never the nothing-reached one", async () => {
+    it("exits 0", () => {
+      expect(run.code).toBe(0);
+    });
+
+    it("reports the provisioned population it landed on", () => {
+      expect(provisionedOf(run.stdout).provisioned).toBe(19);
+    });
+
+    it("keeps NOTHING EXISTED TO TEST WITH", () => {
+      expect(run.stdout).toContain("NOTHING EXISTED TO TEST WITH");
+    });
+
+    it("names the unexercised namespace and its share of the harness", () => {
+      expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 34% of this harness/m);
+    });
+
+    it("names the remedy", () => {
+      expect(run.stdout).toContain("seed-sweep-fixtures.sh");
+    });
+
+    // Three counters, still separate, still in the Summary line — so each is a
+    // block of its own, which is what "separate" has to mean to be provable.
+    it("keeps the no-id counter beside it", () => {
+      expect(summary.noId).toBe(10);
+    });
+
+    it("keeps the vanished counter beside it", () => {
+      expect(summary.vanished).toBe(0);
+    });
+
+    it("keeps the needs-input counter beside it", () => {
+      expect(summary.needsInput).toBe(0);
+    });
+  });
+
+  describe("the thin run against the total outage", () => {
     // The exit codes are a vocabulary and no two may mean two things. A total
     // outage and a thin run are different worlds, so they get different numbers
     // and different refusals.
-    const outage = await sweep({ FAKE_MODE: "empty" });
-    const thin = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
+    let outage: Run;
+    let thin: Run;
+
+    beforeAll(async () => {
+      outage = await sweep({ FAKE_MODE: "empty" });
+      thin = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS
+      });
+    }, SLOW_SWEEP);
+
+    it("gives the outage 7", () => {
+      expect(outage.code).toBe(7);
     });
 
-    expect(outage.code).toBe(7);
-    expect(thin.code).toBe(8);
-    expect(thin.code).not.toBe(outage.code);
-    expect(outage.stderr).toContain("NONE was reached");
-    expect(thin.stderr).not.toContain("NONE was reached");
-    expect(thin.stderr).toContain("BELOW THE PROVISIONED FLOOR");
-    expect(outage.stderr).not.toContain("BELOW THE PROVISIONED FLOOR");
-  }, 90_000);
+    it("gives the thin run 8", () => {
+      expect(thin.code).toBe(8);
+    });
 
-  it("lets a FAILED leaf keep exit 1 even when the same run is below the floor", async () => {
+    it("gives the thin run a code of its OWN", () => {
+      expect(thin.code).not.toBe(outage.code);
+    });
+
+    it("refuses the outage with NONE was reached", () => {
+      expect(outage.stderr).toContain("NONE was reached");
+    });
+
+    it("does NOT refuse the thin run with NONE was reached", () => {
+      expect(thin.stderr).not.toContain("NONE was reached");
+    });
+
+    it("refuses the thin run with BELOW THE PROVISIONED FLOOR", () => {
+      expect(thin.stderr).toContain("BELOW THE PROVISIONED FLOOR");
+    });
+
+    it("does NOT refuse the outage with BELOW THE PROVISIONED FLOOR", () => {
+      expect(outage.stderr).not.toContain("BELOW THE PROVISIONED FLOOR");
+    });
+  });
+
+  describe("a FAILED leaf on a run that is ALSO below the floor", () => {
     // 🚨 THE PRECEDENCE, PINNED. A broken route is a finding about the product;
     // the floor is a finding about the environment. The floor's only marginal
     // value is on a run that would otherwise be GREEN, so it must not overwrite
     // the one code a reader acts on. Moving it above this rung reds here.
-    const run = await sweep({
-      FAKE_MODE: "normal",
-      FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS,
-      FAKE_FAIL_LEAVES: "asset get"
-    });
-    const summary = counts(run.stdout);
+    let run: Run;
+    let summary: ReturnType<typeof counts>;
 
-    expect(summary.failed).toBe(1);
-    // Genuinely below the floor, so both rungs are live at once.
-    expect(provisionedOf(run.stdout).provisioned).toBe(8);
-    expect(run.code).toBe(1);
-    expect(run.stdout).toMatch(/^FAILED\s+asset get/m);
-  }, 60_000);
+    beforeAll(async () => {
+      run = await sweep({
+        FAKE_MODE: "normal",
+        FAKE_EMPTY_PRODUCERS: BELOW_FLOOR_PRODUCERS,
+        FAKE_FAIL_LEAVES: "asset get"
+      });
+      summary = counts(run.stdout);
+    }, ONE_SWEEP);
+
+    it("counts the failure", () => {
+      expect(summary.failed).toBe(1);
+    });
+
+    it("is genuinely below the floor, so both rungs are live at once", () => {
+      expect(provisionedOf(run.stdout).provisioned).toBe(8);
+    });
+
+    it("keeps exit 1, never the floor's code", () => {
+      expect(run.code).toBe(1);
+    });
+
+    it("NAMES the leaf that failed", () => {
+      expect(run.stdout).toMatch(/^FAILED\s+asset get/m);
+    });
+  });
 });

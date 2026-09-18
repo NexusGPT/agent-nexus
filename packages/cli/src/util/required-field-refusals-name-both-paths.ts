@@ -1,5 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { listFilesRecursively } from "./list-files-recursively";
 
 /**
  * A REFUSAL FROM A BODY-TAKING COMMAND MUST NAME BOTH WAYS TO SUPPLY THE FIELD.
@@ -61,6 +63,7 @@ const NAMES_A_FLAG = /--[a-z][a-z0-9-]*/;
 const NAMES_THE_BODY = /--body\b|--data\b/;
 
 export interface Refusal {
+  /** Relative to the scanned directory, so a command in a subdirectory is named by its path. */
   file: string;
   line: number;
   message: string;
@@ -117,9 +120,10 @@ const lineOf = (source: string, index: number): number => source.slice(0, index)
  */
 export function findRefusalsNamingOnePath(commandsDir: string): Refusal[] {
   const out: Refusal[] = [];
-  for (const file of readdirSync(commandsDir)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-    .sort()) {
+  for (const file of listFilesRecursively(
+    commandsDir,
+    (f) => f.endsWith(".ts") && !f.endsWith(".test.ts")
+  )) {
     const source = readFileSync(join(commandsDir, file), "utf-8");
     for (const { start, text } of actionBodies(source)) {
       if (!chainTakesJsonBody(source, start)) continue;

@@ -32,7 +32,7 @@ import type {
  * - a field REMOVED is a `TS2353` on this object, so the help cannot describe a
  *   key the server would now refuse.
  *
- * That is the same gate `ROLE_RESOURCE_TYPES` in `role.ts` already applies to
+ * That is the same gate `ROLE_RESOURCE_TYPES` in `role/_shared/role-kinds.ts` already applies to
  * the resource-type list, applied to the thing a caller actually has to compose.
  * Nothing else binds a Notes block to a schema — which is why the wrong count
  * survived review.

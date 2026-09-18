@@ -1,9 +1,11 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { listFilesRecursively } from "../util/list-files-recursively";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -311,9 +313,10 @@ function scan(file: string, sf: ts.SourceFile): Scan {
 // ---------------------------------------------------------------------------
 
 function commandSources(): string[] {
-  return readdirSync(SRC_DIR, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts"))
-    .map((e) => relative(SRC_DIR, join(SRC_DIR, e.name)));
+  return listFilesRecursively(
+    SRC_DIR,
+    (name) => name.endsWith(".ts") && !name.endsWith(".test.ts")
+  );
 }
 
 function parse(file: string, text: string): ts.SourceFile {

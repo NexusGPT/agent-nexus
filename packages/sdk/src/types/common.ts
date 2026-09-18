@@ -116,7 +116,7 @@ export interface DeleteResponse {
 export type AgentStatus = "ACTIVE" | "DRAFT";
 
 /** Model provider. */
-export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI" | "JEV";
 
 /**
  * Model configuration — the modern way to set an agent's model.
@@ -127,7 +127,7 @@ export type ModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
 export interface ModelConfig {
   /** Model ID from the catalog (e.g. "claude-sonnet-4-6", "gpt-4.1"). */
   modelName: string;
-  /** Provider: "OPEN_AI", "ANTHROPIC", "GOOGLE_AI", or "KIMI". */
+  /** Provider: "OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", or "JEV". */
   modelProvider: ModelProvider;
   /**
    * Anthropic thinking level.

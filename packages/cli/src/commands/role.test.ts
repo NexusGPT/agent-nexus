@@ -1,9 +1,14 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { RolesResource } from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildRootProgram } from "../index";
 import { setJsonMode } from "../output";
+import { listFilesRecursively } from "../util/list-files-recursively";
 
 /**
  * THE REACH PROOF for `nexus role`.
@@ -39,7 +44,8 @@ vi.mock("../client", async (importOriginal) => {
   };
 });
 
-import { ASSIGNMENT_KIND_NAMES, registerRoleCommands, RESOURCE_TYPE_NAMES } from "./role";
+import { registerRoleCommands } from "./role";
+import { ASSIGNMENT_KIND_NAMES, RESOURCE_TYPE_NAMES } from "./role/_shared/role-kinds";
 
 async function run(argv: string[]): Promise<void> {
   const program = buildRootProgram();
@@ -2241,19 +2247,46 @@ describe("a partial PUT names the flags a user can actually type", () => {
    *
    * Reads the source rather than the runtime, because the whole failure was a
    * name that existed in one and not the other.
+   *
+   * The source is `role.ts` PLUS every non-test `.ts` under `role/`, at any
+   * depth — the registrar and the leaves it registers are one namespace.
+   *
+   * The floors are the counts measured over that source when the leaves were
+   * still inside `role.ts`, and they are FLOORS rather than `> 10` on purpose:
+   * moving leaves out of the registrar must not change them, so a move that
+   * leaves a file behind — or a scan that stops reaching one — reds here rather
+   * than shrinking the population this assertion ranges over.
    */
-  it("references no flag that is not a declared option", async () => {
-    const fs = await import("node:fs");
-    const src = fs.readFileSync(new URL("./role.ts", import.meta.url), "utf-8");
-    const declared = new Set([
+  it("references no flag that is not a declared option", () => {
+    const leafDir = fileURLToPath(new URL("./role", import.meta.url));
+    const leaves = existsSync(leafDir)
+      ? listFilesRecursively(leafDir, (f) => f.endsWith(".ts") && !f.endsWith(".test.ts")).map(
+          (f) => readFileSync(join(leafDir, f), "utf-8")
+        )
+      : [];
+    const src = [readFileSync(new URL("./role.ts", import.meta.url), "utf-8"), ...leaves].join(
+      "\n"
+    );
+    const declarations = [
       ...[...src.matchAll(/\.option\("--([a-z-]+)/g)].map((m) => m[1]),
       ...[...src.matchAll(/\.requiredOption\("--([a-z-]+)/g)].map((m) => m[1])
-    ]);
+    ];
+    const declared = new Set(declarations);
     const referenced = [...src.matchAll(/\{ field: "\w+", flag: "([a-z-]+)" \}/g)].map((m) => m[1]);
 
-    // Control: the scan must actually have found both sets.
-    expect(declared.size).toBeGreaterThan(10);
-    expect(referenced.length).toBeGreaterThan(10);
+    // Control: the scan must have found the WHOLE namespace, not merely some of it.
+    expect(
+      declarations.length,
+      "option declarations across role.ts + role/**"
+    ).toBeGreaterThanOrEqual(43);
+    expect(
+      declared.size,
+      "distinct declared flags across role.ts + role/**"
+    ).toBeGreaterThanOrEqual(23);
+    expect(
+      referenced.length,
+      "{ field, flag } refusals across role.ts + role/**"
+    ).toBeGreaterThanOrEqual(15);
     expect(referenced.filter((f) => !declared.has(f))).toEqual([]);
   });
 });
@@ -2360,8 +2393,8 @@ describe("the help text carries the trap, not a summary of it", () => {
    * was a true statement about the DATABASE's uniqueness keys, promoted into an
    * instruction about the wire, which is why it read as checked for weeks.
    *
-   * The assertions below read the arms and the member kinds OUT OF `role.ts`,
-   * which derives both from the SDK's own unions through a `Record<…, true>`.
+   * The assertions below read the arms and the member kinds OUT OF
+   * `role/_shared/role-kinds.ts`, which derives both from the SDK's own unions through a `Record<…, true>`.
    * Spelling them here would be a third copy — the exact defect.
    */
   it("tasks and set-tasks document the assignment OBJECT, not the database's key", () => {

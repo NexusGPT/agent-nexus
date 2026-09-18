@@ -213,3 +213,126 @@ describe("json-shape scan resolves a call in the file that wrote it", () => {
     expect(leafAt(leaves, "epsilon").printers).toEqual(["printList"]);
   });
 });
+
+/**
+ * A REGISTRATION'S PATH IS RESOLVED AS FAR UP AS THE SOURCE SAYS, AND NO FURTHER.
+ *
+ * A leaf registered on a handed-in namespace used to scan as its bare name —
+ * `list` — which suffix-matches every `… list` leaf in the tree, so a leaf with
+ * no registration of its own adopted a stranger's shape. Each case below pins
+ * one rule of the resolution, one property per `it`, so a mutant that breaks one
+ * rule is scored against that rule alone:
+ *
+ *   · `carries the namespace`       -> revert the call-site prefix: `list`, not `ns list`
+ *   · `refuses a disputed prefix`   -> take the first call site instead of refusing
+ *   · `each registrar's own const`  -> resolve `const` file-wide: both at `x trigger`
+ *   · `a parameter shadows`         -> ignore parameters: `role get`, not `get`
+ *   · `a builder chain on the var`  -> match only `<name>.action(…)`: no leaf at all
+ */
+describe("json-shape scan resolves a registration's path through its registrar's call site", () => {
+  it("carries the namespace a nested registrar was handed", () => {
+    const leaves = scanFixture({
+      "root.ts": `
+        import { registerLeaf } from "./leaf";
+        export function registerNs(program: any): void {
+          const ns = program.command("ns").description("a namespace");
+          registerLeaf(ns, program);
+        }
+      `,
+      "leaf.ts": `
+        import { printList } from "./output";
+        export function registerLeaf(ns: any, program: any): any {
+          const leaf = ns.command("list").action(async () => {
+            printList([], {}, []);
+          });
+          return leaf;
+        }
+      `
+    });
+
+    expect(leafAt(leaves, "ns list").printers).toEqual(["printList"]);
+  });
+
+  it("refuses a prefix its call sites disagree about", () => {
+    const leaves = scanFixture({
+      "root.ts": `
+        import { registerLeaf } from "./leaf";
+        export function registerA(program: any): void {
+          registerLeaf(program.command("a"), program);
+        }
+        export function registerB(program: any): void {
+          registerLeaf(program.command("b"), program);
+        }
+      `,
+      "leaf.ts": `
+        import { printList } from "./output";
+        export function registerLeaf(ns: any, program: any): void {
+          ns.command("list").action(async () => {
+            printList([], {}, []);
+          });
+        }
+      `
+    });
+
+    expect(leafAt(leaves, "list").printers).toEqual(["printList"]);
+  });
+
+  it("resolves each registrar's own const when two in one file share the name", () => {
+    const leaves = scanFixture({
+      "sweeps.ts": `
+        import { printRecord, printSuccess } from "./output";
+        export function registerX(admin: any): void {
+          const sweep = admin.command("x");
+          sweep.command("trigger").action(async () => {
+            printRecord({});
+          });
+        }
+        export function registerY(admin: any): void {
+          const sweep = admin.command("y");
+          sweep.command("trigger").action(async () => {
+            printSuccess("done", {});
+          });
+        }
+      `
+    });
+
+    expect(leafAt(leaves, "y trigger").printers).toEqual(["printSuccess"]);
+  });
+
+  it("lets a parameter shadow a same-named const elsewhere in the file", () => {
+    const leaves = scanFixture({
+      "role.ts": `
+        import { printRecord } from "./output";
+        export function registerRoot(program: any): void {
+          const role = program.command("role");
+          role.description("the namespace");
+        }
+        export function registerGet(role: any, program: any): void {
+          role.command("get").action(async () => {
+            printRecord({});
+          });
+        }
+      `
+    });
+
+    expect(leafAt(leaves, "get").printers).toEqual(["printRecord"]);
+  });
+
+  it("finds an action written as a builder chain on the variable", () => {
+    const leaves = scanFixture({
+      "overview.ts": `
+        import { printRecord } from "./output";
+        export function register(parent: any): void {
+          const overview = parent.command("overview").description("x");
+          overview
+            .addHelpText("after", "y")
+            .action(async () => {
+              printRecord({});
+            });
+        }
+      `
+    });
+
+    expect(leafAt(leaves, "overview").printers).toEqual(["printRecord"]);
+  });
+});

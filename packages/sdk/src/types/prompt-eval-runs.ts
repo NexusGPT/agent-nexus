@@ -16,6 +16,7 @@
  * every other resource in this package.
  */
 
+import type { ModelProvider } from "./common";
 import type { GoldenRecordedToolCall } from "./golden-conversations";
 
 export type PromptEvalRunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "ABORTED";
@@ -26,7 +27,12 @@ export type PromptEvalCaseStatus = "PENDING" | "RUNNING" | "JUDGED" | "FAILED" |
 
 export type PromptEvalVerdict = "PASS" | "FAIL" | "INCONCLUSIVE";
 
-export type PromptEvalModelProvider = "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+/**
+ * The provider set the run contract carries. Mirrors `ModelProvider` because the
+ * contract derives it from the same enum; whether a given model may JUDGE is a
+ * server-side capability check, not something this union narrows.
+ */
+export type PromptEvalModelProvider = ModelProvider;
 
 /** One prompt version in the comparison, snapshotted at creation. */
 export interface PromptEvalRunCandidate {

@@ -24,7 +24,8 @@ export const PROMPT_EVAL_RUN_CREATE__BODY_JUDGE_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -34,7 +35,8 @@ export const PROMPT_EVAL_RUN_PREVIEW__BODY_JUDGE_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -164,7 +166,7 @@ export const PROMPT_EVAL_RUN_CREATE_CONTRACT = {
     { path: "Body.baseline", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.judge", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.judge.model", slot: "Body", type: "string", required: false, depth: 1 },
-    { path: "Body.judge.provider", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.judge.provider", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.judge.repetitions", slot: "Body", type: "integer", required: false, depth: 1 },
     { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.budgetCapUsdTenThousandths", slot: "Body", type: "integer", required: false, depth: 0 }
@@ -202,7 +204,7 @@ export const PROMPT_EVAL_RUN_PREVIEW_CONTRACT = {
     { path: "Body.baseline", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.judge", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.judge.model", slot: "Body", type: "string", required: false, depth: 1 },
-    { path: "Body.judge.provider", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.judge.provider", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.judge.repetitions", slot: "Body", type: "integer", required: false, depth: 1 }
   ]
 } as const satisfies ProjectedDescriptor;

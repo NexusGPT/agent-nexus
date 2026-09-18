@@ -24,7 +24,8 @@ export const SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -51,7 +52,8 @@ export const SKILLS_DUPLICATE_TASK__BODY_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -61,7 +63,8 @@ export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -123,7 +126,8 @@ export const SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -152,7 +156,7 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.modelName", slot: "Body", type: "string", required: true, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.temperature", slot: "Body", type: "number", required: false, depth: 0 },
@@ -191,7 +195,7 @@ export const SKILLS_DUPLICATE_TASK_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
@@ -205,7 +209,7 @@ export const SKILLS_EXECUTE_TASK_CONTRACT = {
     { path: "Body.input", slot: "Body", type: "unknown", required: true, depth: 0 },
     { path: "Body.modelOverride", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.modelOverride.modelName", slot: "Body", type: "string", required: true, depth: 1 },
-    { path: "Body.modelOverride.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelOverride.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelOverride.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelOverride.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
@@ -224,7 +228,7 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.name", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.temperature", slot: "Body", type: "number", required: false, depth: 0 },

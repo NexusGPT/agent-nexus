@@ -1,3 +1,4 @@
+import type { ModelProvider } from "./common";
 import type { FolderRef } from "./workflows";
 
 // ============================================================================
@@ -315,7 +316,7 @@ export interface CreateTaskBody {
   /** Model name (must be a valid AI_MODELS key). */
   modelName: string;
   /** Model provider. */
-  modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  modelProvider: ModelProvider;
   /**
    * Id of a custom model this organization owns (BYOM). An id that is not this
    * organization's is a 404 on this call, never a 403.
@@ -361,7 +362,7 @@ export interface UpdateTaskBody {
   name?: string;
   description?: string;
   modelName?: string;
-  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  modelProvider?: ModelProvider;
   /**
    * Attach a custom model (BYOM). Sending `modelName` or `modelProvider`
    * WITHOUT this field detaches the one already stored — that is how a task is
@@ -433,7 +434,7 @@ export interface AiTaskModelOverride {
   /** Model id from the catalog, e.g. "claude-haiku-4-5". */
   modelName: string;
   /** Provider of `modelName`. */
-  modelProvider: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  modelProvider: ModelProvider;
   /** Run this call on a custom (BYOM) endpoint instead of the platform one. */
   customModelId?: string;
   /** Anthropic thinking level. */
@@ -492,7 +493,7 @@ export interface DuplicateTaskBody {
    * source's model configuration whole.
    */
   modelName?: string;
-  modelProvider?: "OPEN_AI" | "ANTHROPIC" | "GOOGLE_AI" | "KIMI";
+  modelProvider?: ModelProvider;
   /**
    * Run the copy on a custom (BYOM) endpoint. Not inherited from the source when
    * a model is named — a custom endpoint replaces the routing outright.

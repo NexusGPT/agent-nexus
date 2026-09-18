@@ -8,13 +8,13 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 434 of 544 leaves are answered here. The
+ * 439 of 544 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
- *     10  no-registration
- *      1  ambiguous
- *     76  writes-its-own-json
- *      6  no-printer
+ *      3  no-registration
+ *      0  ambiguous
+ *     78  writes-its-own-json
+ *      7  no-printer
  *     17  branches
  *
  * `json-shape.codegen.test.ts` recomputes this file and fails on any
@@ -45,6 +45,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "admin vibe-deployment mark-healthy": "record",
   "admin vibe-deployment mark-rolled-back": "record",
   "admin vibe-deployment-runner tick": "record",
+  "admin vibe-rollback-sweep trigger": "record",
   "admin vibe-tenant-cluster complete-teardown": "record",
   "admin vibe-tenant-cluster disable": "record",
   "admin vibe-tenant-cluster force-converge": "record",
@@ -69,7 +70,10 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "agent-tool get": "record",
   "agent-tool list": "array",
   "agent-tool update": "success",
+  "analytics feedback": "list",
+  "analytics metrics": "envelope",
   "analytics overview": "record",
+  "analytics query": "envelope",
   "asset delete": "success",
   "asset get": "record",
   "asset list": "list",
@@ -234,6 +238,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "html-template render": "record",
   "html-template update": "success",
   "known-issues": "envelope",
+  "mcp tools list": "array",
   "model list": "list",
   "permissions access": "envelope",
   "permissions grant": "success",

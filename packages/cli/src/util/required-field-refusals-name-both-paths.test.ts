@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -41,6 +41,21 @@ describe("the detector detects", () => {
     const found = findRefusalsNamingOnePath(fixture(BODY_TAKING('"--mode is required."')));
     expect(found).toHaveLength(1);
     expect(found[0]?.message).toContain("--mode is required.");
+  });
+
+  it("reads a command in a subdirectory, and names it by its path", () => {
+    // A command moved into `commands/<domain>/` must stay in the population. A
+    // top-level-only listing dropped it and reported the tree clean.
+    const dir = mkdtempSync(join(tmpdir(), "nexus-refusals-"));
+    mkdirSync(join(dir, "role", "leaf"), { recursive: true });
+    writeFileSync(
+      join(dir, "role", "leaf", "probe.command.ts"),
+      BODY_TAKING('"--mode is required."')
+    );
+
+    expect(findRefusalsNamingOnePath(dir).map((r) => r.file)).toEqual([
+      "role/leaf/probe.command.ts"
+    ]);
   });
 
   it("passes the same refusal once it names --body", () => {

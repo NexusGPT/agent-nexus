@@ -15,9 +15,10 @@ import { scanJsonShapes, type ScannedLeaf, type ShapePrinter } from "./json-shap
  *
  * ── WHY THE JOIN IS ON THE PATH SUFFIX, NOT ON THE SOURCE MODULE ────────────
  *
- * The scan reads a registration's path RELATIVE to whatever `Command` its
- * registrar was handed — `node get`, never `workflow node get` — because the
- * absolute prefix is decided by the caller at runtime. The real tree knows the
+ * The scan reads a registration's path RELATIVE to the `Command` its registrar
+ * was handed, extended upward through that registrar's call site as far as the
+ * source resolves — `role list` for a leaf registered on a handed-in `role`, and
+ * no further when the prefix is decided at runtime. The real tree knows the
  * absolute path. So a scanned entry belongs to the leaf whose path ENDS WITH
  * it, taking the longest match: `node get` beats a bare `get`.
  *

@@ -46,7 +46,8 @@ export const AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -108,7 +109,8 @@ export const AGENT_CREATE__BODY_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -148,7 +150,8 @@ export const AGENT_UPDATE__BODY_MODEL_CONFIG_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -210,7 +213,8 @@ export const AGENT_UPDATE__BODY_MODEL_PROVIDER = {
     "OPEN_AI",
     "ANTHROPIC",
     "GOOGLE_AI",
-    "KIMI"
+    "KIMI",
+    "JEV"
   ]
 } as const satisfies ContractEnum;
 
@@ -229,7 +233,7 @@ export const AGENT_CREATE_CONTRACT = {
     { path: "Body.model", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["DEFAULT", "GPT_4_TURBO", "GPT_4", "GPT_4_5", "GPT_4_1", "GPT_4_1_MINI", "GPT_4_1_NANO", "GPT_3_5_TURBO", "GPT_3_5_TURBO_16K", "MISTRAL_LARGE", "OPENAI_O1", "OPENAI_O1_MINI", "OPENAI_O3_MINI", "OPENAI_O3", "OPENAI_O3_PRO", "OPENAI_O4_MINI"] },
     { path: "Body.modelConfig", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.modelConfig.modelName", slot: "Body", type: "string", required: true, depth: 1 },
-    { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
     { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
@@ -238,7 +242,7 @@ export const AGENT_CREATE_CONTRACT = {
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },
     { path: "Body.modelConfig.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.playgroundFirstMessage", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 }
   ]
@@ -272,7 +276,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.model", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["DEFAULT", "GPT_4_TURBO", "GPT_4", "GPT_4_5", "GPT_4_1", "GPT_4_1_MINI", "GPT_4_1_NANO", "GPT_3_5_TURBO", "GPT_3_5_TURBO_16K", "MISTRAL_LARGE", "OPENAI_O1", "OPENAI_O1_MINI", "OPENAI_O3_MINI", "OPENAI_O3", "OPENAI_O3_PRO", "OPENAI_O4_MINI"] },
     { path: "Body.modelConfig", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.modelConfig.modelName", slot: "Body", type: "string", required: true, depth: 1 },
-    { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
     { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
@@ -281,7 +285,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },
     { path: "Body.modelConfig.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelName", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI"] },
+    { path: "Body.modelProvider", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.playgroundFirstMessage", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.autoPublish", slot: "Body", type: "boolean", required: false, depth: 0 }

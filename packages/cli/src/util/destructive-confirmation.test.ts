@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { Command } from "commander";
@@ -13,6 +13,7 @@ import {
   YES_FLAG_DESCRIPTION
 } from "./confirm";
 import { buildCommandTree } from "./global-option-shadowing";
+import { listFilesRecursively } from "./list-files-recursively";
 
 /**
  * HOW A CONFIRMATION IS DECLARED. Whether one EXISTS is the sibling file's job.
@@ -132,9 +133,9 @@ describe("the destructive-confirmation convention", () => {
   // ───────────────────────────────────────────────────────────────────────────
   const COMMAND_SOURCES = (): Array<[string, string]> => {
     const dir = join(__dirname, "..", "commands");
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-      .map((f) => [f, readFileSync(join(dir, f), "utf-8")] as [string, string]);
+    return listFilesRecursively(dir, (f) => f.endsWith(".ts") && !f.endsWith(".test.ts")).map(
+      (f) => [f, readFileSync(join(dir, f), "utf-8")] as [string, string]
+    );
   };
 
   /** `!opts.yes && process.stdout.isTTY`, allowing any whitespace between. */
@@ -228,7 +229,7 @@ describe("the destructive-confirmation convention", () => {
 /**
  * `<bool>` options that already REFUSE, through a correct parser of their own.
  *
- * These are not the defect. `role.ts`'s `readBoolean` and `apps.ts`'s
+ * These are not the defect. `role/_shared/read-boolean.ts`'s `readBoolean` and `apps.ts`'s
  * `parseBoolFlag` both throw on an unrecognised value — two authors independently
  * reached the same rule, which is the strongest argument that refusing is the
  * convention rather than one person's taste. What they do differently is WHEN:

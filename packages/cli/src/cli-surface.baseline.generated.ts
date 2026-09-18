@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.5.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.5.1 ────────────────────────────────────────────────────
  *
- * 543 promised paths — 484 STABLE, 59 UNSTABLE.
+ * 544 promised paths — 484 STABLE, 60 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.5.0",
+  version: "1.5.1",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -114,6 +114,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps reprovision-repo", shape: "1edbb67deaa8", tier: "UNSTABLE" },
     { path: "apps rollback", shape: "e9a2f5c3647b", tier: "UNSTABLE" },
     { path: "apps rotate-edge-token", shape: "34066257f565", tier: "UNSTABLE" },
+    { path: "apps starter", shape: "e3ecdd83dd5c", tier: "UNSTABLE" },
     { path: "apps update", shape: "a340453f69bd", tier: "UNSTABLE" },
     { path: "apps visibility", shape: "64732e5a68af", tier: "UNSTABLE" },
     { path: "asset delete", shape: "db44892a7773", tier: "STABLE" },

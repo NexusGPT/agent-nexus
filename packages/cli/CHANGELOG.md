@@ -1,5 +1,10 @@
 # @agent-nexus/cli
 
+## 1.5.1
+### Patch Changes
+
+- 9284ca8: `nexus apps starter <dir>` downloads the org app starter with `@agent-nexus/apps-ui` already vendored inside it and extracts it into `<dir>`. Both packages are private; the platform fetches them for you, so `npm install` in the new directory needs no npm token and no `.npmrc`. Pick a version with `--starter-version <x.y.z>` (default `latest`). An existing `<dir>` must be empty.
+
 ## 1.5.0
 ### Minor Changes
 

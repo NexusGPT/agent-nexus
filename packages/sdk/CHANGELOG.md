@@ -1,5 +1,31 @@
 # @agent-nexus/sdk
 
+## 4.1.2
+### Patch Changes
+
+- 0c2730d: The SDK's tool-config types no longer claim a MEMORY row is inert
+  
+  `WritableAgentToolConfigType` still excludes `"MEMORY"`, and that is unchanged —
+  a create or update body may not carry it. What changed is the reason the emitted
+  declarations give for it. They said a MEMORY row is inert if created through v1:
+  that it is never offered to a model, that nothing dispatches it, and that no
+  equip surface exists behind it. None of that is true. A MEMORY `AgentToolConfig`
+  is a callable tool — the backend records it as `ToolType.MEMORY`, dispatches it
+  to the memory executor, and advertises it to the model on every surface that
+  builds tool handles.
+  
+  The actual reason `"MEMORY"` is not writable through v1 is the shape of its
+  `config`. A memory tool config carries the pad grant `{ pads: [...] }`, and v1's
+  tool-config schema declares no such key and is strict, so a create through that
+  surface would be refused outright or would store a grant of nothing — a tool
+  advertised with no parameters that then refuses every call the model makes.
+  
+  This matters because these are the types a consumer reads to decide what the
+  platform can do. Taken at face value, they said the agent-memory feature does
+  nothing, which would stop someone building on it. `AgentToolConfigType` still
+  carries `"MEMORY"` on the read side, and a stored memory tool config reads back
+  exactly as before: no type shape moves here, only what the types assert.
+
 ## 4.1.1
 ### Patch Changes
 

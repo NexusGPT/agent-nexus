@@ -149,6 +149,7 @@ export const SKILLS_UPDATE_COLLECTION_CONTRACT = {
     { path: "Body.k", slot: "Body", type: "integer", required: false, depth: 0 },
     { path: "Body.reranker", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.preciseResponses", slot: "Body", type: "boolean", required: false, depth: 0 },
-    { path: "Body.includeMetadata", slot: "Body", type: "boolean", required: false, depth: 0 }
+    { path: "Body.includeMetadata", slot: "Body", type: "boolean", required: false, depth: 0 },
+    { path: "Body.isActive", slot: "Body", type: "boolean", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

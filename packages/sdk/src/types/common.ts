@@ -229,8 +229,11 @@ export type AgentToolConfigType =
  * added; deriving it means a new READ member flows here automatically, and only a change
  * to the EXCLUSION is a decision anyone has to make.
  *
- * `MEMORY` is excluded because a MEMORY row is inert if created through v1 — publishing
- * it as creatable would advertise a capability the API does not have.
+ * `MEMORY` is excluded because v1 has no spelling for its `config`. A MEMORY row's config
+ * is the pad grant `{ pads: [...] }`, and the v1 tool-config schema declares no such key and
+ * is strict, so a create through that surface could only ever store a grant of nothing. The
+ * tool itself is callable — publishing that create is what would advertise a capability the
+ * API does not have.
  */
 export type WritableAgentToolConfigType = Exclude<AgentToolConfigType, "MEMORY">;
 

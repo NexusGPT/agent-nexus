@@ -155,8 +155,8 @@ test("every agent subcommand has an Examples block", () => {
  * `AgentToolConfigTypeSchema` is the READ enum — it types the response DTO, so it
  * must name every type a stored row can hold. `WritableAgentToolConfigTypeSchema`
  * is what the create and update BODIES accept, and it is strictly narrower:
- * `AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1` holds back types with no equip
- * surface behind them.
+ * `AGENT_TOOL_CONFIG_TYPES_NOT_WRITABLE_VIA_V1` holds back types whose stored
+ * `config` the v1 contract has no spelling for.
  *
  * This test asserted against the read enum and went red the hour `MEMORY` was
  * added to it — `create --help omits type MEMORY` — for a value `create` must

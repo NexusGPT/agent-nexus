@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { ZPublicApiV1 } from "@nexus/types/public-api-v1";
 import { describe, expect, it } from "vitest";
 
 import type { NexusClient } from "../client";
+import type { DeepOmitAll } from "../deep-omit";
 import { collectRoutes, reachedBySdk } from "../resources/v1-route-scan.conformance";
 import type { Equals, Expect, Received } from "../v1-contract-equality";
 
@@ -90,9 +94,18 @@ import type { Equals, Expect, Received } from "../v1-contract-equality";
  * `ResponseOf` or `MethodResult` ever resolved to `never` — a moved export, a
  * changed descriptor shape — every `Equals<never, never>` would be `true` and
  * every assertion above would pass having compared nothing. {@link V1ResponseDrift}
- * closes that: it asserts 33 pairs are NOT equal, so a machinery failure that
- * collapses both sides to `never` turns those 33 RED. A gate whose green depends
- * on its own reds is one that cannot be satisfied by breaking it.
+ * closes that: it asserts ONE PAIR PER LEDGER ROW is NOT equal, so a machinery
+ * failure that collapses both sides to `never` turns every one of them RED. A
+ * gate whose green depends on its own reds is one that cannot be satisfied by
+ * breaking it.
+ *
+ * 🔴 THAT CONTROL IS ONLY AS WIDE AS THE PAIRING, AND THE PAIRING WAS HAND-KEPT
+ * AND HAD ALREADY SLIPPED. `ScoreList` sat in `V1_RESPONSE_DRIFT` with NO
+ * negative assertion at all — its ledger row was its only mention in this file —
+ * so it was neither self-pruning nor part of the vacuity control, and nothing
+ * anywhere said so. `every ledgered route has a negative assertion` below
+ * reconciles the two lists by reading this file's own source, which is what
+ * makes the count above safe to state as a relation instead of a number.
  */
 
 /** The response schema a descriptor declares, as it survives JSON. */
@@ -2227,7 +2240,7 @@ const V1_RESPONSE_DRIFT: Record<string, string> = {
     "Measured with the checker: `Types of property 'status' are incompatible. Type 'string' is not assignable to type 'EvalRowStatus'.` The contract leaves `status` an unconstrained `string`; the SDK publishes the narrower named union `EvalRowStatus`. The SDK is NARROWER than the server, the same shape as the `AgentGet`/`AgentCreate` entries above: a legacy or newly-added status arrives as a value no caller can name and an exhaustive switch falls through silently. `judgeStatus` is `string` on both sides today but carries the same latent asymmetry; the checker stops at the first incompatible property, so it is unmeasured rather than known-equal. Fixing it is a decision about whether the contract should narrow or this package should widen, not a type edit.",
   // GET /public/v1/scores  ->  client.scores.list()
   ScoreList:
-    '`valueType`, `scorableType` and `emitterType` are `z.nativeEnum(DbEnum.X)` in the contract, so they resolve to TS STRING-ENUM MEMBER types (`DbEnum.ScoreValueType.NUMERIC`), and this package publishes with empty dependencies and may not import `@nexus/types` (see `types/chat.ts`). A hand-written literal union is assignable to a string enum but NOT type-node equal to it, so `Equals` is false however the union is spelled — measured directly: `Expect<Equals<"NUMERIC"|"CATEGORICAL"|"BOOLEAN", DbEnum.ScoreValueType>>` does not compile. NOT a transcription slip and not a narrower/wider mismatch: the SDK type describes exactly the right values. Fixing it means either the contract spelling these as `z.enum([...])` like `TicketType` (which IS gated on a hand-written union), or this package gaining a way to mirror an enum nominally — both contract decisions rather than type edits. `ScoreRecord` is unaffected and IS gated, because its response is `{ scoreId: string }` and carries no enum.',
+    '`valueType`, `scorableType` and `emitterType` are `z.nativeEnum(DbEnum.X)` in the contract, so they resolve to TS STRING-ENUM MEMBER types (`DbEnum.ScoreValueType.NUMERIC`), and this package publishes with empty dependencies and may not import `@nexus/types` (see `types/chat.ts`). A hand-written literal union is assignable to a string enum but NOT type-node equal to it, so `Equals` is false however the union is spelled — measured directly: `Expect<Equals<"NUMERIC"|"CATEGORICAL"|"BOOLEAN", DbEnum.ScoreValueType>>` does not compile. NOT a transcription slip and not a narrower/wider mismatch: the SDK type describes exactly the right values. Fixing it means either the contract spelling these as `z.enum([...])` like `TicketType` (which IS gated on a hand-written union), or this package gaining a way to mirror an enum nominally — both contract decisions rather than type edits. `ScoreRecord` is unaffected and IS gated, because its response is `{ scoreId: string }` and carries no enum. NOT NARROWABLE, which is why it is the one ledger row with no entry in `V1_RESPONSE_DRIFT_NARROWED`: `valueType` is the DISCRIMINANT of a three-member union, so erasing it collapses the very structure the type exists to express, and the contract side is recorded `kind: "opaque"` in `response-contract.generated.ts` — a typeless payload has no key set to align against. Narrowing this row would need the union modelled on both sides first, which is the same contract decision the paragraph above already names.',
   // GET /public/v1/agents/:agentId  ->  client.agents.get()
   AgentGet:
     "`model` is `string | null` in the contract and `AgentModel | null` here. The SDK is NARROWER than the server: it publishes a closed 16-member union over a field the schema does not constrain, so a legacy or newly-added identifier arrives as a value no caller can name and an exhaustive switch falls through silently. Fixing it is a decision about whether the server should narrow or this package should widen, not a type edit.",
@@ -2622,6 +2635,17 @@ export type V1ResponseDrift = [
       >,
       false
     >
+  >,
+  // ScoreList  ->  client.scores.list()
+  //
+  // Added by NEX-4550. This row was ledgered with no negative assertion, so it
+  // was the one entry that could be repaired in silence and the one entry the
+  // vacuity control did not cover. `scores.list()` is deliberately NOT a
+  // paginated method — its own docblock says so — so the pair is compared
+  // directly and not through `PageItems`, which would compare the wrong halves
+  // and report `false` for a reason that is not the ledgered one.
+  Expect<
+    Equals<Equals<ResponseOf<"ScoreList">, MethodResult<NexusClient["scores"]["list"]>>, false>
   >
 ];
 
@@ -2646,38 +2670,148 @@ export type V1ResponseDrift = [
  * life of the ledger. It was found by reading, which is what this whole file
  * exists to stop being the mechanism.
  *
+ * 🔬 AND THE SILENCE IS MEASURED, NOT INFERRED. `MeListOrganizations` is
+ * ledgered for `UserOrganization.name`; changing its UNNAMED sibling `role`
+ * from `string` to `number` left this package's typecheck at exit 0 with zero
+ * bytes of output. The same class of edit on a GATED route (`AgentFolder.name`)
+ * reds three lines, and on a NARROWED one (`AgentToolConfig.isActive`) reds
+ * five. One instrument, three mutants: the compiler sees all three, and the
+ * ledger row is what swallows the first.
+ *
  * ## The shape, and exactly how far it reaches
  *
- * A narrowed row erases the ledgered KEYS from both sides and asserts the
+ * A narrowed row erases the ledgered PATHS from both sides and asserts the
  * remainder is still exactly equal. So `config` stays unchecked and the other
  * eleven fields of `AgentToolConfig` go back under the gate, including `type`.
  *
- * ⚠️ THIS FORM ONLY REACHES A TOP-LEVEL KEY OF THE RESPONSE (or of its element
- * type, for an array route). A ledger reason naming a NESTED path —
- * `ConversationDetail.contact.*`, `Satisfaction.framework`,
- * `providers[].slug`, `ParameterDefinition.type` — cannot be expressed with
- * `Omit`, and a deep by-path erase is real type-level machinery whose failure
- * mode is a vacuous assertion rather than a red one. Those rows are left
- * un-narrowed deliberately: a narrowing that silently erases more than it
- * claims is worse than the route-wide silence it replaces. NEX-4550 carries
- * the general case with the measurement, the row-by-row classification, and the
- * per-path mutation control a `DeepOmit` would owe before anyone trusts it.
+ * ✅ A PATH MAY NOW BE NESTED. This used to reach a top-level key only, and the
+ * rows whose reason named `ConversationDetail.contact.*`, `Satisfaction.framework`,
+ * `providers[].slug` or `ParameterDefinition.type` were left route-wide because
+ * `Omit` could not express them. `DeepOmit` in `../deep-omit.ts` erases one
+ * dotted path and changes nothing else, so those rows are narrowed here now.
+ *
+ * ⚠️ The objection that kept them un-narrowed was not wrong and has been paid
+ * rather than dropped: a by-path erase fails VACUOUSLY, and a narrowing that
+ * silently erases more than it names is worse than the route-wide silence it
+ * replaces. `../deep-omit.test.ts` is the price — every branch of that machinery
+ * carries a mutant that reds it, including the two that erase a sibling instead
+ * of the named path.
  *
  * 🔑 A NARROWED ROW IS STILL A LEDGER ROW. Its negative assertion above stays,
  * so the self-pruning still fires when the ledgered field itself is repaired.
  * The two assertions answer different questions and both are needed: the
  * negative one says "this row is still owed", the narrowed one says "and
  * nothing ELSE in it has moved since".
+ *
+ * 🚨 A NARROWING IS A CLAIM THAT THE ROW'S REASON IS COMPLETE, AND THAT CLAIM IS
+ * CHECKED BY WHETHER IT COMPILES. A row narrowed at the paths its reason names
+ * goes green only if those paths are the WHOLE divergence; anything further in
+ * that DTO reds the line. So the rows still absent from the table below are not
+ * a backlog anyone has to trust — they are rows where the erase was attempted,
+ * did not go green, and the residue is recorded beside them.
  */
-type Flat<T> = { [K in keyof T]: T[K] };
 
 /**
- * Both sides with the ledgered keys removed, flattened so {@link Equals} — which
- * compares the type NODE — is not defeated by `Omit`'s own `Pick<…>` spelling.
+ * One POSITIVE assertion per narrowed ledger row: everything the row does NOT
+ * name must still match exactly.
+ *
+ * A `false` here is a compile error on that exact line, and the line names the
+ * route. Same enforcement as {@link V1ResponseAssertions} — `tsc`, never vitest.
  */
-type Except<T, K extends PropertyKey> = T extends readonly (infer E)[]
-  ? Flat<Omit<E, K>>[]
-  : Flat<Omit<T, K>>;
+/**
+ * The paths each narrowed row erases, declared ONCE.
+ *
+ * Each constant is read two ways — as a type by the assertions below, and as a
+ * value by the runtime table — so the two cannot disagree about what a row
+ * exempts. The old shape hand-wrote the keys in both places and reconciled
+ * them with a test; deriving both from one declaration removes the thing that
+ * test was watching for.
+ */
+/** `AgentToolConfig.config` is `unknown` here against a seven-key object in the
+ * contract. Opaque by design; the other eleven keys — `type` among them — are not. */
+const TOOL_CONFIG_PATHS = ["config"] as const;
+
+/** `model` is `string | null` in the contract and a closed 16-member union here. */
+const AGENT_MODEL_PATHS = ["model"] as const;
+
+/** `status` is `WorkflowStatus` here and bare `string` in the contract. */
+const WORKFLOW_STATUS_PATHS = ["status"] as const;
+
+/** The five reasoning knobs are `string` here against literal unions in the
+ * contract. They sit on `TaskModelTuning`, which `TaskDetail` extends, so each
+ * is a TOP-LEVEL key of the response rather than a nested one. */
+const SKILL_TUNING_PATHS = [
+  "thinkingLevel",
+  "thinkingDisplay",
+  "reasoningEffort",
+  "geminiThinkingLevel",
+  "kimiReasoningEffort"
+] as const;
+
+/** Both causes the row names, at the paths they actually occupy.
+ *
+ * `contact.identifier` is deliberately ABSENT: it is required on both sides, so
+ * erasing it would exempt a field that is not drifting. `framework` and `source`
+ * live on `SatisfactionScore`, which is reachable at TWO paths — `satisfaction
+ * .latest` and the `satisfaction.all` array — and both have to be named or the
+ * remainder still differs. */
+const CONVERSATION_DETAIL_PATHS = [
+  "contact.service",
+  "contact.displayName",
+  "contact.primaryPhone",
+  "contact.primaryEmail",
+  "contact.externalUserId",
+  "satisfaction.latest.framework",
+  "satisfaction.latest.source",
+  "satisfaction.all.framework",
+  "satisfaction.all.source"
+] as const;
+
+/** `responseHandling` is `string` here against a three-member union. */
+const ASSIGNED_USERS_PATHS = ["responseHandling"] as const;
+
+/** `providers[].slug` — array traversal is implicit, so no index segment. */
+const CLOUD_PROVIDER_PATHS = ["providers.slug"] as const;
+
+/** `ParameterDefinition.type` is `string` here against a nine-member union,
+ * three levels down through two arrays. */
+const ACCESS_CARD_PATHS = ["actions.parameters.type"] as const;
+
+/** A ROOT array of `UserOrganization`; `name` is a key of the element type. */
+const ME_ORG_PATHS = ["name"] as const;
+
+/** Three keys required here and optional in the contract, on the single-template
+ * responses. */
+const HTML_TEMPLATE_PATHS = ["description", "inputSchema", "updatedAt"] as const;
+
+/** The same three, one level down, on the list response's `items` array. */
+const HTML_TEMPLATE_LIST_PATHS = [
+  "items.description",
+  "items.inputSchema",
+  "items.updatedAt"
+] as const;
+
+/** All three exist on the CONTRACT side only. `DeepOmit` is a no-op on the side
+ * that lacks the key, which is what lets a one-sided absence be narrowed at all. */
+const WORKSPACE_LISTING_PATHS = ["references", "folders.modifiedAt", "folders.size"] as const;
+
+/** `status` is the measured divergence; `judgeStatus` carries the same latent
+ * asymmetry and the checker stopped at the first, so it is named too. */
+const EVAL_RESULT_PATHS = ["status", "judgeStatus"] as const;
+
+/** `toolCalls` is contract-only. `tool` is erased whole because the drift is on
+ * the KEY's optionality — required here, nullish in the contract — which no
+ * sub-path erase can reach. */
+const MESSAGE_PATHS = [
+  "messages.toolCalls",
+  "messages.author.userId",
+  "messages.author.agentId",
+  "messages.author.name",
+  "messages.sender.identifier",
+  "messages.sender.displayName",
+  "messages.tool",
+  "nextBefore"
+] as const;
 
 /**
  * One POSITIVE assertion per narrowed ledger row: everything the row does NOT
@@ -2687,86 +2821,406 @@ type Except<T, K extends PropertyKey> = T extends readonly (infer E)[]
  * route. Same enforcement as {@link V1ResponseAssertions} — `tsc`, never vitest.
  */
 export type V1ResponseDriftNarrowed = [
-  // ToolList  ->  client.agents.tools.list()  — ledgered for `config` only
+  // ToolList
   Expect<
     Equals<
-      Except<ResponseOf<"ToolList">, "config">,
-      Except<MethodResult<NexusClient["agents"]["tools"]["list"]>, "config">
+      DeepOmitAll<ResponseOf<"ToolList">, typeof TOOL_CONFIG_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["tools"]["list"]>, typeof TOOL_CONFIG_PATHS>
     >
   >,
-  // ToolGet  ->  client.agents.tools.get()  — ledgered for `config` only
+  // ToolGet
   Expect<
     Equals<
-      Except<ResponseOf<"ToolGet">, "config">,
-      Except<MethodResult<NexusClient["agents"]["tools"]["get"]>, "config">
+      DeepOmitAll<ResponseOf<"ToolGet">, typeof TOOL_CONFIG_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["tools"]["get"]>, typeof TOOL_CONFIG_PATHS>
     >
   >,
-  // ToolCreate  ->  client.agents.tools.create()  — ledgered for `config` only
+  // ToolCreate
   Expect<
     Equals<
-      Except<ResponseOf<"ToolCreate">, "config">,
-      Except<MethodResult<NexusClient["agents"]["tools"]["create"]>, "config">
+      DeepOmitAll<ResponseOf<"ToolCreate">, typeof TOOL_CONFIG_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["tools"]["create"]>, typeof TOOL_CONFIG_PATHS>
     >
   >,
-  // ToolUpdate  ->  client.agents.tools.update()  — ledgered for `config` only
+  // ToolUpdate
   Expect<
     Equals<
-      Except<ResponseOf<"ToolUpdate">, "config">,
-      Except<MethodResult<NexusClient["agents"]["tools"]["update"]>, "config">
+      DeepOmitAll<ResponseOf<"ToolUpdate">, typeof TOOL_CONFIG_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["tools"]["update"]>, typeof TOOL_CONFIG_PATHS>
     >
   >,
-  // ToolAttachCollection  ->  client.agents.tools.attachCollection()  — ledgered for `config` only
+  // ToolAttachCollection
   Expect<
     Equals<
-      Except<ResponseOf<"ToolAttachCollection">, "config">,
-      Except<MethodResult<NexusClient["agents"]["tools"]["attachCollection"]>, "config">
+      DeepOmitAll<ResponseOf<"ToolAttachCollection">, typeof TOOL_CONFIG_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["agents"]["tools"]["attachCollection"]>,
+        typeof TOOL_CONFIG_PATHS
+      >
+    >
+  >,
+  // AgentGet
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"AgentGet">, typeof AGENT_MODEL_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["get"]>, typeof AGENT_MODEL_PATHS>
+    >
+  >,
+  // AgentCreate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"AgentCreate">, typeof AGENT_MODEL_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["create"]>, typeof AGENT_MODEL_PATHS>
+    >
+  >,
+  // AgentUpdate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"AgentUpdate">, typeof AGENT_MODEL_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["update"]>, typeof AGENT_MODEL_PATHS>
+    >
+  >,
+  // AgentDuplicate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"AgentDuplicate">, typeof AGENT_MODEL_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["agents"]["duplicate"]>, typeof AGENT_MODEL_PATHS>
+    >
+  >,
+  // WorkflowList
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowList">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<
+        PageItems<MethodResult<NexusClient["workflows"]["list"]>>,
+        typeof WORKFLOW_STATUS_PATHS
+      >
+    >
+  >,
+  // WorkflowCreate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowCreate">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["workflows"]["create"]>, typeof WORKFLOW_STATUS_PATHS>
+    >
+  >,
+  // WorkflowGet
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowGet">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["workflows"]["get"]>, typeof WORKFLOW_STATUS_PATHS>
+    >
+  >,
+  // WorkflowUpdate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowUpdate">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["workflows"]["update"]>, typeof WORKFLOW_STATUS_PATHS>
+    >
+  >,
+  // WorkflowDuplicate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowDuplicate">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["workflows"]["duplicate"]>, typeof WORKFLOW_STATUS_PATHS>
+    >
+  >,
+  // WorkflowExecutionDiagnose
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkflowExecutionDiagnose">, typeof WORKFLOW_STATUS_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["workflowExecutions"]["diagnose"]>,
+        typeof WORKFLOW_STATUS_PATHS
+      >
+    >
+  >,
+  // SkillsGetTask
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"SkillsGetTask">, typeof SKILL_TUNING_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["skills"]["getTask"]>, typeof SKILL_TUNING_PATHS>
+    >
+  >,
+  // SkillsCreateTask
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"SkillsCreateTask">, typeof SKILL_TUNING_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["skills"]["createTask"]>, typeof SKILL_TUNING_PATHS>
+    >
+  >,
+  // SkillsDuplicateTask
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"SkillsDuplicateTask">, typeof SKILL_TUNING_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["skills"]["duplicateTask"]>, typeof SKILL_TUNING_PATHS>
+    >
+  >,
+  // SkillsUpdateTask
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"SkillsUpdateTask">, typeof SKILL_TUNING_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["skills"]["updateTask"]>, typeof SKILL_TUNING_PATHS>
+    >
+  >,
+  // AccessCardAvailableActions
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"AccessCardAvailableActions">, typeof ACCESS_CARD_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["credentials"]["cards"]["availableActions"]>,
+        typeof ACCESS_CARD_PATHS
+      >
+    >
+  >,
+  // ConversationGet
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationGet">, typeof CONVERSATION_DETAIL_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["get"]>,
+        typeof CONVERSATION_DETAIL_PATHS
+      >
+    >
+  >,
+  // ConversationUpdateStatuses
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationUpdateStatuses">, typeof CONVERSATION_DETAIL_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["updateStatuses"]>,
+        typeof CONVERSATION_DETAIL_PATHS
+      >
+    >
+  >,
+  // ConversationUpdateTopic
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationUpdateTopic">, typeof CONVERSATION_DETAIL_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["updateTopic"]>,
+        typeof CONVERSATION_DETAIL_PATHS
+      >
+    >
+  >,
+  // ConversationUpdateMetadata
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationUpdateMetadata">, typeof CONVERSATION_DETAIL_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["updateMetadata"]>,
+        typeof CONVERSATION_DETAIL_PATHS
+      >
+    >
+  >,
+  // ConversationSetAssignedUsers
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationSetAssignedUsers">, typeof CONVERSATION_DETAIL_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["setAssignedUsers"]>,
+        typeof CONVERSATION_DETAIL_PATHS
+      >
+    >
+  >,
+  // ConversationGetAssignedUsers
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationGetAssignedUsers">, typeof ASSIGNED_USERS_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["conversations"]["getAssignedUsers"]>,
+        typeof ASSIGNED_USERS_PATHS
+      >
+    >
+  >,
+  // ConversationListMessages
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"ConversationListMessages">, typeof MESSAGE_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["conversations"]["getMessages"]>, typeof MESSAGE_PATHS>
+    >
+  >,
+  // CloudImportListProviders
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"CloudImportListProviders">, typeof CLOUD_PROVIDER_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["cloudImports"]["listProviders"]>,
+        typeof CLOUD_PROVIDER_PATHS
+      >
+    >
+  >,
+  // WorkspaceListFolder
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"WorkspaceListFolder">, typeof WORKSPACE_LISTING_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["workspaces"]["listFiles"]>,
+        typeof WORKSPACE_LISTING_PATHS
+      >
+    >
+  >,
+  // HtmlMessageTemplateList
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"HtmlMessageTemplateList">, typeof HTML_TEMPLATE_LIST_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["htmlMessageTemplates"]["list"]>,
+        typeof HTML_TEMPLATE_LIST_PATHS
+      >
+    >
+  >,
+  // HtmlMessageTemplateGet
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"HtmlMessageTemplateGet">, typeof HTML_TEMPLATE_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["htmlMessageTemplates"]["get"]>,
+        typeof HTML_TEMPLATE_PATHS
+      >
+    >
+  >,
+  // HtmlMessageTemplateCreate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"HtmlMessageTemplateCreate">, typeof HTML_TEMPLATE_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["htmlMessageTemplates"]["create"]>,
+        typeof HTML_TEMPLATE_PATHS
+      >
+    >
+  >,
+  // HtmlMessageTemplateUpdate
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"HtmlMessageTemplateUpdate">, typeof HTML_TEMPLATE_PATHS>,
+      DeepOmitAll<
+        MethodResult<NexusClient["htmlMessageTemplates"]["update"]>,
+        typeof HTML_TEMPLATE_PATHS
+      >
+    >
+  >,
+  // MeListOrganizations
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"MeListOrganizations">, typeof ME_ORG_PATHS>,
+      DeepOmitAll<MethodResult<NexusClient["me"]["organizations"]>, typeof ME_ORG_PATHS>
+    >
+  >,
+  // EvaluationResults
+  Expect<
+    Equals<
+      DeepOmitAll<ResponseOf<"EvaluationResults">, typeof EVAL_RESULT_PATHS>,
+      DeepOmitAll<
+        PageItems<MethodResult<NexusClient["evaluations"]["getResults"]>>,
+        typeof EVAL_RESULT_PATHS
+      >
     >
   >
 ];
 
 /**
- * The keys each narrowed row erases, named for the runtime consistency checks.
+ * The same rows as a runtime table, for the consistency checks below.
  *
- * Hand-written beside the assertions above and reconciled against the ledger
- * below, so a narrowing for a route that is not ledgered, or a row that lost its
- * ledger entry, is red rather than silent.
+ * Derived from the constants above rather than retyped, so a path added to a
+ * narrowing cannot be missing here.
  */
 const V1_RESPONSE_DRIFT_NARROWED: Record<string, readonly string[]> = {
-  ToolList: ["config"],
-  ToolGet: ["config"],
-  ToolCreate: ["config"],
-  ToolUpdate: ["config"],
-  ToolAttachCollection: ["config"]
+  ToolList: TOOL_CONFIG_PATHS,
+  ToolGet: TOOL_CONFIG_PATHS,
+  ToolCreate: TOOL_CONFIG_PATHS,
+  ToolUpdate: TOOL_CONFIG_PATHS,
+  ToolAttachCollection: TOOL_CONFIG_PATHS,
+  AgentGet: AGENT_MODEL_PATHS,
+  AgentCreate: AGENT_MODEL_PATHS,
+  AgentUpdate: AGENT_MODEL_PATHS,
+  AgentDuplicate: AGENT_MODEL_PATHS,
+  WorkflowList: WORKFLOW_STATUS_PATHS,
+  WorkflowCreate: WORKFLOW_STATUS_PATHS,
+  WorkflowGet: WORKFLOW_STATUS_PATHS,
+  WorkflowUpdate: WORKFLOW_STATUS_PATHS,
+  WorkflowDuplicate: WORKFLOW_STATUS_PATHS,
+  WorkflowExecutionDiagnose: WORKFLOW_STATUS_PATHS,
+  SkillsGetTask: SKILL_TUNING_PATHS,
+  SkillsCreateTask: SKILL_TUNING_PATHS,
+  SkillsDuplicateTask: SKILL_TUNING_PATHS,
+  SkillsUpdateTask: SKILL_TUNING_PATHS,
+  AccessCardAvailableActions: ACCESS_CARD_PATHS,
+  ConversationGet: CONVERSATION_DETAIL_PATHS,
+  ConversationUpdateStatuses: CONVERSATION_DETAIL_PATHS,
+  ConversationUpdateTopic: CONVERSATION_DETAIL_PATHS,
+  ConversationUpdateMetadata: CONVERSATION_DETAIL_PATHS,
+  ConversationSetAssignedUsers: CONVERSATION_DETAIL_PATHS,
+  ConversationGetAssignedUsers: ASSIGNED_USERS_PATHS,
+  ConversationListMessages: MESSAGE_PATHS,
+  CloudImportListProviders: CLOUD_PROVIDER_PATHS,
+  WorkspaceListFolder: WORKSPACE_LISTING_PATHS,
+  HtmlMessageTemplateList: HTML_TEMPLATE_LIST_PATHS,
+  HtmlMessageTemplateGet: HTML_TEMPLATE_PATHS,
+  HtmlMessageTemplateCreate: HTML_TEMPLATE_PATHS,
+  HtmlMessageTemplateUpdate: HTML_TEMPLATE_PATHS,
+  MeListOrganizations: ME_ORG_PATHS,
+  EvaluationResults: EVAL_RESULT_PATHS
 };
 
 /**
- * The ledgered routes whose divergence is expressible as a TOP-LEVEL `Omit`, and
- * which must therefore carry a narrowing for as long as they are ledgered.
+ * The ledgered routes that must carry a narrowing for as long as they are
+ * ledgered.
  *
  * 🔴 THIS REPLACED A COUNT FLOOR (`narrowed.length >= 5`), WHICH REFUSED ITS OWN
  * CURE. Repairing one of these routes removes it from {@link V1_RESPONSE_DRIFT}
  * and from the narrowed table together, so a floor over the narrowed table's own
  * size reddened on exactly the commit that fixed the debt it was tracking — the
  * shape `ledger-gates-do-not-refuse-their-cure` names `control-dies-on-success`.
- * The original docblock recorded the defect ("a row that leaves the ledger
- * entirely leaves this too") and shipped the floor anyway.
  *
  * 🔑 THE DRAIN-SAFE FORM ASSERTS OVER THE ROWS THAT SURVIVE. A route named here
  * that is still ledgered must still be narrowed; one that has been repaired is
  * absent from `V1_RESPONSE_DRIFT`, so it is not an offender and this passes in
- * silence — at zero as readily as at five. A stale name left here after a repair
- * is inert for the same reason, which is the safe direction.
+ * silence — at zero as readily as at thirty-five. A stale name left here after a
+ * repair is inert for the same reason, which is the safe direction.
  *
  * ⚠️ It is NOT derived from `V1_RESPONSE_DRIFT_NARROWED`. Deriving it there would
  * make deleting a narrowing delete its own obligation, which is the anti-deletion
- * ratchet this exists to be.
+ * ratchet this exists to be. That is why these names are written out again by
+ * hand while the PATHS beside them are not: the obligation and the content of a
+ * narrowing fail in opposite directions, and only one of them is safe to derive.
  */
 const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
   "ToolList",
   "ToolGet",
   "ToolCreate",
   "ToolUpdate",
-  "ToolAttachCollection"
+  "ToolAttachCollection",
+  "AgentGet",
+  "AgentCreate",
+  "AgentUpdate",
+  "AgentDuplicate",
+  "WorkflowList",
+  "WorkflowCreate",
+  "WorkflowGet",
+  "WorkflowUpdate",
+  "WorkflowDuplicate",
+  "WorkflowExecutionDiagnose",
+  "SkillsGetTask",
+  "SkillsCreateTask",
+  "SkillsDuplicateTask",
+  "SkillsUpdateTask",
+  "AccessCardAvailableActions",
+  "ConversationGet",
+  "ConversationUpdateStatuses",
+  "ConversationUpdateTopic",
+  "ConversationUpdateMetadata",
+  "ConversationSetAssignedUsers",
+  "ConversationGetAssignedUsers",
+  "ConversationListMessages",
+  "CloudImportListProviders",
+  "WorkspaceListFolder",
+  "HtmlMessageTemplateList",
+  "HtmlMessageTemplateGet",
+  "HtmlMessageTemplateCreate",
+  "HtmlMessageTemplateUpdate",
+  "MeListOrganizations",
+  "EvaluationResults"
 ];
 
 /**
@@ -2902,6 +3356,169 @@ describe("every v1 response schema matches its SDK method's return type", () => 
         "route-wide row leaves every field it does not name unchecked, so dropping " +
         "the narrowing silently un-gates the rest of that DTO. Restore it, or repair " +
         "the route so it leaves V1_RESPONSE_DRIFT altogether."
+    ).toEqual([]);
+  });
+
+  /**
+   * THE PAIRING BETWEEN THE LEDGER AND ITS NEGATIVE ASSERTIONS, RECONCILED
+   * RATHER THAN REMEMBERED.
+   *
+   * `V1ResponseDrift` is hand-written one entry per ledger row and nothing
+   * compared the two lists, so a row could be added without its assertion. One
+   * had been: `ScoreList` was ledgered with no negative assertion at all, which
+   * cost it both jobs that assertion does — it was not self-pruning, so
+   * repairing the route would have turned nothing red, and it was outside the
+   * vacuity control that the whole file's green depends on.
+   *
+   * This reads the file's own source because the assertions are TYPES and this
+   * runner cannot see them. The read is anchored to the `V1ResponseDrift` block
+   * rather than run over the whole file: `ResponseOf<"X">` appears in the
+   * positive assertions and in the narrowed ones too, and a match from either
+   * would report a pairing that does not exist.
+   */
+  it("gives every ledgered route a negative assertion", () => {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+
+    // 🔴 EVERY MARKER HERE BEGINS WITH A NEWLINE, AND THAT IS THE WHOLE REASON
+    // THESE CONTROLS CAN FAIL AT ALL.
+    //
+    // A file that searches its own source contains every string it searches for,
+    // so an `indexOf` over this file finds its OWN call site once the real
+    // declaration is renamed — and every assertion phrased over the located text
+    // is then satisfied by that call site. This defect has now been found three
+    // times in this file, each time inside the cure for the previous one:
+    // `expect(start).toBeGreaterThan(-1)` could not fail; `includes` of the
+    // declaration could not fail; and `startsWith` of it could not fail either,
+    // because the slice BEGINS at whatever `indexOf` matched, so it starts with
+    // the literal by construction.
+    //
+    // A newline anchor breaks it structurally rather than by care. The search key
+    // holds a REAL newline; this file's own spelling of that key is a backslash
+    // followed by an `n` — two characters, not one — so the source text cannot
+    // contain the key, and no marker below can match the line that declares it.
+    // A string literal is always preceded by its quote, never by a line break.
+    const DECLARATION = "\nexport type V1ResponseDrift = [";
+    const start = source.indexOf(DECLARATION);
+    const end = source.indexOf("\n// Narrowing a ledger row", start);
+
+    const block = source.slice(start, end);
+
+    // Restored, and now able to fail: a renamed or deleted declaration makes this
+    // -1 instead of quietly resolving to this gate's own source.
+    expect(
+      start,
+      "the V1ResponseDrift declaration was not found at the start of a line — the " +
+        "parse is broken, and its silence is not a finding about the ledger"
+    ).toBeGreaterThan(-1);
+    expect(end, "could not find the end of the V1ResponseDrift block").toBeGreaterThan(start);
+
+    // A wrong END is the dangerous direction: `slice` happily runs past the
+    // block, the narrowed assertions come into scope, and the pairing is then
+    // computed over names this check was never meant to see. `DeepOmitAll`
+    // appears ONLY after the block, so it is the marker that the slice overran.
+    expect(
+      block.includes("DeepOmitAll"),
+      "the slice ran past the negative-assertion block and swept in the narrowed " +
+        "assertions — every name it reports is then unreliable in both directions"
+    ).toBe(false);
+    const asserted = new Set(
+      [...block.matchAll(/ResponseOf<"([A-Za-z0-9_]+)">/g)].map((match) => match[1])
+    );
+    // 🔴 NOTHING HERE ASSERTS ON THE FINDINGS. This was
+    // `expect(asserted.size).toBeGreaterThan(0)`, and `ledger-gates-do-not-refuse-
+    // their-cure` refused it as `control-dies-on-success` — correctly. A fully
+    // repaired ledger has no rows, so it has no negative assertions, so the name
+    // set is legitimately EMPTY; an arm asserting it is non-empty reds on exactly
+    // the change that finishes the cleanup, which is the one shape a shrink-only
+    // ledger must let through in silence.
+    //
+    // Its replacement was `block.startsWith(<the declaration>)`, which was ALSO
+    // unfailable: the slice begins at whatever `indexOf` matched, so it starts
+    // with that literal however wrong the match was. The newline-anchored `start`
+    // control above is what replaced it — the corpus is still the subject, and
+    // the anchor is what makes the subject trustworthy.
+
+    expect(
+      Object.keys(V1_RESPONSE_DRIFT).filter((name) => !asserted.has(name)),
+      "ledgered routes with NO negative assertion in V1ResponseDrift. Such a row " +
+        "is not self-pruning — repairing the route turns nothing red and the entry " +
+        "outlives the drift it describes — and it sits outside the vacuity control " +
+        "this file's green depends on. Add one Expect<Equals<Equals<…>, false>>."
+    ).toEqual([]);
+
+    expect(
+      [...asserted].filter((name) => !(name in V1_RESPONSE_DRIFT)),
+      "negative assertions for routes that are NOT ledgered — the row was " +
+        "repaired or renamed and its assertion was left behind, where it reads as " +
+        "coverage of a ledger entry that no longer exists"
+    ).toEqual([]);
+  });
+
+  /**
+   * THE SAME PAIRING, ONE LEVEL UP: the NARROWED table against the narrowed
+   * ASSERTIONS.
+   *
+   * 🔴 THE HOLE THIS CLOSES WAS MEASURED, NOT ARGUED. `V1_RESPONSE_DRIFT_NARROWED`
+   * is a runtime table and `V1ResponseDriftNarrowed` is a TYPE tuple this runner
+   * cannot see, and nothing compared them. Deleting ONE route's `DeepOmitAll`
+   * assertion from the tuple while leaving its row in the table left **`tsc` at
+   * exit 0 and vitest at exit 0** — both green, with that DTO silently back to
+   * route-wide and the table still reading as gated.
+   *
+   * The checks above cannot reach it and each fails in a way that looks like
+   * coverage: `narrows only routes that are actually ledgered` compares the table
+   * to `V1_RESPONSE_DRIFT`, and `NARROWABLE_LEDGER_ROUTES` compares a hand-written
+   * list to the same table. Every one of them is satisfied by a table row whose
+   * assertion does not exist.
+   *
+   * This is `gives every ledgered route a negative assertion` in a second place,
+   * and the reason it is a second test rather than a second arm is that a failing
+   * assertion aborts the rest of its own `it` — one verdict per block.
+   */
+  it("gives every narrowed route a DeepOmitAll assertion", () => {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    // Newline-anchored, for the reason the sibling gate states in full: this
+    // file's own spelling of these markers is a backslash and an `n`, so no
+    // marker can match the line that declares it, and `start` can therefore be
+    // -1 when the declaration is renamed.
+    const start = source.indexOf("\nexport type V1ResponseDriftNarrowed = [");
+    const end = source.indexOf("\nconst V1_RESPONSE_DRIFT_NARROWED", start);
+    const block = source.slice(start, end);
+
+    expect(
+      start,
+      "the V1ResponseDriftNarrowed declaration was not found at the start of a " +
+        "line — the parse is broken, and its silence is not a finding about the table"
+    ).toBeGreaterThan(-1);
+    expect(end, "could not find the end of the V1ResponseDriftNarrowed block").toBeGreaterThan(
+      start
+    );
+    expect(
+      block.includes("NARROWABLE_LEDGER_ROUTES"),
+      "the slice ran past the narrowed-assertion block — every name it reports is " +
+        "then unreliable in both directions"
+    ).toBe(false);
+
+    const asserted = new Set(
+      [...block.matchAll(/ResponseOf<"([A-Za-z0-9_]+)">/g)].map((match) => match[1])
+    );
+    // Nothing here asserts on the findings: a drained narrowed table legitimately
+    // parses to zero names, and an arm refusing that would refuse the cure. The
+    // newline-anchored `start` control above is the parse check.
+
+    expect(
+      Object.keys(V1_RESPONSE_DRIFT_NARROWED).filter((name) => !asserted.has(name)),
+      "routes with a row in V1_RESPONSE_DRIFT_NARROWED but NO DeepOmitAll assertion " +
+        "in V1ResponseDriftNarrowed. The table reads as gated and the route is " +
+        "route-wide: nothing compares that DTO at all, so every field the row does " +
+        "not name is unchecked. Add the assertion, or delete the row and the entry " +
+        "in NARROWABLE_LEDGER_ROUTES with it."
+    ).toEqual([]);
+
+    expect(
+      [...asserted].filter((name) => !(name in V1_RESPONSE_DRIFT_NARROWED)),
+      "narrowed assertions for routes with no row in V1_RESPONSE_DRIFT_NARROWED — " +
+        "the runtime checks above are then blind to what that assertion erases"
     ).toEqual([]);
   });
 

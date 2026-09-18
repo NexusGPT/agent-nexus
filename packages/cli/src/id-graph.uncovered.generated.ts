@@ -93,6 +93,7 @@ export const ID_GRAPH_UNCOVERED: readonly (readonly [string, string])[] = [
   ["apps reprovision-repo", "unbound-no-provable-method"],
   ["apps rollback", "unbound-no-provable-method"],
   ["apps rotate-edge-token", "unbound-no-provable-method"],
+  ["apps starter", "unbound-no-provable-method"],
   ["apps update", "unbound-no-provable-method"],
   ["apps visibility", "unbound-no-provable-method"],
   ["asset delete", "bound-but-mutates"],

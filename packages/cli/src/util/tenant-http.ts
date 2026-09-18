@@ -247,6 +247,88 @@ export async function tenantRequest<T>(
   return envelope.data;
 }
 
+export interface TenantDownloadOptions {
+  /** Absolute path on the backend, e.g. `/api/vibe/app-starter`. */
+  path: string;
+  /** Query string parameters. `undefined` values are dropped. */
+  query?: Record<string, string | number | boolean | undefined>;
+}
+
+export interface TenantDownload {
+  bytes: Buffer;
+  headers: Headers;
+}
+
+/**
+ * GET a binary body from a tenant endpoint — a route whose contract declares
+ * `responseType: "blob"` and therefore wears no `{ success, data }` envelope.
+ *
+ * `tenantRequest` cannot serve this: it decodes the body as text and demands
+ * the envelope. This shares its auth, base-URL and timeout machinery and its
+ * error shape, and differs only in keeping the success body as bytes. A
+ * failure still arrives as the JSON error envelope, and is thrown through the
+ * same `toTenantApiError` every other tenant command's message comes from.
+ */
+export async function tenantDownload(
+  opts: TenantHttpOptions,
+  req: TenantDownloadOptions
+): Promise<TenantDownload> {
+  const { apiKey, organizationId } = resolveTenantAuth(opts);
+  const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
+  const url = new URL(`${baseUrl}${req.path}`);
+  for (const [key, value] of Object.entries(req.query ?? {})) {
+    if (value === undefined) continue;
+    url.searchParams.append(key, String(value));
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = opts.timeout ?? 120_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          "api-key": apiKey,
+          ...(organizationId ? { "organization-id": organizationId } : {}),
+          Accept: "application/octet-stream, application/json"
+        },
+        signal: controller.signal
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new NexusTimeoutError(timeoutMs);
+      }
+      throw new NexusConnectionError(
+        err instanceof Error ? err.message : "Network request failed",
+        err instanceof Error ? err : undefined
+      );
+    }
+
+    if (!response.ok) {
+      if (response.status === 401) throw new NexusAuthenticationError();
+      const rawBody = await response.text();
+      let parsed: unknown;
+      try {
+        parsed = rawBody.length > 0 ? JSON.parse(rawBody) : undefined;
+      } catch {
+        parsed = undefined;
+      }
+      throw toTenantApiError(parsed, { method: "GET", path: req.path }, response.status);
+    }
+
+    return { bytes: Buffer.from(await response.arrayBuffer()), headers: response.headers };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new NexusTimeoutError(timeoutMs);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface TenantStreamOptions {
   /** Absolute path on the backend, e.g. `/api/vibe/apps/<id>/logs/stream`. */
   path: string;

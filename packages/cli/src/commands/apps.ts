@@ -123,6 +123,7 @@ import {
   resolveRollbackTargetByVersion,
   type RollbackTargetRefusalKind
 } from "./apps-rollback-target";
+import { registerStarterCommand } from "./apps-starter";
 import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "./apps-watch";
 
 // ============================================================
@@ -153,6 +154,8 @@ Subcommands:
   deploy           Trigger a deployment for an app from a commit sha.
   deploy-state     Did my push land, and is what I pushed what is live?
   rollback         Roll an app back to its previous healthy version.
+  starter          Download the org app starter into a directory, UI library
+                   vendored — no npm token needed.
   git-credentials  Fetch your tenant git push token + clone address.
   cluster          Provision / inspect your org's dedicated Vibe cluster.
   git-project      Manage git projects — the standalone code store apps deploy from.
@@ -201,6 +204,7 @@ flag enabled. If you get a 403, ping platform-ops to flip the flag.
   registerEnvCommands(apps, program);
   registerApprovalsCommands(apps, program);
   registerAuditCommands(apps, program);
+  registerStarterCommand(apps, () => resolveTenantOpts(program));
 }
 
 // ============================================================

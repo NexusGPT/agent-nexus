@@ -8,12 +8,12 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 434 of 543 leaves are answered here. The
+ * 434 of 544 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *     10  no-registration
  *      1  ambiguous
- *     75  writes-its-own-json
+ *     76  writes-its-own-json
  *      6  no-printer
  *     17  branches
  *

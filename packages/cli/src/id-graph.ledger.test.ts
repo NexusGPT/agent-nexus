@@ -149,7 +149,15 @@ const gate = shrinkOnlyLedger({
   // `CLI: Sweep` on real tenant data rather than adding a row here. The mechanism,
   // and the measurement, are at the `bindCommand` calls in `commands/agent-skill.ts`
   // — one copy, beside the code that would do it.
-  ceiling: 316,
+  //
+  // 316 -> 317 for `apps starter <dir>`, classified `unbound-no-provable-method`.
+  // Its required positional is a LOCAL directory path, not an id: no producer
+  // can serve it and nothing threads into it. `bindCommand` cannot apply — the
+  // route is `GET /api/vibe/app-starter`, a blob download outside
+  // `/api/public/v1`, so there is no v1 descriptor to bind. And the sweep must
+  // not run it regardless: its effect is to write a directory on the machine
+  // running the sweep. Same shape as `apps create <name>`, which sits here too.
+  ceiling: 317,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

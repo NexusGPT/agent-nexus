@@ -140,9 +140,18 @@ type Wire<T> = T extends Date
       ? { [K in keyof T]: Wire<T[K]> }
       : T;
 
+/**
+ * The Vibe operations that answer with a JSON envelope. A `responseType: "blob"`
+ * route (`DownloadAppStarter`) declares no `Response` at all, so indexing every
+ * operation by `"Response"` is not a type.
+ */
+type VibeEnvelopedOp = {
+  [Op in keyof TApi["Vibe"]]: TApi["Vibe"][Op] extends { Response: unknown } ? Op : never;
+}[keyof TApi["Vibe"]];
+
 /** The response body of a tenant Vibe endpoint, unwrapped from its envelope. */
-type VibeData<Op extends keyof TApi["Vibe"]> = Wire<
-  TApi["Vibe"][Op]["Response"] extends { data: infer D } ? D : never
+type VibeData<Op extends VibeEnvelopedOp> = Wire<
+  TApi["Vibe"][Op] extends { Response: { data: infer D } } ? D : never
 >;
 
 /** Wire fields the CLI type does not declare. */

@@ -303,6 +303,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "apps reprovision-repo": "registration-only",
   "apps rollback": "registration-only",
   "apps rotate-edge-token": "registration-only",
+  "apps starter": "registration-only",
   "apps update": "registration-only",
   "apps visibility": "registration-only",
 

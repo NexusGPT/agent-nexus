@@ -1,5 +1,38 @@
 # @agent-nexus/cli
 
+## 1.6.0
+### Minor Changes
+
+- 8281fef: Jev joins the model providers, as a classifier
+  
+  `JEV` joins the closed set of model providers the public API accepts and
+  returns, so `ModelProvider`, `PromptEvalModelProvider` and the task bodies'
+  `modelProvider` in `@agent-nexus/sdk` carry it, and every `--model-provider` /
+  `--provider` choice list in `@agent-nexus/cli` (`task create|update|duplicate|
+  execute`, `agent create|update`, `eval` judge, `tracing generations`) offers it.
+  
+  Jev is a classifier: it answers typed questions with a probability each and
+  produces no free text. An AI task on Jev runs with a JSON output schema whose
+  fields it can answer — a string enum, a bounded integer or number, a boolean,
+  or a nested object of those — and anything else is refused before any call as
+  one `400` naming every field that cannot be answered. Every path that needs
+  generated text refuses a Jev model: saving one as an agent's model or as a
+  prompt-eval judge is a `400` reading `<model> is a classifier and cannot
+  <purpose>`, and a chat turn on one is refused before it is routed. A request
+  that was valid before is still valid.
+  
+  Code that switches exhaustively over `ModelProvider` gains a case to handle.
+
+### Patch Changes
+
+- 84d125f: `--json` shape lines in `--help` now resolve a command registered in a helper
+  function through the place that helper is called, so the line belongs to the
+  command's full path rather than to its bare name. Five commands whose
+  registration could not be read before now document the `--json` output they
+  actually print: `analytics feedback` (`{data, meta}`), `analytics metrics` and
+  `analytics query` (the server's own response object), `mcp tools list` (a bare
+  array) and `admin vibe-rollback-sweep trigger` (a flat record).
+
 ## 1.5.1
 ### Patch Changes
 

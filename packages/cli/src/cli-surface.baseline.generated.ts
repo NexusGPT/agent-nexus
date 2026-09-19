@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.5.1 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.6.0 ────────────────────────────────────────────────────
  *
  * 544 promised paths — 484 STABLE, 60 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.5.1",
+  version: "1.6.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -49,13 +49,13 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "admin vibe-tenant-cluster disable", shape: "bfa787b98a85", tier: "UNSTABLE" },
     { path: "admin vibe-tenant-cluster force-converge", shape: "cc41f495c1fa", tier: "UNSTABLE" },
     { path: "admin vibe-tenant-cluster provision", shape: "c3c1782649e6", tier: "UNSTABLE" },
-    { path: "agent create", shape: "b957247eba24", tier: "STABLE" },
+    { path: "agent create", shape: "66a39a7faad6", tier: "STABLE" },
     { path: "agent delete", shape: "1d1b32b62f25", tier: "STABLE" },
     { path: "agent duplicate", shape: "a895387dc781", tier: "STABLE" },
     { path: "agent generate-profile-picture", shape: "7971974f9eb0", tier: "STABLE" },
     { path: "agent get", shape: "966260faad7d", tier: "STABLE" },
     { path: "agent list", shape: "05c8ef52235a", tier: "STABLE" },
-    { path: "agent update", shape: "eb8b8551fb8c", tier: "STABLE" },
+    { path: "agent update", shape: "175c068d549a", tier: "STABLE" },
     { path: "agent upload-profile-picture", shape: "4e5a71821cb5", tier: "STABLE" },
     { path: "agent-collection attach", shape: "5f316dcc340c", tier: "STABLE" },
     { path: "agent-collection detach", shape: "4a228fc8da41", tier: "STABLE" },
@@ -411,13 +411,13 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "skills update", shape: "a46a6fabbdf9", tier: "STABLE" },
     { path: "skills version", shape: "ff7d24d63cb8", tier: "STABLE" },
     { path: "skills where", shape: "acbb88c546bc", tier: "STABLE" },
-    { path: "task create", shape: "52c0c5a31483", tier: "STABLE" },
+    { path: "task create", shape: "589af6ad8ccc", tier: "STABLE" },
     { path: "task delete", shape: "58a625d72d4e", tier: "STABLE" },
-    { path: "task duplicate", shape: "1f3fced9c7fd", tier: "STABLE" },
-    { path: "task execute", shape: "d499214ae510", tier: "STABLE" },
+    { path: "task duplicate", shape: "2fe9d3255964", tier: "STABLE" },
+    { path: "task execute", shape: "0290fe2738a9", tier: "STABLE" },
     { path: "task get", shape: "91cacc89c5d7", tier: "STABLE" },
     { path: "task list", shape: "f42edf1aef19", tier: "STABLE" },
-    { path: "task update", shape: "b91296746019", tier: "STABLE" },
+    { path: "task update", shape: "f68084be1185", tier: "STABLE" },
     { path: "task-eval dataset add", shape: "40ca57b34ab0", tier: "STABLE" },
     { path: "task-eval dataset list", shape: "360228440f2e", tier: "STABLE" },
     { path: "task-eval execute", shape: "d9ed5f6757d9", tier: "STABLE" },
@@ -465,7 +465,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "tracing export", shape: "f91273f3e662", tier: "STABLE" },
     { path: "tracing export-bulk", shape: "9e0a8611bc39", tier: "STABLE" },
     { path: "tracing generation", shape: "bb121513394c", tier: "STABLE" },
-    { path: "tracing generations", shape: "21601754e770", tier: "STABLE" },
+    { path: "tracing generations", shape: "892711899458", tier: "STABLE" },
     { path: "tracing models", shape: "250aedd93e46", tier: "STABLE" },
     { path: "tracing summary", shape: "08c3cda4a0da", tier: "STABLE" },
     { path: "tracing timeline", shape: "06fd1bb2d8a5", tier: "STABLE" },

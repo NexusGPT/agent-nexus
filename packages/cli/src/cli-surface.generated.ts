@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 637 command nodes; 544 invocable leaves.
+ * 638 command nodes; 545 invocable leaves.
  * 53 top-level commands — 53 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         484 STABLE, 60 UNSTABLE
- *   disposition  25 never-execute, 455 registration-only, 59 safe, 5 safe-with-fixture
+ *   tier         484 STABLE, 61 UNSTABLE
+ *   disposition  25 never-execute, 456 registration-only, 59 safe, 5 safe-with-fixture
  *   --yes        43 destructive — 43 confirmable
- *   --json       439 answered, 105 abstain
+ *   --json       439 answered, 106 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -159,6 +159,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "apps rotate-edge-token", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "34066257f565" },
   { path: "apps starter", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<dir>"], flags: ["--starter-version <version>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "e3ecdd83dd5c" },
   { path: "apps update", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["--deploy-branch <branch>", "--description <text>", "--require-approvals <bool>", "--ship-gate <mode>", "--require-verification <bool>", "--resource-quotas <json>", "--health-check <json>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a340453f69bd" },
+  { path: "apps vendor-package", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["[package]"], flags: ["--dir <dir>", "--package-version <version>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "50ea3be27486" },
   { path: "apps visibility", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<mode>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "64732e5a68af" },
   { path: "asset delete", tier: "STABLE", module: "asset.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes", "--print-contract"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "db44892a7773" },
   { path: "asset get", tier: "STABLE", module: "asset.ts", disposition: "registration-only", args: ["<id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "3ed7b7cfa845" },

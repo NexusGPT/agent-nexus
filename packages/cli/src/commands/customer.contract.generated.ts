@@ -129,7 +129,8 @@ export const CUSTOMER_LIST_CONTRACT = {
     { path: "Params.page", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.channel", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["GMAIL", "OUTLOOK", "IMAP", "SMTP", "SLACK", "TEAMS", "TELEGRAM", "FB_MESSENGER", "INSTAGRAM", "WHATSAPP", "TWILIO_SMS", "TWILIO_VOICE", "GOOGLE_SHEETS", "EXCEL_ADDIN", "OUTLOOK_ADDIN", "POWERPOINT_ADDIN", "WORD_ADDIN", "AIRTABLE", "GOOGLE_MEET", "ZOOM", "EMBED", "API"] },
-    { path: "Params.tag", slot: "Params", type: "string", required: false, depth: 0 }
+    { path: "Params.tag", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.includeAnonymous", slot: "Params", type: "boolean", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatSeededRepoFirstPushHint } from "./apps";
+import { formatSeededRepoFirstPushHint } from "./apps/_shared/format-seeded-repo-first-push-hint";
 
 /**
  * A tenant repo is materialized with `auto_init`, so it holds a commit before

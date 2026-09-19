@@ -370,8 +370,8 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
  * give the site a category from `EXIT_CODES`, not to write its file down.
  */
 const EXPECTED_BARE_ONE_SITES: readonly string[] = [
-  "commands/apps.ts",
-  "commands/apps.ts",
+  "commands/apps/deploy/deploy.command.ts",
+  "commands/apps/deploy/rollback.handler.ts",
   "commands/auth.ts",
   "commands/auth.ts",
   "commands/auth.ts",

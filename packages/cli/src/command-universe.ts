@@ -305,6 +305,10 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "apps rotate-edge-token": "registration-only",
   "apps starter": "registration-only",
   "apps update": "registration-only",
+  // Writes into the app directory on disk, so it is not a read whatever its
+  // arguments look like. `apps starter` above is the same shape for the same
+  // reason.
+  "apps vendor-package": "registration-only",
   "apps visibility": "registration-only",
 
   // ── asset ──────────────────────────────────────────────────────────────────

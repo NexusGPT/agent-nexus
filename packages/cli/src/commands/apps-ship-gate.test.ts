@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { VibeAppDto } from "../vibe-wire-types";
-import { buildAppUpdateBody, formatShipGateMode, printVibeApp } from "./apps";
+import { buildAppUpdateBody } from "./apps/_shared/build-app-update-body";
+import { formatShipGateMode } from "./apps/_shared/format-ship-gate-mode";
+import { printVibeApp } from "./apps/_shared/print-vibe-app";
 
 /**
  * `shipGateMode` has THREE states and the CLI knew two of them, in both

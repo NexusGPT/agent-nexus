@@ -5,7 +5,7 @@
  * `absent()` as the split: `null` on the wire, the sentence in the terminal.
  *
  * A doc comment beside the helper is a deferred fix, and it was deferring one:
- * `absent()` had ten correct call sites in `role.ts` and two `?? "<literal>"`
+ * `absent()` had ten correct call sites under `role/**` and two `?? "<literal>"`
  * survivors elsewhere, one of which Cursor bugbot re-found on a promotion train.
  * The idiom is one character away from the correct one and reads fine in review,
  * so nothing but a scan catches the eleventh.

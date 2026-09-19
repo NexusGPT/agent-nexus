@@ -6,20 +6,22 @@
  * install` writes the `nexus-workspaces` skill and its hook scripts onto the
  * user's machine (`src/commands/claude-code.ts` → `SKILLS`), and those parse the
  * registry directly — a jq path-resolver, a jq WebDAV base-URL lookup, and
- * several Python liveness/firewall probes. Every one of them indexes the JSON
- * object by BARE SLUG.
+ * several Python liveness/firewall probes.
  *
- * NEX-2360 rekeys the file to `<kind>:<id>|<slug>`. A bare-slug index into that
- * object returns nothing, and nothing is what these readers are worst at:
+ * NEX-2360 rekeyed the file to `<kind>:<id>|<slug>`. A reader that indexes that
+ * object by BARE SLUG gets nothing back, and nothing is what these readers are
+ * worst at:
  *   - `ws_path` falls through to its in-sandbox default `/mnt/workspace/<slug>`,
  *     a path that does not exist on a local machine, so an agent reads and
  *     writes the WRONG directory with no error anywhere;
  *   - the WebDAV recipe builds `null/api/dav/…` and every upload 404s.
  *
- * That is a shipped reader broken by a format change inside the very package
- * that ships it, which is precisely the coupling nobody looks for: an audit of
- * the registry's WRITERS finds only `mount-registry.ts` and concludes no
- * migration is needed. So the coupling gets a test instead of a comment.
+ * The bundle resolves the new keys correctly today: every reader scans the
+ * registry's VALUES and matches on each record's own `slug`, scoped to the acting
+ * org. This file exists to keep it that way, because the coupling is the kind
+ * nobody looks for — an audit of the registry's WRITERS finds only
+ * `mount-registry.ts` and concludes no migration is needed, while the readers that
+ * would break ship from a different repository entirely.
  *
  * ── Why this cannot be fixed in this repository ──────────────────────────────
  *
@@ -32,12 +34,13 @@
  *
  * ── How this test behaves ───────────────────────────────────────────────────
  *
- * It fails while the CLI writes composite keys AND the bundle still reads bare
- * slugs, and it names every offending site. It greens by itself the moment
- * either half moves: fix the skills repo and bump the lock, or revert the key
- * format. It is deliberately NOT a characterisation test of the broken state —
- * a green suite over a broken shipped reader is the failure mode it exists to
- * prevent.
+ * It fails while the CLI writes composite keys AND any bundled reader resolves by
+ * bare slug, and it names every offending site. It retires itself if the key
+ * format is ever reverted (`CLI_WRITES_COMPOSITE_KEYS`), rather than leaving a
+ * stale red behind. It is deliberately NOT a characterisation test of a broken
+ * state — a green suite over a broken shipped reader is the failure mode it
+ * exists to prevent, which is why both arms carry their own negative controls
+ * and the check ships a `--self-test`.
  *
  * ── What the scan covers, and the one thing it skips ────────────────────────
  *
@@ -79,14 +82,31 @@
  * references one — a different change, needing its own review, not a rider on a
  * cross-repo compatibility fix. Filed as such rather than done quietly here.
  *
- * The upstream fix ALSO stops quoting the broken shapes where prose can just
- * describe them (NexusGPT/claude-code-skills-nexus#23), so the two halves are
- * independent: neither alone is load-bearing, and a regression has to defeat
- * both to reach a user. That is now a stated convention on both sides —
- * DESCRIBE, NEVER SPELL, with no exemption for a NEVER-warning and none for a
- * respelling that dodges a needle. See `BARE_SLUG_READERS` for why the exemption
- * was refused and what the needle list does instead.
+ * HOW THIS CHECKS, AND WHY IT CHANGED. It was a list of broken spellings asserted
+ * absent from the bundle, with `.get(slug)` deliberately RECEIVER-BLIND so that a
+ * respelling which dropped the receiver could not dodge it. The bet was that "any
+ * literal occurrence in the bundle is a reader, with no case to argue".
+ *
+ * The bet is false, and a correct file paid for it. `hooks/lib/automount.py` reads
+ * `rows.get(slug)` where `rows = _rows_for(scope, mounts)` — a dict built by scanning
+ * `mounts.values()`, keyed on each record's own `slug`, and admitted only for the
+ * acting scope. The receiver is an org-scoped local, not the registry; the key format
+ * cannot reach it. The scan accused a reader that reads correctly, and the remedy it
+ * printed — "scan the registry's VALUES and match on the record's own slug field" —
+ * was already implemented in the accused file. A gate whose prescribed remedy is
+ * unwritable has misidentified the site.
+ *
+ * The answer was not to exempt the file, nor to rename the local until the needle went
+ * quiet: both leave a detector that cannot tell `registry.get(slug)` from
+ * `scoped.get(slug)`, so the next correct reader pays again. The detector was repaired
+ * at its input instead. `scripts/registry-reader-contract.py` now DRIVES each resolver
+ * against fixture registries and PARSES the rest with python3's `ast`, so the receiver
+ * is part of the question. Its header owns the property, both arms, and the coverage it
+ * does not claim.
  */
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { mountKey } from "./mount-registry";
@@ -109,137 +129,29 @@ const CLI_WRITES_COMPOSITE_KEYS =
   mountKey({ orgId: "org_probe", baseUrl: "https://example.invalid" }, "general-context") !==
   "general-context";
 
-interface BareSlugReader {
-  /** The exact text that ships, so a match is a fact and not an interpretation. */
-  needle: string;
-  /** What it does, and what it does INSTEAD once the keys change. */
-  what: string;
+interface ContractReport {
+  sha: string;
+  armA: {
+    coverage: string[];
+    results: {
+      resolver: string;
+      case: string;
+      ok: boolean;
+      want: unknown;
+      got: unknown;
+      detail: string;
+    }[];
+    failures: number;
+  };
+  armB: {
+    scanned: string[];
+    violations: { file: string; line: number; receiver: string; op: string; function: string }[];
+    unparsed: string[];
+  };
+  ok: boolean;
 }
 
-/**
- * Literal substrings, not patterns. A regex over 7.5 MB of skill markdown
- * false-positives on prose that merely discusses the registry; a literal that
- * appears in the shipped text either is the reader or is not. Each disappears
- * when the upstream skill is fixed, so the list needs no maintenance here.
- *
- * ── DESCRIBE, NEVER SPELL, and why there is no warning exemption ────────────
- *
- * The literal scan has an obvious hole: an author can satisfy it by RESPELLING
- * the construct just far enough to miss a needle — the same jq path with the
- * brackets moved, the same dict lookup with the receiver dropped — while the
- * broken form still ships. Round 2 of skills-nexus#23 closed a finding exactly
- * that way, writing the bulk-PUT recipe's bare-slug lookup as an equivalent jq
- * spelling inside a NEVER warning, and hook_core.py's failure-mode comment did
- * the same to the Python one. The needle went quiet; the text did not change.
- *
- * Two ways out, and they are exclusive. Either quoting the anti-pattern inside a
- * warning is legitimate and the scan learns to ignore warning lines, or the
- * shipped text never spells the construct at all. This picks the SECOND, for
- * both repos:
- *
- *   - a warning exemption is the dodge with a rubber stamp. The scan would have
- *     to decide "is this line a warning" by heuristic over 7.5 MB of markdown
- *     and Python comments, and any editor who can write the word NEVER above a
- *     line can then silence a REAL regression the same way. The check would be
- *     weakest exactly where the text is most confident;
- *   - describing costs nothing. Every one of these constructs reads fine in
- *     words — "a top-level lookup under the bare slug" — and skills-nexus was
- *     already doing that in hook_core.py's registry preamble and test_mountreg's
- *     header before this. Making it the rule rather than a habit is what lets
- *     the scan stay literal AND stay sound: any literal occurrence in the bundle
- *     is a reader, with no case to argue.
- *
- * So the broken form is spelled in exactly ONE place — here, the detector, which
- * is a test file and does not ship. Everything downstream describes it. The
- * needles below therefore include the KNOWN RESPELLINGS of each construct, so
- * the round-2 dodge is red rather than green: `.[$s]` and `.["<slug>"]` catch
- * the jq path however its brackets are arranged, and `.get(slug)` catches the
- * Python lookup with the receiver dropped. A needle that is a strict prefix of
- * another is not redundant — it is the generalisation, and the longer one stays
- * for the message it carries.
- */
-const BARE_SLUG_READERS: BareSlugReader[] = [
-  {
-    needle: ".[$s].mountPath",
-    what:
-      "`ws_path()` — the R#43 path resolver every workspace-touching skill routes its file " +
-      "access through. Returns empty on a composite key, so it falls back to the in-sandbox " +
-      "default `/mnt/workspace/<slug>` and the agent operates on a path that does not exist locally."
-  },
-  {
-    needle: ".[$s]",
-    what:
-      "the same `ws_path()` jq path with its brackets rearranged — `.[$s] | .mountPath` and " +
-      "`.[$s].mountPath` are one program. The generalisation of the needle above; a respelling " +
-      "must not be a way to go green."
-  },
-  {
-    needle: '."<slug>".baseUrl',
-    what:
-      "the bulk WebDAV upload recipe's `BASE=$(jq -r …)`. Returns null on a composite key, " +
-      "so every PUT targets `null/api/dav/<slug>/…`."
-  },
-  {
-    needle: '.["<slug>"]',
-    what:
-      "the bracket spelling of that same bulk-PUT lookup. Round 2 of skills-nexus#23 closed " +
-      "the finding above by rewriting the path this way inside a NEVER warning — the needle " +
-      "went quiet and the construct stayed. Describe it in words instead."
-  },
-  {
-    needle: "mounts.get(slug)",
-    what: "`_probe_mount` — the hook's mount-liveness probe; a composite key reads as unmounted."
-  },
-  {
-    needle: ".get(slug)",
-    what:
-      "the same Python lookup with the receiver dropped, which is how hook_core.py's " +
-      "failure-mode comment respelled it. Generalises the needle above."
-  },
-  {
-    needle: '.get(slug, {}).get("mountPath")',
-    what:
-      "`dav_slug_if_mounted` — the guard that redirects hand-rolled WebDAV writes to the mount; " +
-      "silently stops firing."
-  },
-  {
-    needle: 'mounts.get("general-context")',
-    what: "hook lookups of the general-context mount, keyed by bare slug."
-  },
-  {
-    needle: 'mounts.get("tools")',
-    what: "hook lookup of the tools mount, keyed by bare slug."
-  },
-  {
-    needle: '"<slug>": {',
-    what:
-      "the documented registry schema in the `## Discovery` section — it tells the reader the " +
-      "top-level keys ARE slugs, which is what the parsers above implement."
-  },
-  {
-    needle: "the registry keys on bare slug",
-    what:
-      'the "One live mount per slug per machine" runbook. NEX-2360 makes this false: the key ' +
-      "records the acting org, and NEX-2372 records mode and org on the record."
-  },
-  {
-    needle: "Parallel same-slug mounts across orgs are not possible",
-    what:
-      "false as of NEX-2360 — that is the feature. Agents following this unmount and remount " +
-      "every slug on each profile switch for no reason."
-  },
-  {
-    needle: "The registry records NEITHER mode NOR org",
-    what: "false as of NEX-2372 — `readOnly`, `orgId`, `orgName` and `profile` are all recorded."
-  }
-];
-
-interface Hit {
-  needle: string;
-  what: string;
-  bundle: string;
-  file: string;
-}
+const BUNDLE_PATH = path.join(__dirname, "skills-content.generated.json");
 
 /**
  * EVERY surface `nexus claude-code install` writes to the user's machine, not
@@ -295,16 +207,37 @@ function scannedSurfaces(): { bundle: string; file: SkillFile }[] {
   return installedSurfaces().filter((s) => !isUpstreamTestHarness(s.bundle, s.file.path));
 }
 
-function findBareSlugReaders(): Hit[] {
-  const hits: Hit[] = [];
-  for (const { bundle, file } of scannedSurfaces()) {
-    for (const reader of BARE_SLUG_READERS) {
-      if (file.content.includes(reader.needle)) {
-        hits.push({ needle: reader.needle, what: reader.what, bundle, file: file.path });
-      }
-    }
+/**
+ * The contract check is a PROGRAM, not a pattern, and it lives beside this file at
+ * `scripts/registry-reader-contract.py`. Read its header for the property it answers
+ * and for what it deliberately does not cover.
+ *
+ * This used to be a list of broken spellings asserted absent from the bundle. That
+ * detector reported `hooks/lib/automount.py` for `rows.get(slug)`, where `rows` is
+ * `_rows_for(scope, mounts)` — a dict built by scanning `mounts.values()` and matching
+ * each record's own `slug`, admitted only for the acting scope. The receiver was an
+ * org-scoped local, never the registry, and the remedy the failure prescribed was
+ * already implemented in the file it accused. A receiver-blind substring cannot tell
+ * `registry.get(slug)` from `scoped.get(slug)`; so the check now asks the receiver.
+ */
+function runContractCheck(args: string[]): { code: number; stdout: string; stderr: string } {
+  const script = path.join(__dirname, "..", "scripts", "registry-reader-contract.py");
+  const run = spawnSync("python3", [script, ...args], {
+    encoding: "utf-8",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  // FAIL CLOSED. A missing interpreter is not a pass: skipping here would retire the
+  // whole property on any runner that happens not to carry python3, and the skip would
+  // read as green. The runner image installs it (deployment/ci-runner/Dockerfile) and
+  // ubuntu-latest carries it, so an absence here is a real regression to surface.
+  if (run.error || run.status === null) {
+    throw new Error(
+      `registry-reader-contract.py could not be run (${String(run.error)}). ` +
+        "python3 is required for this check — it is NOT optional, and this test refuses " +
+        "to pass by skipping. Install python3 on the runner."
+    );
   }
-  return hits;
+  return { code: run.status, stdout: run.stdout ?? "", stderr: run.stderr ?? "" };
 }
 
 describe("the bundled skills read the mount registry the way this CLI writes it", () => {
@@ -365,43 +298,76 @@ describe("the bundled skills read the mount registry the way this CLI writes it"
     expect(isUpstreamTestHarness(HARNESS_BUNDLE, "test_mountreg.py")).toBe(true);
   });
 
-  it.skipIf(!CLI_WRITES_COMPOSITE_KEYS)(
-    "ships no bare-slug reader of workspace-mounts.json",
-    () => {
-      const hits = findBareSlugReaders();
-      const report = hits
-        .map((h) => `  • ${h.bundle}/${h.file}\n      reads: ${h.needle}\n      ${h.what}`)
-        .join("\n");
+  it("proves the contract check itself can fail", () => {
+    // The check is only worth reading if it has been seen to fail. Its own self-test
+    // scores it against synthetic readers that are genuinely broken AND against correct
+    // ones — including the exact shape the old substring scan false-positived on, a
+    // slug-keyed read whose receiver is a scoped local rather than the registry.
+    const run = runContractCheck(["--self-test"]);
+    expect(run.stdout + run.stderr).toContain("self-test");
+    expect(
+      run.code,
+      `the contract check's self-test did not pass:\n${run.stdout}\n${run.stderr}`
+    ).toBe(0);
+  });
 
+  it.skipIf(!CLI_WRITES_COMPOSITE_KEYS)(
+    "every bundled reader resolves a mount from composite keys, and stays org-scoped",
+    () => {
+      const run = runContractCheck([BUNDLE_PATH, "--json"]);
+      let report: ContractReport;
+      try {
+        report = JSON.parse(run.stdout) as ContractReport;
+      } catch {
+        throw new Error(
+          `registry-reader-contract.py did not emit JSON (exit ${run.code}):\n` +
+            `${run.stdout}\n${run.stderr}`
+        );
+      }
+
+      // ── vacuity controls, asserted before the verdict ───────────────────────
+      // A run that drove nothing and scanned nothing reports no failures and no
+      // violations, which is indistinguishable from a clean bundle. These two say the
+      // check had something to judge.
       expect(
-        hits,
-        hits.length === 0
-          ? ""
-          : [
-              "",
-              "The CLI now writes `<kind>:<id>|<slug>` registry keys, but the skill bundle it",
-              "installs still indexes ~/.nexus-mcp/workspace-mounts.json by bare slug:",
-              "",
-              report,
-              "",
-              "These run on the USER's machine after `nexus claude-code install`. Against a",
-              "rekeyed registry they resolve nothing — and their failure mode is a wrong path or",
-              "a null base URL, not an error.",
-              "",
-              "This file is a build artifact: scripts/bundle-skills.ts regenerates it from",
-              "NexusGPT/claude-code-skills-nexus at the SHA in packages/cli/skills-nexus.lock, and",
-              "scripts/postinstall.sh runs that on every install including CI. Editing it here does",
-              "not fix anything. To close this:",
-              "  1. in claude-code-skills-nexus, make each reader scan the registry's VALUES and",
-              "     match on the record's own `slug` field (with the acting org where it matters)",
-              "     instead of indexing by top-level key, and correct the `## Discovery` schema and",
-              "     the three one-mount-per-slug claims in the runbook;",
-              "  2. bump packages/cli/skills-nexus.lock to that SHA and run `pnpm gen:skills`;",
-              "  3. land the two together — the CLI must not publish a key format its own bundled",
-              "     skill cannot read.",
-              ""
-            ].join("\n")
+        report.armA.coverage.length,
+        "ARM A drove NO resolver — a bundle whose resolvers all vanished would otherwise " +
+          "report clean. This is the empty-denominator case, not a pass."
+      ).toBeGreaterThan(0);
+      expect(
+        report.armB.scanned.length,
+        "ARM B parsed NO file that reads the registry — same empty denominator."
+      ).toBeGreaterThan(0);
+      // The canonical resolver every hook delegates to must be among what was driven.
+      expect(report.armA.coverage).toContain("hook_core.mount_record");
+      // A file the parser choked on is neither clean nor dirty; it is unread.
+      expect(report.armB.unparsed, "a reader that could not be parsed is not a pass").toEqual([]);
+
+      // ── ARM A: behaviour ───────────────────────────────────────────────────
+      const behaviour = report.armA.results.filter((r) => !r.ok);
+      expect(
+        behaviour.map(
+          (r) =>
+            `${r.resolver} / ${r.case}: want ${JSON.stringify(r.want)}, ` +
+            `got ${JSON.stringify(r.got)} — ${r.detail}`
+        ),
+        "A bundled reader answered a fixture registry wrongly. `composite-resolves` failing " +
+          "means it cannot read the keys this CLI writes; `foreign-org-refused` or " +
+          "`anonymous-refused` failing means it hands out another tenant's row."
       ).toEqual([]);
+
+      // ── ARM B: reach ───────────────────────────────────────────────────────
+      expect(
+        report.armB.violations.map(
+          (v) => `${v.file}:${v.line} ${v.receiver}${v.op} in ${v.function}()`
+        ),
+        "A registry-derived value is read by BARE SLUG. Against the composite keys this " +
+          "CLI writes it resolves nothing, and the failure mode is a wrong path or a null " +
+          "base URL rather than an error. Scan the registry's VALUES and match on the " +
+          "record's own `slug` field, scoped to the acting org."
+      ).toEqual([]);
+
+      expect(report.ok, `contract check REFUSED:\n${run.stdout}`).toBe(true);
     }
   );
 });

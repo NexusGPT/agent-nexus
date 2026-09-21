@@ -98,8 +98,9 @@ const gate = shrinkOnlyLedger({
   // genuinely unavailable to it rather than merely unwritten: it COMPOSES three
   // reads (ready set, plan, edges) and maps to no single route, so there is no
   // contract to bind it to and `bindCommand` could only name one of the three.
-  // Its own docblock in `commands/tracks.ts` states that as a deliberate design
-  // decision, made before this gate existed. It is not `declared-unsweepable`
+  // Its own docblock in `commands/tracks/task/why-not-ready.command.ts` states
+  // that as a deliberate design decision, made before this gate existed. It is
+  // not `declared-unsweepable`
   // either — it is perfectly callable given a real trackId, so a
   // `id-graph.leaf-residue.ts` row would claim something false about it.
   //

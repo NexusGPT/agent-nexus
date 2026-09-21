@@ -71,11 +71,32 @@ import { listFilesRecursively } from "./util/list-files-recursively";
  * {@link countLines} is ESLint's `max-lines` algorithm under
  * `skipBlankLines: false, skipComments: false`, reproduced exactly: split on
  * ESLint's own `lineBreakPattern`, then drop ONE trailing empty line. Verified
- * against the real thing rather than assumed — `eslint src --rule
- * '{"max-lines":["error",{"max":1,...}]}' -f json` reports a line count for all
- * 557 `.ts` files under `src`, and every one of the 557 equals the number this
- * function returns. That is what makes "the row reached 150 and the file is now
+ * against the real thing rather than assumed, and RE-DERIVED rather than quoted
+ * — from `packages/cli`, redirected because the JSON runs to megabytes:
+ *
+ * ```
+ * pnpm exec eslint src --rule '{"max-lines":["error",{"max":1,"skipBlankLines":false,"skipComments":false}]}' -f json
+ * ```
+ *
+ * `max: 1` makes every file exceed the cap and report its own line count in the
+ * refusal, and every count ESLint reports equals the number this function
+ * returns. That is what makes "the row reached 150 and the file is now
  * lint-clean" a true statement and not a hopeful one.
+ *
+ * ⚠️ NO CARDINAL FOR THAT RUN IS WRITTEN HERE, AND THE POPULATION IS WHY. It
+ * lints every `.ts` file under `src` — `*.test.ts` and generated files included
+ * — which is WIDER than this ledger's own {@link isSource}, so its count is
+ * neither `POPULATION.length` nor anything else this spec holds. A figure for it
+ * moves with every file anyone adds, sits on a line nothing re-derives, and goes
+ * on reading as a checked fact; worse, a reader comparing it against this
+ * ledger's population is comparing two different sets and will find a
+ * disagreement that was never there.
+ *
+ * ⚠️ THE DISCRIMINATING CONTROL IS THE TRAILING-EMPTY-LINE POP. Drop it and the
+ * agreement falls to ZERO rather than to nearly-all, because every file in this
+ * package ends in a newline — so the pop is load-bearing on every single one. An
+ * agreement measured without that control is a comparison that would have looked
+ * identical whatever this function did.
  *
  * ── WHAT IS DELIBERATELY NOT IN THE POPULATION ──────────────────────────────
  *
@@ -138,7 +159,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/apps-vendor-package.ts": 271,
   "commands/apps-watch.ts": 463,
   "commands/asset.ts": 272,
-  "commands/auth.ts": 1607,
   "commands/channel.contract.generated.ts": 167,
   "commands/channel.ts": 1390,
   "commands/chat.ts": 697,
@@ -197,7 +217,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracing.ts": 934,
   "commands/tracks.contract.generated.ts": 581,
-  "commands/tracks.ts": 2339,
   "commands/upgrade.ts": 510,
   "commands/user-group.ts": 309,
   "commands/version.ts": 392,
@@ -275,7 +294,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 154;
+const LEDGER_CEILING = 152;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

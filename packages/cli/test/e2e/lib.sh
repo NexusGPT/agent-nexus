@@ -320,12 +320,42 @@ send_message() {
   return 1
 }
 
-# Poll `emulator session get` until an AI message lands or we run out of
-# attempts. `emulator send` returns synchronously after writing the HUMAN
+# Poll `emulator session get` until the agent's turn has SETTLED, or we run out
+# of attempts. `emulator send` returns synchronously after writing the HUMAN
 # message; the AI reply is generated async and lands later, so any flow
 # that fetches the session immediately after sending will race the reply.
 # 60s ceiling matches the longest LLM round-trip we've observed in
 # staging — comfortably above the median, well below the 15min job timeout.
+#
+# 🔴 SETTLED MEANS AN AI MESSAGE THAT IS NOT A TOOL CALL, NEVER MERELY AN AI
+# MESSAGE AND NEVER MERELY ONE WITH CONTENT. On a tool-using turn the emulator
+# writes the tool CALL as its own `AI` row and only then the `TOOL` row and the
+# final answer:
+#
+#   HUMAN → AI(hasToolCalls=true) → TOOL → AI("The sky is teal.")
+#
+# So "an AI row exists" is true from the first of those, before the tool has
+# run. A caller that returns there reads a session mid-turn, and the two things
+# a flow wants to know are both wrong at that instant: there is no `TOOL` row
+# yet, which is indistinguishable from the model having DECLINED to use its
+# tool, and there is no answer yet, so any assertion on reply content is judged
+# against a turn that was still in flight.
+#
+# ⚠️ "NON-EMPTY CONTENT" IS NOT THE TEST, AND THAT IS THE SECOND-ORDER TRAP. A
+# tool-call row may carry PREAMBLE text ("Let me look that up…") alongside its
+# `toolCalls`, so content alone re-admits the very mid-turn snapshot this
+# guards against — the same defect one layer down. The emulator publishes
+# `hasToolCalls` precisely to tell the two apart, and that is what we read:
+# an AI row that makes no tool call IS the end of the turn, preamble or not.
+#
+# Content is still required, so a turn that emits only a contentless stub times
+# out — the honest outcome, since it never produced a reply. The no-tool case
+# is unaffected: its single AI row makes no call and carries the answer.
+#
+# `hasToolCalls` is a BOOLEAN, so it must never be tested with jq's `//`:
+# `false // X` evaluates to X, which would read every settled row as a tool
+# call. `has()` picks the field, and the `toolCalls` array is the fallback for
+# a payload that omits it.
 wait_for_ai_reply() {
   local deployment_id="$1"
   local session_id="$2"
@@ -341,7 +371,22 @@ wait_for_ai_reply() {
     # from a server-side hiccup) does not abort the polling loop under
     # the caller's set -e. The numeric guard below keeps malformed reads
     # in the "not yet" branch and lets the timeout decide.
-    count=$(jq '[.messages[]? | select(.type == "AI")] | length' "${out_file}" 2>/dev/null || true)
+    #
+    # `tostring` for the same reason the canary assertion uses it: content is
+    # normally a string but can be serialised as rich blocks, and jq would
+    # otherwise throw on a non-string here and be swallowed into "not yet".
+    count=$(jq '
+      [ .messages[]?
+        | select(.type == "AI")
+        | select(
+            (if has("hasToolCalls") then .hasToolCalls
+             else ((.toolCalls // []) | length) > 0 end) == false
+          )
+        | (.content // "")
+        | if type == "string" then . else tostring end
+        | select(. != "")
+      ] | length
+    ' "${out_file}" 2>/dev/null || true)
     if [[ "${count}" =~ ^[0-9]+$ ]] && [[ "${count}" -ge 1 ]]; then
       return 0
     fi

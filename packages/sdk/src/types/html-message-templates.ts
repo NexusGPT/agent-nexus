@@ -15,6 +15,11 @@ export interface HtmlMessageTemplateSummary {
   name: string;
   description: string | null;
   inputSchema: HtmlMessageTemplateInputSchema | null;
+  /**
+   * When the agent's send of this template is its last tool call, the agent's
+   * turn ends there instead of continuing with another message.
+   */
+  endsTurn: boolean;
   /** The EMBED deployment this template belongs to. */
   deploymentId: string;
   createdAt: string;
@@ -42,6 +47,8 @@ export interface CreateHtmlMessageTemplateBody {
   description?: string;
   htmlContent: string;
   inputSchema?: HtmlMessageTemplateInputSchema;
+  /** End the agent's turn when this card is its last tool call. Defaults to `false`. */
+  endsTurn?: boolean;
   /** The EMBED deployment the template belongs to. */
   deploymentId: string;
 }
@@ -51,6 +58,7 @@ export interface UpdateHtmlMessageTemplateBody {
   description?: string | null;
   htmlContent?: string;
   inputSchema?: HtmlMessageTemplateInputSchema | null;
+  endsTurn?: boolean;
 }
 
 export interface DeleteHtmlMessageTemplateResponse {

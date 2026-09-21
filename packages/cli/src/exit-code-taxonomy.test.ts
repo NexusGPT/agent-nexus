@@ -372,9 +372,9 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
 const EXPECTED_BARE_ONE_SITES: readonly string[] = [
   "commands/apps/deploy/deploy.command.ts",
   "commands/apps/deploy/rollback.handler.ts",
-  "commands/auth.ts",
-  "commands/auth.ts",
-  "commands/auth.ts",
+  "commands/auth/switch.command.ts",
+  "commands/auth/switch.here.ts",
+  "commands/auth/switch.session.ts",
   "commands/channel.ts",
   "commands/channel.ts",
   "commands/skills.ts"

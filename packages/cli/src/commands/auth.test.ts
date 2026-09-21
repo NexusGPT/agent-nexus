@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyUseOrgRefusal } from "./auth";
+import { classifyUseOrgRefusal } from "./auth/_shared/classify-use-org-refusal";
 
 const ORG_SCOPED = "nxs_u_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
 const PERSONAL = "nxs_p_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";

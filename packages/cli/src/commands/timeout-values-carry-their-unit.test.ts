@@ -212,10 +212,28 @@ describe("a timeout value names its unit at the boundary it crosses", () => {
  * only ever shrink. Deleting an entry without fixing its site re-opens the hole.
  */
 const ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE: Readonly<Record<string, string>> = {
-  "commands/auth.ts": [
-    "5 sites at a fixed 30s across the login/device-code/org-switch fetches.",
-    "These are interactive auth round-trips against a known-fast endpoint, not",
-    "bulk transfers, so the ceiling has not bitten anyone yet — but they ignore",
+  "commands/auth/_shared/fetch-organizations.ts": [
+    "1 site at a fixed 30s, listing the organizations a token can act on. It is",
+    "reached by `auth login`, `auth orgs` and `auth use-org` alike, so threading",
+    "the global here fixes all three at once.",
+    "An interactive auth round-trip against a known-fast endpoint, not a bulk",
+    "transfer, so the ceiling has not bitten anyone yet — but it ignores",
+    "--timeout exactly like the docs feed did. Thread the global and delete this",
+    "entry; do not delete it on its own."
+  ].join(" "),
+  "commands/auth/login.fetch-org-identity.ts": [
+    "1 site at a fixed 30s, reading the acting user's email and the org's name",
+    "for the org a cross-org key just selected.",
+    "An interactive auth round-trip against a known-fast endpoint, not a bulk",
+    "transfer, so the ceiling has not bitten anyone yet — but it ignores",
+    "--timeout exactly like the docs feed did. Thread the global and delete this",
+    "entry; do not delete it on its own."
+  ].join(" "),
+  "commands/auth/login.resolve-org-scoped.ts": [
+    "2 sites at a fixed 30s: the cheap authenticated probe that validates an",
+    "org-scoped key, and the /me call that names its organization.",
+    "Interactive auth round-trips against a known-fast endpoint, not bulk",
+    "transfers, so the ceiling has not bitten anyone yet — but they ignore",
     "--timeout exactly like the docs feed did. Thread the global and delete this",
     "entry; do not delete it on its own."
   ].join(" ")

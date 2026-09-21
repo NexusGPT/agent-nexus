@@ -1,7 +1,7 @@
 import { HttpClient } from "@agent-nexus/sdk";
 
 import { type Seconds, timeoutSecondsToMs } from "../client";
-import { isCrossOrgToken } from "../commands/auth";
+import { isCrossOrgToken } from "../commands/auth/_shared/token-prefixes";
 import { type ProfileSource, resolveBaseUrl, resolveOrganization, resolveProfile } from "../config";
 
 /**

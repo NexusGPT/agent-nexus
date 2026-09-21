@@ -10,8 +10,9 @@ import { renderWhyNotReady } from "./track-blockers.render";
  * `RECONSTRUCTION_CAVEAT` being correct proves nothing about the output: a
  * rendering that never prints it turns a client-side derivation into "the
  * server's reason" in the one place a person actually reads. The JSON half
- * carries it as a field on the envelope, which `tracks.ts` builds; this file
- * covers the terminal half.
+ * carries it as a field on the envelope, which
+ * `commands/tracks/task/why-not-ready.command.ts` builds; this file covers the
+ * terminal half.
  */
 
 const report: WhyNotReadyReport = {

@@ -26,6 +26,7 @@ export const HTML_MESSAGE_TEMPLATE_CREATE_CONTRACT = {
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.htmlContent", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.inputSchema", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
+    { path: "Body.endsTurn", slot: "Body", type: "boolean", required: false, depth: 0 },
     { path: "Body.deploymentId", slot: "Body", type: "string", required: true, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

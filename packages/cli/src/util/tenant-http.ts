@@ -53,7 +53,7 @@ export interface TenantHttpOptions {
 }
 
 interface TenantRequestOptions {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Absolute path on the backend, e.g. `/api/vibe/audit-events`. Must start with `/`. */
   path: string;
   /** Query string parameters. `undefined` values are dropped. Booleans + numbers coerce to string. */

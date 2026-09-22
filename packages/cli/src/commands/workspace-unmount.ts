@@ -59,12 +59,10 @@ function resolveScopeBestEffort(opts: {
 }): MountScope | undefined {
   try {
     const resolved = resolveProfile(opts);
-    const baseUrl = (
-      opts.baseUrl ||
-      process.env.NEXUS_BASE_URL ||
-      resolved.profile.baseUrl ||
-      resolveBaseUrl()
-    ).replace(/\/$/, "");
+    // Through the canon — see `resolveAuth` in `workspace-mount-shared.ts`.
+    // This copy has to agree with that one exactly or `findMount` looks in a
+    // different `url:` bucket than the mount was recorded under.
+    const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/$/, "");
     const scope = actingScope(resolved, baseUrl);
     if (!scope.orgId && !scope.profile) return undefined;
     return scope;

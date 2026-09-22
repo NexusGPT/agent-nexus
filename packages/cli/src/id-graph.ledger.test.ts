@@ -158,7 +158,15 @@ const gate = shrinkOnlyLedger({
   // `/api/public/v1`, so there is no v1 descriptor to bind. And the sweep must
   // not run it regardless: its effect is to write a directory on the machine
   // running the sweep. Same shape as `apps create <name>`, which sits here too.
-  ceiling: 317,
+  //
+  // 317 -> 322 for the five `apps domains` leaves (add, list, primary, remove,
+  // verify), each `unbound-no-provable-method`. Every one of them talks to
+  // `/api/vibe/apps/:appId/domains…` or `/primary-domain` — internal `ZVibe`
+  // routes outside `/api/public/v1`, so there is no v1 descriptor for
+  // `bindCommand` to take, which is why every other `apps` leaf that takes an
+  // app id sits here too. `list` is the only read, and the sweep has no producer
+  // for a Vibe app id to thread into it; the other four write.
+  ceiling: 322,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

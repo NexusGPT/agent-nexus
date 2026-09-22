@@ -41,7 +41,11 @@ export function registerAuthWhoamiCommand(auth: Command, program: Command): Comm
         return;
       }
 
-      const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+      // Through the canon, with both globals — see `status.handler.ts`. The
+      // bare `resolved.profile.baseUrl ?? resolveBaseUrl()` this replaced
+      // dropped `--base-url`, so a live verification could be reported against
+      // a host the caller never asked for.
+      const baseUrl = resolveBaseUrl(globals.baseUrl, globals.profile);
       const keyHint =
         resolved.profile.apiKey.slice(0, 8) + "..." + resolved.profile.apiKey.slice(-4);
 

@@ -16,34 +16,42 @@
 
 import { printFailure } from "../errors";
 import { EXIT_CODES, exitCodeForHttpStatus } from "../exit-codes";
-import { isJsonMode } from "../output";
 
 export class AdminCliError extends Error {
   readonly status: number | null;
   readonly code: string | null;
+  /** The remedy, carried in its OWN field. See {@link handleAdminError}. */
+  readonly hint: string | null;
   readonly exitCode: number;
 
   private constructor(
     message: string,
     status: number | null,
     code: string | null,
-    exitCode: number
+    exitCode: number,
+    hint: string | null = null
   ) {
     super(message);
     this.name = "AdminCliError";
     this.status = status;
     this.code = code;
+    this.hint = hint;
     this.exitCode = exitCode;
   }
 
   static missingToken(): AdminCliError {
     return new AdminCliError(
-      "Admin token is required. Pass --admin-token <jwt> or set NEXUS_ADMIN_TOKEN.\n" +
-        "  Grab a Clerk JWT from gpt.nexus DevTools → Network → any request → " +
-        "Authorization header (the 'Bearer eyJ...' value).",
+      "Admin token is required. Pass --admin-token <jwt> or set NEXUS_ADMIN_TOKEN.",
       null,
       null,
-      EXIT_CODES["not-authenticated"]
+      EXIT_CODES["not-authenticated"],
+      // ⚠️ A REMEDY, SO IT IS A HINT. It used to ride inside the message after a
+      // `\n  `, which renders identically on a terminal and is why nobody saw
+      // it: under `--json` it reached `error.message` as two lines of prose
+      // while `error.hint` was `null`, so a script reading the field the
+      // envelope reserves for the remedy found nothing there.
+      "Grab a Clerk JWT from gpt.nexus DevTools → Network → any request → " +
+        "Authorization header (the 'Bearer eyJ...' value)."
     );
   }
 
@@ -87,16 +95,28 @@ const ADMIN_CLI_CODE = "CLI_ADMIN_ERROR";
  * Print an `AdminCliError` and return its exit code.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 NINE ADMIN COMMANDS FAILED WITH NOTHING ON STDOUT, FROM THIS ONE FUNCTION.
+ * 🚨 BOTH CHANNELS GO THROUGH `printFailure`. NEITHER IS HAND-ROLLED HERE.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * It wrote a red `✗` line to stderr and returned. That is right for a terminal
- * and wrong under `--json`, where the root epilogue promises the failure IS a
- * document on stdout — so a script driving the admin tree got a non-zero exit
- * and an empty pipe. One function, nine commands: `vibe-build-job fail`,
- * `succeed`, `time-out`, `build-runner tick`, `deployment-runner tick`,
- * `consumption-cap set`, `cost-safety set`, `tenant-cluster disable`,
- * `provision`.
+ * Nine admin commands once failed with nothing on stdout, because this function
+ * wrote a red `✗` line to stderr and returned — right for a terminal and wrong
+ * under `--json`, where the root epilogue promises the failure IS a document on
+ * stdout. That was repaired by branching on `isJsonMode()` and calling
+ * `printFailure` on one arm only, which left the HUMAN arm hand-rolled and
+ * disagreeing with `printCliError` three ways at once:
+ *
+ *   · it dropped the `code` it had just computed, so an operator pasting
+ *     terminal output into a bug report brought no machine-readable cause —
+ *     the very defect `errors.ts` records eleven workflow codes dying of;
+ *   · it had nowhere to put a hint, so `missingToken`'s remedy lived inside the
+ *     message;
+ *   · it wrote `\x1b[31m` directly, going around the `NO_COLOR` guard that every
+ *     other line in this package respects, so `NO_COLOR=1 nexus admin … 2> log`
+ *     put escape bytes in the log.
+ *
+ * There is no branch now. `printFailure` → `printCliError` is the ONE renderer,
+ * so the admin tree's human channel says exactly what the resource tree's says
+ * and cannot drift from it again.
  *
  * ⚠️ THE EXIT CODE IS NOT THIS FUNCTION'S TO INVENT. It comes off the error,
  * which got it from `src/exit-codes.ts`. `printFailure` exists precisely so a
@@ -104,18 +124,19 @@ const ADMIN_CLI_CODE = "CLI_ADMIN_ERROR";
  * `refuse` and `reportFailure` decide their own code, this tree carries one.
  */
 export function handleAdminError(err: unknown): number {
-  const write = (message: string, code: string, exitCode: number): number => {
-    if (isJsonMode()) {
-      printFailure(message, code);
-      return exitCode;
-    }
-    process.stderr.write(`\x1b[31m✗\x1b[0m ${message}\n`);
+  const write = (message: string, code: string, exitCode: number, hint?: string): number => {
+    printFailure(message, code, hint);
     return exitCode;
   };
 
   if (err instanceof AdminCliError) {
     const prefix = err.status ? `Admin API error (${err.status}): ` : "";
-    return write(`${prefix}${err.message}`, err.code ?? ADMIN_CLI_CODE, err.exitCode);
+    return write(
+      `${prefix}${err.message}`,
+      err.code ?? ADMIN_CLI_CODE,
+      err.exitCode,
+      err.hint ?? undefined
+    );
   }
   if (err instanceof Error) return write(err.message, ADMIN_CLI_CODE, EXIT_CODES.failed);
   return write(String(err), ADMIN_CLI_CODE, EXIT_CODES.failed);

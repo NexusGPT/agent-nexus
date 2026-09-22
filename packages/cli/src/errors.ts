@@ -7,6 +7,7 @@ import {
 } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
+import { nextStepsFor } from "./error-next-steps";
 import {
   CategorizedCliError,
   EXIT_CODES,
@@ -15,65 +16,6 @@ import {
 } from "./exit-codes";
 import { argvRequestsJson } from "./json-terminal-contract";
 import { color, emitDocument, isJsonMode, setJsonMode } from "./output";
-
-/**
- * Handle errors from SDK calls and print actionable messages.
- * Returns the exit code to use.
- */
-/**
- * What the CLI can offer for a specific API error code.
- *
- * The API's message names the CONDITION in surface-neutral terms, because the
- * console renders the very same string — a message that said "run nexus ..."
- * would name a control a browser user does not have. The command that resolves
- * it therefore belongs here, on the surface that knows the reader is in a
- * terminal. Keyed by the error CODE, never by message text, so rewording the
- * API's prose cannot silently drop the next step.
- */
-const NEXT_STEPS_BY_CODE: Record<string, string> = {
-  // The org has no dedicated cluster (or its cluster cannot host code). Two
-  // ways forward, and the second is the one nobody guesses: a project that
-  // carries its own remote is cloned straight from there by the build and
-  // never needs a cluster at all.
-  VIBE_GIT_PROJECT_CLUSTER_NOT_READY: [
-    "Provision your cluster (EU regions, immutable once set):",
-    "  nexus apps cluster provision --region eu-west-3",
-    "  nexus apps cluster status",
-    "",
-    "Or host the code yourself — no cluster needed, the build clones your remote:",
-    "  nexus apps provision-repo <appId> --git-url https://github.com/acme/svc.git"
-  ].join("\n"),
-
-  // The id names a real connected account under its OTHER name. Two commands
-  // print an `ID` column for one account — "tool credentials" the tool-scoped
-  // `ToolCredentials.id`, "credential list" the unified `Credential.id` — both
-  // UUIDs, and neither namespace accepts the other's. The API's message already
-  // names the unified id; what belongs here is the reason the two exist and
-  // which command prints which, because a bare 404 on the pre-delete check
-  // "credential delete --help" mandates otherwise reads as "already deleted".
-  // Continuation lines carry their own two spaces: `printCliError` indents the
-  // FIRST line of a hint and no others, so a multi-line block that does not
-  // indent itself renders ragged against the message above it.
-  CREDENTIAL_ID_IS_TOOL_SCOPED: [
-    'That id is the one "nexus tool credentials <tool-id>" prints. It is TOOL-SCOPED,',
-    '  and only "nexus tool delete-credential" takes it.',
-    "",
-    "  A refusal here is NOT proof the credential is gone — the same account is",
-    "  alive under the unified id the message above names.",
-    "",
-    '  "credential" and "access-card" take that unified id. List them with:',
-    "    nexus credential list"
-  ].join("\n")
-};
-
-/**
- * The CLI-actionable next step for an API error, or null when we have nothing
- * better to say than the API already did. A code the API sends but this table
- * does not know is not an error — the caller still gets the API's message.
- */
-function nextStepsFor(err: NexusApiError): string | null {
-  return NEXT_STEPS_BY_CODE[err.code] ?? null;
-}
 
 /**
  * 401 codes that are about a CONNECTED PROVIDER, not about the caller's API key.
@@ -603,6 +545,10 @@ function messageForRefusal(err: CliArgumentError): string {
   return err.message.replace(/^error:\s*/, "");
 }
 
+/**
+ * Handle errors from SDK calls and print actionable messages.
+ * Returns the exit code to use.
+ */
 export function handleError(err: unknown): number {
   // First, because it is the only failure that never reached the network and the
   // only one whose remedy is a `--help` the CLI can name exactly.

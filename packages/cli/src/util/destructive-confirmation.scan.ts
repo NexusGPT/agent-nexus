@@ -185,6 +185,7 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "agent-skill delete",
   "agent-tool delete",
   "apps delete",
+  "apps domains remove",
   "apps git-project delete",
   "apps rotate-edge-token",
   "asset delete",

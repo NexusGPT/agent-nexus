@@ -9,7 +9,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { absent, color, isJsonMode, printEnvelope, printSuccess, printTable } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readClearableFlag, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import {
   SKILL_FOLDER_ASSIGN_CONTRACT,
@@ -151,7 +151,7 @@ Notes:
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.parentId !== undefined) {
-          flags.parentId = opts.parentId === "null" ? null : opts.parentId;
+          flags.parentId = readClearableFlag(opts.parentId);
         }
         const body = mergeBodyWithFlags(base, flags);
         await client.skillFolders.update(id, asRequestBody<UpdateSkillFolderBody>(body));
@@ -229,7 +229,7 @@ Notes:
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           skillId: opts.skillId,
-          folderId: opts.folderId === "null" ? null : opts.folderId
+          folderId: readClearableFlag(opts.folderId)
         });
         const result = await client.skillFolders.assign(
           asRequestBody<AssignSkillToFolderBody>(body)

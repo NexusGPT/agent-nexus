@@ -187,8 +187,8 @@ export function createClient(opts?: {
 
   return new NexusClient({
     apiKey: opts?.apiKey ?? resolved.profile.apiKey,
-    baseUrl:
-      opts?.baseUrl || process.env.NEXUS_BASE_URL || resolved.profile.baseUrl || resolveBaseUrl(),
+    // ONE definition — see `resolveBaseUrl`. A hand-rolled chain here inverted its 2nd and 3rd terms.
+    baseUrl: resolveBaseUrl(opts?.baseUrl, opts?.profile),
     ...(organizationId ? { organizationId } : {}),
     timeout: timeoutSecondsToMs(opts?.timeout),
     maxRetries: opts?.maxRetries,

@@ -166,3 +166,82 @@ describe("whoami's organization line", () => {
     }
   });
 });
+
+/** Run the command and return the `Base URL:` line it printed. */
+async function baseUrlLine(): Promise<string> {
+  const printed: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+    printed.push(String(line));
+  });
+  await whoami.whoamiCommand();
+
+  // Anchored on the ONE line that names the host. A `toContain` over the whole
+  // block would be satisfied by the org line, the profile line, or any other
+  // line that happened to carry the string.
+  const line = printed.find((l) => l.includes("Base URL:"));
+  expect(line, `no Base URL: line in ${JSON.stringify(printed)}`).toBeDefined();
+  return (line ?? "").trim();
+}
+
+/**
+ * `whoami`'s BASE URL line — the host and its label come from one resolution.
+ *
+ * The same defect as the organization line above, one dimension over, and it
+ * was still open after that one was closed: the host came from
+ * `resolveBaseUrl()` and the label came from `whoami` re-testing the
+ * environment itself.
+ */
+describe("whoami's base URL line", () => {
+  it("prints the env override, and says the env var chose it", async () => {
+    writeProfile({ apiKey: SCOPED_KEY });
+    process.env.NEXUS_BASE_URL = "http://127.0.0.1:19601";
+
+    const line = await baseUrlLine();
+
+    expect(line).toContain("http://127.0.0.1:19601");
+    expect(line).toContain("NEXUS_BASE_URL env");
+  });
+
+  it("prints the stored host, and says the config file chose it", async () => {
+    writeProfile({ apiKey: SCOPED_KEY });
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ apiKey: SCOPED_KEY, baseUrl: "http://127.0.0.1:19602" }, null, 2)
+    );
+
+    const line = await baseUrlLine();
+
+    expect(line).toContain("http://127.0.0.1:19602");
+    expect(line).toContain("config file");
+  });
+
+  it("prints the mapped host, and names NEXUS_ENV when it chose it", async () => {
+    writeProfile({ apiKey: SCOPED_KEY });
+    process.env.NEXUS_ENV = "dev";
+
+    const line = await baseUrlLine();
+
+    expect(line).toContain("http://localhost:3001");
+    expect(line).toContain("NEXUS_ENV=dev");
+  });
+
+  it("says DEFAULT, not NEXUS_ENV, when NEXUS_ENV names no known environment", async () => {
+    // 🔴 THE ARM THAT SEPARATES THE TWO SPELLINGS. The other three pass under
+    // the old hand-rolled label too, because the old chain happened to agree
+    // with the resolver for every value that IS in the URL map.
+    //
+    // `NEXUS_ENV=banana` is in no map, so the resolver falls through to
+    // production — while the old label's `else if (process.env.NEXUS_ENV)`
+    // branch fired regardless and printed `NEXUS_ENV=banana` beside the
+    // production host. The one line whose job is saying where the host came
+    // from, naming a selector that did not choose it.
+    writeProfile({ apiKey: SCOPED_KEY });
+    process.env.NEXUS_ENV = "banana";
+
+    const line = await baseUrlLine();
+
+    expect(line).toContain("https://api.nexusgpt.io");
+    expect(line).toContain("default (production)");
+    expect(line).not.toContain("banana");
+  });
+});

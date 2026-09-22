@@ -14,11 +14,21 @@
  *
  * Base URL resolution piggy-backs on the existing profile chain (--base-url
  * → NEXUS_BASE_URL → active profile's baseUrl → NEXUS_ENV → production). The
- * profile's API key is ignored — only the URL is borrowed.
+ * profile's API key is ignored — only the URL is borrowed. The request deadline
+ * is the program-level `--timeout <seconds>` global, routed here by
+ * `admin-opts.ts`; it bounds the body read as well as the headers.
  */
 
 import { resolveBaseUrl } from "../config";
 import { AdminCliError } from "./admin-errors";
+import { fetchWithDeadline } from "./request-deadline";
+
+/**
+ * The deadline when `--timeout` is not given. MILLISECONDS, and the same figure
+ * `tenant-http.ts` uses — same backend, same link, so one number to remember
+ * rather than two. A DEFAULT, never a ceiling: the global moves it.
+ */
+const ADMIN_REQUEST_DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface AdminHttpOptions {
   /** Override token (from `--admin-token`). Falls back to `NEXUS_ADMIN_TOKEN`. */
@@ -27,6 +37,8 @@ export interface AdminHttpOptions {
   baseUrl?: string;
   /** Override profile (used solely to find a baseUrl). */
   profile?: string;
+  /** Request timeout in ms (default 30_000). Carries the global `--timeout`. */
+  timeout?: number;
 }
 
 interface AdminRequestOptions {
@@ -54,8 +66,8 @@ interface ApiErrorEnvelope {
 
 /**
  * Send a request against an `/api/admin/*` endpoint. Returns the unwrapped
- * `data` field. Throws `AdminCliError` for any non-2xx status — the error
- * carries the HTTP status so the command can branch on it for exit codes.
+ * `data` field. Throws `AdminCliError` for any non-2xx status — it carries the
+ * HTTP status so the command can branch on it for exit codes.
  */
 export async function adminRequest<T>(
   opts: AdminHttpOptions,
@@ -77,18 +89,29 @@ export async function adminRequest<T>(
     "Content-Type": "application/json"
   };
 
+  // 🚨 A REQUEST WITH NO DEADLINE IS NOT A SLOW REQUEST, IT IS A HANG. A socket
+  // that opens and never answers leaves `fetch` pending for ever: no output, no
+  // error, no exit, nothing to retry. `--timeout` already parsed on every `nexus
+  // admin …` — it reached nothing. `fetchWithDeadline` owns the body half.
   let response: Response;
+  let rawBody: string;
   try {
-    response = await fetch(url, {
-      method: req.method,
-      headers,
-      body: req.body === undefined ? undefined : JSON.stringify(req.body)
-    });
+    ({ response, text: rawBody } = await fetchWithDeadline(
+      url,
+      {
+        method: req.method,
+        headers,
+        body: req.body === undefined ? undefined : JSON.stringify(req.body)
+      },
+      { timeout: opts.timeout ?? ADMIN_REQUEST_DEFAULT_TIMEOUT_MS }
+    ));
   } catch (err) {
+    // A deadline and an unreachable host share this CATEGORY (retryable,
+    // `connection-failed`) and differ in cause — and the cause is what a human
+    // debugs with: named "could not reach the API", a deadline misdirects.
     throw AdminCliError.network(err instanceof Error ? err.message : String(err));
   }
 
-  const rawBody = await response.text();
   let parsed: unknown;
   if (rawBody.length > 0) {
     try {

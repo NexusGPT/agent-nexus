@@ -207,42 +207,48 @@ describe("a timeout value names its unit at the boundary it crosses", () => {
  * `AbortSignal.timeout` takes MILLISECONDS, so the rule is the millisecond rule:
  * the argument comes out of `timeoutSecondsToMs(...)` or is a `*_MS` constant.
  *
- * 🔴 A LEDGER, NOT A CLEAN SWEEP. The sites below are real and still unfixed. They
- * are listed so a NEW one fails rather than joining them silently; the list may
- * only ever shrink. Deleting an entry without fixing its site re-opens the hole.
+ * 🔴 IT WAS A LEDGER AND IT IS NOW A CLEAN SWEEP. Four sites across the `auth`
+ * tree — `_shared/fetch-organizations.ts`, `login.fetch-org-identity.ts` and two
+ * in `login.resolve-org-scoped.ts` — held `AbortSignal.timeout(30_000)` and
+ * ignored the flag, exactly as the docs feed had. Each now reads
+ * `timeoutSecondsToMs(timeoutSeconds) ?? AUTH_REQUEST_DEFAULT_TIMEOUT_MS` with
+ * the global threaded down from its command, so the ledger that exempted them
+ * drained to nothing and went with them. Both arms below judge every site.
  */
-const ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE: Readonly<Record<string, string>> = {
-  "commands/auth/_shared/fetch-organizations.ts": [
-    "1 site at a fixed 30s, listing the organizations a token can act on. It is",
-    "reached by `auth login`, `auth orgs` and `auth use-org` alike, so threading",
-    "the global here fixes all three at once.",
-    "An interactive auth round-trip against a known-fast endpoint, not a bulk",
-    "transfer, so the ceiling has not bitten anyone yet — but it ignores",
-    "--timeout exactly like the docs feed did. Thread the global and delete this",
-    "entry; do not delete it on its own."
-  ].join(" "),
-  "commands/auth/login.fetch-org-identity.ts": [
-    "1 site at a fixed 30s, reading the acting user's email and the org's name",
-    "for the org a cross-org key just selected.",
-    "An interactive auth round-trip against a known-fast endpoint, not a bulk",
-    "transfer, so the ceiling has not bitten anyone yet — but it ignores",
-    "--timeout exactly like the docs feed did. Thread the global and delete this",
-    "entry; do not delete it on its own."
-  ].join(" "),
-  "commands/auth/login.resolve-org-scoped.ts": [
-    "2 sites at a fixed 30s: the cheap authenticated probe that validates an",
-    "org-scoped key, and the /me call that names its organization.",
-    "Interactive auth round-trips against a known-fast endpoint, not bulk",
-    "transfers, so the ceiling has not bitten anyone yet — but they ignore",
-    "--timeout exactly like the docs feed did. Thread the global and delete this",
-    "entry; do not delete it on its own."
-  ].join(" ")
-};
 
 interface AbortSite {
   readonly where: string;
-  readonly file: string;
   readonly value: string;
+  /** Can the global `--timeout` move this deadline? See {@link isConfigurableDeadline}. */
+  readonly configurable: boolean;
+}
+
+/**
+ * Is this deadline expression UNPINNED — can `--timeout <seconds>` move it?
+ *
+ * Two spellings qualify, and the second is why this is a function rather than
+ * the single regex it used to be:
+ *
+ *   · it reads the option bag directly — `globals.timeout`, `opts.timeout`. This
+ *     is what a site INSIDE a command action writes, because the bag is there.
+ *   · it runs a non-literal through {@link CONVERTER}. A helper called BY a
+ *     command takes the seconds as a parameter, so the bag is not in scope and
+ *     no spelling of it can appear; `timeoutSecondsToMs(timeoutSeconds)` is the
+ *     same configurability reached from one frame down. The four `auth` helpers
+ *     are that shape.
+ *
+ * 🔴 THE NON-LITERAL CLAUSE IS THE WHOLE GUARD, AND DROPPING IT WOULD MAKE THIS
+ * ARM VACUOUS. `timeoutSecondsToMs(30)` is a pin — the converter changes its
+ * unit and nothing else — so accepting the converter unconditionally would admit
+ * every hardcoded deadline that bothered to spell itself in seconds.
+ */
+function isConfigurableDeadline(value: string): boolean {
+  if (/\b(globals|opts)\.timeout\b/.test(value)) return true;
+  const converted = new RegExp(`\\b${CONVERTER}\\(\\s*([^),]*)`).exec(value);
+  if (!converted) return false;
+  const argument = converted[1].trim();
+  // A numeric literal in any of JS's spellings, separators included.
+  return argument.length > 0 && !/^[\d_]+(\.[\d_]+)?$/.test(argument) && !/^0[xob]/i.test(argument);
 }
 
 /** Every `AbortSignal.timeout(<arg>)` in the CLI's production sources. */
@@ -267,10 +273,11 @@ function collectAbortSignalTimeoutSites(): AbortSite[] {
         node.arguments.length > 0
       ) {
         const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+        const value = node.arguments[0].getText(source).replace(/\s+/g, " ");
         sites.push({
           where: `${rel}:${line}`,
-          file: rel,
-          value: node.arguments[0].getText(source).replace(/\s+/g, " ")
+          value,
+          configurable: isConfigurableDeadline(value)
         });
       }
       ts.forEachChild(node, visit);
@@ -294,7 +301,6 @@ describe("AbortSignal.timeout reads the configured timeout, not its own constant
 
   it("every argument is milliseconds — timeoutSecondsToMs(...) or a *_MS constant", () => {
     const offenders = ABORT_SITES.filter((site) => {
-      if (site.file in ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE) return false;
       const words = identifiersIn(site.value);
       return !words.includes(CONVERTER) && !words.some((word) => word.endsWith(MS_SUFFIX));
     }).map((site) => `${site.where} -> AbortSignal.timeout(${site.value})`);
@@ -302,26 +308,25 @@ describe("AbortSignal.timeout reads the configured timeout, not its own constant
     expect(offenders).toEqual([]);
   });
 
-  it("every unlisted site still lets the global --timeout override it", () => {
+  it("every site still lets the global --timeout override it", () => {
     // The CLI's timeout error tells the reader to raise `--timeout <seconds>`.
     // A fetch that pins its own deadline makes that instruction false.
-    const offenders = ABORT_SITES.filter(
-      (site) =>
-        !(site.file in ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE) &&
-        !/\b(globals|opts)\.timeout\b/.test(site.value)
-    ).map((site) => `${site.where} -> AbortSignal.timeout(${site.value})`);
+    const offenders = ABORT_SITES.filter((site) => !site.configurable).map(
+      (site) => `${site.where} -> AbortSignal.timeout(${site.value})`
+    );
 
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the ledger honest — every listed file still has an unfixed site", () => {
-    // A ledger entry outliving its defect is worse than no ledger: it exempts a
-    // file that no longer needs exempting, so the next hardcoded timeout added
-    // there passes unnoticed.
-    const stale = Object.keys(ABORT_SIGNAL_TIMEOUT_NOT_YET_CONFIGURABLE).filter(
-      (file) => !ABORT_SITES.some((site) => site.file === file)
-    );
-
-    expect(stale).toEqual([]);
+  it("CONTROL: a pinned literal is still refused through the converter", () => {
+    // The arm above accepts `timeoutSecondsToMs(<something>)` as configurable,
+    // which is only true when the something came from outside. Without this,
+    // widening the rule to admit a threaded parameter would silently admit
+    // `timeoutSecondsToMs(30)` too — a pin wearing the converter's clothes, and
+    // the exact defect the arm exists to catch, one spelling along.
+    expect(isConfigurableDeadline("timeoutSecondsToMs(30) ?? SOME_MS")).toBe(false);
+    expect(isConfigurableDeadline("timeoutSecondsToMs(timeoutSeconds) ?? SOME_MS")).toBe(true);
+    expect(isConfigurableDeadline("timeoutSecondsToMs(globals.timeout) ?? SOME_MS")).toBe(true);
+    expect(isConfigurableDeadline("30_000")).toBe(false);
   });
 });

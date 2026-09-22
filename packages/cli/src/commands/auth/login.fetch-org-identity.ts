@@ -1,3 +1,6 @@
+import { timeoutSecondsToMs } from "../../client";
+import { AUTH_REQUEST_DEFAULT_TIMEOUT_MS } from "./_shared/auth-request-timeout";
+
 /**
  * Resolve the owning user's email — and the org's NAME — for the chosen
  * org (best-effort).
@@ -12,11 +15,14 @@
  * Every failure answers `undefined` for both fields, so an unreachable or
  * older backend leaves the caller's own values standing rather than clearing
  * them.
+ *
+ * `timeoutSeconds` is the global `--timeout`, in SECONDS.
  */
 export async function fetchOrgIdentity(
   resolvedBaseUrl: string,
   apiKey: string,
-  orgId: string
+  orgId: string,
+  timeoutSeconds?: number
 ): Promise<{ userEmail: string | undefined; orgName: string | undefined }> {
   try {
     const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
@@ -25,7 +31,9 @@ export async function fetchOrgIdentity(
         "organization-id": orgId,
         Accept: "application/json"
       },
-      signal: AbortSignal.timeout(30_000)
+      signal: AbortSignal.timeout(
+        timeoutSecondsToMs(timeoutSeconds) ?? AUTH_REQUEST_DEFAULT_TIMEOUT_MS
+      )
     });
     if (meRes.ok) {
       const meJson = (await meRes.json()) as {

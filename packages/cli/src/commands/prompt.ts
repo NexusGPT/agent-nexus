@@ -182,7 +182,8 @@ Notes:
   the anchor every other command's --variant main relies on.
   Renaming changes how the variant is ADDRESSED by name immediately; scripts
   holding the old name will start answering "not found". The id keeps working.
-  A name colliding (case-insensitively) with another variant is refused.`
+  A name colliding (case-insensitively) with another ACTIVE variant is refused;
+  an archived variant has given its name up and does not collide.`
     )
     .action(async (opts: { agentId: string; variant: string; name: string }) => {
       try {
@@ -217,6 +218,9 @@ Notes:
   iterating on its content, fork a new variant from one of its versions.
   Saves and promotes on an archived variant answer a conflict naming the
   archived state.
+  ARCHIVING FREES THE NAME: a new variant may take it straight away, which
+  keeps re-runnable scripts re-runnable. An archived variant stays reachable
+  by its id.
   MAIN CANNOT BE ARCHIVED.`
     )
     .action(async (opts: { agentId: string; variant: string; yes?: boolean }) => {
@@ -458,15 +462,29 @@ Notes:
         const client = createClient(program.optsWithGlobals());
         const result = await client.promptVariants.graph(opts.agentId);
         printEnvelope(result, () => {
+          // Lanes by variant ID. Archiving frees a name (NEX-5806), so an archived
+          // variant and the active one that took its name are two lanes sharing
+          // one name — grouped by name, their versions merged into one list.
           const byVariant = new Map<string, typeof result.nodes>();
           for (const node of result.nodes) {
-            const lane = byVariant.get(node.variantName) ?? [];
+            const lane = byVariant.get(node.variantId) ?? [];
             lane.push(node);
-            byVariant.set(node.variantName, lane);
+            byVariant.set(node.variantId, lane);
           }
-          for (const [variantName, lane] of byVariant) {
+          const lanesPerName = new Map<string, number>();
+          for (const [first] of byVariant.values()) {
+            if (!first) continue;
+            const key = first.variantName.toLowerCase();
+            lanesPerName.set(key, (lanesPerName.get(key) ?? 0) + 1);
+          }
+          for (const [variantId, lane] of byVariant) {
+            const variantName = lane[0]?.variantName ?? "";
             const isMain = lane[0]?.isMain ?? false;
-            console.log(color.bold(isMain ? `${variantName} (main)` : variantName));
+            const shared = (lanesPerName.get(variantName.toLowerCase()) ?? 0) > 1;
+            let label = variantName;
+            if (isMain) label = `${variantName} (main)`;
+            else if (shared) label = `${variantName} (${variantId})`;
+            console.log(color.bold(label));
             for (const node of lane) {
               const marks = [
                 node.isProduction ? "live" : "",

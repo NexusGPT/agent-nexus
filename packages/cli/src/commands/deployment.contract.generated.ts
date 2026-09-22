@@ -167,7 +167,8 @@ export const DEPLOYMENT_LIST_CONTRACT = {
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
     { path: "Params.search", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["GMAIL", "OUTLOOK", "IMAP", "SMTP", "SLACK", "TEAMS", "TELEGRAM", "FB_MESSENGER", "INSTAGRAM", "WHATSAPP", "TWILIO_SMS", "TWILIO_VOICE", "GOOGLE_SHEETS", "EXCEL_ADDIN", "OUTLOOK_ADDIN", "POWERPOINT_ADDIN", "WORD_ADDIN", "AIRTABLE", "GOOGLE_MEET", "ZOOM", "EMBED", "API"] },
-    { path: "Params.isActive", slot: "Params", type: "boolean", required: true, depth: 0 }
+    { path: "Params.isActive", slot: "Params", type: "boolean", required: true, depth: 0 },
+    { path: "Params.agentId", slot: "Params", type: "string", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 

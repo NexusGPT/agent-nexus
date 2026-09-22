@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 638 command nodes; 545 invocable leaves.
+ * 644 command nodes; 550 invocable leaves.
  * 53 top-level commands — 53 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         484 STABLE, 61 UNSTABLE
- *   disposition  25 never-execute, 456 registration-only, 59 safe, 5 safe-with-fixture
- *   --yes        43 destructive — 43 confirmable
- *   --json       439 answered, 106 abstain
+ *   tier         484 STABLE, 66 UNSTABLE
+ *   disposition  25 never-execute, 461 registration-only, 59 safe, 5 safe-with-fixture
+ *   --yes        44 destructive — 44 confirmable
+ *   --json       439 answered, 111 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -137,6 +137,11 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "apps deploy-state", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["--sha <sha>", "--ref <ref>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "7500d6a7d9e3" },
   { path: "apps deployments get", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<deploymentId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3e1614ba55d6" },
   { path: "apps deployments list", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c4892ac84b08" },
+  { path: "apps domains add", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<host>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a20079823e70" },
+  { path: "apps domains list", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "05ab55a5b3c6" },
+  { path: "apps domains primary", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "[host]"], flags: ["--clear"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "38c47bf58523" },
+  { path: "apps domains remove", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<host>"], flags: ["--yes"], aliases: ["rm"], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "4a15ee7e63a5" },
+  { path: "apps domains verify", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<host>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "1c0fd40d7530" },
   { path: "apps edge-token", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "e0a5dd7b45c6" },
   { path: "apps env list", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f2dec6d672ea" },
   { path: "apps env rm", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<envVarId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d8a3e0325045" },
@@ -266,7 +271,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "deployment folder list", tier: "STABLE", module: "deployment.ts", disposition: "safe", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "f111d2d76eeb" },
   { path: "deployment folder update", tier: "STABLE", module: "deployment.ts", disposition: "registration-only", args: ["<id>"], flags: ["--name <name>", "--body <json>"], aliases: [], hidden: false, confirm: null, json: "success", shape: "be10cd0b9055" },
   { path: "deployment get", tier: "STABLE", module: "deployment.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "6d5bf58aba2b" },
-  { path: "deployment list", tier: "STABLE", module: "deployment.ts", disposition: "safe", args: [], flags: ["--search <query>", "--type <type> {GMAIL|OUTLOOK|IMAP|SMTP|SLACK|TEAMS|TELEGRAM|FB_MESSENGER|INSTAGRAM|WHATSAPP|TWILIO_SMS|TWILIO_VOICE|GOOGLE_SHEETS|EXCEL_ADDIN|OUTLOOK_ADDIN|POWERPOINT_ADDIN|WORD_ADDIN|AIRTABLE|GOOGLE_MEET|ZOOM|EMBED|API}", "--active", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "149d31e2e044" },
+  { path: "deployment list", tier: "STABLE", module: "deployment.ts", disposition: "safe", args: [], flags: ["--search <query>", "--type <type> {GMAIL|OUTLOOK|IMAP|SMTP|SLACK|TEAMS|TELEGRAM|FB_MESSENGER|INSTAGRAM|WHATSAPP|TWILIO_SMS|TWILIO_VOICE|GOOGLE_SHEETS|EXCEL_ADDIN|OUTLOOK_ADDIN|POWERPOINT_ADDIN|WORD_ADDIN|AIRTABLE|GOOGLE_MEET|ZOOM|EMBED|API}", "--active", "--agent-id <id>", "--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "da8f88af64d0" },
   { path: "deployment stats", tier: "STABLE", module: "deployment.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "a0eca5e87366" },
   { path: "deployment template attach", tier: "STABLE", module: "deployment.ts", disposition: "registration-only", args: ["<deploymentId>"], flags: ["!--template-id <id>", "!--name <name>", "!--description <text>", "--variables <json>", "--type <type> {template|card|carousel}", "--enable-multi-language", "--template-group <json>", "--enable-dynamic-size", "--carousel-template-group <json>", "--single-item-card-template-id <id>", "--single-item-card-template-group <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d5b05353f0a1" },
   { path: "deployment template detach", tier: "STABLE", module: "deployment.ts", disposition: "registration-only", args: ["<deploymentId>", "<templateId>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "01c8e9eac75a" },

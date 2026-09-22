@@ -34,10 +34,15 @@ export function registerAuthOrgsCommand(auth: Command, program: Command): Comman
         return;
       }
 
-      const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+      // Through the canon, with both globals — see `status.handler.ts`.
+      const baseUrl = resolveBaseUrl(globals.baseUrl, globals.profile);
       let organizations: UserOrganization[];
       try {
-        organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
+        organizations = await fetchOrganizations(
+          baseUrl,
+          resolved.profile.apiKey,
+          globals.timeout as number | undefined
+        );
       } catch (err) {
         process.exitCode = reportFailure("connection-failed", (err as Error).message);
         return;

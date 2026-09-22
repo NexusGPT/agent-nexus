@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
 import { refuse } from "../errors";
+import { askYesNo } from "./ask";
 
 /**
  * ONE ANSWER TO "NO TERMINAL, NO --yes": REFUSE.
@@ -168,20 +169,12 @@ export async function confirmDestructive(
     return false;
   }
 
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
-  let answer: string;
-  try {
-    answer = await rl.question(`${question} [y/N] `);
-  } finally {
-    // `finally`, not a close on the happy path: an interface left open holds
-    // stdin and the process never exits, so a read error would hang the CLI
-    // rather than report. Most hand-rolled sites in this package close on the
-    // happy path only.
-    rl.close();
-  }
-
-  if (answer.trim().toLowerCase() !== "y") {
+  // `askYesNo` owns the interface's lifetime and the answer's normalisation, so
+  // neither can drift per call site. It closes in a `finally` — an interface
+  // left open holds stdin and the process never exits, so a read error would
+  // hang the CLI rather than report — and it trims, so `"y "` and a CRLF `"y\r"`
+  // are the yes they were typed as. See `./ask`.
+  if (!(await askYesNo(question, promptStream()))) {
     promptLine("Aborted.");
     return false;
   }

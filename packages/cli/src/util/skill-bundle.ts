@@ -144,18 +144,6 @@ export function presetTarballUrl(repo: string, ref: string): string {
   return `https://codeload.github.com/${repo}/tar.gz/${encodeURIComponent(ref)}`;
 }
 
-/** Download a repo tarball. Kept separate from parsing so tests can skip the network. */
-export async function fetchTarball(url: string): Promise<Buffer> {
-  const response = await fetch(url, { headers: { accept: "application/gzip" } });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download ${url} — ${response.status} ${response.statusText}. ` +
-        `Check the --repo and --ref values, or pass --from-dir to use a local checkout.`
-    );
-  }
-  return Buffer.from(await response.arrayBuffer());
-}
-
 /**
  * Pull one skill's files out of a repo tarball, stripping the archive's
  * generated root directory (`<repo>-<ref>/`) and the skill's own path prefix so

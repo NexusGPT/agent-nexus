@@ -596,7 +596,8 @@ Notes:
                   baseUrl,
                   apiKey,
                   mountPath,
-                  readOnly: requestedReadOnly
+                  readOnly: requestedReadOnly,
+                  timeoutSeconds: program.optsWithGlobals().timeout as number | undefined
                 })
           );
           const { record } = mounted;

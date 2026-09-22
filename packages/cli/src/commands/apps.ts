@@ -36,6 +36,7 @@ import { registerAppsDeployStateCommand } from "./apps/deploy/deploy-state.comma
 import { registerAppsLogsCommand } from "./apps/deploy/logs.command";
 import { registerAppsRollbackCommand } from "./apps/deploy/rollback.command";
 import { registerAppsDeploymentsCommands } from "./apps/deployments/deployments.commands";
+import { registerAppsDomainsCommands } from "./apps/domains/domains.commands";
 import { registerAppsEnvCommands } from "./apps/env/env.commands";
 import { registerAppsGitProjectCommands } from "./apps/git-project/git-project.commands";
 import { registerAppsAttachRepoCommand } from "./apps/repo/attach-repo.command";
@@ -72,6 +73,8 @@ Subcommands:
   cluster          Provision / inspect your org's dedicated Vibe cluster.
   git-project      Manage git projects — the standalone code store apps deploy from.
   deployments      List / inspect an app's deployments and their build jobs.
+  domains          Serve an app on a host you own — add prints the DNS records
+                   (a CNAME for a subdomain, A records for an apex).
   env              An app's environment — list, set and remove plaintext vars,
                    and read the access cards imported into it.
   approvals        Review gated deployments — pending queue, get, approve/reject.
@@ -132,6 +135,7 @@ export function registerAppsCommands(program: Command): void {
   registerAppsRollbackCommand(apps, program);
   registerAppsDeploymentsCommands(apps, program);
   registerAppsEnvCommands(apps, program);
+  registerAppsDomainsCommands(apps, program);
   registerAppsApprovalsCommands(apps, program);
   registerAppsAuditCommands(apps, program);
   registerStarterCommand(apps, () => resolveTenantOpts(program));

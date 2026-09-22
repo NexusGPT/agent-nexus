@@ -5,7 +5,7 @@ import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError } from "../errors";
 import { printEnvelope, printSuccess, printTable } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readClearableFlag, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { withMemberCounts } from "../util/folder-membership";
 import {
@@ -168,7 +168,7 @@ Notes:
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.parentId !== undefined) {
-          flags.parentId = opts.parentId === "null" ? null : opts.parentId;
+          flags.parentId = readClearableFlag(opts.parentId);
         }
         const body = mergeBodyWithFlags(base, flags);
 
@@ -265,7 +265,7 @@ Notes:
         const flags: Record<string, unknown> = {};
         if (opts.agentId !== undefined) flags.agentId = opts.agentId;
         if (opts.folderId !== undefined) {
-          flags.folderId = opts.folderId === "null" ? null : opts.folderId;
+          flags.folderId = readClearableFlag(opts.folderId);
         }
         const assignBody = mergeBodyWithFlags(base, flags);
         const folderId = assignBody.folderId;

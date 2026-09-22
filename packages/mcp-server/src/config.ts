@@ -145,18 +145,52 @@ export function saveConfig(config: NexusMcpConfig): void {
 // Resolution helpers
 // ---------------------------------------------------------------------------
 
+/** How the host the next request goes to was determined. */
+export type BaseUrlSource =
+  | "env" // NEXUS_BASE_URL — per-shell, does not touch the config file
+  | "config" // the stored config file's baseUrl
+  | "env-name" // NEXUS_ENV named an environment in the URL map
+  | "default"; // nothing selected — the production default
+
 /**
- * Resolve the API base URL.
- * Priority: NEXUS_BASE_URL env → config file → NEXUS_ENV-based URL → production default
+ * Resolve the API base URL, WITH the selector that chose it.
+ *
+ * Priority: NEXUS_BASE_URL env → config file → NEXUS_ENV-based URL → production
+ * default. It matches the CLI's `resolveBaseUrl` for every term the two have in
+ * common; the CLI's two extra terms are a `--base-url` flag and a named
+ * `--profile`, neither of which exists here.
+ *
+ * 🚨 THE SOURCE COMES OUT OF THE SAME CALL AS THE VALUE. `whoami` used to print
+ * which selector had answered by re-testing the environment ITSELF, beside a
+ * value this function had produced independently — so the label could name one
+ * selector while the host came from another. That is NEX-2525 exactly, one
+ * dimension over from the organization, and `resolveOrganization` above is the
+ * fix it already got. A status surface that derives its label separately from
+ * the thing it is labelling can say "production" over a request to staging.
  */
-export function resolveBaseUrl(): string {
-  if (process.env.NEXUS_BASE_URL) return process.env.NEXUS_BASE_URL;
+export function resolveBaseUrlWithSource(): { baseUrl: string; source: BaseUrlSource } {
+  if (process.env.NEXUS_BASE_URL) {
+    return { baseUrl: process.env.NEXUS_BASE_URL, source: "env" };
+  }
 
   const config = loadConfig();
-  if (config.baseUrl) return config.baseUrl;
+  if (config.baseUrl) return { baseUrl: config.baseUrl, source: "config" };
 
-  const env = process.env.NEXUS_ENV ?? "production";
-  return URL_MAP[env] ?? URL_MAP.production;
+  const env = process.env.NEXUS_ENV;
+  if (env !== undefined && URL_MAP[env]) return { baseUrl: URL_MAP[env], source: "env-name" };
+
+  return { baseUrl: URL_MAP.production, source: "default" };
+}
+
+/**
+ * Resolve the API base URL.
+ *
+ * Delegates rather than re-deciding: this signature is published surface and
+ * cannot change, its BODY can, and a body that re-tests the environment is the
+ * second copy of the precedence this file exists to not have.
+ */
+export function resolveBaseUrl(): string {
+  return resolveBaseUrlWithSource().baseUrl;
 }
 
 /**

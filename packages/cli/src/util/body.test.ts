@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import {
+  CLEAR_TOKEN,
+  readClearableFlag,
   readString,
   readStringField,
   resetResolvedBodies,
@@ -130,5 +132,48 @@ describe("the resolved-body memo, and the one caller that must clear it", () => 
     resetResolvedBodies();
     writeFileSync(file, JSON.stringify({ name: "second" }));
     expect(await resolveRequiredBody(file)).toEqual({ name: "second" });
+  });
+});
+
+describe("readClearableFlag", () => {
+  it("reads the clear token as a wire null, which is the whole reason it exists", () => {
+    // A PATCH leaves an omitted field alone, so absence already means "don't
+    // touch this". Clearing a nullable field is a SECOND thing to say, and
+    // absence cannot say both — this token is what says the second.
+    expect(readClearableFlag(CLEAR_TOKEN)).toBeNull();
+  });
+
+  it("passes every other value through untouched", () => {
+    expect(readClearableFlag("11111111-1111-4111-8111-111111111111")).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
+    expect(readClearableFlag("Renamed Folder")).toBe("Renamed Folder");
+  });
+
+  it('does NOT read "none" as a clear — that vocabulary belongs to the role commands', () => {
+    // `role/_shared/read-nullable-string.ts` accepts "none" as well, because its
+    // fields are things like a currency code where "none" cannot be a real
+    // value. The fields THIS helper serves include free text: `nexus deployment
+    // update --description none` must set the description to the string "none",
+    // because that is a description somebody can legitimately want. Widening
+    // this helper to match role's vocabulary would silently blank it.
+    expect(readClearableFlag("none")).toBe("none");
+  });
+
+  it("is case-sensitive and does not trim, so only the exact token clears", () => {
+    // Anything looser makes a real value unsendable: these are all legitimate
+    // strings a field could hold, and none of them is the operator asking to
+    // clear anything.
+    expect(readClearableFlag("NULL")).toBe("NULL");
+    expect(readClearableFlag("Null")).toBe("Null");
+    expect(readClearableFlag(" null")).toBe(" null");
+    expect(readClearableFlag("null ")).toBe("null ");
+  });
+
+  it("leaves the empty string alone — it is not a clear", () => {
+    // `readString` collapses "" to undefined so a `??` chain falls through.
+    // This helper is a different decision and must not borrow that one: the
+    // caller has already decided the flag was supplied.
+    expect(readClearableFlag("")).toBe("");
   });
 });

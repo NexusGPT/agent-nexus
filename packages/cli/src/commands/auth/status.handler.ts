@@ -47,7 +47,16 @@ export async function runStatus(options: { verify: boolean }, program: Command):
     // SAME host. Resolving it three times is three chances to disagree, and
     // a verdict reported against a host the reader was not shown is the
     // defect this command exists to close, one level down.
-    const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+    //
+    // 🚨 THROUGH THE CANON, WITH BOTH GLOBALS. This read `resolved.profile
+    // .baseUrl ?? resolveBaseUrl()` — a third precedence that put the profile
+    // above `NEXUS_BASE_URL` and dropped `--base-url` on the floor entirely.
+    // Measured: `auth status --base-url <A> --profile beta` reported beta's
+    // stored host while `agent list` with the same flags reached <A>. The one
+    // command whose job is answering "where am I pointed" computed it a second
+    // way and was the only surface that could not answer (NEX-2525's shape,
+    // one dimension over).
+    const baseUrl = resolveBaseUrl(globals.baseUrl, globals.profile);
 
     const { probe, refusal } = await verifyStatusCredential(options, globals, baseUrl, resolved);
 

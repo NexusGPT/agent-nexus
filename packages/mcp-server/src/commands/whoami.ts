@@ -1,17 +1,28 @@
-import { loadConfig, resolveBaseUrl, resolveOrganization } from "../config";
+import {
+  type BaseUrlSource,
+  loadConfig,
+  resolveBaseUrlWithSource,
+  resolveOrganization
+} from "../config";
 
 /**
  * Print the current configuration: base URL, masked API key, env.
  */
 export async function whoamiCommand(): Promise<void> {
   const config = loadConfig();
-  const baseUrl = resolveBaseUrl();
 
-  // Determine URL source
-  let urlSource = "default (production)";
-  if (process.env.NEXUS_BASE_URL) urlSource = "NEXUS_BASE_URL env";
-  else if (config.baseUrl) urlSource = "config file";
-  else if (process.env.NEXUS_ENV) urlSource = `NEXUS_ENV=${process.env.NEXUS_ENV}`;
+  // The LABEL comes out of the same call as the value, for the same reason the
+  // organization's does below: asking the environment a second time to decide
+  // what to print is a second copy of the precedence, and a label derived
+  // independently of the thing it labels is how a status surface names one host
+  // while the bridge talks to another.
+  //
+  // It also fixes a case the old chain got wrong outright. `NEXUS_ENV=banana`
+  // is not in the URL map, so the resolver fell through to production while the
+  // label read `NEXUS_ENV=banana` — the one line whose job is saying where the
+  // host came from, naming a selector that did not choose it.
+  const { baseUrl, source: baseUrlSource } = resolveBaseUrlWithSource();
+  const urlSource = labelFor(baseUrlSource);
 
   // Determine API key source + mask
   let keyDisplay = "(none)";
@@ -56,6 +67,26 @@ export async function whoamiCommand(): Promise<void> {
   );
   console.log(`  Profile:   ${process.env.NEXUS_PROFILE ?? "(active profile)"}`);
   console.log(`  Env:       ${process.env.NEXUS_ENV ?? "(not set)"}`);
+}
+
+/**
+ * The human name of the selector that chose the host.
+ *
+ * `env-name` interpolates the variable's VALUE, which is a read for DISPLAY and
+ * not a second decision — the selection was already made by the resolver, and
+ * this branch is only reached when that resolver says so.
+ */
+function labelFor(source: BaseUrlSource): string {
+  switch (source) {
+    case "env":
+      return "NEXUS_BASE_URL env";
+    case "config":
+      return "config file";
+    case "env-name":
+      return `NEXUS_ENV=${process.env.NEXUS_ENV}`;
+    case "default":
+      return "default (production)";
+  }
 }
 
 function mask(key: string): string {

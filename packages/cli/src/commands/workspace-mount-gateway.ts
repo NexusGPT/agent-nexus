@@ -2,12 +2,21 @@ import { execFileSync } from "node:child_process";
 
 import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "@agent-nexus/sdk";
 
+import { timeoutSecondsToMs } from "../client";
 import type { Engine, MountRecord } from "../mount-registry";
+import { fetchWithDeadline } from "../util/request-deadline";
 import {
   assertRcloneCanMount,
   type MountOutcome,
   spawnRcloneMount
 } from "./workspace-mount-shared";
+
+/**
+ * The token mint's deadline when `--timeout` is not given. MILLISECONDS. A
+ * DEFAULT, never a ceiling — `GatewayMountRequest.timeoutSeconds` carries the
+ * global and moves it.
+ */
+const MOUNT_TOKEN_DEFAULT_TIMEOUT_MS = 30_000;
 
 // ── Native WebDAV (macOS `mount_webdav`) ──────────────────────────────────────
 
@@ -32,10 +41,24 @@ import {
  * dropped: the code is what the caller branches on, but the text is what a human
  * debugs with.
  */
-async function mintMountToken(baseUrl: string, apiKey: string): Promise<string> {
+async function mintMountToken(
+  baseUrl: string,
+  apiKey: string,
+  timeoutSeconds: number | undefined
+): Promise<string> {
+  // 🔴 AND IT CARRIED NO DEADLINE, WHICH ON THIS ROUTE IS WORSE THAN A SLOW
+  // MOUNT. A gateway that accepts the connection and never answers left
+  // `workspace mount` pending for ever with nothing printed — and the mount it
+  // was about to perform never happened either, so the drive simply never
+  // appeared and no error ever said why.
   let res: Response;
+  let text: string;
   try {
-    res = await fetch(`${baseUrl}/api/dav/_token`, { headers: { "api-key": apiKey } });
+    ({ response: res, text } = await fetchWithDeadline(
+      `${baseUrl}/api/dav/_token`,
+      { headers: { "api-key": apiKey } },
+      { timeout: timeoutSecondsToMs(timeoutSeconds) ?? MOUNT_TOKEN_DEFAULT_TIMEOUT_MS }
+    ));
   } catch (cause) {
     const detail = cause instanceof Error ? `: ${cause.message}` : "";
     throw new NexusConnectionError(
@@ -52,12 +75,12 @@ async function mintMountToken(baseUrl: string, apiKey: string): Promise<string> 
     // login" hint — the one remedy that matters for the failure most likely
     // here. `HTTP_${status}` is the SDK's default for every other status, so
     // this route reports exactly what the same failure reports everywhere else.
-    const message = `Failed to mint a mount token: ${await res.text()}`;
+    const message = `Failed to mint a mount token: ${text}`;
     throw res.status === 401
       ? new NexusAuthenticationError(message)
       : new NexusApiError(`HTTP_${res.status}`, message, res.status);
   }
-  const body: unknown = await res.json();
+  const body: unknown = JSON.parse(text);
   const token = tokenOf(body);
   if (!token) throw new Error("The mount-token endpoint returned no token.");
   return token;
@@ -78,7 +101,7 @@ async function mountWebdav(request: GatewayMountRequest): Promise<MountRecord> {
   // strips before anything logs the request line. Trade-off: the token is
   // visible in this mount process's argv to the same local user — it's scoped +
   // expiring (not the raw key); use `--engine direct` if even that matters.
-  const token = await mintMountToken(baseUrl, apiKey);
+  const token = await mintMountToken(baseUrl, apiKey, request.timeoutSeconds);
   const url = `${baseUrl}/api/dav/_t/${encodeURIComponent(token)}/${davPath}`;
 
   const args: string[] = [];
@@ -168,6 +191,8 @@ interface GatewayMountRequest {
   readonly apiKey: string;
   readonly mountPath: string;
   readonly readOnly: boolean;
+  /** The global `--timeout`, in SECONDS. Unset leaves the mint's own default. */
+  readonly timeoutSeconds?: number;
 }
 
 /** A gateway engine settles only its spawn's preflight: rclone must be able to mount, webdav needs nothing. */

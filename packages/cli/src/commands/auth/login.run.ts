@@ -16,7 +16,7 @@ import { printLoginTips } from "./login.tips";
  */
 export async function runLogin(input: {
   ask: Prompter["ask"];
-  effective: { apiKey?: string; profile?: string; env?: string };
+  effective: { apiKey?: string; profile?: string; env?: string; timeout?: number };
   baseUrl: string | undefined;
   dashboardUrl: string | undefined;
   resolvedBaseUrl: string;
@@ -27,9 +27,18 @@ export async function runLogin(input: {
   if (!key) return;
   const { apiKey, isPersonalToken, isPlatformOperatorKey } = key;
 
+  // The global `--timeout` arrives on `effective` because `login.command.ts`
+  // merges it out of `optsWithGlobals()`; both branches carry it into every
+  // request they make.
   const identity = isPersonalToken
-    ? await resolveCrossOrgIdentity({ ask, resolvedBaseUrl, apiKey, isPlatformOperatorKey })
-    : await resolveOrgScopedIdentity(resolvedBaseUrl, apiKey);
+    ? await resolveCrossOrgIdentity({
+        ask,
+        resolvedBaseUrl,
+        apiKey,
+        isPlatformOperatorKey,
+        timeoutSeconds: effective.timeout
+      })
+    : await resolveOrgScopedIdentity(resolvedBaseUrl, apiKey, effective.timeout);
   if (!identity) return;
   const { orgName, orgId, userEmail } = identity;
 

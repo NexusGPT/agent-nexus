@@ -46,16 +46,35 @@ export function registerAuthLoginCommand(auth: Command, _program: Command): Comm
         apiKey?: string;
         profile?: string;
         env?: string;
+        baseUrl?: string;
+        dashboardUrl?: string;
+        timeout?: number;
       };
       const effective = { ...opts, ...merged };
 
-      let baseUrl: string | undefined;
-      let dashboardUrl: string | undefined;
-      if (effective.env === "dev") {
-        baseUrl = "http://localhost:3001";
-        dashboardUrl = "http://localhost:3000";
-      }
-      const resolvedBaseUrl = baseUrl ?? resolveBaseUrl();
+      // 🚨 `baseUrl` AND `dashboardUrl` WERE MISSING FROM THE CAST ABOVE, so
+      // the globals were on argv, were merged onto this object, and were then
+      // untyped and unread. `--base-url` did nothing on this command at all —
+      // and the help text directly above tells the reader to use it for any
+      // address other than the `--env dev` pair. The probe went to whatever
+      // `resolveBaseUrl()` found for some OTHER profile, and the created
+      // profile stored no host.
+      //
+      // `--env dev` is a NAMED PAIR of hardcoded localhost ports. An explicit
+      // address is the more specific statement of the two, so it outranks the
+      // named environment — the same ordering `resolveBaseUrl` applies
+      // everywhere else: what was typed in THIS invocation wins.
+      const isDev = effective.env === "dev";
+      const baseUrl = effective.baseUrl ?? (isDev ? "http://localhost:3001" : undefined);
+      const dashboardUrl = effective.dashboardUrl ?? (isDev ? "http://localhost:3000" : undefined);
+
+      // ⚠️ NO PROFILE ARGUMENT, AND THAT IS NOT AN OVERSIGHT. `--profile` here
+      // names the profile this command is about to CREATE, not one to read a
+      // host out of — reading it would make the probe target depend on the
+      // profile being overwritten. The override IS passed, which is the half
+      // that was missing. `base-url-precedence-is-one-rule.test.ts` carries
+      // this site as its one sanctioned partial caller, with this reason.
+      const resolvedBaseUrl = resolveBaseUrl(baseUrl);
 
       // 🔴 ONE ORGANISM. The interface, its line queue and its close() are taken
       // together and released by the `finally` below — a fresh interface per

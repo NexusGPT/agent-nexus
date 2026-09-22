@@ -264,12 +264,12 @@ export function resolveAuth(opts: { apiKey?: string; baseUrl?: string; profile?:
   if (!apiKey) {
     throw new Error("No API key. Run `nexus auth login` or pass --api-key.");
   }
-  const baseUrl = (
-    opts.baseUrl ||
-    process.env.NEXUS_BASE_URL ||
-    resolved.profile.baseUrl ||
-    resolveBaseUrl()
-  ).replace(/\/$/, "");
+  // Through the canon. This was a hand-rolled copy that put `NEXUS_BASE_URL`
+  // above a NAMED `--profile`, which `resolveBaseUrl` orders the other way —
+  // and the host it produces is not merely where the request goes, it is the
+  // `url:` bucket a mount is RECORDED under, so a disagreement here outlives
+  // the command that caused it.
+  const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/$/, "");
   const scope = actingScope(resolved, baseUrl);
   if (!scope.orgId && !scope.profile) {
     // Raw --api-key/NEXUS_API_KEY with no org resolution: the acting org is

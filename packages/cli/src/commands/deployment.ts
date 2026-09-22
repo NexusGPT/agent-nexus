@@ -26,7 +26,7 @@ import {
   printSuccess,
   printTable
 } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
+import { asRequestBody, mergeBodyWithFlags, readClearableFlag, resolveBody } from "../util/body";
 import { booleanFlag } from "../util/boolean-flag";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { withMemberCounts } from "../util/folder-membership";
@@ -159,6 +159,7 @@ deployments:delete.`
       )
     )
     .option("--active", "Show only active deployments")
+    .option("--agent-id <id>", "Only deployments serving this agent (UUID)")
     // Declared here rather than through addPaginationOptions so the cap can be
     // stated: the server bounds limit at 1-100 and 400s outside it, which the
     // shared helper's "Items per page" cannot say without claiming the same
@@ -172,25 +173,40 @@ Examples:
   $ nexus deployment list
   $ nexus deployment list --type WHATSAPP --limit 10
   $ nexus deployment list --active --json
+  $ nexus deployment list --agent-id 11111111-1111-4111-8111-111111111111
 
 Notes:
   --limit above 100 is a 400, NOT a clamp. Page with meta.paging; meta.total
   counts the filtered set, so it moves when --search or --type does.
   --type takes the uppercase enum. --active selects isActive=true only —
   there is no flag for the inactive half, omit it and read the ACTIVE column.
+  --agent-id narrows to one agent's deployments within your organization; an
+  id from another organization matches nothing, and a non-UUID is a 400. An
+  EMPTY --agent-id is refused here: the API reads it as "every agent".
 
   A KEY MINTED BY AN ORG MEMBER SEES ONLY THE DEPLOYMENTS THAT USER CREATED,
   and nothing says so: the list is simply shorter. Admin and org-level keys
   see all of them.`
     )
     .action(async (opts) => {
+      // `--agent-id "$UNSET"` arrives as "". The API reads an empty `agentId` as
+      // "no filter", like every optional query id, so sending it would list EVERY
+      // agent's deployments to a caller who meant one.
+      if (typeof opts.agentId === "string" && opts.agentId.trim() === "") {
+        process.exitCode = refuse(
+          "--agent-id is empty.",
+          "Pass an agent id, or omit --agent-id to list every agent's deployments."
+        );
+        return;
+      }
       try {
         const client = createClient(program.optsWithGlobals());
         const { data, meta } = await client.deployments.list({
           ...getPaginationParams(opts),
           search: opts.search,
           type: opts.type,
-          isActive: opts.active ? true : undefined
+          isActive: opts.active ? true : undefined,
+          agentId: opts.agentId
         });
 
         printList(data, meta, [
@@ -440,10 +456,10 @@ Notes:
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.description !== undefined) {
-          flags.description = opts.description === "null" ? null : opts.description;
+          flags.description = readClearableFlag(opts.description);
         }
         if (opts.agentId !== undefined) {
-          flags.agentId = opts.agentId === "null" ? null : opts.agentId;
+          flags.agentId = readClearableFlag(opts.agentId);
         }
         if (opts.active !== undefined) {
           flags.isActive = opts.active;
@@ -880,7 +896,7 @@ Notes:
         // `uuid | null` and treats null as an unassignment, but a required
         // string flag has no other way to say it — without this the only
         // documented way out of a folder is unreachable from the CLI.
-        const folderId = opts.folderId === "null" ? null : opts.folderId;
+        const folderId = readClearableFlag(opts.folderId);
         await client.deploymentFolders.assign({
           deploymentId: opts.deploymentId,
           folderId

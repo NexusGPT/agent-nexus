@@ -13,11 +13,20 @@
 
 import type { Command } from "commander";
 
+import { timeoutSecondsToMs } from "../client";
 import type { AdminHttpOptions } from "./admin-http";
 
 /**
- * Merge globals from the program (--base-url, --profile) with admin-level
- * options (--admin-token). Subcommands then pass this into `adminRequest`.
+ * Merge globals from the program (--base-url, --profile, --timeout) with
+ * admin-level options (--admin-token). Subcommands then pass this into
+ * `adminRequest`.
+ *
+ * `--timeout` is SECONDS at the flag and MILLISECONDS at the transport, so it
+ * crosses through `timeoutSecondsToMs` here — the one place in the CLI that
+ * changes the unit, and the one that refuses a value already in milliseconds.
+ * An unset flag stays `undefined`, so the transport applies its own default
+ * rather than being pinned to one this seam invented. Same spelling as
+ * `resolveTenantOpts`, the sibling seam for the tenant transport.
  */
 export function resolveAdminOpts(program: Command, admin: Command): AdminHttpOptions {
   const globals = program.optsWithGlobals();
@@ -25,6 +34,7 @@ export function resolveAdminOpts(program: Command, admin: Command): AdminHttpOpt
   return {
     adminToken: adminOpts.adminToken as string | undefined,
     baseUrl: globals.baseUrl as string | undefined,
-    profile: globals.profile as string | undefined
+    profile: globals.profile as string | undefined,
+    timeout: timeoutSecondsToMs(globals.timeout as number | undefined)
   };
 }

@@ -17,15 +17,17 @@ export async function resolveCrossOrgIdentity(input: {
   resolvedBaseUrl: string;
   apiKey: string;
   isPlatformOperatorKey: boolean;
+  /** The global `--timeout`, in SECONDS. Unset leaves each request's default. */
+  timeoutSeconds?: number;
 }): Promise<LoginIdentity | null> {
-  const { ask, resolvedBaseUrl, apiKey, isPlatformOperatorKey } = input;
+  const { ask, resolvedBaseUrl, apiKey, isPlatformOperatorKey, timeoutSeconds } = input;
 
   console.log(
     isPlatformOperatorKey ? "Validating platform-operator key..." : "Validating personal token..."
   );
   let organizations: UserOrganization[];
   try {
-    organizations = await fetchOrganizations(resolvedBaseUrl, apiKey);
+    organizations = await fetchOrganizations(resolvedBaseUrl, apiKey, timeoutSeconds);
   } catch (err) {
     process.exitCode = reportFailure("connection-failed", (err as Error).message);
     return null;
@@ -67,7 +69,7 @@ export async function resolveCrossOrgIdentity(input: {
     orgName = chosen.orgName;
   }
 
-  const me = await fetchOrgIdentity(resolvedBaseUrl, apiKey, orgId);
+  const me = await fetchOrgIdentity(resolvedBaseUrl, apiKey, orgId, timeoutSeconds);
   // Never overwrite a name already resolved from the membership list.
   return { orgName: orgName ?? me.orgName, orgId, userEmail: me.userEmail };
 }

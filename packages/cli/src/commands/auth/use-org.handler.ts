@@ -18,9 +18,10 @@ import { PLATFORM_OPERATOR_TOKEN_PREFIX } from "./_shared/token-prefixes";
  * and the fetch itself.
  */
 export async function runUseOrg(orgId: string, program: Command): Promise<void> {
+  const globals = program.optsWithGlobals();
   let resolved;
   try {
-    resolved = resolveProfile(program.optsWithGlobals());
+    resolved = resolveProfile(globals);
   } catch {
     process.exitCode = reportFailure(
       "not-authenticated",
@@ -56,10 +57,18 @@ export async function runUseOrg(orgId: string, program: Command): Promise<void> 
     return;
   }
 
-  const baseUrl = resolved.profile.baseUrl ?? resolveBaseUrl();
+  // Through the canon, with both globals — see `status.handler.ts`. This one
+  // WRITES: the org it stores is the one the listing came back with, so a
+  // listing fetched from the wrong host writes another environment's org id
+  // onto the profile.
+  const baseUrl = resolveBaseUrl(globals.baseUrl, globals.profile);
   let organizations: UserOrganization[];
   try {
-    organizations = await fetchOrganizations(baseUrl, resolved.profile.apiKey);
+    organizations = await fetchOrganizations(
+      baseUrl,
+      resolved.profile.apiKey,
+      globals.timeout as number | undefined
+    );
   } catch (err) {
     process.exitCode = reportFailure("connection-failed", (err as Error).message);
     return;

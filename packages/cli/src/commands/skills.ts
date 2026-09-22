@@ -13,6 +13,7 @@ import {
   withCorpusFlags
 } from "../skills-corpus/command";
 import { fetchManifest, PlatformCorpusError } from "../skills-corpus/platform";
+import { askLine } from "../util/ask";
 import { confirmable, promptLine, promptStream } from "../util/confirm";
 import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
 import {
@@ -99,17 +100,12 @@ async function maybePickLocation(
   promptLine(`  ${color.cyan("3")}  ${path.join(homeDir, ".claude")}   ${color.dim("(global)")}`);
   promptLine();
 
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({ input: process.stdin, output: promptStream() });
-  let answer: string;
-  try {
-    answer = (await rl.question("Choose [1/2/3, default 1]: ")).trim();
-  } finally {
-    // `finally`, not a close on the happy path: an interface left open holds
-    // stdin and the process never exits, so a read error would hang rather than
-    // report.
-    rl.close();
-  }
+  // `askLine`, not `askYesNo`: this is a 1/2/3 choice, not a confirmation, so
+  // it renders its own bracket and reads its own answer. What it shares with
+  // the y/N sites is only the interface's lifetime — closed in a `finally`,
+  // because an interface left open holds stdin and the process never exits.
+  // This site already got that right; it is here so there is one copy of it.
+  const answer = await askLine("Choose [1/2/3, default 1]: ", promptStream());
 
   switch (answer) {
     case "":

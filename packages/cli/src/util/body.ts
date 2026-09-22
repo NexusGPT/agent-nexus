@@ -184,6 +184,39 @@ export function readStringField(
 }
 
 /**
+ * The literal token this CLI reads as a wire `null`.
+ *
+ * A PATCH leaves an omitted field alone, so absence already means "don't touch
+ * this". A nullable field needs a SECOND thing said — "clear it" — and absence
+ * cannot say both. This token is what says the second.
+ */
+export const CLEAR_TOKEN = "null";
+
+/**
+ * Read a flag whose field is NULLABLE, where {@link CLEAR_TOKEN} clears it.
+ *
+ * `nexus folder update --parent-id null` moves a folder to the root;
+ * `--parent-id <uuid>` re-parents it; omitting the flag leaves the parent alone.
+ * Three outcomes, two of which absence cannot distinguish — hence the token.
+ *
+ * ⚠️ THE TOKEN IS DELIBERATELY NARROW, AND `"none"` IS NOT A SYNONYM HERE. The
+ * `role` commands read a WIDER vocabulary through
+ * `commands/role/_shared/read-nullable-string.ts`, which accepts `"none"` too,
+ * because their fields are things like a currency code where `"none"` cannot be
+ * a real value. The fields this helper serves include free text — `nexus
+ * deployment update --description none` must set the description to the string
+ * `"none"`, because that is a description somebody can legitimately want. The
+ * two vocabularies are a decision, not drift; converging them would either break
+ * `--currency none` or swallow a legitimate `--description none`.
+ *
+ * Callers still guard on `!== undefined` themselves: this helper answers what a
+ * SUPPLIED flag means, never whether one was supplied.
+ */
+export function readClearableFlag(raw: string): string | null {
+  return raw === CLEAR_TOKEN ? null : raw;
+}
+
+/**
  * Merge a `--body` JSON object with explicit CLI flags.
  * Flags take precedence — any non-`undefined` flag value overwrites the body field.
  *

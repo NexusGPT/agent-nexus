@@ -70,7 +70,8 @@ async function remountRecord(input: RemountInput): Promise<MountOutcome> {
         baseUrl: input.baseUrl,
         apiKey: input.apiKey,
         mountPath: record.mountPath,
-        readOnly: input.readOnly
+        readOnly: input.readOnly,
+        timeoutSeconds: input.globals.timeout
       });
     case "direct": {
       const plan = planDirectMount(

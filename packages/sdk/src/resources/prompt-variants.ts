@@ -67,7 +67,8 @@ export class PromptVariantsResource extends BaseResource {
 
   /**
    * Rename a variant. Main cannot be renamed and no name may collide
-   * (case-insensitively) with another variant's.
+   * (case-insensitively) with another ACTIVE variant's — an archived variant
+   * has given its name up.
    */
   async rename(
     agentId: string,

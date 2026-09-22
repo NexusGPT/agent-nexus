@@ -242,4 +242,51 @@ describe("nexus prompt graph", () => {
     await run(["prompt", "graph", "--agent-id", AGENT_ID]);
     expect(request).toHaveBeenCalledWith("GET", `/agents/${AGENT_ID}/prompt-graph`);
   });
+
+  it("keeps two variants that share a name in two lanes, told apart by id", async () => {
+    // Archiving frees a name, so an archived "Concise" and the active one that
+    // took its name are both in the graph. The human view grouped lanes by
+    // name and printed their versions as one variant's history.
+    const node = (id: string, variantId: string, ordinal: number) => ({
+      id,
+      variantId,
+      variantName: "Concise",
+      isMain: false,
+      ordinal,
+      type: "CHECKPOINT",
+      name: null,
+      promotedFromVersionId: null,
+      isProduction: false,
+      createdAt: "2026-09-01T00:00:00.000Z"
+    });
+    const ARCHIVED_ID = "44444444-4444-4444-8444-444444444444";
+    const ACTIVE_ID = "55555555-5555-4555-8555-555555555555";
+    const V_ARCHIVED = "66666666-6666-4666-8666-666666666666";
+    const V_ACTIVE = "77777777-7777-4777-8777-777777777777";
+    request.mockResolvedValue({
+      nodes: [node(V_ARCHIVED, ARCHIVED_ID, 1), node(V_ACTIVE, ACTIVE_ID, 1)],
+      edges: []
+    });
+    const lines: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((line) => {
+      lines.push(String(line));
+    });
+    try {
+      const program = new Command();
+      program.name("nexus").exitOverride();
+      registerPromptCommands(program);
+      setJsonMode(false);
+      await program.parseAsync(["node", "nexus", "prompt", "graph", "--agent-id", AGENT_ID]);
+    } finally {
+      log.mockRestore();
+      setJsonMode(true);
+    }
+    const header = (variantId: string) =>
+      lines.findIndex((line) => line.includes(`Concise (${variantId})`));
+    expect(header(ARCHIVED_ID)).toBeGreaterThanOrEqual(0);
+    expect(header(ACTIVE_ID)).toBeGreaterThanOrEqual(0);
+    // Each lane lists its own version and only that one.
+    expect(lines[header(ARCHIVED_ID) + 1]).toContain(V_ARCHIVED);
+    expect(lines[header(ACTIVE_ID) + 1]).toContain(V_ACTIVE);
+  });
 });

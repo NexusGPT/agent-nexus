@@ -1,4 +1,6 @@
+import { timeoutSecondsToMs } from "../../client";
 import { reportFailure } from "../../errors";
+import { AUTH_REQUEST_DEFAULT_TIMEOUT_MS } from "./_shared/auth-request-timeout";
 import type { LoginIdentity } from "./login.identity";
 
 /**
@@ -10,15 +12,20 @@ import type { LoginIdentity } from "./login.identity";
  * The validation fetch is deliberately NOT wrapped: a network failure there
  * propagates to the action's own catch, which is where it was reported from
  * before this move.
+ *
+ * `timeoutSeconds` is the global `--timeout`, in SECONDS.
  */
 export async function resolveOrgScopedIdentity(
   resolvedBaseUrl: string,
-  apiKey: string
+  apiKey: string,
+  timeoutSeconds?: number
 ): Promise<LoginIdentity | null> {
   console.log("Validating...");
   const validateRes = await fetch(`${resolvedBaseUrl}/api/public/v1/agents?limit=1`, {
     headers: { "api-key": apiKey, Accept: "application/json" },
-    signal: AbortSignal.timeout(30_000)
+    signal: AbortSignal.timeout(
+      timeoutSecondsToMs(timeoutSeconds) ?? AUTH_REQUEST_DEFAULT_TIMEOUT_MS
+    )
   });
 
   if (!validateRes.ok) {
@@ -36,7 +43,9 @@ export async function resolveOrgScopedIdentity(
   try {
     const meRes = await fetch(`${resolvedBaseUrl}/api/public/v1/me`, {
       headers: { "api-key": apiKey, Accept: "application/json" },
-      signal: AbortSignal.timeout(30_000)
+      signal: AbortSignal.timeout(
+        timeoutSecondsToMs(timeoutSeconds) ?? AUTH_REQUEST_DEFAULT_TIMEOUT_MS
+      )
     });
     if (meRes.ok) {
       const meJson = (await meRes.json()) as {

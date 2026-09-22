@@ -513,10 +513,10 @@ export function resolveApiKey(override?: string, profile?: string): string {
 }
 
 /**
- * Resolve the API base URL.
- * Precedence: explicit --base-url override → the named --profile's base →
- * NEXUS_BASE_URL env → active profile's base → NEXUS_ENV map → production. An
- * explicit --profile outranks the ambient env var, mirroring resolveProfile.
+ * Resolve the API base URL. ONE definition, read by the client that SENDS a
+ * request and by `auth status` which REPORTS it — there were five; the gate is
+ * `base-url-precedence-is-one-rule.test.ts`. Precedence: --base-url → named
+ * --profile (which outranks the env var) → NEXUS_BASE_URL → active → NEXUS_ENV.
  */
 export function resolveBaseUrl(override?: string, profile?: string): string {
   if (override) return override;

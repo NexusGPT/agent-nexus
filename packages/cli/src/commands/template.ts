@@ -15,7 +15,13 @@ import { bindCommand } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
 import { handleError, refuse } from "../errors";
 import { printEnvelope, printList, printRecord, printSuccess } from "../output";
-import { asRequestBody, mergeBodyWithFlags, resolveBody, resolveRequiredBody } from "../util/body";
+import {
+  asRequestBody,
+  mergeBodyWithFlags,
+  readClearableFlag,
+  resolveBody,
+  resolveRequiredBody
+} from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { withMemberCounts } from "../util/folder-membership";
 import {
@@ -516,7 +522,7 @@ Notes:
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.parentId !== undefined) {
-          flags.parentId = opts.parentId === "null" ? null : opts.parentId;
+          flags.parentId = readClearableFlag(opts.parentId);
         }
         const body = mergeBodyWithFlags(base, flags);
         await client.documentTemplateFolders.update(
@@ -582,7 +588,7 @@ Notes:
         const base = await resolveBody(opts.body);
         const body = mergeBodyWithFlags(base, {
           templateId: opts.templateId,
-          folderId: opts.folderId === "null" ? null : opts.folderId
+          folderId: readClearableFlag(opts.folderId)
         });
         await client.documentTemplateFolders.assign(
           asRequestBody<AssignTemplateToFolderBody>(body)

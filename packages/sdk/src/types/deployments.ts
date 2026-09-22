@@ -325,6 +325,8 @@ export interface ListDeploymentsParams {
   type?: DeploymentType;
   /** Restrict to active or inactive deployments. */
   isActive?: boolean;
+  /** Only deployments serving this agent (UUID). */
+  agentId?: string;
 }
 
 /** Request body for `client.deployments.create()`. */

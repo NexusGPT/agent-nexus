@@ -3,15 +3,15 @@ import path from "node:path";
 
 import { Command } from "commander";
 
-import { createClient } from "../client";
+import { createClient, timeoutSecondsToMs } from "../client";
 import { bindCommand } from "../contract-binding";
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { fetchTarball } from "../util/fetch-tarball";
 import {
   DEFAULT_PRESET_REPO,
   extractPresetFromTarball,
-  fetchTarball,
   formatBytes,
   packSkillZip,
   presetTarballUrl,
@@ -21,6 +21,10 @@ import {
   SKILL_PRESETS,
   SKILL_ZIP_LIMITS
 } from "../util/skill-bundle";
+import {
+  DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS,
+  downloadWithStallDeadline
+} from "../util/stall-deadline";
 import type { ZipEntry } from "../util/zip";
 import {
   AGENT_SKILL_CREATE_CONTRACT,
@@ -399,9 +403,26 @@ Notes:
           // saw it — so both a dead network and a 403 from S3 fell through to
           // `CLI_UNKNOWN_ERROR`, and a script could not tell "retry this" from
           // "your presigned url expired". Found by the code gate, not by reading.
+          //
+          // 🔴 AND IT CARRIED NO DEADLINE AT ALL, SO A PRESIGNED HOST THAT
+          // ACCEPTED THE CONNECTION AND NEVER ANSWERED HUNG THE COMMAND FOR
+          // EVER. The budget is on SILENCE rather than on elapsed time: a skill
+          // bundle is up to 5 MB and its size is not known before the transfer
+          // starts, so a total deadline tight enough to catch a dead socket
+          // would abort a large download on a slow link — trading a hang for a
+          // refused transfer that was going to succeed.
           let response: Response;
+          let payload: Buffer;
           try {
-            response = await fetch(url);
+            ({ response, body: payload } = await downloadWithStallDeadline(
+              url,
+              {},
+              {
+                timeout:
+                  timeoutSecondsToMs(program.optsWithGlobals().timeout as number | undefined) ??
+                  DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS
+              }
+            ));
           } catch (networkError) {
             process.exitCode = reportFailure(
               "connection-failed",
@@ -419,7 +440,7 @@ Notes:
             );
             return;
           }
-          fs.writeFileSync(target, Buffer.from(await response.arrayBuffer()));
+          fs.writeFileSync(target, payload);
           printSuccess(`Skill downloaded to ${target}`, { id: skillId, name: skillMeta.name });
         } catch (err) {
           process.exitCode = handleError(err);
@@ -537,7 +558,10 @@ Notes:
           if (!opts.fromDir) {
             const url = presetTarballUrl(opts.repo, opts.ref);
             if (!isJsonMode()) console.log(color.dim(`Fetching ${url} …`));
-            tarball = await fetchTarball(url);
+            tarball = await fetchTarball(
+              url,
+              program.optsWithGlobals().timeout as number | undefined
+            );
           }
 
           const bundles = presets.map((preset) => {

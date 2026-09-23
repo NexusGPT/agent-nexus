@@ -1,5 +1,127 @@
 # @agent-nexus/sdk
 
+## 4.3.0
+### Minor Changes
+
+- 1f23db7: A deployment list can narrow to one agent
+  
+  `GET /public/v1/deployments` now honours `agentId`: only the deployments serving
+  that agent come back, within your own organization — another organization's
+  agent id returns an empty list, and a value that is not a UUID is a `400`.
+  
+  Until now the parameter was accepted and silently ignored. The query schema did
+  not declare it and is not strict, so it was stripped and the whole
+  organization's list came back with a 200; a caller taking `data[0]` got another
+  agent's deployment. Nothing else about the query schema changes — it is still
+  lenient toward parameters it does not know, so no existing caller starts
+  failing.
+  
+  ## `@agent-nexus/sdk`
+  
+  `client.deployments.list({ agentId })` — `ListDeploymentsParams` gains
+  `agentId?: string`.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus deployment list --agent-id <id>`.
+- 3ac79d2: A workspace file can be reverted to an earlier version
+  
+  `nexus workspace history <slug> <path>` lists every version of one file,
+  newest first, inside the bucket's retention window (~30 days for older
+  versions): every save through a mount, over WebDAV or with `workspace push`
+  is a version, and a delete is a marker on top. The table says which entry is
+  live, which is a delete marker, and each file version's exact size.
+  
+  `nexus workspace revert <slug> <path> --version-id <id>` makes one of those
+  versions live again. The server copies it on top as a NEW version, so nothing
+  is destroyed and a revert is undone by reverting to the id it displaced; it
+  works on a deleted file too. It asks first (`--yes` in a script), refuses a
+  delete marker's id and an id the path never held, and answers `already-live`
+  without writing when the version is the head already. `--shared` picks the
+  admin-shared twin on both verbs, and `workspace restore` now takes it too.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workspaces.history(slug, path, { workspaceId? })`** calls
+  `GET /workspaces/:slug/history`; each entry is `{ kind: "file", versionId,
+  isLatest, size, modifiedAt }` or `{ kind: "delete-marker", versionId,
+  isLatest, modifiedAt }`.
+  
+  **`workspaces.revert(slug, { path, versionId, workspaceId? })`** calls
+  `POST /workspaces/:slug/revert` and answers `{ outcome: "written", path,
+  revertedTo, newVersionId }` or `{ outcome: "already-live", path, revertedTo }`.
+- 5f356cd: A workspace can be pushed to without a mount
+  
+  `nexus workspace push <slug[:folder]> <path…>` puts local files or folders into
+  a workspace over the Public API, for the machine that cannot mount — CI, a
+  container, a locked-down laptop. It copies like `cp`: a named file lands at
+  `<folder>/<name>`, a named folder at `<folder>/<name>/…`, and a file that
+  exists is replaced unless `--no-clobber`, which the store decides in the same
+  step as the write. Dot-names inside a walked folder are left out unless
+  `--include-hidden`; `--shared` picks the admin-shared twin.
+  
+  It is a mailbag, not a transaction: files go up in packs of at most 100 files
+  and 45 MB, each delivered or bounced on its own, nothing rolled back. A
+  FAILED row exits 6 (`remote-error`); a skipped row leaves the exit at 0. A
+  single file of 45 MB or more is refused before anything is sent. `--json` is
+  the merged server response.
+  
+  `nexus workspace pull <slug[:folder]> [file…]` is its inverse: with no file
+  names the folder comes down as ONE streamed ZIP and is unpacked in place with
+  the system `unzip` (macOS, Linux) or `tar` (Windows), `--keep-zip` leaves the
+  archive; named files come down one by one, in parallel, each written under
+  `--out` by its base name. Local files are replaced like `cp`. It fails loud,
+  not partial: a refused folder or a missing file is an error document with its
+  own exit category.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workspaces.downloadFolderArchive(slug, { path?, workspaceId? })`** calls
+  `GET /workspaces/:slug/folder-archive` and hands back the `Response` itself,
+  unread — consume `body` as a stream; an archive may be up to 2 GB.
+  
+  **`workspaces.uploadBatch(slug, files, { workspaceId?, noClobber? })`** calls
+  `POST /workspaces/:slug/upload-batch`. Each result row is `success: true`, or
+  `success: false` with `skipped: true` (the path existed under `noClobber`) or
+  `skipped: false` (the write was refused, `error` says why); `successCount`,
+  `failureCount` and `skippedCount` partition the rows.
+
+### Patch Changes
+
+- 8c38277: HTML message template types carry `endsTurn`
+  
+  `HtmlMessageTemplateSummary` gains `endsTurn: boolean`, and both write bodies
+  gain it as optional. A template with it set ends the agent's turn when its
+  `send_html_template_*` call is the last tool call of the assistant message and
+  the card rendered — the platform requests no follow-up completion, so nothing
+  is written under the card. It defaults to `false`, so every template read back
+  today reports `false` and behaves exactly as before.
+  
+  It is per TEMPLATE and not per deployment, which is the distinction the field
+  exists to carry: one embed deployment holds a satisfaction survey that is the
+  whole reply next to an order recap the agent keeps talking after. The
+  deployment-level `cardEndsTurn` continues to govern `send_message` alone.
+- 1f23db7: Archiving a prompt variant frees its name
+  
+  Variant names are now unique among an agent's ACTIVE variants only. Archive
+  `"Concise refunds"` and a new variant can take the name straight away, so an
+  archive-then-recreate cleanup pass is re-runnable; before, the name stayed taken
+  forever and the second create answered `409 PROMPT_VARIANT_NAME_ALREADY_EXISTS`.
+  The archived variant keeps its versions and graph edges and stays reachable by
+  id. `"Main"` stays reserved.
+  
+  When one name sits on an active variant and on archived ones, a name ref
+  addresses the active one, and with none, the newest archived one.
+  
+  ## `@agent-nexus/sdk`
+  
+  The `promptVariants.rename` docs say that only an ACTIVE namesake collides.
+  
+  ## `@agent-nexus/cli`
+  
+  The `prompt variant archive` and `prompt variant rename` help now say that
+  archiving frees the name and that only an active namesake collides.
+
 ## 4.2.0
 ### Minor Changes
 

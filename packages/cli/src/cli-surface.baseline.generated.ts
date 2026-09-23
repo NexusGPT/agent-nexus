@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.6.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.7.0 ────────────────────────────────────────────────────
  *
- * 544 promised paths — 484 STABLE, 60 UNSTABLE.
+ * 554 promised paths — 488 STABLE, 66 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.6.0",
+  version: "1.7.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -94,6 +94,11 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps deploy-state", shape: "7500d6a7d9e3", tier: "UNSTABLE" },
     { path: "apps deployments get", shape: "3e1614ba55d6", tier: "UNSTABLE" },
     { path: "apps deployments list", shape: "c4892ac84b08", tier: "UNSTABLE" },
+    { path: "apps domains add", shape: "a20079823e70", tier: "UNSTABLE" },
+    { path: "apps domains list", shape: "05ab55a5b3c6", tier: "UNSTABLE" },
+    { path: "apps domains primary", shape: "38c47bf58523", tier: "UNSTABLE" },
+    { path: "apps domains remove", shape: "4a15ee7e63a5", tier: "UNSTABLE" },
+    { path: "apps domains verify", shape: "1c0fd40d7530", tier: "UNSTABLE" },
     { path: "apps edge-token", shape: "e0a5dd7b45c6", tier: "UNSTABLE" },
     { path: "apps env list", shape: "f2dec6d672ea", tier: "UNSTABLE" },
     { path: "apps env rm", shape: "d8a3e0325045", tier: "UNSTABLE" },
@@ -116,6 +121,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps rotate-edge-token", shape: "34066257f565", tier: "UNSTABLE" },
     { path: "apps starter", shape: "e3ecdd83dd5c", tier: "UNSTABLE" },
     { path: "apps update", shape: "a340453f69bd", tier: "UNSTABLE" },
+    { path: "apps vendor-package", shape: "50ea3be27486", tier: "UNSTABLE" },
     { path: "apps visibility", shape: "64732e5a68af", tier: "UNSTABLE" },
     { path: "asset delete", shape: "db44892a7773", tier: "STABLE" },
     { path: "asset get", shape: "3ed7b7cfa845", tier: "STABLE" },
@@ -222,7 +228,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "deployment folder list", shape: "f111d2d76eeb", tier: "STABLE" },
     { path: "deployment folder update", shape: "be10cd0b9055", tier: "STABLE" },
     { path: "deployment get", shape: "6d5bf58aba2b", tier: "STABLE" },
-    { path: "deployment list", shape: "149d31e2e044", tier: "STABLE" },
+    { path: "deployment list", shape: "da8f88af64d0", tier: "STABLE" },
     { path: "deployment stats", shape: "a0eca5e87366", tier: "STABLE" },
     { path: "deployment template attach", shape: "d5b05353f0a1", tier: "STABLE" },
     { path: "deployment template detach", shape: "01c8e9eac75a", tier: "STABLE" },
@@ -556,11 +562,15 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "workspace create", shape: "d917803d25c6", tier: "STABLE" },
     { path: "workspace credential-process", shape: "8948a35bf8bc", tier: "STABLE" },
     { path: "workspace delete", shape: "992e0319993f", tier: "STABLE" },
+    { path: "workspace history", shape: "9056c1025fc5", tier: "STABLE" },
     { path: "workspace list", shape: "8738abb5668a", tier: "STABLE" },
     { path: "workspace mount", shape: "07e3eabe5483", tier: "STABLE" },
+    { path: "workspace pull", shape: "c28709db3359", tier: "STABLE" },
+    { path: "workspace push", shape: "01a4c877d471", tier: "STABLE" },
     { path: "workspace remount", shape: "d1cd295b66b2", tier: "STABLE" },
     { path: "workspace rename", shape: "f1e7f7ca036e", tier: "STABLE" },
-    { path: "workspace restore", shape: "d8aa54c421ba", tier: "STABLE" },
+    { path: "workspace restore", shape: "4488a330292e", tier: "STABLE" },
+    { path: "workspace revert", shape: "4e3dc012ba10", tier: "STABLE" },
     { path: "workspace search", shape: "07f4fdba5a5d", tier: "STABLE" },
     { path: "workspace status", shape: "924ee5dc6f0a", tier: "STABLE" },
     { path: "workspace unmount", shape: "e756fcc3a11f", tier: "STABLE" }

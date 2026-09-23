@@ -1,5 +1,14 @@
 # @agent-nexus/mcp-server
 
+## 1.2.0
+### Minor Changes
+
+- e2ad8ff: `whoami` now derives its base-URL source label from the resolution itself instead of
+  re-testing the environment to guess at it. The two could disagree: with `NEXUS_ENV` set
+  to a name no environment maps to, the resolver correctly fell back to production while
+  the label reported `NEXUS_ENV=<that name>` as the source — so the line whose job is to
+  say where you are pointed named a source that decided nothing.
+
 ## 1.1.4
 ### Patch Changes
 

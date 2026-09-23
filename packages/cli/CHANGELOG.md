@@ -1,5 +1,189 @@
 # @agent-nexus/cli
 
+## 1.7.0
+### Minor Changes
+
+- 1f23db7: A deployment list can narrow to one agent
+  
+  `GET /public/v1/deployments` now honours `agentId`: only the deployments serving
+  that agent come back, within your own organization — another organization's
+  agent id returns an empty list, and a value that is not a UUID is a `400`.
+  
+  Until now the parameter was accepted and silently ignored. The query schema did
+  not declare it and is not strict, so it was stripped and the whole
+  organization's list came back with a 200; a caller taking `data[0]` got another
+  agent's deployment. Nothing else about the query schema changes — it is still
+  lenient toward parameters it does not know, so no existing caller starts
+  failing.
+  
+  ## `@agent-nexus/sdk`
+  
+  `client.deployments.list({ agentId })` — `ListDeploymentsParams` gains
+  `agentId?: string`.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus deployment list --agent-id <id>`.
+- 3ac79d2: A workspace file can be reverted to an earlier version
+  
+  `nexus workspace history <slug> <path>` lists every version of one file,
+  newest first, inside the bucket's retention window (~30 days for older
+  versions): every save through a mount, over WebDAV or with `workspace push`
+  is a version, and a delete is a marker on top. The table says which entry is
+  live, which is a delete marker, and each file version's exact size.
+  
+  `nexus workspace revert <slug> <path> --version-id <id>` makes one of those
+  versions live again. The server copies it on top as a NEW version, so nothing
+  is destroyed and a revert is undone by reverting to the id it displaced; it
+  works on a deleted file too. It asks first (`--yes` in a script), refuses a
+  delete marker's id and an id the path never held, and answers `already-live`
+  without writing when the version is the head already. `--shared` picks the
+  admin-shared twin on both verbs, and `workspace restore` now takes it too.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workspaces.history(slug, path, { workspaceId? })`** calls
+  `GET /workspaces/:slug/history`; each entry is `{ kind: "file", versionId,
+  isLatest, size, modifiedAt }` or `{ kind: "delete-marker", versionId,
+  isLatest, modifiedAt }`.
+  
+  **`workspaces.revert(slug, { path, versionId, workspaceId? })`** calls
+  `POST /workspaces/:slug/revert` and answers `{ outcome: "written", path,
+  revertedTo, newVersionId }` or `{ outcome: "already-live", path, revertedTo }`.
+- 5f356cd: A workspace can be pushed to without a mount
+  
+  `nexus workspace push <slug[:folder]> <path…>` puts local files or folders into
+  a workspace over the Public API, for the machine that cannot mount — CI, a
+  container, a locked-down laptop. It copies like `cp`: a named file lands at
+  `<folder>/<name>`, a named folder at `<folder>/<name>/…`, and a file that
+  exists is replaced unless `--no-clobber`, which the store decides in the same
+  step as the write. Dot-names inside a walked folder are left out unless
+  `--include-hidden`; `--shared` picks the admin-shared twin.
+  
+  It is a mailbag, not a transaction: files go up in packs of at most 100 files
+  and 45 MB, each delivered or bounced on its own, nothing rolled back. A
+  FAILED row exits 6 (`remote-error`); a skipped row leaves the exit at 0. A
+  single file of 45 MB or more is refused before anything is sent. `--json` is
+  the merged server response.
+  
+  `nexus workspace pull <slug[:folder]> [file…]` is its inverse: with no file
+  names the folder comes down as ONE streamed ZIP and is unpacked in place with
+  the system `unzip` (macOS, Linux) or `tar` (Windows), `--keep-zip` leaves the
+  archive; named files come down one by one, in parallel, each written under
+  `--out` by its base name. Local files are replaced like `cp`. It fails loud,
+  not partial: a refused folder or a missing file is an error document with its
+  own exit category.
+  
+  ## `@agent-nexus/sdk`
+  
+  **`workspaces.downloadFolderArchive(slug, { path?, workspaceId? })`** calls
+  `GET /workspaces/:slug/folder-archive` and hands back the `Response` itself,
+  unread — consume `body` as a stream; an archive may be up to 2 GB.
+  
+  **`workspaces.uploadBatch(slug, files, { workspaceId?, noClobber? })`** calls
+  `POST /workspaces/:slug/upload-batch`. Each result row is `success: true`, or
+  `success: false` with `skipped: true` (the path existed under `noClobber`) or
+  `skipped: false` (the write was refused, `error` says why); `successCount`,
+  `failureCount` and `skippedCount` partition the rows.
+- 74d186f: An app can be served on a domain you own
+  
+  `nexus apps domains` attaches a custom domain to a Vibe app from the terminal:
+  
+  - `add <appId> <host>` attaches the host and prints the DNS records to create as a
+    Type / Name / Value table — one CNAME for a subdomain, A records for an apex. When
+    an apex cannot be given records yet, it prints the server's reason and no address.
+  - `list <appId>` shows each domain's host, status (`PENDING_DNS`, `ISSUING_CERT`,
+    `ACTIVE`, `FAILED`), whether it is primary, and the reason for its status.
+  - `verify <appId> <host>` checks the host's DNS now instead of waiting for the next
+    sweep, and repeats the records while they are still missing.
+  - `primary <appId> <host>` makes an `ACTIVE` domain the app's canonical host;
+    `primary <appId> --clear` hands that back to the platform host.
+  - `remove <appId> <host>` (alias `rm`) detaches the host, asking first unless
+    `--yes` is passed.
+  
+  Every leaf accepts `--json` and prints the API's response unchanged. A host already
+  attached to another app is refused with a hint on how to release it; who holds it
+  is never shown.
+- e2ad8ff: Six behavioural disagreements, each a place where one job had several spellings that
+  disagreed about what the CLI actually does.
+  
+  **The CLI now reaches the host it says it is reaching.** Base-URL resolution was five
+  different chains. `--profile production` with `NEXUS_BASE_URL` exported in the shell
+  reached the ambient host while `nexus auth status --profile production` confirmed
+  production to your face, and `nexus auth login` dropped `--base-url` entirely — the flag
+  parsed, was merged onto the options object, and was never read. One rule now decides, in
+  the order the configuration already documents: `--base-url`, then a named `--profile`'s
+  stored base, then `NEXUS_BASE_URL`, then the active profile, then `NEXUS_ENV`, then
+  production. `auth status`, `auth whoami`, `auth orgs` and `auth use-org` all answer from
+  it, so what is reported and what is reached cannot drift apart again.
+  
+  **Every request now has a deadline, and `--timeout` reaches all of them.** The whole
+  `nexus admin …` tree had none and silently accepted the flag, so a stalled connection
+  hung indefinitely; it now bounds the request including the body read, and reports
+  `no response within <n> ms` naming the budget. Four downloads that carried no deadline
+  now have one, and four sites that pinned 30 seconds regardless of `--timeout` honour it.
+  The two unbounded downloads budget SILENCE rather than total elapsed time, so a large
+  transfer on a slow link is never aborted for being large.
+  
+  **A failure says what went wrong, and a prompt always gives the terminal back.**
+  `nexus admin …` errors print their error code and remedy on the human channel instead of
+  only under `--json`, and respect `NO_COLOR`. The second y/N prompt closed its readline
+  only on the happy path, so a read error left stdin held and the process never exited; it
+  also failed to trim, which made a CRLF `"y\r"` read as no. Every prompt now shares one
+  interface whose lifetime cannot be forgotten.
+  
+  **`--parent-id null` and its siblings read through one rule.** The token that clears a
+  nullable field was hand-written at nine sites across five files and pinned by no test.
+
+### Patch Changes
+
+- c478d64: `nexus apps vendor-package [package]` vendors a private `@agent-nexus` package into an app that ALREADY EXISTS, so no npm token is ever needed or requested. `nexus apps starter` covers a NEW app and nothing after it: an app cloned from the org's git host, scaffolded some other way, or simply built over weeks resolves `@agent-nexus/apps-ui` from the registry in its own `package.json`, so every later `npm install`, every `npm ci`, every library upgrade and the app's own CI 404s on a machine with no credential for that private scope.
+  
+  Run it in the app directory. It downloads the package with the platform's own registry credential, writes `vendor/<name>-<version>.tgz`, repoints the dependency at `file:vendor/…`, re-points the lockfile when it already pins that version, adds a `COPY vendor/` before each of the Dockerfile's install stages, removes the tarball it supersedes, and then names the command that leaves you consistent — `npm ci`, or `npm install` when the lockfile had to be re-resolved. Commit `vendor/` with `package.json` and the lockfile: the server-side build installs from the repository.
+  
+  Pick a version with `--package-version <x.y.z>` (default `latest`) and a directory with `--dir` (default `.`). `--json` prints every file changed, every file removed and every warning.
+  
+  Read the warnings it prints — each names something only you can act on. An app with no Dockerfile gets one in particular: the build the platform generates copies the manifests but not `vendor/`, so that build needs a Dockerfile that copies it before the install step.
+- 1f23db7: Archiving a prompt variant frees its name
+  
+  Variant names are now unique among an agent's ACTIVE variants only. Archive
+  `"Concise refunds"` and a new variant can take the name straight away, so an
+  archive-then-recreate cleanup pass is re-runnable; before, the name stayed taken
+  forever and the second create answered `409 PROMPT_VARIANT_NAME_ALREADY_EXISTS`.
+  The archived variant keeps its versions and graph edges and stays reachable by
+  id. `"Main"` stays reserved.
+  
+  When one name sits on an active variant and on archived ones, a name ref
+  addresses the active one, and with none, the newest archived one.
+  
+  ## `@agent-nexus/sdk`
+  
+  The `promptVariants.rename` docs say that only an ACTIVE namesake collides.
+  
+  ## `@agent-nexus/cli`
+  
+  The `prompt variant archive` and `prompt variant rename` help now say that
+  archiving frees the name and that only an active namesake collides.
+- 8c38277: `nexus html-template create --help` and `--print-contract` now name
+  `Body.endsTurn`, the optional boolean that decides whether sending this card
+  ends the agent's turn. It is `--body` only, like `inputSchema`: no flag is
+  added, so this changes what the command DOCUMENTS rather than what it can do.
+  
+  `POST /public/v1/html-message-templates` treats it as optional and stores
+  `false` when omitted, which is what leaving it out means — the turn continues
+  after the card, as it does for every template that exists today.
+- 54e058d: `nexus customer list --help` and `--print-contract` now name
+  `Params.includeAnonymous`, the optional boolean that decides whether customers
+  carrying no identifying information are returned. `GET /public/v1/customers`
+  excludes them by default — a row whose every identity is a coined anonymous one
+  has no name, email or phone to show and no way to be contacted — and the
+  parameter is how a caller reconciling raw rows asks for them back. It is
+  advertised as optional, which is what omitting it means.
+  
+  No flag is added: `bindCommand` renders the contract into help and
+  `--print-contract`, and `customer list`'s own options are declared by hand, so
+  this changes what the command DOCUMENTS rather than what it can do.
+
 ## 1.6.0
 ### Minor Changes
 

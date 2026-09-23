@@ -2,9 +2,10 @@ import type { Command } from "commander";
 
 import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
-import { NOT_STATED, WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK } from "../../role-coverage-copy";
 import { printStatedOrNothing } from "../_shared/print-stated-or-nothing";
 import { resolveRoleId } from "../_shared/resolve-role-id";
+import { NOT_STATED } from "../copy/not-stated";
+import { WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK } from "../copy/working-year-has-no-organization-fallback";
 
 /** `nexus role working-year` */
 export function registerRoleWorkingYearCommand(role: Command, program: Command): Command {

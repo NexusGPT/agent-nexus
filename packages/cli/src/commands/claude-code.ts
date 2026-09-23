@@ -14,25 +14,24 @@ import {
 } from "../skills-corpus/command";
 import type { PlatformIo } from "../skills-corpus/platform";
 import type { ResolvedCorpus } from "../skills-corpus/resolve";
+import { type ClaudeTarget, resolveClaudeTarget } from "../util/claude-target";
 import { confirmable } from "../util/confirm";
+import { confirmOrAbort } from "../util/skills-install.confirm-or-abort";
 import {
   agentInstallables,
   bundleToInstallables,
-  claudeMdContent,
-  type ClaudeMdStatus,
-  type ClaudeTarget,
-  commitInstallLedger,
-  confirmOrAbort,
   hookInstallables,
   type InstallableSkill,
-  openInstallLedger,
-  resolveClaudeTarget,
-  settingsJsonContent,
-  sharedInstallable,
+  sharedInstallable
+} from "../util/skills-install.installable";
+import { commitInstallLedger, openInstallLedger } from "../util/skills-install.ledger";
+import { claudeMdContent, settingsJsonContent } from "../util/skills-install.preservable-content";
+import {
+  type ClaudeMdStatus,
   writeRootClaudeMd,
-  writeRootSettingsJson,
-  writeSkillFiles
-} from "../util/skills-install";
+  writeRootSettingsJson
+} from "../util/skills-install.write-preservable-file";
+import { writeSkillFiles } from "../util/skills-install.write-skill-files";
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 

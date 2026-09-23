@@ -8,7 +8,7 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 439 of 550 leaves are answered here. The
+ * 443 of 554 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *      3  no-registration
@@ -460,5 +460,9 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "workflow update": "success",
   "workflow upload-icon": "success",
   "workflow validate": "record",
-  "workspace delete": "success"
+  "workspace delete": "success",
+  "workspace history": "envelope",
+  "workspace pull": "success",
+  "workspace push": "envelope",
+  "workspace revert": "envelope"
 };

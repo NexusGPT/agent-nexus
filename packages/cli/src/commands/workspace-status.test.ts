@@ -29,16 +29,16 @@ const SANDBOX = vi.hoisted(() => {
 import { clearConfig, saveProfile } from "../config";
 import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
+import { awsConfigFor } from "../workspace-direct-mount/aws-config";
+import type { MountSession } from "../workspace-direct-mount/mount-session";
+import { EXPIRATION_LEAD_MS } from "../workspace-direct-mount/process-credentials-document";
+import { readSession } from "../workspace-direct-mount/read-session";
 import {
-  awsConfigFor,
-  EXPIRATION_LEAD_MS,
-  type MountSession,
-  readSession,
   REFRESH_BUDGET_MS,
-  REFRESH_RETRY_DELAY_MS,
-  sessionPathsFor,
-  writeSession
-} from "../workspace-direct-mount";
+  REFRESH_RETRY_DELAY_MS
+} from "../workspace-direct-mount/refresh-retry-budget";
+import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
+import { writeSession } from "../workspace-direct-mount/write-session";
 
 /**
  * NEX-2372: `workspace status` + the mounts registry must expose the mount MODE

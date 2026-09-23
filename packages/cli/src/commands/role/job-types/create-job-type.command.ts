@@ -7,9 +7,9 @@ import { handleError } from "../../../errors";
 import { printSuccess } from "../../../output";
 import { asRequestBody, resolveRequiredBody } from "../../../util/body";
 import { ROLE_JOB_TYPES_CREATE_CONTRACT } from "../../role.contract.generated";
-import { JOB_TYPE_BODY_SHAPE } from "../../role-body-shapes";
-import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../../role-coverage-copy";
 import { JOB_TYPE_BODY_ONLY } from "../_shared/job-type-body-only";
+import { JOB_TYPE_BODY_SHAPE } from "../body-shapes/job-type-body-shape";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../copy/job-model-does-not-move-coverage";
 
 /** `nexus role create-job-type` */
 export function registerRoleCreateJobTypeCommand(role: Command, program: Command): Command {

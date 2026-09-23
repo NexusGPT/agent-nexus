@@ -9,18 +9,18 @@ import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { fetchTarball } from "../util/fetch-tarball";
+import { extractPresetFromTarball } from "../util/skill-bundle.extract-preset-from-tarball";
+import { formatBytes } from "../util/skill-bundle.format-bytes";
+import { SKILL_ZIP_LIMITS } from "../util/skill-bundle.limits";
+import { packSkillZip } from "../util/skill-bundle.pack-skill-zip";
+import { presetTarballUrl } from "../util/skill-bundle.preset-tarball-url";
 import {
   DEFAULT_PRESET_REPO,
-  extractPresetFromTarball,
-  formatBytes,
-  packSkillZip,
-  presetTarballUrl,
-  readSkillDirectory,
-  resolvePresets,
   SKILL_PRESET_GROUPS,
-  SKILL_PRESETS,
-  SKILL_ZIP_LIMITS
-} from "../util/skill-bundle";
+  SKILL_PRESETS
+} from "../util/skill-bundle.presets";
+import { readSkillDirectory } from "../util/skill-bundle.read-skill-directory";
+import { resolvePresets } from "../util/skill-bundle.resolve-presets";
 import {
   DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS,
   downloadWithStallDeadline

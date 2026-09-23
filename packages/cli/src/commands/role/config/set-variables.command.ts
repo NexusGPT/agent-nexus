@@ -5,9 +5,9 @@ import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
 import { printSuccess } from "../../../output";
 import { asRequestBody, resolveRequiredBody } from "../../../util/body";
-import { VARIABLES_BODY_SHAPE } from "../../role-body-shapes";
-import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../../role-coverage-copy";
 import { resolveRoleId } from "../_shared/resolve-role-id";
+import { VARIABLES_BODY_SHAPE } from "../body-shapes/variables-body-shape";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../copy/job-model-does-not-move-coverage";
 
 /** `nexus role set-variables` */
 export function registerRoleSetVariablesCommand(role: Command, program: Command): Command {

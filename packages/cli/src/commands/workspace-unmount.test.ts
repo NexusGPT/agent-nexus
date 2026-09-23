@@ -26,16 +26,13 @@ import type { ResolvedProfile } from "../config";
 import { buildRootProgram } from "../index";
 import { mountKey } from "../mount-registry";
 import { setJsonMode } from "../output";
-import {
-  awsConfigFor,
-  FUSE_T_LIBRARY,
-  MACFUSE_LIBRARY,
-  type MountSession,
-  readSession,
-  sessionPathsFor,
-  stableNodePath,
-  writeSession
-} from "../workspace-direct-mount";
+import { awsConfigFor } from "../workspace-direct-mount/aws-config";
+import { FUSE_T_LIBRARY, MACFUSE_LIBRARY } from "../workspace-direct-mount/fuse-libraries";
+import type { MountSession } from "../workspace-direct-mount/mount-session";
+import { readSession } from "../workspace-direct-mount/read-session";
+import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
+import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
+import { writeSession } from "../workspace-direct-mount/write-session";
 
 /**
  * NEX-2360: `unmount` disambiguates by the org recorded at mount time.

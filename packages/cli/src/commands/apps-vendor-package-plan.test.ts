@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { type AppFiles, planVendoring, type VendorPlan } from "./apps-vendor-package-plan";
+import { planVendoring } from "./apps/vendor-package/plan-vendoring";
+import type { AppFiles, VendorPlan } from "./apps/vendor-package/vendor-plan";
 
 /**
  * The plan over the shape this verb was written for: an app that ALREADY exists

@@ -6,7 +6,7 @@ import {
   ROLE_JOB_TYPES_CREATE_CONTRACT,
   ROLE_JOB_TYPES_UPDATE_CONTRACT
 } from "./role.contract.generated";
-import { ROLE_NAMESPACE_GAP_SUBJECTS } from "./role-body-shapes";
+import { ROLE_NAMESPACE_GAP_SUBJECTS } from "./role/body-shapes/role-namespace-gaps";
 
 /**
  * THE `--body` HELP NAMES EVERY FIELD THE ROUTE REQUIRES.

@@ -43,11 +43,11 @@ import { registerAppsAttachRepoCommand } from "./apps/repo/attach-repo.command";
 import { registerAppsGitCredentialsCommand } from "./apps/repo/git-credentials.command";
 import { registerAppsProvisionRepoCommand } from "./apps/repo/provision-repo.command";
 import { registerAppsReprovisionRepoCommand } from "./apps/repo/reprovision-repo.command";
+import { registerStarterCommand } from "./apps/starter/starter.command";
 import { registerAppsEdgeTokenCommand } from "./apps/token/edge-token.command";
 import { registerAppsRegisterAsToolCommand } from "./apps/token/register-as-tool.command";
 import { registerAppsRotateEdgeTokenCommand } from "./apps/token/rotate-edge-token.command";
-import { registerStarterCommand } from "./apps-starter";
-import { registerVendorPackageCommand } from "./apps-vendor-package";
+import { registerVendorPackageCommand } from "./apps/vendor-package/vendor-package.command";
 
 const APPS_HELP = `
 Subcommands:

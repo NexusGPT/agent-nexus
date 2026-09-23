@@ -42,56 +42,64 @@ import {
   scopeCandidateKeys,
   unmountMissMessage
 } from "./mount-registry";
+import { awsConfigFor } from "./workspace-direct-mount/aws-config";
+import { cacheHoldsEntries } from "./workspace-direct-mount/cache-holds-entries";
+import { writeCacheOwner } from "./workspace-direct-mount/cache-owner";
+import { cacheProvenanceRefusal } from "./workspace-direct-mount/cache-provenance-refusal";
+import { checkRefreshPath } from "./workspace-direct-mount/check-refresh-path";
+import { countPendingUploads } from "./workspace-direct-mount/count-pending-uploads";
+import { describeRefresh } from "./workspace-direct-mount/describe-refresh";
+import { DIRECT_REMOTE, directMountArgv } from "./workspace-direct-mount/direct-mount-argv";
+import { directMountHealth } from "./workspace-direct-mount/direct-mount-health";
+import { formatAgo } from "./workspace-direct-mount/format-ago";
+import { formatExpiry } from "./workspace-direct-mount/format-expiry";
+import { isMountSession } from "./workspace-direct-mount/is-mount-session";
+import { accessIsLower } from "./workspace-direct-mount/mount-access";
+import { mountIdFor } from "./workspace-direct-mount/mount-id";
+import type { MountSession } from "./workspace-direct-mount/mount-session";
+import { notificationArgv } from "./workspace-direct-mount/notification-argv";
+import { parseAwsConfig } from "./workspace-direct-mount/parse-aws-config";
 import {
-  accessIsLower,
-  announced,
-  awsConfigFor,
-  cacheHoldsEntries,
-  cacheProvenanceRefusal,
-  checkRefreshPath,
-  countPendingUploads,
   describePendingUploads,
-  describeRefresh,
-  DIRECT_REMOTE,
-  directMountArgv,
-  directMountHealth,
+  PENDING_UPLOADS_UNKNOWN
+} from "./workspace-direct-mount/pending-uploads-unknown";
+import {
   EXPIRATION_LEAD_MS,
-  formatAgo,
-  formatExpiry,
-  isMountSession,
-  MOUNT_CACHE_DIR,
-  MOUNT_CREDENTIALS_DIR,
-  mountIdFor,
-  type MountSession,
-  NOTIFICATION_DEBOUNCE_MS,
-  notificationArgv,
-  parseAwsConfig,
-  PENDING_UPLOADS_UNKNOWN,
-  preflightProblemMessage,
-  processCredentialsDocument,
-  rcloneBuildVerdict,
-  rcloneEnvFor,
-  rcloneInstallHint,
-  redactBucketNames,
+  processCredentialsDocument
+} from "./workspace-direct-mount/process-credentials-document";
+import { rcloneBuildVerdict } from "./workspace-direct-mount/rclone-build-verdict";
+import { rcloneEnvFor } from "./workspace-direct-mount/rclone-env";
+import { rcloneInstallHint } from "./workspace-direct-mount/rclone-install-hint";
+import { preflightProblemMessage } from "./workspace-direct-mount/rclone-preflight-problem";
+import { redactBucketNames } from "./workspace-direct-mount/redact-bucket-names";
+import {
+  REFRESH_COOLDOWN_MS,
+  refreshCooldownFailure
+} from "./workspace-direct-mount/refresh-cooldown";
+import { REFRESH_EXIT_CAUSE } from "./workspace-direct-mount/refresh-exit-cause";
+import { refreshFailureReasonFor } from "./workspace-direct-mount/refresh-failure-reason";
+import { REFRESH_FAILURE_TABLE } from "./workspace-direct-mount/refresh-failure-table";
+import { refreshJson } from "./workspace-direct-mount/refresh-json";
+import {
   REFRESH_ATTEMPTS,
   REFRESH_BUDGET_MS,
-  REFRESH_COOLDOWN_MS,
-  REFRESH_EXIT_CAUSE,
-  REFRESH_FAILURE_TABLE,
   REFRESH_RETRY_DELAY_MS,
-  refreshCooldownFailure,
-  refreshFailureReasonFor,
-  refreshJson,
-  refreshMayRetry,
-  refreshVerdictIsUnhealthy,
-  sessionPathsFor,
-  shouldNotify,
-  stableNodePath,
-  toVolumeName,
-  VOLUME_NAME_MAX_CHARS,
-  writeCacheOwner,
-  writeSession
-} from "./workspace-direct-mount";
+  refreshMayRetry
+} from "./workspace-direct-mount/refresh-retry-budget";
+import { refreshVerdictIsUnhealthy } from "./workspace-direct-mount/refresh-verdict-is-unhealthy";
+import {
+  MOUNT_CACHE_DIR,
+  MOUNT_CREDENTIALS_DIR,
+  sessionPathsFor
+} from "./workspace-direct-mount/session-paths";
+import {
+  announced,
+  NOTIFICATION_DEBOUNCE_MS,
+  shouldNotify
+} from "./workspace-direct-mount/should-notify";
+import { stableNodePath } from "./workspace-direct-mount/stable-node-path";
+import { toVolumeName, VOLUME_NAME_MAX_CHARS } from "./workspace-direct-mount/volume-name";
+import { writeSession } from "./workspace-direct-mount/write-session";
 
 afterAll(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });

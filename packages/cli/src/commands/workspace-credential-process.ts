@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-
 import { type WorkspaceMountCredentials } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
@@ -8,31 +6,29 @@ import { bindCommand } from "../contract-binding";
 import { handleError, refuse, reportFailure } from "../errors";
 import { EXIT_CODES } from "../exit-codes";
 import { emitDocument, isJsonMode, printSuccess, printWarning } from "../output";
+import { checkRefreshPath } from "../workspace-direct-mount/check-refresh-path";
+import { mintBodyFor } from "../workspace-direct-mount/mint-body";
+import { accessIsLower } from "../workspace-direct-mount/mount-access";
+import { isMountId } from "../workspace-direct-mount/mount-id";
+import type { MountSession } from "../workspace-direct-mount/mount-session";
+import { processCredentialsDocument } from "../workspace-direct-mount/process-credentials-document";
+import { readSession } from "../workspace-direct-mount/read-session";
+import { refreshCooldownFailure } from "../workspace-direct-mount/refresh-cooldown";
+import { REFRESH_EXIT_CAUSE } from "../workspace-direct-mount/refresh-exit-cause";
+import { refreshFailureReasonFor } from "../workspace-direct-mount/refresh-failure-reason";
 import {
-  accessIsLower,
-  announced,
-  checkRefreshPath,
-  isMountId,
-  mintBodyFor,
-  type MountSession,
-  notificationArgv,
-  notificationTitle,
-  processCredentialsDocument,
-  readSession,
-  REFRESH_EXIT_CAUSE,
   REFRESH_FAILURE_TABLE,
+  type RefreshContext
+} from "../workspace-direct-mount/refresh-failure-table";
+import type { RefreshFailureReason, RefreshRecord } from "../workspace-direct-mount/refresh-record";
+import {
   REFRESH_RETRY_DELAY_MS,
-  type RefreshContext,
-  refreshCooldownFailure,
-  type RefreshFailureReason,
-  refreshFailureReasonFor,
-  refreshMayRetry,
-  type RefreshRecord,
-  RESTORED_NOTIFICATION,
-  shouldNotify,
-  writeSession
-} from "../workspace-direct-mount";
+  refreshMayRetry
+} from "../workspace-direct-mount/refresh-retry-budget";
+import { announced, shouldNotify } from "../workspace-direct-mount/should-notify";
+import { writeSession } from "../workspace-direct-mount/write-session";
 import { WORKSPACE_MINT_MOUNT_CREDENTIALS_CONTRACT } from "./workspace.contract.generated";
+import { notifyDesktop } from "./workspace-mount/notify-desktop";
 
 // ── credential-process: the direct engine's refresh hook ──────────────────────
 //
@@ -121,32 +117,6 @@ async function remintSession(
  * helper past the SDK's deadline. macOS only — `osascript` is the only
  * notifier this CLI knows.
  */
-function notifyDesktop(session: MountSession, record: RefreshRecord): void {
-  if (process.platform !== "darwin") return;
-  const ctx = refreshContextOf(session);
-  const text =
-    record.outcome === "ok"
-      ? RESTORED_NOTIFICATION
-      : {
-          title: REFRESH_FAILURE_TABLE[record.reason].title,
-          body: REFRESH_FAILURE_TABLE[record.reason].body(ctx)
-        };
-  try {
-    const child = spawn(
-      "osascript",
-      notificationArgv(notificationTitle(session.volumeName), text.title, text.body),
-      { detached: true, stdio: "ignore" }
-    );
-    // A start that fails is reported asynchronously as an `error` event, and an
-    // unhandled one tears the helper down after it has already printed.
-    child.on("error", () => undefined);
-    child.unref();
-  } catch {
-    // The synchronous half — a mocked or refused spawn. Nothing to report and
-    // nowhere to report it that the SDK is not reading.
-  }
-}
-
 /**
  * Write the outcome BEFORE anything is printed or the process exits, so
  * `workspace status` can name what happened even when the helper is killed a
@@ -175,7 +145,7 @@ function recordRefreshOutcome(session: MountSession, record: RefreshRecord, now:
     );
     return;
   }
-  if (notify) notifyDesktop(next, record);
+  if (notify) notifyDesktop(next.volumeName, record, refreshContextOf(session));
 }
 
 /** The session after a successful re-mint: new triplet, same pins. */

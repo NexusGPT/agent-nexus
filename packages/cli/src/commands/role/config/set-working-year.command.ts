@@ -3,11 +3,9 @@ import type { Command } from "commander";
 import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
 import { absent, printSuccess } from "../../../output";
-import {
-  JOB_MODEL_DOES_NOT_MOVE_COVERAGE,
-  NOT_STATED,
-  WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK
-} from "../../role-coverage-copy";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../copy/job-model-does-not-move-coverage";
+import { NOT_STATED } from "../copy/not-stated";
+import { WORKING_YEAR_HAS_NO_ORGANIZATION_FALLBACK } from "../copy/working-year-has-no-organization-fallback";
 import { type RoleSetWorkingYearOptions, setRoleWorkingYear } from "./set-working-year.handler";
 
 /** `nexus role set-working-year` */

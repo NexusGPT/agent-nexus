@@ -217,8 +217,12 @@ import type {
 } from "./user-groups";
 import type {
   MintWorkspaceMountCredentialsBody,
+  WorkspaceFileHistoryResponse,
   WorkspaceMountCredentials,
-  WorkspaceSummary
+  WorkspaceRevertBody,
+  WorkspaceRevertResponse,
+  WorkspaceSummary,
+  WorkspaceUploadBatchResponse
 } from "./workspaces";
 
 /**
@@ -664,6 +668,29 @@ export type V1ContractAssertions = [
     >
   >,
 
+  // The upload-batch outcome rows: `nexus workspace push` decides its exit code
+  // and its "skipped" column from `success` and `skipped`, so a renamed or
+  // dropped discriminator here would turn every skip into a reported failure.
+  Expect<
+    Equals<
+      WorkspaceUploadBatchResponse,
+      Received<typeof ZPublicApiV1.WorkspaceUploadBatch.Response>
+    >
+  >,
+
+  // The version history and the revert outcome: `nexus workspace history`
+  // draws its table from `kind` and `nexus workspace revert` prints a different
+  // sentence per `outcome`, so a renamed discriminator on either would print
+  // the wrong thing rather than fail to compile anywhere else.
+  Expect<
+    Equals<
+      WorkspaceFileHistoryResponse,
+      Received<typeof ZPublicApiV1.WorkspaceFileHistory.Response>
+    >
+  >,
+  Expect<Equals<WorkspaceRevertBody, Sent<typeof ZPublicApiV1.WorkspaceRevert.Body>>>,
+  Expect<Equals<WorkspaceRevertResponse, Received<typeof ZPublicApiV1.WorkspaceRevert.Response>>>,
+
   Expect<Equals<UpsertRoleMemberBody, Sent<typeof ZPublicApiV1.RolesUpsertMember.Body>>>,
   Expect<Equals<RoleMember, Received<typeof ZPublicApiV1.RolesUpsertMember.Response>>>,
 
@@ -817,6 +844,10 @@ const GATED_PAIRS = [
   "WorkspaceSummary ↔ WorkspaceSummarySchema",
   "MintWorkspaceMountCredentialsBody ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Body",
   "WorkspaceMountCredentials ↔ ZPublicApiV1.WorkspaceMintMountCredentials.Response",
+  "WorkspaceUploadBatchResponse ↔ ZPublicApiV1.WorkspaceUploadBatch.Response",
+  "WorkspaceFileHistoryResponse ↔ ZPublicApiV1.WorkspaceFileHistory.Response",
+  "WorkspaceRevertBody ↔ ZPublicApiV1.WorkspaceRevert.Body",
+  "WorkspaceRevertResponse ↔ ZPublicApiV1.WorkspaceRevert.Response",
 
   "UpsertRoleMemberBody ↔ ZPublicApiV1.RolesUpsertMember.Body",
   "RoleMember ↔ ZPublicApiV1.RolesUpsertMember.Response",
@@ -1003,7 +1034,14 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 //
 // COUNTED after this merge, not taken from either side — this is row 6 of the
 // table below, live: HEAD wrote 108 and staging wrote 107 off different bases.
-const GATED_PAIR_FLOOR = 109;
+//
+// +1: `WorkspaceUploadBatchResponse ↔ ZPublicApiV1.WorkspaceUploadBatch.Response`
+// — the per-file outcome rows `nexus workspace push` reads its exit code from.
+//
+// +3: the file version history and the revert body/response —
+// `nexus workspace history` and `nexus workspace revert` branch on their
+// `kind` / `outcome` discriminators.
+const GATED_PAIR_FLOOR = 113;
 
 /**
  * The COMPILE-TIME half of the ratchet.

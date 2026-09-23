@@ -2,9 +2,9 @@ import type { Command } from "commander";
 
 import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
-import { COVERAGE_REASON_VOCABULARY } from "../../role-body-shapes";
-import { COVERAGE_INPUTS_NOTE } from "../../role-coverage-copy";
 import { resolveRoleId } from "../_shared/resolve-role-id";
+import { COVERAGE_REASON_VOCABULARY } from "../body-shapes/coverage-reason-vocabulary";
+import { COVERAGE_INPUTS_NOTE } from "../copy/coverage-inputs-note";
 import { renderRoleCoverage } from "./coverage.render";
 
 /** `nexus role coverage` */

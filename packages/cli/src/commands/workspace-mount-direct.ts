@@ -14,38 +14,36 @@ import {
 } from "../mount-registry";
 import { color } from "../output";
 import { writeSecretFile } from "../util/secret-file";
+import { awsConfigFor } from "../workspace-direct-mount/aws-config";
+import { AWS_CONFIG_REFUSAL_TEXT } from "../workspace-direct-mount/aws-config-refusal";
+import { cacheHoldsEntries } from "../workspace-direct-mount/cache-holds-entries";
+import { writeCacheOwner } from "../workspace-direct-mount/cache-owner";
+import { cacheProvenanceRefusal } from "../workspace-direct-mount/cache-provenance-refusal";
+import { checkRefreshPath } from "../workspace-direct-mount/check-refresh-path";
+import { countPendingUploads } from "../workspace-direct-mount/count-pending-uploads";
+import { directMountArgv } from "../workspace-direct-mount/direct-mount-argv";
+import { discardPendingSavesHint } from "../workspace-direct-mount/discard-pending-saves-hint";
+import { mintBodyFor } from "../workspace-direct-mount/mint-body";
+import { mountFix } from "../workspace-direct-mount/mount-fix";
+import { isMountId } from "../workspace-direct-mount/mount-id";
+import type { MountSession } from "../workspace-direct-mount/mount-session";
+import { describePendingUploads } from "../workspace-direct-mount/pending-uploads-unknown";
+import { rcloneEnvFor } from "../workspace-direct-mount/rclone-env";
+import { readSession } from "../workspace-direct-mount/read-session";
+import { remountFix } from "../workspace-direct-mount/remount-fix";
 import {
-  AWS_CONFIG_REFUSAL_TEXT,
-  awsConfigFor,
-  cacheHoldsEntries,
-  cacheProvenanceRefusal,
-  checkRefreshPath,
-  countPendingUploads,
-  describePendingUploads,
   DIRECT_MOUNT_INTRO_MARKER,
-  directMountArgv,
-  discardPendingSavesHint,
-  isMountId,
-  mintBodyFor,
   MOUNT_CACHE_DIR,
-  mountFix,
-  type MountSession,
-  rcloneEnvFor,
-  readSession,
-  remountFix,
-  sessionPathsFor,
-  stableNodePath,
-  toVolumeName,
-  writeCacheOwner,
-  writeSession
-} from "../workspace-direct-mount";
-import {
-  assertRcloneCanMount,
-  isReadOnlyKind,
-  type MountOutcome,
-  type MountPlan,
-  spawnRcloneMount
-} from "./workspace-mount-shared";
+  sessionPathsFor
+} from "../workspace-direct-mount/session-paths";
+import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
+import { toVolumeName } from "../workspace-direct-mount/volume-name";
+import { writeSession } from "../workspace-direct-mount/write-session";
+import { assertRcloneCanMount } from "./workspace-mount/assert-rclone-can-mount";
+import { isReadOnlyKind } from "./workspace-mount/is-read-only-kind";
+import type { MountOutcome } from "./workspace-mount/mount-outcome";
+import type { MountPlan } from "./workspace-mount/mount-plan";
+import { spawnRcloneMount } from "./workspace-mount/spawn-rclone-mount";
 
 // ── The direct engine ─────────────────────────────────────────────────────────
 

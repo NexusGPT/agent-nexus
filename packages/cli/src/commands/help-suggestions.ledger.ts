@@ -2122,7 +2122,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "say how files GET INTO a workspace — the namespace has no write verb",
     state: "placed",
     leaf: "workspace",
-    probe: "THERE IS NO UPLOAD VERB HERE"
+    probe: "HOW FILES GET INTO A WORKSPACE"
   },
   {
     id: "workspace-02",

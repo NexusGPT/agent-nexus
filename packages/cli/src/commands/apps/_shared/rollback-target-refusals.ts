@@ -1,5 +1,5 @@
 import { refuse, reportFailure } from "../../../errors";
-import { type RollbackTargetRefusalKind } from "../../apps-rollback-target";
+import { type RollbackTargetRefusalKind } from "../rollback-target/rollback-target-resolution";
 
 // ============================================================
 // apps rollback

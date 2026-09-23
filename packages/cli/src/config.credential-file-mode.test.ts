@@ -6,7 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import { resetLoosePermissionWarning } from "./util/secret-file";
 // Type-only, so it is erased and cannot load the module before HOME moves.
-import type { MountSession } from "./workspace-direct-mount";
+import type { MountSession } from "./workspace-direct-mount/mount-session";
 
 /**
  * `~/.nexus-mcp/config.json` HOLDS A LIVE API KEY IN PLAINTEXT, AND ITS MODE IS
@@ -118,11 +118,17 @@ describe("saveConfig", () => {
  * directory is resolved from HOME at module load.
  */
 describe("writeSession", () => {
-  type DirectMountModule = typeof import("./workspace-direct-mount");
+  type DirectMountModule = typeof import("./workspace-direct-mount/session-paths") &
+    typeof import("./workspace-direct-mount/read-session") &
+    typeof import("./workspace-direct-mount/write-session");
   let direct: DirectMountModule;
 
   beforeAll(async () => {
-    direct = await import("./workspace-direct-mount");
+    direct = {
+      ...(await import("./workspace-direct-mount/session-paths")),
+      ...(await import("./workspace-direct-mount/read-session")),
+      ...(await import("./workspace-direct-mount/write-session"))
+    };
   });
 
   const SESSION: MountSession = {

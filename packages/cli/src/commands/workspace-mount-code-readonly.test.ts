@@ -25,7 +25,7 @@ const SANDBOX = vi.hoisted(() => {
 
 import type { ResolvedProfile } from "../config";
 import { setJsonMode } from "../output";
-import { FUSE_T_LIBRARY, MACFUSE_LIBRARY } from "../workspace-direct-mount";
+import { FUSE_T_LIBRARY, MACFUSE_LIBRARY } from "../workspace-direct-mount/fuse-libraries";
 
 /**
  * NEX-3872: a CODE workspace mounted READ-WRITE, then refused on every write.

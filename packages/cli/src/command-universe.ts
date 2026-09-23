@@ -1004,11 +1004,15 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // ledger, and a `<mountId>` is not a route parameter anything can thread.
   "workspace credential-process": "never-execute",
   "workspace delete": "registration-only",
+  "workspace history": "registration-only",
   "workspace list": "safe",
   "workspace mount": "never-execute", // mounts a FUSE drive on the caller's filesystem
+  "workspace pull": "never-execute", // writes files into the caller's filesystem and runs its unzip
+  "workspace push": "registration-only",
   "workspace remount": "never-execute", // mints and mounts a drive on the caller's filesystem
   "workspace rename": "registration-only",
   "workspace restore": "registration-only",
+  "workspace revert": "registration-only",
   "workspace search": "registration-only",
   "workspace status": "registration-only",
   "workspace unmount": "never-execute" // unmounts a drive the caller may be using

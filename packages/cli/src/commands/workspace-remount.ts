@@ -14,21 +14,19 @@ import {
   writeMounts
 } from "../mount-registry";
 import { isJsonMode, printSuccess } from "../output";
-import { mountIdFor } from "../workspace-direct-mount";
+import { mountIdFor } from "../workspace-direct-mount/mount-id";
+import { assertMountableSlug } from "./workspace-mount/assert-mountable-slug";
+import { detachDeadMount } from "./workspace-mount/detach-dead-mount";
+import { isEngine } from "./workspace-mount/engine-name";
+import { isMountLive } from "./workspace-mount/is-mount-live";
+import { mountOnto } from "./workspace-mount/mount-onto";
+import type { MountOutcome } from "./workspace-mount/mount-outcome";
+import { printGrantedReadOnly } from "./workspace-mount/print-granted-read-only";
+import { printPendingUploads } from "./workspace-mount/print-pending-uploads";
+import { refuseEngineOffPlatform } from "./workspace-mount/refuse-engine-off-platform";
+import { resolveAuth } from "./workspace-mount/resolve-auth";
 import { mountDirect, planDirectMount, printMountFooter } from "./workspace-mount-direct";
 import { mountGateway, settleGatewayMount } from "./workspace-mount-gateway";
-import {
-  assertMountableSlug,
-  detachDeadMount,
-  isEngine,
-  isMountLive,
-  mountOnto,
-  type MountOutcome,
-  printGrantedReadOnly,
-  printPendingUploads,
-  refuseEngineOffPlatform,
-  resolveAuth
-} from "./workspace-mount-shared";
 
 interface RemountInput {
   readonly engine: Engine;

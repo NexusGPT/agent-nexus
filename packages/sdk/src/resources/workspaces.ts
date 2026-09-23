@@ -1,3 +1,5 @@
+import { appendFilePart } from "../multipart";
+import { UPLOAD_TIMEOUT_MS } from "../timeouts";
 import type {
   CreateWorkspaceBody,
   DeleteWorkspaceResponse,
@@ -9,11 +11,19 @@ import type {
   RestoreWorkspaceBody,
   RestoreWorkspaceResponse,
   Workspace,
+  WorkspaceFileHistoryParams,
+  WorkspaceFileHistoryResponse,
   WorkspaceFileUrl,
+  WorkspaceFolderArchiveParams,
   WorkspaceListing,
   WorkspaceMountCredentials,
+  WorkspaceRevertBody,
+  WorkspaceRevertResponse,
   WorkspaceSearchParams,
-  WorkspaceSearchResponse
+  WorkspaceSearchResponse,
+  WorkspaceUploadBatchFile,
+  WorkspaceUploadBatchOptions,
+  WorkspaceUploadBatchResponse
 } from "../types/workspaces";
 import { BaseResource } from "./base-resource";
 
@@ -21,9 +31,12 @@ import { BaseResource } from "./base-resource";
  * Workspace management resource. Accessed via `client.workspaces`.
  *
  * Workspaces are shared, org-scoped cloud file drives. This resource covers
- * lifecycle (list/create/rename/delete) and read-only file browsing. To read
- * and write the files themselves as a live drive, mount the workspace with
- * `nexus workspace mount <slug>` (served over WebDAV at `/api/dav`).
+ * lifecycle (list/create/rename/delete), read-only file browsing, and three
+ * writes: {@link uploadBatch} for putting files in without a mount,
+ * {@link restore} for a deleted file, and {@link revert} for an earlier
+ * version of a live one ({@link history} lists the versions). To read and
+ * write the files as a live drive, mount the workspace with
+ * `nexus workspace mount <slug>`.
  */
 export class WorkspacesResource extends BaseResource {
   /**
@@ -73,13 +86,37 @@ export class WorkspacesResource extends BaseResource {
     );
   }
 
-  /** Get a presigned download URL for a single file. */
-  async getFileUrl(slug: string, path: string): Promise<WorkspaceFileUrl> {
+  /**
+   * Get a presigned download URL for a single file. `workspaceId` picks the
+   * same-slug twin (org-owned vs admin-shared) the bare slug would not.
+   */
+  async getFileUrl(
+    slug: string,
+    path: string,
+    options: { workspaceId?: string } = {}
+  ): Promise<WorkspaceFileUrl> {
     return this.http.request<WorkspaceFileUrl>(
       "GET",
       `/workspaces/${encodeURIComponent(slug)}/file`,
-      { query: { path } }
+      { query: { path, workspaceId: options.workspaceId } }
     );
+  }
+
+  /**
+   * A folder and its subtree as one ZIP, handed back as the `Response` ITSELF,
+   * unread — consume `body` as a stream and write it to disk; an archive may be
+   * up to 2 GB and must never be buffered. The server refuses an empty folder
+   * (400) and one past its caps (413) before the first byte, so a non-2xx
+   * throws the usual typed error here. `nexus workspace pull` is the worked
+   * consumer: it streams this to a file and unpacks it with the system `unzip`.
+   */
+  async downloadFolderArchive(
+    slug: string,
+    params: WorkspaceFolderArchiveParams = {}
+  ): Promise<Response> {
+    return this.http.openStream("GET", `/workspaces/${encodeURIComponent(slug)}/folder-archive`, {
+      query: { path: params.path, workspaceId: params.workspaceId }
+    });
   }
 
   /**
@@ -115,6 +152,72 @@ export class WorkspacesResource extends BaseResource {
       "POST",
       `/workspaces/${encodeURIComponent(slug)}/restore`,
       { body }
+    );
+  }
+
+  /**
+   * One file's version history, newest first, inside the bucket's retention
+   * window (~30 days for noncurrent versions). A `file` entry carries bytes and
+   * a size; a `delete-marker` is the tombstone a delete wrote and carries none.
+   * `isLatest` marks what the path resolves to today. Empty for a path that
+   * never held an object. Pass `workspaceId` to name the same-slug twin.
+   */
+  async history(
+    slug: string,
+    path: string,
+    params: WorkspaceFileHistoryParams = {}
+  ): Promise<WorkspaceFileHistoryResponse> {
+    return this.http.request<WorkspaceFileHistoryResponse>(
+      "GET",
+      `/workspaces/${encodeURIComponent(slug)}/history`,
+      { query: { path, workspaceId: params.workspaceId } }
+    );
+  }
+
+  /**
+   * Make an earlier version of a file live again: the version named by
+   * `versionId` (from {@link history}) is copied on top of `path` as a NEW
+   * version, so nothing is destroyed and a revert is undone by reverting
+   * again. Works on a deleted file too — the last `file` version comes back.
+   * Refused: a `delete-marker` id (400), an id the path never held (404), a
+   * name that is a folder today (409), a CODE workspace or an ungranted shared
+   * one (403), and — 412 — a head that changed between your `history` call and
+   * this one: the copy carries that head as its precondition, so a concurrent
+   * write, delete or revert is never displaced; list again and retry. The
+   * version already live answers `already-live` and writes nothing.
+   */
+  async revert(slug: string, body: WorkspaceRevertBody): Promise<WorkspaceRevertResponse> {
+    return this.http.request<WorkspaceRevertResponse>(
+      "POST",
+      `/workspaces/${encodeURIComponent(slug)}/revert`,
+      { body }
+    );
+  }
+
+  /**
+   * Upload up to 100 files in one request, each to the workspace-relative
+   * `path` it names. A path that exists is replaced, like `cp`; with
+   * `noClobber` it is reported as skipped instead, decided by the store in the
+   * same step as the write — two callers racing on one path see exactly one
+   * succeed. Per-file outcome, never all-or-nothing: a refused file does not
+   * undo the others, so read `results` rather than treating the call as one
+   * write. The request body is capped by the edge, so keep a batch well under
+   * 50 MB; `nexus workspace push` packs at 45 MB / 100 files.
+   */
+  async uploadBatch(
+    slug: string,
+    files: readonly WorkspaceUploadBatchFile[],
+    options: WorkspaceUploadBatchOptions = {}
+  ): Promise<WorkspaceUploadBatchResponse> {
+    const formData = new FormData();
+    formData.append("paths", JSON.stringify(files.map((entry) => entry.path)));
+    if (options.workspaceId !== undefined) formData.append("workspaceId", options.workspaceId);
+    if (options.noClobber) formData.append("noClobber", "true");
+    for (const entry of files) appendFilePart(formData, "files", entry.file, entry.fileName);
+    return this.http.request<WorkspaceUploadBatchResponse>(
+      "POST",
+      `/workspaces/${encodeURIComponent(slug)}/upload-batch`,
+      { body: formData, timeoutMs: UPLOAD_TIMEOUT_MS }
     );
   }
 

@@ -166,7 +166,19 @@ const gate = shrinkOnlyLedger({
   // `bindCommand` to take, which is why every other `apps` leaf that takes an
   // app id sits here too. `list` is the only read, and the sweep has no producer
   // for a Vibe app id to thread into it; the other four write.
-  ceiling: 322,
+  //
+  // 322 -> 323: `workspace push` binds `WorkspaceUploadBatch`, a `POST` — so the
+  // binding proves it MUTATES, which is why it sits here as bound-but-mutates
+  // and not in `executable`. The row is the correct residue of a bound write,
+  // not a missing binding.
+  //
+  // 323 -> 325: `workspace revert` binds `WorkspaceRevert`, a `POST`, so it is
+  // bound-but-mutates for the same reason as `push`; `workspace history` binds
+  // `WorkspaceFileHistory`, a `GET`, but its required positional is a FILE
+  // PATH and the route's only path param is the slug — so the sweep has no id
+  // it could thread through it (positional-not-a-path-param). Both rows are
+  // the correct residue, not missing bindings.
+  ceiling: 325,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

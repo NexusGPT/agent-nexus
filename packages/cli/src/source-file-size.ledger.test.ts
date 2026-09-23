@@ -108,6 +108,17 @@ import { listFilesRecursively } from "./util/list-files-recursively";
  * GENERATED files ARE in the population (`*.generated.ts`, `*.ledger.ts`). A
  * generated file that grows without bound is still a file that grows without
  * bound, and an exclusion list is the hole this gate exists to close.
+ *
+ * EXACTLY ONE FILE IS EXEMPT, BY PATH: {@link RELEASE_WRITTEN_BASELINE}. Its sole
+ * writer is `.github/workflows/release-version.yml`, which regenerates it at every
+ * version bump — one line per newly promised CLI leaf — on
+ * `release/version-packages`, a branch that workflow force-pushes. No reviewer can
+ * raise a row there, and a hand commit onto that branch is overwritten, so a row
+ * for this file reds every release pull request by construction and can never be
+ * cured where it reds. Every other generated file is regenerated in ordinary pull
+ * requests, where a person can raise its row, and stays gated. The exemption is
+ * one named constant rather than a list or a glob so that widening it is a
+ * rewrite of this paragraph, never an append.
  */
 
 /**
@@ -124,12 +135,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "admin-wire-types.conformance.ts": 487,
   "admin-wire-types.ts": 262,
   "auth-probe.ts": 318,
-  "cli-surface.baseline.generated.ts": 539,
-  "cli-surface.generated.ts": 629,
+  "cli-surface.generated.ts": 633,
   "cli-surface.model.ts": 159,
   "cli-surface.project.ts": 417,
   "client.ts": 240,
-  "command-universe.ts": 1627,
+  "command-universe.ts": 1631,
   "commands/access-card.ts": 355,
   "commands/admin-vibe-build-job.ts": 246,
   "commands/admin-vibe-consumption-cap.ts": 208,
@@ -145,28 +155,15 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/analytics.contract.generated.ts": 169,
   "commands/analytics.ts": 520,
   "commands/api.ts": 269,
-  "commands/apps-deploy-state.ts": 277,
-  "commands/apps-git-local.ts": 197,
-  "commands/apps-logs.ts": 485,
-  "commands/apps-rollback-target.ts": 317,
-  "commands/apps-starter.ts": 206,
-  // Arrived whole from origin/staging with `nexus apps vendor-package` (#6206),
-  // which landed while this branch was splitting commands/apps.ts. Rowed rather
-  // than split: re-cutting a feature merged hours ago, inside a merge
-  // resolution, would change code neither side of this merge wrote. Splitting
-  // them is its own change against staging.
-  "commands/apps-vendor-package-plan.ts": 223,
-  "commands/apps-vendor-package.ts": 271,
-  "commands/apps-watch.ts": 463,
   "commands/asset.ts": 272,
   "commands/channel.contract.generated.ts": 167,
-  "commands/channel.ts": 1390,
+  "commands/channel.ts": 1157,
   "commands/chat.ts": 697,
-  "commands/claude-code.ts": 587,
+  "commands/claude-code.ts": 586,
   "commands/cloud-import.ts": 623,
   "commands/collection.contract.generated.ts": 155,
   "commands/collection.ts": 762,
-  "commands/contract-help.ledger.ts": 561,
+  "commands/contract-help.ledger.ts": 565,
   "commands/contract-help.namespaces.ts": 522,
   "commands/conversation.contract.generated.ts": 168,
   "commands/conversation.ts": 1017,
@@ -178,7 +175,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/deployment.contract.generated.ts": 304,
   "commands/deployment.ts": 1384,
   "commands/docs.ts": 297,
-  "commands/document.ts": 850,
   "commands/emulator.ts": 701,
   "commands/envelope-narrowing.scan.ts": 451,
   "commands/eval-run-render.ts": 283,
@@ -187,7 +183,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/eval.ts": 717,
   "commands/evaluation.ts": 563,
   "commands/execution.ts": 878,
-  "commands/external-tool.ts": 884,
   "commands/folder.ts": 296,
   "commands/help-suggestions.ledger.ts": 2258,
   "commands/html-message-template.ts": 381,
@@ -202,8 +197,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/phone-number.ts": 375,
   "commands/prompt-assistant.ts": 615,
   "commands/prompt.ts": 525,
-  "commands/role-body-shapes.ts": 554,
-  "commands/role-coverage-copy.ts": 164,
   "commands/role.contract.generated.ts": 552,
   "commands/score.ts": 209,
   "commands/skill-folder.ts": 268,
@@ -222,15 +215,16 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/version.ts": 392,
   "commands/workflow-builder.ts": 1163,
   "commands/workflow.ts": 894,
-  "commands/workspace-credential-process.ts": 391,
-  "commands/workspace-mount-direct.ts": 500,
-  "commands/workspace-mount-gateway.ts": 217,
-  "commands/workspace-mount-shared.ts": 747,
-  "commands/workspace-mount.ts": 661,
-  "commands/workspace-remount.ts": 269,
+  "commands/workspace-credential-process.ts": 361,
+  "commands/workspace-mount-direct.ts": 498,
+  "commands/workspace-mount-gateway.ts": 215,
+  "commands/workspace-mount.ts": 668,
+  "commands/workspace-pull.ts": 368,
+  "commands/workspace-push.ts": 599,
+  "commands/workspace-remount.ts": 267,
   "commands/workspace-status.ts": 404,
-  "commands/workspace-unmount.ts": 187,
-  "commands/workspace.ts": 547,
+  "commands/workspace-unmount.ts": 185,
+  "commands/workspace.ts": 571,
   "config.ts": 589,
   "contract-binding.ts": 430,
   "contract-help.codegen.ts": 237,
@@ -245,9 +239,9 @@ const LEDGER: Readonly<Record<string, number>> = {
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
   "id-graph.ts": 252,
-  "id-graph.uncovered.generated.ts": 350,
+  "id-graph.uncovered.generated.ts": 353,
   "index.ts": 630,
-  "json-shape.generated.ts": 464,
+  "json-shape.generated.ts": 468,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
   "node-test-verdict.ts": 179,
@@ -258,7 +252,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/body-satisfies-required.ts": 398,
   "util/body.ts": 263,
   "util/confirm.ts": 182,
-  "util/destructive-confirmation.scan.ts": 549,
+  "util/destructive-confirmation.scan.ts": 551,
   "util/follow-diagnose.ts": 207,
   "util/global-option-shadowing.ts": 152,
   "util/mcp-client-config.ts": 219,
@@ -267,8 +261,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/required-field-refusals-name-both-paths.ts": 156,
   "util/resolve-on-path.ts": 284,
   "util/secret-file.ts": 173,
-  "util/skill-bundle.ts": 316,
-  "util/skills-install.ts": 725,
   "util/tenant-http.ts": 530,
   "util/test-body.ts": 160,
   "util/track-blockers.render.ts": 171,
@@ -276,8 +268,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
   "vibe-wire-types.conformance.ts": 832,
-  "vibe-wire-types.ts": 875,
-  "workspace-direct-mount.ts": 1477
+  "vibe-wire-types.ts": 875
 };
 
 /**
@@ -294,7 +285,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 152;
+const LEDGER_CEILING = 137;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -323,7 +314,15 @@ function countLines(text: string): number {
 const isSource = (name: string): boolean => name.endsWith(".ts") && !name.endsWith(".test.ts");
 
 /**
- * Every non-test source file under `src`, at any depth.
+ * The one file this ledger does not measure, matched by its full path under
+ * `src` so a same-named file anywhere else is still gated. Its only writer is
+ * `release-version.yml`, on a force-pushed bot branch where no row can be
+ * raised — see "WHAT IS DELIBERATELY NOT IN THE POPULATION" above.
+ */
+const RELEASE_WRITTEN_BASELINE = "cli-surface.baseline.generated.ts";
+
+/**
+ * Every non-test source file under `src`, at any depth, before the exemption.
  *
  * `listFilesRecursively` rather than a walker written here: it filters FILES by
  * base name and filters no DIRECTORY at all, so `_`- and `.`-prefixed
@@ -331,7 +330,10 @@ const isSource = (name: string): boolean => name.endsWith(".ts") && !name.endsWi
  * would quietly drop gated source out of this population while every arm below
  * stayed green.
  */
-const POPULATION = listFilesRecursively(SRC_ROOT, isSource);
+const WALKED = listFilesRecursively(SRC_ROOT, isSource);
+
+/** What this ledger gates: the walk, minus {@link RELEASE_WRITTEN_BASELINE}. */
+const POPULATION = WALKED.filter((path) => path !== RELEASE_WRITTEN_BASELINE);
 
 interface SourceFile {
   readonly path: string;
@@ -518,5 +520,18 @@ describe("packages/cli/src file sizes are ledgered and can only shrink", () => {
         "was RENAMED, add the new path as its own row. A row nothing can be measured against " +
         "is a number no reader can check.\n"
     ).toEqual([]);
+  });
+
+  /**
+   * The exemption names a file that exists. Renamed or moved, the constant would
+   * exempt nothing while still reading as a live decision in the docblock above.
+   */
+  it("exempts a file the walk actually finds", () => {
+    expect(
+      WALKED.includes(RELEASE_WRITTEN_BASELINE),
+      `${RELEASE_WRITTEN_BASELINE} is exempt from this ledger but the walk under src no longer ` +
+        "finds it. Point RELEASE_WRITTEN_BASELINE at the file release-version.yml regenerates, " +
+        "or delete the exemption and its docblock paragraph if that step is gone.\n"
+    ).toBe(true);
   });
 });

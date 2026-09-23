@@ -4,13 +4,11 @@ import { handleError } from "../../../errors";
 import { color, isJsonMode } from "../../../output";
 import { tenantRequest } from "../../../util/tenant-http";
 import { type GetGitCredentialsResponse } from "../../../vibe-wire-types";
-import {
-  assertGitAvailable,
-  assertGitRepository,
-  buildPullArgs,
-  runGitWithCredential
-} from "../../apps-git-local";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
+import { assertGitAvailable } from "../git-local/assert-git-available";
+import { assertGitRepository } from "../git-local/assert-git-repository";
+import { buildPullArgs } from "../git-local/build-pull-args";
+import { runGitWithCredential } from "../git-local/run-git-with-credential";
 
 /** `nexus apps git-project pull` */
 export function registerAppsGitProjectPullCommand(project: Command, program: Command): Command {

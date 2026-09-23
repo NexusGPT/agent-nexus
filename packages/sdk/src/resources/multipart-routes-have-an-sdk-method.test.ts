@@ -150,6 +150,11 @@ const SDK_UPLOAD_METHODS: Readonly<Record<string, UploadCall>> = {
     ids: ["workflow-1"],
     call: (client, [workflowId], file, fileName) =>
       client.workflows.uploadIcon(workflowId, file, fileName)
+  },
+  WorkspaceUploadBatch: {
+    ids: ["support-docs"],
+    call: (client, [slug], file, fileName) =>
+      client.workspaces.uploadBatch(slug, [{ path: "notes/a.md", file, fileName }])
   }
 };
 

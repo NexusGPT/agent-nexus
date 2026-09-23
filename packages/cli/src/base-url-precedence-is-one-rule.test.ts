@@ -42,7 +42,7 @@ import { describe, expect, it } from "vitest";
  *   3. `auth/{status,whoami,orgs,use-org}` — `resolved.profile.baseUrl ??
  *      resolveBaseUrl()`, which drops `--base-url` entirely and puts the profile
  *      above the env.
- *   4. `workspace-mount-shared.ts` / `workspace-unmount.ts` — copies of 2.
+ *   4. `workspace-mount/` / `workspace-unmount.ts` — copies of 2.
  *   5. `auth/login.command.ts` — `resolveBaseUrl()` with no arguments, so the
  *      `--base-url` its own help text tells the reader to use went nowhere.
  *

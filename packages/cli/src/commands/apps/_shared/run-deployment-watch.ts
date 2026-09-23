@@ -8,7 +8,9 @@ import {
   type GetDeploymentResponse,
   type SingleVibeAppResponse
 } from "../../../vibe-wire-types";
-import { reportWatchOutcome, WATCH_DEFAULTS, watchDeployment } from "../../apps-watch";
+import { reportWatchOutcome } from "../watch/report-watch-outcome";
+import { watchDeployment } from "../watch/watch-deployment";
+import { WATCH_DEFAULTS } from "../watch/watch-options";
 import { resolveTenantOpts } from "./resolve-tenant-opts";
 
 /**

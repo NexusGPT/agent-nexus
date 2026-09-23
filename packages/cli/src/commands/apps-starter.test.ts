@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { isStarterVersionSpec, judgeTargetDirectory } from "./apps-starter";
+import { isStarterVersionSpec } from "./apps/starter/is-starter-version-spec";
+import { judgeTargetDirectory } from "./apps/starter/judge-target-directory";
 
 describe("judgeTargetDirectory", () => {
   let root: string;

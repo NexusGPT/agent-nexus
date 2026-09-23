@@ -344,7 +344,10 @@ export const ID_GRAPH_UNCOVERED: readonly (readonly [string, string])[] = [
   ["workflow validate", "unbound-no-provable-method"],
   ["workspace create", "bound-but-mutates"],
   ["workspace delete", "bound-but-mutates"],
+  ["workspace history", "positional-not-a-path-param"],
+  ["workspace push", "bound-but-mutates"],
   ["workspace rename", "bound-but-mutates"],
   ["workspace restore", "bound-but-mutates"],
+  ["workspace revert", "bound-but-mutates"],
   ["workspace search", "declared-unsweepable"]
 ];

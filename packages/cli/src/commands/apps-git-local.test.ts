@@ -1,13 +1,11 @@
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  buildCloneArgs,
-  buildPullArgs,
-  composeCloneUrl,
-  composeCredentialLine,
-  resolveCloneDirectory
-} from "./apps-git-local";
+import { buildCloneArgs } from "./apps/git-local/build-clone-args";
+import { buildPullArgs } from "./apps/git-local/build-pull-args";
+import { composeCloneUrl } from "./apps/git-local/compose-clone-url";
+import { composeCredentialLine } from "./apps/git-local/compose-credential-line";
+import { resolveCloneDirectory } from "./apps/git-local/resolve-clone-directory";
 
 // The apps commands reach the API through tenantRequest, not the SDK client;
 // registration alone must not touch either.

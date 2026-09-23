@@ -1,10 +1,11 @@
 import type { Command } from "commander";
 
 import { handleError, refuse } from "../../../errors";
-import { parseTargetVersion } from "../../apps-rollback-target";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 import { resolveTriggerSha } from "../_shared/resolve-trigger-sha";
-import { redeployShaForRollback, restoreRollbackVersion } from "./rollback.handler";
+import { parseTargetVersion } from "../rollback-target/parse-target-version";
+import { redeployShaForRollback } from "./redeploy-sha.handler";
+import { restoreRollbackVersion } from "./restore-version.handler";
 
 const ROLLBACK_HELP = `
 Notes:

@@ -1088,6 +1088,19 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["workspaces"]["mintMountCredentials"]>
     >
   >,
+  // WorkspaceUploadBatch  POST /public/v1/workspaces/:slug/upload-batch  ->  client.workspaces.uploadBatch()
+  Expect<
+    Equals<
+      ResponseOf<"WorkspaceUploadBatch">,
+      MethodResult<NexusClient["workspaces"]["uploadBatch"]>
+    >
+  >,
+  // WorkspaceFileHistory  GET /public/v1/workspaces/:slug/history  ->  client.workspaces.history()
+  Expect<
+    Equals<ResponseOf<"WorkspaceFileHistory">, MethodResult<NexusClient["workspaces"]["history"]>>
+  >,
+  // WorkspaceRevert  POST /public/v1/workspaces/:slug/revert  ->  client.workspaces.revert()
+  Expect<Equals<ResponseOf<"WorkspaceRevert">, MethodResult<NexusClient["workspaces"]["revert"]>>>,
   // AgentCollectionList  GET /public/v1/agents/:agentId/collections  ->  client.agentCollections.list()
   Expect<
     Equals<ResponseOf<"AgentCollectionList">, MethodResult<NexusClient["agentCollections"]["list"]>>
@@ -2025,6 +2038,9 @@ const GATED_ROUTES = [
   "WorkspaceSearch",
   "WorkspaceRestore",
   "WorkspaceMintMountCredentials",
+  "WorkspaceUploadBatch",
+  "WorkspaceFileHistory",
+  "WorkspaceRevert",
   "AgentCollectionList",
   "AgentCollectionAttach",
   "AgentCollectionDetach",
@@ -3258,7 +3274,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 339;
+const GATED_ROUTE_COUNT = 342;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

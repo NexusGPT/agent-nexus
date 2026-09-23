@@ -31,7 +31,8 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 import { EXIT_CODES } from "../exit-codes";
-import { type AppLogsRequest, runAppLogsFollow } from "./apps-logs";
+import type { AppLogsRequest } from "./apps/logs/app-logs-request";
+import { runAppLogsFollow } from "./apps/logs/run-app-logs-follow";
 
 const tenantStream = vi.hoisted(() => vi.fn());
 vi.mock("../util/tenant-http", () => ({ tenantStream }));

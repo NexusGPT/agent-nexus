@@ -17,7 +17,7 @@
  *     the old copy" and `3` for "installed and I could not check it FOR you".
  *     Those are the SAME NUMBERS the admin tree spends on auth and permission,
  *     meaning something unrelated, and `nexus upgrade --help` published them.
- *   - `commands/apps-logs.ts` exited `130` on a second signal.
+ *   - `commands/apps/logs/run-app-logs-follow.ts` exited `130` on a second signal.
  *
  * And the root `--help` epilogue said "EVERY failure exits 1", which was true of
  * exactly one of the four.
@@ -135,13 +135,13 @@ export type ExitCategory =
    * not ours to assign.
    *
    * 🚨 THE CLI DOES CHOOSE THIS ONE, FROM EXACTLY ONE PLACE, AND NOT ON THE
-   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in `commands/apps-logs.ts`
-   * counts signals and exits here on the SECOND. ONE counter serves both
-   * `SIGINT` and `SIGTERM`, so the pair that reaches it is usually MIXED — a
-   * user presses Ctrl-C, a supervisor then sends `SIGTERM` into the same
-   * process, and that is the second. THE FIRST SIGNAL OF EITHER KIND ABORTS THE
-   * STREAM AND THE COMMAND EXITS `success`, which is why "Ctrl-C gives you 130"
-   * is the wrong thing to script against.
+   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in
+   * `commands/apps/logs/run-app-logs-follow.ts` counts signals and exits here
+   * on the SECOND. ONE counter serves both `SIGINT` and `SIGTERM`, so the pair
+   * that reaches it is usually MIXED — a user presses Ctrl-C, a supervisor then
+   * sends `SIGTERM` into the same process, and that is the second. THE FIRST
+   * SIGNAL OF EITHER KIND ABORTS THE STREAM AND THE COMMAND EXITS `success`,
+   * which is why "Ctrl-C gives you 130" is the wrong thing to script against.
    *
    * ⚠️ A FOLLOW ENDED BY TWO `SIGTERM`s ALSO REPORTS `128 + 2`, NEVER
    * `128 + 15`. Deliberate: this taxonomy declares ONE code in the shell's band

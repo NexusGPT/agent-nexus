@@ -44,6 +44,28 @@ export const WORKSPACE_DELETE_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const WORKSPACE_FILE_HISTORY_CONTRACT = {
+  name: "WorkspaceFileHistory",
+  method: "GET",
+  route: "/public/v1/workspaces/:slug/history",
+  fields: [
+    { path: "PathVars.slug", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Params.workspaceId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.path", slot: "Params", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const WORKSPACE_FOLDER_ARCHIVE_CONTRACT = {
+  name: "WorkspaceFolderArchive",
+  method: "GET",
+  route: "/public/v1/workspaces/:slug/folder-archive",
+  fields: [
+    { path: "PathVars.slug", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Params.workspaceId", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.path", slot: "Params", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const WORKSPACE_LIST_CONTRACT = {
   name: "WorkspaceList",
   method: "GET",
@@ -85,6 +107,18 @@ export const WORKSPACE_RESTORE_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const WORKSPACE_REVERT_CONTRACT = {
+  name: "WorkspaceRevert",
+  method: "POST",
+  route: "/public/v1/workspaces/:slug/revert",
+  fields: [
+    { path: "PathVars.slug", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.path", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.versionId", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.workspaceId", slot: "Body", type: "string", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const WORKSPACE_SEARCH_CONTRACT = {
   name: "WorkspaceSearch",
   method: "GET",
@@ -96,5 +130,17 @@ export const WORKSPACE_SEARCH_CONTRACT = {
     { path: "Params.frontmatter", slot: "Params", type: "unknown", required: false, depth: 0 },
     { path: "Params.path", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
+export const WORKSPACE_UPLOAD_BATCH_CONTRACT = {
+  name: "WorkspaceUploadBatch",
+  method: "POST",
+  route: "/public/v1/workspaces/:slug/upload-batch",
+  fields: [
+    { path: "PathVars.slug", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Body.paths", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.workspaceId", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.noClobber", slot: "Body", type: "boolean", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

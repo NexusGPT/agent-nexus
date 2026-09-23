@@ -111,6 +111,7 @@ export const DESTRUCTIVE_VERBS: readonly string[] = [
   "remove",
   "reset",
   "restore",
+  "revert",
   "revoke",
   "rm",
   "rotate",
@@ -224,7 +225,8 @@ export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
   "workflow delete",
   "workflow edge delete",
   "workflow node delete",
-  "workspace delete"
+  "workspace delete",
+  "workspace revert"
 ];
 
 /**

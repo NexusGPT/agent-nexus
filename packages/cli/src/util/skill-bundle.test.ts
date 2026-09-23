@@ -7,16 +7,13 @@ import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  extractPresetFromTarball,
-  packSkillZip,
-  presetTarballUrl,
-  readSkillDirectory,
-  resolvePresets,
-  SKILL_PRESET_GROUPS,
-  SKILL_PRESETS,
-  SKILL_ZIP_LIMITS
-} from "./skill-bundle";
+import { extractPresetFromTarball } from "./skill-bundle.extract-preset-from-tarball";
+import { SKILL_ZIP_LIMITS } from "./skill-bundle.limits";
+import { packSkillZip } from "./skill-bundle.pack-skill-zip";
+import { presetTarballUrl } from "./skill-bundle.preset-tarball-url";
+import { SKILL_PRESET_GROUPS, SKILL_PRESETS } from "./skill-bundle.presets";
+import { readSkillDirectory } from "./skill-bundle.read-skill-directory";
+import { resolvePresets } from "./skill-bundle.resolve-presets";
 import { readTarGz } from "./tar";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────

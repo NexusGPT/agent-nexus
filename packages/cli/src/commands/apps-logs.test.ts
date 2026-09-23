@@ -37,14 +37,11 @@ import {
   type VibeLogLineDto
 } from "../vibe-wire-types";
 import { registerAppsCommands } from "./apps";
-import {
-  describeFollowFailure,
-  followLogStream,
-  parseStreamFrame,
-  resolveAppLogsRequest,
-  VIBE_LOG_CLI_DEFAULT_LIMIT,
-  VIBE_LOG_CLI_MAX_LIMIT
-} from "./apps-logs";
+import { describeFollowFailure } from "./apps/logs/describe-follow-failure";
+import { followLogStream } from "./apps/logs/follow-log-stream";
+import { VIBE_LOG_CLI_DEFAULT_LIMIT, VIBE_LOG_CLI_MAX_LIMIT } from "./apps/logs/log-limits";
+import { parseStreamFrame } from "./apps/logs/parse-stream-frame";
+import { resolveAppLogsRequest } from "./apps/logs/resolve-app-logs-request";
 
 const BASE_URL = "https://api.test.invalid";
 const API_KEY = "test-api-key";

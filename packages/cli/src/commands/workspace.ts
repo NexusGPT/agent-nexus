@@ -14,18 +14,23 @@ import {
   WORKSPACE_SEARCH_CONTRACT
 } from "./workspace.contract.generated";
 import { registerWorkspaceCredentialProcessCommand } from "./workspace-credential-process";
+import { registerWorkspaceHistoryCommand } from "./workspace-history";
 import { registerWorkspaceMountCommand } from "./workspace-mount";
+import { sharedWorkspaceId } from "./workspace-mount/shared-workspace-id";
+import { registerWorkspacePullCommand } from "./workspace-pull";
+import { registerWorkspacePushCommand } from "./workspace-push";
 import { registerWorkspaceRemountCommand } from "./workspace-remount";
+import { registerWorkspaceRevertCommand } from "./workspace-revert";
 import { registerWorkspaceStatusCommand } from "./workspace-status";
 import { registerWorkspaceUnmountCommand } from "./workspace-unmount";
 
-// The `workspace` namespace and its six Public API v1 verbs (the seventh
-// contract-bound subcommand, `credential-process`, binds inside its own
-// registrar). The four drive verbs live one per file (`workspace-mount.ts`,
+// The `workspace` namespace and its six Public API v1 verbs (`push`, `pull`,
+// `history`, `revert` and `credential-process`, the other contract-bound
+// subcommands, bind inside their own registrars). The four drive verbs live one per file (`workspace-mount.ts`,
 // `workspace-remount.ts`, `workspace-unmount.ts`, `workspace-status.ts`), the
 // engines they drive in `workspace-mount-gateway.ts` and
 // `workspace-mount-direct.ts`, and what those share in
-// `workspace-mount-shared.ts`; this module
+// `workspace-mount/`; this module
 // registers all of them, in order, through the one entry point below. Nothing
 // is re-exported from here: the ledger-assertion scan in `packages/types` does
 // not follow an `export { … } from` clause, so a shim would count as a module
@@ -49,7 +54,7 @@ export function registerWorkspaceCommands(program: Command): void {
 TWO GROUPS OF SUBCOMMAND, AND THEY FAIL FOR OPPOSITE REASONS.
 
   Public API v1 (need a valid key and the network):
-    list · create · rename · delete · search · restore
+    list · create · rename · delete · search · restore · history · revert · push · pull
   This machine's mount registry (no Public API call):
     mount · remount · unmount · status · credential-process
 
@@ -105,14 +110,19 @@ A SLUG IS NOT UNIQUE. The same slug can name both an org-owned workspace and
 an admin-shared one; the bare slug resolves to the org-owned copy and --shared
 picks the other.
 
-THERE IS NO UPLOAD VERB HERE, AND THAT IS THE FIRST THING PEOPLE LOOK FOR. This
-namespace creates, mounts and searches workspaces; it never puts a file into
-one. Two routes do:
+HOW FILES GET INTO A WORKSPACE — the first thing people look for. Three routes:
 
   1. Mount it and write through the drive — the normal way.
-  2. WebDAV directly, when a mount is not available (CI, a container):
+  2. "workspace push", when a mount is not available (CI, a container): files
+     or folders over the API, in packs, each file delivered or bounced on its
+     own.
+  3. WebDAV directly, one file per request:
        $ curl -X PUT -u "$NEXUS_API_KEY:" --data-binary @local.md \\
            <base-url>/webdav/<slug>/notes/local.md
+
+HOW FILES GET OUT: "workspace pull" — a folder as one ZIP unpacked in place, or
+named files one by one — when a mount is not available. The mount is the
+normal way; pull is its inverse the way push is its inverse for writing.
 
 To LIST what is in a workspace without mounting, "workspace search" answers
 server-side — and one raw read gives you a plain directory listing:
@@ -463,6 +473,10 @@ Notes:
     .description("Restore a deleted file or folder from backup (within the recovery window)")
     .argument("<slug>", "Workspace slug")
     .argument("<path>", "The deleted file or folder path (relative to the workspace root)")
+    .option(
+      "--shared",
+      "Restore into the admin-shared workspace with this slug (not the same-slug org-owned one)"
+    )
     .addHelpText(
       "after",
       `
@@ -491,7 +505,8 @@ Notes:
   file is unrecoverable.
   LIVE FILES ARE NEVER OVERWRITTEN. A path that still exists is skipped, so
   this is safe to re-run and cannot be used to roll a file back to an older
-  version — delete it first, then restore.
+  version — that is "workspace revert", which takes a version id from
+  "workspace history".
   THE PATH IS THE ONE THAT WAS DELETED, workspace-relative and with no leading
   slash. Given a folder, everything currently deleted at or under it comes
   back.
@@ -501,10 +516,11 @@ Notes:
   whole workspace — so whatever you are undoing happened on a mount or over
   WebDAV. "nexus workspace --help" carries both of those routes.`
     )
-    .action(async (slug: string, filePath: string) => {
+    .action(async (slug: string, filePath: string, opts: { shared?: boolean }) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const result = await client.workspaces.restore(slug, { path: filePath });
+        const workspaceId = opts.shared ? await sharedWorkspaceId(client, slug) : undefined;
+        const result = await client.workspaces.restore(slug, { path: filePath, workspaceId });
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));
           return;
@@ -525,6 +541,14 @@ Notes:
         process.exitCode = handleError(err);
       }
     });
+
+  // ── history · revert ─────────────────────────────────────────────────────
+  registerWorkspaceHistoryCommand(ws, program);
+  registerWorkspaceRevertCommand(ws, program);
+
+  // ── push · pull ──────────────────────────────────────────────────────────
+  registerWorkspacePushCommand(ws, program);
+  registerWorkspacePullCommand(ws, program);
 
   // ── mount · remount · unmount · status ───────────────────────────────────
   registerWorkspaceMountCommand(ws, program);

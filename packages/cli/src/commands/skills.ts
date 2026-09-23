@@ -14,8 +14,8 @@ import {
 } from "../skills-corpus/command";
 import { fetchManifest, PlatformCorpusError } from "../skills-corpus/platform";
 import { askLine } from "../util/ask";
+import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/claude-target";
 import { confirmable, promptLine, promptStream } from "../util/confirm";
-import { type ClaudeTarget, resolveClaudeTarget, type TargetReason } from "../util/skills-install";
 import {
   refusedBeforeCorpus,
   runSkillsInstallToTarget,

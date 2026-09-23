@@ -5,11 +5,9 @@ import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "@
 import { timeoutSecondsToMs } from "../client";
 import type { Engine, MountRecord } from "../mount-registry";
 import { fetchWithDeadline } from "../util/request-deadline";
-import {
-  assertRcloneCanMount,
-  type MountOutcome,
-  spawnRcloneMount
-} from "./workspace-mount-shared";
+import { assertRcloneCanMount } from "./workspace-mount/assert-rclone-can-mount";
+import type { MountOutcome } from "./workspace-mount/mount-outcome";
+import { spawnRcloneMount } from "./workspace-mount/spawn-rclone-mount";
 
 /**
  * The token mint's deadline when `--timeout` is not given. MILLISECONDS. A

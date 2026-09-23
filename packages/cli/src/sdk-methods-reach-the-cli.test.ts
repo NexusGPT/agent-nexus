@@ -109,9 +109,9 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   // `nexus auth orgs` predates this method and reads the endpoint through its
   // own fetch, because it must run before a NexusClient is built.
   "me.organizations": "auth orgs calls the endpoint directly, pre-client",
-  // Workspace file browsing has no command group yet.
+  // Workspace file browsing has no command group yet (`pull <file>` reaches
+  // `getFileUrl`, so only the listing is still unexposed).
   "workspaces.listFiles": "no workspace file browsing command",
-  "workspaces.getFileUrl": "no workspace file browsing command",
   // Dataset upload for an evaluation session has no command yet (NEX-2961).
   "evaluations.uploadDataset": "no evaluation dataset command",
   // The skills CATALOG re-reads workflows and tasks the CLI already lists

@@ -4,8 +4,9 @@ import { handleError } from "../../../errors";
 import { isJsonMode } from "../../../output";
 import { tenantRequest } from "../../../util/tenant-http";
 import { type GetDeployStateResponse } from "../../../vibe-wire-types";
-import { qualifyRefName, renderDeployState } from "../../apps-deploy-state";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
+import { qualifyRefName } from "../deploy-state/qualify-ref-name";
+import { renderDeployState } from "../deploy-state/render-deploy-state";
 
 const DEPLOY_STATE_HELP = `
 One read of the control plane replaces parsing 'git push' output — which

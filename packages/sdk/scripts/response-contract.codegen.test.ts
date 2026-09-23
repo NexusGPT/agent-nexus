@@ -422,6 +422,12 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "WorkspaceRename",
   "WorkspaceRestore",
   "WorkspaceSearch",
+  "WorkspaceUploadBatch",
+  "WorkspaceFileHistory",
+  // `WorkspaceRevert` is NOT here: its response is a top-level discriminated
+  // union (`outcome: "written" | "already-live"`), which the projection marks
+  // opaque like the six other union-shaped routes. The compile-time `Equals`
+  // gate in `types-match-the-v1-contract.test.ts` pins the SDK type instead.
   // tracks — one work item's seven scope resources
   "TrackCreate",
   "TrackUpdateCurrentStep",

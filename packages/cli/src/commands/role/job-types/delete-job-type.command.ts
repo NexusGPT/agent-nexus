@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
 import { printSuccess } from "../../../output";
-import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../../role-coverage-copy";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../copy/job-model-does-not-move-coverage";
 
 /** `nexus role delete-job-type` */
 export function registerRoleDeleteJobTypeCommand(role: Command, program: Command): Command {

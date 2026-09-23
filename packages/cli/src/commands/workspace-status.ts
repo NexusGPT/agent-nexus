@@ -5,20 +5,20 @@ import { handleError, reportFailure } from "../errors";
 import { type Engine, type MountRecord, readMounts } from "../mount-registry";
 import { color, type Column, isJsonMode, printTable } from "../output";
 import { firstNonBlankOr } from "../util/present-text";
+import { describeRefresh } from "../workspace-direct-mount/describe-refresh";
 import {
-  describePendingUploads,
-  describeRefresh,
   type DirectMountHealth,
-  directMountHealth,
-  formatExpiry,
-  isMountAccess,
-  isMountId,
-  type RefreshJson,
-  refreshJson,
-  refreshVerdictIsUnhealthy,
-  remountFix
-} from "../workspace-direct-mount";
-import { isMountLive, jsonPendingUploads } from "./workspace-mount-shared";
+  directMountHealth
+} from "../workspace-direct-mount/direct-mount-health";
+import { formatExpiry } from "../workspace-direct-mount/format-expiry";
+import { isMountAccess } from "../workspace-direct-mount/mount-access";
+import { isMountId } from "../workspace-direct-mount/mount-id";
+import { describePendingUploads } from "../workspace-direct-mount/pending-uploads-unknown";
+import { type RefreshJson, refreshJson } from "../workspace-direct-mount/refresh-json";
+import { refreshVerdictIsUnhealthy } from "../workspace-direct-mount/refresh-verdict-is-unhealthy";
+import { remountFix } from "../workspace-direct-mount/remount-fix";
+import { isMountLive } from "./workspace-mount/is-mount-live";
+import { jsonPendingUploads } from "./workspace-mount/json-pending-uploads";
 
 // ── Status rows ───────────────────────────────────────────────────────────────
 

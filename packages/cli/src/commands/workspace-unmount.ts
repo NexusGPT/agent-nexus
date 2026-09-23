@@ -13,14 +13,12 @@ import {
   writeMounts
 } from "../mount-registry";
 import { color, isJsonMode, printSuccess } from "../output";
-import { describePendingUploads } from "../workspace-direct-mount";
+import { describePendingUploads } from "../workspace-direct-mount/pending-uploads-unknown";
+import { actingScope } from "./workspace-mount/acting-scope";
+import { isRecordedRcloneProcess } from "./workspace-mount/is-recorded-rclone-process";
+import { jsonPendingUploads } from "./workspace-mount/json-pending-uploads";
+import { unmountPath } from "./workspace-mount/unmount-path";
 import { removeDirectSession } from "./workspace-mount-direct";
-import {
-  actingScope,
-  isRecordedRcloneProcess,
-  jsonPendingUploads,
-  unmountPath
-} from "./workspace-mount-shared";
 
 /** Kill the detached rclone a pid-probed engine recorded, if it is still that process. */
 function killRecordedProcess(record: MountRecord): void {
@@ -59,7 +57,7 @@ function resolveScopeBestEffort(opts: {
 }): MountScope | undefined {
   try {
     const resolved = resolveProfile(opts);
-    // Through the canon — see `resolveAuth` in `workspace-mount-shared.ts`.
+    // Through the canon — see `workspace-mount/resolve-auth.ts`.
     // This copy has to agree with that one exactly or `findMount` looks in a
     // different `url:` bucket than the mount was recorded under.
     const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/$/, "");

@@ -2,7 +2,8 @@ import type { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import { buildRootProgram } from "../root-program";
-import { ROLE_NAMESPACE_AREAS, ROLE_NAMESPACE_INDEX } from "./role-body-shapes";
+import { ROLE_NAMESPACE_AREAS } from "./role/body-shapes/role-namespace-areas";
+import { ROLE_NAMESPACE_INDEX } from "./role/body-shapes/role-namespace-index";
 
 /**
  * THE GATE UNDER `nexus role --help`'s GROUPED INDEX.

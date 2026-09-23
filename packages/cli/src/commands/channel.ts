@@ -1,6 +1,3 @@
-import { exec } from "node:child_process";
-import { readFileSync } from "node:fs";
-
 import { Command } from "commander";
 
 import { createClient } from "../client";
@@ -9,6 +6,7 @@ import { bindCommand, enumOption } from "../contract-binding";
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, isJsonMode, printRecord, printSuccess, printTable } from "../output";
 import { confirmable, confirmDestructive } from "../util/confirm";
+import { openUrl } from "../util/open-url";
 import {
   CHANNEL_CONNECTION_CREATE__BODY_REGION,
   CHANNEL_CONNECTION_CREATE_CONTRACT,
@@ -19,89 +17,27 @@ import {
   CHANNEL_WHATSAPP_TEMPLATE_APPROVAL_SUBMIT_CONTRACT,
   CHANNEL_WHATSAPP_TEMPLATE_CREATE_CONTRACT
 } from "./channel.contract.generated";
-
-const VARIABLE_PATTERN = /\{\{\d+\}\}/g;
-
-/**
- * Warn if any text field in the template types has high variable density.
- * Meta rejects templates where variables dominate the content.
- */
-function warnIfHighVariableDensity(types: Record<string, unknown>): boolean {
-  let warned = false;
-
-  function checkField(text: string, fieldLabel: string): void {
-    const matches = text.match(VARIABLE_PATTERN) ?? [];
-    if (matches.length === 0) return;
-    const variableCharsLength = matches.reduce((sum, m) => sum + m.length, 0);
-    const staticLength = text.length - variableCharsLength;
-    if (staticLength < matches.length * 3) {
-      console.warn(
-        color.yellow("⚠ Warning:") +
-          ` ${fieldLabel} has very high variable density (${staticLength} static chars, ${matches.length} variable(s)).` +
-          ` Meta may reject this with "too many variables for its length."`
-      );
-      warned = true;
-    }
-  }
-
-  for (const [typeKey, typeValue] of Object.entries(types)) {
-    if (!typeValue || typeof typeValue !== "object") continue;
-    const tv = typeValue;
-
-    // `in` narrowing rather than a cast: the value is operator-supplied JSON,
-    // so every field is genuinely a claim that has to be checked at runtime.
-    if ("body" in tv && typeof tv.body === "string") checkField(tv.body, `${typeKey} body`);
-    if ("title" in tv && typeof tv.title === "string") checkField(tv.title, `${typeKey} title`);
-    if ("subtitle" in tv && typeof tv.subtitle === "string") {
-      checkField(tv.subtitle, `${typeKey} subtitle`);
-    }
-
-    if ("cards" in tv && Array.isArray(tv.cards)) {
-      tv.cards.forEach((card: unknown, i: number) => {
-        if (typeof card !== "object" || card === null) return;
-        if ("body" in card && typeof card.body === "string") {
-          checkField(card.body, `${typeKey} card[${i}] body`);
-        }
-        if ("title" in card && typeof card.title === "string") {
-          checkField(card.title, `${typeKey} card[${i}] title`);
-        }
-      });
-    }
-  }
-
-  if (warned) {
-    console.warn(
-      color.yellow("  Tip:") +
-        " Add more descriptive static text around {{N}} placeholders to avoid Meta rejection.\n"
-    );
-  }
-
-  return warned;
-}
-
-function openUrl(url: string): void {
-  const platform = process.platform;
-  const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
-  exec(`${cmd} ${JSON.stringify(url)}`);
-}
-
-/**
- * One row of `listTemplateApprovals`, as the printers and the polls read it.
- *
- * The SDK types this list loosely, and three call sites reached into it through
- * `(a: any)` — so a renamed field would have compiled, printed an empty column
- * and matched nothing, in silence. Naming the shape once puts the read under the
- * compiler at every one of them.
- */
-interface TemplateApprovalRow {
-  sid?: string;
-  approvalRequests?: {
-    name?: string;
-    category?: string;
-    status?: string;
-    rejection_reason?: string;
-  };
-}
+import { templateVariablesFromJson } from "./channel/template.variables-from-json";
+import { warnIfHighVariableDensity } from "./channel/template.warn-variable-density";
+import type { TemplateApprovalRow } from "./channel/template-approval.read-verdict";
+import { awaitApprovalVerdictAfterCreate } from "./channel/template-create.await-verdict";
+import { createApprovalDocument } from "./channel/template-create.document";
+import { refuseBadTemplateCreateOptions } from "./channel/template-create.refuse-bad-options";
+import { resolveTemplateTypes } from "./channel/template-create.resolve-types";
+import { renderCreateApprovalVerdict } from "./channel/template-create.verdict.render";
+import {
+  awaitApprovalVerdict,
+  type SubmitApprovalOutcome
+} from "./channel/template-submit-approval.await-verdict";
+import { submitApprovalDocumentFields } from "./channel/template-submit-approval.document";
+import { renderSubmitApprovalVerdict } from "./channel/template-submit-approval.verdict.render";
+import {
+  awaitDeliveryOutcome,
+  type DeliveryOutcome,
+  isDeliveryFailed
+} from "./channel/template-test-send.await-delivery";
+import { renderDeliveryOutcome } from "./channel/template-test-send.delivery.render";
+import { testSendDocumentFields } from "./channel/template-test-send.document";
 
 /**
  * Emit the document for a resource that was ALREADY CREATED, then re-throw.
@@ -304,7 +240,7 @@ Notes:
           // `error-masked` in `json-one-document.scan.ts`, whose ceiling is 0.
           //
           // So the CHECKLIST MOVES INTO THE MESSAGE rather than being lost. Same
-          // construction as `reportSpecBreakingChange` in `external-tool.ts`,
+          // construction as `external-tool/spec-breaking-change.report.ts`,
           // which lists the bindings it is refusing over inside the one document
           // a `--json` caller gets. A human keeps the table above it.
           if (!isJsonMode()) {
@@ -807,57 +743,34 @@ Notes:
     )
     .action(async (opts) => {
       try {
-        // Validate: --body or --body-file required, not both
-        if (!opts.body && !opts.bodyFile) {
-          process.exitCode = refuse("Either --body or --body-file is required.");
-          return;
-        }
-        if (opts.body && opts.bodyFile) {
-          process.exitCode = refuse("Cannot use both --body and --body-file.");
-          return;
-        }
-        if (opts.submit && !opts.category) {
-          process.exitCode = refuse("--category is required when using --submit.");
+        const badOptions = refuseBadTemplateCreateOptions(opts);
+        if (badOptions !== null) {
+          process.exitCode = badOptions;
           return;
         }
 
-        // Build types object
-        let types: Record<string, unknown>;
-        if (opts.bodyFile) {
-          try {
-            const content = readFileSync(opts.bodyFile, "utf-8");
-            types = JSON.parse(content);
-          } catch (e) {
-            process.exitCode = refuse(
-              `Could not read --body-file: ${e instanceof Error ? e.message : String(e)}`
-            );
-            return;
-          }
-        } else {
-          types = { [opts.type]: { body: opts.body } };
+        const resolvedTypes = resolveTemplateTypes(opts);
+        if (!resolvedTypes.ok) {
+          process.exitCode = resolvedTypes.exitCode;
+          return;
         }
 
-        // Parse variables
-        let variables: Record<string, string> | undefined;
-        if (opts.variables) {
-          try {
-            variables = JSON.parse(opts.variables);
-          } catch {
-            process.exitCode = refuse("--variables must be valid JSON.");
-            return;
-          }
+        const parsedVariables = templateVariablesFromJson(opts.variables);
+        if (!parsedVariables.ok) {
+          process.exitCode = refuse("--variables must be valid JSON.");
+          return;
         }
 
-        // Warn about variable density before submission
-        warnIfHighVariableDensity(types);
+        // Advice, not a gate — the create happens either way.
+        warnIfHighVariableDensity(resolvedTypes.types);
 
         const client = createClient(program.optsWithGlobals());
         const result = await client.channels.createWhatsAppTemplate({
           connectionId: opts.connectionId,
           friendlyName: opts.friendlyName,
           language: opts.language,
-          types,
-          variables
+          types: resolvedTypes.types,
+          variables: parsedVariables.variables
         });
         const data = result;
         // --submit turns ONE command into three terminal results — created,
@@ -876,9 +789,7 @@ Notes:
           printSuccess("WhatsApp template created.");
         }
 
-        let approvalRecord: Record<string, unknown> | undefined;
-        let approvalStatus: string | undefined;
-        let approvalRejectionReason: string | undefined;
+        let approval: Record<string, unknown> | undefined;
 
         // Auto-submit for approval if --submit
         if (opts.submit) {
@@ -887,70 +798,29 @@ Notes:
               console.log("");
               console.log("Submitting for Meta approval...");
             }
-            const approval = await client.channels.submitTemplateApproval({
+            const approvalData = await client.channels.submitTemplateApproval({
               connectionId: opts.connectionId,
               templateId: data.id,
               name: opts.friendlyName,
               category: opts.category
             });
-            const approvalData = approval;
-            approvalRecord = { ...approvalData };
             if (!isJsonMode()) {
               printRecord(approvalData, [
                 { key: "sid", label: "Approval SID" },
                 { key: "status", label: "Status" }
               ]);
               printSuccess("Template submitted for Meta approval.");
+              console.log("Checking approval status...");
             }
 
-            // Brief poll to catch immediate Meta rejections (up to 30s)
-            const pollMaxMs = 30_000;
-            const pollIntervalMs = 5_000;
-            const pollStart = Date.now();
-            let resolved = false;
+            const verdict = await awaitApprovalVerdictAfterCreate(
+              () => client.channels.listTemplateApprovals({ connectionId: opts.connectionId }),
+              data.id
+            );
+            if (!isJsonMode()) renderCreateApprovalVerdict(verdict);
+            if (verdict.status === "rejected") process.exitCode = 1;
 
-            if (!isJsonMode()) console.log("Checking approval status...");
-
-            while (Date.now() - pollStart < pollMaxMs) {
-              await new Promise((r) => setTimeout(r, pollIntervalMs));
-              try {
-                const approvals = await client.channels.listTemplateApprovals({
-                  connectionId: opts.connectionId
-                });
-                const approvalsArr = approvals;
-                const items = Array.isArray(approvalsArr) ? approvalsArr : [approvalsArr];
-                const match = items.find((a: TemplateApprovalRow) => a.sid === data.id);
-
-                if (match?.approvalRequests?.status) {
-                  const status = match.approvalRequests.status;
-                  approvalStatus = status;
-                  if (status === "rejected") {
-                    approvalRejectionReason = match.approvalRequests.rejection_reason;
-                    if (!isJsonMode()) {
-                      console.log(color.red(`✗ Template rejected by Meta: ${status}`));
-                      if (approvalRejectionReason) {
-                        console.log(`  Reason: ${approvalRejectionReason}`);
-                      }
-                    }
-                    resolved = true;
-                    process.exitCode = 1;
-                    break;
-                  } else if (status === "approved") {
-                    if (!isJsonMode()) console.log(color.green(`✓ Template approved by Meta.`));
-                    resolved = true;
-                    break;
-                  }
-                }
-              } catch {
-                // Ignore polling errors — best effort
-              }
-            }
-
-            if (!resolved && !isJsonMode()) {
-              console.log(
-                `Status still pending. Check later: ${color.dim("nexus channel whatsapp-template approvals")}`
-              );
-            }
+            approval = createApprovalDocument(approvalData, verdict);
           } catch (submitError) {
             // The template EXISTS. Say so, with its id, before the failure.
             emitPartialThenRethrow(data, "submit-approval", submitError);
@@ -958,20 +828,7 @@ Notes:
         }
 
         if (isJsonMode()) {
-          printRecord({
-            ...data,
-            ...(approvalRecord === undefined
-              ? {}
-              : {
-                  approval: {
-                    ...approvalRecord,
-                    ...(approvalStatus === undefined ? {} : { status: approvalStatus }),
-                    ...(approvalRejectionReason === undefined
-                      ? {}
-                      : { rejectionReason: approvalRejectionReason })
-                  }
-                })
-          });
+          printRecord({ ...data, ...(approval === undefined ? {} : { approval }) });
         }
       } catch (err) {
         process.exitCode = handleError(err);
@@ -1125,56 +982,20 @@ Notes:
           printSuccess("Template submitted for Meta approval.");
         }
 
-        let polledStatus: string | undefined;
-        let rejectionReason: string | undefined;
+        let verdict: SubmitApprovalOutcome | undefined;
 
         // Poll if --wait
         if (opts.wait) {
           try {
-            const maxWaitMs = 120_000;
-            const intervalMs = 5_000;
-            const startTime = Date.now();
-            let finalStatus = data.status;
-
             if (!isJsonMode()) console.log("Waiting for approval...");
 
-            while (Date.now() - startTime < maxWaitMs) {
-              await new Promise((r) => setTimeout(r, intervalMs));
-              const approvals = await client.channels.listTemplateApprovals({
-                connectionId: opts.connectionId
-              });
-              const approvalsData = approvals;
-              const items = Array.isArray(approvalsData) ? approvalsData : [approvalsData];
-              const match = items.find((a: TemplateApprovalRow) => a.sid === opts.templateId);
+            verdict = await awaitApprovalVerdict(
+              () => client.channels.listTemplateApprovals({ connectionId: opts.connectionId }),
+              opts.templateId,
+              data.status
+            );
 
-              if (match?.approvalRequests?.status) {
-                finalStatus = match.approvalRequests.status;
-                if (finalStatus !== "pending" && finalStatus !== "unsubmitted") {
-                  rejectionReason =
-                    finalStatus === "rejected"
-                      ? match.approvalRequests.rejection_reason
-                      : undefined;
-                  if (!isJsonMode()) {
-                    console.log(`Approval resolved: ${color.cyan(finalStatus)}`);
-                    if (rejectionReason) console.log(`Reason: ${rejectionReason}`);
-                  }
-                  break;
-                }
-              }
-            }
-
-            polledStatus = finalStatus;
-
-            if (finalStatus === "pending" || finalStatus === "unsubmitted") {
-              // A timeout, not a verdict — the Notes above say so, and the
-              // document says so too rather than leaving a caller to infer it from
-              // a status that never moved.
-              if (!isJsonMode()) {
-                console.log(
-                  `Still ${finalStatus} after 2m. Check again: ${color.dim("nexus channel whatsapp-template approvals")}`
-                );
-              }
-            }
+            if (!isJsonMode()) renderSubmitApprovalVerdict(verdict);
           } catch (pollError) {
             // The approval WAS submitted. Its sid must not die with the poll.
             emitPartialThenRethrow(data, "approval-poll", pollError);
@@ -1182,14 +1003,7 @@ Notes:
         }
 
         if (isJsonMode()) {
-          printRecord({
-            ...data,
-            ...(polledStatus === undefined ? {} : { status: polledStatus }),
-            ...(rejectionReason === undefined ? {} : { rejectionReason }),
-            waited: opts.wait === true,
-            timedOut:
-              opts.wait === true && (polledStatus === "pending" || polledStatus === "unsubmitted")
-          });
+          printRecord({ ...data, ...submitApprovalDocumentFields(verdict, opts.wait === true) });
           return;
         }
 
@@ -1255,23 +1069,19 @@ Notes:
       try {
         const client = createClient(program.optsWithGlobals());
 
-        let variables: Record<string, string> | undefined;
-        if (opts.variables) {
-          try {
-            variables = JSON.parse(opts.variables);
-          } catch {
-            process.exitCode = refuse(
-              "Invalid JSON for --variables.",
-              'Example: --variables \'{"1": "Hello"}\''
-            );
-            return;
-          }
+        const parsedVariables = templateVariablesFromJson(opts.variables);
+        if (!parsedVariables.ok) {
+          process.exitCode = refuse(
+            "Invalid JSON for --variables.",
+            'Example: --variables \'{"1": "Hello"}\''
+          );
+          return;
         }
 
         const result = await client.channels.testSendWhatsAppTemplate(opts.templateId, {
           connectionId: opts.connectionId,
           to: opts.to,
-          variables
+          variables: parsedVariables.variables
         });
         const data = result;
 
@@ -1290,61 +1100,24 @@ Notes:
           printSuccess("Template test-send initiated.");
         }
 
-        let deliveredStatus: string | undefined;
-        let deliveryErrorCode: unknown;
-        let deliveryErrorMessage: unknown;
+        let delivery: DeliveryOutcome | undefined;
 
         // Poll delivery status if --wait
         if (opts.wait) {
           try {
-            const maxWaitMs = 120_000;
-            const intervalMs = 5_000;
-            const startTime = Date.now();
-            let lastStatus = data.status;
-
             if (!isJsonMode()) console.log("Polling delivery status...");
 
-            while (Date.now() - startTime < maxWaitMs) {
-              await new Promise((r) => setTimeout(r, intervalMs));
-              try {
-                const statusResult = await client.channels.getTestSendStatus(data.messageSid, {
+            delivery = await awaitDeliveryOutcome(
+              () =>
+                client.channels.getTestSendStatus(data.messageSid, {
                   connectionId: opts.connectionId
-                });
-                const statusData = statusResult;
-                lastStatus = statusData.status;
+                }),
+              data.status
+            );
 
-                // Terminal statuses
-                if (["delivered", "read"].includes(lastStatus)) {
-                  if (!isJsonMode()) console.log(color.green(`\u2713 Message ${lastStatus}.`));
-                  break;
-                } else if (["failed", "undelivered"].includes(lastStatus)) {
-                  deliveryErrorCode = statusData.errorCode;
-                  deliveryErrorMessage = statusData.errorMessage;
-                  if (!isJsonMode()) {
-                    console.log(color.red(`\u2717 Message ${lastStatus}.`));
-                    if (statusData.errorCode) {
-                      console.log(
-                        `  Error ${statusData.errorCode}: ${statusData.errorMessage ?? "Unknown error"}`
-                      );
-                    }
-                  }
-                  process.exitCode = 1;
-                  break;
-                }
-              } catch {
-                // Ignore transient polling errors
-              }
-            }
-
-            deliveredStatus = lastStatus;
-
-            if (
-              !["delivered", "read", "failed", "undelivered"].includes(lastStatus) &&
-              !isJsonMode()
-            ) {
-              console.log(
-                `Status still '${lastStatus}' after 2m. The message may still be in transit.`
-              );
+            if (!isJsonMode()) renderDeliveryOutcome(delivery);
+            if (delivery.observedTerminal && isDeliveryFailed(delivery.status)) {
+              process.exitCode = 1;
             }
           } catch (pollError) {
             // The message WAS sent, and it was billed. Its sid survives the poll.
@@ -1353,13 +1126,7 @@ Notes:
         }
 
         if (isJsonMode()) {
-          printRecord({
-            ...data,
-            ...(deliveredStatus === undefined ? {} : { status: deliveredStatus }),
-            ...(deliveryErrorCode === undefined ? {} : { errorCode: deliveryErrorCode }),
-            ...(deliveryErrorMessage === undefined ? {} : { errorMessage: deliveryErrorMessage }),
-            waited: opts.wait === true
-          });
+          printRecord({ ...data, ...testSendDocumentFields(delivery, opts.wait === true) });
         }
       } catch (err) {
         process.exitCode = handleError(err);

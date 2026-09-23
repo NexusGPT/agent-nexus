@@ -27,16 +27,18 @@ import type { ResolvedProfile } from "../config";
 import { LOG_DIR } from "../mount-registry";
 import { setJsonMode } from "../output";
 import {
-  DIRECT_MOUNT_INTRO_MARKER,
   FUSE_T_LIBRARY,
   MACFUSE_LIBRARY,
-  MACFUSE_LOADER,
-  mountIdFor,
-  readSession,
-  sessionPathsFor,
-  stableNodePath,
-  writeSession
-} from "../workspace-direct-mount";
+  MACFUSE_LOADER
+} from "../workspace-direct-mount/fuse-libraries";
+import { mountIdFor } from "../workspace-direct-mount/mount-id";
+import { readSession } from "../workspace-direct-mount/read-session";
+import {
+  DIRECT_MOUNT_INTRO_MARKER,
+  sessionPathsFor
+} from "../workspace-direct-mount/session-paths";
+import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
+import { writeSession } from "../workspace-direct-mount/write-session";
 
 /**
  * NEX-2360 follow-up: org-scoping the registry KEY does not scope the mount

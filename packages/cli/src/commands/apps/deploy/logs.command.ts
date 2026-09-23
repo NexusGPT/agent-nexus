@@ -3,17 +3,14 @@ import type { Command } from "commander";
 import { handleError } from "../../../errors";
 import { tenantRequest } from "../../../util/tenant-http";
 import { type GetVibeAppLogsResponse } from "../../../vibe-wire-types";
-import {
-  type AppLogsFlags,
-  emitLogLines,
-  orderForDisplay,
-  resolveAppLogsRequest,
-  runAppLogsFollow,
-  toLogQuery,
-  VIBE_LOG_CLI_DEFAULT_SINCE,
-  VIBE_LOG_CLI_LIMIT_HELP
-} from "../../apps-logs";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
+import type { AppLogsFlags } from "../logs/app-logs-request";
+import { emitLogLines } from "../logs/emit-log-lines";
+import { VIBE_LOG_CLI_DEFAULT_SINCE, VIBE_LOG_CLI_LIMIT_HELP } from "../logs/log-limits";
+import { orderForDisplay } from "../logs/order-for-display";
+import { resolveAppLogsRequest } from "../logs/resolve-app-logs-request";
+import { runAppLogsFollow } from "../logs/run-app-logs-follow";
+import { toLogQuery } from "../logs/to-log-query";
 
 /** `nexus apps logs` */
 export function registerAppsLogsCommand(apps: Command, program: Command): Command {

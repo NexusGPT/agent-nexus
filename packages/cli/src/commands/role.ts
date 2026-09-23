@@ -2,6 +2,8 @@ import { Command } from "commander";
 
 import { resolveRoleId } from "./role/_shared/resolve-role-id";
 import { registerBoardsCommands } from "./role/boards/boards.commands";
+import { ROLE_NAMESPACE_GAPS } from "./role/body-shapes/role-namespace-gaps";
+import { ROLE_NAMESPACE_INDEX } from "./role/body-shapes/role-namespace-index";
 import { registerConfigCommands } from "./role/config/config.commands";
 import { registerJobTypesCommands } from "./role/job-types/job-types.commands";
 import { registerLifecycleCommands } from "./role/lifecycle/lifecycle.commands";
@@ -10,7 +12,6 @@ import { registerPermissionSetsCommands } from "./role/permission-sets/permissio
 import { registerReadsCommands } from "./role/reads/reads.commands";
 import { registerRequestsCommands } from "./role/requests/requests.commands";
 import { registerResourcesCommands } from "./role/resources/resources.commands";
-import { ROLE_NAMESPACE_GAPS, ROLE_NAMESPACE_INDEX } from "./role-body-shapes";
 
 /**
  * `nexus role` — the Roles surface.

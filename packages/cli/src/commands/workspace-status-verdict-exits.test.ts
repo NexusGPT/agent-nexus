@@ -41,7 +41,7 @@ import { describeStdout } from "./json-one-document.scan";
 const { readMounts } = vi.hoisted(() => ({ readMounts: vi.fn() }));
 
 // 🚨 ONLY THE REGISTRY IS REPLACED, AND THE LIVENESS PREDICATE IS NOT.
-// `isMountLive` lives in `workspace-mount-shared.ts` — for the rclone engine it
+// `isMountLive` lives in `workspace-mount/is-mount-live.ts` — for the rclone engine it
 // is `process.kill(pid, 0)` AND a read of that pid's command line through `ps`,
 // which must name an rclone mount. A spec that stubbed the predicate would
 // assert against its own boolean; driving a REAL pid exercises the shipped

@@ -1,0 +1,27 @@
+import type { WatchAppVisibility, WatchEdgeReachability } from "./watch-deployment-status";
+
+export interface WatchDeploymentSnapshot {
+  id: string;
+  status: string;
+  versionNumber: number;
+  errorReason: string | null;
+}
+
+export interface WatchAppSnapshot {
+  publicUrl: string | null;
+  /**
+   * Carried so the success line can say who may reach the URL it just printed.
+   * Apps are created PRIVATE, so this is the difference between a 401 that
+   * means "working as designed" and one that means "broken" — see
+   * `print-served-visibility.ts`.
+   */
+  visibility: WatchAppVisibility;
+  edgeReachability: WatchEdgeReachability | null;
+  edgeReachabilityAt: string | null;
+  edgeReachabilityDetail: string | null;
+}
+
+/** The gate on a deployment awaiting review — `null` when it is ungated. */
+export interface WatchApprovalSnapshot {
+  status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+}

@@ -5,9 +5,9 @@ import { createClient } from "../../../client";
 import { handleError } from "../../../errors";
 import { printSuccess, printWarning } from "../../../output";
 import { asRequestBody, resolveRequiredBody } from "../../../util/body";
-import { SCOPE_LINES_BODY_SHAPE } from "../../role-body-shapes";
-import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../../role-coverage-copy";
 import { resolveRoleId } from "../_shared/resolve-role-id";
+import { SCOPE_LINES_BODY_SHAPE } from "../body-shapes/scope-lines-body-shape";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "../copy/job-model-does-not-move-coverage";
 
 /** `nexus role set-scope-lines` */
 export function registerRoleSetScopeLinesCommand(role: Command, program: Command): Command {

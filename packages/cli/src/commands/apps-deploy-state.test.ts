@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { GetDeployStateResponse, VibeDeployStateOutcome } from "../vibe-wire-types";
-import {
-  describeOutcome,
-  formatAge,
-  formatServedLines,
-  qualifyRefName,
-  renderDeployState
-} from "./apps-deploy-state";
+import { describeOutcome } from "./apps/deploy-state/describe-outcome";
+import { formatAge } from "./apps/deploy-state/format-age";
+import { formatServedLines } from "./apps/deploy-state/format-served-lines";
+import { qualifyRefName } from "./apps/deploy-state/qualify-ref-name";
+import { renderDeployState } from "./apps/deploy-state/render-deploy-state";
 
 /**
  * `apps deploy-state` is the one command whose OUTPUT is the product: the

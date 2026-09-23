@@ -301,11 +301,15 @@ export const GENERATED_NAMESPACE_LEDGER = [
     descriptors: [
       "WorkspaceCreate",
       "WorkspaceDelete",
+      "WorkspaceFileHistory",
+      "WorkspaceFolderArchive",
       "WorkspaceList",
       "WorkspaceMintMountCredentials",
       "WorkspaceRename",
       "WorkspaceRestore",
-      "WorkspaceSearch"
+      "WorkspaceRevert",
+      "WorkspaceSearch",
+      "WorkspaceUploadBatch"
     ]
   },
   {

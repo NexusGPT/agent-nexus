@@ -4,14 +4,14 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resolveClaudeTarget } from "./claude-target";
 import {
   commitInstallLedger,
   INSTALL_MANIFEST_BASENAME,
   installManifestPath,
-  openInstallLedger,
-  resolveClaudeTarget,
-  writeSkillFiles
-} from "./skills-install";
+  openInstallLedger
+} from "./skills-install.ledger";
+import { writeSkillFiles } from "./skills-install.write-skill-files";
 
 /** What an install records about the corpus it wrote; its contents do not matter here. */
 const CORPUS_RECORD = {

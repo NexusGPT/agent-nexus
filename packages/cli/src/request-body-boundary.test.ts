@@ -68,14 +68,13 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
  *    citation, because the whole claim of this section is that its holes are
  *    checkable. An empty result means the hole is closed.
  *
- *    The live sites are `find`/`map` callback parameters in `commands/channel.ts`
- *    — under `channel whatsapp-template create`, `... approvals` and
- *    `... submit-approval` — each typing a callback over a template approval the
- *    SDK returns loosely. Not closed: they are owned by another lane, and a rule
- *    that reds on correct work is a rule that gets deleted. An ASSERTION to a
- *    type that merely CONTAINS `any` (`as any[]`, `as Record<string, any>`) IS
- *    caught — the command above is also the evidence that costs nothing, since
- *    every match it returns is an annotation and none is an assertion.
+ *    The live set is EMPTY today, so this hole is CLOSED — and the command
+ *    above is what establishes that, rather than this sentence. The sites that
+ *    held it were `find`/`map` callbacks over a template approval the SDK types
+ *    loosely; they name a real interface now. An ASSERTION to a type that merely
+ *    CONTAINS `any` (`as any[]`, `as Record<string, any>`) IS caught — the
+ *    command above is also the evidence that costs nothing, since every match it
+ *    returns is an annotation and none is an assertion.
  *  - **A cast laundered through a generic function's return type.**
  *    `function launder<T>(x: unknown): T { return x as T }` — the call site
  *    `launder<Secret>(junk)` carries no assertion. Structurally unclosable here:

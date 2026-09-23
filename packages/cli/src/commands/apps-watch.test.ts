@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { setJsonMode } from "../output";
-import {
-  reportWatchOutcome,
-  type WatchApprovalSnapshot,
-  type WatchAppSnapshot,
-  watchDeployment,
-  type WatchDeploymentSnapshot,
-  type WatchIo,
-  type WatchOptions,
-  type WatchOutcome
-} from "./apps-watch";
+import { reportWatchOutcome } from "./apps/watch/report-watch-outcome";
+import { watchDeployment } from "./apps/watch/watch-deployment";
+import type { WatchIo } from "./apps/watch/watch-io";
+import type { WatchOptions } from "./apps/watch/watch-options";
+import type { WatchOutcome } from "./apps/watch/watch-outcome";
+import type {
+  WatchApprovalSnapshot,
+  WatchAppSnapshot,
+  WatchDeploymentSnapshot
+} from "./apps/watch/watch-snapshots";
 
 const OPTIONS: WatchOptions = {
   deployTimeoutMs: 60_000,

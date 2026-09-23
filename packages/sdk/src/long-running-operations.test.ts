@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NexusClient } from "./client";
 import { NexusTimeoutError } from "./errors";
-import { DEFAULT_REQUEST_TIMEOUT_MS, LONG_RUNNING_TIMEOUT_MS } from "./timeouts";
+import { DEFAULT_REQUEST_TIMEOUT_MS, LONG_RUNNING_TIMEOUT_MS, UPLOAD_TIMEOUT_MS } from "./timeouts";
 
 /**
  * NEX-2492 — `POST /skills/tasks/:taskId/execute` runs a model before it can
@@ -128,6 +128,26 @@ describe("the deadline a request runs under", () => {
     );
 
     expect(err?.timeoutMs).toBe(LONG_RUNNING_TIMEOUT_MS);
+  });
+
+  it("does NOT abort a 45 MB `uploadBatch` at 30 s — the body is still being sent", async () => {
+    // The default deadline covers the whole request, body included, so a full
+    // push pack on a slow uplink was aborted mid-send while the server went on
+    // to write the files the client had given up on.
+    const client = clientThatNeverAnswers();
+    const stillSending = await timeoutAfter(
+      client.workspaces.uploadBatch("docs", [{ path: "a.txt", file: new Blob(["x"]) }]),
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    expect(stillSending).toBeNull();
+
+    const err = await timeoutAfter(
+      clientThatNeverAnswers().workspaces.uploadBatch("docs", [
+        { path: "a.txt", file: new Blob(["x"]) }
+      ]),
+      UPLOAD_TIMEOUT_MS
+    );
+    expect(err?.timeoutMs).toBe(UPLOAD_TIMEOUT_MS);
   });
 
   it("lets an explicit client timeout override the operation's own, in both directions", async () => {

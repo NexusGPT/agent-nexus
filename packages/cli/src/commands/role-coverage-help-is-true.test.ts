@@ -3,7 +3,8 @@ import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 
 import { setJsonMode } from "../output";
-import { COVERAGE_INPUTS_NOTE, JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role-coverage-copy";
+import { COVERAGE_INPUTS_NOTE } from "./role/copy/coverage-inputs-note";
+import { JOB_MODEL_DOES_NOT_MOVE_COVERAGE } from "./role/copy/job-model-does-not-move-coverage";
 import { flatHelp, roleHelpText, roleSubcommand } from "./role-help.testkit";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -53,7 +54,7 @@ import { registerRoleCommands } from "./role";
  * go through the constant, and
  * `apps/backend/src/__governance__/role-coverage-inputs-are-the-documented-three.spec.ts`,
  * which derives the coverage input set from the use case and goes red naming
- * `role-coverage-copy.ts` the day that set moves.
+ * `commands/role/copy/` the day that set moves.
  */
 
 /**

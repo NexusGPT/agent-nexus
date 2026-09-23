@@ -371,7 +371,7 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
  */
 const EXPECTED_BARE_ONE_SITES: readonly string[] = [
   "commands/apps/deploy/deploy.command.ts",
-  "commands/apps/deploy/rollback.handler.ts",
+  "commands/apps/deploy/redeploy-sha.handler.ts",
   "commands/auth/switch.command.ts",
   "commands/auth/switch.here.ts",
   "commands/auth/switch.session.ts",
@@ -518,7 +518,8 @@ function categoryAccessor(category: ExitCategory): string {
  */
 const PRODUCERS: Readonly<Record<ExitCategory, () => number>> = {
   success: () => processLevelExit("contract-binding.ts", "success"),
-  interrupted: () => processLevelExit(join("commands", "apps-logs.ts"), "interrupted"),
+  interrupted: () =>
+    processLevelExit(join("commands", "apps", "logs", "run-app-logs-follow.ts"), "interrupted"),
   failed: () => handleError(new Error("unexpected")),
   "not-authenticated": () => handleError(new NexusAuthenticationError("nope", "UNAUTHORIZED")),
   "permission-denied": () => handleError(new NexusApiError("FORBIDDEN", "nope", 403)),
@@ -964,7 +965,7 @@ describe("every surface that describes 130 describes the same 130", () => {
       withoutComments(readFileSync(file, "utf8")).includes("process.exit(EXIT_CODES.interrupted)")
     );
     expect(producers.map((file) => relative(SRC_DIR, file))).toEqual([
-      join("commands", "apps-logs.ts")
+      join("commands", "apps", "logs", "run-app-logs-follow.ts")
     ]);
   });
 

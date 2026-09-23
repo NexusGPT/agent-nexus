@@ -121,6 +121,14 @@ export interface WorkspaceFileUrl {
   url: string;
 }
 
+/** Options for `client.workspaces.downloadFolderArchive()`. */
+export interface WorkspaceFolderArchiveParams {
+  /** Folder path relative to the workspace root; the whole workspace when omitted. */
+  path?: string;
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+}
+
 /** Options for `client.workspaces.search()`. At least one of `query`/`frontmatter` is required. */
 export interface WorkspaceSearchParams {
   /** Free-text keyword (case-insensitive substring over content, frontmatter, and path). */
@@ -197,6 +205,108 @@ export interface RestoreWorkspaceResponse {
   restored: string[];
   /** Convenience count of `restored.length`. */
   count: number;
+}
+
+/** Options for `client.workspaces.history()`. */
+export interface WorkspaceFileHistoryParams {
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+}
+
+/**
+ * One entry of a file's version history. A `file` version carries bytes; a
+ * `delete-marker` is the tombstone a delete wrote on top and carries none.
+ * `isLatest` marks what the path resolves to today — a `delete-marker` there
+ * means the file is currently deleted.
+ */
+export type WorkspaceFileVersion =
+  | {
+      kind: "file";
+      versionId: string;
+      isLatest: boolean;
+      size: number;
+      modifiedAt: string;
+      /** The store's entity tag for these bytes — the same `etag` a folder listing reports. */
+      etag: string;
+    }
+  | {
+      kind: "delete-marker";
+      versionId: string;
+      isLatest: boolean;
+      modifiedAt: string;
+    };
+
+/** Response from `client.workspaces.history()`. */
+export interface WorkspaceFileHistoryResponse {
+  /** Newest first. Empty when the path never held an object inside the retention window. */
+  versions: WorkspaceFileVersion[];
+}
+
+/** Request body for `client.workspaces.revert()`. */
+export interface WorkspaceRevertBody {
+  /** The file, relative to the workspace root. */
+  path: string;
+  /** A `file` version id from `history()`; a `delete-marker` id is refused. */
+  versionId: string;
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+}
+
+/**
+ * Response from `client.workspaces.revert()`. `written` is the ordinary
+ * answer; `already-live` means the named version was the head already, so
+ * nothing was written — not an error, so reverting twice is safe.
+ */
+export type WorkspaceRevertResponse =
+  | {
+      outcome: "written";
+      path: string;
+      /** The version whose bytes are live again. */
+      revertedTo: string;
+      /** The id of the new version the revert wrote on top. */
+      newVersionId: string;
+    }
+  | {
+      outcome: "already-live";
+      path: string;
+      revertedTo: string;
+    };
+
+/** One file of a `client.workspaces.uploadBatch()` call. */
+export interface WorkspaceUploadBatchFile {
+  /** Workspace-relative destination, no leading slash. Replaced if it exists, unless `noClobber`. */
+  path: string;
+  file: Blob | File;
+  /** Name to send the part under; a `File` keeps its own when omitted. The server reads `path`, not this. */
+  fileName?: string;
+}
+
+/** Options for `client.workspaces.uploadBatch()`. */
+export interface WorkspaceUploadBatchOptions {
+  /** Optional immutable row id to disambiguate same-slug org/shared workspaces. */
+  workspaceId?: string;
+  /**
+   * Skip a path that already exists instead of replacing it. Checked by the
+   * store in the same step as the write, so it holds under concurrent writers.
+   */
+  noClobber?: boolean;
+}
+
+/**
+ * One row of `client.workspaces.uploadBatch()`. `skipped` is only ever true
+ * under `noClobber`: the path existed, nothing was written, nothing went wrong.
+ */
+export type WorkspaceUploadResult =
+  | { path: string; success: true; size: number; modifiedAt: string }
+  | { path: string; success: false; skipped: false; error: string }
+  | { path: string; success: false; skipped: true; error: string };
+
+/** Response from `client.workspaces.uploadBatch()`. The three counts partition `results`. */
+export interface WorkspaceUploadBatchResponse {
+  results: WorkspaceUploadResult[];
+  successCount: number;
+  failureCount: number;
+  skippedCount: number;
 }
 
 /** The access a mount credential carries. `read-write` includes delete. */

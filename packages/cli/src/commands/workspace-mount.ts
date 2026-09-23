@@ -5,7 +5,7 @@ import type { WorkspaceKind } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { createClient } from "../client";
-import { handleError, invalidInput } from "../errors";
+import { failure, handleError, invalidInput } from "../errors";
 import {
   alreadyMountedMessage,
   claimMountPoint,
@@ -22,7 +22,20 @@ import {
   writeMounts
 } from "../mount-registry";
 import { color, isJsonMode, printSuccess, printWarning } from "../output";
-import { mountIdFor } from "../workspace-direct-mount";
+import { mountIdFor } from "../workspace-direct-mount/mount-id";
+import { assertMountableSlug } from "./workspace-mount/assert-mountable-slug";
+import { detachDeadMount } from "./workspace-mount/detach-dead-mount";
+import { isEngine } from "./workspace-mount/engine-name";
+import { isMountLive } from "./workspace-mount/is-mount-live";
+import { isReadOnlyKind } from "./workspace-mount/is-read-only-kind";
+import { mountOnto } from "./workspace-mount/mount-onto";
+import type { MountOutcome } from "./workspace-mount/mount-outcome";
+import type { MountPlan } from "./workspace-mount/mount-plan";
+import { printGrantedReadOnly } from "./workspace-mount/print-granted-read-only";
+import { printPendingUploads } from "./workspace-mount/print-pending-uploads";
+import { refuseEngineOffPlatform } from "./workspace-mount/refuse-engine-off-platform";
+import { resolveAuth } from "./workspace-mount/resolve-auth";
+import { resolveMountTargetDetailed } from "./workspace-mount/resolve-mount-target-detailed";
 import {
   mountDirect,
   planDirectMount,
@@ -31,21 +44,6 @@ import {
   retireDeadDirectRow
 } from "./workspace-mount-direct";
 import { mountGateway, settleGatewayMount } from "./workspace-mount-gateway";
-import {
-  assertMountableSlug,
-  detachDeadMount,
-  isEngine,
-  isMountLive,
-  isReadOnlyKind,
-  mountOnto,
-  type MountOutcome,
-  type MountPlan,
-  printGrantedReadOnly,
-  printPendingUploads,
-  refuseEngineOffPlatform,
-  resolveAuth,
-  resolveMountTargetDetailed
-} from "./workspace-mount-shared";
 
 const ENGINE_VALUES = ["auto", ...ENGINES] as const;
 
@@ -360,6 +358,14 @@ Engines (auto picks per-OS):
               <slug>" brings it back and uploads what the dead mount had not
               sent.
 
+THE GATEWAY ENGINES (webdav, rclone) ARE THE FALLBACK: CORRECT, NOT FAST. Every
+operation on them goes to Nexus and then to storage, so copying many small
+files is slow by design — measured at 420× the direct engine on 20 small files
+— and that is not scheduled to change. Use direct where it can run. Where it
+cannot, the verbs that need no mount are the way around the slow cases:
+"workspace push" and "workspace pull" move files in and out, "workspace
+history" and "workspace revert" bring an earlier version of a file back.
+
 Prerequisites for the engines that run rclone (rclone, direct):
   Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash
            sudo apt-get install fuse3
@@ -527,9 +533,10 @@ Notes:
               );
             }
             if (!target.shared) {
-              throw new Error(
-                `No admin-shared workspace has the slug "${slug}". ` +
-                  `Run \`nexus workspace list\` to see available workspaces.`
+              throw failure(
+                "not-found",
+                `No admin-shared workspace has the slug "${slug}".`,
+                "Run `nexus workspace list` to see available workspaces, or drop --shared for the org-owned one."
               );
             }
           }

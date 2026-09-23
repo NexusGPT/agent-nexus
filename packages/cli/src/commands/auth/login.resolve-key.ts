@@ -1,8 +1,9 @@
 import { refuse } from "../../errors";
 import { color } from "../../output";
+import { openUrl } from "../../util/open-url";
 import { isCrossOrgToken, PLATFORM_OPERATOR_TOKEN_PREFIX } from "./_shared/token-prefixes";
-import { openUrl, SETTINGS_URL } from "./login.open-url";
 import type { Prompter } from "./login.prompter";
+import { SETTINGS_URL } from "./login.settings-url";
 
 export interface ResolvedKey {
   readonly apiKey: string;

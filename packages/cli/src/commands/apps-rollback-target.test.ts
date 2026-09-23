@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { VibeDeploymentDto } from "../vibe-wire-types";
-import {
-  parseTargetVersion,
-  resolveRollbackTargetByVersion,
-  restorableVersions
-} from "./apps-rollback-target";
+import { parseTargetVersion } from "./apps/rollback-target/parse-target-version";
+import { resolveRollbackTargetByVersion } from "./apps/rollback-target/resolve-rollback-target-by-version";
+import { restorableVersions } from "./apps/rollback-target/restorable-versions";
 
 /**
  * `--to-version <n>` maps an operator's version number onto ONE deployment id.

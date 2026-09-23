@@ -6,19 +6,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { bundledCorpus } from "../skills-corpus/corpus";
+import { resolveClaudeTarget } from "./claude-target";
+import { detectProjectRoot } from "./claude-target.detect-project-root";
 import {
   agentInstallables,
-  detectProjectRoot,
   hookInstallables,
-  type InstallLedger,
-  openInstallLedger,
-  resolveClaudeTarget,
-  safeResolveWithinBase,
-  sharedInstallable,
-  writeRootClaudeMd,
-  writeRootSettingsJson,
-  writeSkillFiles
-} from "./skills-install";
+  sharedInstallable
+} from "./skills-install.installable";
+import { type InstallLedger, openInstallLedger } from "./skills-install.ledger";
+import { safeResolveWithinBase } from "./skills-install.safe-resolve-within-base";
+import { writeRootClaudeMd, writeRootSettingsJson } from "./skills-install.write-preservable-file";
+import { writeSkillFiles } from "./skills-install.write-skill-files";
 
 let tmpHome: string;
 // One ledger per test, the way one install run holds one ledger: a file this

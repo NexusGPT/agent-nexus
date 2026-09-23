@@ -52,3 +52,13 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
  * and never sees.
  */
 export const LONG_RUNNING_TIMEOUT_MS = 600_000;
+
+/**
+ * The deadline for a request whose BODY is the work: a multipart upload the
+ * edge caps at 50 MB. The default covers the body's transfer as well as the
+ * server's answer, so a 45 MB pack on an uplink under ~1.5 MB/s was aborted
+ * mid-send at 30 s — and the server kept writing the files the client had
+ * already given up on. Ten minutes puts the floor at ~75 KB/s; a client
+ * timeout still overrides it.
+ */
+export const UPLOAD_TIMEOUT_MS = 600_000;

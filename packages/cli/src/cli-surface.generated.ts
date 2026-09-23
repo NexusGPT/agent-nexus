@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 644 command nodes; 550 invocable leaves.
+ * 648 command nodes; 554 invocable leaves.
  * 53 top-level commands — 53 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         484 STABLE, 66 UNSTABLE
- *   disposition  25 never-execute, 461 registration-only, 59 safe, 5 safe-with-fixture
- *   --yes        44 destructive — 44 confirmable
- *   --json       439 answered, 111 abstain
+ *   tier         488 STABLE, 66 UNSTABLE
+ *   disposition  26 never-execute, 464 registration-only, 59 safe, 5 safe-with-fixture
+ *   --yes        45 destructive — 45 confirmable
+ *   --json       443 answered, 111 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -605,11 +605,15 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "workspace create", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<name>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d917803d25c6" },
   { path: "workspace credential-process", tier: "STABLE", module: "workspace.ts", disposition: "never-execute", args: ["<mountId>"], flags: ["--check", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "8948a35bf8bc" },
   { path: "workspace delete", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>"], flags: ["--yes", "--print-contract"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "992e0319993f" },
+  { path: "workspace history", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>", "<path>"], flags: ["--shared", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "9056c1025fc5" },
   { path: "workspace list", tier: "STABLE", module: "workspace.ts", disposition: "safe", args: [], flags: ["--folder-stats", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "8738abb5668a" },
   { path: "workspace mount", tier: "STABLE", module: "workspace.ts", disposition: "never-execute", args: ["<slug>"], flags: ["--at <path>", "--read-only", "--shared", "--engine <engine>", "--claude-md"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "07e3eabe5483" },
+  { path: "workspace pull", tier: "STABLE", module: "workspace.ts", disposition: "never-execute", args: ["<source>", "[file...]"], flags: ["--out <dir>", "--keep-zip", "--shared", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "c28709db3359" },
+  { path: "workspace push", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<destination>", "<path...>"], flags: ["--no-clobber", "--include-hidden", "--shared", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "01a4c877d471" },
   { path: "workspace remount", tier: "STABLE", module: "workspace.ts", disposition: "never-execute", args: ["<slug>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d1cd295b66b2" },
   { path: "workspace rename", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>", "<name>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f1e7f7ca036e" },
-  { path: "workspace restore", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>", "<path>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d8aa54c421ba" },
+  { path: "workspace restore", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>", "<path>"], flags: ["--shared", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "4488a330292e" },
+  { path: "workspace revert", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>", "<path>"], flags: ["--yes", "!--version-id <id>", "--shared", "--print-contract"], aliases: [], hidden: false, confirm: "confirmable", json: "envelope", shape: "4e3dc012ba10" },
   { path: "workspace search", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: ["<slug>"], flags: ["--query <text>", "--frontmatter <key=value>", "--path <folder>", "--limit <n>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "07f4fdba5a5d" },
   { path: "workspace status", tier: "STABLE", module: "workspace.ts", disposition: "registration-only", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "924ee5dc6f0a" },
   { path: "workspace unmount", tier: "STABLE", module: "workspace.ts", disposition: "never-execute", args: ["<slug>"], flags: [], aliases: ["umount"], hidden: false, confirm: null, json: "(abstains)", shape: "e756fcc3a11f" }

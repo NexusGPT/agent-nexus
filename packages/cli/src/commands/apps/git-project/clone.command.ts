@@ -7,14 +7,12 @@ import {
   type GetGitCredentialsResponse,
   type StandaloneVibeGitProjectResponse
 } from "../../../vibe-wire-types";
-import {
-  assertGitAvailable,
-  buildCloneArgs,
-  composeCloneUrl,
-  resolveCloneDirectory,
-  runGitWithCredential
-} from "../../apps-git-local";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
+import { assertGitAvailable } from "../git-local/assert-git-available";
+import { buildCloneArgs } from "../git-local/build-clone-args";
+import { composeCloneUrl } from "../git-local/compose-clone-url";
+import { resolveCloneDirectory } from "../git-local/resolve-clone-directory";
+import { runGitWithCredential } from "../git-local/run-git-with-credential";
 
 const CLONE_HELP = `
 Notes:

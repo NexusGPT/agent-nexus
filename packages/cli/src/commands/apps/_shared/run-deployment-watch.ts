@@ -3,11 +3,8 @@ import type { Command } from "commander";
 
 import { color, isJsonMode } from "../../../output";
 import { tenantRequest } from "../../../util/tenant-http";
-import {
-  type GetApprovalResponse,
-  type GetDeploymentResponse,
-  type SingleVibeAppResponse
-} from "../../../vibe-wire-types";
+import { type GetApprovalResponse } from "../../../vibe-approval-wire-types";
+import { type GetDeploymentResponse, type SingleVibeAppResponse } from "../../../vibe-wire-types";
 import { reportWatchOutcome } from "../watch/report-watch-outcome";
 import { watchDeployment } from "../watch/watch-deployment";
 import { WATCH_DEFAULTS } from "../watch/watch-options";

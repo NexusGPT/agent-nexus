@@ -70,7 +70,6 @@ import type {
   DeletedIdResponse,
   DeleteEnvVarResponse,
   ExternalToolDetail,
-  GetApprovalResponse,
   GetDeploymentResponse,
   GetDeployStateResponse,
   GetEdgeTokenResponse,
@@ -80,10 +79,8 @@ import type {
   ListAuditEventsResponse,
   ListDeploymentsResponse,
   ListEnvVarsResponse,
-  ListPendingApprovalsResponse,
   ListVibeAppsResponse,
   ListVibeGitProjectsResponse,
-  RecordApprovalDecisionResponse,
   RollbackAppResponse,
   RotateEdgeTokenResponse,
   SetVisibilityResponse,
@@ -100,11 +97,7 @@ import type {
   VibeAppGitProjectSummaryDto,
   VibeAppLogStreamEndReason,
   VibeAppLogStreamFrame,
-  VibeApprovalDecisionDto,
-  VibeApprovalRequestDto,
   VibeAuditEvent,
-  VibeBuildJobDto,
-  VibeDeploymentDto,
   VibeDeployStateOutcome,
   VibeEdgeTokenDto,
   VibeGitCredentialsDto,
@@ -300,37 +293,6 @@ const _getGitCredentials: Mirrors<
 // Deployments + build jobs
 // ============================================================
 
-type WireDeployment = VibeData<"GetDeployment">["deployment"];
-
-/**
- * `organizationId` and `updatedAt` are on every row and are never rendered — the org is
- * the API key's, and a deployment is immutable after its terminal status. `shipGateMode`
- * is the app's setting captured on the row, printed by neither. `triggerSource`,
- * `createdByUserId` and `createdByName` are the console's "who shipped this" column;
- * the CLI's caller is the person asking.
- */
-const _deployment: Mirrors<
-  "VibeDeploymentDto",
-  VibeDeploymentDto,
-  WireDeployment,
-  | "organizationId"
-  | "triggerSource"
-  | "shipGateMode"
-  | "createdByUserId"
-  | "createdByName"
-  | "updatedAt"
-> = AGREES;
-
-type WireBuildJob = NonNullable<VibeData<"GetDeployment">["buildJob"]>;
-
-/** Same two as the deployment above, for the same two reasons. */
-const _buildJob: Mirrors<
-  "VibeBuildJobDto",
-  VibeBuildJobDto,
-  WireBuildJob,
-  "organizationId" | "updatedAt"
-> = AGREES;
-
 const _getDeployment: Mirrors<
   "GetDeploymentResponse",
   GetDeploymentResponse,
@@ -507,48 +469,6 @@ const _deleteEnvVar: Mirrors<
   "DeleteEnvVarResponse",
   DeleteEnvVarResponse,
   VibeData<"DeleteEnvVar">
-> = AGREES;
-
-// ============================================================
-// Approvals
-// ============================================================
-
-const _approvalRequest: Mirrors<
-  "VibeApprovalRequestDto",
-  VibeApprovalRequestDto,
-  VibeData<"GetApprovalRequest">["request"]
-> = AGREES;
-
-const _approvalDecision: Mirrors<
-  "VibeApprovalDecisionDto",
-  VibeApprovalDecisionDto,
-  VibeData<"GetApprovalRequest">["decisions"][number]
-> = AGREES;
-
-const _getApproval: Mirrors<
-  "GetApprovalResponse",
-  GetApprovalResponse,
-  VibeData<"GetApprovalRequest">
-> = AGREES;
-
-const _recordDecision: Mirrors<
-  "RecordApprovalDecisionResponse",
-  RecordApprovalDecisionResponse,
-  VibeData<"RecordApprovalDecision">
-> = AGREES;
-
-/**
- * The pending queue extends the request with deployment context the CLI does
- * not print — the queue is a list of ids to act on, and `approvals get <id>`
- * is the command that expands one.
- */
-type WirePendingItem = VibeData<"ListPendingApprovals">["requests"][number];
-
-const _listPending: Mirrors<
-  "ListPendingApprovalsResponse.requests[]",
-  ListPendingApprovalsResponse["requests"][number],
-  WirePendingItem,
-  "deployment"
 > = AGREES;
 
 // ============================================================
@@ -785,8 +705,6 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _listGitProjects,
   _gitCredentials,
   _getGitCredentials,
-  _deployment,
-  _buildJob,
   _getDeployment,
   _listDeployments,
   _rollback,
@@ -803,11 +721,6 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _cardBinding,
   _upsertEnvVar,
   _deleteEnvVar,
-  _approvalRequest,
-  _approvalDecision,
-  _getApproval,
-  _recordDecision,
-  _listPending,
   _auditEvent,
   _listAuditEvents,
   _auditTriggered,

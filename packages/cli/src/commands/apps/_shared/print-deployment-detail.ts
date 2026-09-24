@@ -1,6 +1,7 @@
 import { color, isJsonMode, printRecord } from "../../../output";
 import { type GetDeploymentResponse, VIBE_DEFAULT_CONTAINER_PORT } from "../../../vibe-wire-types";
 import { colorizeStatus } from "./colorize-status";
+import { formatReplacedBy } from "./format-replaced-by";
 import { formatTimestamp } from "./format-timestamp";
 
 export function printDeploymentDetail(data: GetDeploymentResponse): void {
@@ -28,6 +29,18 @@ export function printDeploymentDetail(data: GetDeploymentResponse): void {
           ? color.dim(`not detected — using ${String(VIBE_DEFAULT_CONTAINER_PORT)}`)
           : String(v)
     },
+    // Only on a DISPLACED row, where it is the answer to "why did this never
+    // go live". On every other status it would be a permanent "—" that says
+    // nothing.
+    ...(d.status === "DISPLACED"
+      ? [
+          {
+            key: "displacedBy" as const,
+            label: "Replaced by",
+            format: () => formatReplacedBy(d.displacedBy)
+          }
+        ]
+      : []),
     { key: "errorReason", label: "Error", format: (v) => (v === null ? "—" : String(v)) },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) }
   ]);

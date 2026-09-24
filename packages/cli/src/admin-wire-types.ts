@@ -182,7 +182,18 @@ export interface AdminVibeBuildJobResponse {
   id: string;
   vibeDeploymentId: string;
   organizationId: string;
-  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT";
+  status:
+    | "PENDING"
+    | "QUEUED"
+    | "ADMITTED"
+    | "STARTING"
+    | "RUNNING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "TIMED_OUT"
+    | "CANCELLED"
+    | "SUPERSEDED"
+    | "LOST";
   /**
    * NULLABLE, and the null is the common case rather than the edge one: the
    * build strategy is reported with the job's TERMINAL outcome, so every
@@ -236,6 +247,14 @@ export type AdminVibeBuildRunnerTickResponse =
   | { kind: "idle" }
   | { kind: "dispatched"; buildJobId: string }
   | { kind: "race_lost"; buildJobId: string }
+  | { kind: "app_busy"; buildJobId: string; vibeAppId: string }
+  | {
+      kind: "org_at_capacity";
+      buildJobId: string;
+      organizationId: string;
+      inFlight: number;
+      cap: number;
+    }
   | {
       kind: "dispatch_failed_compensated";
       buildJobId: string;

@@ -31,7 +31,7 @@
  * production rollback, and nothing here can produce one.
  */
 
-import type { VibeDeploymentDto } from "../../../vibe-wire-types";
+import type { VibeDeploymentDto } from "../../../vibe-deployment-wire-types";
 
 /**
  * Why a named version cannot be the target. Each kind is a DIFFERENT cause with

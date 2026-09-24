@@ -47,16 +47,17 @@ is invisible to the reaper and will accumulate forever.
 
 ## Required environment
 
-| Variable                  | Purpose                                                                                                                                                                             | Default                                                                                         |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `NEXUS_BIN`               | Command used to invoke the CLI (split on whitespace)                                                                                                                                | `nexus` on PATH, else `node dist/index.js`                                                      |
-| `NEXUS_PROFILE`           | Profile to scope every CLI call (CI uses `ci`)                                                                                                                                      | unset (refuses to run unless `NEXUS_E2E_ALLOW_DEFAULT=1` is also set)                           |
-| `NEXUS_BASE_URL`          | Explicit target host (overrides the profile's persisted baseUrl)                                                                                                                    | unset (then the profile's stored baseUrl is used; refuses if the resolved URL is empty or prod) |
-| `NEXUS_E2E_ALLOW_DEFAULT` | Acknowledge using the active CLI profile (developer escape hatch)                                                                                                                   | unset                                                                                           |
-| `NEXUS_E2E_ALLOW_PROD`    | Acknowledge the resolved URL matches `api.nexusgpt.io`. Almost never set.                                                                                                           | unset                                                                                           |
-| `E2E_PREFIX`              | Artifact name prefix                                                                                                                                                                | `nexus_e2e`                                                                                     |
-| `E2E_RUN_ID`              | Per-run suffix (epoch, PID, random)                                                                                                                                                 | computed                                                                                        |
-| `STRICT_RAG`              | Flow C only. `1` requires an AI reply in 60s **and** the canary token `teal` in it — a retrieval-quality assertion. Read at `03-knowledge-attach.sh:224`; any value but `1` is off. | `0` (the script's default is opt-in and stays that way; CI arms it — see below)                 |
+| Variable                    | Purpose                                                                                                                                                                                                                                     | Default                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `NEXUS_BIN`                 | Command used to invoke the CLI (split on whitespace)                                                                                                                                                                                        | `nexus` on PATH, else `node dist/index.js`                                                      |
+| `NEXUS_PROFILE`             | Profile to scope every CLI call (CI uses `ci`)                                                                                                                                                                                              | unset (refuses to run unless `NEXUS_E2E_ALLOW_DEFAULT=1` is also set)                           |
+| `NEXUS_BASE_URL`            | Explicit target host (overrides the profile's persisted baseUrl)                                                                                                                                                                            | unset (then the profile's stored baseUrl is used; refuses if the resolved URL is empty or prod) |
+| `NEXUS_E2E_ALLOW_DEFAULT`   | Acknowledge using the active CLI profile (developer escape hatch)                                                                                                                                                                           | unset                                                                                           |
+| `NEXUS_E2E_ALLOW_PROD`      | Acknowledge the resolved URL matches `api.nexusgpt.io`. Almost never set.                                                                                                                                                                   | unset                                                                                           |
+| `E2E_PREFIX`                | Artifact name prefix                                                                                                                                                                                                                        | `nexus_e2e`                                                                                     |
+| `E2E_RUN_ID`                | Per-run suffix (epoch, PID, random)                                                                                                                                                                                                         | computed                                                                                        |
+| `STRICT_RAG`                | Flow C only. `1` requires an AI reply in 60s **and** the canary token `teal` in it — a retrieval-quality assertion. Any value but `1` is off.                                                                                               | `0` (the script's default is opt-in and stays that way; CI arms it — see below)                 |
+| `CLI_E2E_FLOW_C_CLASS_FILE` | Flow C only. A path Flow C writes its failure class to (`retrieval-timeout`, `no-reply`, `tool-declined`, `canary-missing-after-tool-call`), for the workflow's failure classifier. The classes are documented in `03-knowledge-attach.sh`. | unset (nothing is written)                                                                      |
 
 CI exports `NEXUS_BASE_URL=https://api-staging.gpt.nexus` once at the job
 level and logs in to a `ci` profile with `NEXUS_E2E_API_KEY` — distinct
@@ -133,6 +134,12 @@ Each step writes its `--json` response to a per-run temp directory. On
 failure, the trap dumps every captured file to stderr before exiting. Cron
 alerts at 3am are useless without the full JSON trail — this is the
 cheapest way to keep them debuggable.
+
+In CI, Flow C also records which of its failures it hit, and the workflow's
+`Classify the failure` step reads that record. `tool-declined` — every attempt
+answered without calling the knowledge tool — is the one class the flow calls
+probabilistic, and it is also what a broken tool contract produces, so the
+classifier reports it as `NONDETERMINISTIC-OR-CONTRACT` rather than as a flake.
 
 ## Anti-patterns
 

@@ -132,8 +132,8 @@ const CEILING_LINES = 150;
  * Sorted by path so a row moves only when its own file does.
  */
 const LEDGER: Readonly<Record<string, number>> = {
-  "admin-wire-types.conformance.ts": 487,
-  "admin-wire-types.ts": 262,
+  "admin-wire-types.conformance.ts": 501,
+  "admin-wire-types.ts": 281,
   "auth-probe.ts": 318,
   "cli-surface.generated.ts": 633,
   "cli-surface.model.ts": 159,
@@ -141,7 +141,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "client.ts": 240,
   "command-universe.ts": 1631,
   "commands/access-card.ts": 355,
-  "commands/admin-vibe-build-job.ts": 246,
+  "commands/admin-vibe-build-job.ts": 239,
   "commands/admin-vibe-consumption-cap.ts": 208,
   "commands/admin-vibe-cost-safety.ts": 307,
   "commands/admin-vibe-cron-sweeps.ts": 174,
@@ -267,8 +267,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/track-blockers.ts": 393,
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
-  "vibe-wire-types.conformance.ts": 832,
-  "vibe-wire-types.ts": 875
+  "vibe-wire-types.conformance.ts": 745,
+  "vibe-wire-types.ts": 797
 };
 
 /**

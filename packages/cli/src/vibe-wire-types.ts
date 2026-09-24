@@ -22,10 +22,12 @@
  * `@nexus/types` import it carries — out of the bundle.
  */
 
+import type { VibeApprovalRequestDto } from "./vibe-approval-wire-types";
 import {
   VIBE_AUDIT_EVENT_TYPES,
   type VibeAuditEventType
 } from "./vibe-audit-event-types.generated";
+import type { VibeBuildJobDto, VibeDeploymentDto } from "./vibe-deployment-wire-types";
 
 // ============================================================
 // Audit feed — mirrors audit-events.schemas.ts.
@@ -443,7 +445,6 @@ export interface ListVibeGitProjectsResponse {
   gitProjects: VibeGitProjectDto[];
 }
 
-/** Subset of VibeDeploymentSchema the CLI renders. */
 /**
  * `POST /api/vibe/apps/:id/rollback` — the predecessor re-activated, and the
  * deployment it displaced. Both rows come back in full so the caller can name
@@ -452,85 +453,6 @@ export interface ListVibeGitProjectsResponse {
 export interface RollbackAppResponse {
   restoredDeployment: VibeDeploymentDto;
   supersededDeployment: VibeDeploymentDto;
-}
-
-export interface VibeDeploymentDto {
-  id: string;
-  vibeAppId: string;
-  color: string;
-  /// User-facing monotonic version (`v{n}`). `color` is the internal
-  /// blue/green slot and is no longer rendered.
-  versionNumber: number;
-  status: string;
-  triggerSha: string;
-  imageRef: string;
-  /// The port the BUILD observed the image listening on. Null means NOT
-  /// OBSERVED — the deploy then falls back to the platform default, so a null
-  /// here and a `8080` here are different facts and must not render alike.
-  detectedPort: number | null;
-  forceRebuild: boolean;
-  errorReason: string | null;
-  createdAt: string;
-}
-
-/** Subset of VibeBuildJobSchema the CLI renders. */
-export interface VibeBuildJobDto {
-  id: string;
-  vibeDeploymentId: string;
-  status: string;
-  /// Null until the executor reports which strategy it actually used.
-  builder: string | null;
-  logsRef: string;
-  durationMs: number | null;
-  errorReason: string | null;
-  createdAt: string;
-}
-
-// Approvals — mirror packages/types/src/api/domains/vibe/schemas/
-// approvals.schemas.ts. Full shape (matches VibeApprovalRequestSchema):
-// the deploy trigger returns this same schema, so the deploy printer
-// reads a subset of these fields.
-//
-// Pure type unions — the CLI never validates these against a string at
-// runtime (status only ever arrives from the server; the decision kind
-// comes from the --approve/--reject flags), so no runtime array is needed.
-export type VibeApprovalRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
-export type VibeApprovalDecisionKind = "APPROVE" | "REJECT";
-
-export interface VibeApprovalRequestDto {
-  id: string;
-  vibeDeploymentId: string;
-  organizationId: string;
-  status: VibeApprovalRequestStatus;
-  requiredApprovals: number;
-  expiresAt: string;
-  decidedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface VibeApprovalDecisionDto {
-  id: string;
-  vibeApprovalRequestId: string;
-  organizationId: string;
-  decision: VibeApprovalDecisionKind;
-  decidedByUserId: string | null;
-  note: string | null;
-  decidedAt: string;
-}
-
-export interface GetApprovalResponse {
-  request: VibeApprovalRequestDto;
-  decisions: VibeApprovalDecisionDto[];
-}
-
-export interface RecordApprovalDecisionResponse {
-  request: VibeApprovalRequestDto;
-  decision: VibeApprovalDecisionDto;
-}
-
-export interface ListPendingApprovalsResponse {
-  requests: VibeApprovalRequestDto[];
 }
 
 /**

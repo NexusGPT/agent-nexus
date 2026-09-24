@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { installArgumentRefusalReporting } from "../errors";
 import { installJsonTerminalContract } from "../json-terminal-contract";
 import { setJsonMode } from "../output";
-import type { VibeDeploymentDto } from "../vibe-wire-types";
+import type { VibeDeploymentDto } from "../vibe-deployment-wire-types";
 
 /**
  * WHAT `apps rollback` PUTS ON THE WIRE.

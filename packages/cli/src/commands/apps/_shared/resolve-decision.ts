@@ -1,4 +1,4 @@
-import { type VibeApprovalDecisionKind } from "../../../vibe-wire-types";
+import { type VibeApprovalDecisionKind } from "../../../vibe-approval-wire-types";
 
 /**
  * Resolve the mutually-exclusive --approve / --reject flags to the wire

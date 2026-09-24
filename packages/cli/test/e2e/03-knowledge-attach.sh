@@ -78,6 +78,41 @@ SESSION_ID=""
 # once (Step 8), and a cleanup that only knows the LAST id leaks the others.
 SESSION_IDS=""
 
+# WHY this flow failed, for the workflow's failure classifier
+# (`scripts/cli-e2e-classify-failure.sh`). The workflow names the file on this
+# step and on the classify step; a local run sets nothing and writes nothing.
+# Removed first so a file can only describe THIS run.
+#
+# The classes, and which of them this flow declares probabilistic:
+#   retrieval-timeout             Step 7. `collection query` has no model in its
+#                                 path, so this is the ingestion/indexing chain.
+#                                 NOT declared probabilistic.
+#   no-reply                      Step 9. No AI reply inside the window.
+#                                 NOT declared probabilistic.
+#   tool-declined                 Step 9. Every attempt answered WITHOUT calling
+#                                 the knowledge tool. The one class this flow
+#                                 calls probabilistic — and ALSO exactly what a
+#                                 broken tool contract produces, because Step 7
+#                                 proves the collection answers, never that the
+#                                 agent can reach it. Both readings stand.
+#   canary-missing-after-tool-call  Step 9. The tool WAS called and the reply
+#                                 still lacks the canary: retrieval or synthesis.
+#                                 NOT declared probabilistic.
+# Any other failure writes nothing, and the classifier reads the absence as
+# "not declared".
+FAILURE_CLASS_FILE="${CLI_E2E_FLOW_C_CLASS_FILE:-}"
+if [[ -n "${FAILURE_CLASS_FILE}" ]]; then
+  rm -f "${FAILURE_CLASS_FILE}"
+fi
+
+# record_failure_class <class> <attempts> <tool-calls>
+record_failure_class() {
+  [[ -n "${FAILURE_CLASS_FILE}" ]] || return 0
+  jq -n --arg class "$1" --argjson attempts "$2" --argjson toolCalls "$3" \
+    '{flow: "C", class: $class, attempts: $attempts, toolCalls: $toolCalls}' \
+    > "${FAILURE_CLASS_FILE}"
+}
+
 cleanup() {
   local rc=$?
   set +e
@@ -285,6 +320,7 @@ if [[ "${RETRIEVABLE}" -eq 1 ]]; then
   stamp "canary retrievable after ${RETRIEVAL_PROBES} probe(s), ${RETRIEVAL_ELAPSED}s"
 else
   if [[ "${STRICT_RAG:-0}" == "1" ]]; then
+    record_failure_class retrieval-timeout 0 0
     echo "FAIL: STRICT_RAG=1 but the canary never became retrievable from the" >&2
     echo "  collection — ${RETRIEVAL_PROBES} probe(s) over ${RETRIEVAL_ELAPSED}s." >&2
     echo "  This is the INGESTION/INDEXING chain, not a model decision:" >&2
@@ -392,6 +428,7 @@ fi
 # here is specifically "the agent did not surface what we know is retrievable".
 if [[ "${STRICT_RAG:-0}" == "1" ]]; then
   if [[ "${ASSISTANT_COUNT}" -lt 1 ]]; then
+    record_failure_class no-reply "${ASK_USED}" "${TOOL_ROWS}"
     echo "FAIL: STRICT_RAG=1 but no AI reply landed within 60s" >&2
     exit 1
   fi
@@ -406,6 +443,11 @@ if [[ "${STRICT_RAG:-0}" == "1" ]]; then
       | if type == "string" then . else tostring end
     ] | join(" ") | ascii_downcase | contains("teal")
   ' "${SESSION_GET_JSON}" >/dev/null; then
+    if [[ "${TOOL_ROWS}" -ge 1 ]]; then
+      record_failure_class canary-missing-after-tool-call "${ASK_USED}" "${TOOL_ROWS}"
+    else
+      record_failure_class tool-declined "${ASK_USED}" "${TOOL_ROWS}"
+    fi
     echo "FAIL: STRICT_RAG=1 but canary token 'teal' missing from assistant reply" >&2
     exit 1
   fi

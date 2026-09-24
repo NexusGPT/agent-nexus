@@ -1,4 +1,4 @@
-import type { VibeDeploymentDto } from "../../../vibe-wire-types";
+import type { VibeDeploymentDto } from "../../../vibe-deployment-wire-types";
 import { restorableVersions } from "./restorable-versions";
 
 /** How many versions a hint lists before deferring to the full listing. */

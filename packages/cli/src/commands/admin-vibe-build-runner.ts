@@ -5,17 +5,16 @@
  * This command fires one tick by hand, for QA and incident response, and prints
  * the structured outcome so the operator can repeat until the queue drains.
  *
- * The printer's `never` fallthrough is what pins it to the schema: a new tick
- * outcome variant lands as a TypeScript error here rather than a silent default.
+ * The printer lives beside it in `admin-vibe-build-runner.print-tick-record.ts`.
  */
 
 import { Command } from "commander";
 
 import { type AdminVibeBuildRunnerTickResponse } from "../admin-wire-types";
-import { color, printRecord } from "../output";
 import { handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";
 import { resolveAdminOpts } from "../util/admin-opts";
+import { printTickRecord } from "./admin-vibe-build-runner.print-tick-record";
 
 export function registerVibeBuildRunnerCommands(admin: Command, program: Command): void {
   const runner = admin
@@ -47,6 +46,14 @@ Outcome shapes:
   race_lost                         Another runner claimed the job
                                     between find and our status-
                                     guarded UPDATE.
+  app_busy                          The job's app already has a build
+                                    running. The job stays PENDING and
+                                    is admitted once that build ends.
+  org_at_capacity                   The job's organization already has
+                                    as many builds in flight as its
+                                    concurrency cap allows. The job
+                                    stays PENDING and is admitted once
+                                    the organization is under the cap.
   dispatch_failed_compensated       The executor refused the job; we
                                     flipped RUNNING → FAILED. The
                                     'retryable' flag is informational
@@ -67,53 +74,4 @@ Outcome shapes:
         process.exitCode = handleAdminError(err);
       }
     });
-}
-
-function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
-  // The discriminated union narrows to flat fields per variant. The
-  // never-fallthrough check pins the formatter to the schema — any
-  // future variant lands as a TS error here, not a silent default.
-  switch (data.kind) {
-    case "idle": {
-      printRecord({ outcome: color.dim("idle (no PENDING jobs)") }, [
-        { key: "outcome", label: "Outcome" }
-      ]);
-      return;
-    }
-    case "dispatched": {
-      printRecord({ outcome: color.green("dispatched"), buildJobId: data.buildJobId }, [
-        { key: "outcome", label: "Outcome" },
-        { key: "buildJobId", label: "Build job" }
-      ]);
-      return;
-    }
-    case "race_lost": {
-      printRecord({ outcome: color.yellow("race_lost"), buildJobId: data.buildJobId }, [
-        { key: "outcome", label: "Outcome" },
-        { key: "buildJobId", label: "Build job" }
-      ]);
-      return;
-    }
-    case "dispatch_failed_compensated": {
-      printRecord(
-        {
-          outcome: color.red("dispatch_failed_compensated"),
-          buildJobId: data.buildJobId,
-          retryable: data.retryable ? "yes (transient)" : "no (permanent)",
-          reason: data.reason
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "buildJobId", label: "Build job" },
-          { key: "retryable", label: "Retryable" },
-          { key: "reason", label: "Reason" }
-        ]
-      );
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled tick outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
 }

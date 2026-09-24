@@ -1,4 +1,4 @@
-import type { VibeDeploymentDto } from "../../../vibe-wire-types";
+import type { VibeDeploymentDto } from "../../../vibe-deployment-wire-types";
 
 /**
  * "Redeploy that commit instead" — the correct remedy whenever the named

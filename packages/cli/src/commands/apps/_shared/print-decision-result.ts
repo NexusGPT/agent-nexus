@@ -1,5 +1,5 @@
 import { color, isJsonMode } from "../../../output";
-import { type RecordApprovalDecisionResponse } from "../../../vibe-wire-types";
+import { type RecordApprovalDecisionResponse } from "../../../vibe-approval-wire-types";
 import { colorApprovalStatus } from "./color-approval-status";
 import { printApprovalRequest } from "./print-approval-request";
 

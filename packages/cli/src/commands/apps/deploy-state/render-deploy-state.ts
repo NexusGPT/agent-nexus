@@ -37,6 +37,8 @@
 import { color } from "../../../output";
 import { nonBlankOr } from "../../../util/present-text";
 import type { GetDeployStateResponse } from "../../../vibe-wire-types";
+import { colorizeStatus, paintReasonForStatus } from "../_shared/colorize-status";
+import { formatReplacedBy } from "../_shared/format-replaced-by";
 import { describeOutcome } from "./describe-outcome";
 import { formatInstant } from "./format-instant";
 import { formatLiveLines } from "./format-live-lines";
@@ -72,14 +74,25 @@ export function renderDeployState(data: GetDeployStateResponse, nowMs: number): 
   } else {
     const d = data.deployment;
     lines.push(
-      `${color.bold("Deployment".padEnd(12))}  v${String(d.versionNumber)}  ${d.status}  ${color.dim(d.id)}`
+      `${color.bold("Deployment".padEnd(12))}  v${String(d.versionNumber)}  ${colorizeStatus(d.status)}  ${color.dim(d.id)}`
     );
+    // The commit asked about is often the one a newer push displaced, so this
+    // is where "did my push land" most needs to say what landed instead.
+    if (d.status === "DISPLACED") {
+      lines.push(`  replaced by ${formatReplacedBy(d.displacedBy)}`);
+    }
     if (d.errorReason !== null) {
-      lines.push(color.red(`  ${d.errorReason}`));
+      lines.push(paintReasonForStatus(d.status, `  ${d.errorReason}`));
+    }
+    if (data.buildJob !== null && data.buildJob.waiting !== null) {
+      lines.push(color.yellow(`  build ${data.buildJob.status}: ${data.buildJob.waiting.message}`));
     }
     if (data.buildJob !== null && data.buildJob.errorReason !== null) {
       lines.push(
-        color.red(`  build ${data.buildJob.status}: ${data.buildJob.errorReason}`),
+        paintReasonForStatus(
+          data.buildJob.status,
+          `  build ${data.buildJob.status}: ${data.buildJob.errorReason}`
+        ),
         color.dim(`  logs: ${data.buildJob.logsRef === "" ? "—" : data.buildJob.logsRef}`)
       );
     }

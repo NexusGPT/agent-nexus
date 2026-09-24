@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { VibeBuildWaitDto } from "../vibe-deployment-wire-types";
 import type { GetDeployStateResponse, VibeDeployStateOutcome } from "../vibe-wire-types";
 import { describeOutcome } from "./apps/deploy-state/describe-outcome";
 import { formatAge } from "./apps/deploy-state/format-age";
@@ -333,6 +334,7 @@ describe("renderDeployState — the whole answer", () => {
           logsRef: "s3://logs/job-1",
           durationMs: 1200,
           errorReason: "no lockfile found",
+          waiting: null,
           createdAt: "2026-08-04T11:50:00.000Z"
         }
       }),
@@ -346,5 +348,50 @@ describe("renderDeployState — the whole answer", () => {
     const out = render(state({ live: null, served: null, deployment: null }), NOW);
     expect(out).toContain("nothing in the live slot");
     expect(out.toLowerCase()).not.toContain("not serving");
+  });
+});
+
+/**
+ * A queued build's `waiting` is computed by the server on every read; the CLI
+ * prints its `message` as-is. The line is the only place `deploy-state` says
+ * WHY a build has not started — an org at its concurrency cap reads, without it,
+ * exactly like a build runner that has stalled.
+ */
+describe("renderDeployState — a build that is waiting", () => {
+  const AT_CAPACITY_MESSAGE =
+    "waiting: your organization already has 2 builds running and may run 2 at once. This build starts once it is under that limit.";
+
+  function queuedBuild(waiting: VibeBuildWaitDto | null) {
+    return state({
+      deployment: { ...DEPLOYMENT, status: "BUILDING" },
+      buildJob: {
+        id: "job-2",
+        vibeDeploymentId: "dep-1111",
+        status: "PENDING",
+        builder: null,
+        logsRef: "",
+        durationMs: null,
+        errorReason: null,
+        waiting,
+        createdAt: "2026-08-04T11:59:00.000Z"
+      },
+      live: null,
+      served: null
+    });
+  }
+
+  it("prints the server's wait message on the build's own line, naming its status", () => {
+    const out = render(
+      queuedBuild({ reason: "org_at_capacity", inFlight: 2, cap: 2, message: AT_CAPACITY_MESSAGE }),
+      NOW
+    );
+
+    expect(out.split("\n")).toContain(`  build PENDING: ${AT_CAPACITY_MESSAGE}`);
+  });
+
+  it("control: a build with no wait prints no wait line", () => {
+    const out = render(queuedBuild(null), NOW);
+
+    expect(out.split("\n").filter((line) => line.includes("waiting:"))).toEqual([]);
   });
 });

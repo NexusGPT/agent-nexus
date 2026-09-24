@@ -27,7 +27,7 @@
  * throw, and why these checks are better messages and not a second authority.
  */
 
-import type { VibeDeploymentDto } from "../../../vibe-wire-types";
+import type { VibeDeploymentDto } from "../../../vibe-deployment-wire-types";
 import { describeRestorable } from "./describe-restorable";
 import { redeployHint } from "./redeploy-hint";
 import { RESTORABLE_STATUS, SERVING_STATUS } from "./restorable-status";

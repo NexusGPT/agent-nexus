@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { VibeDeploymentDto } from "../vibe-wire-types";
+import type { VibeDeploymentDto } from "../vibe-deployment-wire-types";
 import { parseTargetVersion } from "./apps/rollback-target/parse-target-version";
 import { resolveRollbackTargetByVersion } from "./apps/rollback-target/resolve-rollback-target-by-version";
 import { restorableVersions } from "./apps/rollback-target/restorable-versions";

@@ -1,4 +1,5 @@
 import { color } from "../../../output";
+import { formatReplacedBy } from "../_shared/format-replaced-by";
 import type { WatchOutcome } from "./watch-outcome";
 
 /**
@@ -10,6 +11,6 @@ import type { WatchOutcome } from "./watch-outcome";
 export function printDisplaced(outcome: Extract<WatchOutcome, { kind: "displaced" }>): void {
   console.log(
     color.yellow("!") +
-      ` v${String(outcome.deployment.versionNumber)} never went live — a newer deployment took over first. Nothing was interrupted.`
+      ` v${String(outcome.deployment.versionNumber)} never went live — replaced by ${formatReplacedBy(outcome.deployment.displacedBy)} first. Nothing was interrupted.`
   );
 }

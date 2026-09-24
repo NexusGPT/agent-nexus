@@ -1,5 +1,8 @@
 import { color, isJsonMode, printTable } from "../../../output";
-import { type GetApprovalResponse, type VibeApprovalDecisionDto } from "../../../vibe-wire-types";
+import {
+  type GetApprovalResponse,
+  type VibeApprovalDecisionDto
+} from "../../../vibe-approval-wire-types";
 import { formatTimestamp } from "./format-timestamp";
 import { printApprovalRequest } from "./print-approval-request";
 import { truncate } from "./truncate";

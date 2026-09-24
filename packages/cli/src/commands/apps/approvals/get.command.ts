@@ -2,7 +2,7 @@ import type { Command } from "commander";
 
 import { handleError } from "../../../errors";
 import { tenantRequest } from "../../../util/tenant-http";
-import { type GetApprovalResponse } from "../../../vibe-wire-types";
+import { type GetApprovalResponse } from "../../../vibe-approval-wire-types";
 import { printApprovalWithDecisions } from "../_shared/print-approval-with-decisions";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 

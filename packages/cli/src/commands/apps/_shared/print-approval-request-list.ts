@@ -1,5 +1,5 @@
 import { color, isJsonMode, printTable } from "../../../output";
-import { type ListPendingApprovalsResponse } from "../../../vibe-wire-types";
+import { type ListPendingApprovalsResponse } from "../../../vibe-approval-wire-types";
 import { colorApprovalStatus } from "./color-approval-status";
 import { formatTimestamp } from "./format-timestamp";
 

@@ -1,3 +1,5 @@
+import type { VibeApprovalRequestStatus } from "../../../vibe-approval-wire-types";
+import type { VibeDeploymentDisplacerDto } from "../../../vibe-deployment-wire-types";
 import type { WatchAppVisibility, WatchEdgeReachability } from "./watch-deployment-status";
 
 export interface WatchDeploymentSnapshot {
@@ -5,6 +7,8 @@ export interface WatchDeploymentSnapshot {
   status: string;
   versionNumber: number;
   errorReason: string | null;
+  /** The newer deployment, on a DISPLACED row. Absent from a backend a release behind. */
+  displacedBy?: VibeDeploymentDisplacerDto | null;
 }
 
 export interface WatchAppSnapshot {
@@ -21,7 +25,14 @@ export interface WatchAppSnapshot {
   edgeReachabilityDetail: string | null;
 }
 
-/** The gate on a deployment awaiting review — `null` when it is ungated. */
+/**
+ * The gate on a deployment awaiting review — `null` when it is ungated.
+ *
+ * WITHDRAWN is deliberately absent from `REFUSED_APPROVALS`: a request is
+ * withdrawn only in the transaction that ends its deployment, so the next poll
+ * reads that deployment's own terminal status (DISPLACED or FAILED) and exits on
+ * it, with the more precise verdict.
+ */
 export interface WatchApprovalSnapshot {
-  status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+  status: VibeApprovalRequestStatus;
 }

@@ -1,4 +1,4 @@
-import type { VibeDeploymentDto } from "../../../vibe-wire-types";
+import type { VibeDeploymentDto } from "../../../vibe-deployment-wire-types";
 import type { WatchDeploymentStatus } from "../watch/watch-deployment-status";
 
 /**

@@ -1,5 +1,5 @@
 import { printRecord } from "../../../output";
-import { type VibeApprovalRequestDto } from "../../../vibe-wire-types";
+import { type VibeApprovalRequestDto } from "../../../vibe-approval-wire-types";
 import { colorApprovalStatus } from "./color-approval-status";
 import { formatTimestamp } from "./format-timestamp";
 

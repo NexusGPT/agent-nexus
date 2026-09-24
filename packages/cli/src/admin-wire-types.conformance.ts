@@ -245,6 +245,18 @@ const _buildTickRaceLost: ArmsAgree<
   WireBuildTick,
   "race_lost"
 > = ARMS_AGREE;
+const _buildTickAppBusy: ArmsAgree<
+  "AdminVibeBuildRunnerTickResponse.app_busy",
+  AdminVibeBuildRunnerTickResponse,
+  WireBuildTick,
+  "app_busy"
+> = ARMS_AGREE;
+const _buildTickOrgAtCapacity: ArmsAgree<
+  "AdminVibeBuildRunnerTickResponse.org_at_capacity",
+  AdminVibeBuildRunnerTickResponse,
+  WireBuildTick,
+  "org_at_capacity"
+> = ARMS_AGREE;
 const _buildTickCompensated: ArmsAgree<
   "AdminVibeBuildRunnerTickResponse.dispatch_failed_compensated",
   AdminVibeBuildRunnerTickResponse,
@@ -449,10 +461,12 @@ const _completeTeardownComplete: NoUnmodelledArm<
 // from deleting the gate by complaining about it.
 export {
   _buildJob,
+  _buildTickAppBusy,
   _buildTickCompensated,
   _buildTickComplete,
   _buildTickDispatched,
   _buildTickIdle,
+  _buildTickOrgAtCapacity,
   _buildTickRaceLost,
   _completeTeardownAlreadyDestroyed,
   _completeTeardownComplete,

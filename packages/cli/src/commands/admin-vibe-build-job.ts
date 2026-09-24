@@ -12,10 +12,11 @@
 import { Command } from "commander";
 
 import { type AdminVibeBuildJobResponse } from "../admin-wire-types";
-import { color, printRecord } from "../output";
+import { printRecord } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";
 import { resolveAdminOpts } from "../util/admin-opts";
+import { colorizeStatus } from "./apps/_shared/colorize-status";
 
 export function registerVibeBuildJobCommands(admin: Command, program: Command): void {
   const bj = admin
@@ -227,7 +228,7 @@ function printBuildJobRecord(data: AdminVibeBuildJobResponse): void {
     { key: "id", label: "Build job" },
     { key: "vibeDeploymentId", label: "Deployment" },
     { key: "organizationId", label: "Organization" },
-    { key: "status", label: "Status", format: formatBuildJobStatus },
+    { key: "status", label: "Status", format: (v) => colorizeStatus(String(v)) },
     { key: "builder", label: "Builder" },
     { key: "logsRef", label: "Logs ref", format: (v) => (v === "" ? "—" : String(v)) },
     { key: "durationMs", label: "Duration (ms)", format: (v) => (v == null ? "—" : String(v)) },
@@ -235,12 +236,4 @@ function printBuildJobRecord(data: AdminVibeBuildJobResponse): void {
     { key: "createdAt", label: "Created" },
     { key: "updatedAt", label: "Updated" }
   ]);
-}
-
-function formatBuildJobStatus(v: unknown): string {
-  const status = String(v);
-  if (status === "FAILED" || status === "TIMED_OUT") return color.red(status);
-  if (status === "RUNNING") return color.yellow(status);
-  if (status === "SUCCEEDED") return color.green(status);
-  return status;
 }

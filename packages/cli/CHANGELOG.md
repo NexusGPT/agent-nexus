@@ -1,5 +1,25 @@
 # @agent-nexus/cli
 
+## 1.7.1
+### Patch Changes
+
+- be9f771: 1.6.0 and 1.7.0 never reached npm — this release carries their content
+  
+  Both versions were tagged and written into this changelog but never published. The
+  mirrored build could not resolve `@nexus/vibe-app-vendoring`, a build-support package
+  the publish pipeline copied for no one, so the publish failed after the version number
+  had already been consumed. npm served 1.5.1 while the changelog read 1.7.0.
+  
+  No command changed for this fix, and nothing is missing from the two stranded releases.
+  Upgrading from 1.5.1 brings everything listed under 1.6.0 and 1.7.0 in one step —
+  including `nexus apps domains`, which serves an app on a host you own, and
+  `nexus workspace push`, `history` and `revert`.
+  
+  Those two version numbers stay unpublished rather than being retried. The release tag
+  is keyed on the version `main` carries at the moment the pipeline runs, so a number
+  stranded by a failed publish is skipped permanently and the content ships under the
+  next one.
+
 ## 1.7.0
 ### Minor Changes
 

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    // ESM-authored: the tests resolve fixtures via `import.meta.url`, and vitest
+    // runs them as ESM. This governs typechecking only — tsup owns the build and
+    // emits BOTH cjs and esm, so the build image's `require()` path is unaffected
+    // (proved by the bundle-isolation check in the PR).
+    "module": "esnext",
+    "lib": ["es2020"],
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

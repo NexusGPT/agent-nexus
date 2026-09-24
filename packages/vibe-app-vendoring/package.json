@@ -1,0 +1,32 @@
+{
+  "name": "@nexus/vibe-app-vendoring",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vendoring a private npm package into an app, shared by the backend and the CLI.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "24.6.2",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.3",
+    "typescript7": "npm:typescript@^7.0.2",
+    "vitest": "^3.2.4"
+  }
+}

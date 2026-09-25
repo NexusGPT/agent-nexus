@@ -33,6 +33,10 @@ accepted and materializes once the cluster is up. Poll with
 Idempotent: running it again while PROVISIONING, or against a cluster
 that is already live, reports the current state instead of erroring.
 
+With --json, a call that landed on a row already PROVISIONING carries
+reusedExistingRow: true on its "provisioning" outcome — it declared nothing
+new. The field is absent on a fresh create and on a re-provision.
+
 Examples:
   $ nexus apps cluster provision --region eu-west-3
   $ nexus apps cluster provision --region eu-central-1 --json

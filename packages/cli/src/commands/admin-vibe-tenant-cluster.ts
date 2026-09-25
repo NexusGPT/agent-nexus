@@ -59,8 +59,12 @@ Examples:
 
 Outcome shapes:
   provisioning                A cluster row is PROVISIONING. reprovisioned=true
-                              when re-opting-in from a retired cluster. The
-                              reconcile loop converges it to HEALTHY.
+                              when re-opting-in from a retired cluster.
+                              reusedExistingRow=true (--json only) when the
+                              row was already PROVISIONING and was reused —
+                              nothing new was declared; absent on a fresh
+                              create and on a re-provision. The reconcile
+                              loop converges it to HEALTHY.
   already_active              The org already has a live / mid-lifecycle
                               cluster; provision is a no-op (status shown).
 

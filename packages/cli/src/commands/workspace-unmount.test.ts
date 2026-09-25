@@ -27,7 +27,12 @@ import { buildRootProgram } from "../index";
 import { mountKey } from "../mount-registry";
 import { setJsonMode } from "../output";
 import { awsConfigFor } from "../workspace-direct-mount/aws-config";
-import { FUSE_T_LIBRARY, MACFUSE_LIBRARY } from "../workspace-direct-mount/fuse-libraries";
+import {
+  FUSE_T_LIBRARY,
+  LEGACY_MACFUSE_LIBRARY,
+  MACFUSE_LIBRARY
+} from "../workspace-direct-mount/fuse-libraries";
+import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
 import type { MountSession } from "../workspace-direct-mount/mount-session";
 import { readSession } from "../workspace-direct-mount/read-session";
 import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
@@ -149,7 +154,8 @@ vi.mock("node:fs", async (importOriginal) => {
       ),
       existsSync: vi.fn((p: string) => {
         if (p === FUSE_T_LIBRARY) return true;
-        if (p === MACFUSE_LIBRARY) return false;
+        if (p === MACFUSE_LIBRARY || p === LEGACY_MACFUSE_LIBRARY) return false;
+        if (p === MANAGED_RCLONE) return false;
         return actual.existsSync(p);
       }),
       openSync: vi.fn(() => 1)
@@ -816,6 +822,34 @@ describe("nexus workspace remount", () => {
       expect(options.env.RCLONE_WEBDAV_URL).toBe("https://api.nexusgpt.io/api/dav/tools");
       expect(options.env.RCLONE_WEBDAV_HEADERS).toBe("api-key,nxs_a");
     } finally {
+      Object.defineProperty(process, "platform", real);
+    }
+  });
+
+  it("--no-install-deps reaches the preflight: a missing rclone is refused with the install hint, never offered", async () => {
+    const real = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!real) throw new Error("process.platform has no descriptor to restore");
+    Object.defineProperty(process, "platform", { ...real, value: "linux" });
+    const probes = vi.mocked(execFileSync);
+    const answer = probes.getMockImplementation();
+    probes.mockImplementation(((command: string, ...rest: unknown[]) => {
+      if (command === "rclone") {
+        throw Object.assign(new Error("spawnSync rclone ENOENT"), { code: "ENOENT" });
+      }
+      return (answer as (...a: unknown[]) => unknown)(command, ...rest);
+    }) as typeof execFileSync);
+    try {
+      registry = rcloneRow;
+      const { out } = await runWorkspace(["remount", "tools", "--no-install-deps"]);
+      const doc = out as ErrorDocument;
+      expect(doc.error?.message).toContain("none was found on PATH");
+      // Without the flag reaching the preflight, "ask" with no terminal
+      // answers this instead — the one sentence that tells the two apart.
+      expect(doc.error?.hint).not.toContain("No terminal to ask");
+      expect(process.exitCode).toBe(9);
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      probes.mockImplementation(answer as typeof execFileSync);
       Object.defineProperty(process, "platform", real);
     }
   });

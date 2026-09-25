@@ -10,6 +10,23 @@ export type RclonePreflightProblem =
   | { readonly kind: "no-fuse-library" }
   | { readonly kind: "macfuse-not-approved" };
 
+/**
+ * The preflight's two answers, one slot each. The probe asks two questions —
+ * "can this rclone mount?" then "is a FUSE library there?" — and each answers
+ * with one problem or none, so a slot is never a list. The slot order is the
+ * run order: worker before plug, so a re-run preflight finds both in place.
+ */
+export interface PreflightProblems {
+  readonly rclone: Extract<
+    RclonePreflightProblem,
+    { kind: "rclone-missing" | "no-mount-support" }
+  > | null;
+  readonly fuse: Extract<
+    RclonePreflightProblem,
+    { kind: "no-fuse-library" | "macfuse-not-approved" }
+  > | null;
+}
+
 /** The one sentence a preflight refusal opens with, naming the engine that ran it. */
 export function preflightProblemMessage(
   problem: RclonePreflightProblem,

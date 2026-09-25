@@ -96,7 +96,8 @@ export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_REASONING_EFFORT = {
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max"
   ]
 } as const satisfies ContractEnum;
 
@@ -213,7 +214,7 @@ export const SKILLS_EXECUTE_TASK_CONTRACT = {
     { path: "Body.modelOverride.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelOverride.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
-    { path: "Body.modelOverride.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
+    { path: "Body.modelOverride.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelOverride.geminiThinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["dynamic", "low", "medium", "high", "minimal"] },
     { path: "Body.modelOverride.kimiReasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "high", "max"] }
   ]

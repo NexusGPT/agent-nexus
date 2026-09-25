@@ -22,6 +22,7 @@ import {
   writeMounts
 } from "../mount-registry";
 import { color, isJsonMode, printSuccess, printWarning } from "../output";
+import { type InstallPolicy, policyFrom } from "../workspace-direct-mount/install/install-policy";
 import { mountIdFor } from "../workspace-direct-mount/mount-id";
 import { assertMountableSlug } from "./workspace-mount/assert-mountable-slug";
 import { detachDeadMount } from "./workspace-mount/detach-dead-mount";
@@ -233,13 +234,18 @@ function printAmbiguityNote(
   );
 }
 
-/** Nothing here reaches the network. */
-function planMount(engine: Engine, scope: MountScope, key: string): MountPlan {
-  if (engine !== "direct") {
-    settleGatewayMount(engine);
-    return { engine };
-  }
-  return { engine, ...planDirectMount(scope, mountIdFor(key)) };
+/**
+ * Nothing here reaches Nexus. When rclone or its FUSE layer is missing, the
+ * preflight may download and install them first, as `policy` allows.
+ */
+async function planMount(
+  engine: Engine,
+  scope: MountScope,
+  key: string,
+  policy: InstallPolicy
+): Promise<MountPlan> {
+  if (engine !== "direct") return settleGatewayMount(engine, policy);
+  return { engine, ...(await planDirectMount(scope, mountIdFor(key), policy)) };
 }
 
 // ── CLAUDE.md note (so a local Claude Code knows the drive is live + shared) ──
@@ -317,6 +323,11 @@ export function registerWorkspaceMountCommand(ws: Command, program: Command): vo
       "auto"
     )
     .option("--claude-md", "Write a managed note about the mount into ./CLAUDE.md")
+    .option(
+      "--install-deps",
+      "Install a missing rclone (macOS, Linux; x64 or arm64) or FUSE-T (macOS) without asking; not on Windows"
+    )
+    .option("--no-install-deps", "Never offer to install them; refuse with the install hint")
     .addHelpText(
       "after",
       `
@@ -367,7 +378,8 @@ cannot, the verbs that need no mount are the way around the slow cases:
 history" and "workspace revert" bring an earlier version of a file back.
 
 Prerequisites for the engines that run rclone (rclone, direct):
-  Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash
+  Linux    the official rclone — on x64 and arm64 the mount offers to install
+           it (no sudo); elsewhere: curl https://rclone.org/install.sh | sudo bash
            sudo apt-get install fuse3
   Windows  winget install Rclone.Rclone   (plus WinFsp: https://winfsp.dev)
   macOS    the OFFICIAL rclone binary from https://rclone.org/downloads/ —
@@ -375,7 +387,11 @@ Prerequisites for the engines that run rclone (rclone, direct):
            macFUSE (https://macfuse.github.io; a kernel extension, approved
            once in Recovery mode on Apple Silicon) or FUSE-T
            (https://www.fuse-t.org; no kernel extension). The mount checks all
-           of this before it asks Nexus for anything, and names what is missing.
+           of this before it asks Nexus for anything, names what is missing,
+           and offers to install it: the pinned official rclone into
+           ~/.nexus-mcp/bin, and FUSE-T. --install-deps installs without
+           asking; --no-install-deps never offers. macFUSE is used when present,
+           never installed.
 
 Notes:
   THE MOUNT POINT MUST BE EMPTY, and it is created for you if it does not
@@ -449,6 +465,7 @@ Notes:
           shared?: boolean;
           engine?: string;
           claudeMd?: boolean;
+          installDeps?: boolean;
         }
       ) => {
         try {
@@ -490,12 +507,13 @@ Notes:
           }
 
           // The engines' own local refusals, before the one network call below:
-          // for direct, the pins its renewal needs, then the rclone build and
-          // the FUSE layer the spawn needs, then the credential_process line its
-          // renewal runs through; for rclone, the same rclone preflight. Each
-          // names its fix, and nothing has been minted.
+          // for direct, the pins its renewal needs, then the credential_process
+          // line its renewal runs through, then the rclone build and the FUSE
+          // layer the spawn needs (the one step that may install); for rclone,
+          // the same rclone preflight. Each names its fix, and nothing has been
+          // minted.
           const key = mountKey(scope, slug);
-          const plan = planMount(engine, scope, key);
+          const plan = await planMount(engine, scope, key, policyFrom(opts.installDeps));
 
           // Resolve which copy of the slug we're about to mount. A slug can name
           // BOTH an org-owned workspace and an admin-shared one; the bare slug
@@ -594,10 +612,11 @@ Notes:
                   baseUrl,
                   pins: plan.pins,
                   awsConfig: plan.awsConfig,
+                  binary: plan.binary,
                   client
                 })
               : mountGateway({
-                  engine: plan.engine,
+                  settled: plan,
                   slug,
                   davPath,
                   baseUrl,

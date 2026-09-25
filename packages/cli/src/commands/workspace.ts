@@ -97,14 +97,17 @@ THREE ENGINES, AND THEY DIFFER IN WHO HOLDS THE CREDENTIAL:
            dies at logout or restart; "workspace remount" brings it back and
            uploads whatever the dead mount had not sent.
 
-MOUNTING WITH rclone OR direct NEEDS rclone AND A FUSE LAYER:
-  Linux    sudo -v ; curl https://rclone.org/install.sh | sudo bash
-           sudo apt-get install fuse3
+MOUNTING WITH rclone OR direct NEEDS rclone AND A FUSE LAYER. "workspace mount"
+and "workspace remount" check both first and offer to install what is missing:
+the pinned official rclone into ~/.nexus-mcp/bin (macOS and Linux on x64 or
+arm64, no sudo) and, on macOS, FUSE-T. --install-deps installs without asking;
+--no-install-deps never offers. By hand:
+  Linux    the official rclone, plus: sudo apt-get install fuse3
   Windows  winget install Rclone.Rclone   (plus WinFsp: https://winfsp.dev)
   macOS    the OFFICIAL rclone from https://rclone.org/downloads/ — Homebrew's
            build refuses to mount — plus macFUSE (https://macfuse.github.io) or
-           FUSE-T (https://www.fuse-t.org). Or use the default engine, which
-           needs nothing.
+           FUSE-T (https://www.fuse-t.org). A macFUSE already installed is
+           used, never replaced. Or use the default engine, which needs nothing.
 
 A SLUG IS NOT UNIQUE. The same slug can name both an org-owned workspace and
 an admin-shared one; the bare slug resolves to the org-owned copy and --shared

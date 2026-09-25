@@ -3,7 +3,7 @@
 // prints `go/tags: none` where the official binary prints `go/tags: cmount`,
 // so the token is the capability and this parses the tag list. The command
 // side runs the binary and the FUSE probes — see
-// `commands/workspace-mount/assert-rclone-can-mount.ts`; the verdict lives
+// `commands/workspace-mount/rclone-preflight.ts`; the verdict lives
 // here so a test can pin it without a PATH.
 export type RcloneBuildVerdict = "mount-capable" | "no-mount-support" | "no-tags-line";
 

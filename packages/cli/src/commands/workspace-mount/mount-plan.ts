@@ -1,5 +1,5 @@
 import type { DirectPlan } from "../workspace-mount-direct";
-import type { GatewayEngine } from "../workspace-mount-gateway";
+import type { GatewaySettlement } from "../workspace-mount-gateway";
 
 // ── Mount engines ─────────────────────────────────────────────────────────────
 //
@@ -27,10 +27,9 @@ import type { GatewayEngine } from "../workspace-mount-gateway";
 
 /**
  * What `mount` settled before its first network call, by engine. A gateway
- * plan carries nothing but the engine; a direct plan carries the mount id, the
- * pins and the accepted credential_process line, so a consumer that reads
- * `mountId` has to prove the engine is `direct` first.
+ * plan carries the engine and, for rclone, the binary its preflight probed; a
+ * direct plan carries that binary, the mount id, the pins and the accepted
+ * credential_process line, so a consumer that reads `mountId` has to prove the
+ * engine is `direct` first.
  */
-export type MountPlan =
-  | { readonly engine: GatewayEngine }
-  | ({ readonly engine: "direct" } & DirectPlan);
+export type MountPlan = GatewaySettlement | ({ readonly engine: "direct" } & DirectPlan);

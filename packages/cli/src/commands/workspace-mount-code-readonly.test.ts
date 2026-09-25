@@ -25,7 +25,12 @@ const SANDBOX = vi.hoisted(() => {
 
 import type { ResolvedProfile } from "../config";
 import { setJsonMode } from "../output";
-import { FUSE_T_LIBRARY, MACFUSE_LIBRARY } from "../workspace-direct-mount/fuse-libraries";
+import {
+  FUSE_T_LIBRARY,
+  LEGACY_MACFUSE_LIBRARY,
+  MACFUSE_LIBRARY
+} from "../workspace-direct-mount/fuse-libraries";
+import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
 
 /**
  * NEX-3872: a CODE workspace mounted READ-WRITE, then refused on every write.
@@ -159,7 +164,8 @@ vi.mock("node:fs", async (importOriginal) => {
       // loader is run and the preflight passes on every platform.
       existsSync: vi.fn((p: string) => {
         if (p === FUSE_T_LIBRARY) return true;
-        if (p === MACFUSE_LIBRARY) return false;
+        if (p === MACFUSE_LIBRARY || p === LEGACY_MACFUSE_LIBRARY) return false;
+        if (p === MANAGED_RCLONE) return false;
         return actual.existsSync(p);
       }),
       openSync: vi.fn(() => 1)

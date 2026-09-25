@@ -149,8 +149,8 @@ export interface ModelConfig {
    * summarized back to you or withheld. Anthropic-only; ignored elsewhere.
    */
   thinkingDisplay?: "summarized" | "omitted";
-  /** OpenAI reasoning effort: "low", "medium", "high", "xhigh". */
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  /** OpenAI reasoning effort: "low", "medium", "high", "xhigh", or "max" (select models only). */
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** Google AI thinking level: "dynamic", "minimal", "low", "medium", "high". */
   geminiThinkingLevel?: "dynamic" | "minimal" | "low" | "medium" | "high";
   /** Kimi reasoning effort: "low", "high", or "max". Fixed for the conversation. */

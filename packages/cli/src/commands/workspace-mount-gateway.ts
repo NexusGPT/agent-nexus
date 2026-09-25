@@ -5,7 +5,9 @@ import { NexusApiError, NexusAuthenticationError, NexusConnectionError } from "@
 import { timeoutSecondsToMs } from "../client";
 import type { Engine, MountRecord } from "../mount-registry";
 import { fetchWithDeadline } from "../util/request-deadline";
-import { assertRcloneCanMount } from "./workspace-mount/assert-rclone-can-mount";
+import type { InstallPolicy } from "../workspace-direct-mount/install/install-policy";
+import type { RcloneBinary } from "../workspace-direct-mount/managed-rclone";
+import { ensureRcloneCanMount } from "./workspace-mount/ensure-rclone-can-mount";
 import type { MountOutcome } from "./workspace-mount/mount-outcome";
 import { spawnRcloneMount } from "./workspace-mount/spawn-rclone-mount";
 
@@ -138,7 +140,10 @@ function stderrOf(thrown: unknown): Buffer | undefined {
  * list does not show it. Tuned for freshness over caching — it is a live
  * shared drive.
  */
-async function mountRclone(request: GatewayMountRequest): Promise<MountRecord> {
+async function mountRclone(
+  request: GatewayMountRequest,
+  binary: RcloneBinary
+): Promise<MountRecord> {
   const { slug, davPath, baseUrl, apiKey, mountPath, readOnly } = request;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -158,7 +163,7 @@ async function mountRclone(request: GatewayMountRequest): Promise<MountRecord> {
     "5s"
   ];
   if (readOnly) args.push("--read-only");
-  const pid = await spawnRcloneMount(slug, args, env);
+  const pid = await spawnRcloneMount(binary, slug, args, env);
   return {
     slug,
     engine: "rclone",
@@ -173,16 +178,25 @@ async function mountRclone(request: GatewayMountRequest): Promise<MountRecord> {
 export type GatewayEngine = Exclude<Engine, "direct">;
 
 /**
+ * A gateway engine after its local preflight. The rclone arm carries the one
+ * binary the spawn may run, so a mount cannot be reached without settling
+ * first: the only way to hold one is `settleGatewayMount`'s return value.
+ */
+export type GatewaySettlement =
+  | { readonly engine: "webdav" }
+  | { readonly engine: "rclone"; readonly binary: RcloneBinary };
+
+/**
  * What a gateway mount needs, as NAMED fields rather than a positional run.
  *
  * `slug`, `davPath`, `baseUrl`, `apiKey` and `mountPath` are five consecutive
  * strings: passed positionally, swapping any two type-checks and produces a
- * drive that 401s or serves the wrong path, and the table below cannot catch it
+ * drive that 401s or serves the wrong path, and the switch below cannot catch it
  * because five strings satisfy any signature structurally. `DirectMountRequest`
  * beside it already takes this shape for the same reason.
  */
 interface GatewayMountRequest {
-  readonly engine: GatewayEngine;
+  readonly settled: GatewaySettlement;
   readonly slug: string;
   readonly davPath: string;
   readonly baseUrl: string;
@@ -193,19 +207,40 @@ interface GatewayMountRequest {
   readonly timeoutSeconds?: number;
 }
 
-/** A gateway engine settles only its spawn's preflight: rclone must be able to mount, webdav needs nothing. */
-export function settleGatewayMount(engine: GatewayEngine): void {
-  if (engine === "rclone") assertRcloneCanMount(engine);
+/**
+ * A gateway engine settles only its spawn's preflight: rclone must be able to
+ * mount — offering to install what is missing, as `policy` allows — and webdav
+ * needs nothing.
+ */
+export async function settleGatewayMount(
+  engine: GatewayEngine,
+  policy: InstallPolicy
+): Promise<GatewaySettlement> {
+  switch (engine) {
+    case "webdav":
+      return { engine };
+    case "rclone":
+      return { engine, binary: await ensureRcloneCanMount(engine, policy) };
+    default:
+      return engine satisfies never;
+  }
 }
 
-const GATEWAY_MOUNTERS = {
-  webdav: mountWebdav,
-  rclone: mountRclone
-} as const satisfies Record<GatewayEngine, (request: GatewayMountRequest) => Promise<MountRecord>>;
+function mountSettled(request: GatewayMountRequest): Promise<MountRecord> {
+  const { settled } = request;
+  switch (settled.engine) {
+    case "webdav":
+      return mountWebdav(request);
+    case "rclone":
+      return mountRclone(request, settled.binary);
+    default:
+      return settled satisfies never;
+  }
+}
 
 export async function mountGateway(request: GatewayMountRequest): Promise<MountOutcome> {
   return {
-    record: await GATEWAY_MOUNTERS[request.engine](request),
+    record: await mountSettled(request),
     grantedReadOnly: false,
     pendingUploads: null,
     // A gateway mount never mints, so it never hears the server's name for the

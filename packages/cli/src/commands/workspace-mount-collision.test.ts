@@ -28,9 +28,11 @@ import { LOG_DIR } from "../mount-registry";
 import { setJsonMode } from "../output";
 import {
   FUSE_T_LIBRARY,
+  LEGACY_MACFUSE_LIBRARY,
   MACFUSE_LIBRARY,
   MACFUSE_LOADER
 } from "../workspace-direct-mount/fuse-libraries";
+import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
 import { mountIdFor } from "../workspace-direct-mount/mount-id";
 import { readSession } from "../workspace-direct-mount/read-session";
 import {
@@ -113,10 +115,13 @@ let macFuseLoader: Error | null = null;
 const PS_RCLONE = "rclone mount nxws: /Users/me/nexus/acme/general-context\n";
 let psAnswer: string | Error = PS_RCLONE;
 const execFileSync = vi.fn((command: string) => {
-  if (command === "rclone") {
+  if (command === "rclone" || command === MANAGED_RCLONE) {
     if (rcloneVersion instanceof Error) throw rcloneVersion;
     return rcloneVersion;
   }
+  // Homebrew is present unless a case says otherwise; an answer of "" would
+  // read as present too, so the arm is explicit rather than the fallthrough.
+  if (command === "brew") return "/opt/homebrew\n";
   if (command === "ps") {
     if (psAnswer instanceof Error) throw psAnswer;
     return psAnswer;
@@ -134,8 +139,17 @@ vi.mock("node:child_process", () => ({
 // Everything else under the sandbox HOME is real; a path outside it (an `--at`
 // elsewhere) is created and read as empty without touching the disk.
 let registry: Record<string, unknown> = {};
-/** Which FUSE libraries "exist" on this Mac — FUSE-T alone by default. */
-let libraries: Record<string, boolean> = { [FUSE_T_LIBRARY]: true, [MACFUSE_LIBRARY]: false };
+/**
+ * Which files the preflight asks about "exist" on this Mac — FUSE-T alone by
+ * default, and no managed rclone, so PATH's `rclone` is the one probed.
+ */
+const NOTHING_BUT_FUSE_T: Record<string, boolean> = {
+  [FUSE_T_LIBRARY]: true,
+  [MACFUSE_LIBRARY]: false,
+  [LEGACY_MACFUSE_LIBRARY]: false,
+  [MANAGED_RCLONE]: false
+};
+let libraries: Record<string, boolean> = { ...NOTHING_BUT_FUSE_T };
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   const inSandbox = (p: unknown): boolean => String(p).startsWith(SANDBOX);
@@ -313,11 +327,14 @@ beforeEach(() => {
   resolveProfile.mockReturnValue(ORG_A_PROFILE);
   delete process.env.NEXUS_ORGANIZATION_ID;
   delete process.env.NEXUS_BASE_URL;
+  // The first place the FUSE probe looks; a developer's own value would
+  // otherwise answer "a FUSE library is here" through the real disk.
+  delete process.env.CGOFUSE_LIBFUSE_PATH;
   registry = {};
   rcloneVersion = "rclone v1.74.4\n- go/tags: cmount\n";
   macFuseLoader = null;
   psAnswer = PS_RCLONE;
-  libraries = { [FUSE_T_LIBRARY]: true, [MACFUSE_LIBRARY]: false };
+  libraries = { ...NOTHING_BUT_FUSE_T };
   process.exitCode = undefined;
   // A live rclone mount is one whose recorded pid is alive; this process is.
   spawn.mockReturnValue({ pid: process.pid, once: vi.fn(), unref: vi.fn() });
@@ -699,6 +716,32 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
     expect(mint).not.toHaveBeenCalled();
   });
 
+  it("probes and spawns the managed rclone by its full address when one exists, whatever PATH holds", async () => {
+    libraries = { ...NOTHING_BUT_FUSE_T, [MANAGED_RCLONE]: true };
+
+    const { out } = await runMount([SLUG, "--engine", "direct"]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(execFileSync).toHaveBeenCalledWith(MANAGED_RCLONE, ["version"], expect.anything());
+    expect(execFileSync).not.toHaveBeenCalledWith("rclone", ["version"], expect.anything());
+    expect(spawn.mock.calls[0]?.[0]).toBe(MANAGED_RCLONE);
+  });
+
+  it("--no-install-deps refuses a missing FUSE layer as before the offer existed, and never asks brew", async () => {
+    pretendPlatform("darwin");
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
+
+    const { out, warnings } = await runMount([SLUG, "--engine", "direct", "--no-install-deps"]);
+
+    const doc = out as ErrorDocument;
+    expect(doc.error?.message).toContain("neither macFUSE nor FUSE-T");
+    expect(doc.error?.hint).toContain("https://rclone.org/downloads/");
+    expect(process.exitCode).toBe(9);
+    expect(execFileSync).not.toHaveBeenCalledWith("brew", expect.anything(), expect.anything());
+    expect(warnings).not.toContain("brew install");
+    expect(mint).not.toHaveBeenCalled();
+  });
+
   it("refuses on macOS an rclone built without cmount (Homebrew's `go/tags: none`) — `rclone version` alone proves nothing", async () => {
     pretendPlatform("darwin");
     rcloneVersion = "rclone v1.74.4\n- go/tags: none\n";
@@ -744,7 +787,11 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
     expect(mint).not.toHaveBeenCalled();
   });
 
-  it("refuses a node path the credential_process line cannot carry BEFORE any mint", async () => {
+  it("refuses a node path the credential_process line cannot carry BEFORE any mint — and before offering an install", async () => {
+    // FUSE is missing too: the free refusal must win over the step that may
+    // download and install, or the person installs for a mount that fails anyway.
+    pretendPlatform("darwin");
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
     const real = Object.getOwnPropertyDescriptor(process, "execPath");
     if (!real) throw new Error("process.execPath has no descriptor to restore");
     Object.defineProperty(process, "execPath", { ...real, value: "/opt/$HOME/bin/node" });
@@ -765,15 +812,19 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
 
   it("refuses on macOS when neither macFUSE nor FUSE-T is installed, and when macFUSE is not yet approved", async () => {
     pretendPlatform("darwin");
-    libraries = { [FUSE_T_LIBRARY]: false, [MACFUSE_LIBRARY]: false };
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
     const none = await runMount([SLUG, "--engine", "direct"]);
     expect((none.out as ErrorDocument).error?.message).toContain("neither macFUSE nor FUSE-T");
     expect((none.out as ErrorDocument).error?.hint).toContain("https://rclone.org/downloads/");
     expect((none.out as ErrorDocument).error?.hint).toContain("drop --engine direct");
+    // No flag and no terminal is a refusal that names the flag — never an
+    // install nobody confirmed.
+    expect((none.out as ErrorDocument).error?.hint).toContain("No terminal to ask");
+    expect(spawn).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(9);
 
     process.exitCode = undefined;
-    libraries = { [FUSE_T_LIBRARY]: false, [MACFUSE_LIBRARY]: true };
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false, [MACFUSE_LIBRARY]: true };
     macFuseLoader = new Error("exit 1");
     const unapproved = await runMount([SLUG, "--engine", "direct"]);
     expect((unapproved.out as ErrorDocument).error?.message).toContain("not approved");
@@ -981,6 +1032,36 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
     // whether the parent is empty or was never created proves nothing.
     expect(fs.existsSync(sessionPathsFor(mountId).dir)).toBe(false);
     expect(fs.existsSync(ORG_A_DEFAULT_PATH)).toBe(false);
+  });
+
+  it("on a fail-fast over FUSE-T: the next steps in order, macFUSE named as the manual fallback — and not when macFUSE ran", async () => {
+    pretendPlatform("darwin");
+    const failsFast = () =>
+      spawn.mockReturnValue({
+        pid: 4242,
+        once: vi.fn((event: string, handler: (code: number) => void) => {
+          if (event === "exit") handler(1);
+        }),
+        unref: vi.fn()
+      });
+    failsFast();
+    const onFuseT = (await runMount([SLUG, "--engine", "direct"])).out as ErrorDocument;
+    const advice = onFuseT.error?.message ?? "";
+    expect(advice).toContain("FUSE-T did not mount");
+    expect(advice.indexOf("Network Volumes")).toBeLessThan(advice.indexOf("macfuse.github.io"));
+    // True for --engine direct, --engine rclone and remount alike: no flag to drop.
+    expect(advice).toContain("default engine (no --engine flag)");
+    expect(advice).not.toContain("drop --engine direct");
+    expect(advice).not.toContain("brew install");
+
+    registry = {};
+    fs.rmSync(ORG_A_DEFAULT_PATH, { recursive: true, force: true });
+    mint.mockResolvedValue(mintedFixture());
+    libraries = { ...NOTHING_BUT_FUSE_T, [MACFUSE_LIBRARY]: true };
+    failsFast();
+    const onMacFuse = (await runMount([SLUG, "--engine", "direct"])).out as ErrorDocument;
+    expect(onMacFuse.error?.message).toContain("rclone exited immediately");
+    expect(onMacFuse.error?.message).not.toContain("FUSE-T did not mount");
   });
 
   it("on a fail-fast leaves a session it could not PARSE — malformed is not proof of ownership", async () => {

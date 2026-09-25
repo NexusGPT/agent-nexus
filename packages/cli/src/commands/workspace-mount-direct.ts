@@ -23,6 +23,8 @@ import { checkRefreshPath } from "../workspace-direct-mount/check-refresh-path";
 import { countPendingUploads } from "../workspace-direct-mount/count-pending-uploads";
 import { directMountArgv } from "../workspace-direct-mount/direct-mount-argv";
 import { discardPendingSavesHint } from "../workspace-direct-mount/discard-pending-saves-hint";
+import type { InstallPolicy } from "../workspace-direct-mount/install/install-policy";
+import type { RcloneBinary } from "../workspace-direct-mount/managed-rclone";
 import { mintBodyFor } from "../workspace-direct-mount/mint-body";
 import { mountFix } from "../workspace-direct-mount/mount-fix";
 import { isMountId } from "../workspace-direct-mount/mount-id";
@@ -39,7 +41,7 @@ import {
 import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
 import { toVolumeName } from "../workspace-direct-mount/volume-name";
 import { writeSession } from "../workspace-direct-mount/write-session";
-import { assertRcloneCanMount } from "./workspace-mount/assert-rclone-can-mount";
+import { ensureRcloneCanMount } from "./workspace-mount/ensure-rclone-can-mount";
 import { isReadOnlyKind } from "./workspace-mount/is-read-only-kind";
 import type { MountOutcome } from "./workspace-mount/mount-outcome";
 import type { MountPlan } from "./workspace-mount/mount-plan";
@@ -199,6 +201,7 @@ interface DirectMountRequest {
   readonly baseUrl: string;
   readonly pins: DirectPins;
   readonly awsConfig: AcceptedAwsConfig;
+  readonly binary: RcloneBinary;
   readonly client: ReturnType<typeof createClient>;
 }
 
@@ -344,6 +347,7 @@ export async function mountDirect(request: DirectMountRequest): Promise<MountOut
     // One log per mount, not per slug: two organizations' mounts of one slug
     // must not interleave their lines, nor show each other's tail on a failure.
     const pid = await spawnRcloneMount(
+      request.binary,
       `${slug}-${mountId}`,
       directMountArgv({ mountPath, cacheDir: paths.cacheDir, slug, volumeName, readOnly }),
       rcloneEnvFor({
@@ -483,16 +487,25 @@ export interface DirectPlan {
   readonly mountId: string;
   readonly pins: DirectPins;
   readonly awsConfig: AcceptedAwsConfig;
+  /** The rclone the preflight probed — the only one the spawn may run. */
+  readonly binary: RcloneBinary;
 }
 
 /**
  * The direct engine's local refusals, in the order they are cheapest: the pins
- * its renewal needs, the rclone build and FUSE layer its spawn needs, the
- * credential_process line its renewal runs through. `mount` and `remount` both
- * settle through here, so the same machine is refused in the same order by both.
+ * its renewal needs, the credential_process line its renewal runs through, and
+ * last the rclone build and FUSE layer its spawn needs — last because that one
+ * may download and install software, which a refusal after it would waste.
+ * `mount` and `remount` both settle through here, so the same machine is
+ * refused in the same order by both.
  */
-export function planDirectMount(scope: MountScope, mountId: string): DirectPlan {
+export async function planDirectMount(
+  scope: MountScope,
+  mountId: string,
+  policy: InstallPolicy
+): Promise<DirectPlan> {
   const pins = directPins(scope);
-  assertRcloneCanMount("direct");
-  return { mountId, pins, awsConfig: directAwsConfigOrRefuse(mountId) };
+  const awsConfig = directAwsConfigOrRefuse(mountId);
+  const binary = await ensureRcloneCanMount("direct", policy);
+  return { mountId, pins, awsConfig, binary };
 }

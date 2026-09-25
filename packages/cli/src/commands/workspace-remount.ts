@@ -14,6 +14,7 @@ import {
   writeMounts
 } from "../mount-registry";
 import { isJsonMode, printSuccess } from "../output";
+import { type InstallPolicy, policyFrom } from "../workspace-direct-mount/install/install-policy";
 import { mountIdFor } from "../workspace-direct-mount/mount-id";
 import { assertMountableSlug } from "./workspace-mount/assert-mountable-slug";
 import { detachDeadMount } from "./workspace-mount/detach-dead-mount";
@@ -38,6 +39,7 @@ interface RemountInput {
   readonly apiKey: string;
   readonly shared: boolean;
   readonly readOnly: boolean;
+  readonly policy: InstallPolicy;
   /** The one global a remount carries into the mint: `--api-key` is deliberately NOT one (see below). */
   readonly globals: { readonly timeout?: Seconds };
 }
@@ -60,9 +62,8 @@ async function remountRecord(input: RemountInput): Promise<MountOutcome> {
   switch (input.engine) {
     case "webdav":
     case "rclone":
-      settleGatewayMount(input.engine);
       return mountGateway({
-        engine: input.engine,
+        settled: await settleGatewayMount(input.engine, input.policy),
         slug,
         davPath,
         baseUrl: input.baseUrl,
@@ -72,14 +73,15 @@ async function remountRecord(input: RemountInput): Promise<MountOutcome> {
         timeoutSeconds: input.globals.timeout
       });
     case "direct": {
-      const plan = planDirectMount(
+      const plan = await planDirectMount(
         {
           profile: record.profile ?? input.scope.profile,
           orgId: record.orgId ?? input.scope.orgId,
           orgName: record.orgName ?? input.scope.orgName,
           baseUrl: record.baseUrl
         },
-        record.mountId ?? mountIdFor(input.key)
+        record.mountId ?? mountIdFor(input.key),
+        input.policy
       );
       const client = createClient({
         profile: plan.pins.profile,
@@ -97,6 +99,7 @@ async function remountRecord(input: RemountInput): Promise<MountOutcome> {
         baseUrl: record.baseUrl,
         pins: plan.pins,
         awsConfig: plan.awsConfig,
+        binary: plan.binary,
         client
       });
     }
@@ -117,6 +120,11 @@ export function registerWorkspaceRemountCommand(ws: Command, program: Command): 
       "Mount a recorded workspace again — after a logout, a restart, or a mount that died"
     )
     .argument("<slug>", "Workspace slug (see `nexus workspace status`)")
+    .option(
+      "--install-deps",
+      "Install a missing rclone (macOS, Linux; x64 or arm64) or FUSE-T (macOS) without asking; not on Windows"
+    )
+    .option("--no-install-deps", "Never offer to install them; refuse with the install hint")
     .addHelpText(
       "after",
       `
@@ -149,7 +157,7 @@ Notes:
   row is minted under the profile it RECORDED; an --api-key on this command is
   not used for it.`
     )
-    .action(async (slug: string) => {
+    .action(async (slug: string, opts: { installDeps?: boolean }) => {
       try {
         assertMountableSlug(slug);
         const globals = program.optsWithGlobals();
@@ -216,6 +224,7 @@ Notes:
             apiKey,
             shared,
             readOnly: requestedReadOnly,
+            policy: policyFrom(opts.installDeps),
             globals
           })
         );

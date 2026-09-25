@@ -79,7 +79,8 @@ export const AGENT_CREATE__BODY_MODEL_CONFIG_REASONING_EFFORT = {
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max"
   ]
 } as const satisfies ContractEnum;
 
@@ -183,7 +184,8 @@ export const AGENT_UPDATE__BODY_MODEL_CONFIG_REASONING_EFFORT = {
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max"
   ]
 } as const satisfies ContractEnum;
 
@@ -236,7 +238,7 @@ export const AGENT_CREATE_CONTRACT = {
     { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
-    { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
+    { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.geminiThinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["dynamic", "low", "medium", "high", "minimal"] },
     { path: "Body.modelConfig.kimiReasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "high", "max"] },
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },
@@ -279,7 +281,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
-    { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh"] },
+    { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.geminiThinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["dynamic", "low", "medium", "high", "minimal"] },
     { path: "Body.modelConfig.kimiReasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "high", "max"] },
     { path: "Body.modelConfig.temperature", slot: "Body", type: "number", required: false, depth: 1 },

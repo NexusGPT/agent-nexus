@@ -1,4 +1,5 @@
 import { awsProfileFor } from "./mount-id";
+import { secretFreeEnv } from "./secret-free-env";
 
 export interface RcloneEnvInput {
   readonly inherited: NodeJS.ProcessEnv;
@@ -10,21 +11,18 @@ export interface RcloneEnvInput {
   readonly prefix: string;
 }
 
-/** Inherited keys rclone must not see, beyond every `AWS_*` and `RCLONE_*`. */
-const STRIPPED_ENV_KEYS = ["NEXUS_API_KEY", "NEXUS_PROFILE", "NEXUS_ORGANIZATION_ID"] as const;
-
 /**
  * The process environment rclone runs under on a direct mount.
  *
- * Every inherited `AWS_*` key is dropped: a static `AWS_ACCESS_KEY_ID` in the
- * user's shell outranks `credential_process` in the SDK's chain and would sign
- * the mount with the wrong identity while looking healthy. Every inherited
- * `RCLONE_*` key is dropped for the same reason from the other side: an
- * `RCLONE_S3_ENDPOINT` left over from MinIO testing re-points the remote
- * defined below at another host, and an `RCLONE_S3_ACCESS_KEY_ID` outranks
- * `env_auth`. The three `NEXUS_*` selectors are dropped because the helper reads
- * its pins from the session file, and rclone's environment is what the helper
- * inherits.
+ * The inherited environment arrives through `secretFreeEnv`: every `AWS_*`
+ * key is dropped there because a static `AWS_ACCESS_KEY_ID` in the user's
+ * shell outranks `credential_process` in the SDK's chain and would sign the
+ * mount with the wrong identity while looking healthy; every `RCLONE_*` key
+ * for the same reason from the other side (an `RCLONE_S3_ENDPOINT` left over
+ * from MinIO testing re-points the remote defined below at another host, and
+ * an `RCLONE_S3_ACCESS_KEY_ID` outranks `env_auth`); and the three `NEXUS_*`
+ * selectors because the helper reads its pins from the session file, and
+ * rclone's environment is what the helper inherits.
  *
  * 🔴 STRIPPING THE ENVIRONMENT IS NOT ENOUGH, and the docblock used to claim it
  * was. rclone ALSO reads the user's own remotes from
@@ -46,14 +44,8 @@ const STRIPPED_ENV_KEYS = ["NEXUS_API_KEY", "NEXUS_PROFILE", "NEXUS_ORGANIZATION
  * listing.
  */
 export function rcloneEnvFor(input: RcloneEnvInput): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(input.inherited)) {
-    if (/^(AWS|RCLONE)_/.test(key)) continue;
-    if (STRIPPED_ENV_KEYS.some((stripped) => stripped === key)) continue;
-    env[key] = value;
-  }
   return {
-    ...env,
+    ...secretFreeEnv(input.inherited),
     AWS_CONFIG_FILE: input.awsConfigFile,
     AWS_PROFILE: awsProfileFor(input.mountId),
     AWS_SHARED_CREDENTIALS_FILE: "/dev/null",

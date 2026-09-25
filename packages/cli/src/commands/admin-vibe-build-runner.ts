@@ -24,7 +24,7 @@ export function registerVibeBuildRunnerCommands(admin: Command, program: Command
   runner
     .command("tick")
     .description(
-      "Fire one tick: find next PENDING bundle → claim → dispatch → on failure compensate to FAILED"
+      "Fire one tick: find the next queued build → admit it → dispatch → on failure compensate to FAILED"
     )
     .addHelpText(
       "after",
@@ -39,26 +39,27 @@ Notes:
   response: fire a tick now, see the structured outcome, repeat.
 
 Outcome shapes:
-  idle                              No PENDING jobs whose parent
-                                    deployment is still BUILDING.
+  idle                              No queued build whose parent
+                                    deployment is still BUILDING, in
+                                    an organization under its cap.
   dispatched                        A job was claimed AND handed off
                                     to the executor.
   race_lost                         Another runner claimed the job
                                     between find and our status-
                                     guarded UPDATE.
-  app_busy                          The job's app already has a build
-                                    running. The job stays PENDING and
-                                    is admitted once that build ends.
   org_at_capacity                   The job's organization already has
                                     as many builds in flight as its
                                     concurrency cap allows. The job
-                                    stays PENDING and is admitted once
+                                    stays queued and is admitted once
                                     the organization is under the cap.
+  dispatch_failed_requeued          The executor refused the job with a
+                                    retryable error. The job took its one
+                                    automatic retry and is queued again
+                                    on the attempt shown.
   dispatch_failed_compensated       The executor refused the job; we
-                                    flipped RUNNING → FAILED. The
-                                    'retryable' flag is informational
-                                    (the user re-triggers either way
-                                    for v1).
+                                    flipped ADMITTED → FAILED — a refusal
+                                    it did not mark retryable, or one on
+                                    the job's last attempt.
 `
     )
     .action(async () => {

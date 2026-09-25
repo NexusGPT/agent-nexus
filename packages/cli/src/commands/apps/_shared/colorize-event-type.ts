@@ -32,6 +32,10 @@ export const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   BUILD_JOB_FAILED: "failure",
   DEPLOYMENT_FAILED: "failure",
   BUILD_JOB_TIMED_OUT: "failure",
+  // A lapsed lease or an executor fault queued the build again: the one retry.
+  BUILD_JOB_REQUEUED: "warning",
+  // The retry's lease lapsed too: nobody is running it, and the deployment failed.
+  BUILD_JOB_LOST: "failure",
   DEPLOYMENT_HEALTHY: "success",
   DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK: "failure",
   DEPLOYMENT_SUPERSEDED: "neutral",

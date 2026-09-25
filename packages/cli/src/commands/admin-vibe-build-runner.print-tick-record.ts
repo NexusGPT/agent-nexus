@@ -33,21 +33,6 @@ export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
       ]);
       return;
     }
-    case "app_busy": {
-      printRecord(
-        {
-          outcome: color.yellow("app_busy"),
-          buildJobId: data.buildJobId,
-          vibeAppId: data.vibeAppId
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "buildJobId", label: "Build job" },
-          { key: "vibeAppId", label: "App (build running)" }
-        ]
-      );
-      return;
-    }
     case "org_at_capacity": {
       printRecord(
         {
@@ -61,6 +46,23 @@ export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
           { key: "buildJobId", label: "Build job" },
           { key: "organizationId", label: "Organization" },
           { key: "inFlight", label: "Builds in flight" }
+        ]
+      );
+      return;
+    }
+    case "dispatch_failed_requeued": {
+      printRecord(
+        {
+          outcome: color.yellow("dispatch_failed_requeued"),
+          buildJobId: data.buildJobId,
+          attempt: String(data.attempt),
+          reason: data.reason
+        },
+        [
+          { key: "outcome", label: "Outcome" },
+          { key: "buildJobId", label: "Build job" },
+          { key: "attempt", label: "Queued again as attempt" },
+          { key: "reason", label: "Reason" }
         ]
       );
       return;

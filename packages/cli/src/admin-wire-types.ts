@@ -247,7 +247,6 @@ export type AdminVibeBuildRunnerTickResponse =
   | { kind: "idle" }
   | { kind: "dispatched"; buildJobId: string }
   | { kind: "race_lost"; buildJobId: string }
-  | { kind: "app_busy"; buildJobId: string; vibeAppId: string }
   | {
       kind: "org_at_capacity";
       buildJobId: string;
@@ -255,6 +254,7 @@ export type AdminVibeBuildRunnerTickResponse =
       inFlight: number;
       cap: number;
     }
+  | { kind: "dispatch_failed_requeued"; buildJobId: string; attempt: number; reason: string }
   | {
       kind: "dispatch_failed_compensated";
       buildJobId: string;

@@ -217,7 +217,8 @@ export type AgentToolConfigType =
   | "TASK"
   | "COLLECTION"
   | "DOCUMENT_TEMPLATE"
-  | "MEMORY";
+  | "MEMORY"
+  | "MCP";
 
 /**
  * The subset of {@link AgentToolConfigType} a caller may SEND on a create or update
@@ -229,13 +230,22 @@ export type AgentToolConfigType =
  * added; deriving it means a new READ member flows here automatically, and only a change
  * to the EXCLUSION is a decision anyone has to make.
  *
- * `MEMORY` is excluded because v1 has no spelling for its `config`. A MEMORY row's config
- * is the pad grant `{ pads: [...] }`, and the v1 tool-config schema declares no such key and
- * is strict, so a create through that surface could only ever store a grant of nothing. The
- * tool itself is callable — publishing that create is what would advertise a capability the
- * API does not have.
+ * Both exclusions are the same shape: the row's `config` has a part v1's strict tool-config
+ * schema cannot spell, so a create through that surface could only ever store a broken row.
+ *
+ * `MEMORY`'s unspellable part is the pad grant `{ pads: [...] }`, so a create could only store
+ * a grant of nothing. The tool itself is callable — publishing that create is what would
+ * advertise a capability the API does not have.
+ *
+ * `MCP`'s is the PIN. An MCP skill is TWO rows: the config plus an `AgentToolConfigMcpToolPin`
+ * naming the MCP tool and the contract hash it was attached against, written together in one
+ * nested INSERT so they cannot exist separately. v1 has no key for the pin, so a create here
+ * could only mint a config with no pin — a skill that holds the agent's label and refuses
+ * every call. A real MCP tool id is refused outright by the attach validator. The pin table's
+ * CHECK admits `MCP` alongside `PLUGIN`, so the pinned case IS representable in the database:
+ * the exclusion rests on arity alone, and lifting it needs a key for the pin.
  */
-export type WritableAgentToolConfigType = Exclude<AgentToolConfigType, "MEMORY">;
+export type WritableAgentToolConfigType = Exclude<AgentToolConfigType, "MEMORY" | "MCP">;
 
 /** Prompt version type. `"AUTO"` versions are created automatically on prompt changes; `"CHECKPOINT"` versions are manually named snapshots. */
 export type VersionType = "AUTO" | "CHECKPOINT";

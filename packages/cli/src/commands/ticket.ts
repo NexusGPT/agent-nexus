@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import type {
@@ -11,11 +10,12 @@ import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import { color, printList, printRecord, printSuccess } from "../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import { readUploadBuffer } from "../util/upload-file";
 import {
   TICKET_CREATE__BODY_PRIORITY,
   TICKET_CREATE__BODY_TYPE,
@@ -684,19 +684,9 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(opts.file);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
+        const buffer = readUploadBuffer(opts.file);
         const { File: NodeFile } = await import("node:buffer");
-        const buffer = fs.readFileSync(absPath);
-        const fileName = path.basename(absPath);
+        const fileName = path.basename(path.resolve(opts.file));
         const file = new NodeFile([buffer], fileName);
 
         const result = await client.tickets.uploadAttachment(id, file);

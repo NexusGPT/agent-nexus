@@ -36,11 +36,15 @@
  * offending field names rather than `'false' is not assignable to 'true'`. There
  * is no runtime behaviour here; the module exists to be compiled.
  *
- * The operators are deliberately NOT shared with the other two conformance
- * modules. Neither is importable without dragging its own shapes into this
- * compilation, and a `Mirrors` that three gates share is a `Mirrors` that none
- * of them can change. They are twelve lines; the duplication is cheaper than the
- * coupling, and each file's copy is checked by its own assertions.
+ * The operators come from `wire-conformance.types.ts`, which every gate in this
+ * package shares. That module imports NOTHING, which is what makes it safe to
+ * take: no other gate's shapes and no `@nexus/types` enter this compilation with
+ * it.
+ *
+ * Do not copy them back in here. A hand copy of an operator is checked by its
+ * own typecheck and its PROSE is checked by nothing, so the reasoning behind a
+ * constraint drifts while every gate stays green — which is how the worked
+ * example behind `SharedFieldsMatch` came to exist in one copy of three.
  *
  * ── Why this file cannot reach the published binary ─────────────────────────
  *
@@ -60,74 +64,7 @@ import type {
   ToolHasAttachmentsDetails,
   ToolSpecBreakingChangeDetails
 } from "./external-tool-wire-types";
-
-/**
- * `z.infer` is POST-parse, so a `z.string().datetime()` is `string` already and
- * a `z.date()` would be `Date`. The CLI reads raw JSON and never parses, so
- * every date reaches it as a string. Normalising here rather than declaring
- * `Date` in the wire types keeps the declarations honest about what arrives.
- */
-type Wire<T> = T extends Date
-  ? string
-  : T extends readonly (infer U)[]
-    ? Wire<U>[]
-    : T extends object
-      ? { [K in keyof T]: Wire<T[K]> }
-      : T;
-
-/** Wire fields the CLI type does not declare. */
-type Omitted<Cli, W> = Exclude<keyof W, keyof Cli>;
-
-/**
- * A CLI field with no counterpart on the wire — ALWAYS a defect, never a
- * deliberate choice: the CLI cannot receive a key the server does not send, so
- * anything here was renamed or removed upstream and now reads as `undefined`.
- */
-type NoInventedFields<Label extends string, Cli, W> = [Exclude<keyof Cli, keyof W>] extends [never]
-  ? true
-  : [Label, "declares a field the wire contract does not have:", Exclude<keyof Cli, keyof W>];
-
-/**
- * The CLI omits EXACTLY the wire fields named in `Declared`, no more and no
- * fewer. Both directions: a NEW wire field the CLI ignores fails until someone
- * mirrors it or writes its name here with a reason, and a declared omission that
- * no longer exists fails too, so the list cannot rot into names nobody can
- * explain.
- */
-type OmitsExactly<Label extends string, Cli, W, Declared> = [
-  Exclude<Omitted<Cli, W>, Declared>
-] extends [never]
-  ? [Exclude<Declared, Omitted<Cli, W>>] extends [never]
-    ? true
-    : [Label, "declares an omission that is not missing:", Exclude<Declared, Omitted<Cli, W>>]
-  : [Label, "silently omits a wire field:", Exclude<Omitted<Cli, W>, Declared>];
-
-/**
- * Every shared field carries a type the wire value satisfies. Assignability
- * rather than equality, in that direction on purpose: the CLI may hold a field
- * more LOOSELY than the contract (a published binary must not reject a value a
- * newer backend adds). It may never hold one more tightly — that is the shape
- * that reads a real response as the wrong type.
- */
-type SharedFieldsMatch<Label extends string, Cli, W> =
-  Pick<W, Extract<keyof Cli, keyof W>> extends Pick<Cli, Extract<keyof Cli, keyof W>>
-    ? true
-    : [Label, "narrows or mistypes a field it shares with the wire contract"];
-
-/**
- * The three assertions every mirrored shape gets. `readonly`, because
- * {@link AGREES} is an `as const` tuple and a readonly tuple is not assignable
- * to a mutable one — without this every assertion fails for a reason unrelated
- * to the shapes it checks.
- */
-type Mirrors<Label extends string, Cli, W, Declared = never> = readonly [
-  NoInventedFields<Label, Cli, W>,
-  OmitsExactly<Label, Cli, W, Declared>,
-  SharedFieldsMatch<Label, Cli, W>
-];
-
-/** Satisfied by a `Mirrors<…>` tuple only when all three members are `true`. */
-const AGREES = [true, true, true] as const;
+import { AGREES, type Mirrors, type Wire } from "./wire-conformance.types";
 
 /**
  * The wire type resolved to something real, not to `any`.

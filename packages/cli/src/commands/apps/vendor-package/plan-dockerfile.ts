@@ -12,16 +12,11 @@ import type { Leg } from "./vendor-plan";
 export function planDockerfile(dockerfile: string | null): Leg {
   if (dockerfile === null) {
     // A repo with no Dockerfile is built from one the platform GENERATES, and
-    // that one copies the manifests it knows about and nothing else.
-    return {
-      writes: [],
-      warnings: [
-        "This app has no Dockerfile, so the platform generates one at build time — and a generated " +
-          `build copies only the manifests before installing, not \`${VENDOR_DIRECTORY}/\`. ` +
-          "Add a Dockerfile that copies it before the install step, or the server-side build will " +
-          "fail on a missing file even though the install here succeeds."
-      ]
-    };
+    // that one reads the manifest's own `file:` specs and copies each declared
+    // path before the install — `installLocalPaths` in @nexus/vibe-stack-detect.
+    // So there is nothing for this verb to write and nothing to warn about: the
+    // rewrite above is the whole of the change the app needs.
+    return { writes: [], warnings: [] };
   }
   const outcome = vendorIntoDockerfile(dockerfile);
   return {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import path from "node:path";
 
 import { resolveBody } from "../../util/body";
+import { resolveUploadPath } from "../../util/upload-file";
 
 /**
  * Resolve the OpenAPI spec string for `update-spec` from --file (raw JSON/YAML
@@ -16,11 +16,7 @@ export async function resolveSpecString(opts: {
     if (opts.file === "-") {
       return fs.readFileSync(0, "utf8");
     }
-    const absPath = path.resolve(opts.file);
-    if (!fs.existsSync(absPath)) {
-      throw new Error(`File not found: ${absPath}`);
-    }
-    return fs.readFileSync(absPath, "utf8");
+    return fs.readFileSync(resolveUploadPath(opts.file), "utf8");
   }
   if (opts.body) {
     const parsed = await resolveBody(opts.body);

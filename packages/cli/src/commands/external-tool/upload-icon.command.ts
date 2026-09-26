@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import type { Command } from "commander";
 
 import { createClient } from "../../client";
 import { bindCommand } from "../../contract-binding";
-import { handleError, refuse } from "../../errors";
+import { handleError } from "../../errors";
 import { printSuccess } from "../../output";
+import { readUploadBlob } from "../../util/upload-file";
 import { SKILLS_UPLOAD_EXTERNAL_TOOL_ICON_CONTRACT } from "../external-tool.contract.generated";
 
 const UPLOAD_ICON_HELP = `
@@ -38,19 +38,8 @@ export function registerExternalToolUploadIconCommand(
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(opts.file);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
-        const fileName = path.basename(absPath);
+        const blob = readUploadBlob(opts.file);
+        const fileName = path.basename(path.resolve(opts.file));
 
         const result = await client.skills.uploadExternalToolIcon(id, blob, fileName);
         printSuccess("Icon uploaded.", {

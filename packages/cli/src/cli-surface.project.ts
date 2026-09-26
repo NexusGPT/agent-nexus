@@ -8,6 +8,7 @@ import type {
   SurfaceLeaf,
   SurfaceTier
 } from "./cli-surface.model";
+import { indexCommandTree } from "./command-tree-index";
 import { COMMAND_CLASSIFICATION, type CommandNode, deriveCommandNodes } from "./command-universe";
 import { JSON_SHAPES } from "./json-shape.generated";
 import { buildRootProgram, VERSION } from "./root-program";
@@ -202,21 +203,7 @@ export interface Projection {
 
 /** Every command the SHIPPED binary parses with, keyed by space-joined path. */
 export function realRootProgram(): ReadonlyMap<string, Command> {
-  const index = new Map<string, Command>();
-
-  const visit = (command: Command, prefix: readonly string[]): void => {
-    const path = [...prefix, command.name()];
-    index.set(path.join(" "), command);
-    for (const child of command.commands) {
-      if (child.name() !== "help") visit(child, path);
-    }
-  };
-
-  for (const root of buildRootProgram(VERSION).commands) {
-    if (root.name() !== "help") visit(root, []);
-  }
-
-  return index;
+  return indexCommandTree(buildRootProgram(VERSION));
 }
 
 /** Walk the real tree and project every leaf onto one row. */

@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import type { Command } from "commander";
 
 import { createClient } from "../../client";
-import { handleError, refuse } from "../../errors";
+import { handleError } from "../../errors";
 import { printSuccess } from "../../output";
 import { parseMetadataPairs } from "../../util/metadata";
+import { readUploadBlob } from "../../util/upload-file";
 import { collectMetadata } from "./collect-metadata";
 
 const UPLOAD_HELP = `
@@ -60,19 +60,8 @@ export function registerDocumentUploadCommand(document: Command, program: Comman
     .action(async (filePath: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(filePath);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
-        const fileName = path.basename(absPath);
+        const blob = readUploadBlob(filePath);
+        const fileName = path.basename(path.resolve(filePath));
 
         const metadataFlags = opts.metadata as string[];
         const metadata = metadataFlags.length > 0 ? parseMetadataPairs(metadataFlags) : undefined;

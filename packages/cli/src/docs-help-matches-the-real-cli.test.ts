@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { indexCommandTree } from "./command-tree-index";
 import { captureHelp, type CommandNode, deriveCommandNodes } from "./command-universe";
 import { buildDocNamespaces } from "./docs-page.model";
 import { HELP_SCOPE_HEADING } from "./help-scope";
@@ -88,23 +89,32 @@ import { buildRootProgram, VERSION } from "./root-program";
 const DOCUMENTED_PATHS_FLOOR = 500;
 const NAMESPACES_FLOOR = 40;
 
-/** Every command the shipped binary parses with, keyed by space-joined path. */
+/**
+ * Every command the shipped binary parses with, keyed by space-joined path.
+ *
+ * 🔴 THE WALK IS SHARED. THE PROGRAM IT WALKS IS NOT, AND BOTH HALVES MATTER.
+ *
+ * This file used to carry its own copy of the walk — a spec about the command
+ * tree, reimplementing the enumeration of the command tree. That is the fifth
+ * form of vacuous assertion: the arm runs, its input is reachable, and its
+ * SUBJECT is a replica. The copy could have stopped skipping `help`, or stopped
+ * recursing, and every arm below would have gone on passing about a population
+ * the real CLI does not have.
+ *
+ * {@link indexCommandTree} is that enumeration, shared with the two production
+ * modules. What is NOT shared is the tree: this builds its own
+ * `buildRootProgram(VERSION)`, while the docs model resolves its help through
+ * `command-universe.ts`'s separate, memoized index of a separate build.
+ *
+ * ⚠️ That independence is the arm, not a detail. Import the docs model's index
+ * instead and `real.get(path)` returns THE SAME `Command` OBJECT the model
+ * captured its help from — so the byte-identity assertion below becomes
+ * `captureHelp(x) === captureHelp(x)`, green on every node whatever either side
+ * does. The gate would then compare the walker with itself, which is the exact
+ * defect converging it was meant to remove, in the opposite direction.
+ */
 function realRootProgram(): ReadonlyMap<string, Command> {
-  const index = new Map<string, Command>();
-
-  const visit = (command: Command, prefix: readonly string[]): void => {
-    const path = [...prefix, command.name()];
-    index.set(path.join(" "), command);
-    for (const child of command.commands) {
-      if (child.name() !== "help") visit(child, path);
-    }
-  };
-
-  for (const root of buildRootProgram(VERSION).commands) {
-    if (root.name() !== "help") visit(root, []);
-  }
-
-  return index;
+  return indexCommandTree(buildRootProgram(VERSION));
 }
 
 interface DocumentedHelp {

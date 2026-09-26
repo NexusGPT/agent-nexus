@@ -110,13 +110,11 @@ import type {
   VibeServedArtifactDto
 } from "./vibe-wire-types";
 import {
-  AGREES,
-  type Mirrors,
   type SameLiteral,
   type SameMembers,
-  type VibeData,
-  type Wire
+  type VibeData
 } from "./vibe-wire-vocabulary.conformance";
+import { AGREES, type Mirrors, type Wire } from "./wire-conformance.types";
 
 // ============================================================
 // Apps

@@ -27,9 +27,10 @@ import { listFilesRecursively } from "./util/list-files-recursively";
  * 152 files at once, and a gate that reds 152 files on the day it lands gets
  * reverted rather than obeyed.
  *
- * So the rest of the package had NO ceiling at all. `command-universe.ts` is
- * 1,618 lines and could become 5,000 one "small addition" at a time, with
- * nothing to point at — which is exactly how `role.ts` got to where it was.
+ * So the rest of the package had NO ceiling at all. `command-universe.ts` is the
+ * largest file here by a wide margin — its row below states the live count — and
+ * could become 5,000 one "small addition" at a time, with nothing to point at,
+ * which is exactly how `role.ts` got to where it was.
  *
  * This table is the ceiling for everything the flat rule cannot yet reach. It
  * absorbs today's sizes so the gate can refuse tomorrow's growth.
@@ -60,8 +61,8 @@ import { listFilesRecursively } from "./util/list-files-recursively";
  * granularities.
  *
  * ⚠️ RAISING A ROW IS NOT ON THAT LIST, AND THE FRICTION IS THE FEATURE. Adding
- * 40 lines to `command-universe.ts` reds this spec until somebody edits `1618`
- * to `1658` — a one-line diff that a reviewer sees and can argue with. The gate
+ * 40 lines to `command-universe.ts` reds this spec until somebody raises its row
+ * by exactly 40 — a one-line diff that a reviewer sees and can argue with. The gate
  * does not forbid growth; it forbids growth NOBODY DECIDED. If the bigger number
  * is genuinely right, write it, and say in the commit why the file had to grow
  * rather than split.
@@ -132,14 +133,14 @@ const CEILING_LINES = 150;
  * Sorted by path so a row moves only when its own file does.
  */
 const LEDGER: Readonly<Record<string, number>> = {
-  "admin-wire-types.conformance.ts": 501,
+  "admin-wire-types.conformance.ts": 401,
   "admin-wire-types.ts": 281,
   "auth-probe.ts": 318,
   "cli-surface.generated.ts": 633,
   "cli-surface.model.ts": 159,
-  "cli-surface.project.ts": 417,
+  "cli-surface.project.ts": 404,
   "client.ts": 240,
-  "command-universe.ts": 1631,
+  "command-universe.ts": 1622,
   "commands/access-card.ts": 355,
   "commands/admin-vibe-build-job.ts": 239,
   "commands/admin-vibe-consumption-cap.ts": 208,
@@ -148,14 +149,14 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/admin-vibe-deployment.ts": 288,
   "commands/admin-vibe-tenant-cluster.ts": 452,
   "commands/agent-collection.ts": 179,
-  "commands/agent-skill.ts": 724,
+  "commands/agent-skill.ts": 722,
   "commands/agent-tool.ts": 406,
   "commands/agent.contract.generated.ts": 295,
-  "commands/agent.ts": 665,
+  "commands/agent.ts": 654,
   "commands/analytics.contract.generated.ts": 169,
   "commands/analytics.ts": 520,
   "commands/api.ts": 269,
-  "commands/asset.ts": 272,
+  "commands/asset.ts": 261,
   "commands/channel.contract.generated.ts": 167,
   "commands/channel.ts": 1157,
   "commands/chat.ts": 697,
@@ -176,7 +177,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/deployment.ts": 1384,
   "commands/docs.ts": 297,
   "commands/emulator.ts": 701,
-  "commands/envelope-narrowing.scan.ts": 451,
+  "commands/envelope-narrowing.scan.ts": 445,
   "commands/eval-run-render.ts": 283,
   "commands/eval-run.ts": 435,
   "commands/eval.contract.generated.ts": 219,
@@ -201,11 +202,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/score.ts": 209,
   "commands/skill-folder.ts": 268,
   "commands/skills.ts": 452,
-  "commands/status-verdict.scan.ts": 689,
+  "commands/status-verdict.scan.ts": 675,
   "commands/task.contract.generated.ts": 264,
   "commands/task.ts": 803,
-  "commands/template.ts": 614,
-  "commands/ticket.ts": 757,
+  "commands/template.ts": 603,
+  "commands/ticket.ts": 747,
   "commands/tool.ts": 815,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracing.ts": 934,
@@ -214,7 +215,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/user-group.ts": 309,
   "commands/version.ts": 392,
   "commands/workflow-builder.ts": 1163,
-  "commands/workflow.ts": 894,
+  "commands/workflow.ts": 881,
   "commands/workspace-credential-process.ts": 361,
   "commands/workspace-mount-direct.ts": 511,
   "commands/workspace-mount-gateway.ts": 250,
@@ -235,12 +236,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "docs-page.render.ts": 198,
   "errors.ts": 814,
   "exit-codes.ts": 304,
-  "external-tool-wire-types.conformance.ts": 198,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
   "id-graph.ts": 252,
   "id-graph.uncovered.generated.ts": 353,
-  "index.ts": 630,
+  "index.ts": 663,
   "json-shape.generated.ts": 468,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
@@ -267,7 +267,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/track-blockers.ts": 393,
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
-  "vibe-wire-types.conformance.ts": 745,
+  "vibe-wire-types.conformance.ts": 743,
   "vibe-wire-types.ts": 797
 };
 
@@ -285,7 +285,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 137;
+const LEDGER_CEILING = 136;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -378,7 +378,8 @@ for (const [path, row] of Object.entries(LEDGER)) {
  * A `ledgerCounts` row bounds "the most FINDINGS that key may report" — a COUNT
  * of findings, not a magnitude carried by one finding — so expressing a line
  * count that way means emitting one finding PER LINE, and the subset arm's
- * refusal would then print 1,618 entries when `command-universe.ts` loses its row.
+ * refusal would then print one entry PER LINE of `command-universe.ts` when it
+ * loses its row.
  * And even then it only reaches property 1: the primitive states outright that a
  * count ABOVE what the tree reports is "LEGAL AND SILENT", because for a DEBT
  * count the gap is transient and ends when the row drains to nothing.

@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import type { CreateAgentBody, UpdateAgentBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
@@ -13,6 +10,7 @@ import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { resolveInputValue } from "../util/stdin";
+import { readUploadBlob } from "../util/upload-file";
 import {
   AGENT_CREATE__BODY_MODEL,
   AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER,
@@ -569,16 +567,7 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(opts.file);
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
+        const blob = readUploadBlob(opts.file);
         const result = await client.agents.uploadProfilePicture(id, blob);
         printSuccess("Profile picture uploaded.", result);
       } catch (err) {

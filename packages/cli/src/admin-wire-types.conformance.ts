@@ -61,80 +61,19 @@ import type {
   VibeTenantClusterForceConvergeOutcome,
   VibeTenantClusterProvisionOutcome
 } from "./admin-wire-types";
-
-/**
- * `z.infer` is POST-parse, so a `z.string().datetime()` is `string` already and
- * a `z.date()` would be `Date`. The CLI reads raw JSON and never parses, so
- * every date reaches it as a string. Normalising here rather than declaring
- * `Date` in the wire types keeps the declarations honest about what arrives.
- */
-type Wire<T> = T extends Date
-  ? string
-  : T extends readonly (infer U)[]
-    ? Wire<U>[]
-    : T extends object
-      ? { [K in keyof T]: Wire<T[K]> }
-      : T;
+import {
+  AGREES,
+  ARMS_AGREE,
+  type ArmsAgree,
+  type Mirrors,
+  type NoUnmodelledArm,
+  type Wire
+} from "./wire-conformance.types";
 
 /** The response body of an admin endpoint, unwrapped from its envelope. */
 type Data<Domain extends keyof TApi, Op extends keyof TApi[Domain]> = Wire<
   TApi[Domain][Op] extends { Response: infer R } ? (R extends { data: infer D } ? D : R) : never
 >;
-
-/** Wire fields the CLI type does not declare. */
-type Omitted<Cli, W> = Exclude<keyof W, keyof Cli>;
-
-/**
- * A CLI field with no counterpart on the wire — ALWAYS a defect, never a
- * deliberate choice: the CLI cannot receive a key the server does not send, so
- * anything here was renamed or removed upstream and now reads as `undefined`.
- */
-type NoInventedFields<Label extends string, Cli, W> = [Exclude<keyof Cli, keyof W>] extends [never]
-  ? true
-  : [Label, "declares a field the wire contract does not have:", Exclude<keyof Cli, keyof W>];
-
-/**
- * The CLI omits EXACTLY the wire fields named in `Declared`, no more and no
- * fewer. Both directions: a NEW wire field the CLI ignores fails until someone
- * mirrors it or writes its name here with a reason, and a declared omission
- * that no longer exists fails too, so the list cannot rot into names nobody can
- * explain.
- */
-type OmitsExactly<Label extends string, Cli, W, Declared> = [
-  Exclude<Omitted<Cli, W>, Declared>
-] extends [never]
-  ? [Exclude<Declared, Omitted<Cli, W>>] extends [never]
-    ? true
-    : [Label, "declares an omission that is not missing:", Exclude<Declared, Omitted<Cli, W>>]
-  : [Label, "silently omits a wire field:", Exclude<Omitted<Cli, W>, Declared>];
-
-/**
- * Every shared field carries a type the wire value satisfies. Assignability
- * rather than equality, in that direction on purpose: the CLI may hold a field
- * more LOOSELY than the contract (a published binary must not reject a value a
- * newer backend adds). It may never hold one more tightly — that is the shape
- * that reads a real response as the wrong type, and it is exactly how
- * `builder` went wrong.
- */
-type SharedFieldsMatch<Label extends string, Cli, W> =
-  Pick<W, Extract<keyof Cli, keyof W>> extends Pick<Cli, Extract<keyof Cli, keyof W>>
-    ? true
-    : [Label, "narrows or mistypes a field it shares with the wire contract"];
-
-/**
- * The three assertions every mirrored shape gets. `readonly`, because
- * {@link AGREES} is an `as const` tuple and a readonly tuple is not assignable
- * to a mutable one — without this every assertion fails for a reason unrelated
- * to the shapes it checks.
- */
-type Mirrors<Label extends string, Cli, W, Declared = never> = readonly [
-  NoInventedFields<Label, Cli, W>,
-  OmitsExactly<Label, Cli, W, Declared>,
-  SharedFieldsMatch<Label, Cli, W>
-];
-
-/** Satisfied by a `Mirrors<…>` tuple only when all three members are `true`. */
-const AGREES = [true, true, true] as const;
 
 // ============================================================
 // Cost safety
@@ -198,32 +137,10 @@ const _deployment: Mirrors<
 // ============================================================
 // Runner ticks
 //
-// Both are DISCRIMINATED UNIONS, so the field-set operators above would compare
-// the union's common keys and prove almost nothing. They are compared arm by
-// arm instead, keyed on `kind`.
-//
-// Every arm is also asserted INHABITED. `Extract<U, {kind: "x"}>` is silently
-// `never` when the union does not carry that arm, and a `never` on both sides
-// satisfies every structural assertion — so a missing arm would read as a
-// perfect match. That trap is not hypothetical: it made an earlier version of
-// the Vibe gate compare nothing at all.
+// Both responses are DISCRIMINATED UNIONS, so they are compared arm by arm with
+// `ArmsAgree` rather than as field sets, and closed with `NoUnmodelledArm`.
+// `wire-conformance.types.ts` carries why each of those is shaped as it is.
 // ============================================================
-
-type Inhabited<Label extends string, T> = [T] extends [never]
-  ? [Label, "resolves to never — the arm does not exist on one side"]
-  : true;
-
-type Arm<U, K extends string> = Extract<U, { kind: K }>;
-
-type ArmsAgree<Label extends string, Cli, W, K extends string> = readonly [
-  Inhabited<Label, Arm<Cli, K>>,
-  Inhabited<Label, Arm<W, K>>,
-  NoInventedFields<Label, Arm<Cli, K>, Arm<W, K>>,
-  OmitsExactly<Label, Arm<Cli, K>, Arm<W, K>, never>,
-  SharedFieldsMatch<Label, Arm<Cli, K>, Arm<W, K>>
-];
-
-const ARMS_AGREE = [true, true, true, true, true] as const;
 
 type WireBuildTick = Data<"AdminVibeBuildRunner", "Tick">;
 
@@ -263,23 +180,6 @@ const _buildTickCompensated: ArmsAgree<
   WireBuildTick,
   "dispatch_failed_compensated"
 > = ARMS_AGREE;
-
-/**
- * The union carries no arm the CLI has not modelled. The per-arm assertions
- * above cannot see a NEW `kind` — they only compare the arms they name — so
- * this is the one that fails when the backend grows a variant.
- */
-type NoUnmodelledArm<
-  Label extends string,
-  Cli extends { kind: string },
-  W extends { kind: string }
-> = [Exclude<W["kind"], Cli["kind"]>] extends [never]
-  ? true
-  : [
-      Label,
-      "the wire union carries a kind the CLI does not model:",
-      Exclude<W["kind"], Cli["kind"]>
-    ];
 
 const _buildTickComplete: NoUnmodelledArm<
   "AdminVibeBuildRunnerTickResponse",

@@ -22,12 +22,8 @@ import type {
   VibeDeploymentDisplacerDto,
   VibeDeploymentDto
 } from "./vibe-deployment-wire-types";
-import {
-  AGREES,
-  type Mirrors,
-  type SameMembers,
-  type VibeData
-} from "./vibe-wire-vocabulary.conformance";
+import { type SameMembers, type VibeData } from "./vibe-wire-vocabulary.conformance";
+import { AGREES, type Mirrors } from "./wire-conformance.types";
 
 type WireDeployment = VibeData<"GetDeployment">["deployment"];
 

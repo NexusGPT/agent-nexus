@@ -206,10 +206,12 @@ describe("an app with no Dockerfile", () => {
     ]);
   });
 
-  // The platform generates one, and a generated build copies the manifests and
-  // nothing else — so the install succeeds here and the server-side build does not.
-  it("warns that the generated build will not copy vendor/", () => {
-    expect(warningAbout(plan(noDockerfile), "vendor/")).toContain("generates one at build time");
+  // The generated build reads the manifest's own `file:` specs and copies each
+  // declared path before the install (`installLocalPaths` in
+  // @nexus/vibe-stack-detect), so there is nothing left for the customer to do
+  // and a warning telling them to write a Dockerfile would be wrong.
+  it("warns about nothing, because the generated build copies vendor/ itself", () => {
+    expect(plan(noDockerfile).warnings).toEqual([]);
   });
 
   it("still leaves the customer on `npm ci`", () => {

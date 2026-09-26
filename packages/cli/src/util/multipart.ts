@@ -1,5 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
+
+import { readUploadBlob, resolveUploadPath } from "./upload-file";
 
 /**
  * The form field every Public API v1 upload route reads its file from.
@@ -58,18 +59,10 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
  *   object, or when it would collide with the file part.
  */
 export function buildMultipartBody(filePath: string, fields: unknown): FormData {
-  const absolutePath = path.resolve(filePath);
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`File not found: ${absolutePath}`);
-  }
+  const absolutePath = resolveUploadPath(filePath);
 
   const form = new FormData();
-  form.append(
-    MULTIPART_FILE_FIELD,
-    new Blob([fs.readFileSync(absolutePath)]),
-    path.basename(absolutePath)
-  );
+  form.append(MULTIPART_FILE_FIELD, readUploadBlob(absolutePath), path.basename(absolutePath));
 
   // `--body` was not passed at all. That is not an error — the file is the
   // whole request. `null` IS an error, and is caught below: an explicit flag

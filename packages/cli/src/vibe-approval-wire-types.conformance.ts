@@ -24,12 +24,8 @@ import type {
   VibeApprovalRequestDto,
   VibeApprovalRequestStatus
 } from "./vibe-approval-wire-types";
-import {
-  AGREES,
-  type Mirrors,
-  type SameMembers,
-  type VibeData
-} from "./vibe-wire-vocabulary.conformance";
+import { type SameMembers, type VibeData } from "./vibe-wire-vocabulary.conformance";
+import { AGREES, type Mirrors } from "./wire-conformance.types";
 
 const _approvalRequest: Mirrors<
   "VibeApprovalRequestDto",

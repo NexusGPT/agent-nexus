@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
+import { createScanProgram } from "../util/scan-program";
+
 /**
  * WHICH `--json` DOCUMENTS ARE MISSING A FIELD THE SERVER SENT — DERIVED, NOT LISTED.
  *
@@ -361,15 +363,7 @@ export interface PrinterCallSite {
  */
 export function scanPrinterCallSites(root = defaultScanRoot()): PrinterCallSite[] {
   const fileNames = sourceFiles(root);
-  const program = ts.createProgram(fileNames, {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    skipLibCheck: true,
-    esModuleInterop: true,
-    noEmit: true
-  });
+  const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const sites: PrinterCallSite[] = [];
 

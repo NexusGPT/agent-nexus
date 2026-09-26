@@ -286,14 +286,28 @@ DEPLOYMENT_ID=$(jq -r '.id' "${DEPLOYMENT_JSON}")
 # It also removes a real race the flow ran with until now — ingestion is async,
 # and nothing previously stopped the question being asked before the document
 # was indexed. Placed last in the setup so every preceding call counts toward
-# ingestion: measured against staging 2026-09-20, the canary became retrievable
-# 13s after attach, well inside this 60s ceiling.
+# ingestion.
+#
+# THE BOUND IS DERIVED FROM THE RUN HISTORY, NOT CHOSEN. Re-measured over every
+# readable `CLI: E2E flows` run from 2026-09-21 (when this probe shipped) to
+# 2026-09-25 — 92 runs, 91 of which reached the canary:
+#
+#     min 5s · p50 22s · p90 23s · p95 24s · max 48s
+#     84 of 91 succeeded on the FIRST probe, 7 on the second.
+#
+# So 90s is ~1.9x the slowest ingestion this flow has ever observed, and the one
+# run that exhausted it (35718680712, 8 probes over 90s) never retrieved the
+# canary at all rather than arriving late — an outage, not a tight budget.
+# DO NOT tune this down toward the p50: the tail is what it is here for.
+#
 # Bounded by a DEADLINE, and the failure reports the elapsed time it measured
 # rather than a budget. An iteration count cannot honestly name a duration here:
-# each probe is a CLI process plus an HTTP round trip (~5s observed), so a
-# "20 probes, sleep 3" loop that reads as 60s actually runs for ~160s, and the
-# failure message would have understated its own wait by a factor of two and a
-# half. Measured, not asserted.
+# a probe is a CLI process plus an HTTP round trip, and the numbers above ARE
+# that cost — a first-probe success at p50 22s means one probe takes ~22s, not
+# the ~5s this comment claimed before it was measured. So a "20 probes, sleep 3"
+# loop that reads as 60s would really run for several minutes, and the failure
+# message would understate its own wait by a factor of four. Measured, not
+# asserted.
 stamp "confirming the canary is retrievable from the collection"
 RETRIEVABLE=0
 RETRIEVAL_BUDGET_SECONDS="${RETRIEVAL_BUDGET_SECONDS:-90}"
@@ -443,12 +457,31 @@ if [[ "${STRICT_RAG:-0}" == "1" ]]; then
       | if type == "string" then . else tostring end
     ] | join(" ") | ascii_downcase | contains("teal")
   ' "${SESSION_GET_JSON}" >/dev/null; then
+    # The class file reaches the CLASSIFIER; these lines reach the PERSON
+    # reading the log, and until now both classes printed the same sentence to
+    # them. They are opposite findings with opposite dispositions — one is the
+    # single class this flow declares probabilistic, the other is a defect a
+    # re-run cannot clear — so rendering them identically is exactly the
+    # "printing the same output for both" this flow's own header refuses.
+    # The assertion above is unchanged; only the diagnosis below is.
     if [[ "${TOOL_ROWS}" -ge 1 ]]; then
       record_failure_class canary-missing-after-tool-call "${ASK_USED}" "${TOOL_ROWS}"
+      echo "FAIL: STRICT_RAG=1 but canary token 'teal' missing from assistant reply" >&2
+      echo "  — and the agent DID SEARCH its collection: ${TOOL_ROWS} tool call(s) on" >&2
+      echo "  attempt ${ASK_USED}. Step 7 already proved the canary retrievable, so" >&2
+      echo "  retrieval or synthesis dropped it between the collection and the reply." >&2
+      echo "  This is NOT the probabilistic class, and a re-run will not clear it." >&2
     else
       record_failure_class tool-declined "${ASK_USED}" "${TOOL_ROWS}"
+      echo "FAIL: STRICT_RAG=1 but canary token 'teal' missing from assistant reply" >&2
+      echo "  — and the agent NEVER SEARCHED its collection: 0 tool calls across all" >&2
+      echo "  ${ASK_USED} attempt(s). Step 7 already proved the canary retrievable, so" >&2
+      echo "  the ingestion and indexing chain is sound and the model declined to use" >&2
+      echo "  it. Two readings stand: model tool-choice variance (the one class this" >&2
+      echo "  flow declares probabilistic), or a broken tool contract. Fix the contract" >&2
+      echo "  the model reads — raising the attempt count is what makes this check" >&2
+      echo "  decorative." >&2
     fi
-    echo "FAIL: STRICT_RAG=1 but canary token 'teal' missing from assistant reply" >&2
     exit 1
   fi
   stamp "PASS: assistant reply contains canary token (STRICT_RAG)"

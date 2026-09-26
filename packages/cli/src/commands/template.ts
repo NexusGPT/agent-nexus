@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import type {
@@ -13,7 +12,7 @@ import { Command } from "commander";
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import { printEnvelope, printList, printRecord, printSuccess } from "../output";
 import {
   asRequestBody,
@@ -24,6 +23,7 @@ import {
 } from "../util/body";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { withMemberCounts } from "../util/folder-membership";
+import { readUploadBlob } from "../util/upload-file";
 import {
   SKILLS_CREATE_DOCUMENT_TEMPLATE_CONTRACT,
   SKILLS_LIST_DOCUMENT_TEMPLATES_CONTRACT
@@ -280,19 +280,8 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(opts.file);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
-        const fileName = path.basename(absPath);
+        const blob = readUploadBlob(opts.file);
+        const fileName = path.basename(path.resolve(opts.file));
 
         await client.skills.uploadDocumentTemplateFile(id, blob, fileName);
         printSuccess("File uploaded to template.", {

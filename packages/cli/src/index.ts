@@ -588,6 +588,39 @@ if (isProcessEntryPoint()) {
     program.help();
   }
 
+  /**
+   * 🚨 THIS `.catch` IS NOT A SPARE COPY OF THE PER-LEAF ONE, AND DELETING
+   *    EITHER SIDE CHANGES BEHAVIOUR.
+   *
+   * Almost every command leaf ends its action with the identical arm
+   * `catch (err) { process.exitCode = handleError(err); }`, and the `.catch`
+   * below is that expression again. No figure is written here — leaves move, and
+   * a count in prose reads as checked long after it stopped being. Re-derive it
+   * from `packages/cli`, with a CONTROL that must come back LARGER:
+   *
+   *     /usr/bin/grep -rl 'process.exitCode = handleError(err);' src --include='*.command.ts' | wc -l
+   *     /usr/bin/grep -rl 'process.exitCode = handleError(err);' src --include='*.ts' | wc -l
+   *
+   * That over-counts a little: a handful of leaves special-case one error and
+   * then fall THROUGH to the same arm, so they match too.
+   *
+   * That reads as pure duplication and is not. A leaf that handles its own error
+   * RETURNS NORMALLY, so `.then()` runs and the auto-update path below runs with
+   * it. A leaf that lets the rejection out reaches this `.catch` instead, and
+   * `.then()` is skipped entirely.
+   *
+   * Measured, one leaf, one mutation, same primed version cache — removing
+   * `tracks list`'s own catch left the exit code (7), stdout and the `--json`
+   * document byte-identical and DROPPED the `Update available:` notice from
+   * stderr. With auto-update on, which is the default, it also drops the
+   * install `autoUpdate()` would have performed.
+   *
+   * So "collapse every leaf catch into this one" is not a de-duplication.
+   * It is a decision about whether a command that FAILED should still run the
+   * updater, and it is unmade — the current answer is yes, by accident of where
+   * the catch sits. A wrapper that catches INSIDE the action preserves today's
+   * behaviour; one that removes the boundary from the leaf does not.
+   */
   program
     .parseAsync(process.argv)
     .then(async () => {

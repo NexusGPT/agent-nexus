@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Command, type Option } from "commander";
 
+import { indexCommandTree } from "./command-tree-index";
 import { asDerivedCapture } from "./util/version-check";
 
 /**
@@ -1358,9 +1359,13 @@ function readOption(option: Option): CommandOption {
  * tree already found, WHICH live `Command` object does the shipped binary parse
  * with — so `--help` can be captured from that one instead of from a throwaway.
  *
- * 🚨 IT CAPTURES NO HELP. Building the index is a walk of `command.commands` and
+ * 🚨 IT CAPTURES NO HELP. Building the index is {@link indexCommandTree} and
  * nothing else, so it stays off the classification gate's bill; the capture
  * happens inside {@link CommandNode.help}'s getter, on the node that is asked.
+ *
+ * The walk itself is shared with `cli-surface.project.ts` and with
+ * `docs-help-matches-the-real-cli.test.ts`. It takes a program rather than
+ * building one precisely so that spec keeps its own — see that module's header.
  *
  * The import is DYNAMIC to route around a real cycle — `index.ts` imports the
  * registrars, the registrars reach this module, and this module now needs
@@ -1375,21 +1380,7 @@ let rootProgramIndex: Promise<ReadonlyMap<string, Command>> | undefined;
 
 async function indexRootProgram(): Promise<ReadonlyMap<string, Command>> {
   const { buildRootProgram, VERSION } = await import("./root-program");
-  const index = new Map<string, Command>();
-
-  const visit = (command: Command, prefix: readonly string[]): void => {
-    const path = [...prefix, command.name()];
-    index.set(path.join(" "), command);
-    for (const child of command.commands) {
-      if (child.name() !== "help") visit(child, path);
-    }
-  };
-
-  for (const root of buildRootProgram(VERSION).commands) {
-    if (root.name() !== "help") visit(root, []);
-  }
-
-  return index;
+  return indexCommandTree(buildRootProgram(VERSION));
 }
 
 /**

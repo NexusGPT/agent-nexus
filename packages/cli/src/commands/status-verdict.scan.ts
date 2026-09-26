@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
+import { createScanProgram } from "../util/scan-program";
+
 /**
  * WHICH CHECK-SHAPED VERBS PRINT A VERDICT AND EXIT 0 ANYWAY — DERIVED, NOT LISTED.
  *
@@ -495,15 +497,7 @@ function isExitPath(node: ts.Node, source: ts.SourceFile): boolean {
  */
 export function scanVerdictsWithoutExit(root = defaultScanRoot()): VerdictWithoutExit[] {
   const fileNames = sourceFiles(root);
-  const program = ts.createProgram(fileNames, {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    skipLibCheck: true,
-    esModuleInterop: true,
-    noEmit: true
-  });
+  const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const found: VerdictWithoutExit[] = [];
 
@@ -629,15 +623,7 @@ export function scanVerdictsWithoutExit(root = defaultScanRoot()): VerdictWithou
  */
 export function scanCheckVerbEmissions(root = defaultScanRoot()): string[] {
   const fileNames = sourceFiles(root);
-  const program = ts.createProgram(fileNames, {
-    target: ts.ScriptTarget.ES2020,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    skipLibCheck: true,
-    esModuleInterop: true,
-    noEmit: true
-  });
+  const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const emissions = new Set<string>();
 

@@ -1,13 +1,10 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import type { BatchRequestBody, CreateWorkflowBody, UpdateWorkflowBody } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand, enumOption } from "../contract-binding";
 import { dashboardUrlFor } from "../dashboard-url";
-import { handleError, refuse, reportFailure } from "../errors";
+import { handleError, reportFailure } from "../errors";
 import { judgeNodeTest, reportNodeTestRefusal } from "../node-test-verdict";
 import {
   color,
@@ -24,6 +21,7 @@ import { addPaginationOptions, getPaginationParams } from "../util/pagination";
 import { runFollow, shortTag } from "../util/run-follow";
 import { parseSampleConfig } from "../util/sample-config";
 import { buildTestNodeBody, buildTestWorkflowBody, parseInputFlag } from "../util/test-body";
+import { readUploadBlob } from "../util/upload-file";
 import {
   WORKFLOW_BATCH_EXECUTE_CONTRACT,
   WORKFLOW_LIST__PARAMS_STATUS,
@@ -851,18 +849,7 @@ Notes:
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(opts.file);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
+        const blob = readUploadBlob(opts.file);
 
         const result = await client.workflows.uploadIcon(id, blob);
         printSuccess("Workflow icon uploaded.", {

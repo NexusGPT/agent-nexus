@@ -25,6 +25,7 @@ import {
   DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS,
   downloadWithStallDeadline
 } from "../util/stall-deadline";
+import { readUploadBuffer, resolveUploadPath } from "../util/upload-file";
 import type { ZipEntry } from "../util/zip";
 import {
   AGENT_SKILL_CREATE_CONTRACT,
@@ -699,11 +700,8 @@ Notes:
 
 /** Read a user-supplied `.zip` and bounce it off the upload limit before the wire. */
 function readZipFile(filePath: string): Buffer {
-  const absolute = path.resolve(filePath);
-  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
-    throw new Error(`File not found: ${absolute}`);
-  }
-  const buffer = fs.readFileSync(absolute);
+  const absolute = resolveUploadPath(filePath);
+  const buffer = readUploadBuffer(absolute);
   if (buffer.length > SKILL_ZIP_LIMITS.maxUploadBytes) {
     throw new Error(
       `${absolute} is ${formatBytes(buffer.length)}, over the ` +

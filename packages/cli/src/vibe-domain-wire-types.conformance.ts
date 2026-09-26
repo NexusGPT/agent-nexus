@@ -28,12 +28,8 @@ import type {
   VibeAppDomainKind,
   VibeAppDomainStatus
 } from "./vibe-domain-wire-types";
-import {
-  AGREES,
-  type Mirrors,
-  type SameMembers,
-  type VibeData
-} from "./vibe-wire-vocabulary.conformance";
+import { type SameMembers, type VibeData } from "./vibe-wire-vocabulary.conformance";
+import { AGREES, type Mirrors } from "./wire-conformance.types";
 
 type WireDomain = VibeData<"ListAppDomains">["domains"][number];
 

@@ -1,14 +1,14 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import { Command } from "commander";
 
 import { createClient } from "../client";
 import { bindCommand } from "../contract-binding";
-import { handleError, refuse } from "../errors";
+import { handleError } from "../errors";
 import { printList, printRecord, printSuccess, printWarning } from "../output";
 import { confirmable, confirmDestructive } from "../util/confirm";
 import { addPaginationOptions, getPaginationParams } from "../util/pagination";
+import { readUploadBlob } from "../util/upload-file";
 import {
   ASSET_DELETE_CONTRACT,
   ASSET_GET_CONTRACT,
@@ -162,19 +162,8 @@ Notes:
     .action(async (filePath: string) => {
       try {
         const client = createClient(program.optsWithGlobals());
-        const absPath = path.resolve(filePath);
-
-        if (!fs.existsSync(absPath)) {
-          process.exitCode = refuse(
-            `File not found: ${absPath}`,
-            "Pass a path that exists, relative to the current directory or absolute."
-          );
-          return;
-        }
-
-        const buffer = fs.readFileSync(absPath);
-        const blob = new Blob([buffer]);
-        const fileName = path.basename(absPath);
+        const blob = readUploadBlob(filePath);
+        const fileName = path.basename(path.resolve(filePath));
 
         const result = await client.assets.upload(blob, fileName);
         printSuccess("Asset uploaded.", {

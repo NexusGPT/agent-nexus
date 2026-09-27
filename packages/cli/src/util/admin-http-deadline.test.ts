@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { parseTimeoutSeconds } from "../client";
+import { EXIT_CODES } from "../exit-codes";
+import { AdminCliError } from "./admin-errors";
 import { adminRequest } from "./admin-http";
 import { resolveAdminOpts } from "./admin-opts";
 
@@ -90,5 +92,75 @@ describe("adminRequest gives up on a peer that never answers", () => {
     // fail fast: an auth refusal or a connection error would return in
     // single-digit milliseconds and satisfy the rejection above.
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+  });
+
+  /**
+   * THE WIRING, NOT THE FACTORY.
+   *
+   * 🔴 `exit-code-taxonomy.test.ts` proves `AdminCliError.timedOut` CARRIES 8.
+   * It cannot prove `adminRequest` REACHES it — that arm passes unchanged with
+   * this catch still calling `AdminCliError.network`, which is the state this
+   * repair was made from. Same distinction `json-one-document.scan.ts`'s header
+   * records: a gate can prove an installer works and prove nothing about it being
+   * wired.
+   *
+   * So this drives the real transport against a real listener and reads the exit
+   * code off the real error.
+   */
+  it("files the deadline as timed-out, so a script does not re-send a write that may have landed", async () => {
+    const created = createServer((socket) => {
+      sockets.push(socket);
+      // Accepted, and answered never.
+    });
+    server = created;
+    await new Promise<void>((resolve) => created.listen(0, "127.0.0.1", () => resolve()));
+    const address = created.address();
+    if (address === null || typeof address === "string") throw new Error("no TCP address");
+
+    const thrown = await adminRequest(
+      { adminToken: "jwt-x", baseUrl: `http://127.0.0.1:${address.port}`, timeout: 300 },
+      { method: "PATCH", path: "/api/admin/probe", body: { status: "SUSPENDED" } }
+    ).then(
+      () => null,
+      (err: unknown) => err
+    );
+
+    expect(thrown).toBeInstanceOf(AdminCliError);
+    expect((thrown as AdminCliError).exitCode).toBe(EXIT_CODES["timed-out"]);
+  });
+
+  it("CONTROL — and NOT connection-failed, the retryable number it used to take", async () => {
+    const created = createServer((socket) => {
+      sockets.push(socket);
+    });
+    server = created;
+    await new Promise<void>((resolve) => created.listen(0, "127.0.0.1", () => resolve()));
+    const address = created.address();
+    if (address === null || typeof address === "string") throw new Error("no TCP address");
+
+    const thrown = await adminRequest(
+      { adminToken: "jwt-x", baseUrl: `http://127.0.0.1:${address.port}`, timeout: 300 },
+      { method: "PATCH", path: "/api/admin/probe", body: { status: "SUSPENDED" } }
+    ).then(
+      () => null,
+      (err: unknown) => err
+    );
+
+    expect((thrown as AdminCliError).exitCode).not.toBe(EXIT_CODES["connection-failed"]);
+  });
+
+  it("CONTROL — an unreachable host is still connection-failed, so the branch above discriminates", async () => {
+    // Port 1 on loopback: nothing listens, so the connect is refused outright.
+    // Without this the two arms above are satisfied by a catch that files
+    // EVERYTHING as a deadline.
+    const thrown = await adminRequest(
+      { adminToken: "jwt-x", baseUrl: "http://127.0.0.1:1", timeout: 5_000 },
+      { method: "PATCH", path: "/api/admin/probe", body: { status: "SUSPENDED" } }
+    ).then(
+      () => null,
+      (err: unknown) => err
+    );
+
+    expect((thrown as AdminCliError).exitCode).toBe(EXIT_CODES["connection-failed"]);
   });
 });

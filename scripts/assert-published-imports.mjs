@@ -80,6 +80,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { builtinModules } from "node:module";
 
+import { stripComments } from "./_lib/strip-comments.mjs";
+
 /**
  * File extensions whose contents a consumer resolves through.
  *
@@ -92,102 +94,13 @@ const CODE_EXTENSIONS = [".d.ts", ".d.mts", ".d.cts", ".ts", ".mts", ".cts", ".j
 const isCode = (file) => CODE_EXTENSIONS.some((ext) => file.endsWith(ext));
 
 /**
- * `text` with every comment replaced by a space of the same shape.
- *
- * Not cosmetic, and not optional. Measured against the SDK's own 112
- * declarations before this existed: two of the eight things the extractor
- * reported were English — a JSDoc `@example` line reading
- * `import { NexusClient } from "@agent-nexus/sdk"`, and the sentence
- * `... (processing the request) from "the API was unreachable".` A gate that
- * reds on a doc comment is one somebody deletes.
- *
- * A `///` triple-slash reference IS a comment and IS resolved, so it is read
- * out before the strip rather than after.
- *
- * The scanner tracks strings and regex literals as well as comments, because a
- * `//` inside `"https://…"` is not a comment and a `/` that begins a regex is
- * not a division. Mis-reading either direction would drop real code, so the
- * spec beside this pins both.
+ * Re-exported so this file stays the one import site for its own spec, which
+ * imports `stripComments` from here. The implementation moved to
+ * `scripts/_lib/strip-comments.mjs` when a SECOND gate needed it — the compiled
+ * backend's specifier gate — because two copies of one subtle state machine
+ * drift, and the header there carries the reasoning for both callers.
  */
-export function stripComments(text) {
-  let out = "";
-  let i = 0;
-  // The last character that decides whether a `/` divides or opens a regex.
-  let lastSignificant = "";
-  const closesValue = (ch) => /[)\]}\w$'"`]/.test(ch);
-
-  while (i < text.length) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (ch === "/" && next === "/") {
-      while (i < text.length && text[i] !== "\n") i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
-        if (text[i] === "\n") out += "\n";
-        i += 1;
-      }
-      i += 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      out += ch;
-      i += 1;
-      while (i < text.length) {
-        if (text[i] === "\\") {
-          out += text.slice(i, i + 2);
-          i += 2;
-          continue;
-        }
-        out += text[i];
-        if (text[i] === quote) {
-          i += 1;
-          break;
-        }
-        i += 1;
-      }
-      lastSignificant = quote;
-      continue;
-    }
-    if (ch === "/" && !closesValue(lastSignificant)) {
-      // A regex literal. Copy it whole so its contents cannot be read as code.
-      out += ch;
-      i += 1;
-      let inClass = false;
-      while (i < text.length) {
-        if (text[i] === "\\") {
-          out += text.slice(i, i + 2);
-          i += 2;
-          continue;
-        }
-        if (text[i] === "[") inClass = true;
-        else if (text[i] === "]") inClass = false;
-        out += text[i];
-        if (text[i] === "/" && !inClass) {
-          i += 1;
-          break;
-        }
-        if (text[i] === "\n") {
-          // Not a regex after all — an unterminated one cannot span a line.
-          i += 1;
-          break;
-        }
-        i += 1;
-      }
-      lastSignificant = "/";
-      continue;
-    }
-
-    out += ch;
-    if (!/\s/.test(ch)) lastSignificant = ch;
-    i += 1;
-  }
-  return out;
-}
+export { stripComments };
 
 /**
  * Every module specifier in `text`, in the five shapes a consumer resolves.

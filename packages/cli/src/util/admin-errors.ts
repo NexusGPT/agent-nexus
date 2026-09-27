@@ -59,6 +59,8 @@ export class AdminCliError extends Error {
    * ⚠️ THIS EXITED 1 AND NOW EXITS 7. A network failure is retryable and the
    * generic failure is not knowably anything, so a caller backing off on 1 was
    * backing off on every unexpected admin error too.
+   *
+   * 🔴 NOT THE DEADLINE CASE — {@link timedOut} is, and it exits 8.
    */
   static network(reason: string): AdminCliError {
     return new AdminCliError(
@@ -66,6 +68,25 @@ export class AdminCliError extends Error {
       null,
       null,
       EXIT_CODES["connection-failed"]
+    );
+  }
+
+  /**
+   * 🚨 THE CLI STOPPED WAITING — 8, WHERE THIS USED TO GO OUT AS {@link network}'s
+   * 7. A deadline is not an unreachable host: 7 says the request never arrived and
+   * is free to re-send, and every non-GET through `adminRequest` is a WRITE that
+   * may have landed. `exit-codes.ts` owns both meanings and the resource tree
+   * already exits 8 here, so this is the admin tree agreeing rather than a new
+   * rule. The hint says LOOK rather than proposing a retry.
+   */
+  static timedOut(reason: string): AdminCliError {
+    return new AdminCliError(
+      `The Nexus admin API did not answer in time: ${reason}`,
+      null,
+      null,
+      EXIT_CODES["timed-out"],
+      "The request may still have been applied. Read the current state back " +
+        "before retrying a write, and raise the budget with --timeout <seconds>."
     );
   }
 

@@ -11,6 +11,7 @@ import { bindCommand } from "../contract-binding";
 import { failure, handleError, refuse } from "../errors";
 import { EXIT_CODES } from "../exit-codes";
 import { color, isJsonMode, printSuccess } from "../output";
+import { parseWorkspaceSpec } from "../util/workspace-spec";
 import { WORKSPACE_FOLDER_ARCHIVE_CONTRACT } from "./workspace.contract.generated";
 import { sharedWorkspaceId } from "./workspace-mount/shared-workspace-id";
 
@@ -42,16 +43,13 @@ export function unpackCommand(
   return { file: "unzip", args: ["-o", "-q", zip, "-d", dir] };
 }
 
-/** `<slug>` or `<slug>:<folder>` — the workspace and the folder inside it. */
+/**
+ * `<slug>` or `<slug>:<folder>` — the workspace and the folder inside it this
+ * pull READS FROM. `push`'s `parseDestination` is the same parse naming the same
+ * string the `prefix` it writes under; `util/workspace-spec.ts` owns it.
+ */
 export function parseSource(spec: string): { slug: string; folder: string } {
-  const colon = spec.indexOf(":");
-  if (colon === -1) return { slug: spec, folder: "" };
-  const folder = spec
-    .slice(colon + 1)
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .join("/");
-  return { slug: spec.slice(0, colon), folder };
+  return parseWorkspaceSpec(spec);
 }
 
 function joinRemote(folder: string, name: string): string {

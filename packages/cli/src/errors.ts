@@ -85,6 +85,15 @@ const CLI_CODES = {
   /** No usable credential, or the credential was rejected. Run `auth login`. */
   NOT_AUTHENTICATED: "CLI_NOT_AUTHENTICATED",
   /**
+   * `NEXUS_ENV` names an environment this CLI has no hosts for. Separate from
+   * {@link CLI_CODES.INVALID_ARGUMENTS} because nothing about the invocation is
+   * wrong — a script told its ARGUMENTS were refused inspects its argv, and the
+   * offending value is in the environment. `config.ts` spells it literally, as
+   * it already does `CLI_NOT_AUTHENTICATED`: importing from here would close a
+   * cycle through `output.ts`.
+   */
+  UNKNOWN_NEXUS_ENV: "CLI_UNKNOWN_NEXUS_ENV",
+  /**
    * The request COMPLETED and the answer reports a failure carrying no API code
    * of its own — a non-2xx from a raw `fetch`, or a 2xx whose body says it
    * failed. Distinct from {@link CLI_CODES.CONNECTION_FAILED}, which is

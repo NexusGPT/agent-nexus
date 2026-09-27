@@ -330,6 +330,22 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
     );
   });
 
+  it("an admin deadline exits timed-out — the same number as the resource tree", () => {
+    // The admin tree used to route a deadline through `network`, so it exited 7
+    // while the resource tree exited 8 for the same fact. Every non-GET through
+    // `adminRequest` is a WRITE, and 7 tells a script the request never arrived.
+    const admin = handleAdminError(AdminCliError.timedOut("no response within 30000 ms"));
+    const resource = handleError(new NexusTimeoutError(30_000));
+    expect(admin).toBe(resource);
+    expect(admin).toBe(EXIT_CODES["timed-out"]);
+  });
+
+  it("CONTROL — and it is NOT connection-failed, which is the number it used to take", () => {
+    expect(handleAdminError(AdminCliError.timedOut("no response within 30000 ms"))).not.toBe(
+      EXIT_CODES["connection-failed"]
+    );
+  });
+
   it("a 403 from the admin API exits permission-denied — the same number as the resource tree", () => {
     const admin = handleAdminError(AdminCliError.fromStatus(403, "nope"));
     const resource = handleError(new NexusApiError("FORBIDDEN", "nope", 403));
@@ -375,8 +391,6 @@ const EXPECTED_BARE_ONE_SITES: readonly string[] = [
   "commands/auth/switch.command.ts",
   "commands/auth/switch.here.ts",
   "commands/auth/switch.session.ts",
-  "commands/channel.ts",
-  "commands/channel.ts",
   "commands/skills.ts"
 ];
 
@@ -384,8 +398,8 @@ describe("no exit code is written as a number outside the taxonomy module", () =
   it("walks a real population of production sources — an empty walk is not compliance", () => {
     // The three cases below all assert an EMPTY offenders list, and a walk that
     // returned nothing produces exactly that. The `EXPECTED_BARE_ONE_SITES`
-    // equality catches a TOTAL collapse, and a partial one in any of those eight
-    // files, but a walk that quietly stopped descending into some OTHER subtree
+    // equality catches a TOTAL collapse, and a partial one in any file that list
+    // names, but a walk that quietly stopped descending into some OTHER subtree
     // passes every assertion here while having read none of it.
     //
     // 214 files today; a hundred is the structural claim — this scans the CLI's
@@ -421,9 +435,14 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     // never reach `handleError`, so each needs a category decided by reading
     // what it failed at — a separate change. The exemption used to be a prose
     // figure ("15 SITES SPELL …") beside a filter that let ANY `= 1` through.
-    // The figure was wrong the day it was written — the scan finds 8 — and a
-    // wrong count beside a blanket filter is the shape this whole file exists
-    // to remove: a number nothing derives, guarding a hole nothing bounds.
+    // The figure was wrong the day it was written, and a wrong count beside a
+    // blanket filter is the shape this whole file exists to remove: a number
+    // nothing derives, guarding a hole nothing bounds. So no cardinal is written
+    // here either — the list below IS the count, and it moves as sites drain.
+    //
+    // `commands/channel.ts` has drained: `test-send --wait` exited a bare `1` on
+    // a failed or undelivered delivery and now exits `outcome-not-reached`, via
+    // `commands/channel/template-test-send.exit-category.ts`.
     //
     // Now the hole is enumerated. A NEW `= 1` fails here by file name, and a
     // site that gets its category fails the staleness case below, so the list

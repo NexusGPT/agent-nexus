@@ -1,10 +1,9 @@
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-import { createScanProgram } from "../util/scan-program";
+import { createScanProgram, scanSourceFiles } from "../util/scan-program";
 
 /**
  * WHICH CHECK-SHAPED VERBS PRINT A VERDICT AND EXIT 0 ANYWAY — DERIVED, NOT LISTED.
@@ -218,17 +217,6 @@ export function verdictKey(finding: {
 /** `src/` of this package, resolved from THIS file so the cwd cannot change it. */
 export function defaultScanRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-}
-
-function sourceFiles(dir: string): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(full);
-    if (!entry.name.endsWith(".ts")) return [];
-    if (entry.name.endsWith(".test.ts")) return [];
-    if (entry.name.endsWith(".d.ts")) return [];
-    return [full];
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,7 +484,7 @@ function isExitPath(node: ts.Node, source: ts.SourceFile): boolean {
  * is how the detector itself is proven rather than assumed.
  */
 export function scanVerdictsWithoutExit(root = defaultScanRoot()): VerdictWithoutExit[] {
-  const fileNames = sourceFiles(root);
+  const fileNames = scanSourceFiles(root);
   const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const found: VerdictWithoutExit[] = [];
@@ -622,7 +610,7 @@ export function scanVerdictsWithoutExit(root = defaultScanRoot()): VerdictWithou
  * a zero here means the walk broke, never that the tree got clean.
  */
 export function scanCheckVerbEmissions(root = defaultScanRoot()): string[] {
-  const fileNames = sourceFiles(root);
+  const fileNames = scanSourceFiles(root);
   const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const emissions = new Set<string>();

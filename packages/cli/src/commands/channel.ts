@@ -19,7 +19,14 @@ import {
 } from "./channel.contract.generated";
 import { templateVariablesFromJson } from "./channel/template.variables-from-json";
 import { warnIfHighVariableDensity } from "./channel/template.warn-variable-density";
-import type { TemplateApprovalRow } from "./channel/template-approval.read-verdict";
+import {
+  applyApprovalVerdictExitCode,
+  isApprovalRejected
+} from "./channel/template-approval.exit-category";
+import {
+  isApprovalTerminal,
+  type TemplateApprovalRow
+} from "./channel/template-approval.read-verdict";
 import { awaitApprovalVerdictAfterCreate } from "./channel/template-create.await-verdict";
 import { createApprovalDocument } from "./channel/template-create.document";
 import { refuseBadTemplateCreateOptions } from "./channel/template-create.refuse-bad-options";
@@ -34,10 +41,12 @@ import { renderSubmitApprovalVerdict } from "./channel/template-submit-approval.
 import {
   awaitDeliveryOutcome,
   type DeliveryOutcome,
-  isDeliveryFailed
+  isDeliveryTerminal
 } from "./channel/template-test-send.await-delivery";
 import { renderDeliveryOutcome } from "./channel/template-test-send.delivery.render";
 import { testSendDocumentFields } from "./channel/template-test-send.document";
+import { applyDeliveryVerdictExitCode } from "./channel/template-test-send.exit-category";
+import { applyWaitExitCode } from "./channel/template-wait.exit-category";
 
 /**
  * Emit the document for a resource that was ALREADY CREATED, then re-throw.
@@ -727,6 +736,17 @@ Notes:
   verdict is reported as pending and the command exits 0. Read the real answer
   from "nexus channel whatsapp-template approvals".
 
+  A REJECTION EXITS NON-ZERO; a timeout still exits 0. Meta answering no is a
+  verdict and this command reports it as one. The window closing with no answer
+  is not a verdict and never becomes one. "submit-approval --wait" applies the
+  identical REJECTION rule, so the same refusal gives the same status whichever
+  verb filed it — but its timeout exits NON-ZERO, because --wait is a flag you
+  asked for and this 30-second poll is not.
+
+  READ .wait, NOT ONLY THE EXIT CODE. The approval object in the --json document
+  carries wait, one of not-requested / resolved / timed-out, beside the status.
+  Here it is never not-requested: --submit always polls.
+
   --category IS PERMANENT AND IT IS A BILLING DECISION. UTILITY, MARKETING and
   AUTHENTICATION are priced differently by Meta and reviewed differently;
   a MARKETING message filed as UTILITY is a rejection. It cannot be changed
@@ -818,7 +838,11 @@ Notes:
               data.id
             );
             if (!isJsonMode()) renderCreateApprovalVerdict(verdict);
-            if (verdict.status === "rejected") process.exitCode = 1;
+            // ONE RULE, SHARED WITH `submit-approval --wait`, and it used to be
+            // two: this site said `1` and its sibling said nothing at all, for
+            // the identical answer from Meta. `template-approval.exit-category.ts`
+            // owns the category and the reasoning for it.
+            applyApprovalVerdictExitCode(verdict.status);
 
             approval = createApprovalDocument(approvalData, verdict);
           } catch (submitError) {
@@ -950,9 +974,23 @@ Notes:
   bill differently and are reviewed against different rules; picking the wrong
   one is a rejection, and it cannot be corrected on this template afterwards.
 
-  --wait POLLS FOR 2 MINUTES AND THEN GIVES UP, exiting 0 with the status
-  still pending. That is a timeout, not a verdict — Meta commonly takes
-  longer. Do not treat a successful exit as approval.
+  --wait POLLS FOR 2 MINUTES AND THEN GIVES UP, AND GIVING UP EXITS NON-ZERO.
+  It used to exit 0 with the status still pending, which told a script the
+  template was fine. Meta commonly takes longer than this window, so a timeout
+  is the ordinary outcome and not an error — it says the CLI stopped asking,
+  never that Meta refused. Read the real answer from "nexus channel
+  whatsapp-template approvals".
+
+  A REJECTION ALSO EXITS NON-ZERO, UNDER A DIFFERENT CATEGORY, and the two
+  numbers are how a script tells them apart. "create --submit" applies the
+  identical rejection rule, so the same refusal gives the same status whichever
+  verb filed the template; its own timeout still exits 0, because its poll is
+  unconditional rather than a flag you asked for.
+
+  READ .wait, NOT ONLY THE EXIT CODE. The --json document carries wait, one of
+  not-requested / resolved / timed-out, beside the status — so a caller that
+  wants to stop on a refusal and carry on through a timeout tests that key
+  rather than wrapping the command in "|| true", which swallows both.
   --name is the name filed with Meta for this approval; --template-id is the
   Twilio content SID (HX...) of the template it reviews.`
     )
@@ -996,6 +1034,16 @@ Notes:
             );
 
             if (!isJsonMode()) renderSubmitApprovalVerdict(verdict);
+            // THE SAME CALL `create --submit` MAKES, DELIBERATELY IDENTICAL.
+            // This branch used to render the rejection and exit 0, so which verb
+            // filed the template decided whether a `set -e` script stopped.
+            applyApprovalVerdictExitCode(verdict.status);
+            // AND THE TIMEOUT, WHICH `create --submit` DOES NOT MAKE — this one
+            // exited 0, which told a script Meta had approved.
+            // `template-wait.exit-category.ts` owns why, and why `settled` is
+            // read off the STATUS: it is the field the document derives `wait`
+            // from, so the number and the record cannot disagree.
+            applyWaitExitCode({ waited: true, settled: isApprovalTerminal(verdict.status) });
           } catch (pollError) {
             // The approval WAS submitted. Its sid must not die with the poll.
             emitPartialThenRethrow(data, "approval-poll", pollError);
@@ -1007,9 +1055,24 @@ Notes:
           return;
         }
 
-        console.log(
-          `\nNext: Attach to deployment: ${color.dim("nexus deployment template attach <depId> --template-id ...")}`
-        );
+        // A REJECTED TEMPLATE'S NEXT STEP IS NOT "ATTACH IT". This line printed
+        // unconditionally, so the command rendered Meta's refusal and then
+        // offered the one action the refusal rules out — attaching a template
+        // that can never be sent. Its body and --category are fixed at creation
+        // (both Notes above say so), so the remedy is a corrected replacement,
+        // not another call against this template.
+        if (isApprovalRejected(verdict?.status)) {
+          console.log(
+            `\nNext: REJECTED — this template cannot be attached or sent, and its body and` +
+              ` --category cannot be changed. File a corrected replacement:\n  ${color.dim(
+                "nexus channel whatsapp-template create ... --submit --category <category>"
+              )}`
+          );
+        } else {
+          console.log(
+            `\nNext: Attach to deployment: ${color.dim("nexus deployment template attach <depId> --template-id ...")}`
+          );
+        }
       } catch (err) {
         process.exitCode = handleError(err);
       }
@@ -1047,6 +1110,16 @@ Notes:
   undelivered. Without it the command returns as soon as Twilio accepts the
   message — "queued" is not "delivered", and a delivery failure is invisible.
   Check later with the messageSid it prints.
+
+  GIVING UP AFTER THOSE 2 MINUTES ALSO EXITS NON-ZERO NOW, under a category of
+  its own. It used to exit 0 with the message still in flight, which read as
+  delivered. A timeout is not a failure — the message is still moving and the
+  messageSid above is how you ask again — but it is not a delivery either.
+
+  READ .wait, NOT ONLY THE EXIT CODE. The --json document carries wait, one of
+  not-requested / resolved / timed-out, beside the status. A failed delivery is
+  resolved with a failed status; a timeout is timed-out. Those are different
+  numbers, so a caller can stop on one and carry on through the other.
   An unapproved template is refused by Meta at send time, not here.
 
   THERE IS NO WAY TO PREVIEW THE RENDERED TEMPLATE — NOT HERE AND NOT ANYWHERE
@@ -1116,9 +1189,15 @@ Notes:
             );
 
             if (!isJsonMode()) renderDeliveryOutcome(delivery);
-            if (delivery.observedTerminal && isDeliveryFailed(delivery.status)) {
-              process.exitCode = 1;
-            }
+            // A BILLED, UNDELIVERED SEND IS `outcome-not-reached`, NOT A BARE
+            // `1` — the last such site in this file.
+            // `template-test-send.exit-category.ts` owns the category, and owns
+            // why the old `observedTerminal &&` guard was a hole.
+            applyDeliveryVerdictExitCode(delivery.status);
+            // And the timeout, from the same rule `submit-approval --wait` uses:
+            // giving up with the message still moving exited 0, which read as
+            // delivered.
+            applyWaitExitCode({ waited: true, settled: isDeliveryTerminal(delivery.status) });
           } catch (pollError) {
             // The message WAS sent, and it was billed. Its sid survives the poll.
             emitPartialThenRethrow(data, "delivery-poll", pollError);

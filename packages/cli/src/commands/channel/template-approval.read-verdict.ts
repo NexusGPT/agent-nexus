@@ -1,12 +1,10 @@
-import type { PollReading, PollWindow } from "../../util/poll-for-terminal-state";
+import type { PollReading } from "../../util/poll-for-terminal-state";
 
 /**
  * One row of `listTemplateApprovals`, as the printers and the polls read it.
  *
- * The SDK types this list loosely, and three call sites reached into it through
- * `(a: any)` — so a renamed field would have compiled, printed an empty column
- * and matched nothing, in silence. Naming the shape once puts the read under the
- * compiler at every one of them.
+ * Three call sites reached into this loosely-typed list through `(a: any)`, so a
+ * renamed field would have compiled and matched nothing, in silence.
  */
 export interface TemplateApprovalRow {
   sid?: string;
@@ -18,61 +16,99 @@ export interface TemplateApprovalRow {
   };
 }
 
+/**
+ * What a poll must DO about a status it has just read.
+ *
+ * 🔴 THREE STATES, BECAUSE TWO CANNOT SAY "I DO NOT KNOW THIS ONE". A boolean
+ * files an unrecognised status under either "stop" or "keep asking", and each is
+ * an assertion the CLI has no grounds for. From outside the process the two
+ * failures are identical: a command that exited over a template nobody read.
+ */
+export type ApprovalDisposition = "settled" | "awaiting" | "unrecognised";
+
+/**
+ * Twilio's vocabulary, partitioned. Written down three times in this repository
+ * already and cited rather than re-derived a fourth: the api client's
+ * `twilio-template-approvals.api.ts` ("unsubmitted | received | pending |
+ * approved | rejected"), the console's `whatsapp-template-view.mapper.ts`, and
+ * `approval-buckets.ts`, which buckets `received` WITH `pending` as
+ * `awaitingMeta` behind a test asserting its buckets partition the list.
+ *
+ * 🔴 `received` DECIDES THE SHAPE OF THIS FILE. It is a wait state — Twilio holds
+ * the submission and Meta has not ruled — and it is neither `pending` nor
+ * `unsubmitted`. So a predicate spelled "not pending and not unsubmitted" calls
+ * it a verdict TODAY, not one day.
+ */
+const SETTLED_STATUSES: readonly string[] = ["approved", "rejected"];
+const AWAITING_STATUSES: readonly string[] = ["unsubmitted", "received", "pending"];
+
 /** What one approval probe managed to learn about a template. */
 export interface ApprovalVerdict {
   readonly status: string;
   /** Meta's stated reason. Only ever populated alongside a `rejected` status. */
   readonly rejectionReason: string | undefined;
+  /**
+   * How {@link classifyApprovalStatus} read `status`.
+   *
+   * A reading's `terminal` flag collapses `awaiting` and `unrecognised` into one
+   * `false`, and those want different words: "still pending" against "Meta
+   * reports a status this CLI does not know". No renderer branches on it yet —
+   * it is here so the one that does reads this rather than starting a new list.
+   */
+  readonly disposition: ApprovalDisposition;
 }
 
 /**
- * How long `create --submit` keeps asking, and how often.
+ * Read one status into what the poll should do about it.
  *
- * ⚠️ The help text on `create` promises "30 SECONDS ONLY". That is the budget
- * below and it is NOT a wall-clock guarantee — see the floor-not-ceiling warning
- * in `poll-for-terminal-state.ts`.
+ * ⚠️ CASE-SENSITIVE ON PURPOSE, WHERE THE BACKEND'S MAPPER IS NOT. Copying its
+ * lower-casing here would be a regression: `template-create.verdict.render.ts`
+ * tests `status === "rejected"` and prints an approval line for every OTHER
+ * settled status, so recognising `"Rejected"` as settled would route a rejection
+ * straight into it. Left alone, a mixed-case status is `unrecognised`: the poll
+ * keeps asking and the raw string still reaches `--json`.
  */
-export const APPROVAL_POLL_AFTER_CREATE: PollWindow = {
-  budgetMs: 30_000,
-  intervalMs: 5_000
-};
-
-/** How long `submit-approval --wait` keeps asking, and how often. */
-export const APPROVAL_POLL_WHEN_WAITING: PollWindow = {
-  budgetMs: 120_000,
-  intervalMs: 5_000
-};
-
-/**
- * `create --submit` stops here: Meta has said yes or no.
- *
- * 🔴 THIS DISAGREES WITH {@link isApprovalNoLongerPending} BELOW, AND THE
- * DISAGREEMENT IS INHERITED, NOT DESIGNED. The two commands poll the same list
- * for the same template and stop on different sets, so a status that is neither
- * `pending`/`unsubmitted` nor `approved`/`rejected` ends one poll and not the
- * other. Naming both predicates is what makes that visible; reconciling them
- * changes what an operator is told and is not this split's call to make.
- */
-export function isApprovalDecided(status: string): boolean {
-  return status === "approved" || status === "rejected";
+export function classifyApprovalStatus(status: string): ApprovalDisposition {
+  if (SETTLED_STATUSES.includes(status)) return "settled";
+  if (AWAITING_STATUSES.includes(status)) return "awaiting";
+  return "unrecognised";
 }
 
-/** `submit-approval --wait` stops here: anything that is not still waiting. */
-export function isApprovalNoLongerPending(status: string): boolean {
-  return status !== "pending" && status !== "unsubmitted";
+/**
+ * Stop polling: Meta has ruled. THE ONE TERMINAL PREDICATE — both approval polls
+ * reach it through {@link readApprovalVerdict} and neither can pass a different
+ * one, so they can no longer disagree about one template on one list.
+ *
+ * 🔴 AN UNRECOGNISED STATUS IS NOT TERMINAL, AND THAT IS THE ONLY DECISION THIS
+ * FUNCTION MAKES. Two contracts already forbid the other direction:
+ * `CreateApprovalOutcome.decided` promises "Meta answered" and
+ * `SubmitApprovalOutcome.observedTerminal` promises "a probe SAW a settled
+ * status". Worse, `template-create.verdict.render.ts` turns any decided status
+ * that is not `rejected` into a line saying Meta approved the template — so
+ * calling an unknown status terminal prints an approval Meta never gave. Polling
+ * too long costs time; the other direction costs a wrong verdict, and only one
+ * of the two is recoverable.
+ *
+ * The cost of this direction: a status Meta introduces that IS final polls to
+ * the budget and reports as a timeout. It still reaches `--json`, with
+ * {@link ApprovalVerdict.disposition} saying which of the three it was.
+ */
+export function isApprovalTerminal(status: string): boolean {
+  return classifyApprovalStatus(status) === "settled";
 }
 
 /**
  * Find this template's approval row in a `listTemplateApprovals` payload and say
  * what it reports, or `undefined` when the payload carries no status for it yet.
+ * The payload is a row or an array of them depending on how many exist.
  *
- * The payload is either a row or an array of them depending on how many exist,
- * which is why the normalisation is here rather than repeated at each caller.
+ * The terminal predicate is NOT a parameter. It used to be, and that parameter
+ * was the mechanism by which the two polls disagreed — each passed its own.
+ * Fixing the call makes the convergence structural: nothing is left to differ on.
  */
 export function readApprovalVerdict(
   approvals: unknown,
-  templateId: string,
-  isTerminal: (status: string) => boolean
+  templateId: string
 ): PollReading<ApprovalVerdict> | undefined {
   const rows: TemplateApprovalRow[] = Array.isArray(approvals)
     ? (approvals as TemplateApprovalRow[])
@@ -85,8 +121,9 @@ export function readApprovalVerdict(
   return {
     value: {
       status,
-      rejectionReason: status === "rejected" ? request?.rejection_reason : undefined
+      rejectionReason: status === "rejected" ? request?.rejection_reason : undefined,
+      disposition: classifyApprovalStatus(status)
     },
-    terminal: isTerminal(status)
+    terminal: isApprovalTerminal(status)
   };
 }

@@ -1,10 +1,9 @@
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-import { createScanProgram } from "../util/scan-program";
+import { createScanProgram, scanSourceFiles } from "../util/scan-program";
 
 /**
  * WHICH `--json` DOCUMENTS ARE MISSING A FIELD THE SERVER SENT — DERIVED, NOT LISTED.
@@ -104,16 +103,6 @@ export interface EnvelopeNarrowing {
 /** `src/` of this package, resolved from THIS file so the cwd cannot change it. */
 export function defaultScanRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-}
-
-function sourceFiles(dir: string): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(full);
-    if (!entry.name.endsWith(".ts")) return [];
-    if (entry.name.endsWith(".test.ts")) return [];
-    return [full];
-  });
 }
 
 /** Is this call `isJsonMode()`, however it was imported? */
@@ -362,7 +351,7 @@ export interface PrinterCallSite {
  * walks could drift into two opinions about what a printer call is.
  */
 export function scanPrinterCallSites(root = defaultScanRoot()): PrinterCallSite[] {
-  const fileNames = sourceFiles(root);
+  const fileNames = scanSourceFiles(root);
   const program = createScanProgram(fileNames);
   const checker = program.getTypeChecker();
   const sites: PrinterCallSite[] = [];

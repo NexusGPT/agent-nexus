@@ -57,17 +57,36 @@ export async function fetchWithDeadline(
 ): Promise<DeadlinedResponse> {
   const timeoutMs = opts.timeout;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 🔴 THE FLAG IS THE CLASSIFIER, NEVER THE THROWN TYPE — the same idiom
+  // `stall-deadline.ts` uses, and for a measured reason rather than for symmetry.
+  // "Did MY timer fire" is a fact this function owns; "did the rejection ARRIVE
+  // as an `AbortError`" is a guess about undici's teardown, and the two disagree
+  // in BOTH directions. Measured against a real listener that destroys the socket
+  // as the budget expires: 2 of 140 attempts rejected with `TypeError: terminated`
+  // (cause `SocketError: other side closed`) rather than `AbortError`, because the
+  // peer's destroy won the race with our own abort. Those are OUR deadline, and
+  // the type test handed the caller a raw transport error instead — the one
+  // reading that matters, since `admin-http.ts` turns this into an EXIT CODE and
+  // a deadline on a write is not the retryable category an unreachable host is.
+  // The other direction is the same defect mirrored: an `AbortError` this timer
+  // did not cause reported as `no response within <budget> ms` over a budget that
+  // had not begun to elapse. No caller can produce that one today — every one of
+  // them passes an `init` with no `signal` and no stream body — so it is a
+  // property of the helper rather than a live bug, and it costs nothing to be
+  // right about.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     const text = await response.text();
     return { response, text };
   } catch (err) {
-    // `AbortError` is what an aborted fetch and an aborted body read both reject
-    // with, so this one branch covers the whole window the timer was armed for.
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new RequestTimedOutError(url, timeoutMs);
-    }
+    // One branch covers the whole window the timer was armed for: the request and
+    // the body read are both inside it, and both reject when it aborts them.
+    if (timedOut) throw new RequestTimedOutError(url, timeoutMs);
     throw err;
   } finally {
     clearTimeout(timer);

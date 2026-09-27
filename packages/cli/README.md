@@ -119,13 +119,13 @@ The CLI resolves the API key in this order (first match wins):
 
 ### Base URL Resolution
 
-| Priority | Source                   | Default                                                                   |
-| -------- | ------------------------ | ------------------------------------------------------------------------- |
-| 1        | `--base-url` flag        |                                                                           |
-| 2        | `NEXUS_BASE_URL` env var |                                                                           |
-| 3        | Config file              |                                                                           |
-| 4        | `NEXUS_ENV` env var      | `production` = `https://api.nexusgpt.io`, `dev` = `http://localhost:3001` |
-| 5        | Default                  | `https://api.nexusgpt.io`                                                 |
+| Priority | Source                   | Default                                                                                                                                                                           |
+| -------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | `--base-url` flag        |                                                                                                                                                                                   |
+| 2        | `NEXUS_BASE_URL` env var |                                                                                                                                                                                   |
+| 3        | Config file              |                                                                                                                                                                                   |
+| 4        | `NEXUS_ENV` env var      | `production` = `https://api.nexusgpt.io`, `staging` = `https://api-staging.gpt.nexus`, `dev` = `http://localhost:3001`. Any other value is REFUSED, never resolved to production. |
+| 5        | Default                  | `https://api.nexusgpt.io`                                                                                                                                                         |
 
 ### Multi-Profile Support
 
@@ -281,7 +281,7 @@ These flags are available on every command:
 | ----------------------- | ------------------------------------------------------------------------------------------------ |
 | `NEXUS_API_KEY`         | API key (used when `--api-key` flag and config file are absent)                                  |
 | `NEXUS_BASE_URL`        | API base URL override                                                                            |
-| `NEXUS_ENV`             | Environment name: `production` (default) or `dev`                                                |
+| `NEXUS_ENV`             | Environment name: `production` (default), `staging` or `dev`. An unknown name exits non-zero.    |
 | `NEXUS_PROFILE`         | Profile name override for this shell only (same as `--profile` flag)                             |
 | `NEXUS_ORGANIZATION_ID` | Organization a cross-org token acts on, for this shell only; outranks the profile's `orgId`      |
 | `NEXUS_NO_AUTO_UPDATE`  | Turn the automatic updater off: no self-install and no version lookup (implied when `CI` is set) |

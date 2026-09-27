@@ -9,15 +9,116 @@ import { warnIfLoosePermissions, writeSecretFile } from "./util/secret-file";
 // URL map
 // ---------------------------------------------------------------------------
 
-const URL_MAP: Record<string, string> = {
+/**
+ * The environments `NEXUS_ENV` may name. ONE declaration, and both host maps
+ * below are keyed by it.
+ *
+ * 🚨 THE TWO MAPS DRIFTING APART IS THE DEFECT THIS SHAPE REMOVES (NEX-5919).
+ * They were two independent `Record<string, string>` literals read as
+ * `URL_MAP[env] ?? URL_MAP.production`, so a name in one and not the other was
+ * an error nowhere — it RESOLVED, to production. `Record<NexusEnvName, …>` has
+ * no key to fall through to: a name added here reds BOTH objects until both
+ * hosts are supplied, which is a typecheck rather than a convention.
+ *
+ * ⚠️ EXHAUSTIVENESS IS NECESSARY AND NOT SUFFICIENT — it proves every key is
+ * present and nothing about any value being right. `config-nexus-env.test.ts`
+ * asserts the hosts.
+ */
+export const NEXUS_ENV_NAMES = ["production", "staging", "dev"] as const;
+
+/** One of {@link NEXUS_ENV_NAMES}. */
+export type NexusEnvName = (typeof NEXUS_ENV_NAMES)[number];
+
+/**
+ * API hosts, and below them console hosts — `deployment/README.md`'s
+ * per-environment table, read down each of its two columns.
+ *
+ * ⚠️ PRODUCTION AND STAGING SIT ON DIFFERENT REGISTRABLE DOMAINS,
+ * `nexusgpt.io` against `gpt.nexus`, and that is the deployment rather than a
+ * typo here — `deployment/config.yml` carries both. Normalising either to match
+ * the other points the CLI at a host that serves nothing.
+ */
+const URL_MAP: Record<NexusEnvName, string> = {
   production: "https://api.nexusgpt.io",
+  staging: "https://api-staging.gpt.nexus",
   dev: "http://localhost:3001"
 };
 
-const DASHBOARD_URL_MAP: Record<string, string> = {
+const DASHBOARD_URL_MAP: Record<NexusEnvName, string> = {
   production: "https://gpt.nexus",
+  staging: "https://staging.gpt.nexus",
   dev: "http://localhost:3000"
 };
+
+/** True when `value` names an environment both maps above hold a host for. */
+function isNexusEnvName(value: string): value is NexusEnvName {
+  return NEXUS_ENV_NAMES.some((name) => name === value);
+}
+
+/**
+ * The environment `NEXUS_ENV` names, or `production` when it is unset.
+ *
+ * 🔴 AN UNRECOGNISED NAME IS REFUSED, NEVER RESOLVED. The `?? URL_MAP.production`
+ * this replaces sent `NEXUS_ENV=staging` to PRODUCTION — exit 0, no host on
+ * screen, and `nexus admin … set` writing to the live tenant base. Every typo
+ * did the same, because the fallback made a name that was TYPED
+ * indistinguishable from one that was never set.
+ *
+ * Unset therefore still means `production`: the default was never the defect.
+ *
+ * ⚠️ AND SO DOES EMPTY, AND SO DOES WHITESPACE — `??` DEFAULTS ON `undefined`
+ * AND `null` ONLY. `NEXUS_ENV=""` is not a typo anybody made; it is what CI
+ * templating produces from a variable that does not exist
+ * (`NEXUS_ENV: ${{ vars.NEXUS_ENV }}`, `NEXUS_ENV=$UNSET`, `export NEXUS_ENV=`).
+ * Refusing those would break callers who never chose anything, which is the
+ * opposite of this function's point. `raw || "production"` is the wrong
+ * spelling of the cure: `nexus/truthy-default-swallows-zero` is a live rule in
+ * this package and an explicit test says what is meant anyway.
+ *
+ * Case is still SIGNIFICANT: `"STAGING"` refuses. A name nobody serves reaching
+ * production quietly is the defect; strictness about case is the cure.
+ *
+ * `"CLI_UNKNOWN_NEXUS_ENV"` is spelled literally, as `"CLI_NOT_AUTHENTICATED"`
+ * already is below — `errors.ts` owns the registry and importing it from here
+ * would close a module cycle through `output.ts`.
+ */
+function resolveEnvName(raw: string | undefined): NexusEnvName {
+  const trimmed = raw?.trim();
+  const value = trimmed === undefined || trimmed === "" ? "production" : trimmed;
+  if (isNexusEnvName(value)) return value;
+  throw new CategorizedCliError(
+    "invalid-input",
+    "CLI_UNKNOWN_NEXUS_ENV",
+    `NEXUS_ENV is set to "${value}", which is not an environment this CLI knows. ` +
+      `Accepted: ${NEXUS_ENV_NAMES.join(", ")}.`,
+    `Unset NEXUS_ENV, or set it to one of ${NEXUS_ENV_NAMES.join(", ")}. ` +
+      `To pin hosts directly instead: --base-url / NEXUS_BASE_URL for the API, ` +
+      `--dashboard-url / NEXUS_DASHBOARD_URL for the console — they are separate ` +
+      `chains, and pinning one does not answer for the other.`
+  );
+}
+
+/**
+ * Refuse an unrecognised `NEXUS_ENV` NOW, before a command does anything.
+ *
+ * 🔴 A REFUSAL THAT ARRIVES AFTER A WRITE IS WORSE THAN NO REFUSAL. The two
+ * resolvers walk INDEPENDENT chains and each reaches {@link resolveEnvName}
+ * last, so `resolveBaseUrl` can short-circuit on any of four earlier terms — an
+ * override, a named profile, `NEXUS_BASE_URL`, or an ACTIVE PROFILE carrying a
+ * `baseUrl` and no `dashboardUrl`, which needs no flag and no env var at all —
+ * while `resolveDashboardUrl` falls all the way through and throws. Roughly
+ * sixteen commands build their console link AFTER the mutating call, so the
+ * resource was created and the process then exited non-zero: a script reads
+ * that as a failed create and retries, and the retry duplicates the resource.
+ *
+ * The root `preAction` hook in `index.ts` calls this, so the refusal lands
+ * before any action handler runs and nothing can be written first. The throws
+ * inside both resolvers stay as defence in depth — with this in place they are
+ * unreachable from a CLI invocation, which is the state to keep them in.
+ */
+export function assertKnownNexusEnv(): void {
+  resolveEnvName(process.env.NEXUS_ENV);
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -517,6 +618,9 @@ export function resolveApiKey(override?: string, profile?: string): string {
  * request and by `auth status` which REPORTS it — there were five; the gate is
  * `base-url-precedence-is-one-rule.test.ts`. Precedence: --base-url → named
  * --profile (which outranks the env var) → NEXUS_BASE_URL → active → NEXUS_ENV.
+ *
+ * 🔴 THROWS on a `NEXUS_ENV` naming no known environment, rather than answering
+ * the production host. See {@link resolveEnvName}.
  */
 export function resolveBaseUrl(override?: string, profile?: string): string {
   if (override) return override;
@@ -540,15 +644,23 @@ export function resolveBaseUrl(override?: string, profile?: string): string {
     // No profile — fall through to defaults
   }
 
-  const env = process.env.NEXUS_ENV ?? "production";
-  return URL_MAP[env] ?? URL_MAP.production;
+  // 🔴 THE `NEXUS_ENV` READ STAYS IN THIS BODY, LAST. The gate derives this
+  // resolver's selector ORDER by scanning these lines, so hoisting the read
+  // into a helper that does not name the variable deletes the `env-name` term.
+  const env = resolveEnvName(process.env.NEXUS_ENV);
+  return URL_MAP[env];
 }
 
 /**
  * Resolve the dashboard URL.
  *
  * Priority: explicit override → named --profile → NEXUS_DASHBOARD_URL env →
- * active profile → NEXUS_ENV → production.
+ * active profile → NEXUS_ENV.
+ *
+ * 🔴 THROWS on a `NEXUS_ENV` naming no known environment, exactly as
+ * `resolveBaseUrl` does — the two read ONE table, so they cannot disagree about
+ * which names exist. A console link for an environment the request never went
+ * to is the failure this whole docblock is about.
  *
  * 🚨 `profile` IS NOT OPTIONAL POLISH — WITHOUT IT THIS ANSWERS ABOUT A
  * DIFFERENT ENVIRONMENT THAN THE REQUEST WENT TO. `resolveBaseUrl` and
@@ -584,6 +696,6 @@ export function resolveDashboardUrl(override?: string, profile?: string): string
     // No profile — fall through to defaults
   }
 
-  const env = process.env.NEXUS_ENV ?? "production";
-  return DASHBOARD_URL_MAP[env] ?? DASHBOARD_URL_MAP.production;
+  const env = resolveEnvName(process.env.NEXUS_ENV);
+  return DASHBOARD_URL_MAP[env];
 }

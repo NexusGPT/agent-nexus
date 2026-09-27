@@ -1,10 +1,12 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import ts from "typescript";
+import { afterAll, describe, expect, it } from "vitest";
 
 import { defaultScanRoot } from "../commands/status-verdict.scan";
-import { createScanProgram } from "./scan-program";
+import { createScanProgram, scanSourceFiles } from "./scan-program";
 
 /**
  * THE ANTI-VACUITY FLOOR FOR THE ONE PROGRAM EVERY SOURCE SCAN WALKS.
@@ -137,5 +139,100 @@ describe("createScanProgram resolves the tree the scanners believe they walk", (
 
   it("CONTROL — the program resolved something at all", () => {
     expect(resolvedFileNames.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * THE OTHER HALF OF THE POPULATION: THE FILE LIST.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 A `.d.ts` DROPPED FROM THE ROOTS COSTS NO FINDING AND SILENTLY COSTS THE
+ *    TYPES. THAT ASYMMETRY IS WHAT THESE ARMS PIN.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `scanSourceFiles` includes `.d.ts`, and the instinct that says a gate should
+ * scan fewer files reads that as the loose side. It is the safe side, and only the
+ * CONSEQUENCE arm below can say so: a `.d.ts` can never yield a finding — every
+ * scan's walk loop opens `if (source.isDeclarationFile) continue;` — so the ONLY
+ * thing its presence in the root list changes is whether the checker resolves the
+ * ambient declarations these gates read their types through.
+ *
+ * Dropped, the type is the `any` error type: zero properties, and one `Cannot find
+ * name` diagnostic nobody is reading. `isVerdictShaped` returns `false` for `any`
+ * and drops the leaf; `scanEnvelopeNarrowing` reports the declared keys no read
+ * reaches and over an error type that set is EMPTY. Both print a tick.
+ *
+ * ⚠️ `checker.typeToString` PRINTS THE WRITTEN NAME IN BOTH CASES, so it cannot
+ * be the instrument here. The arms below read the PROPERTY LIST and the semantic
+ * diagnostics, which are the two readings that differ.
+ */
+
+const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "scan-program-dts-"));
+const fixtureAmbient = path.join(fixtureDir, "ambient.d.ts");
+const fixtureSource = path.join(fixtureDir, "probe.ts");
+const fixtureSpec = path.join(fixtureDir, "probe.test.ts");
+
+// No import and no export, so `FixtureVerdict` is AMBIENT — reachable only when
+// this file is a program root. A `.d.ts` that is merely imported resolves either
+// way, which is why the fixture is deliberately the ambient shape.
+fs.writeFileSync(fixtureAmbient, "interface FixtureVerdict { ok: boolean }\n");
+fs.writeFileSync(fixtureSource, "export const probe: FixtureVerdict = { ok: true };\n");
+fs.writeFileSync(fixtureSpec, "export const notScanned = 1;\n");
+
+afterAll(() => fs.rmSync(fixtureDir, { recursive: true, force: true }));
+
+/** Property names of `probe`'s type, as the checker resolves it from `roots`. */
+function propertiesOfProbe(roots: readonly string[]): string[] {
+  const program = createScanProgram(roots);
+  const checker = program.getTypeChecker();
+  const file = program.getSourceFile(fixtureSource);
+  if (file === undefined) return [];
+  let names: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      names = checker
+        .getPropertiesOfType(checker.getTypeAtLocation(node.name))
+        .map((symbol) => symbol.getName());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return names;
+}
+
+describe("scanSourceFiles hands the scanners a list their checker can answer from", () => {
+  it("includes a .d.ts, so an ambient declaration is a program root", () => {
+    expect(scanSourceFiles(fixtureDir)).toContain(fixtureAmbient);
+  });
+
+  it("resolves an ambient type — the consequence the .d.ts rule exists for", () => {
+    expect(
+      propertiesOfProbe(scanSourceFiles(fixtureDir)),
+      "\n\nThe checker could not resolve `FixtureVerdict`, so every gate built on\n" +
+        "this program is reading the `any` error type. That reports NO findings,\n" +
+        "which is byte-identical to a clean tree. Put `.d.ts` back in\n" +
+        "`scanSourceFiles`; do not weaken this arm.\n"
+    ).toEqual(["ok"]);
+  });
+
+  it("CONTROL — dropping the .d.ts root really does lose the type, so the arm above can fail", () => {
+    expect(propertiesOfProbe([fixtureSource])).toEqual([]);
+  });
+
+  it("CONTROL — dropping the .d.ts root raises a diagnostic nothing in a gate reads", () => {
+    const program = createScanProgram([fixtureSource]);
+    const messages = program
+      .getSemanticDiagnostics(program.getSourceFile(fixtureSource))
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "));
+
+    expect(messages).toEqual(["Cannot find name 'FixtureVerdict'."]);
+  });
+
+  it("excludes a .test.ts, so a gate cannot report its own fixtures at itself", () => {
+    expect(scanSourceFiles(fixtureDir)).not.toContain(fixtureSpec);
+  });
+
+  it("CONTROL — the fixture walk found the ordinary source, so the exclusion above is not vacuous", () => {
+    expect(scanSourceFiles(fixtureDir)).toContain(fixtureSource);
   });
 });

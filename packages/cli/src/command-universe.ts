@@ -824,11 +824,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   //   THIS LEAF IS `registration-only` WHILE <ROUTE> ANSWERS 404 ON STAGING,
   //   AND `safe` ONCE IT ANSWERS 200.
   //
-  // The probe has to NAME THE HOST. `--env` recognises only `dev` and
-  // `production` — `URL_MAP` in config.ts has no `staging` key — and a
-  // `--profile staging` is local config that no checkout ships, so a probe
-  // written that way runs for whoever happens to have made one and for nobody
-  // else. This is why the sweep workflow sets `NEXUS_BASE_URL` explicitly:
+  // The probe has to NAME THE HOST. `auth login --env` recognises only `dev`
+  // and `production` — a named pair of localhost ports, not the `NEXUS_ENV`
+  // map — and a `--profile staging` is local config no checkout ships, so a
+  // probe written either way runs for whoever made one and nobody else. This
+  // is why the sweep workflow sets `NEXUS_BASE_URL` explicitly:
   //
   //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
   //     pnpm exec tsx src/index.ts api GET <route>

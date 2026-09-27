@@ -9,8 +9,10 @@
  * This module used to walk the commander tree itself, because
  * `deriveCommandLeaves()` returned `string[]` and threw away aliases,
  * hiddenness, options, help and the source module — every fact a docs page needs.
- * `command-universe` now returns NODES, so that walk is deleted and there is one
- * walk of this tree in the repository. `captureHelp`, `isHidden` and `choicesOf`
+ * `command-universe` now returns NODES, so that walk is deleted. What remains of
+ * an enumeration here — `divergencesByPath`, which needs the live `Option`
+ * objects a `CommandNode` does not carry — goes through `indexCommandTree`, so
+ * this module holds no copy of the walk's rules. `captureHelp`, `isHidden` and `choicesOf`
  * went with it; `isHiddenCommand` and `optionChoices` replace them, and both
  * read commander's DECLARED surface rather than asserting a private shape onto
  * it — so a commander change breaks the typecheck instead of silently reporting
@@ -45,8 +47,7 @@
  * non-enumerable reference to the `Command` itself. Either ends this pass.
  */
 
-import type { Command } from "commander";
-
+import { indexCommandTree } from "./command-tree-index";
 import {
   type CommandNamespace,
   type CommandNode,
@@ -111,35 +112,28 @@ async function divergencesByPath(): Promise<Map<string, DocDivergence[]>> {
   const { Command: CommandCtor } = await import("commander");
   const found = new Map<string, DocDivergence[]>();
 
-  const visit = (command: Command, prefix: readonly string[]): void => {
-    const path = [...prefix, command.name()];
-    const here: DocDivergence[] = [];
-
-    for (const option of command.options) {
-      const bound = boundOption(option);
-      if (bound?.divergence === undefined) continue;
-      here.push({
-        flags: option.flags,
-        contractValues: bound.source.contractValues,
-        offered: bound.offered,
-        omitted: bound.divergence.omit ?? [],
-        alsoAccepts: bound.divergence.alsoAccepts ?? [],
-        because: bound.divergence.because
-      });
-    }
-
-    if (here.length > 0) found.set(path.join(" "), here);
-    for (const child of command.commands) {
-      if (child.name() !== "help") visit(child, path);
-    }
-  };
-
   for (const registrar of await discoverRootRegistrars()) {
     const program = new CommandCtor();
     program.name("nexus").exitOverride();
     registrar.register(program);
-    for (const root of program.commands) {
-      if (root.name() !== "help") visit(root, []);
+
+    for (const [path, command] of indexCommandTree(program)) {
+      const here: DocDivergence[] = [];
+
+      for (const option of command.options) {
+        const bound = boundOption(option);
+        if (bound?.divergence === undefined) continue;
+        here.push({
+          flags: option.flags,
+          contractValues: bound.source.contractValues,
+          offered: bound.offered,
+          omitted: bound.divergence.omit ?? [],
+          alsoAccepts: bound.divergence.alsoAccepts ?? [],
+          because: bound.divergence.because
+        });
+      }
+
+      if (here.length > 0) found.set(path, here);
     }
   }
 

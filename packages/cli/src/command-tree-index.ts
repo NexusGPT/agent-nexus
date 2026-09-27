@@ -13,9 +13,18 @@ import type { Command } from "commander";
  * 🚨 IT TAKES THE PROGRAM. IT DOES NOT BUILD ONE, AND THAT IS THE WHOLE DESIGN.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * This existed as three byte-identical copies — in `cli-surface.project.ts`, in
- * `command-universe.ts`, and in `docs-help-matches-the-real-cli.test.ts`. The
- * third is why the parameter is not a convenience.
+ * Every caller of this walk is a copy that was converged onto it, and
+ * `docs-help-matches-the-real-cli.test.ts` is why the parameter is not a
+ * convenience.
+ *
+ * ⚠️ THE FIRST CONVERGENCE TOOK THE COPIES A MISSION BODY NAMED, WHICH IS NOT
+ * THE SAME ACT AS TAKING THE POPULATION. Two more were sitting in the tree —
+ * `commands/json-one-document.scan.ts`, whose body was identical to this one,
+ * and `docs-page.model.ts`, which fused the same four rules (recurse, skip
+ * `help`, join the path, start at the program's CHILDREN) into a walk that
+ * accumulated something else. Neither was found by searching for this module's
+ * name; both were found by searching for the SHAPE. A copy that imports nothing
+ * from here is invisible to every search that starts from here.
  *
  * That spec asserts the generated docs render the help the real binary prints.
  * Its two sides are the DOCS MODEL (`buildDocNamespaces`, which resolves each

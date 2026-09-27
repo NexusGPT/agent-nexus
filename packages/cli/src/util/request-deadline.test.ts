@@ -163,3 +163,110 @@ describe("fetchWithDeadline bounds a peer that stops answering", () => {
     expect(error.message).toContain("--timeout <seconds>");
   });
 });
+
+/**
+ * THE CLASSIFIER ITSELF: "DID MY TIMER FIRE", NEVER "WHAT TYPE ARRIVED".
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THIS BLOCK STUBS THE TRANSPORT, AND EVERY OTHER BLOCK IN THIS FILE REFUSES
+ *    TO. THE REASON IS THAT THE CASE IS A RACE, NOT THAT A STUB IS EASIER.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The blocks above need a real listener because their subject is WHERE the
+ * deadline sits relative to the body read, which only a real socket exercises.
+ * The subject here is narrower and sits entirely inside this module: given that
+ * the timer fired, which error does the caller get. Against a real listener the
+ * interesting branch is reached by a race measured at 2 of 140 attempts — a peer
+ * destroying the socket in the microseconds between our `abort()` and undici's
+ * rejection — so a real-socket arm would be green on most runs whatever the code
+ * said, which is an arm that cannot be relied on to fail.
+ *
+ * ⚠️ WHAT IS STUBBED IS THE TRANSPORT. THE CLASSIFIER UNDER TEST IS THE REAL ONE,
+ * and the shape the stub rejects with is not invented: `TypeError: terminated`
+ * with cause `SocketError: other side closed` is what a real listener produced in
+ * exactly that race, and what the CONTROL block above already pins for the
+ * unraced case.
+ *
+ * The old classifier — `err instanceof DOMException && err.name === "AbortError"`
+ * — fails both arms below, in opposite directions.
+ */
+describe("fetchWithDeadline classifies by its own timer, not by the thrown type", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("calls it a timeout when the peer's destroy wins the race with our abort", async () => {
+    globalThis.fetch = ((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          // `Object.assign` rather than the two-argument constructor: this
+          // package's `lib` predates `ErrorOptions`, so `new TypeError(msg,
+          // { cause })` is a typecheck error even though vitest transpiles and
+          // runs it happily — the two gates disagree, and tsc is the one to obey.
+          reject(
+            Object.assign(new TypeError("terminated"), {
+              cause: new Error("SocketError: other side closed")
+            })
+          )
+        );
+      })) as typeof fetch;
+
+    // OUR budget expired: the caller must be told so, whatever shape the
+    // transport's teardown happened to take. `admin-http.ts` turns this into an
+    // exit code, and a deadline on a write is not the retryable category an
+    // unreachable host is.
+    await expect(
+      fetchWithDeadline("http://stub.test/x", {}, { timeout: 30 })
+    ).rejects.toBeInstanceOf(RequestTimedOutError);
+  });
+
+  it("CONTROL — the same harness with an AbortError also reports the timeout, so it can say either", async () => {
+    globalThis.fetch = ((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("This operation was aborted", "AbortError"))
+        );
+      })) as typeof fetch;
+
+    await expect(
+      fetchWithDeadline("http://stub.test/x", {}, { timeout: 30 })
+    ).rejects.toBeInstanceOf(RequestTimedOutError);
+  });
+
+  /**
+   * A CONTRACT ARM ON A GENERAL-PURPOSE HELPER, and labelled as one rather than
+   * left to read as a system finding. No caller can reach it today: every
+   * `fetchWithDeadline` call site passes an `init` with no `signal` and no stream
+   * body, and this function overwrites `signal` anyway — so an `AbortError` the
+   * timer did not cause has no producer. The arm is here because the helper's
+   * contract is "report MY deadline", and a helper that reports someone else's
+   * abort as a 600-second budget having elapsed is wrong whether or not anyone
+   * can currently make it happen.
+   */
+  it("does not claim a timeout for an AbortError its own timer did not cause", async () => {
+    globalThis.fetch = (() =>
+      Promise.reject(
+        new DOMException("The user aborted a request.", "AbortError")
+      )) as unknown as typeof fetch;
+
+    const thrown = await fetchWithDeadline("http://stub.test/x", {}, { timeout: 600_000 }).then(
+      () => null,
+      (err: unknown) => err
+    );
+
+    expect(thrown).not.toBeInstanceOf(RequestTimedOutError);
+  });
+
+  it("CONTROL — and the original error reaches the caller unchanged", async () => {
+    const original = new DOMException("The user aborted a request.", "AbortError");
+    globalThis.fetch = (() => Promise.reject(original)) as unknown as typeof fetch;
+
+    const thrown = await fetchWithDeadline("http://stub.test/x", {}, { timeout: 600_000 }).then(
+      () => null,
+      (err: unknown) => err
+    );
+
+    expect(thrown).toBe(original);
+  });
+});

@@ -13,7 +13,8 @@
  * here. CLI never persists the token (admin sessions are short-lived).
  *
  * Base URL resolution piggy-backs on the existing profile chain (--base-url
- * → NEXUS_BASE_URL → active profile's baseUrl → NEXUS_ENV → production). The
+ * → NEXUS_BASE_URL → active profile's baseUrl → NEXUS_ENV; an unknown
+ * `NEXUS_ENV` is REFUSED there rather than resolved to production). The
  * profile's API key is ignored — only the URL is borrowed. The request deadline
  * is the program-level `--timeout <seconds>` global, routed here by
  * `admin-opts.ts`; it bounds the body read as well as the headers.
@@ -21,7 +22,7 @@
 
 import { resolveBaseUrl } from "../config";
 import { AdminCliError } from "./admin-errors";
-import { fetchWithDeadline } from "./request-deadline";
+import { fetchWithDeadline, RequestTimedOutError } from "./request-deadline";
 
 /**
  * The deadline when `--timeout` is not given. MILLISECONDS, and the same figure
@@ -75,6 +76,11 @@ export async function adminRequest<T>(
 ): Promise<T> {
   const token = resolveAdminToken(opts);
   const baseUrl = resolveBaseUrl(opts.baseUrl, opts.profile).replace(/\/+$/, "");
+  // 🔴 NAME THE HOST A WRITE REACHES, AND NAME IT ON STDERR. NEX-5919:
+  // `NEXUS_ENV=staging` resolved to PRODUCTION, the write landed there, and the
+  // run exited 0 with no host printed anywhere. Stdout would corrupt `--json`,
+  // which is ONE document; announcing reads too would make the line ambient.
+  if (req.method !== "GET") process.stderr.write(`admin ${req.method} → ${baseUrl}\n`);
   const parsedUrl = new URL(`${baseUrl}${req.path}`);
   if (req.query) {
     for (const [key, value] of Object.entries(req.query)) {
@@ -106,9 +112,15 @@ export async function adminRequest<T>(
       { timeout: opts.timeout ?? ADMIN_REQUEST_DEFAULT_TIMEOUT_MS }
     ));
   } catch (err) {
-    // A deadline and an unreachable host share this CATEGORY (retryable,
-    // `connection-failed`) and differ in cause — and the cause is what a human
-    // debugs with: named "could not reach the API", a deadline misdirects.
+    // 🔴 A DEADLINE AND AN UNREACHABLE HOST ARE DIFFERENT CATEGORIES HERE, AND
+    // BOTH USED TO LEAVE AS `network`. `AdminCliError.timedOut` owns why.
+    //
+    // The discrimination is only as good as the class: `fetchWithDeadline`
+    // classifies on ITS OWN TIMER rather than on the shape of the transport's
+    // teardown, so a peer destroying the socket as the budget expires still
+    // arrives as `RequestTimedOutError` and not as a raw `TypeError` filed as
+    // retryable.
+    if (err instanceof RequestTimedOutError) throw AdminCliError.timedOut(err.message);
     throw AdminCliError.network(err instanceof Error ? err.message : String(err));
   }
 

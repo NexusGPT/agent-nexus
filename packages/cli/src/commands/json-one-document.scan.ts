@@ -97,8 +97,9 @@
  * that one shape; both, or neither is honest.
  */
 
-import { Command, type Option } from "commander";
+import type { Command, Option } from "commander";
 
+import { indexCommandTree } from "../command-tree-index";
 import { deriveCommandLeaves } from "../command-universe";
 import { CLI_MINTED_CODES, CliArgumentError, handleError } from "../errors";
 import { setJsonMode } from "../output";
@@ -409,22 +410,6 @@ export function synthesizeArgv(path: string, command: Command, sandboxDir: strin
 // ─────────────────────────────────────────────────────────────────────────────
 // Driving one command
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Index the live root program by path, so the scan drives the REAL command. */
-function indexProgram(program: Command): Map<string, Command> {
-  const index = new Map<string, Command>();
-  const visit = (command: Command, prefix: string[]): void => {
-    const path = [...prefix, command.name()];
-    index.set(path.join(" "), command);
-    for (const child of command.commands) {
-      if (child.name() !== "help") visit(child, path);
-    }
-  };
-  for (const root of program.commands) {
-    if (root.name() !== "help") visit(root, []);
-  }
-  return index;
-}
 
 /**
  * Commander must THROW rather than exit, on every node of the tree.
@@ -762,7 +747,10 @@ function preview(text: string): string {
 
 export async function runOneDocumentScan(deps: DriveDeps): Promise<ScanReport> {
   const leaves = await deriveCommandLeaves();
-  const index = indexProgram(deps.buildProgram());
+  // The scan drives the REAL command, so it needs the live tree keyed by path.
+  // `indexCommandTree` takes the program rather than building one — see its
+  // header on why that argument is the design and not a convenience.
+  const index = indexCommandTree(deps.buildProgram());
 
   const runs: LeafRun[] = [];
   let runsWithSynthesizedArgs = 0;

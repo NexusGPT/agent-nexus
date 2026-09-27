@@ -61,16 +61,31 @@ export interface PollReading<T> {
 /**
  * What to do when a probe THROWS.
  *
- * Deliberately a required argument with no default. The two behaviours are a
- * real disagreement between existing callers rather than an oversight, and a
- * default would let the next caller inherit one of them without deciding:
+ * REQUIRED, WITH NO DEFAULT, AND THAT IS THE POINT. A default would let the next
+ * caller inherit a failure behaviour without ever deciding one. The two are not
+ * interchangeable: they disagree about whether an exception or a non-terminal
+ * reading is the honest way to report "I could not find out".
  *
- *   · `swallow`   — a transient read failure is not a verdict, so keep asking
- *                   until the budget runs out. The risk is that a persistent
- *                   failure reads as "still pending".
- *   · `propagate` — the caller has already done something irreversible and wants
- *                   to report the read failure against it rather than report a
- *                   pending status it never actually observed.
+ *   · `swallow`   — keep asking until the budget runs out. Surviving a transient
+ *                   read across repeated asks is what a poll is FOR, and one
+ *                   blip must not spend a budget the caller asked for. Correct
+ *                   whenever the caller has already done the irreversible thing
+ *                   AND the outcome type can say "nothing settled was observed"
+ *                   without throwing. The cost is that a persistently failing
+ *                   read is indistinguishable from a genuinely unsettled state.
+ *   · `propagate` — the read failure IS the report, because the caller has not
+ *                   acted yet and a silent timeout would send it on to act as
+ *                   though the state were merely unsettled.
+ *
+ * ⚠️ NO CALLER PROPAGATES TODAY, AND THAT IS AN AUDITED RESULT RATHER THAN A
+ * DRIFT. All three — `create --submit`, `submit-approval --wait` and
+ * `test-send --wait` — poll AFTER an irreversible act, so all three swallow and
+ * each says why at its own site. `submit-approval` propagated until its site was
+ * asked for a reason and could not give one its `observedTerminal` field was not
+ * already giving. `propagate` stays because the decision it forces is real for a
+ * poll that runs BEFORE the act, and because deleting it would leave a
+ * single-valued argument, then no argument, which is exactly the default this
+ * type exists to refuse.
  */
 export type ProbeFailurePolicy = "swallow" | "propagate";
 

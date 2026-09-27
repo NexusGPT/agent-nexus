@@ -21,9 +21,18 @@ import { listFilesRecursively } from "./util/list-files-recursively";
  *
  * `commands/role.ts` was one multi-thousand-line file. It was split into one
  * file per subcommand, and the split is held in place by an ESLint `max-lines`
- * cap of 150 armed at the END of the root `eslint.config.js` — scoped to
- * `commands/role.ts` and `commands/role/**` and nothing else. That scoping is
- * deliberate and correct: arming the flat rule over the whole package would red
+ * cap of 150 armed at the END of the root `eslint.config.js` — scoped to a
+ * NAMED LIST OF GLOBS, which started as `commands/role*` alone and has grown a
+ * tree at a time as each was split. No list and no count is written here,
+ * because both move the next time a tree joins; read the block itself, from the
+ * repo root:
+ *
+ * ```
+ * sed -n '/^ *files: \[/,/^ *\]/p' eslint.config.js | tail -20
+ * ```
+ *
+ * That scoping is deliberate and correct: arming the flat rule over the whole
+ * package would red
  * 152 files at once, and a gate that reds 152 files on the day it lands gets
  * reverted rather than obeyed.
  *
@@ -158,7 +167,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/api.ts": 269,
   "commands/asset.ts": 261,
   "commands/channel.contract.generated.ts": 167,
-  "commands/channel.ts": 1157,
+  "commands/channel.ts": 1236,
   "commands/chat.ts": 697,
   "commands/claude-code.ts": 586,
   "commands/cloud-import.ts": 623,
@@ -177,7 +186,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/deployment.ts": 1384,
   "commands/docs.ts": 297,
   "commands/emulator.ts": 701,
-  "commands/envelope-narrowing.scan.ts": 445,
+  "commands/envelope-narrowing.scan.ts": 434,
   "commands/eval-run-render.ts": 283,
   "commands/eval-run.ts": 435,
   "commands/eval.contract.generated.ts": 219,
@@ -188,7 +197,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/help-suggestions.ledger.ts": 2258,
   "commands/html-message-template.ts": 381,
   "commands/json-error-document.static-scan.ts": 650,
-  "commands/json-one-document.scan.ts": 838,
+  "commands/json-one-document.scan.ts": 826,
   "commands/json-shape.command-path.ts": 162,
   "commands/json-shape.project.ts": 166,
   "commands/json-shape.scan.ts": 746,
@@ -202,7 +211,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/score.ts": 209,
   "commands/skill-folder.ts": 268,
   "commands/skills.ts": 452,
-  "commands/status-verdict.scan.ts": 675,
+  "commands/status-verdict.scan.ts": 663,
   "commands/task.contract.generated.ts": 264,
   "commands/task.ts": 803,
   "commands/template.ts": 603,
@@ -220,27 +229,27 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/workspace-mount-direct.ts": 511,
   "commands/workspace-mount-gateway.ts": 250,
   "commands/workspace-mount.ts": 687,
-  "commands/workspace-pull.ts": 368,
-  "commands/workspace-push.ts": 599,
+  "commands/workspace-pull.ts": 366,
+  "commands/workspace-push.ts": 598,
   "commands/workspace-remount.ts": 276,
   "commands/workspace-status.ts": 404,
   "commands/workspace-unmount.ts": 185,
   "commands/workspace.ts": 574,
-  "config.ts": 589,
+  "config.ts": 701,
   "contract-binding.ts": 430,
   "contract-help.codegen.ts": 237,
   "contract-help.render.ts": 183,
   "deprecation-cycle.ts": 660,
   "docs-page.frontmatter.ts": 375,
-  "docs-page.model.ts": 191,
+  "docs-page.model.ts": 185,
   "docs-page.render.ts": 198,
-  "errors.ts": 814,
+  "errors.ts": 823,
   "exit-codes.ts": 304,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
   "id-graph.ts": 252,
   "id-graph.uncovered.generated.ts": 353,
-  "index.ts": 663,
+  "index.ts": 685,
   "json-shape.generated.ts": 468,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
@@ -249,6 +258,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "probe-barrier.ts": 700,
   "skills-corpus/platform.ts": 163,
   "skills-corpus/select-skill-dirs.ts": 242,
+  "util/admin-errors.ts": 164,
+  "util/admin-http.ts": 162,
   "util/body-satisfies-required.ts": 398,
   "util/body.ts": 263,
   "util/confirm.ts": 182,
@@ -285,7 +296,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 136;
+const LEDGER_CEILING = 138;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

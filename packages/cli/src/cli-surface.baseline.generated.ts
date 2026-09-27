@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.7.1 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.8.0 ────────────────────────────────────────────────────
  *
  * 554 promised paths — 488 STABLE, 66 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.7.1",
+  version: "1.8.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -31,7 +31,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "admin vibe-build-job succeed", shape: "e5a90dc9fff9", tier: "UNSTABLE" },
     { path: "admin vibe-build-job time-out", shape: "b10ebe64dcb8", tier: "UNSTABLE" },
     { path: "admin vibe-build-job-timeout-sweep trigger", shape: "592b268de714", tier: "UNSTABLE" },
-    { path: "admin vibe-build-runner tick", shape: "0101ffd44c53", tier: "UNSTABLE" },
+    { path: "admin vibe-build-runner tick", shape: "fe8f5064ff2c", tier: "UNSTABLE" },
     { path: "admin vibe-consumption-cap get", shape: "447e2d49854f", tier: "UNSTABLE" },
     { path: "admin vibe-consumption-cap set", shape: "10c6cab0872c", tier: "UNSTABLE" },
     { path: "admin vibe-cost-safety get", shape: "e1b82278d3a5", tier: "UNSTABLE" },
@@ -564,10 +564,10 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "workspace delete", shape: "992e0319993f", tier: "STABLE" },
     { path: "workspace history", shape: "9056c1025fc5", tier: "STABLE" },
     { path: "workspace list", shape: "8738abb5668a", tier: "STABLE" },
-    { path: "workspace mount", shape: "07e3eabe5483", tier: "STABLE" },
+    { path: "workspace mount", shape: "792d09e03c60", tier: "STABLE" },
     { path: "workspace pull", shape: "c28709db3359", tier: "STABLE" },
     { path: "workspace push", shape: "01a4c877d471", tier: "STABLE" },
-    { path: "workspace remount", shape: "d1cd295b66b2", tier: "STABLE" },
+    { path: "workspace remount", shape: "ec8e93eae3c4", tier: "STABLE" },
     { path: "workspace rename", shape: "f1e7f7ca036e", tier: "STABLE" },
     { path: "workspace restore", shape: "4488a330292e", tier: "STABLE" },
     { path: "workspace revert", shape: "4e3dc012ba10", tier: "STABLE" },

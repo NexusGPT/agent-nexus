@@ -1,5 +1,265 @@
 # @agent-nexus/cli
 
+## 1.8.0
+### Minor Changes
+
+- 77d0433: A workspace mount offers to install rclone and FUSE-T
+  
+  When `nexus workspace mount` or `nexus workspace remount` runs an engine that
+  needs rclone (`rclone`, `direct`) and rclone or its FUSE layer is missing, the
+  CLI names what is missing, prints the exact steps — for a pinned download its
+  URL, sha256 and command, for Homebrew the one `brew install` command — and
+  asks `Install it now? [y/N]`. It installs the pinned official rclone into
+  `~/.nexus-mcp/bin` (no sudo; macOS and Linux, x64 and arm64) and, on macOS,
+  FUSE-T: through Homebrew at a terminal when it is present, else its signed
+  pkg. With no terminal attached — an agent running the CLI — the pkg asks for
+  the administrator password in macOS's own password window, so nothing has to
+  be copied into a terminal. It then checks again and mounts. The mount runs that managed rclone by its full path from
+  then on, so a Homebrew build earlier on PATH can no longer be picked.
+  
+  `--install-deps` installs without asking, for scripts. `--no-install-deps`
+  never offers and refuses with the install hint, as before. With neither flag
+  and no terminal on stdin, the CLI refuses and names `--install-deps` rather
+  than install unattended. macFUSE is used when present and never installed.
+- 8a7ca48: An upload refuses a bad path by name, on every command that takes one
+  
+  Ten upload sites each carried their own copy of one decision — resolve the
+  path the caller gave, refuse it if it is not usable, read the bytes. They had
+  drifted into three different answers to the same mistake, and two of the three
+  were wrong.
+  
+  🔴 **A DIRECTORY LEAKED A RAW ERRNO.** Only the skill-bundle reader tested
+  `isFile()`. Everywhere else the guard was `existsSync` alone, which a directory
+  passes, so the read below it threw:
+  
+  ```
+  $ nexus asset upload ./my-folder
+  EISDIR: illegal operation on a directory, read
+  ```
+  
+  Exit 1, code `CLI_UNKNOWN_ERROR`, no hint — a message about a syscall, on a
+  mistake the caller made about a path. Measured on six commands: `asset upload`,
+  `workflow upload-icon`, `ticket attach`, `agent-skill upload`,
+  `external-tool update-spec` and `api --file`. All six now name the path and
+  carry the remedy, at exit 5 (`invalid-input`) with code
+  `CLI_INVALID_ARGUMENTS`.
+  
+  **A MISSING FILE ANSWERED TWO DIFFERENT WAYS.** Seven commands refused it
+  properly. Four — `agent-skill create`, `agent-skill upload`,
+  `external-tool update-spec` and `api --file` — threw a bare error instead, so
+  the same mistake exited 1 with a null hint and the generic unknown-error code,
+  while its neighbours exited 5 with a remedy. A script could not tell "you
+  passed a path that is not there" from a CLI crash on those four. They now
+  answer exactly as the other seven always did.
+  
+  **Nothing changed for the seven that were already right.** Every upload site
+  was run against a missing path and against a directory, before and after,
+  capturing stdout, stderr, exit code and the `--json` document: 16 of 36 cases
+  are byte-identical, and every one of the 20 that moved moved toward the
+  refusal the other commands already gave.
+  
+  ⚠️ **This changes exit codes.** A script testing for exit 1 on a bad `--file`
+  path to those four commands must test for 5 instead. `nexus --help` carries
+  the exit-code table, and 5 is `invalid-input` — the category these refusals
+  always belonged in.
+  
+  `workspace push` is deliberately unchanged. It refuses its whole source list
+  before it walks, accepts folders as well as files, and says "No such file or
+  folder" — a different decision at a different granularity, and `isFile()` would
+  refuse its main use.
+- 03148b5: OpenAI `reasoningEffort` accepts `"max"` on select models
+  
+  `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol` and
+  `gpt-6-luna`, on the Responses API, now accept `"max"` alongside `"low"`,
+  `"medium"`, `"high"` and `"xhigh"`. Every other OpenAI model still refuses it.
+  
+  ## `@agent-nexus/sdk`
+  
+  `ModelConfig.reasoningEffort` widens to `"low" | "medium" | "high" | "xhigh" | "max"`.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus agent create` and `nexus agent update` accept `"max"` for
+  `modelConfig.reasoningEffort`, and `nexus task execute` accepts it for
+  `modelOverride.reasoningEffort` — both set through `--body`, since neither
+  command exposes a `--reasoning-effort` flag.
+
+### Patch Changes
+
+- 9453f82: A queued build says why it is waiting
+  
+  An organization now runs a bounded number of builds at once. `nexus apps
+  deploy-state` prints why a build that has not started is still waiting, for
+  example that the organization already has 2 builds running and may run 2 at
+  once. `nexus admin vibe-build-runner tick` gains the `org_at_capacity` outcome
+  for a tick whose next build belongs to an organization at its cap: the job stays
+  queued and is admitted once the organization is under the cap.
+- d4a1d2b: A replaced deployment names the deployment that replaced it
+  
+  When a newer push supersedes a build, or a newer deployment goes live first,
+  the older deployment ends `DISPLACED`. `nexus apps deployments get` now prints
+  a `Replaced by` line for it (`v8 · 1a2b3c4`). `deployments list` shows the
+  same in the status cell (`DISPLACED → v8 · 1a2b3c4`), and `apps deploy-state`
+  and `apps watch` say it in their verdicts.
+  
+  `SUPERSEDED`, `DISPLACED` and `CANCELLED` now print dim instead of plain.
+  They are statuses where something ended and nothing failed, so they are kept
+  apart from red. `apps deploy-state` also stops painting a superseded build's
+  reason red, because that reason says nothing failed.
+- 4484f7f: A retryable dispatch refusal queues the build again
+  
+  `nexus admin vibe-build-runner tick` gains the `dispatch_failed_requeued`
+  outcome: the executor refused the build with an error it marked retryable, and
+  the build took its one automatic retry — it is queued again, and the record
+  shows the attempt it is queued as. A refusal the executor did not mark
+  retryable, or one on the build's last attempt, still reports
+  `dispatch_failed_compensated`.
+  
+  `nexus apps audit list` knows two more build events: `BUILD_JOB_REQUEUED` (a build
+  whose executor went quiet, or lost its node, was queued again for its one
+  automatic retry) and `BUILD_JOB_LOST` (the retry went quiet too, and the
+  deployment failed). `--type` filters on both.
+- 5ac7d8d: An admin build-runner tick can report a busy app
+  
+  A Vibe app now builds one commit at a time. `nexus admin vibe-build-runner tick`
+  gains the `app_busy` outcome for a tick that found the next queued build's app
+  already building: the job stays queued and is admitted once that build ends.
+  Before this, the CLI had no arm for the outcome and would have thrown on it.
+- 9db037c: An app with no Dockerfile can vendor a private package
+  
+  `nexus apps vendor-package` no longer warns that an app without its own
+  Dockerfile will fail to build. That warning told you to go and write one before
+  pushing, and it is no longer true: the Dockerfile the platform generates for
+  such an app now copies the vendored tarball into the image before it installs,
+  so the build resolves `file:vendor/…` exactly as your own machine does.
+  
+  Until now the verb did its half correctly and the server-side build did not.
+  `npm install` in the app directory resolved the vendored path against your
+  working tree and succeeded; the generated build copied the manifests, ran the
+  install, and only then copied the source — so the install opened a path that was
+  not in the image yet and died on
+  `ENOENT: no such file or directory, open '/app/vendor/<name>-<version>.tgz'`,
+  one line before the copy that would have put it there. The verb was right, the
+  advice was the only way through, and the failure landed after the push.
+  
+  It reads the paths out of your own `package.json` rather than assuming the
+  `vendor/` directory, so a `file:` or `link:` dependency you wrote by hand is
+  copied on the same terms. A path the repository does not actually contain is
+  left alone, so nothing that builds today starts failing.
+  
+  A genuinely private dependency — one still resolved from the registry rather
+  than vendored — now works in a generated build too: the install step is handed
+  the platform's registry credential for that step alone, and it reaches no layer
+  of the finished image. That covers npm, pnpm, bun and Yarn Classic. A repository
+  pinned to Yarn Berry reads its credential from `.yarnrc.yml` instead and is not
+  covered yet.
+  
+  This is a change to the build the platform runs, so it applies to builds started
+  after the platform picks it up. An app already carrying `vendor/` and its
+  rewritten `package.json` needs nothing new from you — no re-run of the verb, no
+  new commit — only its next build.
+- 99a8998: An approval request can be withdrawn
+  
+  A Vibe approval request gains the `WITHDRAWN` status: the deployment it gated
+  ended before anyone decided, because a newer commit superseded it or its build
+  failed. Nobody approved or rejected anything, and there is nothing left to
+  approve. The CLI's approval types carry the new value.
+- d9463e0: `--help` now covers two fields the `--json` output already carried.
+  `nexus apps cluster provision` and `nexus admin vibe-tenant-cluster provision`
+  explain `reusedExistingRow: true` on a `provisioning` outcome: the call joined
+  a row that was already PROVISIONING and started nothing new. The field is
+  absent on a fresh create and on a re-provision. `nexus eval run get --case`
+  describes the summary line above a criterion judged more than once. That line
+  shows the mean score and how many repetitions agree, and INCONCLUSIVE
+  repetitions are left out of both.
+- dd075ae: The build-runner tick no longer reports `app_busy`
+  
+  `nexus admin vibe-build-runner tick` drops the `app_busy` outcome. An app can
+  hold only one queued or running build at a time, so the build the tick admits is
+  always its app's only one, and "the app already has a build running" can no
+  longer happen. The help text now describes a dispatch failure as ADMITTED →
+  FAILED, the state a claimed build is in before any executor accepts it.
+- 24d3135: The bundled skills carry `nexus apps domains`
+  
+  `packages/cli/skills-nexus.lock` advances to
+  `claude-code-skills-nexus@a7137cc412723ab471e534daf61d99136648fd12`, the commit
+  that documents attaching a custom domain to an app. The regenerated bundle moves
+  exactly two files — `nexus-app-builder`'s `SKILL.md` and its
+  `references/deploy-guide.md` — plus the shared `REFERENCE_INDEX.md` entry that
+  points at them. Hooks, agents, `CLAUDE.md` and `settings.json` are byte-identical
+  to the previous pin.
+  
+  **What a user notices is narrow, and worth being precise about.** `nexus skills
+  install` downloads the corpus the platform serves, so an online install already
+  had this guidance from the moment the upstream commit landed. The bundle is the
+  FALLBACK — offline, on a download error, or with `--bundled` — so what changes
+  here is that those three paths stop handing out a corpus that predates the
+  feature. An agent installed offline was being told to deploy an app with no way
+  to attach a domain to it.
+  
+  **The pin is also a release gate, which is why it moves in the same breath as the
+  upstream merge.** `scripts/check-publish-pin.ts` runs inside
+  `mirror-public-packages.yml` and refuses to push a `cli-v*` tag whose bundle is
+  pinned behind `claude-code-skills-nexus@main`. A pin left behind does not fail
+  loudly — the withhold step strips the tag, `release-cli.yml` never fires, and the
+  next CLI release simply does not happen. Refreshing the pin is what lets the next
+  mirror sync re-attempt; no version is burned in the meantime.
+- 2cab193: The bundled skills no longer route an app build through the npm registry
+  
+  `packages/cli/skills-nexus.lock` advances `a7137cc412` →
+  `claude-code-skills-nexus@9699758b92e0325f7c3507b854b5648c5914a679`, and both
+  halves of the bundle are regenerated from that commit together.
+  
+  **What was wrong, and who it reached.** `nexus-app-builder` documented an npm
+  install route for `@agent-nexus/apps-starter` — a package that is private and is
+  never published to the public registry. Following it, the agent asked a customer
+  for an npm token for a package no token would have fetched. The route had been
+  in the shipped corpus since 2026-09-20. Upstream removed it in that repo's #65
+  (`SKILL.md`, `references/starter-guide.md`) and removed a surviving runnable
+  `npm view @agent-nexus/apps-starter version` from the hooks `CHANGELOG.md` in
+  #67, which also added an invariant scan so it cannot be reintroduced there.
+  
+  **Pinning at a sha that contains a fix and shipping a bundle that contains it
+  are different claims.** The second one is measured, counted in the regenerated
+  payload, old pin → new pin:
+  
+  | needle                                  | before | after |
+  | --------------------------------------- | ------ | ----- |
+  | `npm view @agent-nexus/apps-starter`    | 2      | **0** |
+  | `nexus apps vendor-package` _(control)_ | 5      | 6     |
+  | `apps starter` _(control)_              | 22     | 18    |
+  
+  Both controls are non-zero on the new payload, so the zero above is the corpus
+  being clean rather than the scan being aimed at the wrong file. One
+  `npm view @agent-nexus/...` survives and is correct — it is of
+  `@agent-nexus/cli`, which is public and is the intended route for it.
+  
+  **The blast radius, compared entry by entry rather than inferred from the diff
+  size.** 645 bundled entries before and after; five changed, 640 byte-identical,
+  none added or removed:
+  
+  ```
+  HOOK_FILES/CHANGELOG.md                                438771 -> 439031
+  SHARED_FILES/REFERENCE_INDEX.md                         35622 ->  35504
+  SHARED_FILES/scripts/stale-commands.py                   3020 ->   2925
+  skills/nexus-app-builder/SKILL.md                       94899 ->  94545
+  skills/nexus-app-builder/references/starter-guide.md    23525 ->  22766
+  ```
+  
+  Skills, hooks and agents hold at 22/89/33, and the generated `.ts` moves only
+  the two lines `check-skills-lock.ts` reads.
+  
+  **What a user notices is narrow and worth being precise about.** `nexus skills
+  install` downloads the corpus the platform serves, so an online install stopped
+  handing out the npm route the moment the upstream commits landed. The bundle is
+  the FALLBACK — offline, on a download error, or with `--bundled` — so what
+  changes here is that those three paths stop teaching a route that asks a
+  customer for a credential which cannot work.
+  
+  `skills/plain/` is still skipped by the bundler's `nexus-` prefix selector and
+  still ships to nobody. Unchanged by this bump, recorded because the generator
+  now warns about it on every run.
+
 ## 1.7.1
 ### Patch Changes
 

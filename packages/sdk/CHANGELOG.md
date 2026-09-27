@@ -1,5 +1,45 @@
 # @agent-nexus/sdk
 
+## 4.4.0
+### Minor Changes
+
+- 54af6f4: `MCP` joins the tool-config types the public API reads
+  
+  `AgentToolConfigType` now carries `"MCP"`, so a tool discovered on an MCP server
+  reads back as what it is instead of as a `PLUGIN`.
+  
+  `WritableAgentToolConfigType` excludes it, alongside `"MEMORY"`, and for the same
+  reason: the row's `config` has a part v1's strict tool-config schema cannot spell.
+  `MEMORY`'s unspellable part is the pad grant `{ pads: [...] }`. `MCP`'s is the PIN.
+  An MCP skill is TWO rows — the config plus an `AgentToolConfigMcpToolPin` naming
+  the MCP tool and the contract hash it was attached against, written together in one
+  nested INSERT so they cannot exist separately. v1 has no key for the pin, so a
+  create through that surface could only mint a config with no pin: a skill that
+  holds the agent's label and refuses every call it is handed.
+  
+  The exclusion rests on arity alone, not on the database refusing the shape. The pin
+  table's CHECK admits `MCP` alongside `PLUGIN`, so the pinned case is representable;
+  lifting the exclusion needs a key for the pin rather than a schema change.
+  
+  Read-side callers see one new member on `AgentToolConfigType`. A caller that
+  switches exhaustively over that union has a new case to answer.
+- 03148b5: OpenAI `reasoningEffort` accepts `"max"` on select models
+  
+  `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol` and
+  `gpt-6-luna`, on the Responses API, now accept `"max"` alongside `"low"`,
+  `"medium"`, `"high"` and `"xhigh"`. Every other OpenAI model still refuses it.
+  
+  ## `@agent-nexus/sdk`
+  
+  `ModelConfig.reasoningEffort` widens to `"low" | "medium" | "high" | "xhigh" | "max"`.
+  
+  ## `@agent-nexus/cli`
+  
+  `nexus agent create` and `nexus agent update` accept `"max"` for
+  `modelConfig.reasoningEffort`, and `nexus task execute` accepts it for
+  `modelOverride.reasoningEffort` — both set through `--body`, since neither
+  command exposes a `--reasoning-effort` flag.
+
 ## 4.3.0
 ### Minor Changes
 

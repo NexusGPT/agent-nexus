@@ -1,5 +1,277 @@
 # @agent-nexus/cli
 
+## 1.9.0
+### Minor Changes
+
+- aeef864: A billed, undelivered `test-send` exits `10` rather than a bare `1`
+  
+  `nexus channel whatsapp-template test-send --wait` exits `10` —
+  `outcome-not-reached` — when Twilio settles the message as `failed` or
+  `undelivered`. It exited `1`.
+  
+  The command's published help has always promised it "exits non-zero on failed or
+  undelivered", and that stays true. What moves is which non-zero.
+  
+  `1` is this CLI's generic fallback, and its declaration says reaching for it
+  because the category is inconvenient is how the package once had 467 sites that
+  all said `1`. The category was not inconvenient here. `10`'s declaration
+  describes this send almost word for word: the operation RAN, something changed
+  and it was not enough, and "RETRYING IS THE TRAP: it repeats the same successful
+  half forever." Twilio accepted the message, Meta carried it, MONEY MOVED — the
+  same help says there is no dry run and nothing is refundable — and the message
+  did not arrive. Re-running bills again and, for a wrong number or a template
+  Meta refuses at send time, fails again for the same reason.
+  
+  The two template-approval verbs already exit `10` when Meta rejects, for the
+  same reading of the same declaration.
+  
+  ## A second, smaller change in the same line
+  
+  🔴 **The failure is now decided by the STATUS alone, where it was
+  `observedTerminal && isDeliveryFailed(status)`.** The first half was a hole:
+  `observedTerminal` is false when every delivery probe threw and was swallowed,
+  in which case the reported status falls back to the one the SEND itself
+  returned. So a send that came back `failed` immediately rendered as a failure,
+  published `"wait": "resolved"` with a failed `status` in the `--json` document,
+  and exited `0`.
+  
+  The document module had already decided this question the other way, in its own
+  words: a send that came back `failed` before any probe ran is settled, "and
+  calling that a timeout sends a script back to wait on a message that is already
+  dead." The exit code now reads the field the document reads, so the two cannot
+  disagree about whether the send failed.
+  
+  **A caller that saw `0` in that case now sees `10`.** It is the narrower of the
+  two breaks here and the one with no upside to leaving alone: the document
+  already said the send had failed.
+  
+  ## What did NOT change
+  
+  - **A successful delivery still exits `0`**, and a `test-send` without `--wait`
+    is untouched.
+  - **`--json` document shapes.** No key was added, removed or renamed.
+  
+  ## Why `minor` and not `major`
+  
+  `1` → `10` is a refinement of a failure that was already non-zero, which is the
+  ordinary re-categorisation this taxonomy was built for. The status-keyed fix
+  does turn one `0` into a `10`, so it is called out above rather than folded in;
+  it is not a `major` because the case it corrects is one the CLI's own `--json`
+  record already reported as a failed delivery.
+- aeef864: A `--wait` that gives up now exits `8`, where it exited `0`
+  
+  `nexus channel whatsapp-template submit-approval --wait` and
+  `nexus channel whatsapp-template test-send --wait` exit `8` — `timed-out` — when
+  the poll spends its budget with the status still moving. Both exited `0`.
+  
+  ## The break, named
+  
+  🔴 **A SUCCESS BECOMING A FAILURE IS A BREAK, AND IT FIRES ON THE COMMON CASE.**
+  Meta's review is routinely slower than two minutes, so a timed-out
+  `submit-approval --wait` is the ordinary outcome rather than an edge case. A
+  `set -e` script that waits and then carries on will now stop there.
+  
+  That is the point of the change. At `0` the exit code could not separate _Meta
+  answered_ from _we stopped asking_ — it reported a check that ran and PASSED
+  over a template still under review, and over a message still in flight.
+  `COMPATIBILITY.md` already forbids the weaker version of this: "a check that
+  could not run (`7` unreachable, `8` timed out, `6` server errored) is never
+  reported as a check that ran and failed." Exiting `0` is worse than the thing
+  that sentence forbids.
+  
+  `nexus prompt-assistant --wait` has always exited `8` on its own timeout, which
+  is equally ordinary. This is the package agreeing with itself.
+  
+  ## What a caller does instead of `|| true`
+  
+  `|| true` would swallow the Meta rejection this release also makes visible. Two
+  narrower tests, and the `--help` for all three template verbs now names the
+  first:
+  
+  - **Read `.wait` in the `--json` document** — `not-requested`, `resolved` or
+    `timed-out`. A timeout and a refusal are different values there.
+  - **Test the code**, which now distinguishes them: `10` is a settled negative
+    answer, `8` is nobody answering.
+  
+  The exit code and the `wait` key are derived from the same two facts, in one
+  rule module each, and a spec pins them against each other over every
+  combination — so a record reading `"wait": "resolved"` beside an exit `8` cannot
+  ship.
+  
+  ## What did NOT change
+  
+  - **`create --submit` still exits `0` on its timeout.** Its 30-second poll is
+    unconditional — there is no flag to decline it — so its timeout is not a
+    caller missing a verdict they asked for; it is a create that fully succeeded,
+    with a courtesy glance at the review.
+  - **A Meta rejection still exits `10`**, from its own rule. A rejection is a
+    settled status and a settled status is not a timeout, so the two never both
+    apply.
+  - **`--json` document shapes.** No key was added, removed or renamed.
+  
+  ## A read this CLI could not complete shares the `8`
+  
+  Since the approval probe started swallowing its errors, _Meta is still
+  reviewing_ and _the approvals list could not be read_ arrive at the exit with
+  nothing to tell them apart, and both now exit `8`. That is the right code rather
+  than merely the available one:
+  
+  - `7` (`connection-failed`) promises RETRYABLE. The write already landed — the
+    template is filed, the message is sent and billed — and a Content SID may be
+    submitted to Meta exactly once, so a script backing off and re-sending on `7`
+    is the trap.
+  - `6` (`remote-error`) promises the server failed. A read this CLI did not
+    complete is a fact about this process, not about Twilio.
+  
+  `8`'s own declaration covers both: the CLI stopped waiting, the server may still
+  be working, and a blind retry of a write can duplicate it.
+  
+  The cost is stated rather than hidden: a persistently broken approvals read is
+  indistinguishable at the exit code from an ordinary pending review. The operator
+  learns the difference from `nexus channel whatsapp-template approvals`, which
+  the timeout line already points at and whose probe failures propagate.
+  
+  ## Why `minor` and not `major`
+  
+  An exit code is a consumer contract and a `0` becoming an `8` is not nothing,
+  which is why this entry leads with it. It is not a `major` because no category
+  changed meaning and no number was reassigned: `8` already meant exactly this,
+  was already published in the root exit-code table, and is already what
+  `prompt-assistant --wait` returns for the same fact. What changed is that two
+  commands stopped returning `0` for a check that never completed.
+- 9506ce3: `nexus admin …` exits `8` when the API misses its deadline, where it exited `7`
+  
+  **This moves an exit code a script reads.** A deadline on an admin request exited
+  `7` (`connection-failed`) and now exits `8` (`timed-out`).
+  
+  `7` means the request never arrived, so re-sending it is free. Every non-GET
+  through the admin transport is a WRITE — a suspension, a status change, a
+  cost-safety edit — and a write whose deadline expired may well have landed. `7`
+  told a script those had definitely not happened when the honest answer is that
+  nobody knows, so a caller backing off and re-sending on it could duplicate the
+  write. `8` is the category that says the server may still be completing the
+  request; the CLI's resource commands have always exited `8` here, so this is the
+  admin tree agreeing with the taxonomy the rest of the binary already follows.
+  
+  An unreachable admin host still exits `7`. Only the deadline moved.
+  
+  The failure now also carries a hint saying to read the current state back before
+  retrying a write, rather than suggesting a retry.
+  
+  **Why `minor` and not `major`.** An exit code is a consumer contract and moving
+  one is not nothing, which is why this entry leads with it. It is not a `major`
+  because the category vocabulary did not change and no code changed meaning: `8`
+  already meant this, was already published in the exit-code table, and was already
+  what every non-admin command returned for the same fact. What changed is that one
+  case stopped returning the wrong one of two existing codes.
+  
+  ### Also in this release: a deadline is classified by the clock, not by the error
+  
+  `fetchWithDeadline` decided a request had timed out by inspecting the TYPE of the
+  error the transport threw. It now records whether its own timer fired, which is
+  what the sibling used for downloads all along. Those were assumed to be two
+  spellings of one question and are not.
+  
+  Measured against a real listener that destroys the socket as the budget expires,
+  2 of 140 attempts rejected with a raw terminated-socket `TypeError` rather than an
+  abort, because the peer's destroy won the race. Those were the CLI's own deadline
+  and were reported as an unrelated transport failure. Two observable consequences:
+  
+  - `nexus admin …` in that race now reaches the `8` above, where the raw error was
+    previously filed as retryable `7`.
+  - `nexus workspace mount` in that race now names the budget and points at
+    `--timeout`, instead of reporting a bare `terminated`. The exit code there is
+    unchanged; the message becomes actionable.
+- 2c261d1: An unknown NEXUS_ENV is refused before a command writes anything
+  
+  `NEXUS_ENV` accepts `production` (the default), `staging` and `dev`. Any other
+  value is refused at startup with a non-zero exit naming the value and the
+  accepted set. `staging` resolves to `https://api-staging.gpt.nexus` for the API
+  and `https://staging.gpt.nexus` for the console.
+  
+  Before this, both host resolvers ended on `MAP[env] ?? MAP.production` over a
+  table with no `staging` key, so
+  
+      NEXUS_ENV=staging nexus admin vibe-cost-safety set <orgId> --status OK
+  
+  wrote to PRODUCTION — exit 0, no error, and nothing on screen naming the host.
+  Every typo did the same: `prod`, `stagin`, `Production`. The fallback made a
+  name that was TYPED indistinguishable from one that was never set, which is the
+  one case where they must differ.
+  
+  **`NEXUS_ENV` unset, empty or whitespace-only still means production.** An empty
+  value is not a typo anybody made — it is what CI templating produces from a
+  variable that does not exist (`NEXUS_ENV: ${{ vars.NEXUS_ENV }}`, `NEXUS_ENV=$UNSET`,
+  `export NEXUS_ENV=`), and refusing it would break callers who never chose
+  anything. A surrounding space is trimmed for the same reason. Case is still
+  significant: `STAGING` is refused, because a name nobody serves reaching
+  production quietly is the whole defect.
+  
+  **The refusal happens before any command action runs, and that ordering is the
+  point.** The API host and the console host are resolved by INDEPENDENT chains
+  that each consult `NEXUS_ENV` last, so the API host can be settled by an earlier
+  term — an override, a named profile, `NEXUS_BASE_URL`, or an active profile
+  holding a `baseUrl` and no `dashboardUrl` — while the console host falls through
+  and refuses. About sixteen commands build their console link AFTER the mutating
+  call, so a late refusal created the resource and then exited non-zero, which a
+  script reads as a failed create and retries. Validating once at startup means no
+  request is issued at all.
+  
+  `--base-url`, `--profile` and `NEXUS_BASE_URL` are unaffected: an invocation
+  that pins its host explicitly still runs.
+  
+  **`nexus admin` now names the host on STDERR before every write** (`admin POST →
+  https://…`). Reads stay silent, so the line keeps being read, and stderr keeps
+  `--json` one document per invocation.
+  
+  The two host maps are keyed by one exported union rather than being independent
+  `Record<string, string>` literals, so an environment added to one and not the
+  other is a typecheck failure instead of a silent resolution to production. That
+  drift IS the defect above.
+  
+  `nexus auth login --env` is untouched: it is a named pair of hardcoded localhost
+  ports and not the `NEXUS_ENV` map, and it still recognises `dev` and
+  `production` only.
+- eb47113: Both WhatsApp-template verbs agree on what a Meta rejection exits
+  
+  `nexus channel whatsapp-template create --submit` and
+  `nexus channel whatsapp-template submit-approval --wait` now exit `10` —
+  `outcome-not-reached` — when Meta rejects the template. One rule, applied at
+  both call sites from one module, so which verb filed the template no longer
+  decides what a script sees.
+  
+  `10` is the category whose declaration is this case almost word for word: the
+  operation RAN, something changed, and the outcome did not happen, so retrying
+  repeats the same successful half forever. The template really was created and
+  really was filed; Meta refused it, and re-running the command files it again
+  and gets the same answer. `1` said "the CLI broke", which is a different thing
+  to a caller that can only read the number.
+  
+  ## The break, named
+  
+  🔴 **`submit-approval --wait` exited `0` on a rejection and now exits `10`.** A
+  success becoming a failure is a break in the stable tier, not a refinement of a
+  non-zero code, so it is called out here rather than folded into the paragraph
+  above. A `set -e` script that filed a template with this verb and treated the
+  command's success as "filed and fine" will now stop on a rejection — which is
+  the reason for the change: the verb reported Meta's refusal on stdout and then
+  exited as though nothing had gone wrong.
+  
+  `create --submit` exited `1` on the same rejection and now exits `10`. That one
+  is an ordinary re-categorisation of a failure that was already non-zero.
+  
+  **A TIMEOUT IS NOT A REJECTION AND NEVER BECOMES ONE.** Giving up while Meta is
+  still reviewing is not a verdict, so it does not reach `10` here. It is a
+  separate move in the same release: `submit-approval --wait` now exits `8`
+  (`timed-out`) where it exited `0`, under its own entry. `create --submit`'s
+  timeout is unchanged and still exits `0`.
+  
+  `submit-approval --wait` also no longer prints `Next: Attach to deployment`
+  after a rejection. It offered the one action a rejection rules out — attaching
+  a template that can never be sent. It now says the template cannot be attached
+  or sent, and that the remedy is a corrected replacement, because a template's
+  body and category are fixed at creation.
+
 ## 1.8.0
 ### Minor Changes
 

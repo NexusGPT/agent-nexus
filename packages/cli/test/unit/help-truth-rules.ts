@@ -5,6 +5,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- see the note above */
 import { deriveCommandLeaves, isHiddenCommand } from "../../src/command-universe";
 import {
+  type BuildCounters,
+  buildCounters,
   buildProgram,
   camel,
   type Descriptor,
@@ -79,6 +81,26 @@ export interface ScanReport {
   readonly nodeCount: number;
   readonly leafCount: number;
   readonly examplesChecked: number;
+  /**
+   * WHAT THIS SCAN COST, IN TREES — the three counters that hold the one
+   * optimisation this suite's hook budget depends on.
+   *
+   * 🚨 A DELTA ACROSS THIS SCAN, never the module's running total. Whoever imported
+   * `help-truth-scan` before this call may have built trees of their own, and a
+   * total would silently attribute them here.
+   *
+   * `originRecordingBuilds` is the load-bearing one and is exactly ONE: the base
+   * tree {@link resolveCommandRoutes} reads `TreeNode.file`/`.line` off. Every other
+   * tree is a throwaway that reads neither, and building those with the recorder
+   * armed is the defect — it is invisible in every output, breaks no assertion about
+   * the tree, and only makes the hook slower until the day it crosses its budget.
+   *
+   * ⚠️ NOT growth-sensitive, deliberately. It is a property of the ALGORITHM — one
+   * recorded tree, N throwaway ones — so adding commands to the CLI moves
+   * `programBuilds` and `stackCaptures` and cannot move this. That is what lets the
+   * gate pin it exactly instead of guessing at a ceiling nobody can maintain.
+   */
+  readonly buildCost: BuildCounters;
   readonly truncated: number;
   /**
    * Invocations whose stdin document the example STATES — `echo '<doc>' | nexus …`.
@@ -230,8 +252,8 @@ const META_FLAGS = new Set([
 /**
  * HAND THE EVENT LOOP BACK, so vitest's worker RPC can be answered.
  *
- * This scan is ~50 seconds of almost entirely SYNCHRONOUS work — it renders and
- * regexes the `--help` of every command in the tree. The `await`s already inside
+ * This scan is tens of seconds of almost entirely SYNCHRONOUS work — it renders
+ * and regexes the `--help` of every command in the tree. The `await`s already inside
  * the loop do not help: `buildProgram()` resolves from modules that are already
  * imported, so awaiting it drains the MICROTASK queue and never reaches the poll
  * phase. A macrotask is the only thing that does.
@@ -276,14 +298,24 @@ type ExampleInvocation = Invocation & { readonly example: string };
  * answer to drift.
  *
  * ── THE COST IS `buildProgram()`, NOT THE PARSING ────────────────────────────
- * Measured 2026-08-31 on this tree: 643 nodes, 1333 invocations. Everything in
- * THIS function totals ~190ms. R1-R4 cost ~37s, of which `parseExample` is
- * 0.6ms a call and `buildProgram` is 27.7ms a call — 98%. A fresh tree per
- * example is REQUIRED (commander stores parsed option values on the Command
- * objects, so a shared tree lets one example's arguments satisfy the next
- * example's required options and turns a real defect green), which is why the
- * split moves the cheap consumer OFF that path rather than memoising the tree
- * underneath it.
+ * Everything in THIS function is a rounding error beside R1-R4, which build one
+ * commander tree per example. `parseExample` is a fraction of a millisecond a
+ * call; the tree is the rest, so the scan's cost is the number of examples the
+ * `--help` output prints, times what one build costs.
+ *
+ * A fresh tree per example is REQUIRED — commander stores parsed option values on
+ * the `Command` objects, so a shared tree lets one example's arguments satisfy the
+ * next example's required options and turns a real defect green. That is why the
+ * split moves the cheap consumer OFF this path rather than memoising the tree
+ * underneath it, and it is why the cost is attacked at what a build COSTS instead:
+ * a throwaway tree passes `{ recordOrigins: false }`, which is most of a build.
+ * `help-truth-scan.ts` owns that flag and the command that re-derives both sides,
+ * and `help-truth.test.ts`'s COST arms are what hold the opt-out in place.
+ *
+ * Both populations are printed by the suite itself rather than pinned here, where
+ * they would go stale reading as current: {@link ScanReport.nodeCount} and
+ * {@link ScanReport.examplesChecked}, with {@link ScanReport.buildCost} carrying
+ * what they cost in trees.
  */
 export interface RouteResolution {
   readonly base: ReturnType<typeof buildProgram>;
@@ -390,6 +422,9 @@ export async function resolveCommandRoutes(): Promise<RouteResolution> {
 }
 
 export async function runHelpTruthScan(): Promise<ScanReport> {
+  // BEFORE `resolveCommandRoutes`, because the base tree it builds is the one
+  // origin-recording build this scan is entitled to and has to be inside the window.
+  const costBefore = buildCounters();
   const resolution = await resolveCommandRoutes();
   const {
     base,
@@ -500,8 +535,14 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
       // one lets this example's arguments satisfy the next example's required
       // options and turns a real defect green. What is dropped here is only the
       // ORIGIN side table: `parseExample` reads `node.cmd` and `node.path` and
-      // never `node.file`/`.line`, so recording a stack frame per command bought
-      // nothing on these 1333 trees and cost 87.3% of each build.
+      // never `node.file`/`.line`, so recording a stack frame per command buys
+      // nothing on a throwaway tree and costs most of the build.
+      //
+      // 🔴 DO NOT DROP THIS OPTION. It is the difference between this hook sitting
+      // comfortably under its `hookTimeout` and intermittently crossing it, and
+      // removing it changes no output and breaks no assertion about the tree. The
+      // COST arms in `help-truth.test.ts` are what notice; they read the counters
+      // `help-truth-scan.ts` keeps, and they red naming this line.
       const program = await buildProgram({ recordOrigins: false });
       const outcome = await parseExample(program, args, stdin ?? "");
       if (outcome.kind === "refused") {
@@ -758,11 +799,19 @@ export async function runHelpTruthScan(): Promise<ScanReport> {
     namespaceBlindness.set(namespace, resolvesSomething ? "UNREACHED" : "NO-ROUTE");
   }
 
+  const costAfter = buildCounters();
+  const buildCost: BuildCounters = {
+    programBuilds: costAfter.programBuilds - costBefore.programBuilds,
+    originRecordingBuilds: costAfter.originRecordingBuilds - costBefore.originRecordingBuilds,
+    stackCaptures: costAfter.stackCaptures - costBefore.stackCaptures
+  };
+
   return {
     violations: dedupe(violations),
     nodeCount: nodes.length,
     leafCount: leafNodes.length,
     examplesChecked,
+    buildCost,
     truncated,
     statedStdinDocuments,
     stdinBodiesJudged,

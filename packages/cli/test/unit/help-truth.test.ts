@@ -11,8 +11,10 @@ import {
 } from "./help-truth.ledger";
 import { deriveCommandLeaves, runHelpTruthScan, type ScanReport } from "./help-truth-rules";
 import {
+  buildProgram,
   descriptorFor,
   descriptorIndex,
+  originCount,
   sdkCallsIn,
   sdkRouteIndex,
   transportCallsIn
@@ -30,7 +32,9 @@ import {
  * list beside an evolving CLI is the defect, not the coverage: it goes stale in
  * silence, and a gate over a stale list reads exactly like a gate over a
  * complete one. That file is deleted and its two claims — an Examples block and
- * a Notes block on every leaf — are rules R0 here, over all 500 leaves.
+ * a Notes block on every leaf — are rules R0 here, over every leaf the CLI
+ * registers. The count is printed by the PROGRESS lines at the foot of this file,
+ * never written into it.
  *
  * ⚠️ THREE FILES ARE DELIBERATELY LEFT ALONE, against the brief that ordered
  * them subsumed. `src/commands/knowledge-help-completeness.test.ts`,
@@ -86,6 +90,99 @@ test("CONTROL: this gate and command-universe see the SAME command set", () => {
     [...report.leaves],
     derived,
     "help-truth and command-universe derived different leaf sets"
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE COST GATE — the one optimisation this hook's budget rests on
+//
+// This scan's `beforeAll` is the most expensive hook in the repository, and what
+// keeps it clear of its `hookTimeout` is a single option on a single call site:
+// the throwaway tree built per example does not record command origins, so it
+// does not capture a stack per command. Revert that one call site and the hook
+// returns to intermittently crossing its budget — with no output changed, no
+// assertion about the tree broken, and nothing anywhere to point at.
+//
+// 🔴 THE ARMS ARE SPLIT ACROSS THREE BLOCKS ON PURPOSE. A failing assertion
+// throws, so it aborts the rest of its own block and every arm below it goes
+// unscored while the block still reds — and which arm is lost depends on the
+// mutant, not on the writing order. Deleting the counter's increment moves the
+// pin AND the floor; only one of them would ever be reported from one block.
+//
+// ⚠️ COUNTS, NEVER A DURATION. This package's suite runs on a pool whose
+// run-to-run spread is wide enough that a duration ceiling is either loose
+// enough to guard nothing or tight enough to red on a healthy tree — which is
+// the flake this gate exists to prevent, not a gate against it. A build count
+// cannot vary with load. `command-universe.test.ts` makes the same call for the
+// lazy-help getter, in its own words: guarding the property rather than a
+// millisecond budget.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("COST: the scan records command origins for exactly ONE tree", () => {
+  // The base tree, which is the only one whose `TreeNode.file`/`.line` anything
+  // reads. Every other tree is a throwaway that reads neither.
+  //
+  // PINNED EXACTLY, and it stays correct as the CLI grows: this is a property of
+  // the algorithm — one recorded tree, one throwaway per example — so adding
+  // commands moves `programBuilds` and `stackCaptures` and cannot move this.
+  // There is no ceiling here to be raised unread on a busy afternoon.
+  assert.equal(
+    report.buildCost.originRecordingBuilds,
+    1,
+    `\n\nthe scan built ${report.buildCost.originRecordingBuilds} origin-recording trees, ` +
+      `of ${report.buildCost.programBuilds} trees in total, taking ` +
+      `${report.buildCost.stackCaptures} stack captures.\n` +
+      `EXACTLY ONE tree may record origins: the base tree in resolveCommandRoutes(), which is\n` +
+      `the only one whose source lines are ever read. A throwaway tree built per example must\n` +
+      `pass \`{ recordOrigins: false }\` — capturing a stack per command on each of them is the\n` +
+      `cost that used to put this hook over its budget, and it changes no output at all.\n` +
+      `Look for a \`buildProgram()\` in help-truth-rules.ts that has lost its option.\n`
+  );
+});
+
+test("COST: the build counter observed the per-example loop at all", () => {
+  // ANTI-VACUITY FOR THE PIN ABOVE, and it is not optional. A counter that never
+  // increments reports one origin-recording build for the base tree and zero
+  // afterwards — which satisfies a pin of 1 over a loop the instrument never saw.
+  // A floor, because the number grows with the CLI and a pin here would red on
+  // every command anybody adds.
+  assert.ok(
+    report.buildCost.programBuilds > report.examplesChecked,
+    `the scan reports ${report.buildCost.programBuilds} trees built against ` +
+      `${report.examplesChecked} examples parsed. Each example builds its own tree, so the ` +
+      `count must exceed it — at or below means the counter stopped seeing the loop and the ` +
+      `pin above is being satisfied by an instrument that is not measuring anything.`
+  );
+});
+
+test("CONTROL: the origin recorder can be switched both on and off", () => {
+  // The other half of the anti-vacuity, and it is about the RECORDER rather than
+  // the counter. A tree with no origins because the opt-out works and a tree with
+  // no origins because the recorder is broken are the same reading, and the pin
+  // above would be green in both. Only asserting that origins DO appear when
+  // asked for separates them.
+  //
+  // ⚠️ THIS CONTROL CANNOT REPLACE THE ARMS ABOVE, and reading it as though it
+  // could is the trap: it builds its own trees, so it proves the OPTION behaves
+  // and says nothing about which option the scan's call sites pass. That is a
+  // different claim, and only the counters can carry it.
+  //
+  // Two arms in one block is safe HERE and nowhere else in this section: the only
+  // change that reds the first also makes the second vacuously true, so the arm
+  // the abort costs is one that could not have proved anything anyway.
+  const recorded = originCount(buildProgram());
+  assert.ok(
+    recorded > 0,
+    `a tree built with origin recording ON carries ${recorded} located commands. Zero means ` +
+      `the recorder is broken, and every origin-count reading in this file is then a zero ` +
+      `that measures nothing.`
+  );
+  assert.equal(
+    originCount(buildProgram({ recordOrigins: false })),
+    0,
+    "a tree built with `recordOrigins: false` still carries origins — the opt-out is a no-op, " +
+      "so the scan is paying for the side table on every throwaway tree while reporting that " +
+      "it is not."
   );
 });
 

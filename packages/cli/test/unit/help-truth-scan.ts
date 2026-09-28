@@ -107,20 +107,77 @@ let originInstalled = false;
 /**
  * Whether the recorder below actually captures a stack, or just gets out of the way.
  *
- * 🚨 THIS FLAG IS THE WHOLE COST OF THE HELP SCAN. `new Error().stack` is captured
- * once per `.command()` call, so a tree of 643 commands pays 643 stack captures —
- * **26.14ms of a 29.95ms build, 87.3%** (measured 2026-08-31, 40 builds a side).
- * `runHelpTruthScan` builds one tree it reads origins from and then 1333 throwaway
- * trees it does not, so the throwaway ones were paying for a side table nothing
- * ever read.
+ * 🚨 THIS FLAG IS THE WHOLE COST OF THE HELP SCAN, and it is the single reason the
+ * `beforeAll` in `help-truth.test.ts` sits far under its `hookTimeout` instead of
+ * intermittently crossing it. `new Error().stack` is captured once per `.command()`
+ * call, so one tree pays one capture per command in the CLI, and that capture is
+ * the majority of a build. `runHelpTruthScan` builds ONE tree it reads origins from
+ * and then one throwaway tree per example it does not, so with the flag left on the
+ * throwaway trees pay for a side table nothing ever reads — once per example,
+ * forever, growing with the CLI.
+ *
+ * Re-derive both sides rather than trusting a figure here, from `packages/cli`:
+ *
+ * ```
+ * pnpm exec tsx -e 'import {buildProgram} from "./test/unit/help-truth-scan";
+ *   for (const recordOrigins of [true, false]) {
+ *     const t = performance.now();
+ *     for (let i = 0; i < 40; i++) buildProgram({ recordOrigins });
+ *     console.log(recordOrigins, (performance.now() - t) / 40, "ms/build");
+ *   }'
+ * ```
  *
  * DEFAULTS TO ON, and that direction is deliberate: a caller that forgets to say
  * anything gets the recording behaviour, and only a call site proved not to read
  * `TreeNode.file`/`.line` opts out. The failure of a wrong opt-out is then a
  * missing origin — loud, because {@link sourceSlices} silently drops a node with
  * no file and the scan's own `locatedNodes` floor would fall.
+ *
+ * 🔴 THE OPT-OUT IS HELD IN PLACE BY {@link buildCounters}, AND NOTHING ELSE COULD
+ * HOLD IT. Reverting one call site to a bare `buildProgram()` changes no output,
+ * breaks no assertion about the tree, and is invisible to every timing a reader
+ * would think to take — it only makes the scan slower, until one day it is slower
+ * than the hook budget. So the counters below are reported by the scan and pinned
+ * by the gate, which is the only shape that observes what a CALL SITE passed rather
+ * than what the option does when a spec calls it directly.
  */
 let recordingOrigins = true;
+
+/**
+ * How many trees have been built, and how much origin recording they paid for.
+ *
+ * ⚠️ MODULE-LEVEL AND MONOTONIC, so a reader is never handed a figure whose
+ * population is "whatever ran before me". {@link runHelpTruthScan} snapshots these
+ * on entry and reports its own DELTA, which is what makes the reported numbers a
+ * measurement of the scan rather than of the file that happens to import it.
+ */
+let programBuilds = 0;
+let originRecordingBuilds = 0;
+let stackCaptures = 0;
+
+/** One reading of the build counters. Deltas of two readings bound one scan. */
+export interface BuildCounters {
+  /** Every {@link buildProgram} call, whatever it asked for. */
+  readonly programBuilds: number;
+  /** Those of them that recorded origins — the expensive kind. */
+  readonly originRecordingBuilds: number;
+  /** `new Error().stack` captures: the cost itself, not a proxy for it. */
+  readonly stackCaptures: number;
+}
+
+/**
+ * The counters as they stand right now.
+ *
+ * This is the instrument the cost gate reads. It is deliberately a count and not a
+ * duration: this package's suite runs on a pool whose run-to-run spread is wide
+ * enough that any duration ceiling is either loose enough to guard nothing or tight
+ * enough to red on a quiet tree. A build count cannot vary with load, so it can be
+ * pinned exactly — and `command-universe.test.ts` makes the same choice for the
+ * lazy-help getter for the same reason.
+ */
+export function buildCounters(): BuildCounters {
+  return { programBuilds, originRecordingBuilds, stackCaptures };
+}
 
 export function installOriginRecorder(): void {
   if (originInstalled) return;
@@ -132,6 +189,10 @@ export function installOriginRecorder(): void {
   ) {
     const created = (real as (...a: unknown[]) => Command).apply(this, args);
     if (!recordingOrigins) return created;
+    // Counted HERE rather than beside the `ORIGIN.set` below, so it counts every
+    // capture and not only the ones whose frame matched. The capture is the cost;
+    // whether a frame was found afterwards is a different question.
+    stackCaptures++;
     const frame = (new Error().stack ?? "")
       .split("\n")
       .slice(2)
@@ -164,6 +225,12 @@ export function buildProgram(options: { recordOrigins?: boolean } = {}): Command
   // strand the flag off and silently unlocate every later tree.
   const previous = recordingOrigins;
   recordingOrigins = options.recordOrigins ?? true;
+  // Counted from the EFFECTIVE flag, never from `options`, so an absent option and
+  // an explicit `true` are recorded as the same thing — which is what makes the
+  // count blind to how a call site spells its opt-IN and sensitive only to whether
+  // it opted OUT.
+  programBuilds++;
+  if (recordingOrigins) originRecordingBuilds++;
   try {
     const program = buildRootProgram();
     program.exitOverride();
@@ -181,6 +248,14 @@ export function buildProgram(options: { recordOrigins?: boolean } = {}): Command
  * Does this tree carry command origins? For the CONTROL that says
  * `recordOrigins: false` actually did something — an optimisation that is
  * secretly a no-op is indistinguishable from one that works, if you only time it.
+ *
+ * 🚨 THIS IS THE CONTROL ON THE INSTRUMENT, NOT THE GATE. It reads a tree this
+ * function's own caller built, so it can say the OPTION works and can say nothing
+ * about which option the scan's call sites pass. `help-truth.test.ts` asserts both:
+ * {@link buildCounters} for what the scan actually did, and this for the fact that
+ * a zero there measures something — a counter reading zero because the recorder is
+ * broken and one reading zero because the opt-out works are otherwise the same
+ * number.
  */
 export function originCount(root: Command): number {
   return walkTree(root).filter((n) => n.file !== undefined).length;

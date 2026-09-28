@@ -63,10 +63,20 @@ function startServer(
     });
   });
   return new Promise((resolve) => {
-    server.listen(0, () => {
+    // 🚨 `server.listen(0, cb)` LOOKS host-pinned and is not: node overloads the
+    // signature, so a function in second position is the listen callback and the
+    // bind falls through to the WILDCARD. `SO_REUSEADDR` then lets that succeed
+    // on a port a daemon already holds bound to `127.0.0.1` specifically, and
+    // the forwarder's request is answered by that process — a status this test
+    // never serves, a body it cannot parse, or `ECONNRESET`. A pinned loopback
+    // bind is refused with `EADDRINUSE` instead, so the port below is one
+    // nothing else is serving. The url names `127.0.0.1` for the same reason:
+    // `localhost` is a NAME the client resolves for itself, and it can resolve
+    // to `::1` — a socket this server is deliberately no longer bound to.
+    server.listen(0, "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
       resolve({
-        url: `http://localhost:${port}`,
+        url: `http://127.0.0.1:${port}`,
         requests,
         close: () =>
           new Promise<void>((done) => {

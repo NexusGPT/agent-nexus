@@ -106,14 +106,14 @@ for (const c of eachOrRefuse(
 }
 
 /**
- * THE ROUTE HALF ONLY, AND THE DIFFERENCE IS 36 SECONDS.
+ * THE ROUTE HALF ONLY, AND THAT IS WHY THIS FILE IS FAST.
  *
- * This file used to call `runHelpTruthScan()`, which also evaluates R1-R4 —
- * 1333 examples, each rebuilding the whole 643-node commander tree at 27.7ms a
- * time. Measured 2026-08-31: 35.6s of the file's 37.6s was that, and none of it
- * can change the assertion below, which reads `unresolvedCommands` alone.
- * `resolveCommandRoutes()` is the same derivation stopped one phase earlier —
- * ~190ms — so this file no longer pays for rules it does not assert on.
+ * This file used to call `runHelpTruthScan()`, which also evaluates R1-R4 — one
+ * rebuild of the whole commander tree per printed example, which is almost all of
+ * that function's cost and orders of magnitude more than everything here. None of
+ * it can change the assertion below, which reads `unresolvedCommands` alone.
+ * `resolveCommandRoutes()` is the same derivation stopped one phase earlier, so
+ * this file no longer pays for rules it does not assert on.
  *
  * ⚠️ IT IS THE SAME DERIVATION, NOT A SECOND ONE. `runHelpTruthScan` consumes
  * this very result, so `help-truth` and this file cannot come to different

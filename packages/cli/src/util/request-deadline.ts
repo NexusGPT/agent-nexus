@@ -24,11 +24,13 @@
  * an unreachable host is a different remedy from a deadline that was too tight.
  */
 export class RequestTimedOutError extends Error {
-  constructor(
-    readonly url: string,
-    readonly timeoutMs: number
-  ) {
+  readonly url: string;
+  readonly timeoutMs: number;
+
+  constructor(url: string, timeoutMs: number) {
     super(`no response within ${timeoutMs} ms. Raise the budget with --timeout <seconds>.`);
+    this.url = url;
+    this.timeoutMs = timeoutMs;
     this.name = "RequestTimedOutError";
   }
 }

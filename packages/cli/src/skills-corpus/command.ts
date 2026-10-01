@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import packageJson from "../../package.json" with { type: "json" };
 import { resolveBaseUrl } from "../config";
 import { refuse, reportFailure } from "../errors";
 import { color } from "../output";
@@ -13,7 +14,7 @@ import {
 
 /** This binary's version, as the platform's `minCliVersion` is compared against. */
 export function cliVersion(): string {
-  return (require("../../package.json") as { version: string }).version;
+  return packageJson.version;
 }
 
 /** The options every command that reads a corpus declares. */

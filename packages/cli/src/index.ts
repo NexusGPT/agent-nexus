@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 
+import packageJson from "../package.json" with { type: "json" };
 import { getBanner } from "./banner";
 import { parseTimeoutSeconds } from "./client";
 import { registerAccessCardCommands } from "./commands/access-card";
@@ -60,6 +61,7 @@ import { registerWorkflowCommands } from "./commands/workflow";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { assertKnownNexusEnv, resolveProfile } from "./config";
 import { applyDeprecationNotices } from "./deprecation-notice";
+import { handleError, installArgumentRefusalReporting } from "./errors";
 import { registerHelpScopeFooter } from "./help-scope";
 import { applyJsonShapeHelpLine } from "./json-shape-help";
 import { installJsonTerminalContract } from "./json-terminal-contract";
@@ -68,12 +70,9 @@ import { isJsonMode, printContextBanner, setJsonMode } from "./output";
 import { applyProbeBarrierHelpLine } from "./probe-barrier";
 import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
 import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
-
-const { version: VERSION } = require("../package.json") as { version: string };
-import { handleError, installArgumentRefusalReporting } from "./errors";
 import { autoUpdate, checkForUpdate, isAutoUpdateDisabled } from "./util/version-check";
 
-export { VERSION };
+export const VERSION = packageJson.version;
 
 /**
  * BUILD THE ROOT PROGRAM, AND RETURN IT WITHOUT PARSING.

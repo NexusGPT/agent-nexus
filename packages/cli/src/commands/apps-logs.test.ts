@@ -58,6 +58,27 @@ function line(overrides: Partial<VibeLogLineDto> = {}): VibeLogLineDto {
   };
 }
 
+/** The gateway's verdict on a working pipeline — every page carries one. */
+const HEALTHY = {
+  status: "healthy",
+  reason: "all_nodes_reporting",
+  detail: "Every node's canary reached the log store in the last 10 minutes.",
+  expectedNodes: 2,
+  reportingNodes: 2,
+  silentNodes: [],
+  checkedAt: "2026-09-29T12:00:00.000Z"
+};
+
+/** The verdict on a pipeline with one node silent. */
+const SILENT = {
+  ...HEALTHY,
+  status: "unhealthy",
+  reason: "nodes_silent",
+  detail: "1 of 2 node(s) sent no canary line in the last 10 minutes.",
+  reportingNodes: 1,
+  silentNodes: ["ip-10-0-133-15"]
+};
+
 function stubFetch(data: unknown): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
@@ -154,7 +175,7 @@ describe("nexus apps logs — the page read", () => {
   });
 
   it("threads the window, slot, needle and limit onto the request", async () => {
-    const fetchMock = stubFetch({ lines: [], nextCursor: null });
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
 
     const { exitCode } = await run([
       APP_ID,
@@ -181,7 +202,7 @@ describe("nexus apps logs — the page read", () => {
   });
 
   it("sends --grep verbatim when it holds regex metacharacters", async () => {
-    const fetchMock = stubFetch({ lines: [], nextCursor: null });
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
     const needle = "a.b*c[d]^$(e)|f+g?";
 
     await run([APP_ID, "--grep", needle]);
@@ -191,7 +212,7 @@ describe("nexus apps logs — the page read", () => {
   });
 
   it("sends the default limit when none is given", async () => {
-    const fetchMock = stubFetch({ lines: [], nextCursor: null });
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
     await run([APP_ID]);
     expect(requestedUrl(fetchMock).searchParams.get("limit")).toBe("200");
   });
@@ -203,7 +224,8 @@ describe("nexus apps logs — the page read", () => {
         line({ timestamp: "2026-08-06T11:00:01.000Z", message: "second" }),
         line({ timestamp: "2026-08-06T11:00:00.000Z", message: "first" })
       ],
-      nextCursor: null
+      nextCursor: null,
+      pipeline: HEALTHY
     });
 
     const { out } = await run([APP_ID]);
@@ -216,7 +238,8 @@ describe("nexus apps logs — the page read", () => {
   it("emits NDJSON under --json — one object per line, never an array", async () => {
     stubFetch({
       lines: [line({ message: "newer" }), line({ message: "older" })],
-      nextCursor: "1780000000000000000"
+      nextCursor: "1780000000000000000",
+      pipeline: HEALTHY
     });
 
     const { out } = await run([APP_ID], true);
@@ -231,7 +254,7 @@ describe("nexus apps logs — the page read", () => {
   });
 
   it("refuses --limit above the CLI ceiling without opening a connection", async () => {
-    const fetchMock = stubFetch({ lines: [], nextCursor: null });
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
 
     const { exitCode } = await run([APP_ID, "--limit", "1001"]);
 
@@ -240,7 +263,7 @@ describe("nexus apps logs — the page read", () => {
   });
 
   it("refuses --follow together with --until", async () => {
-    const fetchMock = stubFetch({ lines: [], nextCursor: null });
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
 
     const { exitCode } = await run([APP_ID, "--follow", "--until", "2026-08-06T11:00:00.000Z"]);
 
@@ -262,6 +285,54 @@ describe("nexus apps logs — the page read", () => {
     expect(foreign.out).toBe(missing.out);
     expect(foreign.exitCode).toBe(missing.exitCode);
     expect(foreign.exitCode).toBe(EXIT_CODES["not-found"]);
+  });
+});
+
+describe("nexus apps logs — an empty result is only an answer on a healthy pipeline", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("an EMPTY page over an unhealthy pipeline FAILS rather than printing nothing", async () => {
+    stubFetch({ lines: [], nextCursor: null, pipeline: SILENT });
+
+    const { exitCode } = await run([APP_ID]);
+
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("prints the lines that DID arrive, then fails — they may be incomplete", async () => {
+    stubFetch({ lines: [line({ message: "partial" })], nextCursor: null, pipeline: SILENT });
+
+    const { out, exitCode } = await run([APP_ID]);
+
+    expect(out).toContain("partial");
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("a page with NO verdict (an older gateway) is never read as healthy", async () => {
+    stubFetch({ lines: [], nextCursor: null });
+
+    const { exitCode } = await run([APP_ID]);
+
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("an EMPTY page over a HEALTHY pipeline succeeds — the window really is empty", async () => {
+    stubFetch({ lines: [], nextCursor: null, pipeline: HEALTHY });
+
+    const { exitCode } = await run([APP_ID]);
+
+    expect(exitCode).toBeUndefined();
+  });
+
+  it("--follow refuses to open a stream over a pipeline it cannot vouch for", async () => {
+    const fetchMock = stubFetch({ lines: [], nextCursor: null, pipeline: SILENT });
+
+    const { exitCode } = await run([APP_ID, "--follow"]);
+
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+    // The pre-flight page read, and nothing else: no stream was opened.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(new URL(String(fetchMock.mock.calls[0][0])).pathname).toMatch(/\/logs$/);
   });
 });
 

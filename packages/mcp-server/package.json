@@ -46,7 +46,7 @@
     "start:stdio": "node dist/cli.js",
     "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit --skipLibCheck",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run",
+    "test": "node --no-sparkplug ./node_modules/vitest/vitest.mjs run",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

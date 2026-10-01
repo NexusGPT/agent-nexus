@@ -296,11 +296,10 @@ export function stagePublishedTree(mutate: (pkg: Record<string, unknown>) => voi
  *    INSTALLED `package.json`. Doctoring the manifest alone changes nothing.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `src/index.ts` reads `require("../package.json")`, and esbuild RESOLVES that
- * at build time: `dist/index.js` carries the whole manifest inlined as a
- * CommonJS module (`var require_package = __commonJS({ "package.json"(...) {
- * module2.exports = { name: "@agent-nexus/cli", version: "…" } } })`). The copy
- * on disk beside it is never read.
+ * `src/index.ts` imports `../package.json`, and esbuild RESOLVES that at build
+ * time: `dist/index.js` carries the whole manifest inlined as one object
+ * (`var package_default = { name: "@agent-nexus/cli", version: "…", … }`). The
+ * copy on disk beside it is never read.
  *
  * Measured: a tarball whose `package.json` said `0.22.4`, installed cleanly,
  * still answered `0.35.1`. npm records the manifest version, so `npm ls` and the

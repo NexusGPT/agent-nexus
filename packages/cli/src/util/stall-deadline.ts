@@ -53,14 +53,16 @@ export interface StalledDownload {
  * same way today, and separating them costs a class rather than a message parse.
  */
 export class DownloadStalledError extends Error {
-  constructor(
-    readonly url: string,
-    readonly stallMs: number
-  ) {
+  readonly url: string;
+  readonly stallMs: number;
+
+  constructor(url: string, stallMs: number) {
     super(
       `No data from ${url} for ${stallMs} ms — the connection stalled. ` +
         `Raise the budget with --timeout <seconds>, or retry.`
     );
+    this.url = url;
+    this.stallMs = stallMs;
     this.name = "DownloadStalledError";
   }
 }

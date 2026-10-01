@@ -1,0 +1,28 @@
+// Typechecks the scripts the specs run under Node's own type stripping, and the
+// resolve hook they are launched with, as ERASABLE syntax only.
+//
+// Stripping only erases: an `enum`, a runtime `namespace` or a parameter property
+// in any module those scripts import is an `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` at
+// spawn time. This makes it a typecheck error instead, naming the line.
+//
+// `files` is `TYPE_STRIPPED_SCRIPTS` plus `RESOLVE_HOOK`, both from
+// `src/type-stripped-script.ts`; `src/type-stripped-script.test.ts` refuses the
+// two disagreeing. `include` is emptied because `tsconfig.json`'s would otherwise
+// be inherited, pulling every file under `src` — and, through their type imports,
+// `@nexus/types`' own enums — into a program that only answers for these files.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": null,
+    "outDir": null,
+    "erasableSyntaxOnly": true,
+    "types": ["node"]
+  },
+  "include": [],
+  "files": [
+    "scripts/generate-cli-docs.ts",
+    "scripts/id-thread-sweep.ts",
+    "../../scripts/type-stripping/resolve-extensionless.hook.ts"
+  ]
+}

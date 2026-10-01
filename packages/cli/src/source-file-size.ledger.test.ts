@@ -220,7 +220,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracing.ts": 934,
   "commands/tracks.contract.generated.ts": 581,
-  "commands/upgrade.ts": 510,
+  "commands/upgrade.ts": 509,
   "commands/user-group.ts": 309,
   "commands/version.ts": 392,
   "commands/workflow-builder.ts": 1163,
@@ -243,13 +243,13 @@ const LEDGER: Readonly<Record<string, number>> = {
   "docs-page.frontmatter.ts": 375,
   "docs-page.model.ts": 185,
   "docs-page.render.ts": 198,
-  "errors.ts": 823,
+  "errors.ts": 789,
   "exit-codes.ts": 304,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
   "id-graph.ts": 252,
   "id-graph.uncovered.generated.ts": 353,
-  "index.ts": 685,
+  "index.ts": 684,
   "json-shape.generated.ts": 468,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
@@ -278,8 +278,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/track-blockers.ts": 393,
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
-  "vibe-wire-types.conformance.ts": 743,
-  "vibe-wire-types.ts": 797
+  "vibe-wire-types.conformance.ts": 617,
+  "vibe-wire-types.ts": 709
 };
 
 /**

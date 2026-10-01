@@ -49,7 +49,7 @@ import { registerUpgradeCommand, UPGRADE_ALIASES } from "./upgrade";
  *
  * ── WHY THE VERSIONS ARE 99.0.0 AND 0.22.4 ──────────────────────────────────
  *
- * The running version is read with `require("../../package.json")`, which no
+ * The running version is read from an import of `../../package.json`, which no
  * module mock intercepts, so it is the REAL shipped version and it moves with
  * every release. The fixtures therefore straddle it from both sides rather than
  * pinning it: 99.0.0 is above any version this package will publish, and 0.22.4

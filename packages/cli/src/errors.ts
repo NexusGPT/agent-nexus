@@ -7,6 +7,7 @@ import {
 } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
+import { CliArgumentError } from "./cli-argument-error";
 import { nextStepsFor } from "./error-next-steps";
 import {
   CategorizedCliError,
@@ -16,6 +17,8 @@ import {
 } from "./exit-codes";
 import { argvRequestsJson } from "./json-terminal-contract";
 import { color, emitDocument, isJsonMode, setJsonMode } from "./output";
+
+export { CliArgumentError };
 
 /**
  * 401 codes that are about a CONNECTED PROVIDER, not about the caller's API key.
@@ -334,43 +337,6 @@ const FAILURE_CAUSE_EXIT_CATEGORIES: Readonly<Record<FailureCause, ExitCategory>
   "remote-error": "remote-error",
   "local-failed": "local-failed"
 };
-
-/**
- * COMMANDER REFUSED THE INVOCATION, AND IT USED TO DO SO WITHOUT A DOCUMENT.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 THE EPILOGUE'S SECOND `--json` CLAUSE HAD NO FUNNEL AT ALL.
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * `nexus --help` promises: "Under --json an error is a JSON document on STDOUT:
- * {"error":{"message","hint","code"}}". Every failure that reached {@link handleError}
- * kept that promise. An argument refusal never reached it — commander writes its
- * own sentence to stderr and calls `process.exit(1)` from inside the parser, so
- * stdout is EMPTY. Measured over every leaf: 41 commands refuse this way, and a
- * caller gets a non-zero exit with nothing to parse and nothing to branch on.
- *
- * `installArgumentRefusalReporting` turns that exit into a throw, and this class
- * is what it throws — a TYPED error, so `handleError` branches on `instanceof`
- * rather than string-matching a message, and carrying the command path so the
- * hint can name the exact `--help` to run.
- *
- * The `code` on the wire is `CLI_INVALID_ARGUMENTS`, never commander's own
- * `commander.missingMandatoryOptionValue`. That is the `CLI_*` provenance rule
- * in {@link CLI_CODES}: the prefix means "this never reached the server", and a
- * refusal at the parse boundary is the purest case of it. Commander's code is
- * kept on the object for a reader, not put on the wire.
- */
-export class CliArgumentError extends Error {
-  constructor(
-    readonly commandPath: string,
-    readonly exitCode: number,
-    message: string,
-    readonly commanderCode: string
-  ) {
-    super(message);
-    this.name = "CliArgumentError";
-  }
-}
 
 /**
  * Route every commander refusal in the tree through {@link handleError}.

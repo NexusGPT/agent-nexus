@@ -46,7 +46,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "node --no-sparkplug ./node_modules/vitest/vitest.mjs run",
     "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist && node ../../scripts/assert-published-imports.mjs dist",
     "dev": "tsup --watch --onSuccess \"tsc -p tsconfig.build.json\"",
     "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.scripts.json",

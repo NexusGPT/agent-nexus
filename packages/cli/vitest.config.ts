@@ -16,6 +16,10 @@ export default defineConfig({
     }))
   },
   test: {
+    // Literal, not imported: this package is mirrored to NexusGPT/agent-nexus, whose
+    // root has no scripts/. test-runners-start-without-sparkplug.spec.ts pins it to
+    // scripts/test-runner/v8-workaround.mjs.
+    poolOptions: { forks: { execArgv: ["--no-sparkplug"] } },
     environment: "node",
     // BOTH TREES, ONE RUNNER. `test/` used to be a SECOND runner — the package's
     // `test` script was `vitest run && tsx --test test/unit/*.test.ts`, so the

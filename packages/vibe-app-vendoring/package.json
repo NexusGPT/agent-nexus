@@ -19,8 +19,8 @@
     "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist",
     "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "node --no-sparkplug ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --no-sparkplug ./node_modules/vitest/vitest.mjs"
   },
   "devDependencies": {
     "@types/node": "24.6.2",

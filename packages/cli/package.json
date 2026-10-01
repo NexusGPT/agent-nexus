@@ -46,8 +46,8 @@
     "test:auth": "tsx scripts/test-auth-login.ts",
     "id-thread": "tsx scripts/id-thread-sweep.ts",
     "id-thread:plan": "tsx scripts/id-thread-sweep.ts --plan",
-    "test": "vitest run",
-    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.test.json",
+    "test": "node --no-sparkplug ./node_modules/vitest/vitest.mjs run",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.test.json && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.strip.json",
     "lint": "eslint . --max-warnings 9",
     "prepublishOnly": "pnpm run build"
   },

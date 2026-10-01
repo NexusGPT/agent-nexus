@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { typeStrippedScriptArgv } from "../../src/type-stripped-script";
+
 /**
  * THE FOUR-OUTCOME CONTRACT, END TO END, THROUGH THE REAL RUNNER.
  *
@@ -32,8 +34,11 @@ import { beforeAll, describe, expect, it } from "vitest";
  * function cannot: that the runner is WIRED to it, that the process exit codes
  * are what the contract says, and that the counts reach the report.
  *
- * Each case spawns the real sweep against the fake binary — about 3.4s, and 0.7s
- * for the preflight case, which refuses before running any leaf.
+ * Each case spawns the real sweep against the fake binary — about 3.7s, and 0.65s
+ * for the preflight case, which refuses before running any leaf. The sweep runs
+ * under Node's own type stripping, not `tsx`:
+ * `scripts/type-stripping/type-stripped-script.ts` at the repo root holds the
+ * measurement, and most of the 3.7s is the sweep's own per-leaf processes.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * 🚨 ONE ARM PER `it`, FILE-WIDE. ORDERING THEM IS NOT AN ALTERNATIVE TO IT.
@@ -72,7 +77,7 @@ import { beforeAll, describe, expect, it } from "vitest";
  *
  * ✅ ONE ARM PER `it` IS THE ONLY SHAPE THAT SAYS WHICH PROPERTY SURVIVED, AND
  * HERE IT COSTS NOTHING. The stated price of this cure is re-running the setup
- * per block, which would be real at this file's ~5s process spawn; hoisting the
+ * per block, which would be real at this file's ~4s process spawn; hoisting the
  * spawn into one `beforeAll` per `describe` pays it ONCE, so N `it`s cost one
  * sweep exactly as the single block did. The spawn count is unchanged by this
  * shape — only the number of results it reports.
@@ -121,22 +126,9 @@ import { beforeAll, describe, expect, it } from "vitest";
  * and the ceiling is unreachable no matter how many cases this file grows.
  * If you make `sweep()` synchronous again, this file starts failing by WALL CLOCK
  * rather than by assertion, and the failure will not name a test.
- *
- * debt: each case still shells out through `pnpm exec tsx`, and most of a case is
- *       that startup rather than the sweep — measured 5-10s per case on the
- *       Endurance, so this file's wall time scales at roughly 7s x SWEEPS. Note
- *       the multiplier is sweeps and not `it`s: one-arm-per-`it` multiplies the
- *       results, never the spawns. Calling the tsx binary directly would cut it,
- *       at the cost of resolving that binary ourselves in both a local pnpm
- *       workspace and CI, which is a different change with a different blast
- *       radius. It is no longer a CORRECTNESS ceiling: async `spawn` means a slow
- *       file is only slow.
- *       Upgrade trigger: this file passing ~2 minutes on CI, or the CLI step
- *       becoming the critical path of the `Tests: Vitest` job.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const RUNNER = join(HERE, "..", "..", "scripts", "id-thread-sweep.ts");
 const FIXTURE = join(HERE, "fake-nexus.ts");
 
 interface Run {
@@ -149,7 +141,7 @@ interface Run {
  * `async`, and never reach for `spawnSync` here. */
 function sweep(env: Readonly<Record<string, string>>): Promise<Run> {
   return new Promise<Run>((resolve, reject) => {
-    const proc = spawn("pnpm", ["exec", "tsx", RUNNER], {
+    const proc = spawn(process.execPath, typeStrippedScriptArgv("scripts/id-thread-sweep.ts"), {
       cwd: join(HERE, "..", ".."),
       env: { ...process.env, NEXUS_BIN: `node ${FIXTURE}`, ...env }
     });
@@ -167,8 +159,8 @@ function sweep(env: Readonly<Record<string, string>>): Promise<Run> {
 
     // `spawnSync` reported a failure to START as a null status, which this helper
     // then flattened to -1 alongside a genuine signal kill. Rejecting instead means
-    // "pnpm is not on PATH" names itself rather than arriving as an exit-code
-    // mismatch in whichever case happened to run first.
+    // a launcher that cannot start names itself rather than arriving as an
+    // exit-code mismatch in whichever case happened to run first.
     proc.on("error", reject);
     // `close` rather than `exit`: it fires once both pipes are drained, so the last
     // chunk of the summary line cannot be lost. `code` is null when a signal killed

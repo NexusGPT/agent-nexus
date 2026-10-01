@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 
 import { Command } from "commander";
 
+import packageJson from "../../package.json" with { type: "json" };
 import {
   CLI_UPGRADE_NOT_RESOLVED,
   CLI_UPGRADE_NOT_VERIFIED_FOR_YOU,
@@ -413,14 +414,12 @@ function reportVerification(env: UpgradeEnvironment, latest: string, installCmd:
 }
 
 export function registerUpgradeCommand(program: Command): void {
-  const currentVersion: string = (require("../../package.json") as { version: string }).version;
-
   // ONE command object now carries every spelling, so a change to the upgrade
   // reaches all of them by construction rather than by a loop anyone can forget.
   // `upgrade-verifies-what-it-claims.test.ts` still DRIVES each spelling, because
   // an alias silently failing to resolve looks identical to one that works.
   const upgradeAction = async () => {
-    await runUpgrade(realEnvironment(currentVersion));
+    await runUpgrade(realEnvironment(packageJson.version));
   };
 
   const upgrade = program

@@ -19,11 +19,11 @@ export const CORPUS_TIMEOUT_MS = 30_000;
 
 /** Why the platform's corpus could not be used, and which failure category that is. */
 export class PlatformCorpusError extends Error {
-  constructor(
-    readonly failure: FailureCause,
-    message: string
-  ) {
+  readonly failure: FailureCause;
+
+  constructor(failure: FailureCause, message: string) {
     super(message);
+    this.failure = failure;
     this.name = "PlatformCorpusError";
   }
 }

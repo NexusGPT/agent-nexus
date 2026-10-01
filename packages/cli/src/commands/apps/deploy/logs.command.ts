@@ -1,16 +1,11 @@
 import type { Command } from "commander";
 
 import { handleError } from "../../../errors";
-import { tenantRequest } from "../../../util/tenant-http";
-import { type GetVibeAppLogsResponse } from "../../../vibe-wire-types";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 import type { AppLogsFlags } from "../logs/app-logs-request";
-import { emitLogLines } from "../logs/emit-log-lines";
 import { VIBE_LOG_CLI_DEFAULT_SINCE, VIBE_LOG_CLI_LIMIT_HELP } from "../logs/log-limits";
-import { orderForDisplay } from "../logs/order-for-display";
 import { resolveAppLogsRequest } from "../logs/resolve-app-logs-request";
-import { runAppLogsFollow } from "../logs/run-app-logs-follow";
-import { toLogQuery } from "../logs/to-log-query";
+import { runAppLogsRead } from "../logs/run-app-logs-read";
 
 /** `nexus apps logs` */
 export function registerAppsLogsCommand(apps: Command, program: Command): Command {
@@ -55,6 +50,12 @@ EITHER kind, not the second Ctrl-C. One counter serves SIGINT and SIGTERM, so a
 Ctrl-C followed by a supervisor's SIGTERM reaches it \u2014 the ordinary shape of a
 shutdown \u2014 and so does a SIGTERM pair, which still reports 130 rather than 143.
 
+An empty result is only an answer when the log pipeline is healthy. Every read
+carries the tenant gateway's verdict on it: when healthy, an empty window really
+is empty; when not, the command prints whatever lines did arrive and then FAILS,
+saying which part of the pipeline is broken. --follow refuses to start on a
+pipeline it cannot vouch for.
+
 Examples:
   $ nexus apps logs 11111111-2222-4333-8444-555555555555
   $ nexus apps logs <appId> --since 15m --color green
@@ -67,17 +68,7 @@ Examples:
         const opts = resolveTenantOpts(program);
         const request = resolveAppLogsRequest(cmdOpts, Date.now());
 
-        if (request.follow) {
-          process.exitCode = await runAppLogsFollow(opts, appId, request);
-          return;
-        }
-
-        const data = await tenantRequest<GetVibeAppLogsResponse>(opts, {
-          method: "GET",
-          path: `/api/vibe/apps/${encodeURIComponent(appId)}/logs`,
-          query: toLogQuery(request)
-        });
-        emitLogLines(orderForDisplay(data.lines));
+        await runAppLogsRead(opts, appId, request);
       } catch (err) {
         process.exitCode = handleError(err);
       }

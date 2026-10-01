@@ -88,6 +88,7 @@ import { AUTHORED_FRONTMATTER } from "./docs-page.frontmatter";
 import { buildDocNamespaces, type DocNamespace } from "./docs-page.model";
 import { GENERATED_MARKER, renderNamespacePage } from "./docs-page.render";
 import { buildRootProgram } from "./root-program";
+import { typeStrippedScriptArgv } from "./type-stripped-script";
 
 const CLI_DOCS = join(dirname(fileURLToPath(import.meta.url)), "../../../content/docs/cli");
 const COMMAND_DOCS = join(CLI_DOCS, "commands");
@@ -633,7 +634,6 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     //
     // So the absent directory is refused rather than created, and this case is
     // what stops the refusal being deleted as ceremony.
-    const script = join(dirname(fileURLToPath(import.meta.url)), "../scripts/generate-cli-docs.ts");
     const absent = join(CLI_DOCS, "../../../packages/cli/content/docs/cli/commands");
     expect(existsSync(absent)).toBe(false);
 
@@ -641,7 +641,11 @@ describe("CLI docs are generated, and authored pages carry no command reference"
       ["--out", absent],
       ["--check", "--out", absent]
     ]) {
-      const run = spawnSync("npx", ["tsx", script, ...argv], { encoding: "utf8" });
+      const run = spawnSync(
+        process.execPath,
+        [...typeStrippedScriptArgv("scripts/generate-cli-docs.ts"), ...argv],
+        { encoding: "utf8" }
+      );
       expect(run.status).toBe(2);
       expect(run.stderr).toContain("REFUSED");
       expect(existsSync(absent)).toBe(false);

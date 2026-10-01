@@ -17,18 +17,24 @@ export class GitNotAvailableError extends Error {
 
 /** Thrown when a `git` subprocess exits non-zero. Git's own stderr already reached the user. */
 export class GitCommandFailedError extends Error {
-  constructor(public readonly operation: string) {
+  readonly operation: string;
+
+  constructor(operation: string) {
     super(`git ${operation} failed — see the git output above.`);
+    this.operation = operation;
     this.name = "GitCommandFailedError";
   }
 }
 
 /** Thrown when `pull` is pointed at something that is not a git working tree. */
 export class NotAGitRepositoryError extends Error {
-  constructor(public readonly directory: string) {
+  readonly directory: string;
+
+  constructor(directory: string) {
     super(
       `"${directory}" is not a git repository. Clone it first: nexus apps git-project clone <projectId> ${directory}`
     );
+    this.directory = directory;
     this.name = "NotAGitRepositoryError";
   }
 }

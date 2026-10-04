@@ -20,7 +20,7 @@ has not been materialized on the git host yet; READY is serving. FAILED means
 materialization failed — retry it with "git-project reprovision".
 
 Build source is what the build executor clones — it is not your push remote.
-Run "nexus apps git-credentials" for the URL and token you push with.
+Run "nexus apps git-credentials <projectId>" for the URL and token you push with.
 
 Examples:
   $ nexus apps git-project get 11111111-2222-4333-8444-555555555555

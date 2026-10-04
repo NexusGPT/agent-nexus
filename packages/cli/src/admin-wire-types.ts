@@ -31,153 +31,6 @@
  * not send it" rather than as a stale copy.
  */
 
-import type { VibeTenantClusterStatus } from "./vibe-regions";
-
-/**
- * Tri-state PATCH value for a consumption-cap column. Distinguishes the three
- * semantically-different operator intents:
- *
- *   - flag omitted        → property absent from body → adapter leaves column untouched
- *   - flag value `"none"` → property present, value `null` → adapter clears the override
- *   - flag value integer  → property present, value number → adapter installs the override
- *
- * The whole reason this is wire-level visible (rather than just `number | null`
- * with `null = unchanged`) is that "do nothing" and "clear" both need
- * non-collapsing representations across the JSON boundary. See the backend's
- * SetVibeOrgConsumptionCapUseCase, which uses `in` (not `??`) to keep them
- * distinct.
- */
-export type CapPatchValue = number | null;
-
-/**
- * The cost-safety states — mirrors `$Enums.VibeOrgCostSafetyStatus`.
- *
- * Deliberately re-declared rather than imported from `@nexus/types`, which owns
- * the canonical list and bridges it straight off the generated Prisma enum
- * (`api/domains/admin/zadmin-vibe-cost-safety.ts`). Importing it would drag zod
- * and the generated Prisma enums into a CLI whose only runtime dependency is
- * `commander` — the same trade `vibe-regions.ts` documents. The backend's Zod
- * boundary rejects a bad status regardless: this copy fails before the HTTP
- * call and names the choices in `--help`, it does not enforce the policy.
- *
- * ONE copy, read by every verb in the cost-safety section. A second list is the
- * exact failure this must not repeat: `zadmin-vibe-cost-safety.ts` once
- * hand-kept `["OK","WARNING","SUSPENDED"]` under the SAME NAME as the generated
- * constant, so a fourth status would have moved with the schema everywhere
- * except at that one boundary, which would have kept rejecting it. Adding a
- * verb means reusing this constant, never retyping it.
- */
-export const COST_SAFETY_STATUS_VALUES = ["OK", "WARNING", "SUSPENDED"] as const;
-export type CostSafetyStatus = (typeof COST_SAFETY_STATUS_VALUES)[number];
-
-export interface VibeOrgCostSafetyStateResponse {
-  organizationId: string;
-  status: CostSafetyStatus;
-  suspendedReason: string | null;
-  present: boolean;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-export interface VibeOrgConsumptionCapResponse {
-  organizationId: string;
-  /** Raw overrides — null = use platform default for this type. */
-  computeMinCap: number | null;
-  buildMinCap: number | null;
-  egressMbCap: number | null;
-  backupMinCap: number | null;
-  /** Resolved effective caps (override ?? platform default). */
-  effectiveComputeMinCap: number;
-  effectiveBuildMinCap: number;
-  effectiveEgressMbCap: number;
-  effectiveBackupMinCap: number;
-  present: boolean;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-/**
- * One row of the fleet read.
- *
- * NOT the same shape as `VibeOrgCostSafetyStateResponse`: that one carries
- * `present` and nullable timestamps because it answers for an org that may have
- * no row at all. Every item here IS a row, so `present` would be a constant
- * `true` and the timestamps can never be null.
- *
- * `organizationName` is nullable on purpose — a cost-safety row can outlive its
- * organization, and the honest answer is `null` beside the raw id.
- *
- * Declared as a `type`, not an `interface`: only a type alias carries the
- * implicit index signature that `printTable`'s `Record<string, unknown>` row
- * parameter needs, so flipping this to an interface breaks the render call.
- */
-export type VibeOrgCostSafetyStateListItem = {
-  organizationId: string;
-  organizationName: string | null;
-  status: CostSafetyStatus;
-  suspendedReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export interface ListVibeOrgCostSafetyStatesResponse {
-  items: VibeOrgCostSafetyStateListItem[];
-  /**
-   * Rows matching the `--status` filter, independent of the page. The number IS
-   * the report: "1 suspended org" and "1 of 300" call for entirely different
-   * responses, and a page cannot tell them apart.
-   */
-  total: number;
-}
-
-/** Discriminated outcome of an operator-triggered provision. */
-export type VibeTenantClusterProvisionOutcome =
-  | {
-      kind: "provisioning";
-      reprovisioned: boolean;
-      /**
-       * Present and true only when the operator re-fired a provision against a
-       * row already PROVISIONING, so the request declared nothing. Absent on a
-       * fresh create and on a reprovision.
-       */
-      reusedExistingRow?: boolean;
-    }
-  | { kind: "already_active"; status: VibeTenantClusterStatus };
-
-/** Discriminated outcome of an operator-triggered disable. */
-export type VibeTenantClusterDisableOutcome =
-  | { kind: "retained"; retainUntil: string }
-  | { kind: "already_retained" }
-  | { kind: "not_found" }
-  | { kind: "not_disablable"; status: VibeTenantClusterStatus };
-
-/**
- * Discriminated outcome of an operator-triggered force-converge. Mirrors
- * `AdminVibeTenantClusterForceConvergeOutcomeSchema` in
- * `packages/types/src/api/domains/admin/zadmin-vibe-tenant-cluster.ts` — see
- * that file for what each variant means. `forced` is the only variant where a
- * converge will actually run: `already_converging` covers PROVISIONING /
- * UPDATING / DEGRADED, all of which the reconcile loop already retries every
- * tick, so this lever is a genuine no-op on a cluster already stuck DEGRADED.
- */
-export type VibeTenantClusterForceConvergeOutcome =
-  | { kind: "forced"; reason: string }
-  | { kind: "already_converging"; status: VibeTenantClusterStatus }
-  | { kind: "reconcile_paused"; status: VibeTenantClusterStatus; pausedReason: string | null }
-  | { kind: "not_converging"; status: VibeTenantClusterStatus }
-  | { kind: "not_found" };
-
-/**
- * Discriminated outcome of an operator completing a wedged teardown. Mirrors
- * `AdminVibeTenantClusterCompleteTeardownOutcomeSchema` — only ever moves a
- * cluster already DESTROYING to DESTROYED; it never starts a teardown.
- */
-export type VibeTenantClusterCompleteTeardownOutcome =
-  | { kind: "destroyed"; confirmation: string }
-  | { kind: "already_destroyed" }
-  | { kind: "not_destroying"; status: VibeTenantClusterStatus }
-  | { kind: "not_found" };
-
 export interface AdminVibeBuildJobResponse {
   id: string;
   vibeDeploymentId: string;
@@ -227,7 +80,8 @@ export interface AdminVibeDeploymentResponse {
     | "FAILED"
     | "ROLLED_BACK"
     | "SUPERSEDED"
-    | "DISPLACED";
+    | "DISPLACED"
+    | "CANCELLED";
   triggerSha: string;
   imageRef: string;
   errorReason: string | null;
@@ -251,6 +105,15 @@ export type AdminVibeBuildRunnerTickResponse =
       kind: "org_at_capacity";
       buildJobId: string;
       organizationId: string;
+      inFlight: number;
+      cap: number;
+    }
+  | {
+      kind: "region_at_capacity";
+      buildJobId: string;
+      organizationId: string;
+      region: string;
+      computeSize: "MEDIUM" | "LARGE";
       inFlight: number;
       cap: number;
     }

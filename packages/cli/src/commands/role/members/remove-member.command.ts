@@ -19,12 +19,18 @@ Examples:
   $ nexus role remove-member "Support agent" user_abc
 
 Notes:
-  IT DOES NOT TOUCH OWNERSHIP. An owner holds no membership row, so asking this
-  to remove the OWNER is a no-op reporting removed=false. Use
-  "nexus role update --owner" to hand the Role over.
+  removed=true means the user was a member: a seat in the Role's maintainer or
+  member permission set went. Idempotent: removed=false for a user who held no
+  such seat.
 
-  It DOES purge the user's permission-set rows, which no foreign key would do.
-  Idempotent: removed=false for a user who held no standing.`
+  IT DOES NOT TOUCH OWNERSHIP. Ownership is not a membership, so asking this to
+  remove the OWNER is a no-op that deletes nothing and reports removed=false.
+  Use "nexus role update --owner" to hand the Role over.
+
+  A removed member loses every permission-set seat, custom sets included, which
+  no foreign key would do. A user seated only in custom permission sets is not
+  a member: removed=false, and those seats stay. Use
+  "nexus role remove-permission-set-member" for them.`
     )
     .action(async (ref: string, userId: string) => {
       try {

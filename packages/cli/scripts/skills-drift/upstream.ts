@@ -13,6 +13,18 @@ import { execSync } from "node:child_process";
 export const REPO = "NexusGPT/claude-code-skills-nexus";
 export const BRANCH = "main";
 
+/**
+ * The command that ADVANCES the pin, from the repository root.
+ *
+ * `gen:skills` alone does not: `bundle-skills.ts` builds at the sha already in
+ * `skills-nexus.lock` whenever that file holds one, and resolves `main` only
+ * when it is absent. So the bare command rebuilds the stale bundle byte for
+ * byte, exits 0 and leaves nothing to commit — a remedy that reads as applied
+ * and changes nothing. Removing the lock first is what makes it fetch `main`.
+ */
+export const PIN_REFRESH_COMMAND =
+  "rm packages/cli/skills-nexus.lock && GITHUB_TOKEN=$(gh auth token) pnpm --filter @agent-nexus/cli run gen:skills";
+
 /** The single network capability this checker needs, so a test can supply it. */
 export type ReadResult =
   | { kind: "ok"; body: unknown }

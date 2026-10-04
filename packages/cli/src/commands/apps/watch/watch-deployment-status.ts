@@ -15,7 +15,8 @@ export type WatchDeploymentStatus =
   | "FAILED"
   | "ROLLED_BACK"
   | "SUPERSEDED"
-  | "DISPLACED";
+  | "DISPLACED"
+  | "CANCELLED";
 
 /**
  * What the tenant's edge last said about the app's public host. `null` means

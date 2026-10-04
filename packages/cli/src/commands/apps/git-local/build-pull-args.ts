@@ -1,4 +1,4 @@
-import { credentialHelperArg } from "./credential-helper-arg";
+import { credentialHelperArgs } from "./credential-helper-args";
 
 /**
  * `git` argv for the pull. `--ff-only` on purpose: a Vibe git project cloned
@@ -7,5 +7,5 @@ import { credentialHelperArg } from "./credential-helper-arg";
  * tells you the branch diverged.
  */
 export function buildPullArgs(credentialPath: string, directory: string): string[] {
-  return ["-C", directory, "-c", credentialHelperArg(credentialPath), "pull", "--ff-only"];
+  return ["-C", directory, ...credentialHelperArgs(credentialPath), "pull", "--ff-only"];
 }

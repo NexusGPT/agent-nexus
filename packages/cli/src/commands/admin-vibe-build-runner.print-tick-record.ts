@@ -8,6 +8,12 @@
 import { type AdminVibeBuildRunnerTickResponse } from "../admin-wire-types";
 import { color, printRecord } from "../output";
 
+/** One member of the tick union, selected by its discriminant. */
+type TickOutcome<K extends AdminVibeBuildRunnerTickResponse["kind"]> = Extract<
+  AdminVibeBuildRunnerTickResponse,
+  { kind: K }
+>;
+
 export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
   // The discriminated union narrows to flat fields per variant. The
   // never-fallthrough check pins the formatter to the schema — any
@@ -34,54 +40,34 @@ export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
       return;
     }
     case "org_at_capacity": {
+      printOrgAtCapacity(data);
+      return;
+    }
+    case "region_at_capacity": {
       printRecord(
         {
-          outcome: color.yellow("org_at_capacity"),
+          outcome: color.yellow("region_at_capacity"),
           buildJobId: data.buildJobId,
           organizationId: data.organizationId,
+          region: `${data.region} (${data.computeSize})`,
           inFlight: `${data.inFlight} (cap ${data.cap})`
         },
         [
           { key: "outcome", label: "Outcome" },
           { key: "buildJobId", label: "Build job" },
           { key: "organizationId", label: "Organization" },
-          { key: "inFlight", label: "Builds in flight" }
+          { key: "region", label: "CodeBuild region (size)" },
+          { key: "inFlight", label: "Region builds in flight" }
         ]
       );
       return;
     }
     case "dispatch_failed_requeued": {
-      printRecord(
-        {
-          outcome: color.yellow("dispatch_failed_requeued"),
-          buildJobId: data.buildJobId,
-          attempt: String(data.attempt),
-          reason: data.reason
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "buildJobId", label: "Build job" },
-          { key: "attempt", label: "Queued again as attempt" },
-          { key: "reason", label: "Reason" }
-        ]
-      );
+      printDispatchFailedRequeued(data);
       return;
     }
     case "dispatch_failed_compensated": {
-      printRecord(
-        {
-          outcome: color.red("dispatch_failed_compensated"),
-          buildJobId: data.buildJobId,
-          retryable: data.retryable ? "yes (transient)" : "no (permanent)",
-          reason: data.reason
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "buildJobId", label: "Build job" },
-          { key: "retryable", label: "Retryable" },
-          { key: "reason", label: "Reason" }
-        ]
-      );
+      printDispatchFailedCompensated(data);
       return;
     }
     default: {
@@ -89,4 +75,55 @@ export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
       throw new Error(`Unhandled tick outcome: ${JSON.stringify(_exhaustive)}`);
     }
   }
+}
+
+function printOrgAtCapacity(data: TickOutcome<"org_at_capacity">): void {
+  printRecord(
+    {
+      outcome: color.yellow("org_at_capacity"),
+      buildJobId: data.buildJobId,
+      organizationId: data.organizationId,
+      inFlight: `${data.inFlight} (cap ${data.cap})`
+    },
+    [
+      { key: "outcome", label: "Outcome" },
+      { key: "buildJobId", label: "Build job" },
+      { key: "organizationId", label: "Organization" },
+      { key: "inFlight", label: "Builds in flight" }
+    ]
+  );
+}
+
+function printDispatchFailedRequeued(data: TickOutcome<"dispatch_failed_requeued">): void {
+  printRecord(
+    {
+      outcome: color.yellow("dispatch_failed_requeued"),
+      buildJobId: data.buildJobId,
+      attempt: String(data.attempt),
+      reason: data.reason
+    },
+    [
+      { key: "outcome", label: "Outcome" },
+      { key: "buildJobId", label: "Build job" },
+      { key: "attempt", label: "Queued again as attempt" },
+      { key: "reason", label: "Reason" }
+    ]
+  );
+}
+
+function printDispatchFailedCompensated(data: TickOutcome<"dispatch_failed_compensated">): void {
+  printRecord(
+    {
+      outcome: color.red("dispatch_failed_compensated"),
+      buildJobId: data.buildJobId,
+      retryable: data.retryable ? "yes (transient)" : "no (permanent)",
+      reason: data.reason
+    },
+    [
+      { key: "outcome", label: "Outcome" },
+      { key: "buildJobId", label: "Build job" },
+      { key: "retryable", label: "Retryable" },
+      { key: "reason", label: "Reason" }
+    ]
+  );
 }

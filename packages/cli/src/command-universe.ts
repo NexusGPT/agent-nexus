@@ -185,9 +185,9 @@ export interface DriftReport {
  *     TO SEED A FIXTURE rather than a rule anything currently enforces.
  *
  * 🚨 AND ONE SHAPE IS REFUSED NO MATTER HOW WELL IT READS: a leaf that RETURNS
- * A CREDENTIAL. `apps git-credentials` takes no input, exits 0 and emits clean
- * JSON — it meets every test above — and what it emits is the organisation's
- * git push token. `sweep.sh` prints the first 100 characters of a leaf's output
+ * A CREDENTIAL. `apps git-credentials <projectId>` exits 0 and emits clean JSON
+ * once given a project — it meets every test above — and what it emits is that
+ * project's live git push token. `sweep.sh` prints the first 100 characters of a leaf's output
  * into the CI log on failure, and a CI log is readable by anyone with repository
  * access. It stays `registration-only` for that reason and not for any other, so
  * do not promote it on a later pass that only re-checks the input rules.
@@ -282,6 +282,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "apps delete": "registration-only",
   "apps deploy": "registration-only",
   "apps deploy-state": "registration-only",
+  "apps deployments cancel": "registration-only",
   "apps deployments get": "registration-only",
   "apps deployments list": "registration-only",
   "apps edge-token": "registration-only",

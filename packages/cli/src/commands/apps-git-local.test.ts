@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { buildCloneArgs } from "./apps/git-local/build-clone-args";
 import { buildPullArgs } from "./apps/git-local/build-pull-args";
-import { composeCloneUrl } from "./apps/git-local/compose-clone-url";
 import { composeCredentialLine } from "./apps/git-local/compose-credential-line";
 import { resolveCloneDirectory } from "./apps/git-local/resolve-clone-directory";
 
@@ -14,37 +13,15 @@ vi.mock("../util/tenant-http", () => ({ tenantRequest: vi.fn() }));
 import { registerAppsCommands } from "./apps";
 
 const CREDENTIALS = {
-  username: "vibe-push",
+  username: "vibe-p-0123",
   pushToken: "tok_live_abc123",
-  cloneUrlBase: "https://git.acme.gpt.nexus/apps/"
+  cloneUrl: "https://git.acme.gpt.nexus/apps/shared-lib.git"
 };
-
-describe("composeCloneUrl", () => {
-  it("appends <name>.git to a base that already ends in a slash", () => {
-    expect(composeCloneUrl("https://git.acme.gpt.nexus/apps/", "shared-lib")).toBe(
-      "https://git.acme.gpt.nexus/apps/shared-lib.git"
-    );
-  });
-
-  // A base that lost its trailing slash would otherwise splice the org and the
-  // repo into one segment (".../vibeshared-lib.git") and 404 confusingly.
-  it("normalises a base missing its trailing slash", () => {
-    expect(composeCloneUrl("https://git.acme.gpt.nexus/apps", "shared-lib")).toBe(
-      "https://git.acme.gpt.nexus/apps/shared-lib.git"
-    );
-  });
-
-  it("never embeds a credential", () => {
-    expect(composeCloneUrl(CREDENTIALS.cloneUrlBase, "shared-lib")).not.toContain(
-      CREDENTIALS.pushToken
-    );
-  });
-});
 
 describe("composeCredentialLine", () => {
   it("scopes the credential to the git host so it is never offered elsewhere", () => {
     expect(composeCredentialLine(CREDENTIALS)).toBe(
-      "https://vibe-push:tok_live_abc123@git.acme.gpt.nexus\n"
+      "https://vibe-p-0123:tok_live_abc123@git.acme.gpt.nexus\n"
     );
   });
 
@@ -53,13 +30,21 @@ describe("composeCredentialLine", () => {
       ...CREDENTIALS,
       pushToken: "tok/with@weird:chars"
     });
-    expect(line).toBe("https://vibe-push:tok%2Fwith%40weird%3Achars@git.acme.gpt.nexus\n");
+    expect(line).toBe("https://vibe-p-0123:tok%2Fwith%40weird%3Achars@git.acme.gpt.nexus\n");
   });
 
   // The caller must surface this rather than clone unauthenticated, which
   // fails inside git with a far less actionable message.
-  it("returns null when the base is not a parseable URL", () => {
-    expect(composeCredentialLine({ ...CREDENTIALS, cloneUrlBase: "not-a-url" })).toBeNull();
+  it("returns null when the clone URL is not a parseable URL", () => {
+    expect(composeCredentialLine({ ...CREDENTIALS, cloneUrl: "not-a-url" })).toBeNull();
+  });
+
+  // The line is written as https, so an http remote would never be matched by
+  // it and git would fall through to prompting — refuse it up front instead.
+  it("returns null when the clone URL is not https", () => {
+    expect(
+      composeCredentialLine({ ...CREDENTIALS, cloneUrl: "http://git.acme.gpt.nexus/apps/x.git" })
+    ).toBeNull();
   });
 });
 
@@ -85,8 +70,12 @@ describe("buildCloneArgs", () => {
     "main"
   );
 
-  it("points git at the throwaway credential file", () => {
-    expect(args.slice(0, 3)).toEqual([
+  // The reset is what keeps the token out of the macOS keychain: without it
+  // the -c helper is APPENDED to osxkeychain and git stores into both.
+  it("resets every configured helper, then points git at the throwaway file alone", () => {
+    expect(args.slice(0, 5)).toEqual([
+      "-c",
+      "credential.helper=",
       "-c",
       "credential.helper=store --file='/tmp/nexus-vibe-git-x/credentials'",
       "clone"
@@ -105,7 +94,7 @@ describe("buildCloneArgs", () => {
       undefined
     );
 
-    expect(spaced[1]).toBe(
+    expect(spaced[3]).toBe(
       "credential.helper=store --file='C:\\Users\\First Last\\AppData\\Local\\Temp\\nx\\credentials'"
     );
   });
@@ -113,7 +102,7 @@ describe("buildCloneArgs", () => {
   it("escapes a single quote in the credential path", () => {
     const quoted = buildCloneArgs("/tmp/o'brien/credentials", "https://h/o/r.git", "r", undefined);
 
-    expect(quoted[1]).toBe(`credential.helper=store --file='/tmp/o'\\''brien/credentials'`);
+    expect(quoted[3]).toBe(`credential.helper=store --file='/tmp/o'\\''brien/credentials'`);
   });
 
   it("checks out the requested branch", () => {
@@ -153,8 +142,13 @@ describe("buildPullArgs", () => {
     expect(args.slice(-2)).toEqual(["pull", "--ff-only"]);
   });
 
-  it("supplies a fresh credential, since the clone stores none", () => {
-    expect(args).toContain("credential.helper=store --file='/tmp/nexus-vibe-git-y/credentials'");
+  it("resets every configured helper before supplying a fresh credential", () => {
+    expect(args.slice(2, 6)).toEqual([
+      "-c",
+      "credential.helper=",
+      "-c",
+      "credential.helper=store --file='/tmp/nexus-vibe-git-y/credentials'"
+    ]);
   });
 });
 

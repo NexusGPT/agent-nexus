@@ -17,7 +17,7 @@ import {
   type CostSafetyStatus,
   type ListVibeOrgCostSafetyStatesResponse,
   type VibeOrgCostSafetyStateResponse
-} from "../admin-wire-types";
+} from "../admin-vibe-cost-safety-wire-types";
 import { color, isJsonMode, printRecord, printTable } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";

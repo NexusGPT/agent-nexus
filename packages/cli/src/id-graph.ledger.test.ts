@@ -148,8 +148,10 @@ const gate = shrinkOnlyLedger({
   // `tool skills` (`GET /public/v1/tools/skills`), the marketplace catalogue.
   // Binding one lands it in `executable` with an id the route 404s on, which reds
   // `CLI: Sweep` on real tenant data rather than adding a row here. The mechanism,
-  // and the measurement, are at the `bindCommand` calls in `commands/agent-skill.ts`
-  // — one copy, beside the code that would do it.
+  // and the measurement, are in the `commands/agent-skill.ts` registrar docblock
+  // — one copy, beside the list of leaves that would do it. The `bindCommand`
+  // calls themselves now sit in `agent-skill/create.command.ts` and
+  // `agent-skill/list.command.ts`, one per leaf.
   //
   // 316 -> 317 for `apps starter <dir>`, classified `unbound-no-provable-method`.
   // Its required positional is a LOCAL directory path, not an id: no producer
@@ -178,7 +180,20 @@ const gate = shrinkOnlyLedger({
   // PATH and the route's only path param is the slug — so the sweep has no id
   // it could thread through it (positional-not-a-path-param). Both rows are
   // the correct residue, not missing bindings.
-  ceiling: 325,
+  //
+  // 325 -> 326: `apps deployments cancel`, `unbound-no-provable-method`, for the
+  // reason the five `apps domains` leaves sit here: it talks to
+  // `/api/vibe/apps/:appId/deployments/:deploymentId/cancel`, an internal `ZVibe`
+  // route outside `/api/public/v1`, so there is no v1 descriptor for
+  // `bindCommand` to take. It also writes, so a binding would move it to
+  // bound-but-mutates rather than into the sweep.
+  //
+  // 326 -> 327: `apps git-credentials <projectId>` took no argument and now takes
+  // the project whose credential it prints. It talks to
+  // `/api/vibe/git-projects/:id/credentials`, an internal `ZVibe` route with no v1
+  // descriptor for `bindCommand` to take — the same reason `apps edge-token` sits
+  // here — and the sweep must never run it anyway: its output is a live push token.
+  ceiling: 327,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

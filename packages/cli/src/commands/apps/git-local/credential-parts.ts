@@ -2,29 +2,33 @@
  * The credential shape `nexus apps git-project clone|pull` work from, and the
  * reason every other file in this folder exists.
  *
- * ## Why the token never reaches argv
+ * ## Which credential
  *
- * `git-credentials` hands back a live push token. The obvious implementation —
- * `git clone https://user:token@host/org/repo.git` — puts that token in the
- * process's argv, where any other user on the machine can read it out of `ps`,
- * and then writes it verbatim into the clone's `.git/config` as the `origin`
- * URL, where it outlives the command entirely and travels with any copy of the
- * directory.
+ * The PER-PROJECT one, from `GET /api/vibe/git-projects/:id/credentials`: a
+ * machine user that is a `write` collaborator on that one repository and
+ * nothing else. The org-wide token (`GET /api/vibe/git-credentials`, the
+ * platform admin's) pushes to every repository in the tenant and is served to
+ * nobody — the route answers 410 Gone — so nothing in this CLI asks for it.
  *
- * So: write the credential to a throwaway 0600 file, point
- * `credential.helper=store --file=…` at it, clone the TOKEN-FREE URL, and
- * delete the file in a `finally`. The token is then absent from argv, absent
- * from `.git/config`, and gone from disk when the command returns.
+ * ## Why the token never reaches argv, `.git/config` or a credential store
  *
- * That split is why `compose-clone-url.ts` and `compose-credential-line.ts` are
- * separate files: one produces the URL git is ALLOWED to persist, the other the
- * secret git must never see on a command line.
+ * The obvious implementation — `git clone https://user:token@host/org/repo.git`
+ * — puts the token in the process's argv, where any other user on the machine
+ * can read it out of `ps`, and then writes it verbatim into the clone's
+ * `.git/config` as the `origin` URL, where it outlives the command.
+ *
+ * So: write the credential to a throwaway 0600 file, make
+ * `credential.helper=store --file=…` the ONLY helper git consults
+ * (`credential-helper-args.ts` carries why the reset matters), clone the
+ * TOKEN-FREE URL, and delete the file in a `finally`. The token is then absent
+ * from argv, from `.git/config`, from every helper the user has configured —
+ * the macOS keychain included — and from disk when the command returns.
  */
 
-/** Credential fields `clone`/`pull` need — the subset of the git-credentials payload. */
+/** Credential fields `clone`/`pull` need — the subset of the per-project payload. */
 export interface VibeGitCredentialParts {
   username: string;
   pushToken: string;
-  /** Token-free base ending in a slash, e.g. `https://git.<tenant>.<domain>/<org>/`. */
-  cloneUrlBase: string;
+  /** Token-free remote for the one repository, e.g. `https://git.<tenant>.<domain>/<org>/<name>.git`. */
+  cloneUrl: string;
 }

@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { classifyFiles, surfaceDetail, type SurfaceReading } from "./surfaces";
-import { BRANCH, type GitHubReader, REPO } from "./upstream";
+import { BRANCH, type GitHubReader, PIN_REFRESH_COMMAND, REPO } from "./upstream";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
@@ -410,7 +410,7 @@ function bumpRemedy(): string[] {
   return [
     `To refresh (a REVIEWED act — the bundle carries hooks/, agents/ and settings.json,`,
     `so a bump ships enforcement, not just prose):`,
-    `  GITHUB_TOKEN=$(gh auth token) pnpm --filter @agent-nexus/cli run gen:skills`,
+    `  ${PIN_REFRESH_COMMAND}`,
     `then commit skills-nexus.lock together with BOTH generated files.`
   ];
 }

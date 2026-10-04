@@ -40,6 +40,8 @@ export const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   DEPLOYMENT_ROLLED_BACK_HEALTH_CHECK: "failure",
   DEPLOYMENT_SUPERSEDED: "neutral",
   DEPLOYMENT_DISPLACED: "neutral",
+  // Someone stopped the build on purpose: nothing failed.
+  DEPLOYMENT_CANCELLED: "neutral",
   DEPLOYMENT_ROLLED_BACK_USER: "warning",
   // Failure, where the USER rollback above is only a warning. That one is a
   // person deciding to go back; this one is a version that was serving real

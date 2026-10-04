@@ -17,7 +17,8 @@ import { GitCommandFailedError } from "./git-errors";
  * document (the house rule in `apps.ts`).
  *
  * The `finally` is the whole point — see `credential-parts.ts` for why the
- * token must not survive the call.
+ * token must not survive the call, and `credential-helper-args.ts` for why the
+ * file must be the only helper `buildArgs` hands git.
  */
 export function runGitWithCredential(
   credentials: VibeGitCredentialParts,
@@ -27,7 +28,7 @@ export function runGitWithCredential(
   const credentialLine = composeCredentialLine(credentials);
   if (credentialLine === null) {
     throw new Error(
-      `The git host address returned for your org is not a valid https URL ("${credentials.cloneUrlBase}"). Run "nexus apps git-credentials" to inspect it.`
+      `The clone address returned for this project is not a valid https URL ("${credentials.cloneUrl}"). Run "nexus apps git-credentials <projectId>" to inspect it.`
     );
   }
 

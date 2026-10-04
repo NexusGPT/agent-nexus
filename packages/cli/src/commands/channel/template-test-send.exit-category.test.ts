@@ -1,18 +1,12 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { afterEach, describe, expect, it } from "vitest";
 
 import { EXIT_CODES, exitCategoryFor } from "../../exit-codes";
+import { readChannelCommandSource } from "./channel-command-source.testkit";
 import { isDeliveryFailed } from "./template-test-send.await-delivery";
 import {
   applyDeliveryVerdictExitCode,
   DELIVERY_FAILED_EXIT_CATEGORY
 } from "./template-test-send.exit-category";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CHANNEL_SOURCE = join(HERE, "..", "channel.ts");
 
 /** A sentinel no category claims — see `template-approval.exit-category.test.ts`. */
 const UNTOUCHED = 77;
@@ -82,7 +76,7 @@ describe("no other delivery status touches the process status", () => {
  */
 describe("commands/channel.ts hands it the status and no probe flag", () => {
   it("calls the applier once, on the status, with no observedTerminal guard", () => {
-    const source = readFileSync(CHANNEL_SOURCE, "utf8");
+    const source = readChannelCommandSource();
     // Anti-vacuity: a wrong path or a moved file makes every count below zero,
     // and the two `false` expectations are TRUE of an empty string.
     expect(source).toContain("awaitDeliveryOutcome");

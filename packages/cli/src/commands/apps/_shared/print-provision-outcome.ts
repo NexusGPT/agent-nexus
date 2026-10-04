@@ -15,21 +15,15 @@ import { type ProvisionVibeClusterOutcome } from "./vibe-cluster-wire";
 export const ALREADY_ACTIVE_ADVICE: Record<VibeTenantClusterStatus, string> = {
   HEALTHY: "Nothing to do — it is serving.",
   UPDATING: "It is converging; nothing to do.",
-  // NOT a universal "converges on its own" — that claim is only true for
-  // ordinary drift. The reconcile loop retries the SAME failing apply every
-  // tick regardless of cause, so a cluster blocked on something outside its
-  // own control (e.g. an AWS account quota) retries identically forever with
-  // no self-heal possible until that external condition changes. Re-running
-  // "provision" here is a deliberate no-op (see the backend use case) —
-  // there is no tenant-side lever to force a different outcome, only the
-  // reason the loop keeps hitting.
+  // DEGRADED is two different facts: a routine pending update the reconcile
+  // loop applies on its own, or a real fault. The lifecycle status cannot say
+  // which; the cluster read's `condition` can, so this sends the user there
+  // rather than guessing. Re-running "provision" is a deliberate no-op either
+  // way (see the backend use case).
   DEGRADED:
-    "It is degraded and the platform retries automatically every few minutes — " +
-    "that clears ordinary drift on its own, but NOT a blocker outside the " +
-    "cluster's control (e.g. a cloud-provider capacity limit). Run \"nexus apps " +
-    'cluster status" for the actual reason (Reason:); if it names a capacity or ' +
-    "quota limit, it self-heals once that is raised and needs no action from you " +
-    "— contact support if it persists.",
+    'Its configuration differs from its desired state. Run "nexus apps cluster ' +
+    'status" for its condition — a routine update that applies on its own, or a ' +
+    "fault our team is alerted to. Running provision again changes neither.",
   DISABLING: "It is being torn down. Wait for it to finish, then run this again to revive it.",
   DESTROYING: "It is being destroyed. Wait for it to finish, then run this again for a fresh one.",
   PROVISIONING: "It is already being provisioned — poll with: nexus apps cluster status",

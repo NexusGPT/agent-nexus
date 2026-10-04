@@ -4,9 +4,9 @@
 WHY THIS EXISTS, AND WHY IT IS NOT A DENYLIST
 =============================================
 
-`apps git-credentials` returns this organisation's git push token. It takes no
-input, exits 0 and emits clean JSON, so every rule that decides which leaves the
-sweep may execute says yes to it. `sweep.sh` prints the first 100 characters of a
+`apps git-credentials <projectId>` returns a project's live git push token.
+Given a project id it exits 0 and emits clean JSON, so every rule that decides
+which leaves the sweep may execute says yes to it once a fixture supplies one. `sweep.sh` prints the first 100 characters of a
 leaf's output into the CI log on failure, and that log is readable by anyone with
 repository access.
 

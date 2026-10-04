@@ -45,7 +45,7 @@ export function printVibeGitProject(
     { key: "updatedAt", label: "Updated", format: (v) => formatTimestamp(String(v)) }
   ]);
   console.log("");
-  console.log(color.dim("To push to this project, run: nexus apps git-credentials"));
+  console.log(color.dim(`To push to this project, run: nexus apps git-credentials ${project.id}`));
   if (opts.freshlyProvisioned === true) {
     console.log("");
     console.log(formatSeededRepoFirstPushHint(project));

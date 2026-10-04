@@ -132,7 +132,7 @@ const UNGATED_WITH_REASON: readonly { file: string; code: string; reason: string
       "change, not a typing one. The CLI cannot import Zod (see `asRequestBody`'s docblock)."
   },
   {
-    file: "commands/workflow.ts",
+    file: "commands/workflow/test.handler.ts",
     code: "(await client.workflows.testWorkflow(id, body)) as unknown as Record< string, unknown >",
     reason:
       "A RESPONSE, widened so a `status` column can be read off it. The service returns " +

@@ -34,5 +34,5 @@ export function printVibeGitProjectList(data: ListVibeGitProjectsResponse): void
     { key: "createdAt", label: "Created", width: 21 }
   ]);
   console.log("");
-  console.log(color.dim("To push to a project, run: nexus apps git-credentials"));
+  console.log(color.dim("To push to a project, run: nexus apps git-credentials <projectId>"));
 }

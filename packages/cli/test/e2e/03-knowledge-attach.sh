@@ -53,6 +53,7 @@ AGENT_JSON="${WORKDIR}/agent-create.json"
 TOOL_JSON="${WORKDIR}/tool-create.json"
 DEPLOYMENT_JSON="${WORKDIR}/deployment.json"
 QUERY_JSON="${WORKDIR}/coll-query.json"
+QUERY_ERR="${WORKDIR}/coll-query.stderr"
 SESSION_JSON="${WORKDIR}/session.json"
 SEND_JSON="${WORKDIR}/send.json"
 SESSION_GET_JSON="${WORKDIR}/session-get.json"
@@ -64,6 +65,7 @@ register_dump "agent create"                "${AGENT_JSON}"
 register_dump "agent-tool attach-collection" "${TOOL_JSON}"
 register_dump "deployment create"           "${DEPLOYMENT_JSON}"
 register_dump "collection query (retrieval)" "${QUERY_JSON}"
+register_dump "collection query stderr (last probe)" "${QUERY_ERR}"
 register_dump "emulator session create"     "${SESSION_JSON}"
 register_dump "emulator send"               "${SEND_JSON}"
 register_dump "emulator session get"        "${SESSION_GET_JSON}"
@@ -84,9 +86,18 @@ SESSION_IDS=""
 # Removed first so a file can only describe THIS run.
 #
 # The classes, and which of them this flow declares probabilistic:
-#   retrieval-timeout             Step 7. `collection query` has no model in its
+#   retrieval-timeout             Step 7. `collection query` ANSWERED and never
+#                                 returned the canary. It has no model in its
 #                                 path, so this is the ingestion/indexing chain.
 #                                 NOT declared probabilistic.
+#   retrieval-provider-5xx        Step 7. The last probe got an HTTP 5xx back, so
+#                                 the SERVER failed the retrieval call and whether
+#                                 the canary is indexed was never measured. The
+#                                 record's `detail` carries the status and the
+#                                 server's first error line.
+#   retrieval-probe-error         Step 7. The last probe failed WITHOUT a 5xx — a
+#                                 4xx, a CLI crash, output that is not JSON.
+#                                 Retrievability was never measured either.
 #   no-reply                      Step 9. No AI reply inside the window.
 #                                 NOT declared probabilistic.
 #   tool-declined                 Step 9. Every attempt answered WITHOUT calling
@@ -105,11 +116,15 @@ if [[ -n "${FAILURE_CLASS_FILE}" ]]; then
   rm -f "${FAILURE_CLASS_FILE}"
 fi
 
-# record_failure_class <class> <attempts> <tool-calls>
+# record_failure_class <class> <attempts> <tool-calls> [detail]
+# `detail` is one line of evidence for the classifier to print; omitted, the
+# record carries no `detail` key at all.
 record_failure_class() {
   [[ -n "${FAILURE_CLASS_FILE}" ]] || return 0
   jq -n --arg class "$1" --argjson attempts "$2" --argjson toolCalls "$3" \
-    '{flow: "C", class: $class, attempts: $attempts, toolCalls: $toolCalls}' \
+    --arg detail "${4:-}" \
+    '{flow: "C", class: $class, attempts: $attempts, toolCalls: $toolCalls}
+     + (if $detail == "" then {} else {detail: $detail} end)' \
     > "${FAILURE_CLASS_FILE}"
 }
 
@@ -308,41 +323,120 @@ DEPLOYMENT_ID=$(jq -r '.id' "${DEPLOYMENT_JSON}")
 # loop that reads as 60s would really run for several minutes, and the failure
 # message would understate its own wait by a factor of four. Measured, not
 # asserted.
+#
+# EVERY PROBE IS CLASSIFIED, because "the canary is not there" and "nobody could
+# look" call for opposite work. A probe that ANSWERED without the canary is
+# evidence about indexing. A probe that got an HTTP 5xx back measured nothing:
+# the server failed the retrieval call — a retrieval vendor outage reads exactly
+# like this — and reporting it as "never became retrievable" sends the reader to
+# the ingestion chain over a provider that is simply down. The CLI writes its
+# `{"error":{message,hint,code}}` envelope to STDOUT under `--json`, so the
+# status is read out of QUERY_JSON; stderr goes to its own file so a crash that
+# printed no envelope still leaves its first line behind.
+#
+# The status comes from the message's `API error (<status>):` prefix first: the
+# envelope's `code` is the API's own code when it sent one (`INTERNAL` for a
+# 500), and falls back to `HTTP_<status>` only when it did not.
+#
+# retrieval_probe_classify <query-json> <stderr-file> <cli-exit>
+#   sets PROBE_STATE   retrievable | answered | provider-5xx | errored
+#        PROBE_STATUS  the HTTP status, or "" when none could be read
+#        PROBE_LINE    the first line of the error, or "" when none
+retrieval_probe_classify() {
+  local json="$1" err="$2" rc="$3" message code
+  PROBE_STATE="" PROBE_STATUS="" PROBE_LINE=""
+  if [[ "${rc}" -eq 0 ]] && jq -e '
+      [ .results[]? | (.content // "") | tostring ]
+      | join(" ") | ascii_downcase | contains("teal")
+    ' "${json}" >/dev/null 2>&1; then
+    PROBE_STATE="retrievable"
+    return 0
+  fi
+  message=$(jq -r '.error.message? // empty | tostring' "${json}" 2>/dev/null || true)
+  code=$(jq -r '.error.code? // empty | tostring' "${json}" 2>/dev/null || true)
+  if [[ "${message}" =~ ^API\ error\ \(([0-9]{3})\) ]]; then
+    PROBE_STATUS="${BASH_REMATCH[1]}"
+  elif [[ "${code}" =~ ^HTTP_([0-9]{3})$ ]]; then
+    PROBE_STATUS="${BASH_REMATCH[1]}"
+  fi
+  PROBE_LINE=$(printf '%s\n' "${message}" | sed -n '/[^[:space:]]/{p;q;}')
+  if [[ -z "${PROBE_LINE}" && -s "${err}" ]]; then
+    PROBE_LINE=$(sed -n '/[^[:space:]]/{p;q;}' "${err}")
+  fi
+  if [[ "${PROBE_STATUS}" == 5[0-9][0-9] ]]; then
+    PROBE_STATE="provider-5xx"
+  elif [[ "${rc}" -ne 0 || -n "${message}" ]]; then
+    PROBE_STATE="errored"
+  else
+    PROBE_STATE="answered"
+  fi
+}
+
 stamp "confirming the canary is retrievable from the collection"
 RETRIEVABLE=0
 RETRIEVAL_BUDGET_SECONDS="${RETRIEVAL_BUDGET_SECONDS:-90}"
 RETRIEVAL_STARTED=$(date +%s)
 RETRIEVAL_PROBES=0
+RETRIEVAL_5XX=0
+RETRIEVAL_ERRORED=0
+RETRIEVAL_ANSWERED=0
 while :; do
   RETRIEVAL_PROBES=$(( RETRIEVAL_PROBES + 1 ))
   if nx collection query "${COLL_ID}" \
       --query "What color is the sky in the fact sheet?" \
-      --json > "${QUERY_JSON}" 2>/dev/null \
-    && jq -e '
-      [ .results[]? | (.content // "") | tostring ]
-      | join(" ") | ascii_downcase | contains("teal")
-    ' "${QUERY_JSON}" >/dev/null 2>&1; then
-    RETRIEVABLE=1
-    break
+      --json > "${QUERY_JSON}" 2> "${QUERY_ERR}"; then
+    PROBE_RC=0
+  else
+    PROBE_RC=$?
   fi
+  retrieval_probe_classify "${QUERY_JSON}" "${QUERY_ERR}" "${PROBE_RC}"
+  case "${PROBE_STATE}" in
+    retrievable)  RETRIEVABLE=1; break ;;
+    provider-5xx) RETRIEVAL_5XX=$(( RETRIEVAL_5XX + 1 )) ;;
+    errored)      RETRIEVAL_ERRORED=$(( RETRIEVAL_ERRORED + 1 )) ;;
+    *)            RETRIEVAL_ANSWERED=$(( RETRIEVAL_ANSWERED + 1 )) ;;
+  esac
   [[ $(( $(date +%s) - RETRIEVAL_STARTED )) -lt "${RETRIEVAL_BUDGET_SECONDS}" ]] || break
   sleep 3
 done
 RETRIEVAL_ELAPSED=$(( $(date +%s) - RETRIEVAL_STARTED ))
+RETRIEVAL_TALLY="${RETRIEVAL_ANSWERED} answered without it, ${RETRIEVAL_5XX} HTTP 5xx, ${RETRIEVAL_ERRORED} other error(s)"
 
 if [[ "${RETRIEVABLE}" -eq 1 ]]; then
   stamp "canary retrievable after ${RETRIEVAL_PROBES} probe(s), ${RETRIEVAL_ELAPSED}s"
 else
   if [[ "${STRICT_RAG:-0}" == "1" ]]; then
-    record_failure_class retrieval-timeout 0 0
-    echo "FAIL: STRICT_RAG=1 but the canary never became retrievable from the" >&2
-    echo "  collection — ${RETRIEVAL_PROBES} probe(s) over ${RETRIEVAL_ELAPSED}s." >&2
-    echo "  This is the INGESTION/INDEXING chain, not a model decision:" >&2
-    echo "  'collection query' asks retrieval directly, with no model in the" >&2
-    echo "  path. Do not read this as a flaky assistant reply." >&2
+    # Classified by the LAST probe — the state the budget ran out in — with the
+    # tally of every probe beside it, so a provider that flapped is visible.
+    if [[ "${PROBE_STATE}" == "provider-5xx" ]]; then
+      record_failure_class retrieval-provider-5xx 0 0 "HTTP ${PROBE_STATUS}: ${PROBE_LINE}"
+      echo "FAIL: STRICT_RAG=1 and RETRIEVAL PROVIDER DOWN — 'collection query' got" >&2
+      echo "  HTTP ${PROBE_STATUS} back on the last probe:" >&2
+      echo "    ${PROBE_LINE}" >&2
+      echo "  ${RETRIEVAL_PROBES} probe(s) over ${RETRIEVAL_ELAPSED}s: ${RETRIEVAL_TALLY}." >&2
+      echo "  The SERVER failed the retrieval call — the retrieval vendor, or the" >&2
+      echo "  backend in front of it; the line above is the server's own and says" >&2
+      echo "  which. Whether the canary is indexed was never measured, so this is" >&2
+      echo "  not an ingestion verdict and not a model decision. It stays red until" >&2
+      echo "  retrieval answers again." >&2
+    elif [[ "${PROBE_STATE}" == "errored" ]]; then
+      record_failure_class retrieval-probe-error 0 0 "HTTP ${PROBE_STATUS:-none}, exit ${PROBE_RC}: ${PROBE_LINE}"
+      echo "FAIL: STRICT_RAG=1 and the retrieval probe ERRORED on its last attempt" >&2
+      echo "  (HTTP ${PROBE_STATUS:-status unreadable}, CLI exit ${PROBE_RC}):" >&2
+      echo "    ${PROBE_LINE:-<no error line on stdout or stderr>}" >&2
+      echo "  ${RETRIEVAL_PROBES} probe(s) over ${RETRIEVAL_ELAPSED}s: ${RETRIEVAL_TALLY}." >&2
+      echo "  Retrievability was never measured; read the error before the index." >&2
+    else
+      record_failure_class retrieval-timeout 0 0
+      echo "FAIL: STRICT_RAG=1 but the canary never became retrievable from the" >&2
+      echo "  collection — ${RETRIEVAL_PROBES} probe(s) over ${RETRIEVAL_ELAPSED}s: ${RETRIEVAL_TALLY}." >&2
+      echo "  This is the INGESTION/INDEXING chain, not a model decision:" >&2
+      echo "  'collection query' asks retrieval directly, with no model in the" >&2
+      echo "  path. Do not read this as a flaky assistant reply." >&2
+    fi
     exit 1
   fi
-  stamp "canary not retrievable in ${RETRIEVAL_ELAPSED}s (RAG-async, STRICT_RAG off) — continuing"
+  stamp "canary not retrievable in ${RETRIEVAL_ELAPSED}s (${RETRIEVAL_TALLY}; RAG-async, STRICT_RAG off) — continuing"
 fi
 
 # ---------------------------------------------------------------------------

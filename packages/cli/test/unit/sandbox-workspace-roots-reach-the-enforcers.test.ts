@@ -150,6 +150,27 @@ function pythonCodeOnly(source: string): string {
     .replace(/(^|\n)[^\n]*?#[^\n]*/g, (m) => m.split("#")[0]);
 }
 
+/**
+ * The tool-name tuples the firewall DISPATCHES ON out of `hook_core.py` — `tn in
+ * hc.FILE_EDIT_TOOLS` — as the literal body of each tuple's declaration there.
+ *
+ * The firewall stopped spelling its write tools inline and tests membership in a shared
+ * tuple instead, so a check reading the firewall file alone sees none of them and reports
+ * every routed write tool as unexamined while the adapter examines all four. Only a
+ * tuple the firewall actually tests membership in is read, and only its declaration line
+ * — never the rest of `hook_core.py`, where a tool named in a comment or an unrelated list
+ * would satisfy the arm without being dispatched on.
+ */
+function sharedToolTuplesTheFirewallDispatchesOn(firewall: string): string {
+  const core = pythonCodeOnly(bundledHookCore());
+  const bodies: string[] = [];
+  for (const use of firewall.matchAll(/\bin\s+hc\.([A-Z][A-Z0-9_]*)\b/g)) {
+    const decl = new RegExp(`^${use[1]}\\s*=\\s*(?:frozenset\\()?\\(([^)]*)\\)`, "m").exec(core);
+    if (decl?.[1] !== undefined) bodies.push(decl[1]);
+  }
+  return bodies.join("\n");
+}
+
 /** The tool names `settings.json` routes to the firewall on PreToolUse. */
 function toolsRoutedToFirewall(): string[] {
   const settings = JSON.parse(getSettingsJson()) as {
@@ -266,6 +287,7 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
     // config then DECLARED coverage the code did not perform, which is worse than not
     // routing them at all — the wiring is where a reader checks.
     const firewall = pythonCodeOnly(bundledHookFile("nexus-fs-firewall.py"));
+    const examined = `${firewall}\n${sharedToolTuplesTheFirewallDispatchesOn(firewall)}`;
     const routed = toolsRoutedToFirewall();
 
     // Control: an empty routed set would make the loop below vacuous, and a matcher
@@ -275,7 +297,7 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
 
     for (const tool of routed) {
       expect(
-        firewall.includes(`"${tool}"`),
+        examined.includes(`"${tool}"`),
         `settings.json routes ${tool} to nexus-fs-firewall.py and the adapter never names ` +
           `it, so every ${tool} call reaches the firewall and falls straight through ` +
           "unexamined. Either the adapter must handle it or the matcher must stop claiming it."

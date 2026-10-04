@@ -128,7 +128,7 @@ const DOCS_ROOT = join(CLI_DOCS, "..");
 const GENERATED_PAGE_FLOOR = 50;
 
 /**
- * Every page `scripts/sync-docs-to-zero-entropy.ts` pushes to the customer
+ * Every page `scripts/sync-product-docs.ts` pushes to the customer
  * search index, as the slug path it pushes it under.
  *
  * DELIBERATELY A COPY OF THAT WALK, not a shared import: the sync script lives
@@ -369,7 +369,7 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     //
     // The mirror defect costs the same and reads the same to a customer: a page
     // committed for a namespace that no longer exists is a documented command
-    // that errors when typed. `sync-docs-to-zero-entropy.ts` walks the
+    // that errors when typed. `sync-product-docs.ts` walks the
     // FILESYSTEM, so an orphan page keeps being pushed to the customer search
     // index under a `https://gpt.nexus/docs/...` URL long after the command is
     // gone. Both directions are the same claim — the docs enumerate the CLI —
@@ -520,8 +520,8 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // key does not throw anywhere — it renders as an empty subtitle or a missing
     // icon, which reads as a design choice rather than as a bug.
     //
-    // The vendor docs index is NOT one of those consumers. Its sync script
-    // (`scripts/sync-docs-to-zero-entropy.ts`) reads the raw files itself rather
+    // The docs search index is NOT one of those consumers. Its sync script
+    // (`scripts/sync-product-docs.ts`) reads the raw files itself rather
     // than through `docs-content.ts`, and strips the frontmatter before
     // indexing — so of these four keys only `title` reaches it.
     const required = ["title:", "description:", "icon:", "section:"];
@@ -542,7 +542,7 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // so a page absent from the nav is in no nav sidebar, no `llms-full.txt` and
     // no `sitemap.xml`.
     //
-    // But `scripts/sync-docs-to-zero-entropy.ts` DOES walk the filesystem,
+    // But `scripts/sync-product-docs.ts` DOES walk the filesystem,
     // skipping only `images/`. So an unlisted page is pushed to the CUSTOMER
     // SEARCH INDEX with a `https://gpt.nexus/docs/...` URL, under a `section`
     // taken from its first path segment. Nothing else checks it.

@@ -389,6 +389,17 @@ describe("renderDeployState — a build that is waiting", () => {
     expect(out.split("\n")).toContain(`  build PENDING: ${AT_CAPACITY_MESSAGE}`);
   });
 
+  it("prints a region-held wait the same way — the line that tells a full region from a stall", () => {
+    const message =
+      "waiting: the build service in eu-west-3 is running as many builds as it can at once, across all organizations. This build starts as soon as one of them finishes; nothing is wrong with it.";
+    const out = render(
+      queuedBuild({ reason: "region_at_capacity", region: "eu-west-3", message }),
+      NOW
+    );
+
+    expect(out.split("\n")).toContain(`  build PENDING: ${message}`);
+  });
+
   it("control: a build with no wait prints no wait line", () => {
     const out = render(queuedBuild(null), NOW);
 

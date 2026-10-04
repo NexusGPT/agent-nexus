@@ -1,18 +1,12 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { afterEach, describe, expect, it } from "vitest";
 
 import { EXIT_CODES, exitCategoryFor } from "../../exit-codes";
+import { readChannelCommandSource } from "./channel-command-source.testkit";
 import {
   applyApprovalVerdictExitCode,
   APPROVAL_REJECTED_EXIT_CATEGORY,
   isApprovalRejected
 } from "./template-approval.exit-category";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CHANNEL_SOURCE = join(HERE, "..", "channel.ts");
 
 /**
  * A SENTINEL NO CATEGORY CLAIMS, so "left alone" cannot be confused with "set".
@@ -110,7 +104,7 @@ describe("the predicate both verbs key off", () => {
  */
 describe("commands/channel.ts states the rule nowhere", () => {
   it("calls the applier twice and re-spells neither the condition nor the map", () => {
-    const source = readFileSync(CHANNEL_SOURCE, "utf8");
+    const source = readChannelCommandSource();
     // Anti-vacuity: a wrong path, an empty read or a moved file would make every
     // count below zero, and `restated: false` is TRUE of an empty string.
     expect(source).toContain("renderSubmitApprovalVerdict");

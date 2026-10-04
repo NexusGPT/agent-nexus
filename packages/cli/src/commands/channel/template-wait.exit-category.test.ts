@@ -1,15 +1,9 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { afterEach, describe, expect, it } from "vitest";
 
 import { EXIT_CODES, exitCategoryFor } from "../../exit-codes";
+import { readChannelCommandSource } from "./channel-command-source.testkit";
 import { waitDocumentFields } from "./template-wait.document-fields";
 import { applyWaitExitCode, WAIT_TIMED_OUT_EXIT_CATEGORY } from "./template-wait.exit-category";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CHANNEL_SOURCE = join(HERE, "..", "channel.ts");
 
 /**
  * A SENTINEL NO CATEGORY CLAIMS, so "left alone" cannot be confused with "set".
@@ -144,7 +138,7 @@ describe("the exit code agrees with the wait key the document publishes", () => 
  */
 describe("commands/channel.ts states the timeout rule nowhere", () => {
   it("calls the applier twice and re-spells neither the condition nor the map", () => {
-    const source = readFileSync(CHANNEL_SOURCE, "utf8");
+    const source = readChannelCommandSource();
     // Anti-vacuity: a wrong path or a moved file makes every count below zero,
     // and `restates: false` is TRUE of an empty string.
     expect(source).toContain("renderDeliveryOutcome");

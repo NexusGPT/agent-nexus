@@ -17,7 +17,7 @@ export function printVibeCluster(data: GetVibeClusterResponse): void {
   }
   printRecord({
     Status: data.cluster.status,
-    Reason: data.cluster.statusReason ?? color.dim("—"),
+    Condition: data.cluster.condition.summary,
     "Git host": data.cluster.gitHostStatus ?? color.dim("not reported yet"),
     Telemetry: data.cluster.telemetryStatus ?? color.dim("not reported yet")
   });

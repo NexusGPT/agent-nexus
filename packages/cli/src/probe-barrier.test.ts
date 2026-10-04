@@ -37,12 +37,8 @@ import {
   COMMAND_CLASSIFICATION,
   type CommandDisposition
 } from "./command-universe";
-import {
-  PROBE_BARRIER,
-  PROBE_BARRIER_HELP_PREFIX,
-  type ProbeBarrierEntry,
-  probeBarrierHelpLine
-} from "./probe-barrier";
+import { PROBE_BARRIER, type ProbeBarrierEntry } from "./probe-barrier";
+import { PROBE_BARRIER_HELP_PREFIX, probeBarrierHelpLine } from "./probe-barrier-help";
 import { buildRootProgram } from "./root-program";
 
 /**

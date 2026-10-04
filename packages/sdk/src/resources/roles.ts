@@ -479,17 +479,24 @@ export class RolesResource extends BaseResource {
   /**
    * Remove a user's `ADMIN` or `MEMBER` standing in this Role.
    *
-   * ⚠️ IT DOES NOT TOUCH OWNERSHIP. An owner holds no membership row, so asking
-   * this to remove the OWNER is a no-op answering `removed: false`. Hand the Role
-   * to somebody else with {@link RolesResource.update} instead.
+   * `removed` says whether they were a member: `true` when a seat in the Role's
+   * `maintainer` or `member` permission set went. Idempotent — `false` for a user
+   * who held no such seat.
    *
-   * It DOES purge the user's permission-set rows — without that a removed member
-   * keeps every capability of every set they belonged to while appearing on no
-   * members list anywhere.
+   * ⚠️ IT DOES NOT TOUCH OWNERSHIP. Ownership is not a membership, so asking this
+   * to remove the OWNER is a no-op that deletes nothing — the owner keeps every
+   * permission-set seat they hold — and answers `removed: false`. Hand the Role to
+   * somebody else with {@link RolesResource.update} instead.
+   *
+   * A removed member loses EVERY permission-set seat, custom sets included —
+   * without that a removed member keeps every capability of every set they
+   * belonged to while appearing on no members list anywhere. A user whose only
+   * seats are in CUSTOM sets is not a member: `removed: false`, and those seats
+   * stay; use {@link RolesResource.removePermissionSetMember} for them.
    *
    * @param roleId - Role UUID.
    * @param userId - Clerk user id.
-   * @returns Whether a standing actually went.
+   * @returns Whether a `maintainer` or `member` seat actually went.
    */
   async removeMember(roleId: string, userId: string): Promise<RoleRemovalResult> {
     return this.http.request<RoleRemovalResult>("DELETE", `/roles/${roleId}/members/${userId}`);
@@ -643,21 +650,18 @@ export class RolesResource extends BaseResource {
   /**
    * Put one user into one of the Role's permission sets.
    *
-   * 🚨 THE USER MUST ALREADY HOLD THE ROLE — as its owner, or through
-   * {@link RolesResource.upsertMember}. A permission set is a SUBSET of the
-   * Role's team, so seating somebody outside it would create a person holding
-   * the set's capabilities on a Role they do not belong to: a grant that appears
-   * on no members list, and so cannot be found on the screen an admin would go
-   * to in order to revoke it. A subject outside the Role answers 404, with the
-   * same body a set that does not exist gets.
+   * 🚨 THE USER MUST BE A MEMBER OF YOUR ORGANIZATION. Anybody else answers 404,
+   * with the same body a set that does not exist gets.
    *
    * IDEMPOTENT, AND `added: false` IS A SUCCESS — read the boolean, never the
    * status code, which is 200 either way.
    *
    * Unlike {@link RolesResource.updatePermissionSet} this is NOT refused on a set
-   * that ships with Nexus. A seeded set's DEFINITION is owned by code; its
-   * MEMBERSHIP is the editable half, and refusing it would make both templates
-   * unusable.
+   * that ships with Nexus — and on one of those it CHANGES THE USER'S TIER.
+   * Joining `maintainer` is {@link RolesResource.upsertMember} at ADMIN, joining
+   * `member` is it at MEMBER: the user joins the Role if they were not in it, and
+   * their seat in the other shipped set goes. The Role's owner is a no-op
+   * answering `added: false`.
    *
    * @param roleId - Role UUID.
    * @param permissionSetId - Permission-set UUID.
@@ -684,9 +688,15 @@ export class RolesResource extends BaseResource {
    * the set cascades every member's row, so using a delete to remove one person
    * takes the capabilities from everybody else in it too.
    *
-   * ⚠️ IT DOES NOT TOUCH THE ROLE. The user keeps their standing and every other
-   * set they are in; {@link RolesResource.removeMember} is what ends the
-   * standing, and it purges permission-set rows on its way out.
+   * ⚠️ ON A CUSTOM SET IT DOES NOT TOUCH THE ROLE. The user keeps their standing
+   * and every other set they are in; {@link RolesResource.removeMember} is what
+   * ends the standing, and it purges permission-set rows on its way out.
+   *
+   * ⚠️ ON A SET THAT SHIPS WITH NEXUS IT CHANGES THE USER'S STANDING, because that
+   * seat IS their tier. Their only such seat → they leave the Role exactly as
+   * {@link RolesResource.removeMember} would, custom-set seats included; both
+   * shipped seats → only this one goes and their tier becomes the other set's.
+   * The Role's owner is a no-op answering `removed: false`.
    *
    * IDEMPOTENT, and the three absences answer alike: no such set, a set on
    * another Role or another tenant, and a user who was never in it all report

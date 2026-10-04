@@ -3,27 +3,26 @@ import type { Command } from "commander";
 import { handleError } from "../../../errors";
 import { color, isJsonMode } from "../../../output";
 import { tenantRequest } from "../../../util/tenant-http";
-import {
-  type GetGitCredentialsResponse,
-  type StandaloneVibeGitProjectResponse
-} from "../../../vibe-wire-types";
+import { type StandaloneVibeGitProjectResponse } from "../../../vibe-wire-types";
+import { fetchGitProjectCredentials } from "../_shared/fetch-git-project-credentials";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 import { assertGitAvailable } from "../git-local/assert-git-available";
 import { buildCloneArgs } from "../git-local/build-clone-args";
-import { composeCloneUrl } from "../git-local/compose-clone-url";
 import { resolveCloneDirectory } from "../git-local/resolve-clone-directory";
 import { runGitWithCredential } from "../git-local/run-git-with-credential";
 
 const CLONE_HELP = `
 Notes:
-Resolves the project, fetches your org's git credential, and runs a real
+Resolves the project, fetches THIS project's own push credential (a machine
+user that can reach this one repository and no other), and runs a real
 "git clone" against your tenant's git host. The directory defaults to the
 project's name.
 
-The push token is NOT written into the clone's .git/config: it is passed to
-git through a temporary 0600 credential file that is deleted when the command
-returns, and "origin" is left as the plain token-free URL. Re-authenticate
-later with "git-project pull", which supplies a fresh token the same way.
+The token is stored NOWHERE: git reads it from a temporary 0600 credential
+file that is deleted when the command returns, every credential helper you
+have configured (the macOS keychain included) is switched off for that one
+call, and "origin" is left as the plain token-free URL. Re-authenticate later
+with "git-project pull", which supplies a fresh token the same way.
 
 The project must be READY — a PENDING project has not materialized on the git
 host yet, and cloning it would fail inside git with a much worse message.
@@ -58,19 +57,13 @@ export function registerAppsGitProjectCloneCommand(project: Command, program: Co
             );
           }
 
-          const credentialData = await tenantRequest<GetGitCredentialsResponse>(opts, {
-            method: "GET",
-            path: "/api/vibe/git-credentials"
-          });
+          const credentials = await fetchGitProjectCredentials(opts, gitProject.id);
 
           const target = resolveCloneDirectory(directory, gitProject.name);
-          const cloneUrl = composeCloneUrl(
-            credentialData.credentials.cloneUrlBase,
-            gitProject.name
-          );
+          const cloneUrl = credentials.cloneUrl;
           const branch = cmdOpts.branch ?? gitProject.defaultBranch;
 
-          runGitWithCredential(credentialData.credentials, "clone", (credentialPath) =>
+          runGitWithCredential(credentials, "clone", (credentialPath) =>
             buildCloneArgs(credentialPath, cloneUrl, target, branch)
           );
 

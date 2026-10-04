@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 648 command nodes; 554 invocable leaves.
+ * 649 command nodes; 555 invocable leaves.
  * 53 top-level commands — 53 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         488 STABLE, 66 UNSTABLE
- *   disposition  26 never-execute, 464 registration-only, 59 safe, 5 safe-with-fixture
- *   --yes        45 destructive — 45 confirmable
- *   --json       443 answered, 111 abstain
+ *   tier         488 STABLE, 67 UNSTABLE
+ *   disposition  26 never-execute, 465 registration-only, 59 safe, 5 safe-with-fixture
+ *   --yes        46 destructive — 46 confirmable
+ *   --json       443 answered, 112 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -135,6 +135,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "apps delete", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "4859eab0a28b" },
   { path: "apps deploy", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["!--sha <sha>", "--confirm-overage", "--watch", "--force-rebuild", "--skip-verification"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "4cc63670bd2f" },
   { path: "apps deploy-state", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: ["--sha <sha>", "--ref <ref>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "7500d6a7d9e3" },
+  { path: "apps deployments cancel", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<deploymentId>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "74c6cf8f378f" },
   { path: "apps deployments get", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<deploymentId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3e1614ba55d6" },
   { path: "apps deployments list", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "c4892ac84b08" },
   { path: "apps domains add", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<host>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "a20079823e70" },
@@ -147,7 +148,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "apps env rm", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<envVarId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d8a3e0325045" },
   { path: "apps env set", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>", "<assignment>"], flags: ["--scope <scope>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "651729e8b3a2" },
   { path: "apps get", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<appId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "8eb0c45a7d5b" },
-  { path: "apps git-credentials", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "275a643b848e" },
+  { path: "apps git-credentials", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<projectId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "d07add232050" },
   { path: "apps git-project clone", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<projectId>", "[directory]"], flags: ["--branch <branch>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "2cc4c9aef184" },
   { path: "apps git-project create", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<name>"], flags: ["--description <text>", "--default-branch <branch>", "--git-url <url>"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "7423e4b289a3" },
   { path: "apps git-project delete", tier: "UNSTABLE", module: "apps.ts", disposition: "registration-only", args: ["<projectId>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "44d318adb8c6" },

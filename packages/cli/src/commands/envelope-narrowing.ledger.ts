@@ -99,7 +99,7 @@ export const ENVELOPE_NARROWING_LEDGER_CEILING = 1;
 
 export const ENVELOPE_NARROWING_LEDGER: readonly LedgeredNarrowing[] = [
   {
-    key: "commands/conversation.ts printRecord metadata",
+    key: "commands/conversation/update-metadata.command.ts printRecord metadata",
     verdict: "by-design",
     lost: [
       "assignedUserIds",

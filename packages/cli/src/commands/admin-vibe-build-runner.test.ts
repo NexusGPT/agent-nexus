@@ -1,5 +1,5 @@
 /**
- * `nexus admin vibe-build-runner tick` — the org_at_capacity outcome.
+ * `nexus admin vibe-build-runner tick` — the org_at_capacity and region_at_capacity outcomes.
  *
  * An operator firing ticks by hand during an incident needs to tell "this org
  * is at its build cap" from "nothing to do" and from "lost a race": each means a
@@ -15,6 +15,16 @@ import { registerAdminCommands } from "./admin";
 
 const BASE_URL = "https://api.test.invalid";
 const TOKEN = "test-jwt";
+
+const REGION_FULL: AdminVibeBuildRunnerTickResponse = {
+  kind: "region_at_capacity",
+  buildJobId: "job-0c2d",
+  organizationId: "org_in_paris",
+  region: "eu-west-3",
+  computeSize: "LARGE",
+  inFlight: 51,
+  cap: 50
+};
 
 const AT_CAPACITY: AdminVibeBuildRunnerTickResponse = {
   kind: "org_at_capacity",
@@ -114,6 +124,42 @@ describe("nexus admin vibe-build-runner tick — org_at_capacity", () => {
 
   it("is a successful tick, not an error exit", async () => {
     stubFetch(AT_CAPACITY);
+
+    expect((await tick()).exitCode).toBeUndefined();
+  });
+});
+
+describe("nexus admin vibe-build-runner tick — region_at_capacity", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the outcome", async () => {
+    stubFetch(REGION_FULL);
+
+    expect(valueOf((await tick()).lines, "Outcome")).toBe("region_at_capacity");
+  });
+
+  it("names the region and the size whose ceiling is full", async () => {
+    stubFetch(REGION_FULL);
+
+    expect(valueOf((await tick()).lines, "CodeBuild region (size)")).toBe("eu-west-3 (LARGE)");
+  });
+
+  it("shows the region's builds in flight beside the ceiling they were compared with", async () => {
+    stubFetch(REGION_FULL);
+
+    expect(valueOf((await tick()).lines, "Region builds in flight")).toBe("51 (cap 50)");
+  });
+
+  it("names the organization whose build stays queued", async () => {
+    stubFetch(REGION_FULL);
+
+    expect(valueOf((await tick()).lines, "Organization")).toBe("org_in_paris");
+  });
+
+  it("is a successful tick, not an error exit", async () => {
+    stubFetch(REGION_FULL);
 
     expect((await tick()).exitCode).toBeUndefined();
   });

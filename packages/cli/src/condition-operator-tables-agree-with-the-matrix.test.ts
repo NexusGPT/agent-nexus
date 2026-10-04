@@ -48,7 +48,7 @@ import {
  *     TypeScript constant from this one. The table can only be checked at the
  *     moment the copy enters this tree — which is exactly when the pin moves,
  *     and exactly when this file runs.
- *   · The academy page is PUBLISHED PROSE. `sync-docs-to-zero-entropy.ts` pushes
+ *   · The academy page is PUBLISHED PROSE. `sync-product-docs.ts` pushes
  *     `content/docs/**` to the customer-facing index, and its table carries a
  *     plain-English description per row that no projection could write.
  *

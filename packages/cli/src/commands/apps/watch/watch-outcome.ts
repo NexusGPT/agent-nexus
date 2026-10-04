@@ -14,6 +14,7 @@ export type WatchOutcome =
   | { kind: "failed"; deployment: WatchDeploymentSnapshot }
   | { kind: "superseded"; deployment: WatchDeploymentSnapshot }
   | { kind: "displaced"; deployment: WatchDeploymentSnapshot }
+  | { kind: "cancelled"; deployment: WatchDeploymentSnapshot }
   | {
       kind: "approval-refused";
       deployment: WatchDeploymentSnapshot;

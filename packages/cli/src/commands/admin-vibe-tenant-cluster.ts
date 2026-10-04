@@ -31,7 +31,7 @@ import {
   type VibeTenantClusterDisableOutcome,
   type VibeTenantClusterForceConvergeOutcome,
   type VibeTenantClusterProvisionOutcome
-} from "../admin-wire-types";
+} from "../admin-vibe-tenant-cluster-wire-types";
 import { color, printRecord } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";

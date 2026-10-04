@@ -212,6 +212,14 @@ describe("watchDeployment", () => {
     expect((await watchDeployment(io, OPTIONS, () => {})).kind).toBe("superseded");
   });
 
+  it("ends at once on a CANCELLED build — it will never go live, and nothing is left to wait on", async () => {
+    const io = makeIo(["BUILDING", "CANCELLED"], [APP()]);
+    const outcome = await watchDeployment(io, OPTIONS, () => {});
+    expect(outcome.kind).toBe("cancelled");
+    // Decided on the read that saw it, not after the deploy timeout.
+    expect(io.clock()).toBe(1_000_000 + OPTIONS.pollIntervalMs);
+  });
+
   it("reports a REJECTED gate at once instead of waiting out the deploy timeout", async () => {
     // The deployment stays AWAITING_APPROVAL forever on a reject — the backend
     // says so ("REJECTs leave the deployment where it is"). Reading only the
@@ -387,5 +395,17 @@ describe("reportWatchOutcome — served", () => {
     } finally {
       setJsonMode(false);
     }
+  });
+});
+
+describe("reportWatchOutcome — cancelled", () => {
+  it("is not a success, and says the version never went live without calling it a failure", () => {
+    const { code, text } = captureReport({
+      kind: "cancelled",
+      deployment: DEPLOYMENT("CANCELLED")
+    });
+    expect(code).not.toBe(0);
+    expect(text).toContain("v7 never went live — its build was cancelled");
+    expect(text).not.toMatch(/fail/i);
   });
 });

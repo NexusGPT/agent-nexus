@@ -4,10 +4,24 @@ import { type VibeTenantClusterStatus } from "../../../vibe-regions";
 // apps cluster
 // ============================================================
 
-/** The cluster health the GET surface reports. `null` cluster = none provisioned. */
+/**
+ * The customer reading of the cluster: a fault, a routine update pending, or
+ * nominal, with one plain sentence for it. `kind` is held as `string` so a
+ * newer platform adding a kind is printed rather than rejected.
+ */
+export interface VibeClusterConditionDto {
+  kind: string;
+  summary: string;
+}
+
+/**
+ * The cluster health the GET surface reports. `null` cluster = none provisioned.
+ * Carries no raw `statusReason`: that is operator material and never leaves
+ * the server. `vibe-cluster-wire.conformance.ts` holds this in lockstep.
+ */
 export interface VibeClusterHealthDto {
   status: VibeTenantClusterStatus;
-  statusReason: string | null;
+  condition: VibeClusterConditionDto;
   gitHostStatus: string | null;
   telemetryStatus: string | null;
 }

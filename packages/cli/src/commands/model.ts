@@ -4,12 +4,7 @@ import { createClient } from "../client";
 import { handleError } from "../errors";
 import { printList } from "../output";
 
-export function registerModelCommands(program: Command): void {
-  const model = program.command("model").description("Manage AI models");
-
-  model.addHelpText(
-    "after",
-    `
+const MODEL_NAMESPACE_HELP = `
 THIS NAMESPACE ONLY READS. "list" is its one verb — there is nothing here to
 create, update or delete, and a model id is spent in ANOTHER namespace:
 
@@ -27,16 +22,9 @@ to --model-name, or "custom:<uuid>" to either, resolves to no model.
 
 ⚠️ "nexus custom-model create|update --model-name" IS A DIFFERENT FLAG WITH THE
 SAME SPELLING. There it is the identifier YOUR endpoint answers to (e.g.
-"llama-3-70b"), not a Nexus modelId, and nothing in this list belongs in it.`
-  );
+"llama-3-70b"), not a Nexus modelId, and nothing in this list belongs in it.`;
 
-  // ── list ────────────────────────────────────────────────────────────────
-  model
-    .command("list")
-    .description("List available AI models")
-    .addHelpText(
-      "after",
-      `
+const MODEL_LIST_HELP = `
 Examples:
   $ nexus model list
   $ nexus model list --json
@@ -78,8 +66,18 @@ Notes:
   THERE ARE NO FILTER FLAGS AND NO PAGINATION. No --provider, no --deprecated,
   no --limit, no --page: the route takes no parameters and returns every model
   in one document. Filter client-side —
-    $ nexus model list --json | jq -r '.data[] | select(.deprecated | not) | .modelId'`
-    )
+    $ nexus model list --json | jq -r '.data[] | select(.deprecated | not) | .modelId'`;
+
+export function registerModelCommands(program: Command): void {
+  const model = program.command("model").description("Manage AI models");
+
+  model.addHelpText("after", MODEL_NAMESPACE_HELP);
+
+  // ── list ────────────────────────────────────────────────────────────────
+  model
+    .command("list")
+    .description("List available AI models")
+    .addHelpText("after", MODEL_LIST_HELP)
     .action(async () => {
       try {
         const client = createClient(program.optsWithGlobals());

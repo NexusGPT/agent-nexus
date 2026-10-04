@@ -21,19 +21,7 @@ interface RevertOptions {
   yes?: boolean;
 }
 
-export function registerWorkspaceRevertCommand(ws: Command, program: Command): void {
-  const revert = confirmable(ws.command("revert"))
-    .description("Make an earlier version of a file live again (a new version; nothing is lost)")
-    .argument("<slug>", "Workspace slug")
-    .argument("<path>", "The file, relative to the workspace root")
-    .requiredOption("--version-id <id>", "A file version id from `workspace history`")
-    .option(
-      "--shared",
-      "Write the admin-shared workspace with this slug (not the same-slug org-owned one)"
-    )
-    .addHelpText(
-      "after",
-      `
+const WORKSPACE_REVERT_HELP = `
 Examples:
   $ nexus workspace history support-docs notes/plan.md
   $ nexus workspace revert support-docs notes/plan.md --version-id 3sL4kqmGDgz.Ex4mpl3
@@ -71,8 +59,19 @@ Notes:
   and shadow it in every listing.
   --json IS THE SERVER'S DOCUMENT: {outcome: "written", path, revertedTo,
   newVersionId} or {outcome: "already-live", path, revertedTo}.
-  Needs workspaces:write.`
+  Needs workspaces:write.`;
+
+export function registerWorkspaceRevertCommand(ws: Command, program: Command): void {
+  const revert = confirmable(ws.command("revert"))
+    .description("Make an earlier version of a file live again (a new version; nothing is lost)")
+    .argument("<slug>", "Workspace slug")
+    .argument("<path>", "The file, relative to the workspace root")
+    .requiredOption("--version-id <id>", "A file version id from `workspace history`")
+    .option(
+      "--shared",
+      "Write the admin-shared workspace with this slug (not the same-slug org-owned one)"
     )
+    .addHelpText("after", WORKSPACE_REVERT_HELP)
     .action(async (slug: string, filePath: string, opts: RevertOptions) => {
       try {
         if (

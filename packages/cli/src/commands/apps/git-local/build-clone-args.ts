@@ -1,4 +1,4 @@
-import { credentialHelperArg } from "./credential-helper-arg";
+import { credentialHelperArgs } from "./credential-helper-args";
 
 /** `git` argv for the clone. `credentialPath` is self-generated, never user input. */
 export function buildCloneArgs(
@@ -7,7 +7,7 @@ export function buildCloneArgs(
   directory: string,
   branch: string | undefined
 ): string[] {
-  const args = ["-c", credentialHelperArg(credentialPath), "clone"];
+  const args = [...credentialHelperArgs(credentialPath), "clone"];
   if (branch) args.push("--branch", branch);
   args.push("--", cloneUrl, directory);
   return args;

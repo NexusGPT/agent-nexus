@@ -72,6 +72,9 @@ export async function watchDeployment(
     // sitting out the full deploy timeout on a deployment whose outcome is
     // already settled — which is the whole complaint this status answers.
     if (deployment.status === "DISPLACED") return { kind: "displaced", deployment };
+    // Somebody stopped the build. Settled, and it will never go live, so the
+    // watch ends here rather than sitting out the deploy timeout on it.
+    if (deployment.status === "CANCELLED") return { kind: "cancelled", deployment };
 
     if (deployment.status === "AWAITING_APPROVAL") {
       const approval = await io.readApproval();

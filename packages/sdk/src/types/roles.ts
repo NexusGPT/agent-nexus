@@ -350,7 +350,10 @@ export interface RoleSystemsResponse {
 
 /** One membership row — a user at `ADMIN` or `MEMBER` tier. */
 export interface RoleMember {
-  /** Membership row UUID, not the user's id. */
+  /**
+   * Membership row UUID, not the user's id. Stable across tier changes: moving a
+   * member between `ADMIN` and `MEMBER` keeps it.
+   */
   id: string;
   /** The Role this membership is on. */
   roleId: string;
@@ -362,7 +365,7 @@ export interface RoleMember {
   tier: RoleMemberTier;
   /** Who added them, or `null` when the system did. */
   addedByUserId: string | null;
-  /** ISO 8601. */
+  /** ISO 8601 — when they joined the Role. Stable across tier changes, like `id`. */
   createdAt: string;
 }
 

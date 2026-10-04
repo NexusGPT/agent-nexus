@@ -12,7 +12,10 @@
 
 import { Command } from "commander";
 
-import { type CapPatchValue, type VibeOrgConsumptionCapResponse } from "../admin-wire-types";
+import {
+  type CapPatchValue,
+  type VibeOrgConsumptionCapResponse
+} from "../admin-vibe-cost-safety-wire-types";
 import { printRecord } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";

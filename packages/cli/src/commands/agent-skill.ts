@@ -1,36 +1,14 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { Command } from "commander";
 
-import { createClient, timeoutSecondsToMs } from "../client";
-import { bindCommand } from "../contract-binding";
-import { handleError, refuse, reportFailure } from "../errors";
-import { color, isJsonMode, printList, printRecord, printSuccess } from "../output";
-import { confirmable, confirmDestructive } from "../util/confirm";
-import { fetchTarball } from "../util/fetch-tarball";
-import { extractPresetFromTarball } from "../util/skill-bundle.extract-preset-from-tarball";
-import { formatBytes } from "../util/skill-bundle.format-bytes";
-import { SKILL_ZIP_LIMITS } from "../util/skill-bundle.limits";
-import { packSkillZip } from "../util/skill-bundle.pack-skill-zip";
-import { presetTarballUrl } from "../util/skill-bundle.preset-tarball-url";
-import {
-  DEFAULT_PRESET_REPO,
-  SKILL_PRESET_GROUPS,
-  SKILL_PRESETS
-} from "../util/skill-bundle.presets";
-import { readSkillDirectory } from "../util/skill-bundle.read-skill-directory";
-import { resolvePresets } from "../util/skill-bundle.resolve-presets";
-import {
-  DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS,
-  downloadWithStallDeadline
-} from "../util/stall-deadline";
-import { readUploadBuffer, resolveUploadPath } from "../util/upload-file";
-import type { ZipEntry } from "../util/zip";
-import {
-  AGENT_SKILL_CREATE_CONTRACT,
-  AGENT_SKILL_LIST_CONTRACT
-} from "./agent-skill.contract.generated";
+import { registerAgentSkillAddPresetCommand } from "./agent-skill/add-preset.command";
+import { registerAgentSkillCreateCommand } from "./agent-skill/create.command";
+import { registerAgentSkillDeleteCommand } from "./agent-skill/delete.command";
+import { registerAgentSkillDownloadCommand } from "./agent-skill/download.command";
+import { registerAgentSkillGetCommand } from "./agent-skill/get.command";
+import { registerAgentSkillListCommand } from "./agent-skill/list.command";
+import { registerAgentSkillPresetsCommand } from "./agent-skill/presets.command";
+import { registerAgentSkillUpdateCommand } from "./agent-skill/update.command";
+import { registerAgentSkillUploadCommand } from "./agent-skill/upload.command";
 
 /**
  * `nexus agent-skill` — attach Claude Code skill bundles to a code-interpreter
@@ -41,6 +19,46 @@ import {
  * These commands write to a remote agent: each skill is a ZIP (root-level
  * `SKILL.md` plus supporting files) stored against the agent and unpacked into
  * its sandbox at session start.
+ *
+ * ── WHICH LEAVES BIND A CONTRACT, AND WHY THE OTHERS MUST NOT ────────────────
+ *
+ * Each leaf binds its own contract as its last act. Only `create` and `list` do.
+ *
+ * The v1 contract declares SEVEN descriptors for this namespace — List, Create,
+ * Get, Update, Delete, Upload and DownloadUrl, all in
+ * `packages/types/src/api/public/v1/contract/agent-skills.ts`. What names the two
+ * bound here is the ROLLOUT LEDGER in `contract-help.ledger.ts`: the generator
+ * projects only the descriptors that file lists, so the other five are UNROLLED,
+ * not uncontracted.
+ *
+ * 🚨 BINDING ONE OF THOSE FIVE DOES NOT LEAVE IT HONESTLY UNSWEPT — IT THREADS
+ * THE WRONG ID, AND THE GATE GOES GREEN ON IT. All five take `:skillId`, and
+ * `resolveProducer` in `id-graph.ts` answers it like this:
+ *
+ *   · The route-prefix rule lands on `/public/v1/agents/:agentId/skills`, which is
+ *     `agent-skill list`'s OWN route. A producer must be param-free — the runner
+ *     calls every producer with no arguments — so the rule declines.
+ *   · The param-name rule then looks for the unique param-free bound GET
+ *     collection whose last segment is a plural of `skill`, and finds exactly
+ *     one: `tool skills` (`GET /public/v1/tools/skills`). That is the MARKETPLACE
+ *     skill catalogue, not the bundles attached to an agent. One candidate is not
+ *     ambiguity, so the rule ACCEPTS it.
+ *
+ * Measured by binding `agent-skill get` and running `deriveIdGraph()`: it comes
+ * back `fullyResolved: true` with `skillId` sourced from `tool skills`. So the
+ * sweep would call `agent-skill get <agentId> <marketplaceSkillId>`, take a 404,
+ * and report FAILED on a healthy route — the false FAILED that
+ * `id-graph.leaf-residue.ts` exists to avoid, on `CLI: Sweep`, a required context.
+ *
+ * ⚠️ THIS IS NOT THE `agent-tool get` / `toolId` CASE, THOUGH IT LOOKS LIKE IT.
+ * There the param-name rule finds NO param-free collection ending in `tools`, so
+ * it falls through to a declared residue in `id-graph.residue.ts` and the leaf is
+ * honestly `fullyResolved: false`. The two diverge only because `skills` happens
+ * to name a collection elsewhere in the API. A residue row cannot repair this one:
+ * `sourceFor` never consults `residueFor` once a producer resolves. Binding any of
+ * the five needs either a `LEAF_RESIDUE` row — which `deriveIdGraph` tests before
+ * it resolves sources — or a producer rule that can say "list the agents, then
+ * list that agent's skills".
  */
 export function registerAgentSkillCommands(program: Command): void {
   const skill = program
@@ -91,632 +109,13 @@ and add-preset need agent_skills:write; delete needs agent_skills:delete. A key
 with only :write cannot clean up after itself.`
   );
 
-  // ── list ────────────────────────────────────────────────────────────────
-  const list = skill
-    .command("list")
-    .description("List the skills attached to an agent")
-    .argument("<agent-id>", "Agent ID")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill list 11111111-1111-4111-8111-111111111111
-  $ nexus agent-skill list 11111111-1111-4111-8111-111111111111 --json
-
-Notes:
-  THE TWO TOTALS ARE ABOUT THE AGENT, NOT THE PAGE. totalCount and
-  totalSizeBytes come back beside the rows and describe everything attached to
-  this agent, so they are the figures to read when you care how much this agent
-  is carrying rather than what one skill weighs.
-  A row is id, name, description, fileCount, sizeBytes, createdAt and updatedAt;
-  the table prints the first five and --json carries all seven. The ID column is
-  what every other agent-skill verb takes — the NAME is display only.
-  sizeBytes is the UNCOMPRESSED size of the bundle, not the ZIP's size on disk.`
-    )
-    .action(async (agentId: string) => {
-      try {
-        const client = createClient(program.optsWithGlobals());
-        const result = await client.agents.skills.list(agentId);
-        printList(
-          result.skills,
-          { totalCount: result.totalCount, totalSizeBytes: result.totalSizeBytes },
-          [
-            { key: "id", label: "ID", width: 36 },
-            { key: "name", label: "NAME", width: 24 },
-            { key: "fileCount", label: "FILES", width: 7 },
-            { key: "sizeBytes", label: "SIZE", width: 10 },
-            { key: "description", label: "DESCRIPTION", width: 40 }
-          ]
-        );
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
-
-  // ── get ─────────────────────────────────────────────────────────────────
-  skill
-    .command("get")
-    .description("Show one skill's details")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<skill-id>", "Skill ID")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
-  $ nexus agent-skill get 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --json
-
-Notes:
-  THIS IS METADATA ONLY — the same fields the 'list' row already carries. It
-  reads NOTHING out of the bundle: no file list, no SKILL.md text, no
-  frontmatter. To see what the skill actually instructs the agent to do, run
-  'nexus agent-skill download <agent-id> <skill-id>' and open the ZIP.`
-    )
-    .action(async (agentId: string, skillId: string) => {
-      try {
-        const client = createClient(program.optsWithGlobals());
-        const result = await client.agents.skills.get(agentId, skillId);
-        printRecord(result, [
-          { key: "id", label: "ID" },
-          { key: "name", label: "Name" },
-          { key: "description", label: "Description" },
-          { key: "fileCount", label: "Files" },
-          { key: "sizeBytes", label: "Size" },
-          { key: "createdAt", label: "Created" },
-          { key: "updatedAt", label: "Updated" }
-        ]);
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
-
-  // ── create ──────────────────────────────────────────────────────────────
-  const create = skill
-    .command("create")
-    .description("Attach a skill to an agent from a ZIP, a folder, or an empty scaffold")
-    .argument("<agent-id>", "Agent ID")
-    .requiredOption("--name <name>", "Skill name (lowercase letters, digits, hyphens)")
-    .option("--description <text>", "What the skill does")
-    .option("--file <path>", "Skill bundle as a .zip")
-    .option("--dir <path>", "Skill folder to package (must contain SKILL.md)")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --dir ./skills/invoice-parser
-  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --file ./invoice-parser.zip
-  $ nexus agent-skill create 11111111-1111-4111-8111-111111111111 --name invoice-parser --description "Parse supplier invoices"
-
-Notes:
-  Omit --file/--dir to create the skill with a scaffolded SKILL.md you can fill in
-  later with 'nexus agent-skill upload'.
-  --dir accepts the skill folder itself, or a wrapper holding exactly one.
-  THE BUNDLE'S OWN SKILL.md FRONTMATTER IS NOT READ. A --dir whose SKILL.md
-  declares "description:" still stores description null unless you pass
-  --description here or set it later with 'nexus agent-skill update'. The flow
-  runs the other way: on a scaffold, --description is what gets WRITTEN into the
-  generated SKILL.md.
-  The agent's model must support the code interpreter, or the API returns 400.`
-    )
-    .action(
-      async (
-        agentId: string,
-        opts: { name: string; description?: string; file?: string; dir?: string }
-      ) => {
-        try {
-          if (opts.file && opts.dir) {
-            process.exitCode = refuse("Pass --file or --dir, not both.");
-            return;
-          }
-
-          const bundle = opts.file
-            ? readZipFile(opts.file)
-            : opts.dir
-              ? packSkillZip(readSkillDirectory(opts.dir), opts.dir)
-              : undefined;
-
-          const client = createClient(program.optsWithGlobals());
-          const created = await client.agents.skills.create(
-            agentId,
-            { name: opts.name, ...(opts.description ? { description: opts.description } : {}) },
-            bundle ? toBlob(bundle) : undefined
-          );
-
-          printSuccess(`Skill "${created.name}" attached.`, {
-            id: created.id,
-            files: created.fileCount,
-            size: formatBytes(created.sizeBytes)
-          });
-        } catch (err) {
-          process.exitCode = handleError(err);
-        }
-      }
-    );
-
-  // ── upload ──────────────────────────────────────────────────────────────
-  skill
-    .command("upload")
-    .description("Replace an existing skill's files")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<skill-id>", "Skill ID")
-    .option("--file <path>", "Skill bundle as a .zip")
-    .option("--dir <path>", "Skill folder to package (must contain SKILL.md)")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill upload 11111111-1111-4111-8111-111111111111 33333333-3333-4333-8333-333333333333 --dir ./skills/invoice-parser
-  $ nexus agent-skill upload 11111111-1111-4111-8111-111111111111 33333333-3333-4333-8333-333333333333 --file ./invoice-parser.zip
-
-Notes:
-  The upload REPLACES the skill's contents; files not in the new bundle are removed.`
-    )
-    .action(async (agentId: string, skillId: string, opts: { file?: string; dir?: string }) => {
-      try {
-        if (Boolean(opts.file) === Boolean(opts.dir)) {
-          process.exitCode = refuse("Pass exactly one of --file or --dir.");
-          return;
-        }
-
-        const bundle = opts.file
-          ? readZipFile(opts.file)
-          : packSkillZip(readSkillDirectory(opts.dir as string), opts.dir as string);
-
-        const client = createClient(program.optsWithGlobals());
-        const result = await client.agents.skills.uploadZip(agentId, skillId, toBlob(bundle));
-        printSuccess("Skill bundle replaced.", {
-          id: result.id,
-          files: result.fileCount,
-          size: formatBytes(result.sizeBytes)
-        });
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
-
-  // ── update ──────────────────────────────────────────────────────────────
-  skill
-    .command("update")
-    .description("Rename a skill or change its description")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<skill-id>", "Skill ID")
-    .option("--name <name>", "New skill name")
-    .option("--description <text>", "New description")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --name invoice-parser-v2
-  $ nexus agent-skill update 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --description "Parse supplier invoices"
-
-Notes:
-  THIS TOUCHES METADATA ONLY. The bundle is not re-read and SKILL.md is not
-  rewritten — renaming a skill here does NOT rename it inside the ZIP, so the
-  agent still sees whatever the packaged SKILL.md says. Use
-  'nexus agent-skill upload' to change files.
-  --name obeys the same rule as create; the rejection is the identical message.
-  Send at least one of --name or --description, or the command refuses locally
-  before any request.
-  This is a WRITE route: it needs the agent to be on a code-interpreter model,
-  unlike list, get, download and delete.`
-    )
-    .action(
-      async (agentId: string, skillId: string, opts: { name?: string; description?: string }) => {
-        try {
-          if (opts.name === undefined && opts.description === undefined) {
-            process.exitCode = refuse("Provide --name and/or --description.");
-            return;
-          }
-          const client = createClient(program.optsWithGlobals());
-          const updated = await client.agents.skills.update(agentId, skillId, {
-            ...(opts.name !== undefined ? { name: opts.name } : {}),
-            ...(opts.description !== undefined ? { description: opts.description } : {})
-          });
-          printSuccess("Skill updated.", { id: updated.id, name: updated.name });
-        } catch (err) {
-          process.exitCode = handleError(err);
-        }
-      }
-    );
-
-  // ── delete ──────────────────────────────────────────────────────────────
-  confirmable(skill.command("delete"))
-    .description("Remove a skill from an agent")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<skill-id>", "Skill ID")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
-  $ nexus agent-skill delete 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --yes
-
-Notes:
-  THE FILES GO WITH IT. There is no archive and no undo — re-attach means
-  uploading the bundle again, so run 'nexus agent-skill download' first if the
-  ZIP is not also kept somewhere else.
-  --yes IS REQUIRED IN A SCRIPT. With no terminal to answer on, this REFUSES
-  and exits non-zero rather than acting.
-  This is one of the reads-stay-open routes: it works on an agent that has since
-  been moved off a code-interpreter model.`
-    )
-    .action(async (agentId: string, skillId: string, opts: { yes?: boolean }) => {
-      try {
-        const client = createClient(program.optsWithGlobals());
-
-        if (
-          !(await confirmDestructive(
-            `Remove skill ${skillId} from agent ${agentId}? This deletes its files.`,
-            opts
-          ))
-        )
-          return;
-
-        await client.agents.skills.delete(agentId, skillId);
-        printSuccess("Skill removed.", { id: skillId });
-      } catch (err) {
-        process.exitCode = handleError(err);
-      }
-    });
-
-  // ── download ────────────────────────────────────────────────────────────
-  skill
-    .command("download")
-    .description("Download a skill's bundle as a .zip")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<skill-id>", "Skill ID")
-    .option("--output <path>", "Where to write the .zip (default ./<skill-name>.zip)")
-    .option("--url-only", "Print the presigned URL instead of downloading")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222
-  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --output ./bundle.zip
-  $ nexus agent-skill download 11111111-1111-4111-8111-111111111111 22222222-2222-4222-8222-222222222222 --url-only
-
-Notes:
-  THE PRESIGNED URL EXPIRES AFTER 15 MINUTES. --url-only prints it and downloads
-  nothing, so a URL captured into a script or a ticket is dead within the
-  quarter-hour and fails at fetch time, not here. Download in the same run
-  unless you are handing the URL to something that will use it immediately.
-  Without --output the file lands at ./<skill-name>.zip in the working directory,
-  overwriting whatever is already there.
-  This is a read route: it works on an agent that has since been moved off a
-  code-interpreter model.`
-    )
-    .action(
-      async (agentId: string, skillId: string, opts: { output?: string; urlOnly?: boolean }) => {
-        try {
-          const client = createClient(program.optsWithGlobals());
-          const { url } = await client.agents.skills.getDownloadUrl(agentId, skillId);
-
-          if (opts.urlOnly) {
-            if (isJsonMode()) console.log(JSON.stringify({ url }, null, 2));
-            else console.log(url);
-            return;
-          }
-
-          const skillMeta = await client.agents.skills.get(agentId, skillId);
-          const target = path.resolve(opts.output ?? `${skillMeta.name}.zip`);
-          // 🚨 A RAW `fetch` THROWS A PLAIN `Error`, AND `handleError` CANNOT
-          // TELL WHAT IT WAS. It is not a `NexusConnectionError` — the SDK never
-          // saw it — so both a dead network and a 403 from S3 fell through to
-          // `CLI_UNKNOWN_ERROR`, and a script could not tell "retry this" from
-          // "your presigned url expired". Found by the code gate, not by reading.
-          //
-          // 🔴 AND IT CARRIED NO DEADLINE AT ALL, SO A PRESIGNED HOST THAT
-          // ACCEPTED THE CONNECTION AND NEVER ANSWERED HUNG THE COMMAND FOR
-          // EVER. The budget is on SILENCE rather than on elapsed time: a skill
-          // bundle is up to 5 MB and its size is not known before the transfer
-          // starts, so a total deadline tight enough to catch a dead socket
-          // would abort a large download on a slow link — trading a hang for a
-          // refused transfer that was going to succeed.
-          let response: Response;
-          let payload: Buffer;
-          try {
-            ({ response, body: payload } = await downloadWithStallDeadline(
-              url,
-              {},
-              {
-                timeout:
-                  timeoutSecondsToMs(program.optsWithGlobals().timeout as number | undefined) ??
-                  DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS
-              }
-            ));
-          } catch (networkError) {
-            process.exitCode = reportFailure(
-              "connection-failed",
-              `Could not reach the download URL: ${
-                networkError instanceof Error ? networkError.message : String(networkError)
-              }`
-            );
-            return;
-          }
-          if (!response.ok) {
-            process.exitCode = reportFailure(
-              "remote-error",
-              `Download failed — ${response.status} ${response.statusText}.`,
-              "The presigned URL expires after 15 minutes; re-run to get a fresh one."
-            );
-            return;
-          }
-          fs.writeFileSync(target, payload);
-          printSuccess(`Skill downloaded to ${target}`, { id: skillId, name: skillMeta.name });
-        } catch (err) {
-          process.exitCode = handleError(err);
-        }
-      }
-    );
-
-  // ── presets ─────────────────────────────────────────────────────────────
-  skill
-    .command("presets")
-    .description("List the baseline skills 'add-preset' can install")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill presets
-  $ nexus agent-skill presets --json
-
-Notes:
-  THESE ARE NOT BUNDLED WITH THIS CLI. They are Anthropic's skills, fetched from
-  their GitHub repository on demand, so this listing describes what "add-preset"
-  would go and get rather than what this binary already holds. That is the
-  opposite of "nexus claude-code list", which lists skills baked into the binary.
-  IT PRINTS TWO KINDS OF NAME AND add-preset TAKES EITHER. The first block is
-  individual presets; the second is GROUPS, each expanding to the members listed
-  beside it — "nexus agent-skill add-preset <agent-id> office" installs a whole
-  group in one call.
-  --json returns the source repo alongside both sets, which the printed form
-  shows only in its header line.`
-    )
-    .action(() => {
-      if (isJsonMode()) {
-        console.log(
-          JSON.stringify(
-            {
-              repo: DEFAULT_PRESET_REPO,
-              presets: Object.values(SKILL_PRESETS),
-              groups: SKILL_PRESET_GROUPS
-            },
-            null,
-            2
-          )
-        );
-        return;
-      }
-      console.log(color.bold(`\nBaseline skills (from github.com/${DEFAULT_PRESET_REPO}):\n`));
-      for (const preset of Object.values(SKILL_PRESETS)) {
-        console.log(`  ${color.cyan(preset.name.padEnd(16))} ${preset.description}`);
-      }
-      console.log(color.bold("\nGroups:\n"));
-      for (const [group, members] of Object.entries(SKILL_PRESET_GROUPS)) {
-        console.log(`  ${color.cyan(group.padEnd(16))} ${members.join(", ")}`);
-      }
-      console.log(
-        color.dim(
-          `\nThese are Anthropic's skills, fetched from their repository on demand rather than\n` +
-            `bundled with this CLI. Install with: nexus agent-skill add-preset <agent-id> office\n`
-        )
-      );
-    });
-
-  // ── add-preset ──────────────────────────────────────────────────────────
-  skill
-    .command("add-preset")
-    .description("Attach one of the baseline Anthropic skills to an agent")
-    .argument("<agent-id>", "Agent ID")
-    .argument("<presets...>", "Preset or group names (see 'nexus agent-skill presets')")
-    .option("--ref <git-ref>", "Branch, tag, or commit of the source repo", "main")
-    .option("--repo <owner/name>", "Source repository", DEFAULT_PRESET_REPO)
-    .option("--from-dir <path>", "Use a local checkout of the source repo instead of downloading")
-    .option("--replace", "Replace the bundle when a skill of the same name already exists")
-    .option(
-      "--dry-run",
-      "Show what would be attached without calling Nexus (still fetches the source)"
-    )
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 skill-creator
-  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 office              # docx, pdf, pptx, xlsx
-  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 pptx xlsx --replace
-  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 all --ref v1.2.0
-  $ nexus agent-skill add-preset 11111111-1111-4111-8111-111111111111 pdf --from-dir ~/src/anthropics-skills
-
-Notes:
-  The bundles are Anthropic's, fetched from github.com/${DEFAULT_PRESET_REPO} at run time
-  rather than shipped inside this CLI; their LICENSE.txt travels with each skill.
-  Pin a version with --ref, or work offline with --from-dir.
-  Without --replace, a preset whose name is already attached is skipped.
-  --dry-run SKIPS NEXUS, NOT GITHUB. It still downloads and unpacks the source
-  tarball so it can report real file counts and sizes, then returns before any
-  Nexus call. It is not an offline preview — pair it with --from-dir for that.
-  The agent's model must support the code interpreter, or the API returns 400.`
-    )
-    .action(
-      async (
-        agentId: string,
-        presetNames: string[],
-        opts: {
-          ref: string;
-          repo: string;
-          fromDir?: string;
-          replace?: boolean;
-          dryRun?: boolean;
-        }
-      ) => {
-        try {
-          const presets = resolvePresets(presetNames);
-
-          // One download serves every requested preset — they all live in the
-          // same repository, and re-fetching per preset would multiply a 3 MB
-          // transfer by the size of an "office" bundle for nothing.
-          let tarball: Buffer | undefined;
-          if (!opts.fromDir) {
-            const url = presetTarballUrl(opts.repo, opts.ref);
-            if (!isJsonMode()) console.log(color.dim(`Fetching ${url} …`));
-            tarball = await fetchTarball(
-              url,
-              program.optsWithGlobals().timeout as number | undefined
-            );
-          }
-
-          const bundles = presets.map((preset) => {
-            const files: ZipEntry[] = opts.fromDir
-              ? readSkillDirectory(path.join(opts.fromDir, preset.repoPath))
-              : extractPresetFromTarball(tarball as Buffer, preset.repoPath);
-            return { preset, zip: packSkillZip(files, preset.name), fileCount: files.length };
-          });
-
-          if (opts.dryRun) {
-            const plan = bundles.map(({ preset, zip, fileCount }) => ({
-              name: preset.name,
-              description: preset.description,
-              source: opts.fromDir
-                ? path.join(opts.fromDir, preset.repoPath)
-                : `${opts.repo}@${opts.ref}:${preset.repoPath}`,
-              files: fileCount,
-              zipBytes: zip.length
-            }));
-            if (isJsonMode()) {
-              console.log(JSON.stringify({ dryRun: true, agentId, skills: plan }, null, 2));
-            } else {
-              console.log(color.bold(`\nWould attach ${plan.length} skill(s) to ${agentId}:\n`));
-              for (const item of plan) {
-                console.log(
-                  `  ${color.cyan(item.name.padEnd(16))} ${item.files} files, ${formatBytes(item.zipBytes)}`
-                );
-                console.log(`  ${"".padEnd(16)} ${color.dim(item.source)}`);
-              }
-              console.log();
-            }
-            return;
-          }
-
-          const client = createClient(program.optsWithGlobals());
-          const existing = await client.agents.skills.list(agentId);
-          const byName = new Map(existing.skills.map((s) => [s.name, s]));
-
-          const attached: Record<string, unknown>[] = [];
-          for (const { preset, zip, fileCount } of bundles) {
-            const collision = byName.get(preset.name);
-            if (collision && !opts.replace) {
-              if (!isJsonMode()) {
-                console.log(
-                  color.yellow(
-                    `  ${preset.name} — already attached (${collision.id}); skipped. Re-run with --replace to overwrite.`
-                  )
-                );
-              }
-              attached.push({ name: preset.name, id: collision.id, status: "skipped" });
-              continue;
-            }
-
-            if (collision) {
-              const result = await client.agents.skills.uploadZip(
-                agentId,
-                collision.id,
-                toBlob(zip)
-              );
-              attached.push({ name: preset.name, id: result.id, status: "replaced" });
-              if (!isJsonMode()) {
-                console.log(
-                  `  ${color.cyan(preset.name.padEnd(16))} replaced (${fileCount} files, ${formatBytes(zip.length)})`
-                );
-              }
-              continue;
-            }
-
-            const created = await client.agents.skills.create(
-              agentId,
-              { name: preset.name, description: preset.description },
-              toBlob(zip)
-            );
-            attached.push({ name: preset.name, id: created.id, status: "created" });
-            if (!isJsonMode()) {
-              console.log(
-                `  ${color.cyan(preset.name.padEnd(16))} attached (${fileCount} files, ${formatBytes(zip.length)})`
-              );
-            }
-          }
-
-          if (isJsonMode()) {
-            console.log(JSON.stringify({ success: true, agentId, skills: attached }, null, 2));
-          } else {
-            printSuccess(`${attached.length} skill(s) processed for agent ${agentId}.`);
-          }
-        } catch (err) {
-          process.exitCode = handleError(err);
-        }
-      }
-    );
-
-  // Bound LAST, after every option exists — see `bindCommand`.
-  //
-  // The v1 contract declares SEVEN descriptors for this namespace — List, Create,
-  // Get, Update, Delete, Upload and DownloadUrl, all in
-  // `packages/types/src/api/public/v1/contract/agent-skills.ts`. What names the two
-  // bound here is the ROLLOUT LEDGER in `contract-help.ledger.ts`: the generator
-  // projects only the descriptors that file lists, so the other five are UNROLLED,
-  // not uncontracted.
-  //
-  // 🚨 BINDING ONE OF THOSE FIVE DOES NOT LEAVE IT HONESTLY UNSWEPT — IT THREADS
-  // THE WRONG ID, AND THE GATE GOES GREEN ON IT. All five take `:skillId`, and
-  // `resolveProducer` in `id-graph.ts` answers it like this:
-  //
-  //   · The route-prefix rule lands on `/public/v1/agents/:agentId/skills`, which is
-  //     `agent-skill list`'s OWN route. A producer must be param-free — the runner
-  //     calls every producer with no arguments — so the rule declines.
-  //   · The param-name rule then looks for the unique param-free bound GET
-  //     collection whose last segment is a plural of `skill`, and finds exactly
-  //     one: `tool skills` (`GET /public/v1/tools/skills`). That is the MARKETPLACE
-  //     skill catalogue, not the bundles attached to an agent. One candidate is not
-  //     ambiguity, so the rule ACCEPTS it.
-  //
-  // Measured by binding `agent-skill get` and running `deriveIdGraph()`: it comes
-  // back `fullyResolved: true` with `skillId` sourced from `tool skills`. So the
-  // sweep would call `agent-skill get <agentId> <marketplaceSkillId>`, take a 404,
-  // and report FAILED on a healthy route — the false FAILED that
-  // `id-graph.leaf-residue.ts` exists to avoid, on `CLI: Sweep`, a required context.
-  //
-  // ⚠️ THIS IS NOT THE `agent-tool get` / `toolId` CASE, THOUGH IT LOOKS LIKE IT.
-  // There the param-name rule finds NO param-free collection ending in `tools`, so
-  // it falls through to a declared residue in `id-graph.residue.ts` and the leaf is
-  // honestly `fullyResolved: false`. The two diverge only because `skills` happens
-  // to name a collection elsewhere in the API. A residue row cannot repair this one:
-  // `sourceFor` never consults `residueFor` once a producer resolves. Binding any of
-  // the five needs either a `LEAF_RESIDUE` row — which `deriveIdGraph` tests before
-  // it resolves sources — or a producer rule that can say "list the agents, then
-  // list that agent's skills".
-  bindCommand(create, AGENT_SKILL_CREATE_CONTRACT);
-  bindCommand(list, AGENT_SKILL_LIST_CONTRACT);
-}
-
-// ── helpers ────────────────────────────────────────────────────────────────
-
-/** Read a user-supplied `.zip` and bounce it off the upload limit before the wire. */
-function readZipFile(filePath: string): Buffer {
-  const absolute = resolveUploadPath(filePath);
-  const buffer = readUploadBuffer(absolute);
-  if (buffer.length > SKILL_ZIP_LIMITS.maxUploadBytes) {
-    throw new Error(
-      `${absolute} is ${formatBytes(buffer.length)}, over the ` +
-        `${formatBytes(SKILL_ZIP_LIMITS.maxUploadBytes)} upload limit.`
-    );
-  }
-  // Local file headers start with "PK\x03\x04"; an empty archive starts "PK\x05\x06".
-  // Catching this here turns "the server rejected your archive" into a message
-  // naming the file the user actually passed.
-  if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
-    throw new Error(`${absolute} is not a ZIP archive.`);
-  }
-  return buffer;
-}
-
-function toBlob(buffer: Buffer): Blob {
-  return new Blob([new Uint8Array(buffer)], { type: "application/zip" });
+  registerAgentSkillListCommand(skill, program);
+  registerAgentSkillGetCommand(skill, program);
+  registerAgentSkillCreateCommand(skill, program);
+  registerAgentSkillUploadCommand(skill, program);
+  registerAgentSkillUpdateCommand(skill, program);
+  registerAgentSkillDeleteCommand(skill, program);
+  registerAgentSkillDownloadCommand(skill, program);
+  registerAgentSkillPresetsCommand(skill);
+  registerAgentSkillAddPresetCommand(skill, program);
 }

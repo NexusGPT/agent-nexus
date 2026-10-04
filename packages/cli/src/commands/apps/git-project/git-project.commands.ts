@@ -27,8 +27,9 @@ back several apps watching different branches. "nexus apps provision-repo"
 is the app-centric shortcut that creates a project and attaches it in one step.
 
 "clone" and "pull" drive a real git on this machine, so a project is usable
-end-to-end from the CLI: clone it, commit, push with the remote that
-"git-credentials" prints, then pull the next change back.
+end-to-end from the CLI: clone it, commit, push with the project credential
+"git-credentials <projectId>" prints, then pull the next change back. None of
+them stores the token anywhere.
 
 Examples:
   $ nexus apps git-project create my-lib

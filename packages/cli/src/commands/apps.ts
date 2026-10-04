@@ -69,7 +69,7 @@ Subcommands:
   rollback         Roll an app back to its previous healthy version.
   starter          Download the org app starter into a directory, UI library
                    vendored — no npm token needed.
-  git-credentials  Fetch your tenant git push token + clone address.
+  git-credentials  Fetch one git project's push credential + clone address.
   cluster          Provision / inspect your org's dedicated Vibe cluster.
   git-project      Manage git projects — the standalone code store apps deploy from.
   deployments      List / inspect an app's deployments and their build jobs.
@@ -92,7 +92,7 @@ End to end, once the cluster exists:
 
   1. apps create                the app record
   2. apps provision-repo        a new repo — or attach-repo for one you have
-  3. apps git-credentials       your push token AND the address to push to
+  3. apps git-credentials <id>  that project's push token AND its address
   4. apps git-project clone     then commit and push with plain git — there is
                                 no "git-project commit" or "git-project push"
                                 verb, and the remote comes from step 3

@@ -59,6 +59,7 @@ import type {
   AuditPayloadDeploymentRolledBack,
   AuditPayloadDeploymentServed,
   AuditPayloadDeploymentTriggered,
+  CancelDeploymentBuildResponse,
   CreateVibeAppResponse,
   DeletedIdResponse,
   DeleteEnvVarResponse,
@@ -66,7 +67,7 @@ import type {
   GetDeploymentResponse,
   GetDeployStateResponse,
   GetEdgeTokenResponse,
-  GetGitCredentialsResponse,
+  GetGitProjectCredentialsResponse,
   GetVibeAppResponse,
   ListAuditEventsResponse,
   ListDeploymentsResponse,
@@ -88,8 +89,8 @@ import type {
   VibeAuditEvent,
   VibeDeployStateOutcome,
   VibeEdgeTokenDto,
-  VibeGitCredentialsDto,
   VibeGitProjectAliasDto,
+  VibeGitProjectCredentialsDto,
   VibeGitProjectDto,
   VibeLiveDeploymentDto,
   VibeRefDto,
@@ -257,16 +258,16 @@ const _listGitProjects: Mirrors<
   VibeData<"ListGitProjects">
 > = AGREES;
 
-const _gitCredentials: Mirrors<
-  "VibeGitCredentialsDto",
-  VibeGitCredentialsDto,
-  VibeData<"GetGitCredentials">["credentials"]
+const _gitProjectCredentials: Mirrors<
+  "VibeGitProjectCredentialsDto",
+  VibeGitProjectCredentialsDto,
+  VibeData<"GetGitProjectCredentials">["credentials"]
 > = AGREES;
 
-const _getGitCredentials: Mirrors<
-  "GetGitCredentialsResponse",
-  GetGitCredentialsResponse,
-  VibeData<"GetGitCredentials">
+const _getGitProjectCredentials: Mirrors<
+  "GetGitProjectCredentialsResponse",
+  GetGitProjectCredentialsResponse,
+  VibeData<"GetGitProjectCredentials">
 > = AGREES;
 
 // ============================================================
@@ -391,6 +392,43 @@ const _triggerArmsNonEmpty: [
     ? ["the wire trigger union has no confirmation arm — the split above checks nothing"]
     : true
 ] = [true, true];
+
+/**
+ * Cancel — split per arm on `outcome` by EXTRACTING each literal, which is sound
+ * here where it is not for the trigger above: the CLI models each outcome as its
+ * own arm, exactly as the wire does. The non-empty guard below still proves each
+ * extraction found an arm, because an empty one satisfies every `Mirrors` check.
+ */
+type WireCancel = VibeData<"CancelDeploymentBuild">;
+type CancelledArm = { outcome: "cancelled" };
+type AlreadyEndedArm = { outcome: "already_ended" };
+
+const _cancelCancelled: Mirrors<
+  "CancelDeploymentBuildResponse (cancelled)",
+  Extract<CancelDeploymentBuildResponse, CancelledArm>,
+  Extract<WireCancel, CancelledArm>
+> = AGREES;
+
+const _cancelAlreadyEnded: Mirrors<
+  "CancelDeploymentBuildResponse (already_ended)",
+  Extract<CancelDeploymentBuildResponse, AlreadyEndedArm>,
+  Extract<WireCancel, AlreadyEndedArm>
+> = AGREES;
+
+const _cancelArmsNonEmpty: [
+  [Extract<CancelDeploymentBuildResponse, CancelledArm>] extends [never]
+    ? ["the CLI cancel union has no cancelled arm — the split above checks nothing"]
+    : true,
+  [Extract<CancelDeploymentBuildResponse, AlreadyEndedArm>] extends [never]
+    ? ["the CLI cancel union has no already_ended arm — the split above checks nothing"]
+    : true,
+  [Extract<WireCancel, CancelledArm>] extends [never]
+    ? ["the wire cancel union has no cancelled arm — the split above checks nothing"]
+    : true,
+  [Extract<WireCancel, AlreadyEndedArm>] extends [never]
+    ? ["the wire cancel union has no already_ended arm — the split above checks nothing"]
+    : true
+] = [true, true, true, true];
 
 // ============================================================
 // Env vars
@@ -585,8 +623,8 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _appScopedGitProject,
   _gitProjectAlias,
   _listGitProjects,
-  _gitCredentials,
-  _getGitCredentials,
+  _gitProjectCredentials,
+  _getGitProjectCredentials,
   _getDeployment,
   _listDeployments,
   _rollback,
@@ -597,6 +635,9 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _deployStateOutcome,
   _triggerSuccess,
   _triggerArmsNonEmpty,
+  _cancelCancelled,
+  _cancelAlreadyEnded,
+  _cancelArmsNonEmpty,
   _triggerConfirmation,
   _envVar,
   _listEnvVars,

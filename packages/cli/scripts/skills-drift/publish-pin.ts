@@ -51,7 +51,7 @@
  * opposite.
  */
 
-import { BRANCH, type GitHubReader, REPO } from "./upstream";
+import { BRANCH, type GitHubReader, PIN_REFRESH_COMMAND, REPO } from "./upstream";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
@@ -362,7 +362,7 @@ export async function checkPublishPin(params: {
       "reach anyone.",
       "",
       "Refresh the bundle and re-cut the release:",
-      "  GITHUB_TOKEN=$(gh auth token) pnpm --filter @agent-nexus/cli run gen:skills",
+      `  ${PIN_REFRESH_COMMAND}`,
       "  git add packages/cli/skills-nexus.lock packages/cli/src/skills-content.generated.*",
       "",
       "A pin bump ships enforcement, not only prose — review the list above before taking it."

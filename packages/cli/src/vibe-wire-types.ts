@@ -20,6 +20,18 @@
  * It never reaches the published binary as a dependency edge: the conformance
  * module is unreachable from `src/index.ts`, so tsup leaves it — and the
  * `@nexus/types` import it carries — out of the bundle.
+ *
+ * debt: this module and `vibe-wire-types.conformance.ts` stay whole — nine
+ *       surfaces that each measure under 150, not split, because
+ *       `wire-types-bundle.test.ts` would make every piece carry an
+ *       `@nexus/types` import it does not use. The root `eslint.config.js`
+ *       carries the measurement, beside the refusal it explains. These two are
+ *       NOT exempted there; an exemption is permanent and this block is not.
+ *       Ceiling: no `max-lines` is armed on either; only their exact rows in
+ *       `source-file-size.ledger.test.ts` hold them, so neither grows by a line
+ *       without a raised number a reviewer sees.
+ *       Upgrade trigger: that gate accepting a TRANSITIVE reach to the
+ *       contract, or these gates acquiring a direct use of their own.
  */
 
 import type { VibeApprovalRequestDto } from "./vibe-approval-wire-types";
@@ -390,9 +402,9 @@ export interface VibeGitProjectDto {
   hookSecretRef: string;
   /**
    * What the build executor clones — NEVER a push URL, so don't label it
-   * "Git URL": a user's push remote comes from `nexus vibe git-credentials`,
-   * which composes the public `cloneUrlBase`
-   * (`https://git.<tenant>.<domain>/<org>/`).
+   * "Git URL": a user's push remote comes from
+   * `nexus apps git-credentials <projectId>`, whose `cloneUrl` is the public
+   * `https://git.<tenant>.<domain>/<org>/<name>.git`.
    *
    * Its reachability varies by provenance, so don't assert one: when the agent
    * materializes the repo it composes this from Forgejo's in-VPC baseUrl
@@ -454,6 +466,17 @@ export interface RollbackAppResponse {
   restoredDeployment: VibeDeploymentDto;
   supersededDeployment: VibeDeploymentDto;
 }
+
+/**
+ * `POST /api/vibe/apps/:appId/deployments/:deploymentId/cancel` — discriminated
+ * on `outcome`, mirroring `CancelVibeDeploymentBuildResponseSchema`. Both arms
+ * are a 2xx: `already_ended` means there was nothing to stop and nothing was
+ * written, and it carries the rows as they stand so the caller can say what
+ * actually became of the build.
+ */
+export type CancelDeploymentBuildResponse =
+  | { outcome: "cancelled"; deployment: VibeDeploymentDto; buildJob: VibeBuildJobDto }
+  | { outcome: "already_ended"; deployment: VibeDeploymentDto; buildJob: VibeBuildJobDto | null };
 
 /**
  * Trigger response — discriminated on `status`, mirroring
@@ -690,19 +713,19 @@ export interface DeleteEnvVarResponse {
   deletedId: string;
 }
 
-// Git credentials — mirror packages/types/src/api/domains/vibe/schemas/
-// git-credentials.schemas.ts. The CLI ships standalone (`@nexus/types` is
-// not a runtime dep); keep this in lockstep with the schema.
-export interface VibeGitCredentialsDto {
+// Per-project git credential (`VibeGitProjectCredentialsSchema`), pinned by the conformance file.
+export interface VibeGitProjectCredentialsDto {
+  gitProjectId: string;
+  gitProjectName: string;
   gitHostName: string;
   forgejoOrg: string;
   username: string;
   pushToken: string;
-  cloneUrlBase: string;
+  cloneUrl: string;
 }
 
-export interface GetGitCredentialsResponse {
-  credentials: VibeGitCredentialsDto;
+export interface GetGitProjectCredentialsResponse {
+  credentials: VibeGitProjectCredentialsDto;
 }
 
 // Runtime logs live in their own module; re-exported so every import site is unchanged.

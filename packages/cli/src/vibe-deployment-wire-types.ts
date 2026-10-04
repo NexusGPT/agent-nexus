@@ -75,11 +75,14 @@ export type VibeBuildJobStatus =
 
 /**
  * Why a build has not started — computed by the server on every read, never
- * stored. Mirrors `VibeBuildWaitSchema`; `message` is rendered as-is.
+ * stored. Mirrors `VibeBuildWaitSchema`; `message` is rendered as-is, and already
+ * says the build's place in its organization's line. `ahead` is that place as a
+ * number, absent from a backend a release behind.
  */
 export type VibeBuildWaitDto =
-  | { reason: "org_at_capacity"; inFlight: number; cap: number; message: string }
-  | { reason: "queued"; message: string };
+  | { reason: "org_at_capacity"; inFlight: number; cap: number; ahead?: number; message: string }
+  | { reason: "region_at_capacity"; region: string; ahead?: number; message: string }
+  | { reason: "queued"; ahead?: number; message: string };
 
 /** Subset of VibeBuildJobSchema the CLI renders. */
 export interface VibeBuildJobDto {

@@ -6,6 +6,38 @@ import { handleError } from "../errors";
 import { color, printEnvelope, printTable } from "../output";
 import { KNOWN_ISSUES_FOR_ROUTE_CONTRACT } from "./known-issues.contract.generated";
 
+const KNOWN_ISSUES_HELP = `
+Examples:
+  $ nexus known-issues workflow.node.test
+  $ nexus known-issues agent.list --json
+  $ nexus known-issues deployment.create
+
+Notes:
+  AN EMPTY LIST IS TWO DIFFERENT ANSWERS AND YOU MUST READ "polled" TO TELL
+  THEM APART. "polled": false means the server has not read the ticket
+  provider yet, NOT that this route is clean. This command prints "not checked
+  yet" in that case and you must not report it as a clean bill of health.
+  "polled": true with no issues is the real "nothing published".
+  AN ISSUE APPEARS HERE ONLY BECAUSE A HUMAN PUBLISHED IT. The list is not
+  every open defect on the route — it is the ones somebody deliberately marked
+  publishable. So an empty list never proves the command works.
+  THE ROUTE ID IS THE COMMAND PATH WITHOUT "nexus", JOINED BY DOTS. Run
+  "nexus workflow node test --help" and the line at the bottom names the exact
+  id for that command, so you never have to assemble one.
+  AN ALIAS RESOLVES TO ITS CANONICAL COMMAND. "skills install" and "skills
+  sync" are both "skills.update", so all three spellings answer the same list.
+  A MIS-CASED OR MISSPELLED ID DOES NOT ERROR — IT ANSWERS EMPTY. Uppercase or
+  an underscore is refused with a 400, but a well-formed id nobody has
+  published against returns an empty list, which is indistinguishable from a
+  healthy route. Copy the id from --help rather than typing it.
+  Needs the "tickets:read" scope. A key without it gets a 403, not an empty
+  list.
+  This reads a snapshot the server polls on a timer. It never calls the ticket
+  provider on your request, so an issue published in the last few minutes may
+  not be here yet.
+  To verify what the server actually returned, untouched:
+    nexus api GET /known-issues --query route=workflow.node.test`;
+
 /**
  * `nexus known-issues <route-id>` — what is known to be broken on one command.
  *
@@ -40,40 +72,7 @@ export function registerKnownIssuesCommand(program: Command): void {
     .command("known-issues")
     .description("Show the platform issues published against a CLI route")
     .argument("<route-id>", "Dotted route id of the command, e.g. workflow.node.test")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ nexus known-issues workflow.node.test
-  $ nexus known-issues agent.list --json
-  $ nexus known-issues deployment.create
-
-Notes:
-  AN EMPTY LIST IS TWO DIFFERENT ANSWERS AND YOU MUST READ "polled" TO TELL
-  THEM APART. "polled": false means the server has not read the ticket
-  provider yet, NOT that this route is clean. This command prints "not checked
-  yet" in that case and you must not report it as a clean bill of health.
-  "polled": true with no issues is the real "nothing published".
-  AN ISSUE APPEARS HERE ONLY BECAUSE A HUMAN PUBLISHED IT. The list is not
-  every open defect on the route — it is the ones somebody deliberately marked
-  publishable. So an empty list never proves the command works.
-  THE ROUTE ID IS THE COMMAND PATH WITHOUT "nexus", JOINED BY DOTS. Run
-  "nexus workflow node test --help" and the line at the bottom names the exact
-  id for that command, so you never have to assemble one.
-  AN ALIAS RESOLVES TO ITS CANONICAL COMMAND. "skills install" and "skills
-  sync" are both "skills.update", so all three spellings answer the same list.
-  A MIS-CASED OR MISSPELLED ID DOES NOT ERROR — IT ANSWERS EMPTY. Uppercase or
-  an underscore is refused with a 400, but a well-formed id nobody has
-  published against returns an empty list, which is indistinguishable from a
-  healthy route. Copy the id from --help rather than typing it.
-  Needs the "tickets:read" scope. A key without it gets a 403, not an empty
-  list.
-  This reads a snapshot the server polls on a timer. It never calls the ticket
-  provider on your request, so an issue published in the last few minutes may
-  not be here yet.
-  To verify what the server actually returned, untouched:
-    nexus api GET /known-issues --query route=workflow.node.test`
-    )
+    .addHelpText("after", KNOWN_ISSUES_HELP)
     .action(async (routeId: string) => {
       try {
         const client = createClient(program.optsWithGlobals());

@@ -38,7 +38,10 @@ import { describe, expect, it } from "vitest";
  * of the code rather than of a response.
  */
 
-const ACTION_SOURCE = path.resolve(__dirname, "commands/workflow-builder.ts");
+// `commands/workflow-builder.ts` was split into one file per subcommand; the
+// `node-type` leaf and its `.action(...)` moved here whole. The AST walk below
+// is unchanged — it still anchors on `.command("node-type")`.
+const ACTION_SOURCE = path.resolve(__dirname, "commands/workflow-builder/node-type.command.ts");
 
 /** The `.action(...)` callback body registered on the `node-type` command. */
 function nodeTypeActionBody(): string {

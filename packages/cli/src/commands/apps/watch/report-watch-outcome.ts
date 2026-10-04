@@ -1,6 +1,7 @@
 import { EXIT_CODES } from "../../../exit-codes";
 import { isJsonMode } from "../../../output";
 import { printApprovalRefused } from "./print-approval-refused";
+import { printCancelled } from "./print-cancelled";
 import { printDeployTimeout } from "./print-deploy-timeout";
 import { printDisplaced } from "./print-displaced";
 import { printEdgeUnconfirmed } from "./print-edge-unconfirmed";
@@ -58,6 +59,12 @@ export function reportWatchOutcome(outcome: WatchOutcome, appId: string): number
 
     case "displaced":
       printDisplaced(outcome);
+      return EXIT_CODES.failed;
+
+    // Not a success: the version being watched will never go live, and a
+    // caller scripting on the exit code must not read a stopped build as shipped.
+    case "cancelled":
+      printCancelled(outcome);
       return EXIT_CODES.failed;
 
     case "approval-refused":

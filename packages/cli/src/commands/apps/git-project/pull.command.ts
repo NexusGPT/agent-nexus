@@ -2,8 +2,7 @@ import type { Command } from "commander";
 
 import { handleError } from "../../../errors";
 import { color, isJsonMode } from "../../../output";
-import { tenantRequest } from "../../../util/tenant-http";
-import { type GetGitCredentialsResponse } from "../../../vibe-wire-types";
+import { fetchGitProjectCredentials } from "../_shared/fetch-git-project-credentials";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 import { assertGitAvailable } from "../git-local/assert-git-available";
 import { assertGitRepository } from "../git-local/assert-git-repository";
@@ -19,9 +18,11 @@ export function registerAppsGitProjectPullCommand(project: Command, program: Com
       "after",
       `
 Notes:
-Runs "git pull --ff-only" in an existing clone, supplying a freshly-fetched
-credential so the pull keeps working after your push token rotates (the clone
-deliberately stores no token). The directory defaults to the current one.
+Runs "git pull --ff-only" in an existing clone, supplying this project's own
+freshly-fetched credential so the pull keeps working after the token rotates.
+The token is stored nowhere — not in the clone, and not in any credential
+helper you have configured (the macOS keychain included), which is switched
+off for that one call. The directory defaults to the current one.
 
 --ff-only is deliberate: a Vibe git project cloned locally is normally a mirror
 you build from, so a refusal telling you the branch diverged is a better
@@ -40,12 +41,9 @@ Examples:
         assertGitRepository(target);
 
         const opts = resolveTenantOpts(program);
-        const credentialData = await tenantRequest<GetGitCredentialsResponse>(opts, {
-          method: "GET",
-          path: "/api/vibe/git-credentials"
-        });
+        const credentials = await fetchGitProjectCredentials(opts, projectId);
 
-        runGitWithCredential(credentialData.credentials, "pull", (credentialPath) =>
+        runGitWithCredential(credentials, "pull", (credentialPath) =>
           buildPullArgs(credentialPath, target)
         );
 

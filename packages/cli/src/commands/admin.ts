@@ -38,13 +38,7 @@ import { registerVibeDeploymentCommands } from "./admin-vibe-deployment";
 import { registerVibeDeploymentRunnerCommands } from "./admin-vibe-deployment-runner";
 import { registerVibeTenantClusterCommands } from "./admin-vibe-tenant-cluster";
 
-export function registerAdminCommands(program: Command): void {
-  const admin = program
-    .command("admin")
-    .description("Platform-operator commands (admin token required)")
-    .addHelpText(
-      "after",
-      `
+const ADMIN_HELP = `
 🚨 EVERY SUBCOMMAND HERE ACTS ON ANOTHER ORGANIZATION'S PRODUCTION STATE, AND
 MOST OF THEM SPEND MONEY. This is the platform operator's surface, not yours:
 cluster provisioning stands up real paid infrastructure for a tenant, the
@@ -102,8 +96,13 @@ page. This namespace had it first; it is no longer special:
   retry on 1 today, retry on 7 instead — 1 no longer implies a network fault.
   "nexus --help" carries the full table, including the codes this namespace
   does not itself produce.
-`
-    );
+`;
+
+export function registerAdminCommands(program: Command): void {
+  const admin = program
+    .command("admin")
+    .description("Platform-operator commands (admin token required)")
+    .addHelpText("after", ADMIN_HELP);
 
   // Global admin-only options. Inherited by every subcommand via opts merging.
   admin.option(

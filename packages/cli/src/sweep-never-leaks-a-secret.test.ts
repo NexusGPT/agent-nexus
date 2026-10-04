@@ -5,9 +5,10 @@
  * THE LEAF THIS EXISTS FOR, AND WHY THE EXISTING GATE IS NOT ENOUGH
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `apps git-credentials` returns this organisation's git push token. It takes no
- * input, exits 0 and emits clean JSON, so every promotion rule says yes to it:
- * no required positional, no required option, `--json` on a read. `sweep.sh`
+ * `apps git-credentials <projectId>` returns a project's live git push token.
+ * Given a project id it exits 0 and emits clean JSON, so every promotion rule
+ * says yes to it once a fixture supplies one: no required option, `--json` on a
+ * read. `sweep.sh`
  * prints a slice of a leaf's output into the CI log on failure, and that log is
  * readable by anyone with repository access.
  *

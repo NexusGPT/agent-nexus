@@ -41,7 +41,9 @@ Notes:
 Outcome shapes:
   idle                              No queued build whose parent
                                     deployment is still BUILDING, in
-                                    an organization under its cap.
+                                    an organization under its cap and,
+                                    on CodeBuild, a region under its
+                                    ceiling.
   dispatched                        A job was claimed AND handed off
                                     to the executor.
   race_lost                         Another runner claimed the job
@@ -52,6 +54,12 @@ Outcome shapes:
                                     concurrency cap allows. The job
                                     stays queued and is admitted once
                                     the organization is under the cap.
+  region_at_capacity                The job's organization builds on
+                                    CodeBuild, and its AWS region already
+                                    runs the platform's ceiling of
+                                    CodeBuild builds, across tenants. The
+                                    job stays queued and is admitted once
+                                    a build in that region ends.
   dispatch_failed_requeued          The executor refused the job with a
                                     retryable error. The job took its one
                                     automatic retry and is queued again

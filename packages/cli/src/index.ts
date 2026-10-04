@@ -67,7 +67,7 @@ import { applyJsonShapeHelpLine } from "./json-shape-help";
 import { installJsonTerminalContract } from "./json-terminal-contract";
 import { applyKnownIssuesHelpLine } from "./known-issues-help";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
-import { applyProbeBarrierHelpLine } from "./probe-barrier";
+import { applyProbeBarrierHelpLine } from "./probe-barrier-help";
 import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
 import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
 import { autoUpdate, checkForUpdate, isAutoUpdateDisabled } from "./util/version-check";

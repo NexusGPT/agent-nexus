@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { summarizeCounts } from "./execution";
+import { summarizeCounts } from "./execution/diagnose.summarize-counts";
 
 /**
  * `execution diagnose` used to lowercase the count keys before printing, which

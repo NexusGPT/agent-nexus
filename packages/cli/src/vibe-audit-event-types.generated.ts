@@ -56,7 +56,8 @@ export const VIBE_AUDIT_EVENT_TYPES = [
   "CARD_BINDING_RENAMED",
   "CARD_BINDING_REMOVED",
   "BUILD_JOB_REQUEUED",
-  "BUILD_JOB_LOST"
+  "BUILD_JOB_LOST",
+  "DEPLOYMENT_CANCELLED"
 ] as const;
 
 export type VibeAuditEventType = (typeof VIBE_AUDIT_EVENT_TYPES)[number];

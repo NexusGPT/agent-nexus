@@ -220,6 +220,22 @@ describe("the release pin gate, against the state that shipped 1.3.0", () => {
     });
     expect(verdict.detail.join("\n")).toContain("run gen:skills");
   });
+
+  it("prints a remedy that ADVANCES the pin, not one that rebuilds it in place", async () => {
+    // `bundle-skills.ts` builds at whatever sha `skills-nexus.lock` already holds
+    // and resolves `main` only when that file is absent. A remedy of bare
+    // `gen:skills` therefore rebuilds the stale bundle byte for byte and exits 0 —
+    // the instruction reads as followed and the release stays refused. The lock
+    // has to go first, and it has to go BEFORE the generator runs.
+    const verdict = await checkPublishPin({
+      pin: PUBLISHED_1_3_0_PIN,
+      read: readerFor(GAP_ROUTES)
+    });
+    const remedy = verdict.detail.find((line) => line.includes("run gen:skills")) ?? "";
+    const removal = remedy.indexOf("rm packages/cli/skills-nexus.lock");
+    expect(removal).toBeGreaterThanOrEqual(0);
+    expect(removal).toBeLessThan(remedy.indexOf("run gen:skills"));
+  });
 });
 
 describe("the controls that must stay green", () => {

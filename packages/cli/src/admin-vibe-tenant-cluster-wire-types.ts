@@ -40,7 +40,7 @@ export type VibeTenantClusterDisableOutcome =
 /**
  * Discriminated outcome of an operator-triggered force-converge. Mirrors
  * `AdminVibeTenantClusterForceConvergeOutcomeSchema` in
- * `packages/types/src/api/domains/admin/zadmin-vibe-tenant-cluster.ts` — see
+ * `packages/types/src/api/domains/admin/zadmin-vibe-tenant-cluster-operator-repair.ts` — see
  * that file for what each variant means. `forced` is the only variant where a
  * converge will actually run: `already_converging` covers PROVISIONING /
  * UPDATING / DEGRADED, all of which the reconcile loop already retries every

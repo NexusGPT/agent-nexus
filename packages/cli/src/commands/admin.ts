@@ -94,6 +94,11 @@ page. This namespace had it first; it is no longer special:
   7  could not reach the admin API. RETRYABLE
   🔴 7 IS WHERE AN UNREACHABLE ADMIN API MOVED, off the generic 1. If you
   retry on 1 today, retry on 7 instead — 1 no longer implies a network fault.
+  8  the admin API missed its deadline. NOT RETRYABLE BLIND: the write may
+     have landed, so read the current state back before re-sending it.
+     An unreachable host is still 7; only the deadline exits 8.
+  Every write names its target host on STDERR first (admin POST → https://…);
+  reads stay silent, and --json output on STDOUT is unaffected.
   "nexus --help" carries the full table, including the codes this namespace
   does not itself produce.
 `;

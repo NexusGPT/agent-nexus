@@ -69,22 +69,67 @@ register_dump() {
   DUMP_FILES+=("$1=$2")
 }
 
+# The dump's text, on stdout, built once. Separated from the routing below so the
+# registered files are read EXACTLY ONCE: the trap runs immediately before the
+# flow's `rm -rf "${WORKDIR}"`, and reading them twice to write them to two
+# destinations is a window in which the two copies can disagree.
+_diagnostic_dump_body() {
+  echo ""
+  echo "=== DIAGNOSTIC DUMP ($(basename "$0")) ==="
+  for entry in "${DUMP_FILES[@]}"; do
+    local label="${entry%%=*}"
+    local file="${entry#*=}"
+    echo "--- ${label} (${file}) ---"
+    if [[ -f "${file}" ]]; then
+      cat "${file}"
+    else
+      echo "(missing)"
+    fi
+  done
+}
+
+# 🚨 THE DUMP IS THE ONLY PLACE A THIRD-PARTY OUTAGE IS CAPTURED, AND UNTIL NOW IT
+# REACHED THE LOG AND NOTHING ELSE.
+#
+# `scripts/cli-e2e-classify-failure.sh` decides WHY a red happened, and every input
+# it had was run METADATA — tree shas, the /api/version bracket, the deploy run
+# history — plus one single-token enum from Flow C. None of those has a value
+# meaning "an upstream dependency answered 5xx", so a changed tree with no deploy
+# lands on `REPO` and tells the reader to bisect. Measured on run 36699621919
+# (2026-09-30): ZeroEntropy was returning 503, the verdict was REPO, and the
+# instruction was to bisect nine days of commits against 9f9f6d8137.
+#
+# The evidence was already on disk at that moment. `collection query`'s `--json`
+# output — a registered dump — held the CLI's own error envelope:
+#
+#   {"error":{"message":"API error (503): Zero Entropy API error: ...","code":"HTTP_503"}}
+#
+# So this writes the dump to a file as well as to stderr, and the classifier reads
+# that file. The JUDGEMENT deliberately does not live here: it lives in the
+# classifier, which `scripts/__tests__/cli-e2e-classify-empty-window.spec.ts` can
+# drive end to end without a runner, a network or an outage. This half is a copy,
+# so there is nothing here to get subtly wrong.
+#
+# Nothing new is exposed. Every byte written here is already printed to the CI log
+# in full by the line above it, and the destination is a runner-local temp file.
+#
+# ⚠️ THE APPEND IS GUARDED, AND THE GUARD IS LOAD-BEARING. Every flow runs under
+# `set -euo pipefail` and this function is called from a cleanup trap, one line
+# before `exit "$(cleanup_verdict "${rc}")"`. An unwritable destination would
+# otherwise abort the trap and REPLACE the flow's own exit code — turning a
+# diagnostic aid into something that can rewrite the verdict it exists to explain.
 dump_diagnostics() {
   if [[ ${#DUMP_FILES[@]} -eq 0 ]]; then
     return
   fi
-  echo "" >&2
-  echo "=== DIAGNOSTIC DUMP ===" >&2
-  for entry in "${DUMP_FILES[@]}"; do
-    local label="${entry%%=*}"
-    local file="${entry#*=}"
-    echo "--- ${label} (${file}) ---" >&2
-    if [[ -f "${file}" ]]; then
-      cat "${file}" >&2
-    else
-      echo "(missing)" >&2
-    fi
-  done
+  local body
+  body="$(_diagnostic_dump_body)"
+  printf '%s\n' "${body}" >&2
+  if [[ -n "${CLI_E2E_DIAGNOSTIC_DUMP_FILE:-}" ]]; then
+    # Appended, never truncated: Flow A, Flow B and Flow C share one path, and a
+    # run where two of them failed has two causes worth reading.
+    printf '%s\n' "${body}" >> "${CLI_E2E_DIAGNOSTIC_DUMP_FILE}" 2>/dev/null || true
+  fi
 }
 
 # Refuse to proceed against an unknown target. There are three layers:

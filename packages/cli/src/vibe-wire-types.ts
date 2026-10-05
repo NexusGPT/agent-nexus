@@ -214,6 +214,13 @@ export interface ExternalToolDetail {
 export type VibeShipGateMode = "OFF" | "WARN" | "ENFORCE";
 
 /**
+ * The compute an app's image builds on. Mirrors `VibeBuildComputeSizeSchema` in
+ * packages/types/src/shared/domain/vibe/build-compute-size.ts. `MEDIUM` is
+ * CodeBuild's 7 GB / 4 vCPU, `LARGE` its 15 GB / 8 vCPU and the default.
+ */
+export type VibeBuildComputeSize = "MEDIUM" | "LARGE";
+
+/**
  * A Vibe app, mirroring `VibeAppSchema` in
  * packages/types/src/api/domains/vibe/schemas/core.ts. Keep in lockstep
  * (the CLI ships standalone — `@nexus/types` is not a runtime dep).
@@ -239,6 +246,12 @@ export interface VibeAppDto {
   shipGateMode?: VibeShipGateMode;
   deployBranch: string;
   resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
+  /**
+   * The compute the app's image builds on, separate from `resourceQuotas`.
+   * OPTIONAL for the reason `shipGateMode` is: a backend one release behind
+   * omits it, and absent is UNREPORTED, never `LARGE`.
+   */
+  buildComputeSize?: VibeBuildComputeSize;
   healthCheckConfig: Record<string, unknown>;
   publicUrl: string | null;
   visibility: "PRIVATE" | "PUBLIC";

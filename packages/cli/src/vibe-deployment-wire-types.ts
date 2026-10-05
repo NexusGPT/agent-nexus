@@ -78,11 +78,18 @@ export type VibeBuildJobStatus =
  * stored. Mirrors `VibeBuildWaitSchema`; `message` is rendered as-is, and already
  * says the build's place in its organization's line. `ahead` is that place as a
  * number, absent from a backend a release behind.
+ *
+ * The last variant is any OTHER reason: a backend newer than this binary may
+ * send one, and the CLI reads the raw body, so it arrives as its own string.
+ * Only `message` is ever rendered, so it prints the same way — a deliberate
+ * widening, the same as `status: string`, and the reason this is never switched
+ * on exhaustively.
  */
 export type VibeBuildWaitDto =
   | { reason: "org_at_capacity"; inFlight: number; cap: number; ahead?: number; message: string }
   | { reason: "region_at_capacity"; region: string; ahead?: number; message: string }
-  | { reason: "queued"; ahead?: number; message: string };
+  | { reason: "queued"; ahead?: number; message: string }
+  | { reason: string; ahead?: number; message: string };
 
 /** Subset of VibeBuildJobSchema the CLI renders. */
 export interface VibeBuildJobDto {

@@ -39,12 +39,14 @@ Notes:
   ADMIN and MEMBER rather than failing. The TIER line printed below is the tier
   that now stands, which is the only way to tell a promotion from an addition.
 
-  A MEMBERSHIP ROW ON ITS OWN IS NOT A CAPABILITY GRANT. It is how the server
-  resolves a person's reach into the Role's systems, collections and
-  workspaces. Run "nexus role add-permission-set-member" to put someone into a
-  CUSTOM permission set.
+  THE MEMBERSHIP IS A PERMISSION-SET SEAT. The person is seated in the Role's
+  "maintainer" or "member" set, and that one seat is what the server reads for
+  the members list, the tier, their reach into the Role's systems, collections
+  and workspaces, and their capabilities. Run
+  "nexus role add-permission-set-member" to put someone into a CUSTOM
+  permission set.
 
-  --TIER NOW SEATS THE PERSON INTO A REAL PERMISSION SET. ADMIN is seated into
+  --TIER SEATS THE PERSON INTO A REAL PERMISSION SET. ADMIN is seated into
   "maintainer" — every capability except deleting the Role (owner- or
   org-admin-only) and creating one (org-scoped-only) — and MEMBER into
   "member" (every read, plus filing an access request). Reach into the Role's

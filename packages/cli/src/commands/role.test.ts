@@ -2353,21 +2353,20 @@ describe("the help text carries the trap, not a summary of it", () => {
     expect(help).toContain("variableRef");
   });
 
-  it("add-member says a membership row alone grants nothing, and sends the caller to the command for a CUSTOM set", () => {
+  it("add-member says the membership is a permission-set seat, and sends the caller to the command for a CUSTOM set", () => {
     const help = renderHelp(["role", "add-member"]);
 
-    // `UpsertRoleMemberUseCase` writes the `RoleMember` row and seats the
-    // capability group `templateKeyForMemberTier` names — a membership row on
-    // its own still carries no capability, and a CUSTOM set still needs the
-    // other command.
-    expect(help).toContain("IS NOT A CAPABILITY GRANT");
+    // `UpsertRoleMemberUseCase` writes one row, the seat in the system set
+    // `templateKeyForMemberTier` names, and every read of the membership comes
+    // off that seat. A CUSTOM set still needs the other command.
+    expect(help).toContain("THE MEMBERSHIP IS A PERMISSION-SET SEAT");
     expect(help).toContain("nexus role add-permission-set-member");
 
     // `templateKeyForMemberTier` seats ADMIN into `maintainer` (nab, 2026-09-06)
-    // — this is the tripwire for that change: it pins the CURRENT sentence so a
+    // — this is the tripwire for that mapping: it pins the CURRENT sentence so a
     // future edit to the mapping reds a test here rather than passing review
     // with stale help text.
-    expect(help).toContain("--TIER NOW SEATS THE PERSON INTO A REAL PERMISSION SET");
+    expect(help).toContain("--TIER SEATS THE PERSON INTO A REAL PERMISSION SET");
     expect(help).toContain('"maintainer"');
     expect(help).toContain('"member"');
   });

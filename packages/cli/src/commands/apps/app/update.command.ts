@@ -17,6 +17,7 @@ Examples:
   $ nexus apps update 11111111-2222-4333-8444-555555555555 --deploy-branch release/prod
   $ nexus apps update 11111111-2222-4333-8444-555555555555 --require-approvals true
   $ nexus apps update 11111111-2222-4333-8444-555555555555 --ship-gate warn
+  $ nexus apps update 11111111-2222-4333-8444-555555555555 --build-size medium
   $ nexus apps update 11111111-2222-4333-8444-555555555555 --resource-quotas '{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}'
 
 Notes:
@@ -37,6 +38,11 @@ Notes:
   cannot express WARN — but a person who typed both flags on one command line
   made a mistake in that line, and silently discarding one of them is how the
   gate ends up in a state nobody chose. Pass --ship-gate alone.
+  --build-size SETS WHAT THE IMAGE BUILDS ON, NOT WHAT IT SERVES ON: medium is
+  7 GB and 4 vCPU, large is 15 GB and 8 vCPU (the default). A build that
+  outgrows it fails with the step that ran out of memory named. It applies to
+  the next build; a build already running keeps its size. It bites on the
+  CodeBuild build executor only.
 `;
 
 /** `nexus apps update` */
@@ -63,6 +69,10 @@ export function registerAppsUpdateCommand(apps: Command, program: Command): Comm
       'Full Nomad quotas object, e.g. \'{"cpuMhz":1000,"memoryMiB":1024,"maxInstances":5}\'. Replaces the whole object.'
     )
     .option(
+      "--build-size <size>",
+      "Compute the app's image builds on, separate from its runtime quotas. One of: medium (7 GB), large (15 GB, the default). Applies from the next build."
+    )
+    .option(
       "--health-check <json>",
       "Full health-check policy object (path/port/timeouts/thresholds). Replaces the whole object."
     )
@@ -82,6 +92,7 @@ export function registerAppsUpdateCommand(apps: Command, program: Command): Comm
           shipGate?: string;
           requireVerification?: string;
           resourceQuotas?: string;
+          buildSize?: string;
           healthCheck?: string;
         }
       ) => {

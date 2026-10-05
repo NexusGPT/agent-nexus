@@ -1,4 +1,5 @@
 import { parseBoolFlag } from "./parse-bool-flag";
+import { parseBuildSizeFlag } from "./parse-build-size-flag";
 import { parseJsonFlag } from "./parse-json-flag";
 import { parseShipGateFlag } from "./parse-ship-gate-flag";
 
@@ -15,6 +16,7 @@ export function buildAppUpdateBody(cmdOpts: {
   shipGate?: string;
   requireVerification?: string;
   resourceQuotas?: string;
+  buildSize?: string;
   healthCheck?: string;
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -42,12 +44,15 @@ export function buildAppUpdateBody(cmdOpts: {
   if (cmdOpts.resourceQuotas !== undefined) {
     body.resourceQuotas = parseJsonFlag(cmdOpts.resourceQuotas, "--resource-quotas");
   }
+  if (cmdOpts.buildSize !== undefined) {
+    body.buildComputeSize = parseBuildSizeFlag(cmdOpts.buildSize);
+  }
   if (cmdOpts.healthCheck !== undefined) {
     body.healthCheckConfig = parseJsonFlag(cmdOpts.healthCheck, "--health-check");
   }
   if (Object.keys(body).length === 0) {
     throw new Error(
-      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --ship-gate, --require-verification, --resource-quotas, --health-check."
+      "Nothing to update. Pass at least one of --deploy-branch, --description, --require-approvals, --ship-gate, --require-verification, --resource-quotas, --build-size, --health-check."
     );
   }
   return body;

@@ -254,7 +254,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
   "vibe-wire-types.conformance.ts": 658,
-  "vibe-wire-types.ts": 732
+  "vibe-wire-types.ts": 745
 };
 
 /**

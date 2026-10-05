@@ -1,5 +1,6 @@
 import { color, type RecordField } from "../../../output";
 import { type VibeAppDto, type VibeAppEnvelopeExtras } from "../../../vibe-wire-types";
+import { formatBuildComputeSize } from "./format-build-compute-size";
 import { formatDeployability } from "./format-deployability";
 import { formatShipGateMode } from "./format-ship-gate-mode";
 import { formatTimestamp } from "./format-timestamp";
@@ -123,6 +124,13 @@ export function runtimeFields(app: VibeAppDto): RecordField<VibeAppRow>[] {
       key: "resourceQuotas",
       label: "Quotas",
       format: () => `cpu=${q.cpuMhz}mhz mem=${q.memoryMiB}mib max=${q.maxInstances}`
+    },
+    {
+      // Read off `app`, like the ship gate, so the union and the absent case
+      // reach the formatter typed.
+      key: "buildComputeSize",
+      label: "Build size",
+      format: () => formatBuildComputeSize(app.buildComputeSize)
     }
   ];
 }

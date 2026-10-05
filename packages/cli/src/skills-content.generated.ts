@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit. Run: pnpm run gen:skills
-// Source: NexusGPT/claude-code-skills-nexus@7a35368077a3ca1d316c4f9f9eb192805cfd68b6
+// Source: NexusGPT/claude-code-skills-nexus@6ab80a95ce81bf2f4cc685d9abc74acad913f6fb
 //
 // The BULK of the bundled skills lives in `skills-content.generated.json`, beside
 // this file, and is read on FIRST USE rather than compiled into the CLI bundle.
@@ -30,7 +30,7 @@ export interface SkillEntry {
   files: SkillFile[];
 }
 
-export const SKILLS_NEXUS_SHA: string = "7a35368077a3ca1d316c4f9f9eb192805cfd68b6";
+export const SKILLS_NEXUS_SHA: string = "6ab80a95ce81bf2f4cc685d9abc74acad913f6fb";
 
 /** The shape written by `scripts/bundle-skills.ts` into the JSON asset. */
 interface SkillsPayload {

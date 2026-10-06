@@ -1,8 +1,10 @@
 import { color } from "../../../output";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
 import {
   type VibeAppDeployability,
   type VibeAppGitProjectSummaryDto
 } from "../../../vibe-wire-types";
+import { formatUnlistedWord } from "./format-unlisted-word";
 
 /**
  * The table-cell rendering of {@link formatDeployability} — same three states,
@@ -12,10 +14,14 @@ import {
  * the working rows are the background and the broken ones are what the eye
  * should catch.
  */
-export function formatDeployabilityCell(deployability: VibeAppDeployability): string {
+export function formatDeployabilityCell(
+  deployability: VibeAppDeployability | VibeUnlistedValue | undefined
+): string {
   if (deployability === "DEPLOYABLE") return color.dim("ready");
   if (deployability === "NO_SOURCE_ATTACHED") return color.red("no source");
   if (deployability === "SOURCE_NOT_READY") return color.yellow("not ready");
+  // A state a newer backend added: its own word, never a guessed listed one.
+  if (deployability !== undefined) return color.yellow(deployability);
   // Absent, not unknown — see `formatDeployability`. A dash is the table's
   // existing vocabulary for "this server did not say".
   return color.dim("—");
@@ -34,7 +40,7 @@ export function formatDeployabilityCell(deployability: VibeAppDeployability): st
  * enum has three values instead of a boolean.
  */
 export function formatDeployability(
-  deployability: VibeAppDeployability,
+  deployability: VibeAppDeployability | VibeUnlistedValue | undefined,
   gitProject: VibeAppGitProjectSummaryDto | null
 ): string {
   if (deployability === "DEPLOYABLE") {
@@ -63,6 +69,8 @@ export function formatDeployability(
   // compiler believes is exhaustive would return `undefined` and print it. The
   // same reflex is already visible three times in this file as
   // `data.gitProject ?? data.repository`, and once next door as
-  // `edgeReachability`'s "last check was inconclusive".
+  // `edgeReachability`'s "last check was inconclusive". A state a NEWER
+  // backend added is the opposite skew, and prints as the server's own word.
+  if (deployability !== undefined) return formatUnlistedWord(deployability, "state");
   return color.dim("not reported by this server");
 }

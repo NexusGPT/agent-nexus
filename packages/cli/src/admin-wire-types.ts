@@ -31,29 +31,29 @@
  * not send it" rather than as a stale copy.
  */
 
+import type { VibeUnlistedValue } from "./vibe-deploy-state-vocabulary";
+
+/**
+ * Every enum below is a plain `string`, as on the tenant DTOs in
+ * `vibe-deployment-wire-types.ts`: the CLI only PRINTS them, and a published
+ * binary routinely talks to a backend newer than itself. A status it does not
+ * know prints plain through `colorizeStatus`; a builder or a colour prints as
+ * the server's own word. The vocabularies themselves are asserted where they
+ * are USED — `VibeBuildJobStatus` and `WatchDeploymentStatus` are held to the
+ * contract's reader lists by `vibe-deployment-wire-types.conformance.ts`.
+ */
 export interface AdminVibeBuildJobResponse {
   id: string;
   vibeDeploymentId: string;
   organizationId: string;
-  status:
-    | "PENDING"
-    | "QUEUED"
-    | "ADMITTED"
-    | "STARTING"
-    | "RUNNING"
-    | "SUCCEEDED"
-    | "FAILED"
-    | "TIMED_OUT"
-    | "CANCELLED"
-    | "SUPERSEDED"
-    | "LOST";
+  status: string;
   /**
    * NULLABLE, and the null is the common case rather than the edge one: the
    * build strategy is reported with the job's TERMINAL outcome, so every
    * PENDING or RUNNING row — including the one `vibe-build-job claim` returns —
    * carries null here.
    */
-  builder: "NIXPACKS" | "DOCKERFILE" | "GENERATED" | null;
+  builder: string | null;
   logsRef: string;
   durationMs: number | null;
   errorReason: string | null;
@@ -65,23 +65,14 @@ export interface AdminVibeDeploymentResponse {
   id: string;
   vibeAppId: string;
   organizationId: string;
-  color: "BLUE" | "GREEN";
+  color: string;
   /**
    * The user-facing monotonic version (`v{n}`). `color` is the internal
    * blue/green slot; an admin needs both, and asking one which deployment is
    * live gets a slot name rather than a version without this.
    */
   versionNumber: number;
-  status:
-    | "BUILDING"
-    | "AWAITING_APPROVAL"
-    | "DEPLOYING"
-    | "HEALTHY"
-    | "FAILED"
-    | "ROLLED_BACK"
-    | "SUPERSEDED"
-    | "DISPLACED"
-    | "CANCELLED";
+  status: string;
   triggerSha: string;
   imageRef: string;
   errorReason: string | null;
@@ -91,11 +82,10 @@ export interface AdminVibeDeploymentResponse {
 }
 
 /**
- * Discriminated outcome. Mirrors `AdminVibeBuildRunnerTickOutcome` in the
- * @nexus/types schema + `DispatchNextVibeBuildJobOutcome` in the backend use
- * case. Exhaustiveness in `printTickRecord` is enforced via the never-narrowing
- * check — every new variant surfaces as a TS error at the formatter rather than
- * as a silent runtime branch.
+ * Discriminated outcome — its LISTED arms. Mirrors `AdminVibeBuildRunnerTickOutcome`
+ * in the @nexus/types schema + `DispatchNextVibeBuildJobOutcome` in the backend use
+ * case. A kind a newer backend added is read through `admin-vibe-runner-tick-kinds.ts`;
+ * a kind listed here is exhaustive in `printTickRecord` via the never-narrowing check.
  */
 export type AdminVibeBuildRunnerTickResponse =
   | { kind: "idle" }
@@ -113,7 +103,8 @@ export type AdminVibeBuildRunnerTickResponse =
       buildJobId: string;
       organizationId: string;
       region: string;
-      computeSize: "MEDIUM" | "LARGE";
+      // A size a newer backend added arrives as the server's word; it is only printed.
+      computeSize: "MEDIUM" | "LARGE" | VibeUnlistedValue;
       inFlight: number;
       cap: number;
     }
@@ -126,7 +117,8 @@ export type AdminVibeBuildRunnerTickResponse =
     };
 
 /**
- * Discriminated outcome. Mirrors `AdminVibeDeploymentRunnerTickOutcome` in the
+ * Discriminated outcome — its LISTED arms; read through
+ * `admin-vibe-runner-tick-kinds.ts`. Mirrors `AdminVibeDeploymentRunnerTickOutcome` in the
  * @nexus/types schema + `DispatchNextReadyVibeDeploymentOutcome` in the backend
  * use case. No `race_lost` variant — the deployer has no claim step (the row is
  * already DEPLOYING when picked up).

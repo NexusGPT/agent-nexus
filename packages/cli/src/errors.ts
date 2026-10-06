@@ -167,7 +167,9 @@ const CLI_CODES = {
    * and an EXPIRED one can only be replaced by a new one from
    * `nexus tool connect`. Both exit `remote-error`; only the code says which.
    */
-  HANDSHAKE_EXPIRED: "CLI_HANDSHAKE_EXPIRED"
+  HANDSHAKE_EXPIRED: "CLI_HANDSHAKE_EXPIRED",
+  /** A mutation answered with an outcome kind this build does not list — `unmeasured`. */
+  OUTCOME_NOT_LISTED: "CLI_OUTCOME_NOT_LISTED"
 } as const;
 
 /**
@@ -177,18 +179,14 @@ const CLI_CODES = {
  * 🚨 A HAND-KEPT SECOND COPY OF THIS LIST GOES WRONG SILENTLY, AND IT ALREADY HAD.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `json-one-document.scan.ts` asks "is this a code the CLI mints" to separate a
- * real refusal from a typo, and it asked it against a hand-written set. That set
- * was missing `CLI_UPGRADE_NOT_RESOLVED` and `CLI_UPGRADE_NOT_VERIFIED_FOR_YOU`
- * from the day they were added, and stayed green because neither reaches the
- * driven scan — the miss only surfaces when a NEW code happens to be drivable,
- * which turns a correct document into a reported defect for the one lane that
- * adds one.
+ * `json-one-document.scan.ts` asks "is this a code the CLI mints" to tell a real
+ * refusal from a typo, once against a hand-written set that silently lacked both
+ * `CLI_UPGRADE_*` codes — a miss that surfaces only when a NEW code is drivable,
+ * reporting a correct document as a defect for the lane that adds one.
  *
  * Reading the declaration cannot drift from it. The scan unions this with the
- * admin tree's own code, which is minted in `util/admin-errors.ts` and is
- * deliberately not in `CLI_CODES` — that is the one addition it makes, and it
- * makes it in one visible line.
+ * admin tree's own code (`util/admin-errors.ts`, deliberately not in `CLI_CODES`)
+ * in one visible line.
  */
 export const CLI_MINTED_CODES: ReadonlySet<string> = new Set(Object.values(CLI_CODES));
 
@@ -242,8 +240,9 @@ export const CLI_UPGRADE_NOT_RESOLVED = CLI_CODES.UPGRADE_NOT_RESOLVED;
 export const CLI_UPGRADE_NOT_VERIFIED_FOR_YOU = CLI_CODES.UPGRADE_NOT_VERIFIED_FOR_YOU;
 
 /**
- * A node test that was dispatched and not measured (`node-test-verdict.ts`), and
- * a run that was stopped or has not finished (`run-verdict.ts`).
+ * A node test that was dispatched and not measured (`node-test-verdict.ts`), a run
+ * that was stopped or has not finished (`run-verdict.ts`), and a mutation outcome
+ * this build does not list (`commands/print-unlisted-outcome.ts`).
  *
  * None has a {@link FailureCause}, for the same reason as the two codes above:
  * their exit category is `unmeasured`, and every `FailureCause` maps to a
@@ -253,6 +252,7 @@ export const CLI_UPGRADE_NOT_VERIFIED_FOR_YOU = CLI_CODES.UPGRADE_NOT_VERIFIED_F
 export const CLI_NODE_TEST_NOT_MEASURED = CLI_CODES.NODE_TEST_NOT_MEASURED;
 export const CLI_RUN_CANCELLED = CLI_CODES.RUN_CANCELLED;
 export const CLI_RUN_UNFINISHED = CLI_CODES.RUN_UNFINISHED;
+export const CLI_OUTCOME_NOT_LISTED = CLI_CODES.OUTCOME_NOT_LISTED;
 
 /**
  * The two OAuth-handshake outcomes that are not a plain remote failure.

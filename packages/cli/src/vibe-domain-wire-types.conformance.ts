@@ -1,18 +1,12 @@
 /**
- * THE DRIFT GATE for `vibe-domain-wire-types.ts`.
- *
- * Same mechanism, same vocabulary as `vibe-wire-types.conformance.ts`: every
- * assertion is a `const` whose declared type is `true` only while the CLI's
- * hand-declared shape matches the endpoint contract, so `pnpm typecheck` fails
- * — naming the field — the day one of them drifts. Compiled, never executed,
- * and unreachable from `src/index.ts`.
+ * THE DRIFT GATE for `vibe-domain-wire-types.ts` — same mechanism and vocabulary
+ * as `vibe-wire-types.conformance.ts`: each assertion's declared type is `true`
+ * only while the CLI's hand-declared shape matches the endpoint contract, so
+ * `pnpm typecheck` fails, naming the field, the day one drifts. Compiled, never
+ * executed, unreachable from `src/index.ts`.
  */
 
-/**
- * The whole module as a TYPE namespace, so the generated Prisma enum arrays can
- * be read in type position without importing a value — the bundle gate admits
- * `@nexus/types` here and nowhere a published module can reach.
- */
+/** A TYPE namespace, so the Prisma enum arrays are read without importing a value. */
 import type * as NexusTypes from "@nexus/types";
 
 import type {
@@ -23,12 +17,20 @@ import type {
   VerifyVibeAppDomainResponse,
   VIBE_APP_DOMAIN_KINDS,
   VIBE_APP_DOMAIN_STATUSES,
+  VibeAppDomainDnsInstructionsDto,
   VibeAppDomainDnsRecordDto,
   VibeAppDomainDto,
   VibeAppDomainKind,
   VibeAppDomainStatus
 } from "./vibe-domain-wire-types";
-import { type SameMembers, type VibeData } from "./vibe-wire-vocabulary.conformance";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
+import {
+  type Listed,
+  type ListedArms,
+  type SameMembers,
+  type UnlistedArmAdmitted,
+  type VibeData
+} from "./vibe-wire-vocabulary.conformance";
 import { AGREES, type Mirrors } from "./wire-conformance.types";
 
 type WireDomain = VibeData<"ListAppDomains">["domains"][number];
@@ -51,24 +53,33 @@ const _appDomainRecord: Mirrors<
 > = AGREES;
 
 /**
- * The instruction arms, both directions. A third arm upstream would reach the
- * printer as a value its switch calls impossible, and it would print nothing —
- * the one failure where a customer is told no record at all without a reason.
+ * The LISTED instruction arms, both directions, and the unlisted arm the printer
+ * asks about first — which must exist and be admitted, or a newer status is lost.
  */
 const _appDomainDnsArms: SameMembers<
   "VibeAppDomainDnsInstructionsDto['status']",
-  VibeAppDomainDto["dns"]["status"],
-  WireDomain["dns"]["status"]
+  VibeAppDomainDnsInstructionsDto["status"],
+  ListedArms<WireDomain["dns"], "status">["status"]
+> = true;
+
+const _appDomainDnsUnlisted: UnlistedArmAdmitted<
+  "VibeAppDomainDnsInstructionsRead",
+  VibeUnlistedVariant<"status">,
+  WireDomain["dns"],
+  "status"
 > = true;
 
 const _appDomainStatuses: SameMembers<
   "VibeAppDomainStatus",
   VibeAppDomainStatus,
-  WireDomain["status"]
+  Listed<WireDomain["status"]>
 > = true;
 
-const _appDomainKinds: SameMembers<"VibeAppDomainKind", VibeAppDomainKind, WireDomain["kind"]> =
-  true;
+const _appDomainKinds: SameMembers<
+  "VibeAppDomainKind",
+  VibeAppDomainKind,
+  Listed<WireDomain["kind"]>
+> = true;
 
 const _listAppDomains: Mirrors<
   "ListVibeAppDomainsResponse",
@@ -126,6 +137,7 @@ export const VIBE_DOMAIN_WIRE_TYPES_CONFORM = [
   _appDomain,
   _appDomainRecord,
   _appDomainDnsArms,
+  _appDomainDnsUnlisted,
   _appDomainStatuses,
   _appDomainKinds,
   _appDomainStatusValues,

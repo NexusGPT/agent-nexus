@@ -6,15 +6,17 @@
  * from markBuildSucceeded until the executor webhook flips it, so repeated
  * ticks can re-pick the same row. The dispatch port is idempotent (the Nomad
  * service name is deterministic), which makes a re-dispatch a no-op downstream.
+ *
+ * The printer lives beside it in `admin-vibe-deployment-runner.print-tick-record.ts`.
  */
 
 import { Command } from "commander";
 
-import { type AdminVibeDeploymentRunnerTickResponse } from "../admin-wire-types";
-import { color, printRecord } from "../output";
+import { type AdminVibeDeploymentRunnerTickReadResponse } from "../admin-vibe-runner-tick-kinds";
 import { handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";
 import { resolveAdminOpts } from "../util/admin-opts";
+import { printDeploymentTickRecord } from "./admin-vibe-deployment-runner.print-tick-record";
 
 export function registerVibeDeploymentRunnerCommands(admin: Command, program: Command): void {
   const runner = admin
@@ -65,7 +67,7 @@ Re-dispatch behavior:
     .action(async () => {
       try {
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<AdminVibeDeploymentRunnerTickResponse>(opts, {
+        const data = await adminRequest<AdminVibeDeploymentRunnerTickReadResponse>(opts, {
           method: "POST",
           path: "/api/admin/vibe/deployment-runner/tick",
           body: {}
@@ -75,73 +77,4 @@ Re-dispatch behavior:
         process.exitCode = handleAdminError(err);
       }
     });
-}
-
-function printDeploymentTickRecord(data: AdminVibeDeploymentRunnerTickResponse): void {
-  switch (data.kind) {
-    case "idle": {
-      printRecord({ outcome: color.dim("idle (no DEPLOYING+imageRef rows)") }, [
-        { key: "outcome", label: "Outcome" }
-      ]);
-      return;
-    }
-    case "dispatched": {
-      printRecord({ outcome: color.green("dispatched"), deploymentId: data.deploymentId }, [
-        { key: "outcome", label: "Outcome" },
-        { key: "deploymentId", label: "Deployment" }
-      ]);
-      return;
-    }
-    case "dispatch_failed_compensated": {
-      printRecord(
-        {
-          outcome: color.red("dispatch_failed_compensated"),
-          deploymentId: data.deploymentId,
-          retryable: data.retryable ? "yes (transient)" : "no (permanent)",
-          reason: data.reason
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "deploymentId", label: "Deployment" },
-          { key: "retryable", label: "Retryable" },
-          { key: "reason", label: "Reason" }
-        ]
-      );
-      return;
-    }
-    case "timed_out": {
-      printRecord(
-        {
-          outcome: color.red("timed_out (reaped to FAILED)"),
-          deploymentId: data.deploymentId,
-          age: `${Math.round(data.ageMs / 60_000)}min stuck in DEPLOYING`
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "deploymentId", label: "Deployment" },
-          { key: "age", label: "Stuck for" }
-        ]
-      );
-      return;
-    }
-    case "displaced": {
-      printRecord(
-        {
-          outcome: color.yellow("displaced (a newer deployment owns the rollout)"),
-          deploymentId: data.deploymentId,
-          displacedBy: data.displacedByDeploymentId
-        },
-        [
-          { key: "outcome", label: "Outcome" },
-          { key: "deploymentId", label: "Deployment" },
-          { key: "displacedBy", label: "Displaced by" }
-        ]
-      );
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled deployment tick outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
 }

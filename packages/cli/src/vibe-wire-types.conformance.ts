@@ -51,27 +51,18 @@
 
 import type { TApiPublicV1 } from "@nexus/types/public-api-v1";
 
-import { VIBE_AUDIT_EVENT_TYPES } from "./vibe-audit-event-types.generated";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
 import type {
-  AuditPayloadApprovalDecision,
-  AuditPayloadApprovalExpired,
-  AuditPayloadCostSafetyAutoSuspended,
-  AuditPayloadDeploymentRolledBack,
-  AuditPayloadDeploymentServed,
-  AuditPayloadDeploymentTriggered,
   CancelDeploymentBuildResponse,
   CreateVibeAppResponse,
   DeletedIdResponse,
-  DeleteEnvVarResponse,
   ExternalToolDetail,
   GetDeploymentResponse,
   GetDeployStateResponse,
   GetEdgeTokenResponse,
   GetGitProjectCredentialsResponse,
   GetVibeAppResponse,
-  ListAuditEventsResponse,
   ListDeploymentsResponse,
-  ListEnvVarsResponse,
   ListVibeAppsResponse,
   ListVibeGitProjectsResponse,
   RollbackAppResponse,
@@ -81,22 +72,28 @@ import type {
   SingleVibeGitProjectResponse,
   StandaloneVibeGitProjectResponse,
   TriggerDeploymentResponse,
-  UpsertEnvVarResponse,
-  VibeAppCardBindingDto,
+  VibeAppDeployability,
   VibeAppDto,
-  VibeAppEnvVarDto,
+  VibeAppEdgeReachability,
   VibeAppGitProjectSummaryDto,
-  VibeAuditEvent,
-  VibeDeployStateOutcome,
+  VibeAppVisibility,
+  VibeBuildComputeSize,
   VibeEdgeTokenDto,
   VibeGitProjectAliasDto,
   VibeGitProjectCredentialsDto,
   VibeGitProjectDto,
   VibeLiveDeploymentDto,
   VibeRefDto,
-  VibeServedArtifactDto
+  VibeServedArtifactDto,
+  VibeShipGateMode
 } from "./vibe-wire-types";
-import { type VibeData } from "./vibe-wire-vocabulary.conformance";
+import {
+  type Listed,
+  type ListedArms,
+  type SameMembers,
+  type UnlistedArmAdmitted,
+  type VibeData
+} from "./vibe-wire-vocabulary.conformance";
 import { AGREES, type Mirrors, type Wire } from "./wire-conformance.types";
 
 // ============================================================
@@ -178,6 +175,37 @@ const _updateApp: Mirrors<
 > = AGREES;
 
 const _deleteApp: Mirrors<"DeletedIdResponse", DeletedIdResponse, VibeData<"DeleteApp">> = AGREES;
+
+/**
+ * The app's lenient fields hold `Listed | VibeUnlistedValue`, which every wire
+ * value satisfies — so `Mirrors` alone would wave a NEWLY LISTED value through
+ * as unlisted. These pin each listed set to the contract's, both directions.
+ */
+const _shipGateModes: SameMembers<
+  "VibeShipGateMode",
+  VibeShipGateMode,
+  Listed<WireApp["shipGateMode"]>
+> = true;
+const _buildComputeSizes: SameMembers<
+  "VibeBuildComputeSize",
+  VibeBuildComputeSize,
+  Listed<WireApp["buildComputeSize"]>
+> = true;
+const _appVisibilities: SameMembers<
+  "VibeAppVisibility",
+  VibeAppVisibility,
+  Listed<WireApp["visibility"]>
+> = true;
+const _edgeReachabilities: SameMembers<
+  "VibeAppEdgeReachability",
+  VibeAppEdgeReachability,
+  Listed<NonNullable<WireApp["edgeReachability"]>>
+> = true;
+const _deployabilities: SameMembers<
+  "VibeAppDeployability",
+  VibeAppDeployability,
+  Listed<VibeData<"GetApp">["deployability"]>
+> = true;
 
 const _gitProjectSummary: Mirrors<
   "VibeAppGitProjectSummaryDto",
@@ -338,19 +366,6 @@ const _servedArtifact: Mirrors<
 > = AGREES;
 
 /**
- * The outcome union is the whole point of the endpoint, and the renderer
- * switches on it — so the CLI's copy must hold EVERY value the contract can
- * send. Assignability in this direction is what catches a new value: a widened
- * `string` would pass every assertion above while the renderer silently fell
- * through to its unknown-value arm.
- */
-const _deployStateOutcome: VibeDeployStateOutcome extends VibeData<"GetDeployState">["outcome"]
-  ? VibeData<"GetDeployState">["outcome"] extends VibeDeployStateOutcome
-    ? true
-    : ["VibeDeployStateOutcome", "is missing a value the contract can send"]
-  : ["VibeDeployStateOutcome", "declares a value the contract cannot send"] = true;
-
-/**
  * The trigger response is a union discriminated on `status`, and `keyof` a union yields
  * only the keys every arm shares — so each arm is asserted on its own or the check
  * degenerates to comparing `{ status }` with `{ status }`.
@@ -362,9 +377,9 @@ const _deployStateOutcome: VibeDeployStateOutcome extends VibeData<"GetDeploySta
  * A `never` on both sides then satisfies every assertion in `Mirrors` — the check would
  * pass while comparing nothing, which is the failure mode this whole file exists to end.
  * The wire keeps them as two arms; both carry identical keys, so `keyof` over the pair is
- * the same set either way.
+ * the same set either way. Both run on the LISTED arms; `_triggerUnlisted` covers the rest.
  */
-type WireTrigger = VibeData<"TriggerDeployment">;
+type WireTrigger = ListedArms<VibeData<"TriggerDeployment">, "status">;
 type ConfirmationArm = { status: "confirmation_required" };
 
 const _triggerSuccess: Mirrors<
@@ -392,6 +407,17 @@ const _triggerArmsNonEmpty: [
     ? ["the wire trigger union has no confirmation arm — the split above checks nothing"]
     : true
 ] = [true, true];
+
+/**
+ * A status a newer backend added: the trigger flow asks `isListedVariant` first
+ * and prints the server's word, so the twin must admit every such answer.
+ */
+const _triggerUnlisted: UnlistedArmAdmitted<
+  "TriggerDeploymentReadResponse",
+  VibeUnlistedVariant<"status">,
+  VibeData<"TriggerDeployment">,
+  "status"
+> = true;
 
 /**
  * Cancel — split per arm on `outcome` by EXTRACTING each literal, which is sound
@@ -431,162 +457,6 @@ const _cancelArmsNonEmpty: [
 ] = [true, true, true, true];
 
 // ============================================================
-// Env vars
-// ============================================================
-
-/**
- * `secretMaterial` is the write gate's verdict on a stored value. It is not
- * rendered because `env list` prints values, and a per-row verdict beside a
- * value the reader can see for themselves adds a column without adding a fact.
- */
-const _envVar: Mirrors<
-  "VibeAppEnvVarDto",
-  VibeAppEnvVarDto,
-  VibeData<"ListEnvVars">["envVars"][number],
-  "secretMaterial"
-> = AGREES;
-
-/**
- * `cardBindings` is OPTIONAL on both sides, and the gate is what keeps it that
- * way. The CLI ships standalone and is routinely pointed at a backend older
- * than itself, so ABSENT ("this server has nothing to say about cards") is a
- * different fact from `[]` ("it does, and this app has none"). A future
- * required-ing of the wire field would land here as a mismatch rather than as a
- * CLI that silently reports every old backend's apps as holding no cards.
- */
-const _listEnvVars: Mirrors<
-  "ListEnvVarsResponse",
-  ListEnvVarsResponse,
-  VibeData<"ListEnvVars">
-> = AGREES;
-
-/**
- * The card rows `env list` renders beside the plaintext variables.
- *
- * Every field is mirrored — there is no declared omission — because each one is
- * on screen: the handle is the value the app reads, `status` and the two quota
- * fields make the Status column, and `credentialName` / `accessCardName` make
- * the Card column that says whose authority a row spends.
- *
- * `NonNullable` because the wire field is optional; the element type is what
- * the CLI models, and the optionality itself is checked by `_listEnvVars`.
- */
-const _cardBinding: Mirrors<
-  "VibeAppCardBindingDto",
-  VibeAppCardBindingDto,
-  NonNullable<VibeData<"ListEnvVars">["cardBindings"]>[number]
-> = AGREES;
-
-const _upsertEnvVar: Mirrors<
-  "UpsertEnvVarResponse",
-  UpsertEnvVarResponse,
-  VibeData<"UpsertEnvVar">
-> = AGREES;
-
-const _deleteEnvVar: Mirrors<
-  "DeleteEnvVarResponse",
-  DeleteEnvVarResponse,
-  VibeData<"DeleteEnvVar">
-> = AGREES;
-
-// ============================================================
-// Audit feed
-// ============================================================
-
-const _auditEvent: Mirrors<
-  "VibeAuditEvent",
-  Omit<VibeAuditEvent, "payload">,
-  Omit<VibeData<"ListAuditEvents">["events"][number], "payload">
-> = AGREES;
-
-const _listAuditEvents: Mirrors<
-  "ListAuditEventsResponse",
-  Omit<ListAuditEventsResponse, "events">,
-  Omit<VibeData<"ListAuditEvents">, "events">
-> = AGREES;
-
-type WireAuditPayload = VibeData<"ListAuditEvents">["events"][number]["payload"];
-type WireAuditArm<E extends string> = Extract<WireAuditPayload, { eventType: E }>;
-
-/**
- * The six payloads the CLI renders field by field. The other twenty-eight are
- * printed generically by `formatUnmodelledDetails` and are covered by the
- * discriminant assertion below instead — an interface each would be
- * declarations no reader consults and no code narrows on.
- */
-const _auditTriggered: Mirrors<
-  "AuditPayloadDeploymentTriggered",
-  AuditPayloadDeploymentTriggered,
-  WireAuditArm<"DEPLOYMENT_TRIGGERED">
-> = AGREES;
-
-/**
- * One CLI interface covers both approval outcomes, so it is compared against BOTH wire
- * arms at once rather than each in turn — same reason as the trigger split above.
- * `Extract<AuditPayloadApprovalDecision, { eventType: "DEPLOYMENT_APPROVED" }>` yields
- * `never` here (the CLI's discriminant is the two-literal union, which is not assignable
- * to one of them), and a `never` on either side satisfies every assertion in `Mirrors`.
- * The two wire arms carry identical keys, so `keyof` over the pair is the same set.
- */
-const _auditApprovalDecision: Mirrors<
-  "AuditPayloadApprovalDecision",
-  AuditPayloadApprovalDecision,
-  WireAuditArm<"DEPLOYMENT_APPROVED"> | WireAuditArm<"DEPLOYMENT_REJECTED">
-> = AGREES;
-
-/** Guards the pair above against the vacuous case: both arms must exist on the wire. */
-const _auditApprovalArmsNonEmpty: [
-  [WireAuditArm<"DEPLOYMENT_APPROVED">] extends [never]
-    ? ["the wire audit union has no DEPLOYMENT_APPROVED arm — the check above is vacuous"]
-    : true,
-  [WireAuditArm<"DEPLOYMENT_REJECTED">] extends [never]
-    ? ["the wire audit union has no DEPLOYMENT_REJECTED arm — the check above is vacuous"]
-    : true
-] = [true, true];
-
-const _auditExpired: Mirrors<
-  "AuditPayloadApprovalExpired",
-  AuditPayloadApprovalExpired,
-  WireAuditArm<"APPROVAL_EXPIRED">
-> = AGREES;
-
-const _auditSuspended: Mirrors<
-  "AuditPayloadCostSafetyAutoSuspended",
-  AuditPayloadCostSafetyAutoSuspended,
-  WireAuditArm<"COST_SAFETY_AUTO_SUSPENDED">
-> = AGREES;
-
-const _auditRolledBack: Mirrors<
-  "AuditPayloadDeploymentRolledBack",
-  AuditPayloadDeploymentRolledBack,
-  WireAuditArm<"DEPLOYMENT_ROLLED_BACK_COST_SAFETY">
-> = AGREES;
-
-const _auditServed: Mirrors<
-  "AuditPayloadDeploymentServed",
-  AuditPayloadDeploymentServed,
-  WireAuditArm<"DEPLOYMENT_SERVED">
-> = AGREES;
-
-/**
- * The generated event-type list covers every arm the payload union can carry.
- *
- * A SECOND drift axis, independent of the shapes above:
- * `vibe-audit-event-types.test.ts` proves the generated list matches the Prisma
- * enum, and this proves the payload union matches the same list. Between them,
- * an event type cannot exist that `--type` refuses to filter for or that
- * `AuditPayloadUnmodelled` fails to admit.
- */
-const _auditDiscriminants: [
-  Exclude<WireAuditPayload["eventType"], (typeof VIBE_AUDIT_EVENT_TYPES)[number]>
-] extends [never]
-  ? true
-  : [
-      "the audit payload union carries an event type the generated list does not:",
-      Exclude<WireAuditPayload["eventType"], (typeof VIBE_AUDIT_EVENT_TYPES)[number]>
-    ] = true;
-
-// ============================================================
 // Public-API bridge
 // ============================================================
 
@@ -614,6 +484,11 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _updateApp,
   _deleteApp,
   _gitProjectSummary,
+  _shipGateModes,
+  _buildComputeSizes,
+  _appVisibilities,
+  _edgeReachabilities,
+  _deployabilities,
   _edgeToken,
   _getEdgeToken,
   _rotateEdgeToken,
@@ -632,27 +507,12 @@ export const VIBE_WIRE_TYPES_CONFORM = [
   _deployStateRef,
   _liveDeployment,
   _servedArtifact,
-  _deployStateOutcome,
   _triggerSuccess,
   _triggerArmsNonEmpty,
+  _triggerUnlisted,
   _cancelCancelled,
   _cancelAlreadyEnded,
   _cancelArmsNonEmpty,
   _triggerConfirmation,
-  _envVar,
-  _listEnvVars,
-  _cardBinding,
-  _upsertEnvVar,
-  _deleteEnvVar,
-  _auditEvent,
-  _listAuditEvents,
-  _auditTriggered,
-  _auditApprovalDecision,
-  _auditApprovalArmsNonEmpty,
-  _auditExpired,
-  _auditSuspended,
-  _auditRolledBack,
-  _auditServed,
-  _auditDiscriminants,
   _registeredTool
 ] as const;

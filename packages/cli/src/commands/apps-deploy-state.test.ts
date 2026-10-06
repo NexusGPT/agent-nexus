@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { VIBE_DEPLOY_STATE_OUTCOMES } from "../vibe-deploy-state-vocabulary";
 import type { VibeBuildWaitDto } from "../vibe-deployment-wire-types";
-import type { GetDeployStateResponse, VibeDeployStateOutcome } from "../vibe-wire-types";
+import type { GetDeployStateResponse } from "../vibe-wire-types";
 import { describeOutcome } from "./apps/deploy-state/describe-outcome";
 import { formatAge } from "./apps/deploy-state/format-age";
 import { formatServedLines } from "./apps/deploy-state/format-served-lines";
@@ -134,13 +135,7 @@ describe("formatAge — the staleness of an observation", () => {
 });
 
 describe("describeOutcome — the discriminator, with its meaning", () => {
-  const ALL: VibeDeployStateOutcome[] = [
-    "DEPLOYED",
-    "RECEIVED_NOT_DEPLOYED",
-    "NOT_RECEIVED",
-    "REF_UNKNOWN",
-    "NO_REPOSITORY"
-  ];
+  const ALL = VIBE_DEPLOY_STATE_OUTCOMES;
 
   it("gives every outcome a distinct explanation, not just a distinct word", () => {
     const described = ALL.map((o) => plain(describeOutcome(o)));
@@ -169,11 +164,15 @@ describe("describeOutcome — the discriminator, with its meaning", () => {
   });
 
   it("prints an unrecognised outcome rather than dropping it", () => {
-    // A published binary routinely talks to a newer backend. The cast is the
-    // point of the test: it simulates a value this CLI version cannot know.
-    const line = plain(describeOutcome("SOMETHING_NEW" as VibeDeployStateOutcome));
+    // A published binary routinely talks to a newer backend, and the wire type
+    // admits that value without a cast.
+    const line = plain(describeOutcome("SOMETHING_NEW"));
     expect(line).toContain("SOMETHING_NEW");
     expect(line).toContain("upgrade");
+  });
+
+  it("gives no listed outcome the unrecognised line", () => {
+    for (const outcome of ALL) expect(plain(describeOutcome(outcome))).not.toContain("upgrade");
   });
 });
 
@@ -320,6 +319,24 @@ describe("renderDeployState — the whole answer", () => {
     expect(
       render(state({ resolved: { sha: "abc1234", refName: null, from: "sha" } }), NOW)
     ).toContain("resolved from the sha you named");
+  });
+
+  it("prints a resolution it does not know as the server's word, never as one 'you named'", () => {
+    const out = render(
+      state({ resolved: { sha: "abc1234", refName: null, from: "liveDeployment" } }),
+      NOW
+    );
+    expect(out).toContain(
+      'resolved from "liveDeployment" (a resolution this CLI version does not know)'
+    );
+    expect(out).not.toContain("you named");
+  });
+
+  it("renders the rest of the answer under an outcome it does not know", () => {
+    const out = render(state({ outcome: "RECEIVED_DEPLOY_QUEUED" }), NOW);
+    expect(out).toContain("RECEIVED_DEPLOY_QUEUED");
+    expect(out).toContain("outcome not known to this CLI version");
+    expect(out).toContain("is the head of refs/heads/main");
   });
 
   it("surfaces the build's error, which is why the build job is inlined at all", () => {

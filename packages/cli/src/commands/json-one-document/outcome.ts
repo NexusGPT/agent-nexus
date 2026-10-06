@@ -66,7 +66,7 @@ export interface LeafRun {
   /** For a violation: what stdout actually was. One line, safe to print. */
   readonly detail: string;
   readonly errorOutcome: ErrorOutcome;
-  /** For an error-path defect: the first line the caller was given, on stderr. */
+  /** For an error-path defect: one line quoting the stream that holds its evidence. */
   readonly errorDetail: string;
   /** The `code` on the error document, when there was one. */
   readonly errorCode: string | undefined;

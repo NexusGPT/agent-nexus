@@ -154,7 +154,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/admin-vibe-cost-safety.ts": 307,
   "commands/admin-vibe-cron-sweeps.ts": 174,
   "commands/admin-vibe-deployment.ts": 288,
-  "commands/admin-vibe-tenant-cluster.ts": 452,
+  "commands/admin-vibe-tenant-cluster.ts": 275,
   "commands/agent-collection.ts": 179,
   "commands/agent-tool.ts": 406,
   "commands/agent.contract.generated.ts": 295,
@@ -253,8 +253,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/track-blockers.ts": 393,
   "util/version-check.ts": 677,
   "util/zip.ts": 173,
-  "vibe-wire-types.conformance.ts": 658,
-  "vibe-wire-types.ts": 745
+  "vibe-wire-types.conformance.ts": 518,
+  "vibe-wire-types.ts": 494
 };
 
 /**

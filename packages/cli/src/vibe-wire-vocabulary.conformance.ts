@@ -12,9 +12,42 @@
  * module carrying the suffix. Nothing `src/index.ts` reaches imports it.
  */
 
-import type { TApi } from "@nexus/types";
+import type { TApi, UnlistedEnumValue } from "@nexus/types";
 
 import type { Wire } from "./wire-conformance.types";
+
+/**
+ * The LISTED half of a value the contract reads leniently (`enumReadSchema`):
+ * every member but the unlisted brand. What a CLI list or `Record` keyed on the
+ * listed set is compared against — the whole read type would hold the brand, and
+ * `SameMembers` would report it as a member the CLI lacks.
+ */
+export type Listed<T> = Exclude<T, UnlistedEnumValue>;
+
+/**
+ * The arms of a read union (`z.union([Listed, z.looseObject({ … })])`) whose
+ * discriminant `D` is LISTED. A literal is never assignable to the brand, so
+ * exactly the unlisted arm is removed — and the per-arm and `NoUnmodelledArm`
+ * assertions run against the half a reader switches on.
+ */
+export type ListedArms<W, D extends string> = Exclude<W, { [K in D]: UnlistedEnumValue }>;
+
+/**
+ * The read union HAS an unlisted arm, and the CLI's twin admits every value of
+ * it. Both halves matter: a twin over an arm that does not exist would compare
+ * nothing (`never` satisfies every assignability), and a twin narrower than the
+ * arm reads a newer backend's answer as the wrong type. Assignability rather
+ * than field agreement, because both sides are open-ended — `Mirrors` compares
+ * `keyof`, and an index signature's `keyof` differs between an interface and a
+ * mapped type (the audit feed's `_auditUnlisted` makes the same choice).
+ */
+export type UnlistedArmAdmitted<Label extends string, CliUnlisted, W, D extends string> = [
+  Extract<W, { [K in D]: UnlistedEnumValue }>
+] extends [never]
+  ? [Label, "the wire union has no unlisted arm — the CLI's twin compares nothing"]
+  : [Extract<W, { [K in D]: UnlistedEnumValue }>] extends [CliUnlisted]
+    ? true
+    : [Label, "the CLI's unlisted twin does not admit every value the contract reads as unlisted"];
 
 /**
  * The Vibe operations that answer with a JSON envelope. A `responseType: "blob"`

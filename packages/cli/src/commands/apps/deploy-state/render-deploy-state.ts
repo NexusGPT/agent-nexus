@@ -40,6 +40,7 @@ import type { GetDeployStateResponse } from "../../../vibe-wire-types";
 import { colorizeStatus, paintReasonForStatus } from "../_shared/colorize-status";
 import { formatReplacedBy } from "../_shared/format-replaced-by";
 import { describeOutcome } from "./describe-outcome";
+import { describeResolvedFrom } from "./describe-resolved-from";
 import { formatInstant } from "./format-instant";
 import { formatLiveLines } from "./format-live-lines";
 import { formatServedLines } from "./format-served-lines";
@@ -55,10 +56,7 @@ import { shortSha } from "./short-sha";
 export function renderDeployState(data: GetDeployStateResponse, nowMs: number): string[] {
   const lines: string[] = [`${color.bold("Outcome".padEnd(12))}  ${describeOutcome(data.outcome)}`];
 
-  const askedBy =
-    data.resolved.from === "deployBranch"
-      ? "the app's own deploy branch"
-      : `the ${data.resolved.from} you named`;
+  const askedBy = describeResolvedFrom(data.resolved.from);
   lines.push(
     `${color.bold("Commit".padEnd(12))}  ${data.resolved.sha === null ? color.dim("— none resolved") : shortSha(data.resolved.sha)}  ${color.dim(`${nonBlankOr(data.resolved.refName, "no ref head matches this commit")} — resolved from ${askedBy}`)}`
   );

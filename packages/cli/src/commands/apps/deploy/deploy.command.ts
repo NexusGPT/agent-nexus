@@ -6,7 +6,10 @@ import { printTriggeredDeployment } from "../_shared/print-triggered-deployment"
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
 import { resolveTriggerSha } from "../_shared/resolve-trigger-sha";
 import { runDeploymentWatch } from "../_shared/run-deployment-watch";
-import { triggerDeploymentAnsweringOverage } from "../_shared/trigger-deployment-answering-overage";
+import {
+  TRIGGER_ANSWER_UNLISTED,
+  triggerDeploymentAnsweringOverage
+} from "../_shared/trigger-deployment-answering-overage";
 
 const DEPLOY_HELP = `
 Notes:
@@ -114,6 +117,8 @@ export function registerAppsDeployCommand(apps: Command, program: Command): Comm
           );
           // Nothing was created — declined, no TTY to ask, or the org's state
           // moved mid-flight. Nothing to watch, and it must not exit clean.
+          // Already printed, and the exit already set to `unmeasured` — never success.
+          if (data === TRIGGER_ANSWER_UNLISTED) return;
           if (data === null) {
             process.exitCode = 1;
             return;

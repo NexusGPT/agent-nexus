@@ -1,5 +1,12 @@
 import { color } from "../../../output";
-import { type AuditPayload, type AuditPayloadUnmodelled } from "../../../vibe-wire-types";
+import {
+  type AuditFeedPayload,
+  type AuditPayloadMalformed,
+  type AuditPayloadUnlisted,
+  type AuditPayloadUnmodelled,
+  isListedAuditPayload,
+  isMalformedAuditPayload
+} from "../../../vibe-audit-wire-types";
 import { shortenId } from "./shorten-id";
 import { truncate } from "./truncate";
 
@@ -18,7 +25,13 @@ import { truncate } from "./truncate";
  * existed a DEPLOYMENT_FAILED row printed the literal string `undefined`
  * where its reason belonged.
  */
-export function formatPayloadDetails(payload: AuditPayload): string {
+export function formatPayloadDetails(payload: AuditFeedPayload): string {
+  // A row whose stored payload did not fit its branch carries a LISTED type with
+  // none of its fields, so it is answered before the listed question is asked.
+  if (isMalformedAuditPayload(payload)) return formatMalformedDetails(payload);
+  // An event type this binary does not list has no `case` and no interface; its
+  // fields are whatever the server wrote, so it renders generically too.
+  if (!isListedAuditPayload(payload)) return formatUnmodelledDetails(payload);
   switch (payload.eventType) {
     case "DEPLOYMENT_TRIGGERED": {
       const sha = payload.triggerSha.slice(0, 7);
@@ -81,7 +94,9 @@ export const UNMODELLED_DETAIL_FIELDS = [
  * a row matters, and a blank one on DEPLOYMENT_FAILED reads as "no further
  * information exists" rather than "this printer has no case for it".
  */
-export function formatUnmodelledDetails(payload: AuditPayloadUnmodelled): string {
+export function formatUnmodelledDetails(
+  payload: AuditPayloadUnmodelled | AuditPayloadUnlisted
+): string {
   const parts: string[] = [];
   for (const field of UNMODELLED_DETAIL_FIELDS) {
     const value = payload[field];
@@ -98,4 +113,15 @@ export function formatUnmodelledDetails(payload: AuditPayloadUnmodelled): string
     );
   }
   return parts.length === 0 ? color.dim("— use --json") : parts.join(" ");
+}
+
+/**
+ * A row whose stored payload does not fit its event type: says so, and names
+ * where validation failed. The stored payload itself is in `--json`, which passes
+ * the wire envelope through unchanged.
+ */
+export function formatMalformedDetails(payload: AuditPayloadMalformed): string {
+  const { issuePaths } = payload.malformedPayload;
+  const where = issuePaths.length === 0 ? "" : ` at ${truncate(issuePaths.join(", "), 48)}`;
+  return `${color.yellow("malformed payload")}${where} ${color.dim("— use --json")}`;
 }

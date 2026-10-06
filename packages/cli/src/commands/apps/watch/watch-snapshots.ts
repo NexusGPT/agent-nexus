@@ -1,4 +1,5 @@
 import type { VibeApprovalRequestStatus } from "../../../vibe-approval-wire-types";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
 import type { VibeDeploymentDisplacerDto } from "../../../vibe-deployment-wire-types";
 import type { WatchAppVisibility, WatchEdgeReachability } from "./watch-deployment-status";
 
@@ -17,10 +18,11 @@ export interface WatchAppSnapshot {
    * Carried so the success line can say who may reach the URL it just printed.
    * Apps are created PRIVATE, so this is the difference between a 401 that
    * means "working as designed" and one that means "broken" — see
-   * `print-served-visibility.ts`.
+   * `print-served-visibility.ts`. Read leniently, like every enum on the app:
+   * a value a newer backend added is the server's word.
    */
-  visibility: WatchAppVisibility;
-  edgeReachability: WatchEdgeReachability | null;
+  visibility: WatchAppVisibility | VibeUnlistedValue;
+  edgeReachability: WatchEdgeReachability | VibeUnlistedValue | null;
   edgeReachabilityAt: string | null;
   edgeReachabilityDetail: string | null;
 }

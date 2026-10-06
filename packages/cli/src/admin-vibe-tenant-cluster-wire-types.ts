@@ -4,7 +4,9 @@
  *
  * Every one is DISCRIMINATED: the CLI must render the arm it was handed, so an
  * unmodelled arm is a silent no-op rather than an error, which is what the
- * conformance module's `NoUnmodelledArm` closes.
+ * conformance module's `NoUnmodelledArm` closes. A kind a backend newer than
+ * this binary added is read as `VibeUnlistedVariant<"kind">` — each union's
+ * `…Read` type below — and printed as the server's word, never as success.
  *
  * Split out of `admin-wire-types.ts` — one module per admin surface, the same
  * shape the Vibe tenant gates already use. Hand-declared for the reason that
@@ -15,6 +17,7 @@
  */
 
 import type { VibeTenantClusterStatus } from "./vibe-regions";
+import type { ListedDiscriminants, VibeUnlistedVariant } from "./vibe-unlisted-variant";
 
 /** Discriminated outcome of an operator-triggered provision. */
 export type VibeTenantClusterProvisionOutcome =
@@ -63,3 +66,53 @@ export type VibeTenantClusterCompleteTeardownOutcome =
   | { kind: "already_destroyed" }
   | { kind: "not_destroying"; status: VibeTenantClusterStatus }
   | { kind: "not_found" };
+
+// ============================================================
+// Read side: each union, or the server's word for a newer kind. The listed kinds
+// are a `Record` over the union, so a kind added above does not compile until it
+// is listed here — `isListedVariant` can never file a known outcome as unlisted.
+// ============================================================
+
+export type VibeTenantClusterProvisionOutcomeRead =
+  | VibeTenantClusterProvisionOutcome
+  | VibeUnlistedVariant<"kind">;
+
+export const PROVISION_OUTCOME_KINDS: ListedDiscriminants<
+  VibeTenantClusterProvisionOutcome,
+  "kind"
+> = { provisioning: true, already_active: true };
+
+export type VibeTenantClusterDisableOutcomeRead =
+  | VibeTenantClusterDisableOutcome
+  | VibeUnlistedVariant<"kind">;
+
+export const DISABLE_OUTCOME_KINDS: ListedDiscriminants<VibeTenantClusterDisableOutcome, "kind"> = {
+  retained: true,
+  already_retained: true,
+  not_found: true,
+  not_disablable: true
+};
+
+export type VibeTenantClusterForceConvergeOutcomeRead =
+  | VibeTenantClusterForceConvergeOutcome
+  | VibeUnlistedVariant<"kind">;
+
+export const FORCE_CONVERGE_OUTCOME_KINDS: ListedDiscriminants<
+  VibeTenantClusterForceConvergeOutcome,
+  "kind"
+> = {
+  forced: true,
+  already_converging: true,
+  reconcile_paused: true,
+  not_converging: true,
+  not_found: true
+};
+
+export type VibeTenantClusterCompleteTeardownOutcomeRead =
+  | VibeTenantClusterCompleteTeardownOutcome
+  | VibeUnlistedVariant<"kind">;
+
+export const COMPLETE_TEARDOWN_OUTCOME_KINDS: ListedDiscriminants<
+  VibeTenantClusterCompleteTeardownOutcome,
+  "kind"
+> = { destroyed: true, already_destroyed: true, not_destroying: true, not_found: true };

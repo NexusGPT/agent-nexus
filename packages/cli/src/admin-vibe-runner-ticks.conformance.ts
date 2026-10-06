@@ -22,6 +22,8 @@
 import type { TApi } from "@nexus/types";
 
 import type { AdminVibeBuildRunnerTickResponse } from "./admin-wire-types";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
+import type { ListedArms, UnlistedArmAdmitted } from "./vibe-wire-vocabulary.conformance";
 import {
   ARMS_AGREE,
   type ArmsAgree,
@@ -87,10 +89,26 @@ const _buildTickCompensated: ArmsAgree<
   "dispatch_failed_compensated"
 > = ARMS_AGREE;
 
+/**
+ * The LISTED half carries no kind the CLI has not modelled. Run against the
+ * listed arms only: the unlisted arm's kind is the brand, which every listed
+ * literal would otherwise be measured against.
+ */
 const _buildTickComplete: NoUnmodelledArm<
   "AdminVibeBuildRunnerTickResponse",
   AdminVibeBuildRunnerTickResponse,
-  WireBuildTick
+  ListedArms<WireBuildTick, "kind">
+> = true;
+
+/**
+ * A kind a newer backend added: the contract reads it as the server's word with
+ * every field it sent, and the printer's `VibeUnlistedVariant<"kind">` must admit it.
+ */
+const _buildTickUnlisted: UnlistedArmAdmitted<
+  "AdminVibeBuildRunnerTickResponse",
+  VibeUnlistedVariant<"kind">,
+  WireBuildTick,
+  "kind"
 > = true;
 // The module exists to be compiled. Exporting the bindings keeps `noUnusedLocals`
 // from deleting the gate by complaining about it.
@@ -102,5 +120,6 @@ export {
   _buildTickOrgAtCapacity,
   _buildTickRaceLost,
   _buildTickRegionAtCapacity,
-  _buildTickRequeued
+  _buildTickRequeued,
+  _buildTickUnlisted
 };

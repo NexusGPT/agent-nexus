@@ -4,6 +4,7 @@ import { formatBuildComputeSize } from "./format-build-compute-size";
 import { formatDeployability } from "./format-deployability";
 import { formatShipGateMode } from "./format-ship-gate-mode";
 import { formatTimestamp } from "./format-timestamp";
+import { formatUnlistedWord } from "./format-unlisted-word";
 
 /**
  * The record rows `printVibeApp` prints, one builder per section, in the order
@@ -94,8 +95,12 @@ export function presentationFields(): RecordField<VibeAppRow>[] {
       // their app is unreachable by humans when it is not.
       key: "visibility",
       label: "Visibility",
-      format: (v) =>
-        v === "PUBLIC" ? "public (no sign-in required)" : "private (sign-in or app token)"
+      // Never a two-way ternary: an unlisted visibility would read as `private`.
+      format: (v) => {
+        if (v === "PUBLIC") return "public (no sign-in required)";
+        if (v === "PRIVATE") return "private (sign-in or app token)";
+        return formatUnlistedWord(String(v), "visibility");
+      }
     }
   ];
 }
@@ -112,7 +117,8 @@ export function formatEdgeReachability(v: unknown): string {
   if (v === "ROUTED") return color.green("reachable");
   if (v === "UNAVAILABLE") return "nothing serving it yet";
   if (v === "NO_SUCH_APP") return "not published to the edge yet";
-  return color.dim("last check was inconclusive");
+  if (v === "UNKNOWN") return color.dim("last check was inconclusive");
+  return formatUnlistedWord(String(v), "verdict");
 }
 
 /** What the platform is currently doing with the app. */

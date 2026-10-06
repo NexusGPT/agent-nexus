@@ -10,7 +10,7 @@
 
 import { Command } from "commander";
 
-import { type AdminVibeBuildRunnerTickResponse } from "../admin-wire-types";
+import { type AdminVibeBuildRunnerTickReadResponse } from "../admin-vibe-runner-tick-kinds";
 import { handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";
 import { resolveAdminOpts } from "../util/admin-opts";
@@ -73,7 +73,7 @@ Outcome shapes:
     .action(async () => {
       try {
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<AdminVibeBuildRunnerTickResponse>(opts, {
+        const data = await adminRequest<AdminVibeBuildRunnerTickReadResponse>(opts, {
           method: "POST",
           path: "/api/admin/vibe/build-runner/tick",
           body: {}

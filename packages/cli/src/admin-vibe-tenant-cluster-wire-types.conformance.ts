@@ -23,6 +23,8 @@ import type {
   VibeTenantClusterDisableOutcome,
   VibeTenantClusterProvisionOutcome
 } from "./admin-vibe-tenant-cluster-wire-types";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
+import type { ListedArms, UnlistedArmAdmitted } from "./vibe-wire-vocabulary.conformance";
 import {
   ARMS_AGREE,
   type ArmsAgree,
@@ -58,10 +60,18 @@ const _provisionAlreadyActive: ArmsAgree<
   WireProvision,
   "already_active"
 > = ARMS_AGREE;
+// `NoUnmodelledArm` runs on the LISTED arms; the kind a newer backend adds is
+// the unlisted arm, which the printer's `VibeUnlistedVariant<"kind">` must admit.
 const _provisionComplete: NoUnmodelledArm<
   "VibeTenantClusterProvisionOutcome",
   VibeTenantClusterProvisionOutcome,
-  WireProvision
+  ListedArms<WireProvision, "kind">
+> = true;
+const _provisionUnlisted: UnlistedArmAdmitted<
+  "VibeTenantClusterProvisionOutcome",
+  VibeUnlistedVariant<"kind">,
+  WireProvision,
+  "kind"
 > = true;
 
 type WireDisable = Data<"AdminVibeTenantCluster", "Disable">;
@@ -93,7 +103,13 @@ const _disableNotDisablable: ArmsAgree<
 const _disableComplete: NoUnmodelledArm<
   "VibeTenantClusterDisableOutcome",
   VibeTenantClusterDisableOutcome,
-  WireDisable
+  ListedArms<WireDisable, "kind">
+> = true;
+const _disableUnlisted: UnlistedArmAdmitted<
+  "VibeTenantClusterDisableOutcome",
+  VibeUnlistedVariant<"kind">,
+  WireDisable,
+  "kind"
 > = true;
 // The module exists to be compiled. Exporting the bindings keeps `noUnusedLocals`
 // from deleting the gate by complaining about it.
@@ -103,7 +119,9 @@ export {
   _disableNotDisablable,
   _disableNotFound,
   _disableRetained,
+  _disableUnlisted,
   _provisionAlreadyActive,
   _provisionComplete,
-  _provisionProvisioning
+  _provisionProvisioning,
+  _provisionUnlisted
 };

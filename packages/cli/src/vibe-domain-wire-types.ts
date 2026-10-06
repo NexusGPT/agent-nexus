@@ -7,7 +7,15 @@
  * because custom domains are their own surface, and
  * `vibe-domain-wire-types.conformance.ts` is the gate that fails `pnpm
  * typecheck` when one of these stops matching the contract.
+ *
+ * The contract reads these leniently, so a value a newer backend added arrives
+ * as the server's word: an enum field is `Listed | VibeUnlistedValue`, and the
+ * DNS instructions carry a `VibeUnlistedVariant<"status">` arm the printer asks
+ * about before it switches.
  */
+
+import type { VibeUnlistedValue } from "./vibe-deploy-state-vocabulary";
+import type { ListedDiscriminants, VibeUnlistedVariant } from "./vibe-unlisted-variant";
 
 /** Where a custom domain is in its life. Mirrors the Prisma enum `VibeAppDomainStatus`. */
 export const VIBE_APP_DOMAIN_STATUSES = [
@@ -31,7 +39,7 @@ export type VibeAppDomainKind = (typeof VIBE_APP_DOMAIN_KINDS)[number];
  * apex, and the full name is the one no provider misreads.
  */
 export interface VibeAppDomainDnsRecordDto {
-  type: "CNAME" | "A";
+  type: "CNAME" | "A" | VibeUnlistedValue;
   name: string;
   value: string;
 }
@@ -47,12 +55,22 @@ export type VibeAppDomainDnsInstructionsDto =
   | { status: "ready"; records: VibeAppDomainDnsRecordDto[] }
   | { status: "unavailable"; reason: string };
 
+/** The instructions as read: a listed status, or the server's word for a newer one. */
+export type VibeAppDomainDnsInstructionsRead =
+  | VibeAppDomainDnsInstructionsDto
+  | VibeUnlistedVariant<"status">;
+
+export const VIBE_APP_DOMAIN_DNS_INSTRUCTION_STATUSES: ListedDiscriminants<
+  VibeAppDomainDnsInstructionsDto,
+  "status"
+> = { ready: true, unavailable: true };
+
 export interface VibeAppDomainDto {
   id: string;
   appId: string;
   host: string;
-  kind: VibeAppDomainKind;
-  status: VibeAppDomainStatus;
+  kind: VibeAppDomainKind | VibeUnlistedValue;
+  status: VibeAppDomainStatus | VibeUnlistedValue;
   /** Why the domain is in its status — what the last DNS check found. `null` when nothing to say. */
   statusReason: string | null;
   verifiedAt: string | null;
@@ -60,7 +78,7 @@ export interface VibeAppDomainDto {
   lastCheckedAt: string | null;
   createdAt: string;
   isPrimary: boolean;
-  dns: VibeAppDomainDnsInstructionsDto;
+  dns: VibeAppDomainDnsInstructionsRead;
 }
 
 export interface ListVibeAppDomainsResponse {

@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { handleError } from "../../../errors";
 import { tenantRequest } from "../../../util/tenant-http";
 import { VIBE_AUDIT_EVENT_TYPES } from "../../../vibe-audit-event-types.generated";
-import { isAuditEventType, type ListAuditEventsResponse } from "../../../vibe-wire-types";
+import { isAuditEventType, type ListAuditEventsResponse } from "../../../vibe-audit-wire-types";
 import { formatEventTypeHelp } from "../_shared/format-event-type-help";
 import { parseLimit } from "../_shared/parse-limit";
 import { printAuditEvents } from "../_shared/print-audit-events";

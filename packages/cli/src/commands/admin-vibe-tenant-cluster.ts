@@ -17,26 +17,33 @@
  * resource is missing live) — the one state the loop cannot self-correct from,
  * because HEALTHY is only observed, never driven.
  *
- * All four responses are DISCRIMINATED outcomes rather than a flat record,
- * which is why this module carries four printers instead of reusing a shared
- * one: the exhaustive `never` default in each pins the formatter to the
- * schema, so a new outcome variant fails to compile here rather than printing
- * as a blank row.
+ * All four responses are DISCRIMINATED outcomes rather than a flat record, so
+ * each has its own printer instead of a shared one — in
+ * `admin-vibe-tenant-cluster.print-lifecycle.ts` and `.print-repair.ts`, where
+ * the exhaustive `never` default pins each to the schema and a kind newer than
+ * this binary prints as the server's word.
  */
 
 import { Command } from "commander";
 
 import {
-  type VibeTenantClusterCompleteTeardownOutcome,
-  type VibeTenantClusterDisableOutcome,
-  type VibeTenantClusterForceConvergeOutcome,
-  type VibeTenantClusterProvisionOutcome
+  type VibeTenantClusterCompleteTeardownOutcomeRead,
+  type VibeTenantClusterDisableOutcomeRead,
+  type VibeTenantClusterForceConvergeOutcomeRead,
+  type VibeTenantClusterProvisionOutcomeRead
 } from "../admin-vibe-tenant-cluster-wire-types";
-import { color, printRecord } from "../output";
 import { AdminCliError, handleAdminError } from "../util/admin-errors";
 import { adminRequest } from "../util/admin-http";
 import { resolveAdminOpts } from "../util/admin-opts";
 import { isVibeAllowedRegion, VIBE_ALLOWED_REGIONS } from "../vibe-regions";
+import {
+  printDisableOutcome,
+  printProvisionOutcome
+} from "./admin-vibe-tenant-cluster.print-lifecycle";
+import {
+  printCompleteTeardownOutcome,
+  printForceConvergeOutcome
+} from "./admin-vibe-tenant-cluster.print-repair";
 
 export function registerVibeTenantClusterCommands(admin: Command, program: Command): void {
   const tc = admin
@@ -85,7 +92,7 @@ Notes:
         }
 
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<VibeTenantClusterProvisionOutcome>(opts, {
+        const data = await adminRequest<VibeTenantClusterProvisionOutcomeRead>(opts, {
           method: "POST",
           path: "/api/admin/vibe/tenant-cluster/provision",
           body: { organizationId, region }
@@ -124,7 +131,7 @@ Notes:
     .action(async (organizationId: string) => {
       try {
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<VibeTenantClusterDisableOutcome>(opts, {
+        const data = await adminRequest<VibeTenantClusterDisableOutcomeRead>(opts, {
           method: "POST",
           path: "/api/admin/vibe/tenant-cluster/disable",
           body: { organizationId }
@@ -188,7 +195,7 @@ Notes:
         }
 
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<VibeTenantClusterForceConvergeOutcome>(opts, {
+        const data = await adminRequest<VibeTenantClusterForceConvergeOutcomeRead>(opts, {
           method: "POST",
           path: "/api/admin/vibe/tenant-cluster/force-converge",
           body: { organizationId, reason }
@@ -255,7 +262,7 @@ Notes:
         }
 
         const opts = resolveAdminOpts(program, admin);
-        const data = await adminRequest<VibeTenantClusterCompleteTeardownOutcome>(opts, {
+        const data = await adminRequest<VibeTenantClusterCompleteTeardownOutcomeRead>(opts, {
           method: "POST",
           path: "/api/admin/vibe/tenant-cluster/complete-teardown",
           body: { organizationId, confirmation }
@@ -265,188 +272,4 @@ Notes:
         process.exitCode = handleAdminError(err);
       }
     });
-}
-
-// Both outcome printers forward the raw `data` dict to printRecord, which
-// dumps it verbatim under --json — so the wire contract (the discriminated
-// outcome) reaches stdout unchanged for `jq` consumers. TTY mode formats the
-// labelled fields per variant. The exhaustive `never` default pins each
-// formatter to the schema: a new outcome variant fails to compile here.
-
-function printProvisionOutcome(data: VibeTenantClusterProvisionOutcome): void {
-  const raw: Record<string, unknown> = data;
-  switch (data.kind) {
-    case "provisioning": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.green("provisioning") },
-        {
-          key: "reprovisioned",
-          label: "Reprovisioned",
-          format: (v) => (v ? "yes (re-opted-in from a retired cluster)" : "no")
-        }
-      ]);
-      return;
-    }
-    case "already_active": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.dim("already_active (no-op)") },
-        { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled provision outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
-}
-
-function printDisableOutcome(data: VibeTenantClusterDisableOutcome): void {
-  const raw: Record<string, unknown> = data;
-  switch (data.kind) {
-    case "retained": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.green("retained (DISABLED_RETAINED)")
-        },
-        { key: "retainUntil", label: "Reaper eligible" }
-      ]);
-      return;
-    }
-    case "already_retained": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.dim("already_retained (no-op)") }
-      ]);
-      return;
-    }
-    case "not_found": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.yellow("not_found (org has no dedicated cluster)")
-        }
-      ]);
-      return;
-    }
-    case "not_disablable": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.red("not_disablable") },
-        { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled disable outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
-}
-
-function printForceConvergeOutcome(data: VibeTenantClusterForceConvergeOutcome): void {
-  const raw: Record<string, unknown> = data;
-  switch (data.kind) {
-    case "forced": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.green("forced (HEALTHY → DEGRADED)") },
-        { key: "reason", label: "Recorded reason" }
-      ]);
-      return;
-    }
-    case "already_converging": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () =>
-            color.dim("already_converging (no-op — the reconcile loop already retries this)")
-        },
-        { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    case "reconcile_paused": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.yellow("reconcile_paused (refused — release the pause first)")
-        },
-        { key: "status", label: "Status" },
-        {
-          key: "pausedReason",
-          label: "Paused because",
-          format: (v) => (v == null ? color.dim("—") : String(v))
-        }
-      ]);
-      return;
-    }
-    case "not_converging": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.red("not_converging (refused)") },
-        { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    case "not_found": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.yellow("not_found (org has no dedicated cluster)")
-        }
-      ]);
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled force-converge outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
-}
-
-function printCompleteTeardownOutcome(data: VibeTenantClusterCompleteTeardownOutcome): void {
-  const raw: Record<string, unknown> = data;
-  switch (data.kind) {
-    case "destroyed": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.green("destroyed (DESTROYING → DESTROYED)")
-        },
-        { key: "confirmation", label: "Recorded confirmation" }
-      ]);
-      return;
-    }
-    case "already_destroyed": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.dim("already_destroyed (no-op)") }
-      ]);
-      return;
-    }
-    case "not_destroying": {
-      printRecord(raw, [
-        { key: "kind", label: "Outcome", format: () => color.red("not_destroying (refused)") },
-        { key: "status", label: "Status" }
-      ]);
-      return;
-    }
-    case "not_found": {
-      printRecord(raw, [
-        {
-          key: "kind",
-          label: "Outcome",
-          format: () => color.yellow("not_found (org has no dedicated cluster)")
-        }
-      ]);
-      return;
-    }
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`Unhandled complete-teardown outcome: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
 }

@@ -1,4 +1,5 @@
 import { color } from "../../../output";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
 import {
   VIBE_ENV_VAR_SCOPES,
   type VibeAppCardBindingDto,
@@ -6,6 +7,7 @@ import {
   type VibeEnvVarScope
 } from "../../../vibe-wire-types";
 import { formatTimestamp } from "./format-timestamp";
+import { formatUnlistedWord } from "./format-unlisted-word";
 import { truncate } from "./truncate";
 
 /**
@@ -21,7 +23,7 @@ export interface EnvTableRow {
   value: string;
   source: string;
   card: string;
-  scope: VibeEnvVarScope;
+  scope: VibeEnvVarScope | VibeUnlistedValue;
   status: string;
   updatedAt: string;
 }
@@ -51,7 +53,7 @@ export function formatCardStatus(binding: VibeAppCardBindingDto): string {
   if (binding.status === "PAUSED") return color.yellow("paused");
   if (binding.status === "REVOKED") return color.red("revoked");
   if (binding.status === "EXPIRED") return color.red("expired");
-  return color.yellow("state this CLI does not understand");
+  return formatUnlistedWord(binding.status, "state");
 }
 
 /**
@@ -109,6 +111,7 @@ export function toCardBindingRow(binding: VibeAppCardBindingDto): EnvTableRow {
  * is the right direction for the same version-skew reason as the formatters
  * above: an unrecognised row must be conspicuous, never buried.
  */
-export function scopeRank(scope: VibeEnvVarScope): number {
-  return VIBE_ENV_VAR_SCOPES.indexOf(scope);
+export function scopeRank(scope: VibeEnvVarScope | VibeUnlistedValue): number {
+  const listed: readonly string[] = VIBE_ENV_VAR_SCOPES;
+  return listed.indexOf(scope);
 }

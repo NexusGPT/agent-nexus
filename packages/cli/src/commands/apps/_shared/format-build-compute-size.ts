@@ -1,5 +1,8 @@
 import { color } from "../../../output";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
+import { isListedKey } from "../../../vibe-unlisted-variant";
 import { type VibeBuildComputeSize } from "../../../vibe-wire-types";
+import { formatUnlistedWord } from "./format-unlisted-word";
 
 /**
  * The `Build size` line, one per size. A `Record` keyed by the union, so a size
@@ -16,10 +19,12 @@ export const BUILD_COMPUTE_SIZE_LINES: Record<VibeBuildComputeSize, string> = {
  * echoed rather than mapped, and an absent one (a backend predating the field)
  * is unreported, never `large`.
  */
-export function formatBuildComputeSize(size: VibeBuildComputeSize | undefined): string {
+export function formatBuildComputeSize(
+  size: VibeBuildComputeSize | VibeUnlistedValue | undefined
+): string {
   if (size === undefined) return color.dim("not reported by this server");
-  if (!Object.prototype.hasOwnProperty.call(BUILD_COMPUTE_SIZE_LINES, size)) {
-    return color.yellow(String(size)) + color.dim(" — a size this CLI version does not know");
+  if (!isListedKey(BUILD_COMPUTE_SIZE_LINES, size)) {
+    return formatUnlistedWord(size, "size");
   }
   return BUILD_COMPUTE_SIZE_LINES[size];
 }

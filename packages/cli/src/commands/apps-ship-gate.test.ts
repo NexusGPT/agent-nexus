@@ -99,8 +99,7 @@ describe("formatShipGateMode — the three states are three lines", () => {
   it("echoes a mode this binary has never heard of instead of mapping it", () => {
     // The CLI ships standalone and is pointed at NEWER backends. A fourth mode
     // rendered as one of the three known ones is the same lie one version on.
-    // @ts-expect-error — deliberately a value outside the union, which is what a
-    // newer backend can send to an installed binary.
+    // The parameter admits it by type: an unlisted mode is the server's word.
     const line = formatShipGateMode("BLOCK_AND_PAGE");
     expect(line).toContain("BLOCK_AND_PAGE");
     expect(line).not.toMatch(/\boff\b/);

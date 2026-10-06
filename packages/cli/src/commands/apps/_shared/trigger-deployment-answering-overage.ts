@@ -1,9 +1,24 @@
 import { reportFailure } from "../../../errors";
 import { isJsonMode } from "../../../output";
 import { type TenantHttpOptions, tenantRequest } from "../../../util/tenant-http";
+import {
+  TRIGGER_DEPLOYMENT_STATUSES,
+  type TriggerDeploymentReadResponse
+} from "../../../vibe-trigger-deployment-read";
+import { isListedVariant } from "../../../vibe-unlisted-variant";
 import { type TriggerDeploymentResponse } from "../../../vibe-wire-types";
+import { printUnlistedOutcome } from "../../print-unlisted-outcome";
 import { confirmOverageInteractively } from "./confirm-overage-interactively";
 import { printTriggeredDeployment } from "./print-triggered-deployment";
+
+/**
+ * What the trigger answered when the answer is a status this binary does not
+ * list. It has ALREADY been printed — the server's word in a terminal, the body
+ * as received under `--json` — and the exit set to `unmeasured`: the backend may
+ * well have accepted the deploy, and a binary that cannot read the answer can
+ * neither report it as triggered nor hand back a deployment to watch.
+ */
+export const TRIGGER_ANSWER_UNLISTED = Symbol("a trigger answer this binary does not list");
 
 /**
  * Trigger a deployment and carry the org's spend question through to an answer.
@@ -35,9 +50,13 @@ export async function triggerDeploymentAnsweringOverage(
   confirmedUpfront: boolean,
   forceRebuild = false,
   skipVerification = false
-): Promise<Extract<TriggerDeploymentResponse, { status: "created" | "reused" }> | null> {
-  const send = async (confirmOverage: boolean): Promise<TriggerDeploymentResponse> =>
-    tenantRequest<TriggerDeploymentResponse>(opts, {
+): Promise<
+  | Extract<TriggerDeploymentResponse, { status: "created" | "reused" }>
+  | null
+  | typeof TRIGGER_ANSWER_UNLISTED
+> {
+  const send = async (confirmOverage: boolean): Promise<TriggerDeploymentReadResponse> =>
+    tenantRequest<TriggerDeploymentReadResponse>(opts, {
       method: "POST",
       path: `/api/vibe/apps/${encodeURIComponent(appId)}/deployments`,
       // `forceRebuild` and `skipVerification` ride EVERY send, including the
@@ -48,12 +67,22 @@ export async function triggerDeploymentAnsweringOverage(
       body: { triggerSha, confirmOverage, forceRebuild, skipVerification }
     });
 
-  let data = await send(confirmedUpfront);
+  const first = await send(confirmedUpfront);
+  if (!isListedVariant("status", TRIGGER_DEPLOYMENT_STATUSES, first)) {
+    printUnlistedOutcome("status", first);
+    return TRIGGER_ANSWER_UNLISTED;
+  }
+  let data: TriggerDeploymentResponse = first;
 
   if (data.status === "confirmation_required") {
     const answered = await confirmOverageInteractively(data, rerun);
     if (!answered) return null;
-    data = await send(true);
+    const resent = await send(true);
+    if (!isListedVariant("status", TRIGGER_DEPLOYMENT_STATUSES, resent)) {
+      printUnlistedOutcome("status", resent);
+      return TRIGGER_ANSWER_UNLISTED;
+    }
+    data = resent;
     // A confirmed re-send that still asks means the org's state moved
     // mid-flight. Nothing was created, so this must not exit clean.
     if (data.status === "confirmation_required") {

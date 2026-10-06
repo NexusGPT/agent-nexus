@@ -4,6 +4,7 @@ import {
   type VibeApprovalDecisionDto
 } from "../../../vibe-approval-wire-types";
 import { formatTimestamp } from "./format-timestamp";
+import { formatUnlistedWord } from "./format-unlisted-word";
 import { printApprovalRequest } from "./print-approval-request";
 import { truncate } from "./truncate";
 
@@ -14,7 +15,13 @@ export function printDecisionTable(decisions: VibeApprovalDecisionDto[]): void {
   }
   console.log(color.bold("\nDecisions"));
   const rows = decisions.map((d) => ({
-    decision: d.decision === "APPROVE" ? color.green(d.decision) : color.red(d.decision),
+    // Three ways, never two: a decision kind a newer backend added is neither.
+    decision:
+      d.decision === "APPROVE"
+        ? color.green(d.decision)
+        : d.decision === "REJECT"
+          ? color.red(d.decision)
+          : formatUnlistedWord(d.decision, "decision"),
     decidedBy: d.decidedByUserId ?? color.dim("(deleted user)"),
     note: d.note === null ? color.dim("—") : truncate(d.note.replace(/\s+/g, " "), 48),
     decidedAt: formatTimestamp(d.decidedAt)

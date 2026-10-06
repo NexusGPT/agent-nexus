@@ -35,15 +35,12 @@
  */
 
 import type { VibeApprovalRequestDto } from "./vibe-approval-wire-types";
-import {
-  VIBE_AUDIT_EVENT_TYPES,
-  type VibeAuditEventType
-} from "./vibe-audit-event-types.generated";
+import type {
+  VibeDeployStateOutcome,
+  VibeDeployStateResolvedFrom,
+  VibeUnlistedValue
+} from "./vibe-deploy-state-vocabulary";
 import type { VibeBuildJobDto, VibeDeploymentDto } from "./vibe-deployment-wire-types";
-
-// ============================================================
-// Audit feed — mirrors audit-events.schemas.ts.
-// ============================================================
 
 /**
  * Mirrors `VIBE_APP_DEFAULT_CONTAINER_PORT` in
@@ -56,129 +53,6 @@ import type { VibeBuildJobDto, VibeDeploymentDto } from "./vibe-deployment-wire-
  * server-side. So a drift here misprints a hint; it cannot mis-deploy.
  */
 export const VIBE_DEFAULT_CONTAINER_PORT = 8080;
-
-export function isAuditEventType(v: string): v is VibeAuditEventType {
-  return (VIBE_AUDIT_EVENT_TYPES as readonly string[]).includes(v);
-}
-
-export interface AuditPayloadDeploymentTriggered {
-  eventType: "DEPLOYMENT_TRIGGERED";
-  vibeDeploymentId: string;
-  triggerSha: string;
-  approvalGated: boolean;
-  /**
-   * What kicked the deploy off. Optional on the wire and therefore here: rows
-   * written before the field existed carry no source, and absent means "predates
-   * the field", never "unknown source".
-   *
-   * This file did not declare it at all until the conformance gate compared the
-   * two — so `vibe audit list` could not answer the question the field was added
-   * for, "why did this app deploy twice for one commit".
-   */
-  triggerSource?: "GIT_PUSH" | "CLI" | "CONSOLE";
-}
-export interface AuditPayloadApprovalDecision {
-  eventType: "DEPLOYMENT_APPROVED" | "DEPLOYMENT_REJECTED";
-  vibeApprovalRequestId: string;
-  vibeDeploymentId: string;
-  deciderUserId: string;
-  decisive: boolean;
-  note: string | null;
-}
-export interface AuditPayloadApprovalExpired {
-  eventType: "APPROVAL_EXPIRED";
-  vibeApprovalRequestId: string;
-  vibeDeploymentId: string;
-}
-export interface AuditPayloadCostSafetyAutoSuspended {
-  eventType: "COST_SAFETY_AUTO_SUSPENDED";
-  /**
-   * `VIBE_BACKUP_MIN` was missing here while the wire enum has carried four
-   * values. A suspension on backup minutes would have arrived as a value this
-   * union says is impossible — the CLI still prints it, because nothing
-   * validates at runtime, but any narrowing written against these three would
-   * have silently dropped the one event that says why an app stopped.
-   */
-  usageType: "VIBE_COMPUTE_MIN" | "VIBE_BUILD_MIN" | "VIBE_EGRESS_MB" | "VIBE_BACKUP_MIN";
-  breachedSum: number;
-  effectiveCap: number;
-  billingPeriod: string;
-}
-export interface AuditPayloadDeploymentRolledBack {
-  eventType: "DEPLOYMENT_ROLLED_BACK_COST_SAFETY";
-  vibeDeploymentId: string;
-  priorStatus: "BUILDING" | "AWAITING_APPROVAL" | "DEPLOYING" | "HEALTHY";
-  triggerSha: string;
-  suspendedReason: string | null;
-}
-
-/**
- * The terminal "it is actually live" — written when the app's public URL was
- * observed answering FROM this deployment.
- *
- * `DEPLOYMENT_HEALTHY` does not mean that and cannot: it is the allocation's
- * verdict and lands before the edge swaps content, by up to whole minutes. This
- * is the event to poll for after a `nexus vibe deploy`; polling HEALTHY reads
- * the previous build and looks like the wrong code shipped.
- */
-export interface AuditPayloadDeploymentServed {
-  eventType: "DEPLOYMENT_SERVED";
-  vibeDeploymentId: string;
-  triggerSha: string;
-  imageRef: string;
-  color: "BLUE" | "GREEN";
-  /// Milliseconds from the healthy flip to this observation. An UPPER bound —
-  /// the probe samples on a tick, so it notices the swap some time after it
-  /// happened.
-  healthyToServedMs: number;
-}
-
-/** The event types this file declares a payload interface for. */
-export type ModelledAuditPayload =
-  | AuditPayloadDeploymentTriggered
-  | AuditPayloadApprovalDecision
-  | AuditPayloadApprovalExpired
-  | AuditPayloadCostSafetyAutoSuspended
-  | AuditPayloadDeploymentRolledBack
-  | AuditPayloadDeploymentServed;
-
-/**
- * Every OTHER event type the feed emits — 28 of the 34, at the time of
- * writing — whose payload this file does not mirror field by field.
- *
- * They are not hypothetical and never were: the feed has always returned them
- * and `vibe audit list` has always printed them. Leaving them out of the union
- * did not keep them out of the output, it only left the printer believing the
- * `switch` below was exhaustive — so an unmodelled row fell off the end of
- * every `case` and printed the literal string `undefined` in its details
- * column.
- *
- * Modelling them as a rest arm rather than 28 more interfaces is deliberate.
- * The interfaces above exist because their fields are rendered SPECIFICALLY;
- * these are rendered generically by `formatUnmodelledDetails`, so an interface
- * per type would be 28 declarations no reader consults and no code narrows on.
- * Promote one the moment its details column deserves its own `case`.
- */
-export interface AuditPayloadUnmodelled {
-  eventType: Exclude<VibeAuditEventType, ModelledAuditPayload["eventType"]>;
-  [field: string]: unknown;
-}
-
-export type AuditPayload = ModelledAuditPayload | AuditPayloadUnmodelled;
-
-export interface VibeAuditEvent {
-  id: string;
-  organizationId: string;
-  actorUserId: string | null;
-  vibeAppId: string | null;
-  payload: AuditPayload;
-  createdAt: string;
-}
-
-export interface ListAuditEventsResponse {
-  events: VibeAuditEvent[];
-  nextCursor: string | null;
-}
 
 /**
  * The registered-tool detail returned by the register-as-tool bridge.
@@ -220,6 +94,17 @@ export type VibeShipGateMode = "OFF" | "WARN" | "ENFORCE";
  */
 export type VibeBuildComputeSize = "MEDIUM" | "LARGE";
 
+/** Who may reach the app's public URL. Mirrors the Prisma enum `VibeAppVisibility`. */
+export type VibeAppVisibility = "PRIVATE" | "PUBLIC";
+
+/** What the tenant's edge last said about the app's public host. Mirrors `VibeAppEdgeReachability`. */
+export type VibeAppEdgeReachability =
+  | "ROUTED"
+  | "UNROUTED"
+  | "UNAVAILABLE"
+  | "NO_SUCH_APP"
+  | "UNKNOWN";
+
 /**
  * A Vibe app, mirroring `VibeAppSchema` in
  * packages/types/src/api/domains/vibe/schemas/core.ts. Keep in lockstep
@@ -243,7 +128,7 @@ export interface VibeAppDto {
    * absent value is UNREPORTED, never `OFF` — printing the default here would
    * reproduce, one layer down, the exact defect that made this field render.
    */
-  shipGateMode?: VibeShipGateMode;
+  shipGateMode?: VibeShipGateMode | VibeUnlistedValue;
   deployBranch: string;
   resourceQuotas: { cpuMhz: number; memoryMiB: number; maxInstances: number };
   /**
@@ -251,16 +136,16 @@ export interface VibeAppDto {
    * OPTIONAL for the reason `shipGateMode` is: a backend one release behind
    * omits it, and absent is UNREPORTED, never `LARGE`.
    */
-  buildComputeSize?: VibeBuildComputeSize;
+  buildComputeSize?: VibeBuildComputeSize | VibeUnlistedValue;
   healthCheckConfig: Record<string, unknown>;
   publicUrl: string | null;
-  visibility: "PRIVATE" | "PUBLIC";
+  visibility: VibeAppVisibility | VibeUnlistedValue;
   /**
    * What the tenant's edge last said about this app's public host. `null` means
    * NEVER OBSERVED — the probe only asks about a healthy, settled deployment —
    * and must never be printed as if it meant healthy.
    */
-  edgeReachability: "ROUTED" | "UNROUTED" | "UNAVAILABLE" | "NO_SUCH_APP" | "UNKNOWN" | null;
+  edgeReachability: VibeAppEdgeReachability | VibeUnlistedValue | null;
   edgeReachabilityAt: string | null;
   edgeReachabilityDetail: string | null;
   createdByUserId: string | null;
@@ -303,7 +188,7 @@ export interface VibeAppGitProjectSummaryDto {
  * printer takes them as a separate argument.
  */
 export interface VibeAppEnvelopeExtras {
-  deployability: VibeAppDeployability;
+  deployability: VibeAppDeployability | VibeUnlistedValue;
   gitProject: VibeAppGitProjectSummaryDto | null;
 }
 
@@ -529,24 +414,6 @@ export interface GetDeploymentResponse {
 // schema it copies, and the two that are easy to misread are re-documented here
 // because this file is what the renderer reads.
 
-/**
- * What became of a commit, as ONE value to branch on.
- *
- * A union rather than `string` because the renderer switches on it and the
- * compiler should refuse a missing arm. The renderer still carries a fallback
- * for an unrecognised value — a published binary routinely talks to a backend
- * newer than itself, and printing the raw word beats printing nothing.
- */
-export type VibeDeployStateOutcome =
-  | "DEPLOYED"
-  | "RECEIVED_NOT_DEPLOYED"
-  | "NOT_RECEIVED"
-  | "REF_UNKNOWN"
-  | "NO_REPOSITORY";
-
-/** Which of the three ways of asking produced the commit under question. */
-export type VibeDeployStateResolvedFrom = "sha" | "ref" | "deployBranch";
-
 /** A branch or tag head as the platform recorded it — the receipt for a push. */
 export interface VibeRefDto {
   id: string;
@@ -592,138 +459,19 @@ export interface VibeServedArtifactDto {
   healthyToServedMs: number;
 }
 
+/** `outcome` and `resolved.from` can carry a value this binary does not list — see `VibeUnlistedValue`. */
 export interface GetDeployStateResponse {
-  outcome: VibeDeployStateOutcome;
+  outcome: VibeDeployStateOutcome | VibeUnlistedValue;
   resolved: {
     sha: string | null;
     refName: string | null;
-    from: VibeDeployStateResolvedFrom;
+    from: VibeDeployStateResolvedFrom | VibeUnlistedValue;
   };
   ref: VibeRefDto | null;
   deployment: VibeDeploymentDto | null;
   buildJob: VibeBuildJobDto | null;
   live: VibeLiveDeploymentDto | null;
   served: VibeServedArtifactDto | null;
-}
-
-// Env vars — mirror packages/types/src/api/domains/vibe/schemas/
-// env-vars.schemas.ts. Scope + name shape are validated locally before
-// the HTTP call so a typo surfaces without a round-trip; the backend's
-// Zod boundary re-validates either way.
-export const VIBE_ENV_VAR_SCOPES = ["ALL", "PROD", "STAGING"] as const;
-export type VibeEnvVarScope = (typeof VIBE_ENV_VAR_SCOPES)[number];
-
-export function isVibeEnvVarScope(v: string): v is VibeEnvVarScope {
-  return (VIBE_ENV_VAR_SCOPES as readonly string[]).includes(v);
-}
-
-export interface VibeAppEnvVarDto {
-  id: string;
-  vibeAppId: string;
-  organizationId: string;
-  name: string;
-  value: string;
-  scope: VibeEnvVarScope;
-  createdByUserId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Card bindings — mirror packages/types/src/api/domains/vibe/schemas/
-// card-bindings.schemas.ts.
-
-/**
- * How an imported access card is DELIVERED into the app's environment.
- * Mirrors the Prisma enum `VibeCardProjection`.
- *
- * Only `HANDLE` is selectable on the write path: the app reads an address and
- * the credential never enters its process. The other three name delivery paths
- * that do put material at or near the app, and each ships behind its own
- * enforcement — they are carried here so a row written by a newer backend
- * renders as a known name rather than an unrecognised string.
- */
-export type VibeCardProjection = "HANDLE" | "SENTINEL" | "AMBIENT" | "LEASED_TOKEN";
-
-/**
- * Whether the app may use the card RIGHT NOW.
- *
- * DERIVED server-side from the grant's status and the card's own lifecycle
- * columns, never stored, so this CLI does not re-derive "revoked" from a
- * timestamp and reach a different answer than the deployer does.
- *
- * Only `ACTIVE` projects. Every other value means the next deployment refuses
- * this entry and names it — which is why the status is a column and not a
- * detail behind `--json`.
- */
-export type VibeCardBindingStatus =
-  | "ACTIVE"
-  | "PENDING_APPROVAL"
-  | "PAUSED"
-  | "REVOKED"
-  | "EXPIRED";
-
-/**
- * One access card imported into one app's environment under one NAME.
- *
- * READ-ONLY over this transport, by the route's shape rather than by a check:
- * importing a card delegates a human's credential authority, so the create /
- * update / delete routes accept no API key at all — and an API key is the only
- * credential this CLI holds. Cards are imported from the console; the CLI shows
- * what was imported, which is what a deployment will actually see.
- */
-export interface VibeAppCardBindingDto {
-  id: string;
-  vibeAppId: string;
-  organizationId: string;
-  /** The environment variable name the app reads. Same grammar as a literal. */
-  name: string;
-  scope: VibeEnvVarScope;
-  /**
-   * `nxc_<grantId>` — the value the app reads out of its environment.
-   *
-   * An ADDRESS, not a bearer: presenting it proves nothing, because the broker
-   * re-authorizes the calling app's own identity on every call. Printing it in
-   * full is therefore safe, and is the point — it is exactly what the app sees.
-   */
-  handle: string;
-  projection: VibeCardProjection;
-  status: VibeCardBindingStatus;
-  accessCardId: string;
-  /** The card's name, as its owner wrote it. */
-  accessCardName: string;
-  /** The credential the card attenuates, so the reader knows whose authority this is. */
-  credentialName: string;
-  /** How many actions the card permits. A COUNT — never the policy itself. */
-  allowedActionCount: number;
-  /** The owner's daily tolerance and what is left of it. `null` = uncapped. */
-  quotaPerDay: number | null;
-  quotaRemaining: number | null;
-  createdByUserId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ListEnvVarsResponse {
-  envVars: VibeAppEnvVarDto[];
-  /**
-   * Access cards imported into this app's environment.
-   *
-   * ABSENT — not empty — on a backend that predates card brokering, which is
-   * why it is optional: this CLI ships standalone to npm and is routinely
-   * pointed at a backend older than itself. Absent means "this server has
-   * nothing to say about cards"; `[]` means "it does, and this app has none".
-   * Rendering both as an empty section would assert the second when only the
-   * first is true.
-   */
-  cardBindings?: VibeAppCardBindingDto[];
-}
-
-export interface UpsertEnvVarResponse {
-  envVar: VibeAppEnvVarDto;
-}
-
-export interface DeleteEnvVarResponse {
-  deletedId: string;
 }
 
 // Per-project git credential (`VibeGitProjectCredentialsSchema`), pinned by the conformance file.
@@ -741,5 +489,6 @@ export interface GetGitProjectCredentialsResponse {
   credentials: VibeGitProjectCredentialsDto;
 }
 
-// Runtime logs live in their own module; re-exported so every import site is unchanged.
+// Logs and the environment live in their own modules; re-exported so import sites are unchanged.
+export * from "./vibe-env-wire-types";
 export * from "./vibe-log-wire-types";

@@ -1,12 +1,19 @@
 /**
  * Prints one build-runner tick outcome for `nexus admin vibe-build-runner tick`.
  *
- * The `never` fallthrough is what pins it to the schema: a new tick outcome
- * variant lands as a TypeScript error here rather than a silent default.
+ * A kind this binary does not list prints as the server's word and exits
+ * `unmeasured`; on the listed half, the `never` fallthrough pins the printer to
+ * the schema, so a newly listed kind lands as a TypeScript error here.
  */
 
+import {
+  type AdminVibeBuildRunnerTickReadResponse,
+  BUILD_RUNNER_TICK_KINDS
+} from "../admin-vibe-runner-tick-kinds";
 import { type AdminVibeBuildRunnerTickResponse } from "../admin-wire-types";
 import { color, printRecord } from "../output";
+import { isListedVariant } from "../vibe-unlisted-variant";
+import { printUnlistedOutcome } from "./print-unlisted-outcome";
 
 /** One member of the tick union, selected by its discriminant. */
 type TickOutcome<K extends AdminVibeBuildRunnerTickResponse["kind"]> = Extract<
@@ -14,10 +21,11 @@ type TickOutcome<K extends AdminVibeBuildRunnerTickResponse["kind"]> = Extract<
   { kind: K }
 >;
 
-export function printTickRecord(data: AdminVibeBuildRunnerTickResponse): void {
-  // The discriminated union narrows to flat fields per variant. The
-  // never-fallthrough check pins the formatter to the schema — any
-  // future variant lands as a TS error here, not a silent default.
+export function printTickRecord(data: AdminVibeBuildRunnerTickReadResponse): void {
+  if (!isListedVariant("kind", BUILD_RUNNER_TICK_KINDS, data)) {
+    printUnlistedOutcome("kind", data);
+    return;
+  }
   switch (data.kind) {
     case "idle": {
       printRecord({ outcome: color.dim("idle (no PENDING jobs)") }, [

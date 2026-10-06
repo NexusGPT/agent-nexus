@@ -16,10 +16,16 @@ export function printDomainAdded(data: AddVibeAppDomainResponse): void {
   );
   console.log("");
   printDomainDnsInstructions(domain.dns);
-  console.log("");
-  console.log(
-    domain.dns.status === "ready"
-      ? `Next: once the record resolves, run  nexus apps domains verify ${domain.appId} ${domain.host}`
-      : `Next: run  nexus apps domains list ${domain.appId}  later — the records appear there once they can be given.`
-  );
+  // No next step for a status this binary does not list: it cannot say which applies.
+  if (domain.dns.status === "ready") {
+    console.log("");
+    console.log(
+      `Next: once the record resolves, run  nexus apps domains verify ${domain.appId} ${domain.host}`
+    );
+  } else if (domain.dns.status === "unavailable") {
+    console.log("");
+    console.log(
+      `Next: run  nexus apps domains list ${domain.appId}  later — the records appear there once they can be given.`
+    );
+  }
 }

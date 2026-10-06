@@ -1,5 +1,7 @@
 import { color } from "../../../output";
 import { type VibeAuditEventType } from "../../../vibe-audit-event-types.generated";
+import { isAuditEventType } from "../../../vibe-audit-wire-types";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
 
 /** How an event reads at a glance, driving only its colour in the table. */
 export type AuditEventTone = "failure" | "warning" | "success" | "neutral";
@@ -80,7 +82,13 @@ export const AUDIT_EVENT_TONE: Record<VibeAuditEventType, AuditEventTone> = {
   CARD_BINDING_REMOVED: "neutral"
 };
 
-export function colorizeEventType(t: VibeAuditEventType): string {
+/**
+ * An event type this binary does not list prints as the server's own word with a
+ * dim note, never as `undefined`: the tone map has no entry for it, and a backend
+ * newer than the binary routinely sends one.
+ */
+export function colorizeEventType(t: VibeAuditEventType | VibeUnlistedValue): string {
+  if (!isAuditEventType(t)) return `${t} ${color.dim("(not known to this CLI version)")}`;
   switch (AUDIT_EVENT_TONE[t]) {
     case "failure":
       return color.red(t);

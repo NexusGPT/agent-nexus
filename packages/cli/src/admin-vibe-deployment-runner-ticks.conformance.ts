@@ -22,6 +22,8 @@
 import type { TApi } from "@nexus/types";
 
 import type { AdminVibeDeploymentRunnerTickResponse } from "./admin-wire-types";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
+import type { ListedArms, UnlistedArmAdmitted } from "./vibe-wire-vocabulary.conformance";
 import {
   ARMS_AGREE,
   type ArmsAgree,
@@ -75,10 +77,26 @@ const _deployTickDisplaced: ArmsAgree<
   "displaced"
 > = ARMS_AGREE;
 
+/**
+ * The LISTED half carries no kind the CLI has not modelled. Run against the
+ * listed arms only: the unlisted arm's kind is the brand, which every listed
+ * literal would otherwise be measured against.
+ */
 const _deployTickComplete: NoUnmodelledArm<
   "AdminVibeDeploymentRunnerTickResponse",
   AdminVibeDeploymentRunnerTickResponse,
-  WireDeployTick
+  ListedArms<WireDeployTick, "kind">
+> = true;
+
+/**
+ * A kind a newer backend added: the contract reads it as the server's word with
+ * every field it sent, and the printer's `VibeUnlistedVariant<"kind">` must admit it.
+ */
+const _deployTickUnlisted: UnlistedArmAdmitted<
+  "AdminVibeDeploymentRunnerTickResponse",
+  VibeUnlistedVariant<"kind">,
+  WireDeployTick,
+  "kind"
 > = true;
 // The module exists to be compiled. Exporting the bindings keeps `noUnusedLocals`
 // from deleting the gate by complaining about it.
@@ -88,5 +106,6 @@ export {
   _deployTickDispatched,
   _deployTickDisplaced,
   _deployTickIdle,
-  _deployTickTimedOut
+  _deployTickTimedOut,
+  _deployTickUnlisted
 };

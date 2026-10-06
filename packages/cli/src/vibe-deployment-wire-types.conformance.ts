@@ -67,18 +67,20 @@ const _deploymentDisplacer: Mirrors<
  * The DTOs hold `status: string` on purpose (see `VibeBuildJobStatus`), so
  * nothing about a shape comparison can see a status added upstream. The
  * membership itself has to be asserted. Without this, a new status compiles
- * clean and prints in no colour at all.
+ * clean and prints in no colour at all. Held to the READER lists, which lead
+ * the database by a release (`status-read.schemas.ts`), so a status gets its
+ * colour here before any backend can send it.
  */
 const _deploymentStatuses: SameMembers<
   "WatchDeploymentStatus",
   WatchDeploymentStatus,
-  NexusTypes.VibeDeploymentStatusValue
+  NexusTypes.VibeDeploymentStatusReadValue
 > = true;
 
 const _buildJobStatuses: SameMembers<
   "VibeBuildJobStatus",
   VibeBuildJobStatus,
-  NexusTypes.VibeBuildJobStatusValue
+  NexusTypes.VibeBuildJobStatusReadValue
 > = true;
 
 /**

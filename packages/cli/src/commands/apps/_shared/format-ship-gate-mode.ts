@@ -1,5 +1,8 @@
 import { color } from "../../../output";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
+import { isListedKey } from "../../../vibe-unlisted-variant";
 import { type VibeShipGateMode } from "../../../vibe-wire-types";
+import { formatUnlistedWord } from "./format-unlisted-word";
 
 /**
  * The `Ship gate` line, one per mode.
@@ -36,10 +39,10 @@ export const SHIP_GATE_MODE_LINES: Record<VibeShipGateMode, string> = {
  * `undefined` is the OPPOSITE skew — a backend one release BEHIND omits the key
  * — and it is never `off`. The gate may be running; this server did not say.
  */
-export function formatShipGateMode(mode: VibeShipGateMode | undefined): string {
+export function formatShipGateMode(mode: VibeShipGateMode | VibeUnlistedValue | undefined): string {
   if (mode === undefined) return color.dim("not reported by this server");
-  if (!Object.prototype.hasOwnProperty.call(SHIP_GATE_MODE_LINES, mode)) {
-    return color.yellow(String(mode)) + color.dim(" — a mode this CLI version does not know");
+  if (!isListedKey(SHIP_GATE_MODE_LINES, mode)) {
+    return formatUnlistedWord(mode, "mode");
   }
   return SHIP_GATE_MODE_LINES[mode];
 }

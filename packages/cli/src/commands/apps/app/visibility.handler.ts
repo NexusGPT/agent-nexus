@@ -1,9 +1,11 @@
 import { type TenantHttpOptions, tenantRequest } from "../../../util/tenant-http";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
 import { type SetVisibilityResponse, type SingleVibeAppResponse } from "../../../vibe-wire-types";
 
 /** What the write returned, plus the visibility the app carried before it. */
 export interface VisibilityChange {
-  priorVisibility: "PRIVATE" | "PUBLIC" | null;
+  /** A visibility a newer backend added is kept as its word; it never equals the target. */
+  priorVisibility: "PRIVATE" | "PUBLIC" | VibeUnlistedValue | null;
   data: SetVisibilityResponse;
 }
 
@@ -22,7 +24,7 @@ export async function applyAppVisibility(
   // Best-effort: a failed pre-read must not block the write the operator
   // actually asked for, so it degrades to `null` and the notice is simply
   // omitted rather than guessed.
-  let priorVisibility: "PRIVATE" | "PUBLIC" | null = null;
+  let priorVisibility: VisibilityChange["priorVisibility"] = null;
   try {
     const before = await tenantRequest<SingleVibeAppResponse>(opts, {
       method: "GET",

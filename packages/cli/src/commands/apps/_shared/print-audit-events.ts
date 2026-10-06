@@ -1,5 +1,5 @@
 import { color, isJsonMode, printPaginationMeta, printTable } from "../../../output";
-import { type ListAuditEventsResponse } from "../../../vibe-wire-types";
+import { type ListAuditEventsResponse } from "../../../vibe-audit-wire-types";
 import { colorizeEventType } from "./colorize-event-type";
 import { formatPayloadDetails } from "./format-payload-details";
 import { formatTimestamp } from "./format-timestamp";

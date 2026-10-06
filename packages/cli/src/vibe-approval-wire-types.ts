@@ -14,8 +14,12 @@
  *
  * Pure type unions — the CLI never validates these against a string at runtime
  * (status only ever arrives from the server; the decision kind comes from the
- * --approve/--reject flags), so no runtime array is needed.
+ * --approve/--reject flags), so no runtime array is needed. A RECORDED decision
+ * is read leniently: a kind a newer backend added arrives as the server's word.
  */
+
+import type { VibeUnlistedValue } from "./vibe-deploy-state-vocabulary";
+
 export type VibeApprovalRequestStatus =
   | "PENDING"
   | "APPROVED"
@@ -40,7 +44,7 @@ export interface VibeApprovalDecisionDto {
   id: string;
   vibeApprovalRequestId: string;
   organizationId: string;
-  decision: VibeApprovalDecisionKind;
+  decision: VibeApprovalDecisionKind | VibeUnlistedValue;
   decidedByUserId: string | null;
   note: string | null;
   decidedAt: string;

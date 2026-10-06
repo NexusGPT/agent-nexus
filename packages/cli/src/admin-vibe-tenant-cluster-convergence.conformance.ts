@@ -22,6 +22,8 @@ import type {
   VibeTenantClusterCompleteTeardownOutcome,
   VibeTenantClusterForceConvergeOutcome
 } from "./admin-vibe-tenant-cluster-wire-types";
+import type { VibeUnlistedVariant } from "./vibe-unlisted-variant";
+import type { ListedArms, UnlistedArmAdmitted } from "./vibe-wire-vocabulary.conformance";
 import {
   ARMS_AGREE,
   type ArmsAgree,
@@ -66,10 +68,18 @@ const _forceConvergeNotFound: ArmsAgree<
   WireForceConverge,
   "not_found"
 > = ARMS_AGREE;
+// `NoUnmodelledArm` runs on the LISTED arms; the kind a newer backend adds is
+// the unlisted arm, which the printer's `VibeUnlistedVariant<"kind">` must admit.
 const _forceConvergeComplete: NoUnmodelledArm<
   "VibeTenantClusterForceConvergeOutcome",
   VibeTenantClusterForceConvergeOutcome,
-  WireForceConverge
+  ListedArms<WireForceConverge, "kind">
+> = true;
+const _forceConvergeUnlisted: UnlistedArmAdmitted<
+  "VibeTenantClusterForceConvergeOutcome",
+  VibeUnlistedVariant<"kind">,
+  WireForceConverge,
+  "kind"
 > = true;
 
 type WireCompleteTeardown = Data<"AdminVibeTenantCluster", "CompleteTeardown">;
@@ -101,7 +111,13 @@ const _completeTeardownNotFound: ArmsAgree<
 const _completeTeardownComplete: NoUnmodelledArm<
   "VibeTenantClusterCompleteTeardownOutcome",
   VibeTenantClusterCompleteTeardownOutcome,
-  WireCompleteTeardown
+  ListedArms<WireCompleteTeardown, "kind">
+> = true;
+const _completeTeardownUnlisted: UnlistedArmAdmitted<
+  "VibeTenantClusterCompleteTeardownOutcome",
+  VibeUnlistedVariant<"kind">,
+  WireCompleteTeardown,
+  "kind"
 > = true;
 // The module exists to be compiled. Exporting the bindings keeps `noUnusedLocals`
 // from deleting the gate by complaining about it.
@@ -111,10 +127,12 @@ export {
   _completeTeardownDestroyed,
   _completeTeardownNotDestroying,
   _completeTeardownNotFound,
+  _completeTeardownUnlisted,
   _forceConvergeAlreadyConverging,
   _forceConvergeComplete,
   _forceConvergeForced,
   _forceConvergeNotConverging,
   _forceConvergeNotFound,
-  _forceConvergeReconcilePaused
+  _forceConvergeReconcilePaused,
+  _forceConvergeUnlisted
 };

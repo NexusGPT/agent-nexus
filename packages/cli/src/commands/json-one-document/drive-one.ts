@@ -1,14 +1,11 @@
 import { CliArgumentError } from "../../errors";
 import { classifyErrorOutcome } from "./classify-error";
+import { describeErrorDetail } from "./describe-error-detail";
 import { describeStdout } from "./describe-stdout";
 import type { DriveDeps } from "./drive-deps";
 import type { LeafRun } from "./outcome";
+import { preview } from "./preview";
 import { runInSandbox } from "./sandbox";
-
-function preview(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
-}
 
 /** A run that never finished. Its own shape, so `driveOne` stays under the cap. */
 function budgetExpired(
@@ -61,12 +58,7 @@ export async function driveOne(
     requestsAttempted
   });
 
-  const errorDetail =
-    errorOutcome === "error-document" || errorOutcome === "not-an-error"
-      ? ""
-      : errorOutcome === "error-miscoded"
-        ? miscodeReason
-        : preview(stderr === "" ? "(nothing on either stream)" : stderr);
+  const errorDetail = describeErrorDetail({ errorOutcome, miscodeReason, stdout, stderr });
 
   const base = {
     key,

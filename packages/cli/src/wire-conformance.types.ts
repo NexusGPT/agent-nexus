@@ -24,22 +24,22 @@
 
 /**
  * A contract type as it arrives over the wire. `z.infer` describes the value
- * AFTER parsing, where `z.coerce.date()` has already produced a `Date` and a
- * `z.string().datetime()` is `string` already. The CLI never runs the schema —
- * it reads the raw JSON body — so every such field is an ISO string on its
- * side. Normalising `Date → string` here rather than declaring `Date` in the
- * wire types keeps those declarations honest about what actually arrives, and
- * it is the one difference that is correct rather than drift; without it every
- * timestamp on every shape would report a false failure and the gate would be
- * switched off within a week.
+ * AFTER parsing; the CLI never runs the schema — it reads the raw JSON body — so
+ * two parse-time differences are normalised here rather than declared as drift.
+ * A `z.coerce.date()` is a `Date` after parsing and an ISO string on the wire,
+ * so `Date → string`; without it every timestamp would report a false failure.
+ * A BRANDED string (an enum value the contract does not list) is kept as itself:
+ * mapped like the object its brand is, it would read as a record of methods.
  */
 export type Wire<T> = T extends Date
   ? string
-  : T extends readonly (infer U)[]
-    ? Wire<U>[]
-    : T extends object
-      ? { [K in keyof T]: Wire<T[K]> }
-      : T;
+  : T extends string
+    ? T
+    : T extends readonly (infer U)[]
+      ? Wire<U>[]
+      : T extends object
+        ? { [K in keyof T]: Wire<T[K]> }
+        : T;
 
 /** Wire fields the CLI type does not declare. Not used directly — {@link OmitsExactly} is. */
 export type Omitted<Cli, W> = Exclude<keyof W, keyof Cli>;

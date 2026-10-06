@@ -4,7 +4,10 @@ import { isJsonMode } from "../../../output";
 import { type TenantHttpOptions } from "../../../util/tenant-http";
 import { printTriggeredDeployment } from "../_shared/print-triggered-deployment";
 import { runDeploymentWatch } from "../_shared/run-deployment-watch";
-import { triggerDeploymentAnsweringOverage } from "../_shared/trigger-deployment-answering-overage";
+import {
+  TRIGGER_ANSWER_UNLISTED,
+  triggerDeploymentAnsweringOverage
+} from "../_shared/trigger-deployment-answering-overage";
 
 /**
  * `rollback --to <sha>`: an ordinary build+deploy of that commit.
@@ -67,6 +70,8 @@ export async function redeployShaForRollback(
     // at all.
     cmdOpts.skipVerification === true
   );
+  // Already printed, and the exit already set to `unmeasured` — never success.
+  if (data === TRIGGER_ANSWER_UNLISTED) return;
   if (data === null) {
     process.exitCode = 1;
     return;

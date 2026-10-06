@@ -1,4 +1,6 @@
 import { color } from "../../../output";
+import type { VibeUnlistedValue } from "../../../vibe-deploy-state-vocabulary";
+import { formatUnlistedWord } from "../_shared/format-unlisted-word";
 import type { WatchAppVisibility } from "./watch-deployment-status";
 
 /**
@@ -29,9 +31,18 @@ import type { WatchAppVisibility } from "./watch-deployment-status";
  * accepted — so the command is the durable reference and a hardcoded string
  * would be one more copy to drift.
  */
-export function printServedVisibility(visibility: WatchAppVisibility, appId: string): void {
+export function printServedVisibility(
+  visibility: WatchAppVisibility | VibeUnlistedValue,
+  appId: string
+): void {
   if (visibility === "PUBLIC") {
     console.log(color.dim("  Public — anyone with the URL reaches it."));
+    return;
+  }
+  // A visibility a newer backend added: say so, rather than explain a 401 that
+  // only a PRIVATE app is promised to answer with.
+  if (visibility !== "PRIVATE") {
+    console.log(`  Visibility: ${formatUnlistedWord(visibility, "visibility")}`);
     return;
   }
 

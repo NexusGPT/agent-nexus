@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.9.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.10.0 ───────────────────────────────────────────────────
  *
- * 554 promised paths — 488 STABLE, 66 UNSTABLE.
+ * 555 promised paths — 488 STABLE, 67 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.9.0",
+  version: "1.10.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -92,6 +92,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps delete", shape: "4859eab0a28b", tier: "UNSTABLE" },
     { path: "apps deploy", shape: "4cc63670bd2f", tier: "UNSTABLE" },
     { path: "apps deploy-state", shape: "7500d6a7d9e3", tier: "UNSTABLE" },
+    { path: "apps deployments cancel", shape: "74c6cf8f378f", tier: "UNSTABLE" },
     { path: "apps deployments get", shape: "3e1614ba55d6", tier: "UNSTABLE" },
     { path: "apps deployments list", shape: "c4892ac84b08", tier: "UNSTABLE" },
     { path: "apps domains add", shape: "a20079823e70", tier: "UNSTABLE" },
@@ -104,7 +105,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps env rm", shape: "d8a3e0325045", tier: "UNSTABLE" },
     { path: "apps env set", shape: "651729e8b3a2", tier: "UNSTABLE" },
     { path: "apps get", shape: "8eb0c45a7d5b", tier: "UNSTABLE" },
-    { path: "apps git-credentials", shape: "275a643b848e", tier: "UNSTABLE" },
+    { path: "apps git-credentials", shape: "d07add232050", tier: "UNSTABLE" },
     { path: "apps git-project clone", shape: "2cc4c9aef184", tier: "UNSTABLE" },
     { path: "apps git-project create", shape: "7423e4b289a3", tier: "UNSTABLE" },
     { path: "apps git-project delete", shape: "44d318adb8c6", tier: "UNSTABLE" },
@@ -120,7 +121,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "apps rollback", shape: "e9a2f5c3647b", tier: "UNSTABLE" },
     { path: "apps rotate-edge-token", shape: "34066257f565", tier: "UNSTABLE" },
     { path: "apps starter", shape: "e3ecdd83dd5c", tier: "UNSTABLE" },
-    { path: "apps update", shape: "a340453f69bd", tier: "UNSTABLE" },
+    { path: "apps update", shape: "3b68f57eab4d", tier: "UNSTABLE" },
     { path: "apps vendor-package", shape: "50ea3be27486", tier: "UNSTABLE" },
     { path: "apps visibility", shape: "64732e5a68af", tier: "UNSTABLE" },
     { path: "asset delete", shape: "db44892a7773", tier: "STABLE" },

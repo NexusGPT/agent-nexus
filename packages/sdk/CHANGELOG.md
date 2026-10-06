@@ -1,5 +1,64 @@
 # @agent-nexus/sdk
 
+## 4.4.1
+### Patch Changes
+
+- ccfcec2: A Role member keeps their `id` and `createdAt` when their tier changes
+  
+  `client.roles.listMembers()` now reads each member's `id`, `createdAt` and
+  `addedByUserId` from the member's permission-set seat, the same record that
+  decides their tier. Promoting a member to `ADMIN` or demoting them to `MEMBER`
+  keeps all three: the member stays the same row, so an `id` you stored still
+  names them afterwards. The `RoleMember` type documents this on `id` and
+  `createdAt`.
+  
+  The response shape is unchanged, and for a member written since these values
+  were carried onto the seat, so are the values.
+- 421df8d: `upsertMember` and `nexus role add-member` say what a membership is: a permission-set seat
+  
+  The docs for `client.roles.upsertMember()` and the help for `nexus role add-member`
+  said a membership row on its own grants no capability. That was wrong. A Role
+  membership is one seat in the Role's `maintainer` (ADMIN) or `member` (MEMBER)
+  permission set, and the server reads that seat for the members list, the tier,
+  the member's reach into the Role's systems, collections and workspaces, and
+  their capabilities. A tier change moves the seat and keeps its `id` and
+  `createdAt`. Joining a CUSTOM permission set is still `addPermissionSetMember()` /
+  `nexus role add-permission-set-member`.
+  
+  Documentation only. No request, response or command behaviour changes.
+- 5bfddf5: Joining or leaving a permission set that ships with Nexus changes the member's tier
+  
+  `addPermissionSetMember` and `removePermissionSetMember` document what the
+  server now does on a Role's two shipped sets, `maintainer` and `member`. A seat
+  in one of them is the person's membership at ADMIN or MEMBER, so:
+  
+  - **Joining `maintainer`** is `upsertMember` at ADMIN, and **joining `member`** is
+    it at MEMBER. The user joins the Role if they were not in it, and their seat in
+    the other shipped set goes.
+  - **Leaving** a shipped set that is the user's only one ends their membership,
+    exactly as `removeMember` does, custom-set seats included. A user holding both
+    loses only that seat, and their tier becomes the other set's.
+  - The Role's **owner** is a no-op on both: `added: false` / `removed: false`.
+  
+  Custom permission sets are unchanged. No signature changes.
+- 92828b6: Removing a Role member answers from their seat, and never touches the owner
+  
+  `client.roles.removeMember()` and `nexus role remove-member` now document what the
+  server answers:
+  
+  - **`removed: true` means the user was a member** — a seat in the Role's
+    `maintainer` or `member` permission set went. A member who holds that seat with
+    no legacy roster row is removed and answers `true`, where it used to answer
+    `false`.
+  - **The owner is a no-op that deletes nothing.** Asking to remove the Role's owner
+    answers `removed: false` and the owner keeps every permission-set seat they
+    hold. It used to answer `false` while stripping those seats.
+  - **A user seated only in custom permission sets is not a member.** The call
+    answers `removed: false` and leaves those seats in place; take them out with
+    `removePermissionSetMember()` / `nexus role remove-permission-set-member`.
+  
+  A removed member still loses every permission-set seat, custom sets included.
+
 ## 4.4.0
 ### Minor Changes
 

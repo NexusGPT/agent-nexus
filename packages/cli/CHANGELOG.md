@@ -1,5 +1,240 @@
 # @agent-nexus/cli
 
+## 1.10.0
+### Minor Changes
+
+- d594101: A CodeBuild build held by its region's ceiling says so
+  
+  The control plane now holds a queued build of a CodeBuild tenant while the
+  platform already runs its ceiling of CodeBuild builds in that tenant's AWS
+  region. Every tenant's CodeBuild project lives in one AWS account, and that
+  account's concurrency quota is per region, so this is a platform ceiling and
+  not the organization's own cap.
+  
+  `nexus apps deploy-state` renders the new wait as-is:
+  
+      waiting: the build service in eu-west-3 is running as many builds as it can
+      at once, across all organizations. This build starts as soon as one of them
+      finishes; nothing is wrong with it.
+  
+  The wait names the tenant's own region and carries no counts, because the
+  region's count sums every tenant's builds there.
+  
+  `nexus admin vibe-build-runner tick` gains the `region_at_capacity` outcome. It
+  names the build, the organization, the region, and the region's builds in flight
+  against its ceiling, so an operator firing ticks by hand can tell "the region is
+  full" from "the organization is at its cap" and from "nothing to do".
+- c39f232: A queued or running build can be cancelled, and a waiting build says where it is in line
+  
+  `nexus apps deployments cancel <appId> <deploymentId>` stops a deployment's
+  build while it is queued or running. The deployment ends `CANCELLED` and never
+  goes live; whatever version is serving keeps serving. It asks before acting, and
+  `--yes` skips the question for a script.
+  
+  A build that finished before the request landed is not an error. The command
+  prints what became of it and exits `0`, so running it twice is safe. `--json`
+  carries the server's answer, with `outcome` set to `cancelled` or
+  `already_ended`.
+  
+  ## What changes for a caller who does not cancel anything
+  
+  - **`CANCELLED` is a new deployment status.** A deployment someone cancelled
+    reads `CANCELLED` in `apps deployments list`, `get` and `deploy-state`. It is
+    terminal and is not a failure.
+  - **`apps deploy --watch` ends on a cancelled deployment**, exiting `1` — the
+    same code as a failed or replaced one — rather than waiting out the deploy
+    timeout. The version being watched will never go live, so this cannot exit `0`.
+  - **A queued build's wait line now names its place in line**, counted within
+    your own organization: `3 of your organization's builds are queued ahead of
+  it.` Builds are admitted fairly across organizations, so there is no honest
+    position against other tenants, and none is printed.
+- 7b813be: An app can choose the compute its image builds on
+  
+  `nexus apps update <appId> --build-size <size>` sets what the app's image
+  builds on, separately from its runtime `--resource-quotas`. `medium` is 7 GB
+  and 4 vCPU; `large` is 15 GB and 8 vCPU, and is the default. The value is
+  case-insensitive, and anything else is refused rather than coerced.
+  
+  The size applies from the next build; a build already running keeps its size.
+  It takes effect on the CodeBuild build executor only.
+- a221254: `nexus apps logs` exits `6` when the log pipeline is broken, where it printed nothing and exited `0`
+  
+  **This moves an exit code a script reads.** Every page of runtime logs now
+  carries the tenant gateway's verdict on the pipeline that delivers them, and
+  the command only succeeds when that pipeline is healthy:
+  
+  - healthy, with lines — exits `0`, as before;
+  - healthy, empty window — exits `0`, and says on stderr that the window really
+    is empty (`n/n` nodes reporting);
+  - unhealthy, unverifiable, or a gateway too old to say — prints whatever lines
+    did arrive, then exits `6` (`remote-error`) naming what is broken: which
+    nodes are silent, or that nothing is being ingested at all.
+  
+  `nexus apps logs --follow` reads that verdict first and refuses to start —
+  exit `6` — on a pipeline it cannot vouch for, instead of sitting silent.
+  
+  Before this an empty result and a dead pipeline were the same output, and the
+  tenant log stores had in fact never received a line.
+- a388d1d: `nexus apps cluster status` prints a plain-language `Condition` instead of the raw `Reason`
+  
+  The tenant cluster read no longer carries the provisioner's raw `statusReason`
+  (Pulumi resource names and provider error bodies). It carries a `condition`
+  instead — `FAULT`, `UPDATE_PENDING` or `NOMINAL`, with one sentence for each —
+  and the command prints that sentence on a `Condition` line where it printed
+  `Reason`.
+  
+  **This changes the `--json` output a script may read:** `cluster.statusReason`
+  is gone and `cluster.condition` (`{ kind, summary }`) is new. A cluster whose
+  lifecycle `status` reads `DEGRADED` only because a routine configuration update
+  is waiting now reports `UPDATE_PENDING`, not a fault.
+- b1a1ac1: `apps git-project clone|pull` store the token nowhere, and every git credential the CLI handles is per-project
+  
+  `nexus apps git-project clone` and `pull` promised the push token only passed
+  through a temporary 0600 file. On macOS it was also saved to the login keychain,
+  and on any machine to whatever credential helper git was configured with. A
+  `-c credential.helper=…` is APPENDED to git's helper list — Homebrew's and
+  Apple's git both ship `credential.helper=osxkeychain` — and after a successful
+  authentication git hands the credential to every helper in the list to keep.
+  
+  ## What changed
+  
+  - **Both commands reset git's helper list first** (`-c credential.helper=`),
+    so the temporary file is the only helper consulted. A plain, a host-scoped, a
+    path-scoped and a repository-local helper are all cleared for that one call.
+  - **Both commands use the project's own credential**, from
+    `GET /api/vibe/git-projects/:id/credentials` — a machine user that can push to
+    that one repository and no other. They used the organization-wide token of
+    the platform's git admin, which pushes to every repository in the tenant.
+  - **`nexus apps git-credentials` takes a `<projectId>`** and prints that
+    project's credential: `gitProjectId`, `gitProjectName`, `gitHostName`,
+    `forgejoOrg`, `username`, `pushToken` and `cloneUrl`. The `cloneUrlBase` field
+    and the "authenticated remote base" line are gone — a token inside a remote URL
+    is written into `.git/config` verbatim. Its help shows a push that stores the
+    token nowhere: `git -c credential.helper= push <cloneUrl> HEAD:main`.
+  
+  ## The break, named
+  
+  🔴 **`nexus apps git-credentials` with no argument now refuses** with
+  `missing required argument 'projectId'`. A script reading `.cloneUrlBase` from
+  its `--json` output must read `.cloneUrl` instead, which is the full remote.
+  
+  The backend refuses the organization-wide token to every API key, with a message
+  naming this upgrade, so an older CLI's `clone`, `pull` and `git-credentials`
+  stop working rather than keep storing that token. The `apps` tree is UNSTABLE in
+  `COMPATIBILITY.md`, which is why this is a `minor`.
+  
+  ## If an older CLI ran on your machine
+  
+  The organization-wide token may still sit in your credential helper under your
+  tenant's git host (`git.<tenant>.gpt.nexus`, account `vibe-platform`). Remove
+  that entry; on macOS it is an internet password in the login keychain.
+
+### Patch Changes
+
+- 421df8d: `upsertMember` and `nexus role add-member` say what a membership is: a permission-set seat
+  
+  The docs for `client.roles.upsertMember()` and the help for `nexus role add-member`
+  said a membership row on its own grants no capability. That was wrong. A Role
+  membership is one seat in the Role's `maintainer` (ADMIN) or `member` (MEMBER)
+  permission set, and the server reads that seat for the members list, the tier,
+  the member's reach into the Role's systems, collections and workspaces, and
+  their capabilities. A tier change moves the seat and keeps its `id` and
+  `createdAt`. Joining a CUSTOM permission set is still `addPermissionSetMember()` /
+  `nexus role add-permission-set-member`.
+  
+  Documentation only. No request, response or command behaviour changes.
+- b24f823: The bundled skills fallback carries the current skills, hooks and agents
+  
+  `nexus skills install` installs the corpus the platform serves, and falls back to
+  the copy bundled in the package when it is offline, when the download fails, or
+  with `--bundled`. That bundled copy was 44 commits behind the skills it is built
+  from. It now matches them: the build-session hooks gain a `StopFailure` handler,
+  watch more tool calls (`Grep`, `Glob`, `WebFetch`, `WebSearch`, MCP tools,
+  `SendMessage`, `NotebookEdit`) and report every failed tool rather than only failed
+  shell commands; a session start removes test and Vitest temporary folders idle for
+  a day; and the app builder adds a `test-designer` agent and a journeys-first
+  design step.
+- 6052d30: The bundled skills match the platform's, including safe defaults for a fresh install
+  
+  The skills bundled in the package (what `nexus skills install` falls back to when
+  it is offline, when the download fails, or with `--bundled`) now match the skills
+  the platform serves. On a machine where the owner has changed nothing, the hooks
+  no longer start background `claude` sessions, and they no longer upload session
+  captures to the workspace. Scripted `claude -p` runs can push to a workspace again.
+  Checks that are documented as muted are muted on install. Build-session knowledge
+  is filed by the hooks while the session works. When a check refuses a step, it
+  names the fix or asks for the one decision it needs. It never asks the owner to
+  let it through.
+- 78601d8: The bundled skills no longer clear temporary folders when a session starts
+  
+  The copy of the skills bundled in the package — what `nexus skills install` falls
+  back to when it is offline, when the download fails, or with `--bundled` — removed
+  test and Vitest temporary folders idle for a day every time a build session
+  started. That sweep now runs only when `NEXUS_START_SWEEP=1` is set, matching the
+  skills the platform serves. The manual cleanup tool's `--all` also names the
+  repositories it is about to clean before it does.
+- 92828b6: Removing a Role member answers from their seat, and never touches the owner
+  
+  `client.roles.removeMember()` and `nexus role remove-member` now document what the
+  server answers:
+  
+  - **`removed: true` means the user was a member** — a seat in the Role's
+    `maintainer` or `member` permission set went. A member who holds that seat with
+    no legacy roster row is removed and answers `true`, where it used to answer
+    `false`.
+  - **The owner is a no-op that deletes nothing.** Asking to remove the Role's owner
+    answers `removed: false` and the owner keeps every permission-set seat they
+    hold. It used to answer `false` while stripping those seats.
+  - **A user seated only in custom permission sets is not a member.** The call
+    answers `removed: false` and leaves those seats in place; take them out with
+    `removePermissionSetMember()` / `nexus role remove-permission-set-member`.
+  
+  A removed member still loses every permission-set seat, custom sets included.
+- b59d827: The big command registrars are one file per subcommand
+  
+  Nineteen command modules that had grown into monoliths are now a registrar plus
+  one file per subcommand, and the 150-line / 80-line ESLint ratchet is armed over
+  every one of them so they cannot grow back.
+  
+  `deployment` 1,384 → 51 · `channel` 1,236 → 54 · `workflow-builder` 1,163 → 24 ·
+  `conversation` 1,017 → 80 · `tracing` 934 → 66 · `workflow` 881 → 84 ·
+  `execution` 878 → 48 · `tool` 815 → 29 · `task` 803 → 48 · `collection` 762 → 60 ·
+  `ticket` 747 → 56 · `agent-skill` 722 → 121 · `eval` 717 → 44 ·
+  `emulator` 701 → 43 · `chat` 697 → 59 · `workspace-mount` 687 → 42 ·
+  `agent` 654 → 39 · `cloud-import` 623 → 51 · `prompt-assistant` 615 → 22.
+  
+  Four scanner modules and the probe-barrier and admin wire-type tables were
+  decomposed on the same rule, and five functions over 80 lines that were hiding
+  inside files already under 150 were broken up.
+  
+  ## Nothing a caller can observe changed
+  
+  This is a `patch` because the published surface is unchanged, and that was
+  measured rather than assumed. Across the nineteen modules: subcommand names AND
+  their order, 172 option and argument strings, 81 descriptions, 86 help literals
+  and every `refuse()` call are identical to their pre-split bytes. The live
+  commander tree was built twice in one process — once from the original files and
+  once from the split ones — and compared: 66 commands, byte-identical, with a
+  control proving the comparison detects a planted one-line change. Ten extracted
+  help constants totalling 30,737 characters are byte-identical, with a
+  mutated-body control that must not match and does not. The generated CLI docs
+  corpus regenerates to the same 52 pages with zero stale.
+  
+  Bodies were moved by exact line slice, never retyped.
+  
+  ## The ratchet
+  
+  `max-lines` at 150 and `max-lines-per-function` at 80 now apply to every file
+  under each of those command trees, as errors. The size ledger that records files
+  still over 150 fell from 138 rows to 113, and its ceiling is the ledger's
+  cardinality, so it can only shrink.
+  
+  Generated modules and five hand-maintained data tables are declared exempt with
+  a reason each, and every exemption was proven necessary rather than convenient:
+  all 51 generated files declare their writer in the first twelve lines. One
+  candidate was refused an exemption and split instead, because it turned out to
+  carry a registrar rather than data.
+
 ## 1.9.0
 ### Minor Changes
 

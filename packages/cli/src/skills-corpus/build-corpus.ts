@@ -7,6 +7,14 @@ import {
   SHARED_DIR,
   type SkillsRootEntry
 } from "./select-skill-dirs";
+import {
+  AGENTS_ROOT,
+  CLAUDE_MD,
+  HOOKS_ROOT,
+  SETTINGS_JSON,
+  ships,
+  SKILLS_ROOT
+} from "./shipped-paths";
 
 /**
  * The skills repository as a list of file paths, with a way to read one.
@@ -20,19 +28,6 @@ export interface CorpusFiles {
   readonly paths: readonly string[];
   /** The file's text, exactly as stored. */
   read(path: string): string;
-}
-
-/**
- * Editor and OS cruft the bundle has never shipped: any dot-named segment,
- * `__pycache__`, and compiled `.pyc`. Judged on the path BELOW a collected root,
- * which is where `bundle-skills.ts` always applied it.
- */
-function ships(relativePath: string): boolean {
-  const segments = relativePath.split("/");
-  if (segments.some((segment) => segment.startsWith(".") || segment === "__pycache__")) {
-    return false;
-  }
-  return !relativePath.endsWith(".pyc");
 }
 
 /**
@@ -78,8 +73,8 @@ function describe(skillMd: string | undefined): string {
 function skillsRootEntries(paths: readonly string[]): SkillsRootEntry[] {
   const kinds = new Map<string, boolean>();
   for (const path of paths) {
-    if (!path.startsWith("skills/")) continue;
-    const [name, ...rest] = path.slice("skills/".length).split("/");
+    if (!path.startsWith(`${SKILLS_ROOT}/`)) continue;
+    const [name, ...rest] = path.slice(SKILLS_ROOT.length + 1).split("/");
     kinds.set(name, (kinds.get(name) ?? false) || rest.length > 0);
   }
   return [...kinds].map(([name, isDir]) => ({ name, isDirectory: () => isDir }));
@@ -111,8 +106,8 @@ export function buildCorpusFromFiles(
   for (const slug of skillList) {
     skills[slug] = {
       slug,
-      description: describe(readIfPresent(`skills/${slug}/SKILL.md`)),
-      files: collect(files, sorted, `skills/${slug}`)
+      description: describe(readIfPresent(`${SKILLS_ROOT}/${slug}/SKILL.md`)),
+      files: collect(files, sorted, `${SKILLS_ROOT}/${slug}`)
     };
   }
 
@@ -120,10 +115,10 @@ export function buildCorpusFromFiles(
     commitSha,
     skills,
     skillList,
-    claudeMd: (readIfPresent("CLAUDE.md") ?? "").trim(),
-    sharedFiles: collect(files, sorted, `skills/${SHARED_DIR}`),
-    settingsJson: (readIfPresent("settings.json") ?? "").trim(),
-    hookFiles: collect(files, sorted, "hooks"),
-    agentFiles: collect(files, sorted, "agents")
+    claudeMd: (readIfPresent(CLAUDE_MD) ?? "").trim(),
+    sharedFiles: collect(files, sorted, `${SKILLS_ROOT}/${SHARED_DIR}`),
+    settingsJson: (readIfPresent(SETTINGS_JSON) ?? "").trim(),
+    hookFiles: collect(files, sorted, HOOKS_ROOT),
+    agentFiles: collect(files, sorted, AGENTS_ROOT)
   };
 }

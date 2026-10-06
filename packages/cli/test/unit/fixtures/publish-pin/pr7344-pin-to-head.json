@@ -1,0 +1,59 @@
+{
+  "ahead_by": 4,
+  "behind_by": 0,
+  "commits": [
+    {
+      "commit": {
+        "committer": { "date": "2026-10-06T07:37:38Z" },
+        "message": "W114 mods: status line ships with the project, account in use, helper line above the input, formatted helper messages, error lines that say what to do, light desktop band"
+      },
+      "parents": [{ "sha": "0d58ef878728bf28e39858ef09db65917082d372" }],
+      "sha": "159010147958d2b85994838c2f7c468cbf083a16"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-06T07:39:31Z" },
+        "message": "Merge pull request #120 from NexusGPT/w114-mods-ship"
+      },
+      "parents": [
+        { "sha": "0d58ef878728bf28e39858ef09db65917082d372" },
+        { "sha": "159010147958d2b85994838c2f7c468cbf083a16" }
+      ],
+      "sha": "423e808671133b586d5851536f747048e1c5036c"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-06T07:46:41Z" },
+        "message": "Status line: frame reuse on idle ticks, nexus found on nvm/volta/pnpm/fnm/asdf installs, two short rows that never cut off"
+      },
+      "parents": [{ "sha": "423e808671133b586d5851536f747048e1c5036c" }],
+      "sha": "b3351bf3096a7bbcc8751b92d2bd5f14c081b73f"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-06T07:48:33Z" },
+        "message": "Merge pull request #121 from NexusGPT/w114-statusline-reuse"
+      },
+      "parents": [
+        { "sha": "423e808671133b586d5851536f747048e1c5036c" },
+        { "sha": "b3351bf3096a7bbcc8751b92d2bd5f14c081b73f" }
+      ],
+      "sha": "92df8e01effa55cfbb5a96cb9ae40709548ef38f"
+    }
+  ],
+  "files": [
+    { "filename": "settings.json", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/feed.ts", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/register.tsx", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/types/index.d.ts", "status": "modified" },
+    { "filename": "statusline.sh", "status": "modified" },
+    { "filename": "statusline/board-status-refresh.sh", "status": "added" },
+    { "filename": "statusline/board-statusline.py", "status": "added" },
+    { "filename": "statusline/frame-cache.sh", "status": "added" },
+    { "filename": "statusline/statusline-nexus.sh", "status": "added" },
+    { "filename": "statusline/statusline-v2.py", "status": "added" },
+    { "filename": "statusline/test-status-row.py", "status": "added" }
+  ],
+  "status": "ahead",
+  "total_commits": 4
+}

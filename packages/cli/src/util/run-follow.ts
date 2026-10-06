@@ -1,4 +1,5 @@
 import { color } from "../output";
+import { judgeRunStatus, type RunVerdict } from "../run-verdict";
 import {
   type DiagnoseResult,
   diffSnapshots,
@@ -89,6 +90,25 @@ export async function runFollow(
   }
 
   return finalStatus;
+}
+
+function paintFinalStatus(status: string): string {
+  if (status === "COMPLETED") return color.green(status);
+  if (status === "FAILED" || status === "ERROR" || status === "CANCELLED") return color.red(status);
+  return color.yellow(status);
+}
+
+/**
+ * The end of every follow: print the final status (human mode only) and return
+ * what it means, judged by `run-verdict.ts` as `execution diagnose` judges it.
+ * `workflow test --follow` and `execution follow` both end here, so neither can
+ * exit `0` on a run the other calls failed. The caller assigns
+ * `reportRunRefusal(verdict, id)` to `process.exitCode` itself, at its own site,
+ * because `json-error-document.static-scan.ts` reads that call by name there.
+ */
+export function finishFollow(finalStatus: string, opts: { json: boolean }): RunVerdict {
+  if (!opts.json) console.log(`\n${color.dim("Final status:")} ${paintFinalStatus(finalStatus)}`);
+  return judgeRunStatus(finalStatus);
 }
 
 export { shortTag };

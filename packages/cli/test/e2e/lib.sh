@@ -106,7 +106,7 @@ _diagnostic_dump_body() {
 #
 # So this writes the dump to a file as well as to stderr, and the classifier reads
 # that file. The JUDGEMENT deliberately does not live here: it lives in the
-# classifier, which `scripts/__tests__/cli-e2e-classify-empty-window.spec.ts` can
+# classifier, which `scripts/__tests__/cli-e2e-classify-upstream.spec.ts` can
 # drive end to end without a runner, a network or an outage. This half is a copy,
 # so there is nothing here to get subtly wrong.
 #

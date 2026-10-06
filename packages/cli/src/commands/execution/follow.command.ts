@@ -2,8 +2,9 @@ import { Command } from "commander";
 
 import { createClient } from "../../client";
 import { handleError } from "../../errors";
-import { color, isJsonMode } from "../../output";
-import { runFollow, shortTag } from "../../util/run-follow";
+import { isJsonMode } from "../../output";
+import { reportRunRefusal } from "../../run-verdict";
+import { finishFollow, runFollow, shortTag } from "../../util/run-follow";
 
 // ONE LEAF IS DELIBERATELY UNBOUND:
 //
@@ -34,8 +35,10 @@ Notes:
   Prints each node as its state changes and exits at a terminal status, so it is
   the read to attach to a run you have just started. "workflow test --follow" does
   the same thing in one command.
+  Exits as "execution diagnose" does: 0 only when the run COMPLETED.
   --json emits one NDJSON object per state change, not a single document — read it
-  line by line.
+  line by line. A run that does not complete ends the stream with ONE MULTI-LINE
+  error document, so read the exit code first.
   Polling, not streaming: --interval (floored at 500 ms) decides how fast changes
   appear, and a node that starts and finishes inside one interval is reported once.
   LOOP ITERATIONS ARE FLATTENED INTO THE SAME STREAM, one line per node per pass,
@@ -67,15 +70,8 @@ Notes:
           json: isJsonMode()
         });
 
-        if (!isJsonMode()) {
-          const paint =
-            finalStatus === "COMPLETED"
-              ? color.green
-              : finalStatus === "FAILED" || finalStatus === "ERROR" || finalStatus === "CANCELLED"
-                ? color.red
-                : color.yellow;
-          console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
-        }
+        const verdict = finishFollow(finalStatus, { json: isJsonMode() });
+        if (verdict.outcome !== "completed") process.exitCode = reportRunRefusal(verdict, id);
       } catch (err) {
         process.exitCode = handleError(err);
       }

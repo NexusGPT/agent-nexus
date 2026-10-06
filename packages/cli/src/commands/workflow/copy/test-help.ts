@@ -37,7 +37,8 @@ Notes:
   start immediately — they cannot reach a run an external event starts later.
   Answers {executionId, status:"RUNNING"}. Follow it with --follow, or later with
   "nexus execution diagnose <executionId>".
+  --follow exits as "execution diagnose" does: 0 only when the run COMPLETED.
   WITH --follow, --json EMITS NDJSON — one JSON object per node state change, not
-  a single document. Read it line by line; piping it to a jq that expects one
-  document fails on the second line. Without --follow, --json is one document as
-  usual.`;
+  a single document. A run that does not complete ends the stream with ONE
+  MULTI-LINE error document, so a line-by-line reader stops at its first line;
+  read the exit code first. Without --follow, --json is one document as usual.`;

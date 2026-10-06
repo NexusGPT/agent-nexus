@@ -288,3 +288,38 @@ describe("nexus execution poll", () => {
     expect((JSON.parse(stdout) as { status?: unknown }).status).toBe("COMPLETED");
   });
 });
+
+describe("nexus execution follow", () => {
+  // `follow` ends where `workflow test --follow` ends (`finishFollow`), so the
+  // two cannot disagree about a run; these cases pin the `execution` caller.
+  it("exits NON-ZERO when the followed run ends FAILED", async () => {
+    diagnose.mockResolvedValue(diagnoseDoc("FAILED"));
+
+    expect(await run(["execution", "follow", EXECUTION_ID])).toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("still exits 0 when the followed run COMPLETED", async () => {
+    diagnose.mockResolvedValue(diagnoseDoc("COMPLETED"));
+
+    expect(await run(["execution", "follow", EXECUTION_ID])).toBeUndefined();
+  });
+
+  it("exits UNMEASURED — never the failure code — when the followed run was CANCELLED", async () => {
+    diagnose.mockResolvedValue(diagnoseDoc("CANCELLED"));
+
+    const code = await run(["execution", "follow", EXECUTION_ID]);
+
+    expect(code).toBe(EXIT_CODES.unmeasured);
+    expect(code).not.toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("puts the ERROR document on stdout under --json when it refuses", async () => {
+    diagnose.mockResolvedValue(diagnoseDoc("FAILED"));
+
+    const { stdout, exitCode } = await runJson(["execution", "follow", EXECUTION_ID]);
+
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+    const doc = JSON.parse(stdout) as { error?: { code?: unknown } };
+    expect(doc.error?.code).toBe("CLI_REMOTE_ERROR");
+  });
+});

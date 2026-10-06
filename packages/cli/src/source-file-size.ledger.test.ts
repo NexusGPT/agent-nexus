@@ -194,7 +194,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/score.ts": 209,
   "commands/skill-folder.ts": 268,
   "commands/skills.ts": 452,
-  "commands/task.contract.generated.ts": 264,
+  "commands/task.contract.generated.ts": 274,
   "commands/template.ts": 603,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,

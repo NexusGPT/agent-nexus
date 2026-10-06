@@ -104,6 +104,19 @@ Notes:
   custom model is a 400 here, naming the protocol. Agents serve all three, so
   the same model attaches fine with "nexus agent create --custom-model-id".
 
+  --type SETS WHAT ANSWERS THE TASK, ONCE. "generative" (the default) runs on a
+  model that writes; "decision" runs on a decision model (jev-1.13.0, provider
+  JEV) that answers typed questions. It cannot be changed later, a duplicate
+  keeps it, and "task list" shows it as TYPE. A generative task on a decision
+  model, or a decision task on a model that writes, is 400
+  MODEL_CANNOT_ANSWER_TASK.
+  A DECISION TASK NEEDS --body: outputFormat "json" and a schema of yes/no
+  (boolean), pick-one (string enum, 2-255 options) and level (integer with
+  minimum and maximum, 2-10 steps) fields, or objects that group them. Anything
+  else is 400 MODEL_CANNOT_ANSWER_TASK, and its message names every field to change:
+    $ nexus task create --type decision --name Triage --model-name jev-1.13.0 --model-provider JEV \\
+        --prompt "Judge the ticket." --body '{"outputFormat":"json","generation":{"expectedInput":"A support ticket","jsonOutputSchema":{"urgent":{"type":"boolean","description":"Is the ticket urgent?"},"team":{"type":"string","enum":["billing","bug","other"]},"severity":{"type":"integer","minimum":1,"maximum":5}}}}'
+
   temperature defaults to 0.7 and is --body only. IT IS STORED AND NEVER READ
   BACK: "task get" returns no temperature field at any value, so a missing
   temperature is not a discarded write and there is no way to confirm one from

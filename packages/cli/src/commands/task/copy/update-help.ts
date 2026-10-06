@@ -46,6 +46,15 @@ Notes:
   anthropic- or google-protocol endpoint is a 400 naming the protocol — this
   surface serves "openai" only and refuses at the write rather than at execute.
 
+  A TASK'S TYPE NEVER CHANGES, AND EVERY PATCH IS JUDGED AGAINST IT on the
+  stored task with this patch applied. A generative task cannot move onto a
+  decision model (jev-1.13.0), and a decision task cannot move onto a model
+  that writes or take a free-text schema: each is 400 MODEL_CANNOT_ANSWER_TASK.
+  To turn a generative task into a decision one, create a new task with
+  "task create --type decision". A decision task's schema change that stays
+  answerable is accepted:
+    --body '{"jsonOutputSchema":{"urgent":{"type":"boolean","description":"Is the ticket urgent?"}}}'
+
   EVERY ACCEPTED UPDATE CREATES A VERSION, INCLUDING ONE THAT CHANGES NOTHING.
   The check is whether the body named a recognized field, never whether the
   value differs, so re-sending a byte-identical prompt writes a fresh version

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCorpusFromFiles } from "./build-corpus";
+import { mayShip } from "./shipped-paths";
 
 const SHA = "c".repeat(40);
 
@@ -75,5 +76,80 @@ describe("buildCorpusFromFiles", () => {
     expect(corpus.claudeMd).toBe("");
     expect(corpus.settingsJson).toBe("");
     expect(corpus.skills["nexus-a"].description).toBe("");
+  });
+});
+
+/**
+ * `mayShip` is what the release pin gate asks of every upstream file a pin is
+ * missing. It is only worth anything while it agrees with what the corpus READS,
+ * so the agreement is asserted against the corpus itself rather than against a
+ * list copied into this file.
+ */
+describe("mayShip agrees with what the corpus reads", () => {
+  /**
+   * A tree with a file under every root the corpus reads, and decoys at names it
+   * does not. The decoys are real upstream names: `statusline/` and
+   * `cli-compat.json` both exist upstream and the corpus reads neither.
+   */
+  const TREE: Record<string, string> = {
+    "CLAUDE.md": "# Root",
+    "settings.json": "{}",
+    "skills/nexus-a/SKILL.md": "# A",
+    "skills/nexus-a/scripts/run.sh": "echo",
+    "skills/shared/client.ts": "export {};",
+    "hooks/guard.py": "pass",
+    "agents/rig.md": "rig",
+    "statusline/statusline-v2.py": "decoy",
+    "statusline.sh": "decoy",
+    "cli-compat.json": "{}",
+    "README.md": "decoy",
+    "tools/x.py": "decoy",
+    "hooks/.cache/state.json": "cruft"
+  };
+
+  it("admits every file the corpus reads — so the gate cannot pass a change an install would write", () => {
+    const read = new Set<string>();
+    buildCorpusFromFiles(SHA, {
+      paths: Object.keys(TREE),
+      read: (path) => {
+        read.add(path);
+        return TREE[path] ?? "";
+      }
+    });
+    // The CONTROL: a corpus that read nothing would make the loop below vacuous.
+    expect([...read].sort()).toEqual(
+      [
+        "CLAUDE.md",
+        "agents/rig.md",
+        "hooks/guard.py",
+        "settings.json",
+        "skills/nexus-a/SKILL.md",
+        "skills/nexus-a/scripts/run.sh",
+        "skills/shared/client.ts"
+      ].sort()
+    );
+    for (const path of read) expect(mayShip(path), path).toBe(true);
+  });
+
+  it.each([
+    "statusline/statusline-v2.py",
+    "statusline.sh",
+    "cli-compat.json",
+    "README.md",
+    "tools/x.py"
+  ])("refuses %s, which no install writes", (path) => {
+    expect(mayShip(path)).toBe(false);
+  });
+
+  it("refuses cruft below a collected root, exactly as the corpus skips it", () => {
+    expect(mayShip("hooks/.cache/state.json")).toBe(false);
+    expect(mayShip("hooks/lib/__pycache__/core.cpython-312.pyc")).toBe(false);
+  });
+
+  it("admits a skills directory the selection leaves out — the safe direction", () => {
+    // `skills/plain/` is not bundled today, but whether a directory is selected is
+    // a property of the whole tree. Counting it is a refresh nobody needed;
+    // skipping it could be a stale bundle published.
+    expect(mayShip("skills/plain/SKILL.md")).toBe(true);
   });
 });

@@ -49,6 +49,7 @@ Notes:
         printRecord({ ...t, dashboardUrl: dashboardUrlFor("aiTask", t.id, globals) }, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
+          { key: "kind", label: "Type" },
           { key: "category", label: "Category" },
           { key: "modelName", label: "Model" },
           { key: "modelProvider", label: "Provider" },

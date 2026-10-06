@@ -1,0 +1,276 @@
+{
+  "ahead_by": 29,
+  "behind_by": 0,
+  "commits": [
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:16:05Z" },
+        "message": "W114 follow-up: fold check lines into the turn's step line"
+      },
+      "parents": [{ "sha": "8d1cd619e8fba201896b279fb171f8fd06097afa" }],
+      "sha": "589d3cefb101347bde77971c336936895a98d56b"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:17:56Z" },
+        "message": "Merge pull request #110 from NexusGPT/w114-fold-checks"
+      },
+      "parents": [
+        { "sha": "8d1cd619e8fba201896b279fb171f8fd06097afa" },
+        { "sha": "589d3cefb101347bde77971c336936895a98d56b" }
+      ],
+      "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:41:20Z" },
+        "message": "W114 follow-up: checks merged into chat-clean; simpler, indented checks rows"
+      },
+      "parents": [{ "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465" }],
+      "sha": "42a7691486945e84622709fb5d59b2e4f53706c0"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:47:45Z" },
+        "message": "Acknowledge the deliberate removal of skills/cue-checks"
+      },
+      "parents": [{ "sha": "42a7691486945e84622709fb5d59b2e4f53706c0" }],
+      "sha": "9eb4b3a384adf0badcd1f9a6ba7382924f694c12"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:52:29Z" },
+        "message": "W114 follow-up: answered question as one line per question"
+      },
+      "parents": [{ "sha": "9eb4b3a384adf0badcd1f9a6ba7382924f694c12" }],
+      "sha": "a0d9892f08bd9b7898957b86428f4718c9f085d1"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:29:43Z" },
+        "message": "Acknowledge the deliberate replacement of the ui.log fold in chat-clean"
+      },
+      "parents": [{ "sha": "a0d9892f08bd9b7898957b86428f4718c9f085d1" }],
+      "sha": "6da4b40d044d01b663735e96811d10d76f21c3b9"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:44:13Z" },
+        "message": "W114 follow-up: desktop look and status band; no project permission mode"
+      },
+      "parents": [{ "sha": "6da4b40d044d01b663735e96811d10d76f21c3b9" }],
+      "sha": "b3e94f664b74361307b631e23a4f264e1fa5e9de"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:50:15Z" },
+        "message": "Merged mod carries #105; quietswitch tests point at cue-chat-clean"
+      },
+      "parents": [{ "sha": "b3e94f664b74361307b631e23a4f264e1fa5e9de" }],
+      "sha": "1dd4db5d18236925af3a9be3e4287e38c26fa7ad"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:57:39Z" },
+        "message": "Merge pull request #113 from NexusGPT/w114-merge-mods"
+      },
+      "parents": [
+        { "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465" },
+        { "sha": "1dd4db5d18236925af3a9be3e4287e38c26fa7ad" }
+      ],
+      "sha": "a1cef4e9930193311ba4f5c5226aa11d53c28240"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:24:43Z" },
+        "message": "W114 follow-up: desktop band as coded pills with icons and words; board cache kept warm by the mod"
+      },
+      "parents": [{ "sha": "a1cef4e9930193311ba4f5c5226aa11d53c28240" }],
+      "sha": "0b8c8ccd67fe7414948084783d8f6dc7844e372f"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:24:56Z" },
+        "message": "Setup step: the permission mode lives in each user's own settings"
+      },
+      "parents": [{ "sha": "0b8c8ccd67fe7414948084783d8f6dc7844e372f" }],
+      "sha": "1505e6695fe3dd26cef8c7b1efd732a365fb92cc"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:25:59Z" },
+        "message": "W114 follow-up: thin continuous bars with a sliding light"
+      },
+      "parents": [{ "sha": "1505e6695fe3dd26cef8c7b1efd732a365fb92cc" }],
+      "sha": "19acd5ed4b43b803c9bd3a33e0889316164f6a63"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:27:56Z" },
+        "message": "Merge pull request #116 from NexusGPT/w114-desk-pills"
+      },
+      "parents": [
+        { "sha": "a1cef4e9930193311ba4f5c5226aa11d53c28240" },
+        { "sha": "19acd5ed4b43b803c9bd3a33e0889316164f6a63" }
+      ],
+      "sha": "5f687cad1749857848cb9edcebb2f395850c3d96"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:28:30Z" },
+        "message": "W114 follow-up: one-line desktop band, bar on the board only, no-board pill"
+      },
+      "parents": [{ "sha": "5f687cad1749857848cb9edcebb2f395850c3d96" }],
+      "sha": "ea3c4277f84026b682b925ff96b5a9dcc51515e6"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:29:35Z" },
+        "message": "W114 follow-up: pills never wrap"
+      },
+      "parents": [{ "sha": "ea3c4277f84026b682b925ff96b5a9dcc51515e6" }],
+      "sha": "8634e2ae480f781aef84a00f0a986d7f44ae6ccf"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:31:06Z" },
+        "message": "Merge pull request #117 from NexusGPT/w114-band-oneline"
+      },
+      "parents": [
+        { "sha": "5f687cad1749857848cb9edcebb2f395850c3d96" },
+        { "sha": "8634e2ae480f781aef84a00f0a986d7f44ae6ccf" }
+      ],
+      "sha": "2389633f5056861bd11b36f63f25d7b6d6866b9e"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:32:08Z" },
+        "message": "W114 follow-up: one usage pill at the far right; pills never wrap"
+      },
+      "parents": [{ "sha": "2389633f5056861bd11b36f63f25d7b6d6866b9e" }],
+      "sha": "787ea66c660312078a79bfe1bde5c980ab5bba63"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:32:50Z" },
+        "message": "W114 follow-up: band order board, running, tests, usage"
+      },
+      "parents": [{ "sha": "787ea66c660312078a79bfe1bde5c980ab5bba63" }],
+      "sha": "d95588b1dac5095c13d6bf18dce6ea34edcf4445"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:34:10Z" },
+        "message": "W114 follow-up: organisation first"
+      },
+      "parents": [{ "sha": "d95588b1dac5095c13d6bf18dce6ea34edcf4445" }],
+      "sha": "f8f946a9956e8bfb02671b378a0618dbbad11218"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:35:30Z" },
+        "message": "W114 follow-up: agents and tests on their own rows"
+      },
+      "parents": [{ "sha": "f8f946a9956e8bfb02671b378a0618dbbad11218" }],
+      "sha": "32c29e9f66a2709154d460ab5b921c70a8cb98c9"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:36:07Z" },
+        "message": "W114 follow-up: agents and tests share row 2"
+      },
+      "parents": [{ "sha": "32c29e9f66a2709154d460ab5b921c70a8cb98c9" }],
+      "sha": "b092934e588f6825e836522cde81d73bbfb5b1ac"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:36:42Z" },
+        "message": "W114 follow-up: rows fill their width"
+      },
+      "parents": [{ "sha": "b092934e588f6825e836522cde81d73bbfb5b1ac" }],
+      "sha": "2080afe966b5cb8a04092afa38472a2c89901d28"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T21:38:34Z" },
+        "message": "W114 follow-up: building icon; band rows rebuilt on the owner's word"
+      },
+      "parents": [{ "sha": "2080afe966b5cb8a04092afa38472a2c89901d28" }],
+      "sha": "9ef522c07aa8bc3e611c9d81f3228c35ba03303e"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:00:53Z" },
+        "message": "W115: turn-end checks read a holder kind, never a sentence (#112)"
+      },
+      "parents": [{ "sha": "2389633f5056861bd11b36f63f25d7b6d6866b9e" }],
+      "sha": "b2f19724a611cfb7f2de8409c1e16693cd0a41a5"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:05:21Z" },
+        "message": "Project settings allow every tool and command Cue uses"
+      },
+      "parents": [{ "sha": "b2f19724a611cfb7f2de8409c1e16693cd0a41a5" }],
+      "sha": "5ed4db28ed4190f83ad837424d39fdc97d861145"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:06:49Z" },
+        "message": "Allow rules are broad: all shell commands and every Cue tool"
+      },
+      "parents": [{ "sha": "5ed4db28ed4190f83ad837424d39fdc97d861145" }],
+      "sha": "87755521da2faa6e405f13a2857bb9b2b22d2cc3"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:11:19Z" },
+        "message": "W114 follow-up: latest desktop band (building icon, board refreshed on write, one-line board pill) and setup doc without bypass"
+      },
+      "parents": [{ "sha": "9ef522c07aa8bc3e611c9d81f3228c35ba03303e" }],
+      "sha": "638f9cc1fb60897f5e10e69b429e23e99538fa28"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:12:52Z" },
+        "message": "Merge pull request #118 from NexusGPT/w114-usage-pill"
+      },
+      "parents": [
+        { "sha": "b2f19724a611cfb7f2de8409c1e16693cd0a41a5" },
+        { "sha": "638f9cc1fb60897f5e10e69b429e23e99538fa28" }
+      ],
+      "sha": "11e27fe8db5f505603e466695fd69ce7ee9cb32f"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T22:12:59Z" },
+        "message": "Merge pull request #119 from NexusGPT/w114-allow-list"
+      },
+      "parents": [
+        { "sha": "11e27fe8db5f505603e466695fd69ce7ee9cb32f" },
+        { "sha": "87755521da2faa6e405f13a2857bb9b2b22d2cc3" }
+      ],
+      "sha": "0d58ef878728bf28e39858ef09db65917082d372"
+    }
+  ],
+  "files": [
+    { "filename": "hooks/CHANGELOG.md", "status": "modified" },
+    { "filename": "hooks/lib/hook_core.py", "status": "modified" },
+    { "filename": "hooks/lib/owed.py", "status": "modified" },
+    { "filename": "hooks/nexus-lifecycle.py", "status": "modified" },
+    { "filename": "hooks/test_quietswitch.py", "status": "modified" },
+    { "filename": "settings.json", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/.claude-plugin/plugin.json", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/feed.ts", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/register.tsx", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/types/index.d.ts", "status": "modified" },
+    { "filename": "skills/cue-checks/.claude-plugin/plugin.json", "status": "removed" },
+    { "filename": "skills/cue-checks/hooks/hooks.json", "status": "removed" },
+    { "filename": "skills/cue-checks/hooks/register.tsx", "status": "removed" },
+    { "filename": "skills/cue-checks/tsconfig.json", "status": "removed" },
+    { "filename": "skills/nexus-getting-started/reference/cli-setup.md", "status": "modified" },
+    { "filename": "tools/quietswitch_e2e.py", "status": "modified" }
+  ],
+  "status": "ahead",
+  "total_commits": 29
+}

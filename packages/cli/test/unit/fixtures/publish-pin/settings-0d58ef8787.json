@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "outputStyle": "Concise",
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/statusline.sh\""
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "1000",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "100"
+  },
+  "permissions": {
+    "additionalDirectories": ["/tmp", "~/.nexus-mcp", "~/nexus"],
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Skill",
+      "Agent",
+      "SendMessage",
+      "TaskStop",
+      "ToolSearch",
+      "Monitor",
+      "ListAgents",
+      "Artifact",
+      "ArtifactData",
+      "ArtifactComments",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "mcp__playwright",
+      "mcp__circleback",
+      "mcp__claude_ai_Claude_Docs",
+      "Read(~/nexus/**)",
+      "Edit(~/nexus/**)"
+    ],
+    "ask": [
+      "Bash(sudo:*)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Edit(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Edit(~/.gnupg/**)",
+      "Read(~/.config/gcloud/**)",
+      "Edit(~/.config/gcloud/**)",
+      "Read(~/.netrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.bash_profile)",
+      "Edit(~/.zprofile)",
+      "Edit(~/.profile)"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-fs-firewall.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-pretool.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-fs-firewall.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-pretool.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-awareness.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-awareness.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent|TaskCreate|TaskUpdate|TodoWrite|Monitor|ExitPlanMode|AskUserQuestion|Artifact|SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-pretool.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-pretool.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-bgnotes.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-posttool.py\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(nexus *)",
+            "async": true,
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-writers.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-jobwatch.py\"",
+            "asyncRewake": true,
+            "timeout": 14400
+          }
+        ]
+      },
+      {
+        "matcher": "^(Read|Grep|Glob|WebFetch|WebSearch|mcp__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-awareness.py\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-conformance.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task|AskUserQuestion|EnterPlanMode|ExitPlanMode|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-posttool.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-postfail.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-awareness.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-lifecycle.py\" --split"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-jobwatch.py\"",
+            "asyncRewake": true,
+            "timeout": 14400
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-lifecycle.py\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-lifecycle.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-precompact-rearm.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/session_daemon.py\" --hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/hookrun.py\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-lifecycle.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-writers.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/session_daemon.py\" --hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-writers.py\"",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "[ \"$CUE_QUIET_HOOKS\" = \"$PPID\" ] || python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lib/session_daemon.py\" --hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/nexus-stopfailure.py\"",
+            "asyncRewake": true
+          }
+        ]
+      }
+    ]
+  }
+}

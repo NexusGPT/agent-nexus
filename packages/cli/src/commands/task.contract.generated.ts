@@ -18,6 +18,14 @@
 import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
 
+export const SKILLS_CREATE_TASK__BODY_KIND = {
+  path: "SkillsCreateTask.Body.kind",
+  contractValues: [
+    "GENERATIVE",
+    "DECISION"
+  ]
+} as const satisfies ContractEnum;
+
 export const SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER = {
   path: "SkillsCreateTask.Body.modelProvider",
   contractValues: [
@@ -155,6 +163,7 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
   route: "/public/v1/skills/tasks",
   fields: [
     { path: "Body.name", slot: "Body", type: "string", required: true, depth: 0 },
+    { path: "Body.kind", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["GENERATIVE", "DECISION"] },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.modelName", slot: "Body", type: "string", required: true, depth: 0 },
     { path: "Body.modelProvider", slot: "Body", type: "string", required: true, depth: 0, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
@@ -252,6 +261,7 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.generation.expectedOutput", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.generation.jsonOutputSchema", slot: "Body", type: "object", required: false, depth: 1, opaque: true },
     { path: "Body.generation.documentTemplateId", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.kind", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.promptText", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.systemPrompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.instructions", slot: "Body", type: "string", required: false, depth: 0 },

@@ -50,6 +50,7 @@ Notes:
           printTable(items, [
             { key: "id", label: "ID", width: 36 },
             { key: "name", label: "NAME", width: 30 },
+            { key: "kind", label: "TYPE", width: 10 },
             { key: "category", label: "CATEGORY", width: 15 },
             { key: "inputFormat", label: "INPUT", width: 10 },
             { key: "outputFormat", label: "OUTPUT", width: 10 },

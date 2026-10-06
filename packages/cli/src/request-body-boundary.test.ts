@@ -130,16 +130,6 @@ const UNGATED_WITH_REASON: readonly { file: string; code: string; reason: string
       "A config file on disk, not a request body. Narrowing it honestly means validating " +
       "the whole profiles map, which changes what a malformed ~/.nexusrc does — a behaviour " +
       "change, not a typing one. The CLI cannot import Zod (see `asRequestBody`'s docblock)."
-  },
-  {
-    file: "commands/workflow/test.handler.ts",
-    code: "(await client.workflows.testWorkflow(id, body)) as unknown as Record< string, unknown >",
-    reason:
-      "A RESPONSE, widened so a `status` column can be read off it. The service returns " +
-      "`{ executionId, status: 'RUNNING' }` from both arms while the SDK's `TestWorkflowResult` " +
-      "declares only `executionId` — so removing this widening deletes a column that is " +
-      "real. The fix is in `packages/sdk/src/types/workflows.ts` and it is unowned: this " +
-      "entry named PR #2583 as its blocker, and that PR merged on 2026-08-06."
   }
 ];
 

@@ -13,8 +13,8 @@ import { describeStdout } from "./json-one-document.scan";
  * 🚨 A CURE THAT REDDENS A HEALTHY RUN IS NOT A CURE. EVERY CASE HERE IS A PAIR.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Three leaves changed: `workflow validate`, `workflow test-node` and
- * `workflow node test`. For each one this file asserts the failing verdict exits
+ * Four leaves changed: `workflow validate`, `workflow test-node`,
+ * `workflow node test` and `workflow test --follow`. For each one this file asserts the failing verdict exits
  * NON-ZERO *and* the passing verdict still exits `0`. Asserting only the first
  * half passes for a command that refuses unconditionally, which would break every
  * correct caller — so the second half is the one that keeps this change shippable.
@@ -38,13 +38,18 @@ import { describeStdout } from "./json-one-document.scan";
  * `process.exitCode` after the parse is therefore the only observation that can
  * tell the cure from the disease.
  */
-const { validate, testNode } = vi.hoisted(() => ({
+const { validate, testNode, testWorkflow, diagnose } = vi.hoisted(() => ({
   validate: vi.fn(),
-  testNode: vi.fn()
+  testNode: vi.fn(),
+  testWorkflow: vi.fn(),
+  diagnose: vi.fn()
 }));
 
 vi.mock("../client", () => ({
-  createClient: () => ({ workflows: { validate, testNode } }),
+  createClient: () => ({
+    workflows: { validate, testNode, testWorkflow },
+    workflowExecutions: { diagnose }
+  }),
   timeoutSecondsToMs: (s?: number) => (s !== undefined ? s * 1000 : undefined)
 }));
 
@@ -349,6 +354,79 @@ describe.each(SPELLINGS)("nexus %s", (_name, argv) => {
     expect(testNode).toHaveBeenCalledOnce();
     expect(testNode.mock.calls[0][0]).toBe(WORKFLOW_ID);
     expect(testNode.mock.calls[0][1]).toBe(NODE_ID);
+  });
+});
+
+/** A diagnose payload at a terminal run status, with one node line to stream. */
+function diagnoseAt(status: string, nodeStatus: string) {
+  return {
+    executionId: "exec-follow",
+    status,
+    nodes: [
+      {
+        nodeId: "node-1",
+        label: "Summarize",
+        nodeType: "aiTask",
+        status: nodeStatus,
+        duration: 12,
+        error: nodeStatus === "ERROR" ? "The model cannot answer this task" : null,
+        outputSummary: null
+      }
+    ]
+  };
+}
+
+const FOLLOW_ARGV = ["workflow", "test", WORKFLOW_ID, "--input", '{"text":"hi"}', "--follow"];
+
+describe("nexus workflow test --follow", () => {
+  beforeEach(() => {
+    testWorkflow.mockResolvedValue({ executionId: "exec-follow", status: "RUNNING" });
+  });
+
+  it("exits NON-ZERO when the followed run ends FAILED — the code diagnose uses", async () => {
+    diagnose.mockResolvedValue(diagnoseAt("FAILED", "ERROR"));
+
+    expect(await runWorkflow([...FOLLOW_ARGV])).toBe(EXIT_CODES["remote-error"]);
+  });
+
+  it("still exits 0 when the followed run COMPLETED", async () => {
+    diagnose.mockResolvedValue(diagnoseAt("COMPLETED", "COMPLETED"));
+
+    expect(await runWorkflow([...FOLLOW_ARGV])).toBeUndefined();
+  });
+
+  it("exits UNMEASURED, never remote-error, when the followed run was CANCELLED", async () => {
+    diagnose.mockResolvedValue(diagnoseAt("CANCELLED", "COMPLETED"));
+
+    expect(await runWorkflow([...FOLLOW_ARGV])).toBe(EXIT_CODES.unmeasured);
+  });
+
+  it("exits remote-error under --json: node lines unchanged, then the error document", async () => {
+    // The node lines are the NDJSON stream as before. The refusal follows them
+    // on stdout, the same document `execution diagnose --json` prints, because
+    // `json-error-document.static-scan.ts` refuses a non-zero exit with no
+    // error document under --json.
+    diagnose.mockResolvedValue(diagnoseAt("FAILED", "ERROR"));
+
+    const { stdout, stderr, exitCode } = await captureJson([...FOLLOW_ARGV]);
+
+    expect(exitCode).toBe(EXIT_CODES["remote-error"]);
+    expect(stderr).toBe("");
+    const [nodeLine, ...rest] = stdout.split("\n");
+    expect(JSON.parse(nodeLine)).toMatchObject({ pathLabel: "Summarize", status: "ERROR" });
+    const doc = JSON.parse(rest.join("\n")) as { error?: { code?: unknown } };
+    expect(doc.error?.code).toBe("CLI_REMOTE_ERROR");
+  });
+
+  it("still exits 0 under --json with the same one-line stream when the run COMPLETED", async () => {
+    diagnose.mockResolvedValue(diagnoseAt("COMPLETED", "COMPLETED"));
+
+    const { stdout, exitCode } = await captureJson([...FOLLOW_ARGV]);
+
+    expect(exitCode).toBeUndefined();
+    const lines = stdout.split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toMatchObject({ pathLabel: "Summarize", status: "COMPLETED" });
   });
 });
 

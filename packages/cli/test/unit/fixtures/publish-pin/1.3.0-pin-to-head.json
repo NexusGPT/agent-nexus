@@ -1,0 +1,97 @@
+{
+  "ahead_by": 8,
+  "behind_by": 0,
+  "commits": [
+    {
+      "commit": {
+        "committer": { "date": "2026-09-03T02:11:52Z" },
+        "message": "docs(app-builder): the CLI group is `nexus apps`, and the `app` noun is gone"
+      },
+      "parents": [{ "sha": "0dfbb8366d4cc1889cd6cb54f04b600e2766a798" }],
+      "sha": "6242c695359afb4aae2d49d311c05dd722d7ef8f"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-03T02:21:08Z" },
+        "message": "docs(app-builder): apps and git projects CAN be deleted; it is RENAME that has no route"
+      },
+      "parents": [{ "sha": "0dfbb8366d4cc1889cd6cb54f04b600e2766a798" }],
+      "sha": "c5f92f9a9cb218dcc9014fab40f757d507ddf48e"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T09:52:47Z" },
+        "message": "fix(hooks): re-land W69 — a stale branch put both enforcers back to one root"
+      },
+      "parents": [{ "sha": "0dfbb8366d4cc1889cd6cb54f04b600e2766a798" }],
+      "sha": "3edc3d3da90708c9e6b3f937721c1f6fd2e47359"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T15:50:17Z" },
+        "message": "chore(hooks): merge main — the changelog conflict is additive, both entries stand"
+      },
+      "parents": [
+        { "sha": "3edc3d3da90708c9e6b3f937721c1f6fd2e47359" },
+        { "sha": "61fb85d2dd2041143ed5d7eba3d97af21b339faa" }
+      ],
+      "sha": "d984ee27eac9f438cd3558f41205f9d3fcb4c769"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T15:55:54Z" },
+        "message": "Merge pull request #45 from NexusGPT/fix/restore-sandbox-workspace-roots-enforcement"
+      },
+      "parents": [
+        { "sha": "61fb85d2dd2041143ed5d7eba3d97af21b339faa" },
+        { "sha": "d984ee27eac9f438cd3558f41205f9d3fcb4c769" }
+      ],
+      "sha": "eb35d622ee64fda5534a63d9e8d98c65f1299125"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T20:23:18Z" },
+        "message": "Merge pull request #43 from NexusGPT/fix/skills-docs-vibe-to-apps"
+      },
+      "parents": [
+        { "sha": "eb35d622ee64fda5534a63d9e8d98c65f1299125" },
+        { "sha": "6242c695359afb4aae2d49d311c05dd722d7ef8f" }
+      ],
+      "sha": "55e1c60c40912c36cb665200c867965730f801b8"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T20:24:31Z" },
+        "message": "merge: main into false-route-claims — keep the delete-exists correction and the apps noun"
+      },
+      "parents": [
+        { "sha": "c5f92f9a9cb218dcc9014fab40f757d507ddf48e" },
+        { "sha": "55e1c60c40912c36cb665200c867965730f801b8" }
+      ],
+      "sha": "0be467832e6a6775d2ee404234755acadc27d59f"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-09-04T20:25:33Z" },
+        "message": "Merge pull request #44 from NexusGPT/fix/skills-docs-false-route-claims"
+      },
+      "parents": [
+        { "sha": "55e1c60c40912c36cb665200c867965730f801b8" },
+        { "sha": "0be467832e6a6775d2ee404234755acadc27d59f" }
+      ],
+      "sha": "ec5acadf300227d1f5d0d99617fcb7cba5f07d2c"
+    }
+  ],
+  "files": [
+    { "filename": "hooks/CHANGELOG.md", "status": "modified" },
+    { "filename": "hooks/lib/destructive_guard.py", "status": "modified" },
+    { "filename": "hooks/nexus-fs-firewall.py", "status": "modified" },
+    { "filename": "hooks/test_wsroots.py", "status": "added" },
+    { "filename": "skills/nexus-app-builder/SKILL.md", "status": "modified" },
+    { "filename": "skills/nexus-app-builder/references/archetypes.md", "status": "modified" },
+    { "filename": "skills/nexus-app-builder/references/deploy-guide.md", "status": "modified" },
+    { "filename": "skills/shared/scripts/deploy_watch.sh", "status": "modified" }
+  ],
+  "status": "ahead",
+  "total_commits": 8
+}

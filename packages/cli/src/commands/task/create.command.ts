@@ -9,6 +9,7 @@ import { printSuccess } from "../../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../../util/body";
 import { resolveInputValue } from "../../util/stdin";
 import {
+  SKILLS_CREATE_TASK__BODY_KIND,
   SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER,
   SKILLS_CREATE_TASK_CONTRACT
 } from "../task.contract.generated";
@@ -20,6 +21,18 @@ export function registerTaskCreateCommand(task: Command, program: Command): void
     .command("create")
     .description("Create an AI task")
     .requiredOption("--name <name>", "Task name")
+    .addOption(
+      enumOption(
+        "--type <type>",
+        "What answers the task, fixed at create (default: generative)",
+        SKILLS_CREATE_TASK__BODY_KIND,
+        {
+          alsoAccepts: ["generative", "decision"],
+          because: "Lowercase is accepted and sent uppercase"
+        },
+        (value) => value.toUpperCase()
+      )
+    )
     .requiredOption("--model-name <model>", "Model name (e.g. gpt-4o)")
     .addOption(
       enumOption(
@@ -45,6 +58,7 @@ export function registerTaskCreateCommand(task: Command, program: Command): void
         const base = await resolveBody(opts.body);
         const flags: Record<string, unknown> = {};
         if (opts.name !== undefined) flags.name = opts.name;
+        if (opts.type !== undefined) flags.kind = opts.type;
         if (opts.description !== undefined) flags.description = opts.description;
         if (opts.modelName !== undefined) flags.modelName = opts.modelName;
         if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
@@ -64,6 +78,7 @@ export function registerTaskCreateCommand(task: Command, program: Command): void
         printSuccess("Task created.", {
           id: t.id,
           name: t.name,
+          kind: t.kind,
           dashboardUrl: dashboardUrlFor("aiTask", t.id, globals)
         });
       } catch (err) {

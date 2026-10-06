@@ -14,6 +14,13 @@ export const REPO = "NexusGPT/claude-code-skills-nexus";
 export const BRANCH = "main";
 
 /**
+ * The repository the CLI is RELEASED from. The release gate reads it for one fact
+ * the skills repository cannot supply: when the release it is judging was cut, and
+ * when that release merged.
+ */
+export const RELEASE_REPO = "NexusGPT/nexus";
+
+/**
  * The command that ADVANCES the pin, from the repository root.
  *
  * `gen:skills` alone does not: `bundle-skills.ts` builds at the sha already in
@@ -74,11 +81,41 @@ export function resolveToken(): string | null {
   }
 }
 
+/**
+ * The credential for {@link RELEASE_REPO}, under its own name.
+ *
+ * NOT `GITHUB_TOKEN`: {@link resolveToken} already reads that name as a fallback
+ * for the PRIVATE skills repository, and a workflow mapping the Actions token into
+ * it would hand that resolver a token scoped to the wrong repository — the 404
+ * puzzle {@link resolveToken}'s own comment exists to prevent. A workflow maps
+ * `github.token` into `NEXUS_REPO_READ_TOKEN`; locally `gh` answers for both.
+ */
+export function resolveReleaseRepoToken(): string | null {
+  const named = process.env.NEXUS_REPO_READ_TOKEN;
+  if (named !== undefined && named !== "") return named;
+  if (process.env.GITHUB_ACTIONS === "true") return null;
+  try {
+    const fromCli = execSync("gh auth token", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return fromCli === "" ? null : fromCli;
+  } catch {
+    return null;
+  }
+}
+
+/** A reader for the skills repository — the one this gate compares against. */
 export function githubReader(token: string): GitHubReader {
+  return githubRepoReader(REPO, token);
+}
+
+/** A reader for any one repository; `apiPath` is appended to `/repos/<repo>`. */
+export function githubRepoReader(repo: string, token: string): GitHubReader {
   return async (apiPath) => {
     let res: Response;
     try {
-      res = await fetch(`https://api.github.com/repos/${REPO}${apiPath}`, {
+      res = await fetch(`https://api.github.com/repos/${repo}${apiPath}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github+json",

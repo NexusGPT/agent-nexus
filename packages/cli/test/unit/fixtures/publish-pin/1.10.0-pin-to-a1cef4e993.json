@@ -1,0 +1,99 @@
+{
+  "ahead_by": 9,
+  "behind_by": 0,
+  "commits": [
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:16:05Z" },
+        "message": "W114 follow-up: fold check lines into the turn's step line"
+      },
+      "parents": [{ "sha": "8d1cd619e8fba201896b279fb171f8fd06097afa" }],
+      "sha": "589d3cefb101347bde77971c336936895a98d56b"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:17:56Z" },
+        "message": "Merge pull request #110 from NexusGPT/w114-fold-checks"
+      },
+      "parents": [
+        { "sha": "8d1cd619e8fba201896b279fb171f8fd06097afa" },
+        { "sha": "589d3cefb101347bde77971c336936895a98d56b" }
+      ],
+      "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:41:20Z" },
+        "message": "W114 follow-up: checks merged into chat-clean; simpler, indented checks rows"
+      },
+      "parents": [{ "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465" }],
+      "sha": "42a7691486945e84622709fb5d59b2e4f53706c0"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:47:45Z" },
+        "message": "Acknowledge the deliberate removal of skills/cue-checks"
+      },
+      "parents": [{ "sha": "42a7691486945e84622709fb5d59b2e4f53706c0" }],
+      "sha": "9eb4b3a384adf0badcd1f9a6ba7382924f694c12"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T19:52:29Z" },
+        "message": "W114 follow-up: answered question as one line per question"
+      },
+      "parents": [{ "sha": "9eb4b3a384adf0badcd1f9a6ba7382924f694c12" }],
+      "sha": "a0d9892f08bd9b7898957b86428f4718c9f085d1"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:29:43Z" },
+        "message": "Acknowledge the deliberate replacement of the ui.log fold in chat-clean"
+      },
+      "parents": [{ "sha": "a0d9892f08bd9b7898957b86428f4718c9f085d1" }],
+      "sha": "6da4b40d044d01b663735e96811d10d76f21c3b9"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:44:13Z" },
+        "message": "W114 follow-up: desktop look and status band; no project permission mode"
+      },
+      "parents": [{ "sha": "6da4b40d044d01b663735e96811d10d76f21c3b9" }],
+      "sha": "b3e94f664b74361307b631e23a4f264e1fa5e9de"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:50:15Z" },
+        "message": "Merged mod carries #105; quietswitch tests point at cue-chat-clean"
+      },
+      "parents": [{ "sha": "b3e94f664b74361307b631e23a4f264e1fa5e9de" }],
+      "sha": "1dd4db5d18236925af3a9be3e4287e38c26fa7ad"
+    },
+    {
+      "commit": {
+        "committer": { "date": "2026-10-05T20:57:39Z" },
+        "message": "Merge pull request #113 from NexusGPT/w114-merge-mods"
+      },
+      "parents": [
+        { "sha": "bb24faf82c156c6f264168e4878ab96b53ae7465" },
+        { "sha": "1dd4db5d18236925af3a9be3e4287e38c26fa7ad" }
+      ],
+      "sha": "a1cef4e9930193311ba4f5c5226aa11d53c28240"
+    }
+  ],
+  "files": [
+    { "filename": "hooks/test_quietswitch.py", "status": "modified" },
+    { "filename": "settings.json", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/.claude-plugin/plugin.json", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/feed.ts", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/hooks/register.tsx", "status": "modified" },
+    { "filename": "skills/cue-chat-clean/types/index.d.ts", "status": "modified" },
+    { "filename": "skills/cue-checks/.claude-plugin/plugin.json", "status": "removed" },
+    { "filename": "skills/cue-checks/hooks/hooks.json", "status": "removed" },
+    { "filename": "skills/cue-checks/hooks/register.tsx", "status": "removed" },
+    { "filename": "skills/cue-checks/tsconfig.json", "status": "removed" },
+    { "filename": "tools/quietswitch_e2e.py", "status": "modified" }
+  ],
+  "status": "ahead",
+  "total_commits": 9
+}

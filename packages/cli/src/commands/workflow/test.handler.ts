@@ -3,8 +3,9 @@ import { Command } from "commander";
 import { createClient } from "../../client";
 import { handleError } from "../../errors";
 import { color, isJsonMode, printRecord } from "../../output";
+import { reportRunRefusal } from "../../run-verdict";
 import { resolveBody } from "../../util/body";
-import { runFollow, shortTag } from "../../util/run-follow";
+import { finishFollow, runFollow, shortTag } from "../../util/run-follow";
 import { parseSampleConfig } from "../../util/sample-config";
 import { buildTestWorkflowBody, parseInputFlag } from "../../util/test-body";
 
@@ -42,13 +43,10 @@ export async function runWorkflowTest(
     // (NEX-2483). Flag-derived caps merge onto body caps; flags win.
     const body = buildTestWorkflowBody(base, input, flagSampleConfig);
 
-    const result = (await client.workflows.testWorkflow(id, body)) as unknown as Record<
-      string,
-      unknown
-    >;
+    const result = await client.workflows.testWorkflow(id, body);
 
     const follow = !!(opts.follow || opts.stream);
-    const executionId = result?.executionId as string | null | undefined;
+    const executionId = result?.executionId;
 
     if (follow && executionId) {
       if (!isJsonMode()) {
@@ -64,15 +62,9 @@ export async function runWorkflowTest(
         wfTag: shortTag(id),
         json: isJsonMode()
       });
-      if (!isJsonMode()) {
-        const paint =
-          finalStatus === "COMPLETED"
-            ? color.green
-            : finalStatus === "FAILED" || finalStatus === "ERROR" || finalStatus === "CANCELLED"
-              ? color.red
-              : color.yellow;
-        console.log(`\n${color.dim("Final status:")} ${paint(finalStatus)}`);
-      }
+      const verdict = finishFollow(finalStatus, { json: isJsonMode() });
+      if (verdict.outcome !== "completed")
+        process.exitCode = reportRunRefusal(verdict, executionId);
       return;
     }
 

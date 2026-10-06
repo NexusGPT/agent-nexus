@@ -50,6 +50,7 @@ export function registerTaskDuplicateCommand(task: Command, program: Command): v
         printSuccess("Task duplicated.", {
           id: t.id,
           name: t.name,
+          kind: t.kind,
           modelName: t.modelName,
           modelProvider: t.modelProvider
         });

@@ -24,6 +24,7 @@ export const RESOLVE_HOOK = "../../scripts/type-stripping/resolve-extensionless.
 
 /** Every script a spec runs this way, relative to the package root. */
 export const TYPE_STRIPPED_SCRIPTS = [
+  "scripts/check-publish-pin.ts",
   "scripts/generate-cli-docs.ts",
   "scripts/id-thread-sweep.ts"
 ] as const;

@@ -68,6 +68,13 @@ export interface ListWorkflowsResponse {
 // AI TASK
 // ============================================================================
 
+/**
+ * What answers an AI task. `GENERATIVE` runs on a model that writes; `DECISION`
+ * runs on a decision model (such as `jev-1.13.0`) and answers typed questions.
+ * Set at create and never changed.
+ */
+export type TaskKind = "GENERATIVE" | "DECISION";
+
 /** An AI task summary (list view). */
 export interface TaskSummary {
   /** Unique task ID. */
@@ -78,6 +85,11 @@ export interface TaskSummary {
   description: string | null;
   /** Task category (e.g. "GENERATION", "CLASSIFICATION", "EXTRACTION"). */
   category: string;
+  /**
+   * What answers the task, fixed at create: `GENERATIVE` (a model that writes)
+   * or `DECISION` (a decision model that answers typed questions).
+   */
+  kind: TaskKind;
   /** Input format: "TEXT" or "JSON". */
   inputFormat: string;
   /** Output format: "TEXT", "JSON", or "TEMPLATE". */
@@ -309,6 +321,12 @@ export interface CreateDocumentTemplateBody {
 
 /** Body for `client.skills.createTask()`. */
 export interface CreateTaskBody {
+  /**
+   * What answers the task, fixed for its lifetime. Default `GENERATIVE`. A
+   * `DECISION` task needs a decision model, `outputFormat: "json"` and a
+   * `jsonOutputSchema` of boolean, string-enum and bounded-integer fields.
+   */
+  kind?: TaskKind;
   /** Display name. */
   name: string;
   /** Description of the task. */

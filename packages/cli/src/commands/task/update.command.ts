@@ -64,6 +64,7 @@ export function registerTaskUpdateCommand(task: Command, program: Command): void
         printSuccess("Task updated.", {
           id: t.id,
           name: t.name,
+          kind: t.kind,
           dashboardUrl: dashboardUrlFor("aiTask", t.id, globals),
           // Null only when the body named no recognized field, so nothing was
           // written. NOT a no-op detector — an update whose values are identical

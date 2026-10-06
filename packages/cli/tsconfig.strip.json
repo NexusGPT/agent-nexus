@@ -21,6 +21,7 @@
   },
   "include": [],
   "files": [
+    "scripts/check-publish-pin.ts",
     "scripts/generate-cli-docs.ts",
     "scripts/id-thread-sweep.ts",
     "../../scripts/type-stripping/resolve-extensionless.hook.ts"

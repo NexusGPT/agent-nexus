@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.10.0 ───────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.11.0 ───────────────────────────────────────────────────
  *
  * 555 promised paths — 488 STABLE, 67 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.10.0",
+  version: "1.11.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -418,7 +418,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "skills update", shape: "a46a6fabbdf9", tier: "STABLE" },
     { path: "skills version", shape: "ff7d24d63cb8", tier: "STABLE" },
     { path: "skills where", shape: "acbb88c546bc", tier: "STABLE" },
-    { path: "task create", shape: "589af6ad8ccc", tier: "STABLE" },
+    { path: "task create", shape: "6d3d3301f6fb", tier: "STABLE" },
     { path: "task delete", shape: "58a625d72d4e", tier: "STABLE" },
     { path: "task duplicate", shape: "2fe9d3255964", tier: "STABLE" },
     { path: "task execute", shape: "0290fe2738a9", tier: "STABLE" },

@@ -1,5 +1,22 @@
 # @agent-nexus/sdk
 
+## 4.5.0
+### Minor Changes
+
+- 4fef1f3: `nexus task create --type decision|generative` sets what answers a new AI task, and `nexus task list` shows it as TYPE
+  
+  Every AI task now has a kind: `GENERATIVE` (a model that writes, the default)
+  or `DECISION` (a decision model such as `jev-1.13.0` that answers typed
+  questions). It is set once, at create, and a duplicate keeps it.
+  
+  - CLI: `task create --type <type>` takes `generative` or `decision` (either
+    case); `task list` adds a TYPE column and `task get` a Type row.
+  - SDK: `TaskSummary` and `TaskDetail` carry `kind: TaskKind`, and
+    `CreateTaskBody` takes an optional `kind`.
+  
+  **A create on `jev-1.13.0` without `--type decision` is now refused** with
+  `MODEL_CANNOT_ANSWER_TASK`, and so is a decision task on a model that writes.
+
 ## 4.4.1
 ### Patch Changes
 

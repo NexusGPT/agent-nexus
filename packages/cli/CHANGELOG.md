@@ -1,5 +1,147 @@
 # @agent-nexus/cli
 
+## 1.11.0
+### Minor Changes
+
+- be919f6: `nexus workflow test --follow` and `nexus execution follow` exit `6` when the followed run ends FAILED, where they exited `0`
+  
+  Both commands now end the follow in one shared step, and the run's final
+  status sets the exit code by the same rule as `nexus execution diagnose`:
+  
+  - COMPLETED: exits `0`, as before.
+  - FAILED: exits `6` (`remote-error`) and prints the `CLI_REMOTE_ERROR` refusal.
+  - CANCELLED, or a follow that stops before a terminal status: exits `11`
+    (`unmeasured`). Nothing failed and nothing passed.
+  
+  **This moves an exit code a script reads.** A `set -e` script that runs
+  `workflow test --follow` or `execution follow` now stops on a failed run.
+  
+  Under `--json` the NDJSON node lines do not change. On a run that did not
+  complete, ONE MULTI-LINE error document follows them on stdout, as
+  `execution diagnose --json` prints it. A reader that parses the stream line by
+  line stops at that document's first line, so read the exit code first. The
+  help text of both commands says this.
+- 4fef1f3: `nexus task create --type decision|generative` sets what answers a new AI task, and `nexus task list` shows it as TYPE
+  
+  Every AI task now has a kind: `GENERATIVE` (a model that writes, the default)
+  or `DECISION` (a decision model such as `jev-1.13.0` that answers typed
+  questions). It is set once, at create, and a duplicate keeps it.
+  
+  - CLI: `task create --type <type>` takes `generative` or `decision` (either
+    case); `task list` adds a TYPE column and `task get` a Type row.
+  - SDK: `TaskSummary` and `TaskDetail` carry `kind: TaskKind`, and
+    `CreateTaskBody` takes an optional `kind`.
+  
+  **A create on `jev-1.13.0` without `--type decision` is now refused** with
+  `MODEL_CANNOT_ANSWER_TASK`, and so is a decision task on a model that writes.
+
+### Patch Changes
+
+- 514d6d4: `nexus admin --help` documents exit `8` and the host line every write already prints
+  
+  Two facts the admin namespace has shipped for a while and its own help did not
+  carry. Nothing about the binary's behaviour moves here; what moves is whether
+  `--help` tells you about it.
+  
+  - **Exit `8`.** `an-admin-deadline-exits-timed-out-rather-than-connection-failed`
+    moved a deadline on an admin request from `7` to `8` and is still pending. The
+    namespace's help table listed codes up to `7` and stopped, so the one code a
+    script most needs to branch on — the write that may have landed — was the one
+    it did not name. The table now carries it, with the reading: NOT RETRYABLE
+    BLIND, read the current state back first, and an unreachable host is still `7`.
+  - **The host line.** `packages/cli/src/util/admin-http.ts` writes
+    `admin <METHOD> → <baseUrl>` to STDERR before every non-GET, and only before a
+    non-GET. That is a deliberate guard — an operator about to suspend a tenant
+    sees which environment is about to take the write — and it was undocumented,
+    which makes it indistinguishable from stray noise to anyone capturing STDERR.
+    The help now states it, and states that reads stay silent and that `--json` on
+    STDOUT is unaffected, because that is the half a script author needs.
+  
+  **Why `patch`.** No exit code moves, no flag is added or renamed, no output on
+  STDOUT changes, and nothing a caller branches on behaves differently. The only
+  bytes that move in the published bundle are inside the help string.
+  
+  The same two paragraphs reach `content/docs/cli/commands/admin.mdx`, and
+  `content/docs/cli/troubleshooting.mdx` replaces its exit-code table — which still
+  claimed "the CLI uses a single non-zero code (`1`) for every failure" — with the
+  thirteen codes `packages/cli/src/exit-codes.ts` actually defines. Neither docs
+  file is in the published package, so neither is what this declaration is for;
+  they are named here because a reader comparing the diff to this entry would
+  otherwise wonder which half it covers.
+- 737a0a3: The bundled skills match the platform's, and their project settings let Cue run without permission prompts
+  
+  The skills bundled in the package (what `nexus skills install` falls back to when
+  it is offline, when the download fails, or with `--bundled`) now match the skills
+  the platform serves.
+  
+  **The installed `settings.json` allows more.** It used to allow only `nexus`,
+  `jq` and `git` shell commands and set the permission mode to `acceptEdits`. It
+  now allows every shell command and every tool Cue uses, and sets no permission
+  mode, so the mode is whatever your own Claude Code settings say. It still asks
+  before `sudo` and before reading or editing secret folders (ssh, AWS, gpg,
+  gcloud, credential files, shell profiles), and the hooks still refuse the
+  destructive commands they refused before. The `nexus-getting-started` skill
+  documents this.
+  
+  The hooks also stop a turn correctly when a board item's helper has closed or is
+  waiting on a running job.
+- 2d0f368: The bundled skills match the platform's, and their hooks no longer approve deleting your home folders
+  
+  The skills bundled in the package (what `nexus skills install` falls back to when
+  it is offline, when the download fails, or with `--bundled`) now match the skills
+  the platform serves. With the previous bundle, a session working from your home
+  folder could run `rm -rf ~/Documents`, `rm -rf ~/Desktop/*` or
+  `rm -rf $HOME/Documents` without being asked. The hooks now refuse those. They
+  still ask before any change to the hooks or to the settings that switch them off.
+  Deleting inside a project, such as `rm -rf ./build`, is still allowed. The bundle
+  also adds the `nexus-e2e` skill.
+- 48ecb38: `apps deploy-state` prints a resolution it does not know as the server's word
+  
+  `nexus apps deploy-state` says which commit it answered about — "resolved from
+  the sha you named", "the ref you named", or "the app's own deploy branch". A
+  backend newer than the installed CLI may resolve a commit a fourth way, and the
+  CLI used to print that as `the <word> you named`, claiming the caller named
+  something it never did. It now prints the server's word and says this version
+  does not know it:
+  
+      resolved from "liveDeployment" (a resolution this CLI version does not know)
+  
+  An outcome this version does not know already printed as the server's word with
+  an upgrade hint, and still does.
+  
+  ## What did NOT change
+  
+  - **Every listed outcome and resolution prints exactly as before.**
+  - **`--json` is the wire envelope, untouched.**
+  - **The exit code**: `deploy-state` exits `0` whenever the question was answered,
+    whatever the outcome.
+- 952b295: The JSON one-document gate names the stream that holds a failed run's evidence
+  
+  The CLI's own `--json` contract gate (`json-one-document.scan.ts`) drives every
+  command leaf and reports, for each failed run, one line of evidence. It used to
+  print `(nothing on either stream)` for every failure that was not a document, a
+  non-error or a miscode, which is true only of a mute run. Each outcome now
+  quotes the stream that actually holds its evidence (#7255):
+  
+  - `error-masked` quotes the non-error document on stdout, plus stderr when
+    there is any:
+  
+        stdout held a non-error document: {"ok":true,…} | stderr: …
+  
+  - `error-prose` with an empty stderr quotes stdout, where the prose or the
+    extra documents landed:
+  
+        nothing on stderr; stdout held: …
+  
+  - `error-mute` alone keeps `(nothing on either stream)`.
+  
+  ## What did NOT change
+  
+  - **No `nexus` command prints anything different.** The change is confined to
+    the gate's failure report; the commands it drives are untouched.
+  - **`--json` output, exit codes and the outcome classification** are exactly as
+    before. Only the detail line a reader is shown changed.
+
 ## 1.10.0
 ### Minor Changes
 

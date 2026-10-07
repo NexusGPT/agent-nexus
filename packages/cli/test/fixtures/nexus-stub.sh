@@ -105,10 +105,12 @@ fi
 # The deployed API has no such route. Two owners in one sentence, and the stub
 # reproduces both halves: `Not found: ` is prepended by the CLI's own 404 branch
 # in `src/errors.ts`, and `Cannot GET <path>` is the deployed API's own 404 body —
-# measured 2026-10-07, `GET /api/public/v1/mcp-servers` answering
-# `{"error":{"code":"NOT_FOUND","message":"Cannot GET /api/public/v1/mcp-servers"}}`
-# with a never-registered control path answering the same shape and two live paths
-# answering 401 instead.
+# measured 2026-10-07, `GET /api/public/v1/zzz-nonexistent-noun-9f3` answering
+# `{"success":false,"error":{"code":"NOT_FOUND","message":"Cannot GET
+# /api/public/v1/zzz-nonexistent-noun-9f3"}}`, with live paths answering 401
+# instead. The measured path is a COINED one on purpose: 404 is no route and 401
+# is a route, so the 404 half of that oracle only stays true when it is measured
+# on a path nobody can register.
 #
 # `exit 1`, not `exit 4`: the sweep records the code the CLI returns and the real
 # binary returns 4 for this class, but nothing in the classification reads it —

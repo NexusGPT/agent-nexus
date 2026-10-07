@@ -9,7 +9,7 @@ import {
   ROLE_DELETION_REQUESTS_LIST_CONTRACT
 } from "../../role.contract.generated";
 import { foldUpper } from "../_shared/fold-upper";
-import { readAccessRequestStatus } from "../_shared/read-access-request-status";
+import { readDeletionRequestStatus } from "../_shared/read-deletion-request-status";
 
 /** `nexus role deletion-requests` */
 export function registerRoleDeletionRequestsCommand(role: Command, program: Command): Command {
@@ -32,18 +32,19 @@ Examples:
   $ nexus role deletion-requests --status PENDING
 
 Notes:
-  Every row names a Role that is STILL THERE.`
+  A PENDING row names a Role that is STILL THERE. A SUPERSEDED row names a Role
+  that was deleted another way while the request was open; nobody reviewed it.`
     )
     .action(async (opts: { status?: string }) => {
       try {
         const client = createClient(program.optsWithGlobals());
         const { requests } = await client.roles.listDeletionRequests({
-          status: readAccessRequestStatus(opts.status)
+          status: readDeletionRequestStatus(opts.status)
         });
 
         printList(requests, undefined, [
           { key: "id", label: "REQUEST", width: 36 },
-          { key: "status", label: "STATUS", width: 9 },
+          { key: "status", label: "STATUS", width: 10 },
           { key: "roleId", label: "ROLE", width: 36 },
           { key: "requestedByUserId", label: "BY", width: 30 }
         ]);

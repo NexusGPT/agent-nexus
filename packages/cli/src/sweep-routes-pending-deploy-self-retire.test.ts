@@ -82,7 +82,51 @@ import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { classifyCommandUniverse } from "./command-universe";
+import {
+  classifyCommandUniverse,
+  staleDeclarations,
+  SWEEP_ROUTES_PENDING_DEPLOY
+} from "./command-universe";
+
+/**
+ * 🚨 THE END-TO-END ARMS BELOW CANNOT RUN WITH NO DECLARATION, AND NOTHING IN
+ * THIS PACKAGE CAN GIVE THEM ONE.
+ *
+ * An entry in {@link SWEEP_ROUTES_PENDING_DEPLOY} fires exactly once, at a
+ * deploy, and the remedy for its own good news is to DELETE it — so an EMPTY map
+ * is this mechanism's resting state rather than a gap. The six arms that drive a
+ * real `sweep.sh` need a leaf/route pairing, and the sweep derives that pairing
+ * itself: `run_universe()` is a hard-coded
+ * `pnpm exec tsx scripts/command-universe.ts`, which reads this module and no
+ * environment variable. So the pairing has to be IN the module; there is no seam,
+ * and the three shapes that look like one are each worse than dormancy:
+ *
+ *   - an env override on the derivation would let a run be handed a declaration
+ *     that appears in NO DIFF. The whole design rests on a declaration being a
+ *     reviewable entry that self-retires, so a traceless one is an amnesty.
+ *   - a permanent self-test entry for a coined leaf is caught by
+ *     {@link staleDeclarations} — the leaf is not swept — which is the drift guard
+ *     working, and silencing it would cost more than these arms.
+ *   - driving a COPY of `sweep.sh` from a scratch tree makes the subject a
+ *     replica of the thing under test, which is the one substitution that can
+ *     drift from the shipping file in silence.
+ *
+ * ✅ SO THEY SKIP, BY A DERIVED CONDITION, AND THE COST IS STATED RATHER THAN
+ * HIDDEN. A named skip is visible in the runner's output; a floor would red the
+ * file on the day the last entry correctly retires, and softening each arm to
+ * pass over an empty map would be the vacuous green this whole family exists to
+ * refuse. What stays LIVE at rest is every source-level wiring arm, the drift
+ * arms below, and the matcher's full accept/refuse contract in
+ * `sweep-route-absence-matches-one-declared-path.test.ts`, which is decoupled
+ * from this map for exactly that reason.
+ *
+ * ⚠️ WHAT THE DORMANCY COSTS, MEASURED: a regression in `sweep.sh`'s
+ * pending-deploy arm — STALE no longer reddening, or a 401 absorbed as PENDING —
+ * lands green while the map is empty, and surfaces as a red on the next lane to
+ * declare a route, reading as that lane's own defect. The arms wake with the next
+ * entry, which is the first run on which they have anything to say.
+ */
+const HAS_DECLARATION = Object.keys(SWEEP_ROUTES_PENDING_DEPLOY).length > 0;
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SWEEP = join(PACKAGE_ROOT, "scripts", "sweep.sh");
@@ -285,70 +329,79 @@ function noteFor(result: Outcome, leaf: string): string {
 }
 
 describe("a declared pending-deploy route is accepted once, and retires itself", () => {
-  it("derives a declaration, its route, and an undeclared leaf beside it", () => {
-    // Vacuity controls, ahead of every case that depends on them. With no
-    // declaration there is nothing to accept, and every assertion below would be
-    // true of nothing.
-    expect(pendingLeaf).not.toBe("");
-    expect(pendingRoute).not.toBe("");
-    expect(pendingCause).not.toBe("");
-    expect(undeclaredLeaf).not.toBe("");
-    expect(undeclaredLeaf).not.toBe(pendingLeaf);
-    // The route is spliced into an ERE. A declaration carrying a metacharacter
-    // would accept far more than the one absence it names.
-    expect(pendingRoute).toMatch(/^\/[A-Za-z0-9/_.~-]+$/);
-  });
+  it.skipIf(!HAS_DECLARATION)(
+    "derives a declaration, its route, and an undeclared leaf beside it",
+    () => {
+      // Vacuity controls, ahead of every case that depends on them. With no
+      // declaration there is nothing to accept, and every assertion below would be
+      // true of nothing.
+      expect(pendingLeaf).not.toBe("");
+      expect(pendingRoute).not.toBe("");
+      expect(pendingCause).not.toBe("");
+      expect(undeclaredLeaf).not.toBe("");
+      expect(undeclaredLeaf).not.toBe(pendingLeaf);
+      // The route is spliced into an ERE. A declaration carrying a metacharacter
+      // would accept far more than the one absence it names.
+      expect(pendingRoute).toMatch(/^\/[A-Za-z0-9/_.~-]+$/);
+    }
+  );
 
   // ── The one that must be ACCEPTED ─────────────────────────────────────────
 
-  it("reports PENDING and exits 0 under --strict when the declared route is absent", () => {
-    const run = outcome("as-declared");
+  it.skipIf(!HAS_DECLARATION)(
+    "reports PENDING and exits 0 under --strict when the declared route is absent",
+    () => {
+      const run = outcome("as-declared");
 
-    // The ROW first: a run that exits 0 having never executed the leaf would
-    // satisfy the status assertion while proving nothing.
-    expect(rowFor(run, pendingLeaf)).toContain("PENDING");
-    // The cause reaches the report, so a reader can judge whether the acceptance
-    // is still right without opening the declaration.
-    expect(rowFor(run, pendingLeaf)).toContain(pendingCause);
-    expect(rowFor(run, pendingLeaf)).toContain(pendingRoute);
+      // The ROW first: a run that exits 0 having never executed the leaf would
+      // satisfy the status assertion while proving nothing.
+      expect(rowFor(run, pendingLeaf)).toContain("PENDING");
+      // The cause reaches the report, so a reader can judge whether the acceptance
+      // is still right without opening the declaration.
+      expect(rowFor(run, pendingLeaf)).toContain(pendingCause);
+      expect(rowFor(run, pendingLeaf)).toContain(pendingRoute);
 
-    // 🚨 THE DENOMINATOR. A bare `1 pending deploy` cannot separate "the one
-    // absence this branch declared" from "one of three fired and two silently
-    // stopped applying" — and the two that stopped are leaves whose routes have
-    // gone live, which is the event the whole mechanism exists to catch.
-    const ratio = /· (\d+)\/(\d+) pending deploy ·/.exec(summaryOf(run));
-    if (ratio === null) {
-      throw new Error(`the summary carries no pending-deploy ratio: ${summaryOf(run)}`);
+      // 🚨 THE DENOMINATOR. A bare `1 pending deploy` cannot separate "the one
+      // absence this branch declared" from "one of three fired and two silently
+      // stopped applying" — and the two that stopped are leaves whose routes have
+      // gone live, which is the event the whole mechanism exists to catch.
+      const ratio = /· (\d+)\/(\d+) pending deploy ·/.exec(summaryOf(run));
+      if (ratio === null) {
+        throw new Error(`the summary carries no pending-deploy ratio: ${summaryOf(run)}`);
+      }
+      // Every declaration fired, so the acceptance still describes this
+      // environment. A numerator below the denominator is a declaration whose
+      // route has gone live, which the `route-is-live` case below scores.
+      expect(ratio[1]).toBe(ratio[2]);
+
+      expect(summaryOf(run)).toMatch(/· 0 warn · 0 fail ·/);
+      // 🔴 THE ARM. PENDING must not reach the exit code, under `--strict`, which
+      // is the mode CI runs.
+      expect(run.status).toBe(0);
     }
-    // Every declaration fired, so the acceptance still describes this
-    // environment. A numerator below the denominator is a declaration whose
-    // route has gone live, which the `route-is-live` case below scores.
-    expect(ratio[1]).toBe(ratio[2]);
-
-    expect(summaryOf(run)).toMatch(/· 0 warn · 0 fail ·/);
-    // 🔴 THE ARM. PENDING must not reach the exit code, under `--strict`, which
-    // is the mode CI runs.
-    expect(run.status).toBe(0);
-  });
+  );
 
   // ── The ones that must stay RED ───────────────────────────────────────────
 
-  it("FAILS a declaration whose route is LIVE, and names the entry to delete", () => {
-    // 🔴 THE SELF-RETIRING ARM. The leaf answers, so the acceptance has outlived
-    // its reason and is standing ready to accept a 404 on behalf of whatever next
-    // takes this leaf's name.
-    const run = outcome("route-is-live");
-    const row = rowFor(run, pendingLeaf);
+  it.skipIf(!HAS_DECLARATION)(
+    "FAILS a declaration whose route is LIVE, and names the entry to delete",
+    () => {
+      // 🔴 THE SELF-RETIRING ARM. The leaf answers, so the acceptance has outlived
+      // its reason and is standing ready to accept a 404 on behalf of whatever next
+      // takes this leaf's name.
+      const run = outcome("route-is-live");
+      const row = rowFor(run, pendingLeaf);
 
-    expect(row).toContain("FAIL");
-    expect(row).toContain("STALE PENDING-DEPLOY DECLARATION");
-    // It must name the remedy where the person reading the red is standing.
-    expect(row).toContain("SWEEP_ROUTES_PENDING_DEPLOY");
-    expect(row).toContain(pendingRoute);
+      expect(row).toContain("FAIL");
+      expect(row).toContain("STALE PENDING-DEPLOY DECLARATION");
+      // It must name the remedy where the person reading the red is standing.
+      expect(row).toContain("SWEEP_ROUTES_PENDING_DEPLOY");
+      expect(row).toContain(pendingRoute);
 
-    expect(summaryOf(run)).toMatch(/· 0\/\d+ pending deploy ·/);
-    expect(run.status).toBeGreaterThan(0);
-  });
+      expect(summaryOf(run)).toMatch(/· 0\/\d+ pending deploy ·/);
+      expect(run.status).toBeGreaterThan(0);
+    }
+  );
 
   // 🔎 THE 500 AND THE MIS-PATHED 404 CASES USED TO SIT HERE, each with its own
   // real sweep. They are in `sweep-route-absence-matches-one-declared-path.test.ts`
@@ -361,75 +414,84 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
   // un-raisable 60s deadline; these two runs were the cheapest to give up because
   // their discrimination was already armed elsewhere.
 
-  it("FAILS a declared leaf that returns a 401 — the most expensive false acceptance", () => {
-    // An expired `NEXUS_STAGING_API_KEY` refuses every leaf at once. A mechanism
-    // that absorbed a 401 under a pending-deploy entry would report a clean,
-    // entirely vacuous sweep.
-    const run = outcome("other-failure-401");
-    const row = rowFor(run, pendingLeaf);
+  it.skipIf(!HAS_DECLARATION)(
+    "FAILS a declared leaf that returns a 401 — the most expensive false acceptance",
+    () => {
+      // An expired `NEXUS_STAGING_API_KEY` refuses every leaf at once. A mechanism
+      // that absorbed a 401 under a pending-deploy entry would report a clean,
+      // entirely vacuous sweep.
+      const run = outcome("other-failure-401");
+      const row = rowFor(run, pendingLeaf);
 
-    expect(row).toContain("FAIL");
-    expect(row).not.toContain("PENDING");
-    expect(row).toContain("Authentication failed");
+      expect(row).toContain("FAIL");
+      expect(row).not.toContain("PENDING");
+      expect(row).toContain("Authentication failed");
 
-    expect(summaryOf(run)).toMatch(/· 0\/\d+ pending deploy ·/);
-    expect(run.status).toBeGreaterThan(0);
-  });
+      expect(summaryOf(run)).toMatch(/· 0\/\d+ pending deploy ·/);
+      expect(run.status).toBeGreaterThan(0);
+    }
+  );
 
-  it("FAILS an UNDECLARED leaf producing the identical sentence, in the same run", () => {
-    // Both leaves in ONE sweep, so the acceptance is proven bound to the
-    // DECLARATION rather than to the shape of the refusal. A mechanism that
-    // exempted by shape would report two PENDINGs and exit 0.
-    const run = outcome("undeclared-same-sentence");
+  it.skipIf(!HAS_DECLARATION)(
+    "FAILS an UNDECLARED leaf producing the identical sentence, in the same run",
+    () => {
+      // Both leaves in ONE sweep, so the acceptance is proven bound to the
+      // DECLARATION rather than to the shape of the refusal. A mechanism that
+      // exempted by shape would report two PENDINGs and exit 0.
+      const run = outcome("undeclared-same-sentence");
 
-    expect(rowFor(run, pendingLeaf)).toContain("PENDING");
+      expect(rowFor(run, pendingLeaf)).toContain("PENDING");
 
-    expect(rowFor(run, undeclaredLeaf)).toContain("FAIL");
+      expect(rowFor(run, undeclaredLeaf)).toContain("FAIL");
 
-    // 🔴 THE ARM, AND `toContain("FAIL")` ABOVE IS NOT IT. Measured: a mutant that
-    // stops keying the pending branch on the DECLARATION —
-    // `if [[ -n "$pending_route" ]]` -> `… || true` — lets EVERY failing leaf into
-    // that branch. An undeclared one is then asked about an empty route, the
-    // matcher answers "no", and the row lands in the declared-but-different arm:
-    //
-    //   FAIL  agent list  DECLARED pending-deploy () BUT THIS IS A DIFFERENT
-    //                     FAILURE — the declaration does not cover it: exit=1: …
-    //
-    // That row still READS `FAIL` and still does not read `PENDING`, so the two
-    // assertions this replaces both held and the whole file passed 13/13 under it.
-    // Exemption by shape is exactly what this case exists to refuse, and it could
-    // not see it.
-    //
-    // So pin the note's OPENING. The generic FAIL opens `exit=`; the
-    // declared-but-different one opens `DECLARED pending-deploy (`. Nothing else
-    // separates them — both carry `exit=` somewhere.
-    const undeclaredNote = noteFor(run, undeclaredLeaf);
-    expect(undeclaredNote).toMatch(/^exit=\d+: /);
-    expect(undeclaredNote).not.toContain("DECLARED pending-deploy");
+      // 🔴 THE ARM, AND `toContain("FAIL")` ABOVE IS NOT IT. Measured: a mutant that
+      // stops keying the pending branch on the DECLARATION —
+      // `if [[ -n "$pending_route" ]]` -> `… || true` — lets EVERY failing leaf into
+      // that branch. An undeclared one is then asked about an empty route, the
+      // matcher answers "no", and the row lands in the declared-but-different arm:
+      //
+      //   FAIL  agent list  DECLARED pending-deploy () BUT THIS IS A DIFFERENT
+      //                     FAILURE — the declaration does not cover it: exit=1: …
+      //
+      // That row still READS `FAIL` and still does not read `PENDING`, so the two
+      // assertions this replaces both held and the whole file passed 13/13 under it.
+      // Exemption by shape is exactly what this case exists to refuse, and it could
+      // not see it.
+      //
+      // So pin the note's OPENING. The generic FAIL opens `exit=`; the
+      // declared-but-different one opens `DECLARED pending-deploy (`. Nothing else
+      // separates them — both carry `exit=` somewhere.
+      const undeclaredNote = noteFor(run, undeclaredLeaf);
+      expect(undeclaredNote).toMatch(/^exit=\d+: /);
+      expect(undeclaredNote).not.toContain("DECLARED pending-deploy");
 
-    expect(summaryOf(run)).toMatch(/· 1 fail ·/);
-    expect(summaryOf(run)).toMatch(/· 1\/\d+ pending deploy ·/);
-    expect(run.status).toBe(1);
-  });
+      expect(summaryOf(run)).toMatch(/· 1 fail ·/);
+      expect(summaryOf(run)).toMatch(/· 1\/\d+ pending deploy ·/);
+      expect(run.status).toBe(1);
+    }
+  );
 
   // ── The policy-refusal path is untouched ──────────────────────────────────
 
-  it("leaves the policy-refusal branch alone — a declared opt-out still SKIPs", () => {
-    // The new arm sits AFTER `is_policy_refusal` and must not have moved it. A
-    // leaf that is both opted out and undeployed is still a declared SKIP.
-    for (const key of ["as-declared", "undeclared-same-sentence"]) {
-      const run = outcome(key);
-      expect(summaryOf(run)).toMatch(
-        new RegExp(`· ${declaredSkips.length}/${declaredSkips.length} declared skip ·`)
-      );
-      for (const skip of declaredSkips) {
-        expect(rowFor(run, skip)).toContain("SKIP");
+  it.skipIf(!HAS_DECLARATION)(
+    "leaves the policy-refusal branch alone — a declared opt-out still SKIPs",
+    () => {
+      // The new arm sits AFTER `is_policy_refusal` and must not have moved it. A
+      // leaf that is both opted out and undeployed is still a declared SKIP.
+      for (const key of ["as-declared", "undeclared-same-sentence"]) {
+        const run = outcome(key);
+        expect(summaryOf(run)).toMatch(
+          new RegExp(`· ${declaredSkips.length}/${declaredSkips.length} declared skip ·`)
+        );
+        for (const skip of declaredSkips) {
+          expect(rowFor(run, skip)).toContain("SKIP");
+        }
       }
+      // And the 401 configuration proves a non-policy refusal is still a FAIL in
+      // the same breath, which is the other half of that spec's contract.
+      expect(rowFor(outcome("other-failure-401"), pendingLeaf)).toContain("FAIL");
     }
-    // And the 401 configuration proves a non-policy refusal is still a FAIL in
-    // the same breath, which is the other half of that spec's contract.
-    expect(rowFor(outcome("other-failure-401"), pendingLeaf)).toContain("FAIL");
-  });
+  );
 
   // ── Wiring ────────────────────────────────────────────────────────────────
 
@@ -523,13 +585,26 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
     // Nothing else enforces this, so it is enforced here rather than written in a
     // comment nobody reads at the moment it would matter.
     return classifyCommandUniverse().then((universe) => {
-      const both = universe.pendingDeploy
-        .map(({ path }) => path)
-        .filter((path) => universe.fixtureBacked.includes(path));
-      expect(both).toEqual([]);
-      // A control on that filter: an empty `pendingDeploy` would satisfy it while
-      // asserting nothing.
-      expect(universe.pendingDeploy.length).toBeGreaterThan(0);
+      const overlap = (declared: readonly string[]): string[] =>
+        declared.filter((path) => universe.fixtureBacked.includes(path));
+
+      expect(overlap(universe.pendingDeploy.map(({ path }) => path))).toEqual([]);
+
+      // 🔴 THE CONTROL, AND IT IS NOT A FLOOR ON THE DECLARATION. An empty
+      // `pendingDeploy` satisfies the arm above while asserting nothing — but
+      // empty is this mechanism's RESTING state, so a `toBeGreaterThan(0)` here
+      // reds the file on the day the last entry correctly retires. What the
+      // negative arm actually needs is proof that this filter CAN report an
+      // overlap, which is a question about the filter and not about the map: feed
+      // it a fixture-backed leaf and it must come back naming it.
+      const witness = universe.fixtureBacked[0];
+      if (witness === undefined) {
+        throw new Error(
+          "no `safe-with-fixture` leaf exists, so the overlap arm above has nothing to be " +
+            "wrong about — this control is itself unmeasured."
+        );
+      }
+      expect(overlap([witness])).toEqual([witness]);
     });
   });
 
@@ -542,6 +617,33 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
     for (const { path } of report.pendingDeploy) {
       expect(report.safe).toContain(path);
     }
-    expect(report.pendingDeploy.length).toBeGreaterThan(0);
+  });
+
+  it("DETECTS drift — the `toEqual([])` above is not satisfied by an empty map", () => {
+    // 🔴 THE CONTROL FOR THE ARM ABOVE, and it scores the DETECTOR rather than
+    // flooring the declaration. `stalePendingDeploy` is empty both when nothing
+    // has drifted and when nothing is declared, and empty is this mechanism's
+    // resting state — so `toBeGreaterThan(0)` on the map would red the file on
+    // the day the last entry correctly retires, which is the one day it is
+    // supposed to be silent.
+    //
+    // `staleDeclarations` is the exported function `classifyCommandUniverse`
+    // computes that field with, so this asks the real detector two questions it
+    // must answer differently.
+    return classifyCommandUniverse().then((report) => {
+      const swept = report.safe[0];
+      if (swept === undefined) {
+        throw new Error(
+          "the sweep executes no leaves at all, so the drift arm above is unmeasured."
+        );
+      }
+      // A declared leaf the sweep DOES execute is not drift…
+      expect(staleDeclarations([swept], report.safe)).toEqual([]);
+      // …and one it does not is, by name. A detector that answered `[]` to both
+      // is what the arm above would be reading as a clean tree.
+      expect(staleDeclarations(["noun-no-command-registers list"], report.safe)).toEqual([
+        "noun-no-command-registers list"
+      ]);
+    });
   });
 });

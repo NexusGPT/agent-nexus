@@ -31,12 +31,18 @@
 #
 #   `Not found: `        prepended by `src/errors.ts`, this package's own 404
 #                        branch. In-repo, and the spec asserts it.
-#   `Cannot GET <path>`  the DEPLOYED API's own 404 body, measured 2026-10-07:
-#                        GET /api/public/v1/mcp-servers answers 404
-#                        {"error":{"code":"NOT_FOUND","message":"Cannot GET
-#                        /api/public/v1/mcp-servers"}}, against a control path
-#                        nobody has ever registered which answers the same shape,
-#                        and against two live paths which answer 401 instead.
+#   `Cannot GET <path>`  the DEPLOYED API's own 404 body. Measured 2026-10-07:
+#                        GET /api/public/v1/zzz-nonexistent-noun-9f3 answers 404
+#                        {"success":false,"error":{"code":"NOT_FOUND","message":
+#                        "Cannot GET /api/public/v1/zzz-nonexistent-noun-9f3"}},
+#                        against live paths — /api/public/v1/agents and
+#                        /api/public/v1/tracks — which answer 401 instead.
+#                        🚨 THE SUBJECT IS A COINED PATH ON PURPOSE. 404 is NO
+#                        ROUTE and 401 is A ROUTE, and that contrast is the whole
+#                        oracle — so the 404 half has to be measured on a path
+#                        nobody can register. A real noun deploys, starts
+#                        answering 401, and takes this measurement false while
+#                        still reading as checked.
 #                        That half is an English sentence owned by the backend and
 #                        `packages/cli` is mirrored to a public repository on its
 #                        own, so nothing here may reach across to assert it. A

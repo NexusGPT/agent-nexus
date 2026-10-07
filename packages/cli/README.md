@@ -878,14 +878,16 @@ The summary carries the denominator: `64 pass · 5/5 declared skip · 0 warn · 
 
 The sweep builds the CLI from the **pull request's** sources and runs it against the **deployed** staging API. Those are two different trees, so a branch that adds a CLI noun _and_ the route it calls is red from the moment it opens until it merges and deploys: the leaf is genuinely `safe`, the command is correct, and the environment has no such route. No code change clears it.
 
-`SWEEP_ROUTES_PENDING_DEPLOY` in `src/command-universe.ts` declares that, per leaf, bound to the exact path the deployed API says it cannot serve:
+`SWEEP_ROUTES_PENDING_DEPLOY` in `src/sweep-routes-pending-deploy.ts` declares that, per leaf, bound to the exact path the deployed API says it cannot serve:
 
 ```ts
-"mcp-server list": {
-  route: "/api/public/v1/mcp-servers",
-  cause: "GET /api/public/v1/mcp-servers lands with this branch and is not deployed yet"
+"<noun> list": {
+  route: "/api/public/v1/<noun>s",
+  cause: "GET /api/public/v1/<noun>s lands with this branch and is not deployed yet"
 }
 ```
+
+The route is written as the deployed API's own 404 spells it, `/api` prefix included — not as the generated contract spells it. A **live** noun is the wrong thing to write in an example here: every concrete one deploys and starts answering `401`, which takes the example false while it still reads as checked.
 
 - the leaf's refusal **is** that path being absent → `PENDING`, outside the exit code, printed with its cause;
 - the leaf fails for **any other** reason → **FAIL**. A declaration is not an amnesty: a 401 from an expired key and a 500 from an outage are the regressions they always were;
@@ -895,7 +897,9 @@ The summary carries the denominator here too: `59 pass · 5/5 declared skip · 0
 
 **The last bullet is the point, and it is where this differs from a declared SKIP.** A stale skip declaration is _reported_ and fails nothing, because an environment policy lifts by somebody else's hand at any time. A pending-deploy entry is about this branch's own undeployed diff: it expires exactly once, at a deploy the declaring lane performed, so its good news is a **FAIL** that names the one-line remedy.
 
-**Why that matters rather than being a preference:** the alternative is a comment, and the tree has one. `tracks list` sits parked at `registration-only` behind a block comment naming the probe that would promote it. Measured 2026-10-07 against deployed staging, `/api/public/v1/tracks` answers **401** — the route is live — while a path nobody registered answers **404**. The promotion condition has been met for some time, the leaf is still unswept, and nothing went red. That is what a declaration with no mechanism behind it costs.
+**Why that matters rather than being a preference:** the alternative is a comment, and the tree has one. `tracks list` sits parked at `registration-only` behind a block comment naming the probe that would promote it. Measured 2026-10-07 against deployed staging, `/api/public/v1/tracks` answers **401** while a path nobody registered answers **404** — so the route is **registered**, where the sweep run that parked the leaf had it answering `Cannot GET /api/public/v1/tracks`. It deployed, the leaf is still unswept, and nothing went red. That is what a declaration with no mechanism behind it costs.
+
+An unauthenticated `401` is not that comment's promotion condition, and the two are easy to run together: it answers _is this route registered_, while the probe the comment specifies is an **authenticated** call whose condition is a `200` — which a registered route can still miss with a `403` or a `500`.
 
 **Match the sentence, never the status, and bind it to the path.** `scripts/route-not-deployed.sh` is the matcher and carries the argument for each refused broadening — a bare `404` is also "that id does not exist", the commonest real failure a read-only sweep surfaces, and `Cannot GET` with no path is satisfied by a CLI calling a _typo'd_ route, which is a real defect.
 

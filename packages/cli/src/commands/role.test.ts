@@ -1852,6 +1852,16 @@ describe("governance queues", () => {
     });
   });
 
+  it("filters the deletion queue by SUPERSEDED, a state only a deletion request has", async () => {
+    request.mockResolvedValue({ requests: [] });
+
+    await run(["role", "deletion-requests", "--status", "superseded"]);
+
+    expect(request).toHaveBeenCalledWith("GET", "/role-deletion-requests", {
+      query: { status: "SUPERSEDED" }
+    });
+  });
+
   it("warns that a Role's systems are orphaned when a deletion is APPROVED", async () => {
     // Same repair as the attach warning: the old fixture answered `GET /roles`
     // with the review body, so the name lookup threw and this case measured the

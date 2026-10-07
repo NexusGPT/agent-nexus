@@ -11,6 +11,7 @@ import type {
   GrantCollectionToRoleBody,
   GrantWorkspaceToRoleBody,
   ListRoleAccessRequestsParams,
+  ListRoleDeletionRequestsParams,
   ListRoleManagementRequestsParams,
   ReviewRoleAccessRequestBody,
   ReviewRoleManagementRequestBody,
@@ -839,13 +840,15 @@ export class RolesResource extends BaseResource {
   }
 
   /**
-   * Filed requests to DELETE a Role. Each names a Role that is still there.
+   * Filed requests to DELETE a Role. A `PENDING` one names a Role that is still
+   * there; a `SUPERSEDED` one names a Role that was deleted another way while the
+   * request was open.
    *
    * @param params - Optional status filter.
    * @returns The matching requests.
    */
   async listDeletionRequests(
-    params: ListRoleManagementRequestsParams = {}
+    params: ListRoleDeletionRequestsParams = {}
   ): Promise<RoleDeletionRequestsResponse> {
     return this.http.request<RoleDeletionRequestsResponse>("GET", "/role-deletion-requests", {
       query: { status: params.status }

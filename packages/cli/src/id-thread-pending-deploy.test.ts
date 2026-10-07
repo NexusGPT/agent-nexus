@@ -188,11 +188,33 @@ describe("a declared-absent producer blocks its consumers as PENDING_DEPLOY", ()
 });
 
 describe("the runner's verdict comes from the shell matcher, not a TS copy", () => {
-  it("reads a declared route out of the declaration", () => {
-    // A vacuity control: with no declaration every case below is about nothing.
-    const declared = Object.values(SWEEP_ROUTES_PENDING_DEPLOY).map(({ route }) => route);
-    expect(declared.length).toBeGreaterThan(0);
-    expect(declared).toContain(ROUTE);
+  it("binds a route the SHELL matcher reads as a literal path", () => {
+    // The vacuity control for every case below, and it asks the MATCHER rather
+    // than a copy of the matcher's grammar. A route the shell cannot read as a
+    // literal path answers `unmeasured` for every transcript there is, so each
+    // arm below would be a question nobody put.
+    //
+    // 🚨 IT DOES NOT READ `SWEEP_ROUTES_PENDING_DEPLOY`, AND THAT IS THE POINT.
+    // This block scores the MATCHER, whose behaviour is a function of the route
+    // it is handed and of nothing the repository happens to declare — so a floor
+    // on that declaration is not a control on anything here. An EMPTY map is the
+    // mechanism's resting state (it fires once per declaration, at a deploy), and
+    // a floor would red every arm in this block on the day the last entry
+    // retires, while leaving every REFUSES arm below passing over a route of `""`
+    // — a negative assertion satisfied by a haystack that could never have held
+    // the string.
+    expect(routeAbsenceVerdict(ABSENCE, ROUTE)).not.toBe("unmeasured");
+  });
+
+  it("holds every DECLARED route to the same bar — a drift guard, never a floor", () => {
+    // Whatever is declared has to be a path this matcher can bind, or the sweep's
+    // acceptance applies to nothing. Empty at rest: this loop scores the
+    // declarations that exist, and the arm above is what makes the block mean
+    // something when there are none.
+    for (const { route } of Object.values(SWEEP_ROUTES_PENDING_DEPLOY)) {
+      const absence = cliError(`Not found: Cannot GET ${route}`, "NOT_FOUND");
+      expect(routeAbsenceVerdict(absence, route)).toBe("absent");
+    }
   });
 
   it("says `absent` for the declared path", () => {

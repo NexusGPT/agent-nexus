@@ -46,7 +46,8 @@
 # route it calls is therefore red until it merges and deploys, with nothing wrong
 # anywhere and no code change able to clear it.
 #
-# `SWEEP_ROUTES_PENDING_DEPLOY` in `src/command-universe.ts` names that, per leaf,
+# `SWEEP_ROUTES_PENDING_DEPLOY` in `src/sweep-routes-pending-deploy.ts` names that,
+# per leaf,
 # bound to the exact path the deployed API says it cannot serve. Four outcomes,
 # and the fourth is the whole point:
 #
@@ -335,7 +336,7 @@ run_leaf() {
           # a declaration reading `.*` would accept every 404 there is.
           # `--print-pending-deploy` refuses this before the sweep starts; this is
           # the second line of the same defence, and it must not read as a match.
-          printf 'FAIL|%s|MALFORMED PENDING-DEPLOY DECLARATION: route %s is not a literal path, so nothing was measured about this leaf. Fix the entry in SWEEP_ROUTES_PENDING_DEPLOY in src/command-universe.ts. Its actual failure was exit=%d: %s\n' \
+          printf 'FAIL|%s|MALFORMED PENDING-DEPLOY DECLARATION: route %s is not a literal path, so nothing was measured about this leaf. Fix the entry in SWEEP_ROUTES_PENDING_DEPLOY in packages/cli/src/sweep-routes-pending-deploy.ts. Its actual failure was exit=%d: %s\n' \
             "$path" "$pending_route" "$exit_code" "$err"
           return
           ;;
@@ -397,7 +398,7 @@ run_leaf() {
       # WARN, which `--strict` counts — so the run is red either way and the stale
       # declaration surfaces on the next run once the sharper finding is fixed.
       if [[ -n "$pending_route" ]]; then
-        printf 'FAIL|%s|STALE PENDING-DEPLOY DECLARATION: %s is live on the deployed API. Delete this entry from SWEEP_ROUTES_PENDING_DEPLOY in packages/cli/src/command-universe.ts.\n' \
+        printf 'FAIL|%s|STALE PENDING-DEPLOY DECLARATION: %s is live on the deployed API. Delete this entry from SWEEP_ROUTES_PENDING_DEPLOY in packages/cli/src/sweep-routes-pending-deploy.ts.\n' \
           "$path" "$pending_route"
         return
       fi

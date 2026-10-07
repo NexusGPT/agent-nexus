@@ -86,6 +86,13 @@ export type RoleMemberTier = "ADMIN" | "MEMBER";
 export type RoleAccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 /**
+ * Lifecycle of a Role deletion request: an access request's outcomes, plus
+ * `SUPERSEDED` — the Role was deleted some other way (an admin deleted it
+ * directly) while the request was still open, so nobody reviewed it.
+ */
+export type RoleDeletionRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUPERSEDED";
+
+/**
  * What a permission set's member may DO to the Role itself.
  *
  * One of the two independent axes a permission set carries — this one, and
@@ -1296,21 +1303,25 @@ export interface RoleUpdatedResponse {
   applied: ("name" | "jobDescription" | "ownerUserId")[];
 }
 
-/** A filed request to DELETE an existing Role, awaiting an admin's verdict. */
+/** A filed request to DELETE an existing Role. */
 export interface RoleDeletionRequest {
   /** Request UUID. */
   id: string;
-  /** The Role proposed for deletion. It still exists. */
+  /**
+   * The Role proposed for deletion. While the request is `PENDING` that Role
+   * exists; once it is `APPROVED` or `SUPERSEDED` the Role is gone and this still
+   * names it.
+   */
   roleId: string;
   /** The caller's own organization. */
   organizationId: string;
   /** Who asked. */
   requestedByUserId: string;
   /** Where the request stands. */
-  status: RoleAccessRequestStatus;
-  /** Who decided, or `null` while `PENDING`. */
+  status: RoleDeletionRequestStatus;
+  /** Who decided, or `null` while `PENDING` and on a `SUPERSEDED` request, which nobody reviewed. */
   reviewedByUserId: string | null;
-  /** ISO 8601, or `null` while `PENDING`. */
+  /** ISO 8601, or `null` while `PENDING` and on a `SUPERSEDED` request. */
   reviewedAt: string | null;
   /** ISO 8601. */
   createdAt: string;
@@ -1547,10 +1558,16 @@ export interface RoleAccessRequestResponse {
 // Governance — the approval queues, and the settings that decide them
 // ============================================================================
 
-/** Filter for the creation- and deletion-request lists. */
+/** Filter for the creation-request list. */
 export interface ListRoleManagementRequestsParams {
   /** Return only requests in this state. Omit for every state. */
   status?: RoleAccessRequestStatus;
+}
+
+/** Filter for the deletion-request list. */
+export interface ListRoleDeletionRequestsParams {
+  /** Return only requests in this state. Omit for every state. */
+  status?: RoleDeletionRequestStatus;
 }
 
 /** Response from `client.roles.listCreationRequests()`. */
@@ -1567,7 +1584,7 @@ export interface RoleCreationRequestResponse {
 
 /** Response from `client.roles.listDeletionRequests()`. */
 export interface RoleDeletionRequestsResponse {
-  /** The matching requests. Each names a Role that is STILL THERE. */
+  /** The matching requests. A `PENDING` one names a Role that is STILL THERE. */
   requests: RoleDeletionRequest[];
 }
 

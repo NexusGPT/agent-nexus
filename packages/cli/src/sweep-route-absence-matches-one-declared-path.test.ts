@@ -115,20 +115,41 @@ function routeAbsence(path: string, verb = "GET"): string {
 }
 
 /**
- * The path this repository has actually declared, read out of the declaration
- * rather than typed. A literal here would keep passing after the declaration
- * moved, which is the drift this whole family of specs is about.
+ * A COINED path, not the one this repository happens to declare.
+ *
+ * 🚨 THE SUBJECT OF THIS FILE IS THE MATCHER, AND THE MATCHER'S BEHAVIOUR IS A
+ * FUNCTION OF THE ROUTE IT IS HANDED AND OF NOTHING THE REPOSITORY DECLARES.
+ * Reading the declaration here looks like the stronger choice — it cannot go
+ * stale when a declaration moves — and it costs the whole file instead:
+ * `SWEEP_ROUTES_PENDING_DEPLOY` is EMPTY at rest, because an entry fires exactly
+ * once, at a deploy, and the remedy for its own good news is to delete it. With
+ * no declaration `ROUTE` is `""`, which IS the undeclared case — so every
+ * `ACCEPTS` arm below reds while every `REFUSES` arm still passes, over a
+ * haystack that could never have held the string. Eleven green negatives and
+ * three reds, from one empty map.
+ *
+ * The drift that reading the declaration was reaching for is covered twice, and
+ * neither copy is here: `pendingDeployLines` in `scripts/command-universe.ts`
+ * refuses a non-literal declared path before the sweep executes a leaf, the
+ * `REFUSES WITH 2` arm below scores that refusal, and the arm immediately below
+ * holds every live declaration to this matcher's own bar.
+ *
+ * `zzz-nonexistent-noun-9f3` is unregisterable on purpose. A real noun deploys,
+ * starts answering 401 instead of 404, and takes the fixture's premise false
+ * while it still reads as checked.
  */
+const ROUTE = "/api/public/v1/zzz-nonexistent-noun-9f3";
 const DECLARED_PATHS = Object.values(SWEEP_ROUTES_PENDING_DEPLOY).map(({ route }) => route);
-const ROUTE = DECLARED_PATHS[0] ?? "";
 
 describe("the route-absence matcher accepts one declared path", () => {
-  it("reads a declared path out of the declaration", () => {
-    // A vacuity control ahead of every case below: with no declaration, `ROUTE`
-    // is empty, and an empty route is the UNDECLARED case — so every assertion
-    // would be true of nothing while reading as a check on something.
-    expect(DECLARED_PATHS.length).toBeGreaterThan(0);
-    expect(ROUTE).not.toBe("");
+  it("holds every DECLARED path to this matcher's own bar — a drift guard, never a floor", () => {
+    // Whatever is declared has to be a path this matcher can BIND, or the sweep's
+    // acceptance applies to nothing. Empty at rest, so this scores the
+    // declarations that exist and carries no floor: what makes the block below
+    // mean something is `ROUTE`, which is not drawn from this list.
+    for (const declared of DECLARED_PATHS) {
+      expect(classify(routeAbsence(declared), declared), `${declared} was not accepted`).toBe(0);
+    }
   });
 
   // ── The one that must be ACCEPTED ─────────────────────────────────────────

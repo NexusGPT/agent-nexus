@@ -42,9 +42,12 @@
 export interface SweepPendingDeployRoute {
   /**
    * The request path EXACTLY as the deployed API's own 404 spells it, `/api`
-   * prefix included — `/api/public/v1/mcp-servers`.
+   * prefix included — `/api/public/v1/<noun>`. A LIVE noun is the wrong
+   * illustration here however convenient it reads: any concrete one deploys and
+   * takes the sentence false with it, which is the decay this whole module
+   * exists to make loud rather than to carry in its own prose.
    *
-   * 🚨 NOT as the generated contract spells it (`/public/v1/mcp-servers`). The
+   * 🚨 NOT as the generated contract spells it (`/public/v1/<noun>`). The
    * matcher binds to the MESSAGE, so declaring the contract's form would need a
    * prefix transformation nothing checks — and {@link DriftReport} refuses a
    * v1-contract binding in this module on purpose.
@@ -103,11 +106,18 @@ export interface SweepPendingDeployRoute {
  * is parked at `registration-only` behind a block comment naming the probe that
  * would promote it — a comment with no arm. Measured 2026-10-07 against the
  * deployed staging API: `/api/public/v1/tracks` answers **401**, while a path
- * nobody has registered answers **404** and `/api/public/v1/mcp-servers`
- * answers 404 as well. The route has been live for some time, the promotion
- * condition in that comment is met, and nothing anywhere went red — which is
- * what that comment itself predicted of a declaration with no mechanism behind
- * it. An entry here cannot do that.
+ * nobody has registered answers **404**. So the route is REGISTERED, where the
+ * `CLI: Sweep` run that parked the leaf had it answering `Cannot GET
+ * /api/public/v1/tracks`; it deployed, the leaf is still unswept, and nothing
+ * anywhere went red — which is what that comment itself predicted of a
+ * declaration with no mechanism behind it. An entry here cannot do that.
+ *
+ * ⚠️ `401` IS NOT THAT COMMENT'S PROMOTION CONDITION, AND THE TWO ARE EASY TO
+ * RUN TOGETHER. An unauthenticated 401 answers *is this route registered*; the
+ * probe that block specifies is an AUTHENTICATED `api GET /public/v1/tracks` and
+ * its condition is a **200**, which a registered route can still miss with a 403
+ * or a 500. Nobody has run it, and nothing here claims otherwise — the argument
+ * above needs only that the route stopped 404ing with no arm watching.
  *
  * ⚠️ IT IS NOT A DISPOSITION AND MUST NEVER BECOME ONE, for the reason
  * {@link SWEEP_EXPECTED_SKIPS} gives: the leaf stays `safe`, so the sweep keeps
@@ -118,14 +128,21 @@ export interface SweepPendingDeployRoute {
  * back.
  *
  * THE REMEDY, WHEN THE FAIL ARRIVES: delete the entry. That is the whole of it.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 EMPTY IS THE RESTING STATE, NOT A GAP — AND IT IS WHAT WORKING LOOKS LIKE
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * An entry fires exactly once, at a deploy, and the remedy for its own good news
+ * is to delete it. So a reader finding `{}` is looking at every declaration this
+ * repository has ever made having retired on schedule — the mechanism idle, not
+ * absent. Do not reach for a self-test entry to make the table look alive: a
+ * declaration for a leaf the sweep does not execute is reported as drift by
+ * `stalePendingDeploy`, which is that guard working.
+ *
+ * ⚠️ IT IS NOT COST-FREE, and the cost is stated where it is paid:
+ * `sweep-routes-pending-deploy-self-retire.test.ts` carries which of its arms go
+ * dormant with no entry to drive, why the sweep's own derivation leaves no seam
+ * to inject one, and what that dormancy misses.
  */
-export const SWEEP_ROUTES_PENDING_DEPLOY: Readonly<Record<string, SweepPendingDeployRoute>> = {
-  // Added by the same branch that adds this CLI noun. `mcp-servers` and
-  // `mcp-inbound` are both new under `apps/backend/src/public/v1/`, and the
-  // deployed API still carries the pre-rename `public/v1/mcp` tree, so there is
-  // no path under which this read can be served until the branch deploys.
-  "mcp-server list": {
-    route: "/api/public/v1/mcp-servers",
-    cause: "GET /api/public/v1/mcp-servers lands with this branch and is not deployed yet"
-  }
-};
+export const SWEEP_ROUTES_PENDING_DEPLOY: Readonly<Record<string, SweepPendingDeployRoute>> = {};

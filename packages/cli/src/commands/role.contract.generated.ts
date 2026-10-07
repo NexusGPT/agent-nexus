@@ -59,7 +59,8 @@ export const ROLE_DELETION_REQUESTS_LIST__PARAMS_STATUS = {
   contractValues: [
     "PENDING",
     "APPROVED",
-    "REJECTED"
+    "REJECTED",
+    "SUPERSEDED"
   ]
 } as const satisfies ContractEnum;
 
@@ -344,7 +345,7 @@ export const ROLE_DELETION_REQUESTS_LIST_CONTRACT = {
   method: "GET",
   route: "/public/v1/role-deletion-requests",
   fields: [
-    { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PENDING", "APPROVED", "REJECTED"] }
+    { path: "Params.status", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["PENDING", "APPROVED", "REJECTED", "SUPERSEDED"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

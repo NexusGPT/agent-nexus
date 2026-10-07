@@ -14,8 +14,8 @@ export function isAuditEventType(v: string): v is VibeAuditEventType {
 }
 
 /**
- * Every OTHER event type the feed emits — 28 of the 34, at the time of
- * writing — whose payload this file does not mirror field by field.
+ * Every OTHER event type the feed emits, whose payload this file does not
+ * mirror field by field.
  *
  * They are not hypothetical and never were: the feed has always returned them
  * and `vibe audit list` has always printed them. Leaving them out of the union
@@ -24,10 +24,10 @@ export function isAuditEventType(v: string): v is VibeAuditEventType {
  * every `case` and printed the literal string `undefined` in its details
  * column.
  *
- * Modelling them as a rest arm rather than 28 more interfaces is deliberate.
+ * Modelling them as a rest arm rather than an interface each is deliberate.
  * The interfaces above exist because their fields are rendered SPECIFICALLY;
  * these are rendered generically by `formatUnmodelledDetails`, so an interface
- * per type would be 28 declarations no reader consults and no code narrows on.
+ * per type would be declarations no reader consults and no code narrows on.
  * Promote one the moment its details column deserves its own `case`.
  */
 export interface AuditPayloadUnmodelled {

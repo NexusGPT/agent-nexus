@@ -1,5 +1,5 @@
 /**
- * Compile-time conformance of the CLI's audit payload interfaces — the six it
+ * Compile-time conformance of the CLI's audit payload interfaces — the ones it
  * renders field by field — to the contract's read branches. Each arm compares
  * one CLI interface with the wire branch of the same event type.
  *
@@ -31,10 +31,12 @@ type WireAuditArm<E extends string> = Extract<
 >;
 
 /**
- * The six payloads the CLI renders field by field. The other twenty-eight are
- * printed generically by `formatUnmodelledDetails` and are covered by the
- * discriminant assertion below instead — an interface each would be
- * declarations no reader consults and no code narrows on.
+ * The payloads the CLI renders field by field. Every other event type is
+ * printed generically by `formatUnmodelledDetails` and is covered by
+ * `_auditDiscriminants` in `vibe-audit-wire-types.conformance.ts` instead — an
+ * interface each would be declarations no reader consults and no code narrows
+ * on. No count is written here: the feed gains event types with the schema, and
+ * `VIBE_AUDIT_EVENT_TYPES` is the list.
  */
 const _auditTriggered: Mirrors<
   "AuditPayloadDeploymentTriggered",
@@ -44,7 +46,7 @@ const _auditTriggered: Mirrors<
 
 /**
  * One CLI interface covers both approval outcomes, so it is compared against BOTH wire
- * arms at once rather than each in turn — same reason as the trigger split above.
+ * arms at once rather than each in turn.
  * `Extract<AuditPayloadApprovalDecision, { eventType: "DEPLOYMENT_APPROVED" }>` yields
  * `never` here (the CLI's discriminant is the two-literal union, which is not assignable
  * to one of them), and a `never` on either side satisfies every assertion in `Mirrors`.

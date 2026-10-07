@@ -18,12 +18,13 @@ import { truncate } from "./truncate";
  *   - APPROVAL_EXPIRED → request id
  *   - COST_SAFETY_AUTO_SUSPENDED → usageType + breachedSum/cap + period
  *   - DEPLOYMENT_ROLLED_BACK_COST_SAFETY → priorStatus + reason
+ *   - DEPLOYMENT_SERVED → sha + color + healthy-to-served lag
  *
  * Every other event type falls to `formatUnmodelledDetails`, which renders
  * the fields it recognises generically. The `default` arm is what makes the
- * column honest: the feed emits 34 types and this file names 7, so before it
- * existed a DEPLOYMENT_FAILED row printed the literal string `undefined`
- * where its reason belonged.
+ * column honest: the feed emits far more event types than this file has a
+ * `case` for, so before it existed a DEPLOYMENT_FAILED row printed the literal
+ * string `undefined` where its reason belonged.
  */
 export function formatPayloadDetails(payload: AuditFeedPayload): string {
   // A row whose stored payload did not fit its branch carries a LISTED type with

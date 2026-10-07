@@ -1841,6 +1841,14 @@ export type V1ResponseAssertions = [
       ResponseOf<"WorkflowTestingStopExecution">,
       MethodResult<NexusClient["workflows"]["stopExecution"]>
     >
+  >,
+  // McpServerList  GET /public/v1/mcp-servers  ->  client.mcpServers.list()
+  Expect<Equals<ResponseOf<"McpServerList">, MethodResult<NexusClient["mcpServers"]["list"]>>>,
+  // McpServerGet  GET /public/v1/mcp-servers/:serverId  ->  client.mcpServers.get()
+  Expect<Equals<ResponseOf<"McpServerGet">, MethodResult<NexusClient["mcpServers"]["get"]>>>,
+  // McpServerToolCall  POST /public/v1/mcp-servers/:serverId/tools/call  ->  client.mcpServers.callTool()
+  Expect<
+    Equals<ResponseOf<"McpServerToolCall">, MethodResult<NexusClient["mcpServers"]["callTool"]>>
   >
 ];
 
@@ -2198,7 +2206,11 @@ const GATED_ROUTES = [
   "EvaluationFormats",
   "EvaluationJudges",
   "WorkflowEdgeCreate",
-  "WorkflowTestingStopExecution"
+  "WorkflowTestingStopExecution",
+  // ── outbound MCP: this organization's OWN connected servers (NOT `McpRpc`) ──
+  "McpServerList",
+  "McpServerGet",
+  "McpServerToolCall"
 ] as const;
 
 /**
@@ -3274,7 +3286,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 342;
+const GATED_ROUTE_COUNT = 345;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

@@ -39,6 +39,7 @@ import { registerFolderCommands } from "./commands/folder";
 import { registerHtmlMessageTemplateCommands } from "./commands/html-message-template";
 import { registerKnownIssuesCommand } from "./commands/known-issues";
 import { registerMcpCommands } from "./commands/mcp";
+import { registerMcpServerCommands } from "./commands/mcp-server";
 import { registerModelCommands } from "./commands/model";
 import { registerPermissionsCommands } from "./commands/permissions";
 import { registerPhoneNumberCommands } from "./commands/phone-number";
@@ -495,6 +496,7 @@ export function buildRootProgram(version: string = VERSION): Command {
   registerKnownIssuesCommand(program);
   registerScoreCommands(program);
   registerMcpCommands(program);
+  registerMcpServerCommands(program);
   registerExternalToolCommands(program);
   registerPromptAssistantCommands(program);
   registerPromptCommands(program);

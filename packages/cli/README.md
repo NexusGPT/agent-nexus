@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 53 command groups, 555 invocable subcommands
+- 54 command groups, 558 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
@@ -873,6 +873,31 @@ The summary carries the denominator: `64 pass · 5/5 declared skip · 0 warn · 
 **The declared leaf stays `safe` on purpose.** It is still executed on every run, so the day the environment answers again, coverage resumes with nobody remembering to flip anything. Parking it `registration-only` would stop the sweep watching it and would need a human to notice the recovery.
 
 ⚠️ **A `safe-with-fixture` leaf that skips loses more than the others**, because its non-emptiness assertion is the strongest thing the sweep asserts and the skip path bypasses it entirely. Its report line says so rather than reading like every other skip.
+
+### A route this branch introduces is PENDING, and the acceptance retires itself
+
+The sweep builds the CLI from the **pull request's** sources and runs it against the **deployed** staging API. Those are two different trees, so a branch that adds a CLI noun _and_ the route it calls is red from the moment it opens until it merges and deploys: the leaf is genuinely `safe`, the command is correct, and the environment has no such route. No code change clears it.
+
+`SWEEP_ROUTES_PENDING_DEPLOY` in `src/command-universe.ts` declares that, per leaf, bound to the exact path the deployed API says it cannot serve:
+
+```ts
+"mcp-server list": {
+  route: "/api/public/v1/mcp-servers",
+  cause: "GET /api/public/v1/mcp-servers lands with this branch and is not deployed yet"
+}
+```
+
+- the leaf's refusal **is** that path being absent → `PENDING`, outside the exit code, printed with its cause;
+- the leaf fails for **any other** reason → **FAIL**. A declaration is not an amnesty: a 401 from an expired key and a 500 from an outage are the regressions they always were;
+- the leaf **answers** → **FAIL**, naming the entry to delete.
+
+The summary carries the denominator here too: `59 pass · 5/5 declared skip · 0 warn · 0 fail · 1/1 pending deploy`.
+
+**The last bullet is the point, and it is where this differs from a declared SKIP.** A stale skip declaration is _reported_ and fails nothing, because an environment policy lifts by somebody else's hand at any time. A pending-deploy entry is about this branch's own undeployed diff: it expires exactly once, at a deploy the declaring lane performed, so its good news is a **FAIL** that names the one-line remedy.
+
+**Why that matters rather than being a preference:** the alternative is a comment, and the tree has one. `tracks list` sits parked at `registration-only` behind a block comment naming the probe that would promote it. Measured 2026-10-07 against deployed staging, `/api/public/v1/tracks` answers **401** — the route is live — while a path nobody registered answers **404**. The promotion condition has been met for some time, the leaf is still unswept, and nothing went red. That is what a declaration with no mechanism behind it costs.
+
+**Match the sentence, never the status, and bind it to the path.** `scripts/route-not-deployed.sh` is the matcher and carries the argument for each refused broadening — a bare `404` is also "that id does not exist", the commonest real failure a read-only sweep surfaces, and `Cannot GET` with no path is satisfied by a CLI calling a _typo'd_ route, which is a real defect.
 
 ### Local sweep
 

@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 649 command nodes; 555 invocable leaves.
- * 53 top-level commands — 53 visible, 0 hidden.
+ * 653 command nodes; 558 invocable leaves.
+ * 54 top-level commands — 54 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         488 STABLE, 67 UNSTABLE
- *   disposition  26 never-execute, 465 registration-only, 59 safe, 5 safe-with-fixture
+ *   tier         491 STABLE, 67 UNSTABLE
+ *   disposition  27 never-execute, 466 registration-only, 60 safe, 5 safe-with-fixture
  *   --yes        46 destructive — 46 confirmable
- *   --json       443 answered, 112 abstain
+ *   --json       446 answered, 112 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -361,6 +361,9 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "mcp serve", tier: "STABLE", module: "mcp.ts", disposition: "never-execute", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f81645d78a0b" },
   { path: "mcp tools get", tier: "STABLE", module: "mcp.ts", disposition: "registration-only", args: ["<tool>"], flags: [], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "1bfd1a8afabd" },
   { path: "mcp tools list", tier: "STABLE", module: "mcp.ts", disposition: "safe", args: [], flags: ["--filter <text>"], aliases: [], hidden: false, confirm: null, json: "array", shape: "ee444b176c4a" },
+  { path: "mcp-server call", tier: "STABLE", module: "mcp-server.ts", disposition: "never-execute", args: ["<serverId>", "<toolName>"], flags: ["--arguments <json>", "--credential-id <uuid>", "--access-card-id <uuid>", "--card-variables <json>", "--expected-schema-hash <hash>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "e2b57205373f" },
+  { path: "mcp-server get", tier: "STABLE", module: "mcp-server.ts", disposition: "registration-only", args: ["<serverId>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "c57ff19fc64b" },
+  { path: "mcp-server list", tier: "STABLE", module: "mcp-server.ts", disposition: "safe", args: [], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "ec3f2cb478b9" },
   { path: "model list", tier: "STABLE", module: "model.ts", disposition: "safe", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "list", shape: "37bb0947614a" },
   { path: "permissions access", tier: "STABLE", module: "permissions.ts", disposition: "registration-only", args: ["<resource-type> {agent|workflow|credential|access_card|template|document|deployment|feature|vibe_app|track}", "<resource-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "1cc529b64a0d" },
   { path: "permissions grant", tier: "STABLE", module: "permissions.ts", disposition: "registration-only", args: [], flags: ["--resource-type <type> {agent|workflow|credential|access_card|template|document|deployment|feature|vibe_app|track}", "--resource-id <id>", "--subject-type <type> {user|group|organization|api_key|role}", "--subject-id <id>", "--relation <relation> {owner|editor|viewer}", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "a72393e94477" },

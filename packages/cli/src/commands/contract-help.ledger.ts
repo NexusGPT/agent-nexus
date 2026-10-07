@@ -551,6 +551,20 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "PromptEvalRunAbort",
       "PromptEvalRunResults"
     ]
+  },
+  {
+    // OUTBOUND MCP, and NOT the `mcp` namespace, which is in
+    // `UNCONTRACTED_NAMESPACES` because `McpRpc` is a JSON-RPC transport whose
+    // `params` is `z.unknown()`. These three are ordinary descriptors with real
+    // PathVars and a real Body, so they project.
+    //
+    // `McpServerList` projects ZERO fields — no path parameter, no query, no body
+    // — and that is fine here rather than a `no-projected-fields` block: the
+    // generator refuses a namespace only when EVERY descriptor projects nothing,
+    // and the other two project. Its const exists with an empty field list, which
+    // renders no help block and still records the binding the id-graph reads.
+    namespace: "mcp-server",
+    descriptors: ["McpServerList", "McpServerGet", "McpServerToolCall"]
   }
 ] as const satisfies readonly LedgerEntry[];
 

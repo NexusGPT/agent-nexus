@@ -3,6 +3,7 @@ import { Command, Option } from "commander";
 import { resolveProfile } from "../config";
 import { handleError, refuse, reportFailure } from "../errors";
 import { color, emitDocument, isJsonMode, printSuccess, printTable } from "../output";
+import { parseJsonObjectFlag } from "../util/json-object-flag";
 import {
   applyServerEntry,
   buildConfigBlock,
@@ -27,6 +28,7 @@ import {
   toolsListMessage
 } from "../util/mcp-rpc";
 import { runStdioBridge } from "../util/mcp-stdio";
+import { MCP_INBOUND_DIRECTION } from "./mcp-direction";
 
 /**
  * `nexus mcp` — THE OUTBOUND MCP SURFACE, FROM THE CLI THAT ALREADY HOLDS THE KEY.
@@ -137,21 +139,6 @@ async function listTools(transport: McpTransport): Promise<McpToolDescriptor[] |
   return tools;
 }
 
-/** The `--input` payload, parsed. Throws a refusal message the action reports. */
-function parseInput(raw: string | undefined): Record<string, unknown> | string {
-  if (raw === undefined) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    return `--input is not valid JSON: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return "--input must be a JSON OBJECT of tool arguments, not an array or a scalar.";
-  }
-  return parsed as Record<string, unknown>;
-}
-
 export function registerMcpCommands(program: Command): void {
   const mcp = program
     .command("mcp")
@@ -167,7 +154,7 @@ Examples:
   $ nexus mcp install --client claude-code
   $ nexus mcp serve
 
-Notes:
+Notes:${MCP_INBOUND_DIRECTION}
   ONE ENDPOINT SITS BEHIND ALL OF THIS: POST {base-url}/api/public/v1/mcp,
   speaking JSON-RPC 2.0. Every verb here is a typed way to send it a message, so
   --profile, --api-key, --base-url and --timeout mean exactly what they mean
@@ -370,10 +357,13 @@ Notes:
     )
     .action(async (name: string, opts: { input?: string; raw?: boolean }) => {
       try {
-        const args = parseInput(opts.input);
-        if (typeof args === "string") {
+        // `util/json-object-flag.ts` owns this refusal, shared with
+        // `mcp-server call --arguments`: two spellings of one check would let the
+        // two namespaces — one suffix apart — disagree about what is wrong.
+        const args = parseJsonObjectFlag(opts.input, "--input");
+        if ("reason" in args) {
           process.exitCode = refuse(
-            args,
+            args.reason,
             `Run "nexus mcp tools get ${name}" for its input schema.`
           );
           return;
@@ -382,7 +372,7 @@ Notes:
         const transport = createMcpTransport(program.optsWithGlobals());
         const result = await requestResult(
           transport,
-          toolsCallMessage(ONE_SHOT_ID, name, args),
+          toolsCallMessage(ONE_SHOT_ID, name, args.object),
           `Run "nexus mcp tools list" to see the names this key exposes.`
         );
         if (result === undefined) return;

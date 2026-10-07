@@ -30,6 +30,11 @@ import { isClientSideRefusal } from "./id-graph.refusal";
  *                        exit code cannot have. See `id-graph.race.ts`.
  *   SKIPPED_NEEDS_INPUT  the CLI refused BEFORE SENDING ANYTHING — a fact about
  *                        what the harness supplied, not about the route.
+ *   PENDING_DEPLOY       its producer's route is DECLARED absent from the
+ *                        deployed API and the refusal was that exact absence.
+ *                        Decided upstream, like the two skips above — it needs
+ *                        the declaration AND the shell matcher's verdict, and a
+ *                        pure function of an exit code can have neither.
  *   FAILED               anything else non-zero.
  *
  * 🚨 A NON-ZERO EXIT IS NOT AUTOMATICALLY A FAILURE, AND IT IS NOT AUTOMATICALLY
@@ -49,6 +54,7 @@ export type LeafOutcome =
   | "SKIPPED_NO_ID"
   | "SKIPPED_ID_VANISHED"
   | "SKIPPED_NEEDS_INPUT"
+  | "PENDING_DEPLOY"
   | "FAILED";
 
 export interface OutcomeVerdict {

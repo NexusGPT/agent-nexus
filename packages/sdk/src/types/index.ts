@@ -47,6 +47,7 @@ export type * from "./folders";
 export type * from "./golden-conversations";
 export type * from "./html-message-templates";
 export type * from "./known-issues";
+export type * from "./mcp-servers";
 export type * from "./me";
 export type * from "./models";
 export type * from "./permissions";

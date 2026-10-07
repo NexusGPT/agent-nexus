@@ -69,13 +69,13 @@ runtime dependency.
 
 ### Command names and required arguments
 
-The CLI registers **53 top-level commands**, of which **53 are visible** and 0 are
-hidden — there are none at all (see INTERNAL). Under them sit **649 command nodes**
-and **555 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
+The CLI registers **54 top-level commands**, of which **54 are visible** and 0 are
+hidden — there are none at all (see INTERNAL). Under them sit **653 command nodes**
+and **558 invocable leaves**. Derive these yourself with `deriveCommandNodes()` and
 `deriveCommandLeaves()` in `src/command-universe.ts`; they walk the real commander
 tree rather than a list somebody maintains.
 
-The 53 visible namespaces:
+The 54 visible namespaces:
 
 ```
 access-card       admin          agent        agent-collection  agent-skill
@@ -84,14 +84,14 @@ auth              channel        chat         claude-code       cloud-import
 collection        conversation   credential   cue               custom-model
 customer          deployment     docs         document          emulator
 eval              execution      external-tool  folder          html-template
-known-issues      mcp            model        permissions       phone-number
-prompt            prompt-assistant  role      score             skill-folder
-skills            task           task-eval    template          ticket
-tool              tracing        tracks       upgrade           user-group
-version           workflow       workspace
+known-issues      mcp            mcp-server   model             permissions
+phone-number      prompt         prompt-assistant  role          score
+skill-folder      skills         task              task-eval     template
+ticket            tool           tracing           tracks        upgrade
+user-group        version        workflow          workspace
 ```
 
-⚠️ **Two of those 53 are carved out of this tier: `apps` and `admin`.** They are
+⚠️ **Two of those 54 are carved out of this tier: `apps` and `admin`.** They are
 visible because operators need to find them, not because they are stable. See
 UNSTABLE.
 
@@ -213,7 +213,7 @@ than going through a printer — the `writes-its-own-json` count in the generate
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
 covered by gates rather than by construction: the `json-one-document.test.ts`
-gate, which drives **548 of the 555 leaves** and parses each one's stdout, and
+gate, which drives **551 of the 558 leaves** and parses each one's stdout, and
 `json-contract-is-total.test.ts`, which drives every node's `--help`, the root's
 `--version`, an unknown command on every namespace, `--print-contract` on the 177
 commands that declare it, and the one command that is invocable AND a namespace
@@ -249,7 +249,7 @@ this table, not the per-command help, is the authority on which leaves are
 exempt.
 
 **You may rely on:** `nexus --json <cmd> | jq .` never choking on a banner — on
-the 548 leaves the gate drives. And on every terminal path — `--help`,
+the 551 leaves the gate drives. And on every terminal path — `--help`,
 `--version`, `--print-contract`, an unknown command, a refusal — one parseable
 document on stdout whether the command succeeded or not.
 
@@ -392,7 +392,7 @@ flat. Six envelope shapes exist, named in `src/json-shape-help.ts`:
 
 `record` · `list` · `array` · `success` · `dryRun` · `envelope`
 
-**443 of the 555 leaves** carry a derived shape line on their `--help`, generated
+**446 of the 558 leaves** carry a derived shape line on their `--help`, generated
 into `src/json-shape.generated.ts` from the printer each action actually reaches.
 `json-shape.codegen.test.ts` recomputes the file and fails on any difference, so a
 command whose printer changes turns the build red rather than shipping a `--help`
@@ -531,7 +531,7 @@ Every leaf is classified in `COMMAND_CLASSIFICATION` as `safe`,
 `safe-with-fixture`, `registration-only` or `never-execute`.
 `classifyCommandUniverse()` diffs the declaration against the derived tree; an
 unclassified leaf fails the build, so a command cannot be added silently. Today:
-555 leaves, **0 unclassified, 0 stale**, 59 classified `safe`.
+558 leaves, **0 unclassified, 0 stale**, 60 classified `safe`.
 
 `safe-with-fixture` is executed exactly like `safe`, and additionally its
 response must not be empty. The sweep runs both, so the count above is the
@@ -656,7 +656,7 @@ hidden commands at all: they are declared aliases on `upgrade`, so they appear i
 STABLE for the same reason every other command name is — a rename without an alias
 is a breaking change.
 
-Verified by walking the tree: 53 top-level commands, 53 visible, 0 hidden, and no
+Verified by walking the tree: 54 top-level commands, 54 visible, 0 hidden, and no
 hidden command anywhere in the tree.
 
 **This section is kept because the tier still exists and its population is empty.**
@@ -732,7 +732,7 @@ A source search answers where a variable is USED, which is a different question
 from where it is DOCUMENTED, and neither location predicts the other:
 `NEXUS_BASE_URL` is read inside the bundled SDK's HTTP client and is named on
 `nexus docs --help`. `captureHelp()` over `deriveCommandNodes()` in
-`src/command-universe.ts` renders all 649 nodes, and the root program is a 650th
+`src/command-universe.ts` renders all 653 nodes, and the root program is a 654th
 screen that walk does not include.
 
 **`NEXUS_NO_PROMPTS` is read by the CLI and named on no help screen.** Treat it as

@@ -60,9 +60,11 @@
  *
  * The sweep's REFUSALS share a number space with its FAIL count: 2 unknown arg,
  * 3 binary unavailable, 4 not authenticated, 5/6/7 a derivation failed, 8 the
- * policy matcher could not be sourced. So `expect(status).toBeGreaterThan(0)`
- * is satisfied by a sweep that never reached a single leaf, which is the exact
- * vacuous green this file exists to delete one layer down.
+ * policy matcher could not be sourced, 9 the route-absence matcher could not be
+ * sourced, 10 the pending-deploy derivation failed. So
+ * `expect(status).toBeGreaterThan(0)` is satisfied by a sweep that never reached
+ * a single leaf, which is the exact vacuous green this file exists to delete one
+ * layer down.
  *
  * `summaryOf` is the discriminator and it THROWS rather than defaulting: a
  * refusal prints `FATAL:` on stderr and no summary at all, a run that counted
@@ -95,7 +97,25 @@ interface Conditions {
 /** Every leaf the sweep executes, and the skips this repository has declared. */
 let safeLeaves: readonly string[] = [];
 let declaredSkips: readonly string[] = [];
-/** A leaf that is swept and is NOT excused by a declaration — derived, never named. */
+/**
+ * The route absences this repository has declared, as `leaf<TAB>path` lines the
+ * stub reads.
+ *
+ * The rig has to answer these the way the deployed API answers them, for exactly
+ * the reason it already answers the declared skips that way: a leaf whose route
+ * this branch has not deployed is PENDING in the environment and would be a STALE
+ * PENDING-DEPLOY FAIL against a stub that served it — so the `clean` baseline
+ * below would carry a failure that is an artifact of the fixture, not of the
+ * policy under test. `sweep-routes-pending-deploy-self-retire.test.ts` is where
+ * that arm is driven on purpose.
+ */
+let declaredRouteAbsences = "";
+/**
+ * A leaf that is swept and is NOT excused by ANY declaration — derived, never
+ * named. Both declarations are subtracted: a warn or fail planted on a leaf that
+ * is also pending-deploy would be scored by the pending-deploy arms instead of by
+ * the exit policy this file is about.
+ */
 let target = "";
 
 /**
@@ -118,12 +138,33 @@ beforeAll(async () => {
   const universe = await classifyCommandUniverse();
   safeLeaves = universe.safe;
   declaredSkips = universe.expectedSkips;
-  target = safeLeaves.find((leaf) => !declaredSkips.includes(leaf)) ?? "";
+  declaredRouteAbsences = universe.pendingDeploy
+    .map(({ path, route }) => `${path}\t${route}`)
+    .join("\n");
+  const pendingPaths = universe.pendingDeploy.map(({ path }) => path);
+  target =
+    safeLeaves.find((leaf) => !declaredSkips.includes(leaf) && !pendingPaths.includes(leaf)) ?? "";
   if (target === "") return;
 
-  // CONCURRENT, which is only available because the sweeps are async: five
-  // independent child processes sharing no state, so the hook costs about one
-  // sweep rather than five. Each carries its own env and its own temp files.
+  // 🔴 SEQUENTIAL, AND IT USED TO BE CONCURRENT. Five independent children
+  // sharing no state is safe in isolation and was wrong in a suite: with the
+  // pending-deploy spec's runs beside them that was ELEVEN concurrent real
+  // sweeps in one `vitest run` — each ~65 CLI leaves, so ~130 process spawns
+  // apiece — and it starved the longest file in the package.
+  //
+  // Measured: `test/id-thread/id-thread-sweep.test.ts` runs 64s ALONE on this
+  // machine and took 312s in CI under that load, ending the run
+  // `Timeout calling "onTaskUpdate"` with every test reported PASSED and
+  // `Errors 1`. birpc's 60s call deadline is hard-coded with no knob — this
+  // file's own header proves that — so there was nothing to raise.
+  //
+  // ⚠️ THE MEASUREMENT THAT MISSED IT WAS SCOPED TO THESE TWO FILES. They were
+  // sized against each other, found to have 4.4x headroom, and both numbers were
+  // true of the pair and false of the suite. The starved file was not in the
+  // population measured, so nothing in that measurement could have shown it.
+  //
+  // Wall time becomes the SUM of five sweeps rather than the max, which the
+  // budget at the end of this hook covers. Do not put `Promise.all` back.
   const configured: readonly (readonly [string, Conditions])[] = [
     ["clean", { strict: true }],
     ["warn:relaxed", { strict: false, warn: [target] }],
@@ -131,9 +172,39 @@ beforeAll(async () => {
     ["fail:relaxed", { strict: false, fail: [target] }],
     ["fail:strict", { strict: true, fail: [target] }]
   ];
-  const settled = await Promise.all(configured.map(([, conditions]) => runSweep(conditions)));
-  configured.forEach(([key], index) => outcomes.set(key, settled[index]));
-});
+  for (const [key, conditions] of configured) {
+    // `await` in the loop is the bound. The loop still yields between children,
+    // so this worker's event loop keeps turning and its own RPC replies are read.
+    outcomes.set(key, await runSweep(conditions));
+  }
+  // 🚨 AN EXPLICIT BUDGET, BECAUSE THIS FILE IS NO LONGER THE ONLY ONE SPAWNING
+  // SWEEPS. `vitest.config.ts` sets `hookTimeout: 180_000`, which was sized when
+  // this was the one spec running a real sweep — five concurrent children, each a
+  // few seconds on an idle machine. `sweep-routes-pending-deploy-self-retire.test.ts`
+  // now spawns six more in its own hook, and vitest runs files in parallel forks,
+  // so a loaded machine can be carrying eleven at once.
+  //
+  // 🔴 MEASURED: seven of this package's specs in one invocation, this hook
+  // `Error: Hook timed out in 180000ms` — and its five tests were then reported
+  // SKIPPED, not failed, so the run read `74 passed | 5 skipped` with zero failed
+  // TESTS while the entire exit policy went unexercised. A budget that expires
+  // does not fail an arm; it deletes five of them and reports a number.
+  //
+  // The ceiling stays finite on purpose, for the reason the config states: a sweep
+  // that stops terminating must still fail rather than hang a CI job for ever.
+  // 600_000 matches the sibling's, so the two files cannot starve each other at
+  // different thresholds and report different causes for one contention.
+  //
+  // debt: this SIZES a bound, it does not cap concurrency. The ceiling is eleven
+  //       concurrent real sweeps across two files under vitest's parallel forks —
+  //       five here, six in the pending-deploy spec — against a measured worst
+  //       case near 135s, i.e. 4.4x headroom. A shared limiter would remove the
+  //       failure mode rather than move it, and it would be machinery needing its
+  //       own arms for exactly two callers.
+  //       Upgrade trigger: a THIRD spec that spawns real sweeps, or this hook
+  //       expiring again. Either means the headroom is gone and the limiter is the
+  //       right answer.
+}, 900_000);
 
 /** The stored outcome, or a loud failure — never a silently absent one. */
 function outcome(key: string): Outcome {
@@ -180,6 +251,10 @@ function runSweep(conditions: Conditions): Promise<Outcome> {
       // Answer the declared skips the way the environment does, so a healthy run
       // reports `n/n declared skip` rather than a wall of STALE declarations.
       STUB_SKIP_LEAVES: declaredSkips.join("\n"),
+      // Same argument as the line above, one declaration over: answer the
+      // declared route absences the way the deployed API does, so a healthy run
+      // reports `n/n pending deploy` rather than a STALE declaration per entry.
+      STUB_ROUTE_MISSING: declaredRouteAbsences,
       STUB_WARN_LEAVES: (conditions.warn ?? []).join("\n"),
       STUB_FAIL_LEAVES: (conditions.fail ?? []).join("\n")
     }

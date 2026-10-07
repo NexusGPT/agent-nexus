@@ -53,7 +53,12 @@
  * - a PATTERN literal can contain quotes and an escaped `/` pair, so a walk that
  *   does not know about it can read the inside of a pattern as a comment opener.
  *
- * So the state is TRACKED one character at a time, which is what this does.
+ * So the state is TRACKED one character at a time, which is what this does. The
+ * OUTPUT is not built that way: every character outside a comment is copied
+ * verbatim, so the walk only records where each kept run starts and slices it out
+ * whole when a comment interrupts it. Appending one character at a time builds a
+ * chain of one-character string nodes per input character, which exhausted a
+ * test worker's heap over a ~29k-file corpus.
  *
  * ── The two deliberate conservatisms ───────────────────────────────────────
  *
@@ -93,43 +98,52 @@
  * @returns {string} the same text with comments removed
  */
 export function stripComments(text) {
-  let out = "";
+  /** @type {string[]} */
+  const chunks = [];
   let i = 0;
+  // Start of the current kept run: `text.slice(runStart, i)` is output not yet
+  // emitted. Strings, templates and patterns are copied verbatim, so they extend
+  // the run; only a comment ends it.
+  let runStart = 0;
   // The last character that decides whether a `/` divides or opens a regex.
   let lastSignificant = "";
   const closesValue = (ch) => /[)\]}\w$'"`]/.test(ch);
+  const flushRun = () => {
+    if (i > runStart) chunks.push(text.slice(runStart, i));
+  };
 
   while (i < text.length) {
     const ch = text[i];
     const next = text[i + 1];
 
     if (ch === "/" && next === "/") {
+      flushRun();
       while (i < text.length && text[i] !== "\n") i += 1;
+      runStart = i;
       continue;
     }
     if (ch === "/" && next === "*") {
+      flushRun();
       i += 2;
       while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) {
-        if (text[i] === "\n") out += "\n";
+        if (text[i] === "\n") chunks.push("\n");
         i += 1;
       }
       i += 2;
+      runStart = i;
       continue;
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       const quote = ch;
-      out += ch;
       i += 1;
       while (i < text.length) {
         if (text[i] === "\\") {
-          out += text.slice(i, i + 2);
           i += 2;
           continue;
         }
         // Only a template can span a line. A quote that has not closed by the
         // newline was never a string: JSX text such as `Google's token` opens one.
         if (text[i] === "\n" && quote !== "`") break;
-        out += text[i];
         if (text[i] === quote) {
           i += 1;
           break;
@@ -142,19 +156,16 @@ export function stripComments(text) {
     // A `/` straight after `<` is never a pattern: in JSX it closes a tag
     // (`</div>`, `</>`), and in TypeScript `a </b` is a comparison.
     if (ch === "/" && !closesValue(lastSignificant) && text[i - 1] !== "<") {
-      // A regex literal. Copy it whole so its contents cannot be read as code.
-      out += ch;
+      // A regex literal. Skip it whole so its contents cannot be read as code.
       i += 1;
       let inClass = false;
       while (i < text.length) {
         if (text[i] === "\\") {
-          out += text.slice(i, i + 2);
           i += 2;
           continue;
         }
         if (text[i] === "[") inClass = true;
         else if (text[i] === "]") inClass = false;
-        out += text[i];
         if (text[i] === "/" && !inClass) {
           i += 1;
           break;
@@ -172,9 +183,11 @@ export function stripComments(text) {
       continue;
     }
 
-    out += ch;
     if (!/\s/.test(ch)) lastSignificant = ch;
     i += 1;
   }
-  return out;
+  // `i` can overshoot the end (an unterminated block comment or a trailing
+  // escape), and `slice` clamps, so the tail flush needs no special case.
+  flushRun();
+  return chunks.join("");
 }

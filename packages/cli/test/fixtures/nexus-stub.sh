@@ -31,7 +31,16 @@
 #
 #   STUB_SKIP_LEAVES   exit 1 with the backend's policy opt-out sentence
 #   STUB_WARN_LEAVES   exit 0 and emit PLAIN TEXT — the JSON-contract defect
-#   STUB_FAIL_LEAVES   exit 1 with an error that is NOT policy
+#   STUB_FAIL_LEAVES   exit 1 with an error that is NOT policy (a 500)
+#   STUB_UNAUTH_LEAVES exit 1 with the CLI's own 401 sentence
+#   STUB_ROUTE_MISSING `leaf<TAB>path` per line — exit 1 with the deployed API's
+#                      route-absence 404 naming THAT path
+#
+# ⚠️ `STUB_ROUTE_MISSING` CARRIES THE PATH RATHER THAN DERIVING IT, and that is
+# what makes it an instrument. The sweep accepts a route-absence 404 only when it
+# names the path the leaf is DECLARED for, so a fixture that always echoed the
+# declared path could not produce the case that discriminates — a 404 naming some
+# OTHER path, which must stay a FAIL. The spec supplies both.
 #
 # Everything else answers exit 0 with a valid, non-empty, secret-free document,
 # which is what a healthy leaf looks like to `scan-response.py`.
@@ -82,6 +91,37 @@ fi
 if in_list "$leaf" "${STUB_FAIL_LEAVES:-}"; then
   # Deliberately NOT policy: a 500 must stay a FAIL in every mode.
   echo '{"error":{"code":"INTERNAL","message":"API error (500): Internal server error"}}'
+  exit 1
+fi
+
+if in_list "$leaf" "${STUB_UNAUTH_LEAVES:-}"; then
+  # The CLI's own 401 line, verbatim from `src/errors.ts` — the most expensive
+  # false acceptance available, because an expired CI key refuses every leaf at
+  # once and a mechanism that absorbed it would report a clean, vacuous sweep.
+  echo '{"error":{"code":"UNAUTHENTICATED","message":"Authentication failed — invalid or missing API key."}}'
+  exit 1
+fi
+
+# The deployed API has no such route. Two owners in one sentence, and the stub
+# reproduces both halves: `Not found: ` is prepended by the CLI's own 404 branch
+# in `src/errors.ts`, and `Cannot GET <path>` is the deployed API's own 404 body —
+# measured 2026-10-07, `GET /api/public/v1/mcp-servers` answering
+# `{"error":{"code":"NOT_FOUND","message":"Cannot GET /api/public/v1/mcp-servers"}}`
+# with a never-registered control path answering the same shape and two live paths
+# answering 401 instead.
+#
+# `exit 1`, not `exit 4`: the sweep records the code the CLI returns and the real
+# binary returns 4 for this class, but nothing in the classification reads it —
+# `route-not-deployed.sh` refuses the exit-code shape outright. A stub that exited
+# 4 would make this fixture agree with a matcher keyed on the status.
+route_missing_path=""
+while IFS=$'\t' read -r stub_leaf stub_path; do
+  [[ -n "$stub_leaf" && "$stub_leaf" == "$leaf" ]] && route_missing_path="$stub_path"
+done <<< "${STUB_ROUTE_MISSING:-}"
+
+if [[ -n "$route_missing_path" ]]; then
+  printf '{"error":{"code":"NOT_FOUND","message":"Not found: Cannot GET %s","hint":null}}\n' \
+    "$route_missing_path"
   exit 1
 fi
 

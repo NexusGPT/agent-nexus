@@ -54,7 +54,17 @@ export function planThread(
   leaf: ThreadableLeaf,
   bodyOf: ReadonlyMap<string, string>,
   producerBroke: ReadonlyMap<string, string>,
-  vanishedBy: ReadonlyMap<string, ReadonlySet<string>> = new Map()
+  vanishedBy: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
+  /**
+   * Producer leaf → the path `SWEEP_ROUTES_PENDING_DEPLOY` declares absent, for
+   * the producers whose CURRENT failure the shell matcher confirmed IS that
+   * absence. Presence is the verdict; this function never re-derives it.
+   *
+   * Defaulted so every existing caller and spec is unchanged, and so the
+   * dangerous direction needs an explicit argument: an empty map scores every
+   * broken producer FAILED, which is what the sweep did before.
+   */
+  producerPendingDeploy: ReadonlyMap<string, string> = new Map()
 ): ThreadPlan {
   const args: string[] = [];
   const threaded: ThreadedId[] = [];
@@ -64,6 +74,35 @@ export function planThread(
 
     const broke = producerBroke.get(source.leaf);
     if (broke !== undefined) {
+      // 🚨 BEFORE THE FAILED BRANCH, AND ONLY ON A POSITIVE ANSWER. The runner
+      // has already asked the shell matcher whether THIS producer's refusal is
+      // the exact path `SWEEP_ROUTES_PENDING_DEPLOY` declares absent; presence in
+      // this map IS that answer. A producer that broke for any other reason — a
+      // 401, a 500, a 404 naming a different path — is absent from it and falls
+      // through to FAILED, which is the loud direction and the default.
+      //
+      // Why the consumer is not simply FAILED: `cli-sweep` builds the CLI from
+      // the PR's own sources and runs it against the DEPLOYED API, so a branch
+      // adding a noun AND the route it calls cannot serve its own producer yet.
+      // That is not a defect in the consumer, and no code change clears it.
+      //
+      // It cannot go STALE. This fires only while the producer is FAILING right
+      // now, so the day the route deploys the producer answers, this branch is
+      // never reached, and the consumer is threaded and actually tested. The
+      // DECLARATION outliving its reason is caught by `sweep.sh`, which executes
+      // the producer leaf directly and reds with STALE PENDING-DEPLOY — in this
+      // same job. One stale detector, not two.
+      const pendingRoute = producerPendingDeploy.get(source.leaf);
+      if (pendingRoute !== undefined) {
+        return {
+          kind: "blocked",
+          status: "PENDING_DEPLOY",
+          note:
+            `producer \`${source.leaf}\` cannot be served yet — DECLARED ` +
+            `pending-deploy: ${pendingRoute} is absent from the deployed API`
+        };
+      }
+
       // A producer that ERRORED is not a producer that is EMPTY. Conflating them
       // would report a broken list route as "nothing to test with", which is the
       // exact substitution this harness exists to refuse.

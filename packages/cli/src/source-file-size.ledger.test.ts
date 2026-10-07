@@ -143,11 +143,32 @@ const CEILING_LINES = 150;
  */
 const LEDGER: Readonly<Record<string, number>> = {
   "auth-probe.ts": 318,
-  "cli-surface.generated.ts": 634,
+  "cli-surface.generated.ts": 637,
   "cli-surface.model.ts": 159,
   "cli-surface.project.ts": 404,
   "client.ts": 240,
-  "command-universe.ts": 1623,
+  // DOWN from 1635, and the direction is the point. It first went UP to 1784 for
+  // SWEEP_ROUTES_PENDING_DEPLOY and the fields that carry it, on the argument that
+  // the three sweep declarations are read together and splitting one leaves a
+  // reader hunting two files. That argument was coherence-by-reading and it lost to
+  // a measurement: `scripts/id-thread-sweep.ts` needs only that one declaration,
+  // and the spec driving it SPAWNS that runner 84 times, so each spawn was parsing
+  // COMMAND_CLASSIFICATION's ~470 rows to read one table — about 0.1s per spawn.
+  //
+  // So it moved to `sweep-routes-pending-deploy.ts` and this file RE-EXPORTS it,
+  // which keeps the coherence the first argument was actually about: a reader who
+  // looks where the other two declarations live still finds it.
+  //
+  // 🚨 THIS NUMBER IS RE-READ FROM THE COMMITTED BYTES, NOT FROM THE BYTES THAT
+  // WERE MEASURED. `format-gate` reformats on commit and stages the result, so a
+  // count taken before it runs can be stale by the time it lands — it added 6
+  // lines to this file after the row was written, and the row shipped wrong. The
+  // row is pinned to EQUALITY in both directions, so a stale one reds either way.
+  //
+  // ⚠️ That import cost was 8 of that file's 312 CI seconds. The cure for the
+  // duration was bounding eleven concurrent real sweeps in one `vitest run`, not
+  // this split — recorded here so nobody reads a shrinking row as the fix.
+  "command-universe.ts": 1705,
   "commands/access-card.ts": 355,
   "commands/admin-vibe-build-job.ts": 239,
   "commands/admin-vibe-consumption-cap.ts": 211,
@@ -165,8 +186,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/channel.contract.generated.ts": 167,
   "commands/claude-code.ts": 586,
   "commands/collection.contract.generated.ts": 155,
-  "commands/contract-help.ledger.ts": 565,
-  "commands/contract-help.namespaces.ts": 522,
+  "commands/contract-help.ledger.ts": 579,
+  "commands/contract-help.namespaces.ts": 524,
   "commands/conversation.contract.generated.ts": 168,
   "commands/credential.ts": 500,
   "commands/cue.ts": 182,
@@ -185,7 +206,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/html-message-template.ts": 381,
   "commands/json-shape.command-path.ts": 162,
   "commands/json-shape.project.ts": 166,
-  "commands/mcp.ts": 608,
+  "commands/mcp.ts": 598,
   "commands/permissions.contract.generated.ts": 167,
   "commands/permissions.ts": 462,
   "commands/phone-number.ts": 375,
@@ -215,22 +236,32 @@ const LEDGER: Readonly<Record<string, number>> = {
   "contract-help.codegen.ts": 237,
   "contract-help.render.ts": 183,
   "deprecation-cycle.ts": 660,
-  "docs-page.frontmatter.ts": 375,
+  "docs-page.frontmatter.ts": 381,
   "docs-page.model.ts": 185,
   "docs-page.render.ts": 198,
   "errors.ts": 789,
   "exit-codes.ts": 304,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
+  // NEW ROW: this file crossed 150 when `planThread` gained the pending-deploy
+  // branch — the producer whose route is declared absent from the deployed API,
+  // which blocks every consumer threading from it. `LEDGER_CEILING` goes up by
+  // exactly one for exactly this row, which is what the ceiling's contract asks:
+  // adding a row REQUIRES +1 in the same diff and the primitive refuses any
+  // other value. The branch's comment is the reasoning that put it over — why it
+  // sits ahead of the FAILED branch, and why it cannot go stale — and trimming
+  // that to stay under a gate would be deleting the argument to satisfy the
+  // number.
+  "id-graph.thread.ts": 160,
   "id-graph.ts": 252,
   "id-graph.uncovered.generated.ts": 355,
-  "index.ts": 684,
-  "json-shape.generated.ts": 468,
+  "index.ts": 686,
+  "json-shape.generated.ts": 471,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
   "node-test-verdict.ts": 179,
   "output.ts": 751,
-  "probe-barrier.ts": 617,
+  "probe-barrier.ts": 629,
   "skills-corpus/platform.ts": 163,
   "skills-corpus/select-skill-dirs.ts": 242,
   "util/admin-errors.ts": 164,
@@ -271,7 +302,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 113;
+const LEDGER_CEILING = 114;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

@@ -94,7 +94,7 @@ const CLI_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * ── Why `z.toJSONSchema` and not a hand-rolled Zod walk ──────────────────────
  *
  * Because production already does it this way.
- * `apps/backend/src/public/v1/mcp/infrastructure/catalog/build-tool-input-schema.ts`
+ * `apps/backend/src/public/v1/mcp-inbound/infrastructure/catalog/build-tool-input-schema.ts`
  * derives every MCP tool's input schema with exactly the call below, same two
  * options and the same reasons: `io: "input"` describes what the CLIENT sends
  * (the pre-transform shape), and `unrepresentable: "any"` keeps one exotic type

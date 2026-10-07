@@ -233,6 +233,14 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "HtmlMessageTemplateUpdate",
   "KnownIssuesForRoute",
   "McpRpc",
+  // ── outbound MCP: an organization's OWN connected third-party servers ──
+  // All three publish a checkable object. `McpServerToolCall` is the EXECUTE
+  // door, and its payload is the one a caller keys on: `isError` separates a
+  // tool that reported its own failure from one that answered, and the status
+  // alone cannot, because both are 200.
+  "McpServerGet",
+  "McpServerList",
+  "McpServerToolCall",
   "MeListOrganizations",
   "ModelList",
   "PermissionsCheck",

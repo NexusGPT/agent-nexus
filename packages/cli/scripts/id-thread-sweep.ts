@@ -7,9 +7,18 @@ import { deriveIdGraph } from "../src/id-graph";
 import { rowsFrom } from "../src/id-graph.ids";
 import type { ThreadableLeaf } from "../src/id-graph.model";
 import { type LeafOutcome, outcomeForExitCode } from "../src/id-graph.outcome";
+import { resolvePendingDeployProducers } from "../src/id-graph.pending-deploy";
 import { isNotFound, raceVerdict, type ThreadedId } from "../src/id-graph.race";
 import { type LeafOutput, splitLeafOutput } from "../src/id-graph.streams";
 import { planThread } from "../src/id-graph.thread";
+import { routeAbsenceVerdict } from "../src/route-not-deployed";
+// 🚨 THE SMALL MODULE, NEVER `command-universe`. This runner is spawned ONCE PER
+// CASE by `test/id-thread/id-thread-sweep.test.ts` — 84 times — and importing
+// the command table would re-parse its ~470 rows on every spawn for one
+// declaration. Measured at about 0.1s per spawn, ~8s across that file. It is 8
+// of that file's 312 CI seconds, so this is a cost removed because it is free,
+// NOT the cure for the duration — that was bounding the concurrent sweeps.
+import { SWEEP_ROUTES_PENDING_DEPLOY } from "../src/sweep-routes-pending-deploy";
 
 /**
  * id-thread-sweep - execute the read leaves that need an id, with ids DISCOVERED
@@ -382,12 +391,13 @@ function runLeaf(
   leaf: ThreadableLeaf,
   bodyOf: Map<string, string>,
   producerBroke: ReadonlyMap<string, string>,
-  vanished: Map<string, Set<string>>
+  vanished: Map<string, Set<string>>,
+  producerPendingDeploy: ReadonlyMap<string, string> = new Map()
 ): Result {
   let proven = 0;
 
   for (let attempt = 0; attempt <= NOT_FOUND_REATTEMPTS; attempt += 1) {
-    const plan = planThread(leaf, bodyOf, producerBroke, vanished);
+    const plan = planThread(leaf, bodyOf, producerBroke, vanished, producerPendingDeploy);
     if (plan.kind === "blocked") {
       return { status: plan.status, path: leaf.path, note: plan.note };
     }
@@ -490,6 +500,35 @@ function main(): void {
     bodyOf.set(producer, res.body);
   }
 
+  // -- The declared route absences among the broken producers ----------------
+  //
+  // 🚨 THE SECOND CONSUMER OF ONE DECLARATION. `sweep.sh` executes a declared
+  // leaf directly and reports it PENDING; this sweep threads CONSUMERS from it,
+  // and a producer that cannot be served blocks every one of them. Before this
+  // branch they were all FAILED — the same undeployed route, red in the same job,
+  // one sweep later.
+  //
+  // 🚨 THE VERDICT COMES FROM `scripts/route-not-deployed.sh`, THE ONE DEFINITION
+  // — never from a TypeScript copy of its regex. That pattern is POSIX ERE and
+  // JavaScript's RegExp silently reads `[[:space:]]` as something else entirely;
+  // `src/route-not-deployed.ts` carries the measurement.
+  //
+  // The transcript asked about is the one STORED above, truncated to 120 chars
+  // exactly as the FAILED note would have shown it, so the matcher judges the
+  // bytes a reader of the report sees. The declared sentence is far shorter than
+  // that, and a transcript the slice truncated past the path would answer `other`
+  // and stay FAILED — the loud direction.
+  //
+  // The DECISION is `src/id-graph.pending-deploy.ts` and the ASKING is
+  // `routeAbsenceVerdict`, passed in. Eight lines of glue here would be eight
+  // lines no spec can reach — this file ends in `main()` — holding the one branch
+  // that decides whether a producer failure is EXCUSED.
+  const producerPendingDeploy = resolvePendingDeployProducers(
+    producerBroke,
+    SWEEP_ROUTES_PENDING_DEPLOY,
+    routeAbsenceVerdict
+  );
+
   // -- Threading -------------------------------------------------------------
   // 🚨 RUN-SCOPED, NOT PER-LEAF, AND KEYED BY PRODUCER. "Producer X lost row Y"
   // is a fact about this RUN — one producer typically feeds several consumers
@@ -501,7 +540,7 @@ function main(): void {
   const vanished = new Map<string, Set<string>>();
   const results: Result[] = [];
   for (const leaf of graph.executable) {
-    results.push(runLeaf(leaf, bodyOf, producerBroke, vanished));
+    results.push(runLeaf(leaf, bodyOf, producerBroke, vanished, producerPendingDeploy));
   }
 
   const countOf = (status: Status): number =>
@@ -512,11 +551,31 @@ function main(): void {
   const skippedNeedsInput = countOf("SKIPPED_NEEDS_INPUT");
   const skipped = skippedNoId + skippedIdVanished + skippedNeedsInput;
   const failed = countOf("FAILED");
-  // The leaves whose id-producer returned at least one row. `SKIPPED_NO_ID` is
-  // the ONLY outcome that means no id existed, so it is the only subtraction —
-  // a vanished row, a needs-input refusal and a failure all had one. See
-  // PROVISIONED_FLOOR for why this is the population the floor sits on.
-  const provisioned = graph.executable.length - skippedNoId;
+  const pendingDeploy = countOf("PENDING_DEPLOY");
+  // How many declared absences could bite in THIS graph. The denominator, never a
+  // bare numerator: `1 pending deploy` cannot separate "the one absence this
+  // branch declared" from "one of three fired and two silently stopped applying",
+  // and a numerator alone is exactly what made the first coverage loss invisible.
+  //
+  // It counts DECLARED PRODUCERS rather than consumers, because that is the
+  // population a reader checks the numerator against — one undeployed producer
+  // can block several consumers, so the two numbers answer different questions.
+  const pendingDeployDeclared = [...producers].filter(
+    (producer) => SWEEP_ROUTES_PENDING_DEPLOY[producer] !== undefined
+  ).length;
+  // The leaves whose id-producer returned at least one row. `SKIPPED_NO_ID` means
+  // the producer ANSWERED and had no rows; `PENDING_DEPLOY` means its route is not
+  // there at all — so neither had an id, and both are subtracted. A vanished row,
+  // a needs-input refusal and a failure all had one. See PROVISIONED_FLOOR for
+  // why this is the population the floor sits on.
+  //
+  // 🚨 SUBTRACTING IT IS THE WHOLE POINT, NOT BOOKKEEPING. Left in, `provisioned`
+  // would claim an id existed for a consumer whose producer 404'd, and the floor
+  // — the one guard against a run that would otherwise report a pass — would
+  // vouch for coverage nobody has. If a future declaration drops this below the
+  // floor the run REFUSES, and that is correct: too much of the tree would be
+  // unprovable to call the run a pass.
+  const provisioned = graph.executable.length - skippedNoId - pendingDeploy;
 
   if (AS_JSON) {
     process.stdout.write(
@@ -536,6 +595,8 @@ function main(): void {
             skippedIdVanished,
             skippedNeedsInput,
             failed,
+            pendingDeploy,
+            pendingDeployDeclared,
             // ADDED, never renamed over an existing key: this shape is a
             // contract even though nothing consumes it today, and the next
             // reader ratchets PROVISIONED_FLOOR off this number.
@@ -570,7 +631,13 @@ function main(): void {
     process.stdout.write(
       `\nSummary: ${reached} reached · ${skipped} skipped ` +
         `(${skippedNoId} no-id, ${skippedIdVanished} vanished, ${skippedNeedsInput} needs-input) · ` +
-        `${failed} failed\n`
+        // 🚨 APPENDED AFTER `failed`, NEVER INSERTED AMONG THE EXISTING FIELDS.
+        // `counts()` in `test/id-thread/id-thread-sweep.test.ts` parses this line
+        // with an UNANCHORED regex whose last capture is `(\d+) failed`, so a
+        // field after it leaves every existing case matching — and a field
+        // BETWEEN them throws `no summary line in:` from the parser, which reads
+        // as this runner having broken rather than as a rendering change.
+        `${failed} failed · ${pendingDeploy}/${pendingDeployDeclared} pending deploy\n`
     );
     // 🚨 ITS OWN LINE, BESIDE THE SUMMARY AND NEVER INSIDE IT. The `Summary:`
     // line is parsed by a regex in `test/id-thread/id-thread-sweep.test.ts`, and
@@ -605,7 +672,8 @@ function main(): void {
   if (reached === 0) {
     process.stderr.write(
       `REFUSED: ${results.length} leaves considered and NONE was reached ` +
-        `(${skipped} skipped, ${failed} failed). A run that exercised nothing is not a pass.\n`
+        `(${skipped} skipped, ${failed} failed, ${pendingDeploy} pending deploy). ` +
+        `A run that exercised nothing is not a pass.\n`
     );
     process.exit(EXIT_NOTHING_REACHED);
   }

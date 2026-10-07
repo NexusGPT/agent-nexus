@@ -493,6 +493,18 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
     why: "binds credentials issued by a provider this organisation is not connected to"
   },
 
+  // ── mcp-server ────────────────────────────────────────────────────────────
+  // Only the CALL carries a barrier. `list` and `get` are org-scoped reads of this
+  // organisation's own rows and cost nothing, which is why they are not here — and
+  // `probe-barrier.test.ts` refuses a barrier on any leaf the sweep runs as `safe`,
+  // so `mcp-server list` could not carry one anyway.
+  "mcp-server call": {
+    barrier: "third-party",
+    why: "dials a THIRD-PARTY MCP server with a credential this organisation stored, and runs whatever that remote tool does",
+    safeCheck:
+      "`mcp-server get <serverId>` is the free probe: it proves the server, the tool and its APPROVED status without dialling the remote"
+  },
+
   // ── phone-number ──────────────────────────────────────────────────────────
   "phone-number buy": {
     barrier: "money",

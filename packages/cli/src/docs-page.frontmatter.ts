@@ -227,6 +227,12 @@ export const AUTHORED_FRONTMATTER: Readonly<Record<string, AuthoredFrontmatter>>
     description:
       "Inspect, call, and serve the Nexus MCP tool surface from the command line — list the tools your API key exposes, invoke one directly, run the stdio bridge on your active profile, and write the config block for Claude Code, Claude Desktop or Cursor."
   },
+  "mcp-server": {
+    title: "MCP Servers CLI",
+    icon: "server",
+    description:
+      "Read the MCP servers your organization connected and call one approved tool on one of them. This is the direction in which Nexus is the MCP CLIENT and the servers are third-party — for Nexus ITSELF as an MCP server, see the MCP CLI page."
+  },
   model: {
     title: "Model CLI",
     icon: "cpu",

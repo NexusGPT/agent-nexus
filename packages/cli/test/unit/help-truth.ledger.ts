@@ -99,7 +99,7 @@ export const LEDGER_CEILING = 0;
  * {@link NAMESPACE_TOTAL} namespaces and the two agree — which is exactly when a
  * dropped filter stops being visible in the number.
  */
-export const NAMESPACE_TOTAL = 53;
+export const NAMESPACE_TOTAL = 54;
 
 /**
  * Namespaces asserted to hold NO ledger entry at all — written out, never
@@ -259,6 +259,10 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   // `11111111-1111-4111-8111-111111111111` spelling this file settled on — the
   // variant nibble is 4/8 because zod's `.uuid()` refuses anything else.
   "mcp",
+  // Clean on arrival: every leaf ships Examples and Notes, and every example
+  // names the id `11111111-1111-4111-8111-111111111111` that the route accepts
+  // rather than a slug or a `<placeholder>` the shell eats.
+  "mcp-server",
   // `model list` was the namespace's only entry and its only leaf. It gained a
   // Notes block explaining that the listing carries TWO kinds of row — a
   // platform model, selected by `modelId` + `provider`, and an organization's

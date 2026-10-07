@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 493 routes: 390 with a checkable shape, 96 publishing no
+// 496 routes: 393 with a checkable shape, 96 publishing no
 // response schema, 7 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -152,6 +152,8 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "GET /html-message-templates": {name:"HtmlMessageTemplateList",method:"GET",path:"/html-message-templates",payload:{kind:"object",fields:{"items":"a"},required:["items"]}},
   "GET /html-message-templates/:templateId": {name:"HtmlMessageTemplateGet",method:"GET",path:"/html-message-templates/:templateId",payload:{kind:"object",fields:{"createdAt":"","deploymentId":"s","description":"0s","endsTurn":"b","htmlContent":"s","id":"s","inputSchema":"0o","name":"s","updatedAt":""},required:["createdAt","deploymentId","endsTurn","htmlContent","id","name"]}},
   "GET /known-issues": {name:"KnownIssuesForRoute",method:"GET",path:"/known-issues",payload:{kind:"object",fields:{"capturedAt":"","issues":"a","polled":"b","route":"s"},required:["capturedAt","issues","polled","route"]}},
+  "GET /mcp-servers": {name:"McpServerList",method:"GET",path:"/mcp-servers",payload:{kind:"object",fields:{"servers":"a"},required:["servers"]}},
+  "GET /mcp-servers/:serverId": {name:"McpServerGet",method:"GET",path:"/mcp-servers/:serverId",payload:{kind:"object",fields:{"authMode":"s","displayName":"s","drift":"o","instructionsApprovalState":"s","lastSyncErrorCode":"0s","lastSyncOutcome":"0s","lastSyncSucceededAt":"","serverId":"s","toolCounts":"o","tools":"a","transport":"s","url":"s"},required:["authMode","displayName","drift","instructionsApprovalState","lastSyncErrorCode","lastSyncOutcome","lastSyncSucceededAt","serverId","toolCounts","tools","transport","url"]}},
   "GET /me": {name:"MeGet",method:"GET",path:"/me",payload:{kind:"undeclared",why:"noResponse"}},
   "GET /me/organizations": {name:"MeListOrganizations",method:"GET",path:"/me/organizations",payload:{kind:"array",items:{kind:"object",fields:{"name":"s","organizationId":"s","role":"s"},required:["name","organizationId","role"]}}},
   "GET /models": {name:"ModelList",method:"GET",path:"/models",payload:{kind:"array",items:{kind:"object",fields:{"contextSize":"0n","deprecated":"b","displayName":"s","id":"s","modelId":"s","modelName":"s","provider":"s","source":"s","streaming":"b","supportsReasoning":"b","supportsThinking":"b","thinkingDialect":"0s"},required:["contextSize","deprecated","displayName","id","modelId","modelName","provider","source","streaming","supportsReasoning","supportsThinking"]}}},
@@ -391,6 +393,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "POST /html-message-templates/:templateId/fill": {name:"HtmlMessageTemplateFill",method:"POST",path:"/html-message-templates/:templateId/fill",payload:{kind:"object",fields:{"data":"o","html":"s"},required:["data","html"]}},
   "POST /html-message-templates/:templateId/render": {name:"HtmlMessageTemplateRender",method:"POST",path:"/html-message-templates/:templateId/render",payload:{kind:"object",fields:{"html":"s"},required:["html"]}},
   "POST /mcp": {name:"McpRpc",method:"POST",path:"/mcp",payload:{kind:"object",fields:{"error":"o","id":"0ns","jsonrpc":"s","result":""},required:["id","jsonrpc"]}},
+  "POST /mcp-servers/:serverId/tools/call": {name:"McpServerToolCall",method:"POST",path:"/mcp-servers/:serverId/tools/call",payload:{kind:"object",fields:{"isError":"b","mediaBlocks":"a","text":"s","toolName":"s"},required:["isError","mediaBlocks","text","toolName"]}},
   "POST /permissions/check": {name:"PermissionsCheck",method:"POST",path:"/permissions/check",payload:{kind:"object",fields:{"hasAccess":"b","userRelation":"0s"},required:["hasAccess","userRelation"]}},
   "POST /permissions/grant": {name:"PermissionsGrant",method:"POST",path:"/permissions/grant",payload:{kind:"object",fields:{"createdAt":"s","id":"s"},required:["createdAt","id"]}},
   "POST /permissions/revoke": {name:"PermissionsRevoke",method:"POST",path:"/permissions/revoke",payload:{kind:"object",fields:{"revokedCount":"n"},required:["revokedCount"]}},

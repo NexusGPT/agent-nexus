@@ -38,6 +38,35 @@
 # denominator — `$SKIP/$DECLARED_TOTAL declared skip` — because a numerator on
 # its own is what made the loss invisible.
 #
+# 🚨 PENDING IS THE SECOND NON-COUNTING STATUS, AND IT SELF-RETIRES RATHER THAN
+# GOING STALE QUIETLY.
+#
+# This job builds the CLI from the PR's own sources and sweeps it against the
+# DEPLOYED staging API — two different trees. A branch adding a CLI noun AND the
+# route it calls is therefore red until it merges and deploys, with nothing wrong
+# anywhere and no code change able to clear it.
+#
+# `SWEEP_ROUTES_PENDING_DEPLOY` in `src/command-universe.ts` names that, per leaf,
+# bound to the exact path the deployed API says it cannot serve. Four outcomes,
+# and the fourth is the whole point:
+#
+#   declared + that path is absent     PENDING, outside the exit code, with its
+#                                      cause and its own denominator.
+#   declared + any other failure       FAIL. A declaration is not an amnesty.
+#   declared + the leaf ANSWERS        FAIL, naming the entry to delete. A route
+#                                      going live is what retires the entry, and
+#                                      a gate is the only thing that notices.
+#   undeclared + that path is absent   FAIL, unchanged. Nothing is exempt by
+#                                      shape.
+#
+# A SKIP's good news is reported and fails nothing, because an environment policy
+# lifts by somebody else's hand at any time. A pending-deploy entry is about THIS
+# branch's own undeployed diff, expires exactly once, and the person who wrote it
+# is the person whose change deployed — so its good news is a FAIL. The cost of
+# the other direction is in the tree: `tracks list` is parked behind a block
+# comment naming the probe that would promote it, its route has been answering
+# for some time, and nothing anywhere went red.
+#
 # 🚨 DOES THIS GATE? NOT ASSERTED HERE, AND THE LINE ABOVE USED TO ASSERT IT.
 #
 # Branch protection lives on GitHub and no file in this repository can see it, so
@@ -133,6 +162,26 @@ if ! . "$SCRIPT_DIR/policy-refusal.sh"; then
   exit 8
 fi
 
+# The route-absence matcher. GUARDED for the same reason and with the same shape:
+# `set -e` is deliberately off, so a missing file would leave
+# `is_route_not_deployed` undefined, every call would fail, and a leaf whose route
+# this branch has not deployed yet would read as a CLI regression — a red that
+# says nothing about the CLI and that no code change can clear.
+#
+# ⚠️ The failure direction is the OPPOSITE of the one above and it is worse, which
+# is why it refuses rather than degrading: a missing policy matcher turns declared
+# SKIPs red, and somebody looks. A missing route matcher turns a declared PENDING
+# red AND leaves the STALE arm — the self-retiring half — unreachable, so the
+# mechanism would stop noticing a deploy with nothing to say it had.
+# shellcheck source=./route-not-deployed.sh
+if ! . "$SCRIPT_DIR/route-not-deployed.sh"; then
+  echo "FATAL: could not source $SCRIPT_DIR/route-not-deployed.sh" >&2
+  echo "Refusing to sweep without it — a route this branch has not deployed yet would" >&2
+  echo "read as a CLI regression, and the declaration that retires itself when the" >&2
+  echo "route goes live would never fire at all." >&2
+  exit 9
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Inventory — resolved from src/command-universe.ts, never written down here
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +220,12 @@ run_leaf() {
   # membership of SWEEP_EXPECTED_SKIPS, and a function re-deriving its own inputs
   # is a second place for the two lists to disagree.
   local expected_skip="${3:-false}"
+  # Fourth and fifth, same reasoning again. EMPTY means this leaf carries no
+  # pending-deploy declaration, which is the ordinary case — so the arms below
+  # test for a non-empty route rather than for a flag, and there is no third state
+  # in which a route is declared and its acceptance is not.
+  local pending_route="${4:-}"
+  local pending_cause="${5:-}"
 
   # 🚨 THE TWO STREAMS ARE KEPT APART, AND `2>&1` HERE WAS A HOLE IN THE SECRET
   # SCAN RATHER THAN AN EXTENSION OF IT.
@@ -251,8 +306,55 @@ run_leaf() {
       fi
       return
     fi
+
+    # ── PENDING-DEPLOY ──────────────────────────────────────────────────────
+    #
+    # AFTER the policy branch and never before it. A policy refusal is about an
+    # ENVIRONMENT and wins: a leaf that is both opted out and undeployed is still
+    # a declared skip, and nothing about that branch changes here.
+    #
+    # The matcher binds to the DECLARED path, so a 404 naming any other path —
+    # including a typo of this one — falls through to the FAIL below. `exit 4` and
+    # a bare `404` are deliberately not consulted; `route-not-deployed.sh` carries
+    # the argument for each refused broadening.
     local err
     err=$(printf '%s' "$transcript" | tr '\n' ' ' | cut -c1-100)
+
+    if [[ -n "$pending_route" ]]; then
+      is_route_not_deployed "$transcript" "$pending_route"
+      local route_verdict=$?
+      case $route_verdict in
+        0)
+          printf 'PENDING|%s|%s — DECLARED pending-deploy: %s is absent from the deployed API\n' \
+            "$path" "$pending_cause" "$pending_route"
+          return
+          ;;
+        2)
+          # The declaration itself is unusable, so nothing was measured. Never a
+          # PENDING: an unvalidated path is spliced into a regular expression, and
+          # a declaration reading `.*` would accept every 404 there is.
+          # `--print-pending-deploy` refuses this before the sweep starts; this is
+          # the second line of the same defence, and it must not read as a match.
+          printf 'FAIL|%s|MALFORMED PENDING-DEPLOY DECLARATION: route %s is not a literal path, so nothing was measured about this leaf. Fix the entry in SWEEP_ROUTES_PENDING_DEPLOY in src/command-universe.ts. Its actual failure was exit=%d: %s\n' \
+            "$path" "$pending_route" "$exit_code" "$err"
+          return
+          ;;
+        *)
+          # 🚨 DECLARED, AND FAILING FOR SOMETHING ELSE. This is the arm that
+          # keeps the declaration from being an amnesty: a 401 from an expired CI
+          # key and a 500 from an outage are the regressions they always were, and
+          # swallowing either under a pending-deploy entry would be exactly the
+          # blanket green `sweep-skips-only-a-declared-opt-out.test.ts` exists to
+          # forbid one mechanism over. Named separately from the generic FAIL
+          # below so the reader is told the declaration did NOT apply, rather than
+          # being left to wonder whether it did.
+          printf 'FAIL|%s|DECLARED pending-deploy (%s) BUT THIS IS A DIFFERENT FAILURE — the declaration does not cover it: exit=%d: %s\n' \
+            "$path" "$pending_route" "$exit_code" "$err"
+          return
+          ;;
+      esac
+    fi
+
     printf 'FAIL|%s|exit=%d: %s\n' "$path" "$exit_code" "$err"
     return
   fi
@@ -278,6 +380,27 @@ run_leaf() {
   # else is UNMEASURED, and UNMEASURED is a failure with nothing quoted.
   case $scan_code in
     0)
+      # 🚨 THE SELF-RETIRING ARM, AND THE REASON THE WHOLE DISPOSITION IS WORTH
+      # HAVING. The leaf answered with a clean document, so the route it was
+      # declared absent for is LIVE — and the declaration is now excusing nothing
+      # while standing ready to excuse whatever next takes that leaf's name.
+      #
+      # It FAILS where a stale SKIP declaration merely reports. The asymmetry is
+      # argued in `SWEEP_ROUTES_PENDING_DEPLOY`'s own docblock: a policy opt-out
+      # lifts by somebody else's hand at any time, so reddening on it reddens on
+      # weather; an undeployed route in THIS branch's diff expires exactly once,
+      # at a deploy the declaring lane performed.
+      #
+      # It sits in the `0)` arm rather than ahead of the scan on purpose. A leaf
+      # that returns a SECRET-SHAPED response is the one finding that must outrank
+      # this one, and every other non-PASS outcome here is already a FAIL — or a
+      # WARN, which `--strict` counts — so the run is red either way and the stale
+      # declaration surfaces on the next run once the sharper finding is fixed.
+      if [[ -n "$pending_route" ]]; then
+        printf 'FAIL|%s|STALE PENDING-DEPLOY DECLARATION: %s is live on the deployed API. Delete this entry from SWEEP_ROUTES_PENDING_DEPLOY in packages/cli/src/command-universe.ts.\n' \
+          "$path" "$pending_route"
+        return
+      fi
       # A leaf that wrote to stderr on a clean read has SAID something — a
       # contract-drift warning, a retry notice, a deprecation announcement. None
       # of those is a failure, and all three are invisible now that the streams
@@ -478,6 +601,33 @@ if [[ $SKIPS_EXIT -ne 0 ]]; then
 fi
 rm -f "$SKIPS_STDERR"
 
+# The absences this run accepts, from the SAME table as the three lists above,
+# one TAB-separated `path<TAB>route<TAB>cause` line each. Emptiness is legitimate
+# — a branch that introduces no route declares nothing. A non-zero exit is NOT,
+# and the direction is worse than the skip list's: a failed derivation would make
+# every pending-deploy declaration vanish, so a leaf whose route this branch has
+# not deployed would go red as a CLI regression AND the stale arm that retires the
+# declaration would never run. The producer also REFUSES a malformed declaration
+# before a single leaf is executed, which is the other thing a non-zero means here.
+PENDING_DEPLOY_STDERR=$(mktemp)
+PENDING_DEPLOY_RAW=$(run_universe --print-pending-deploy 2>"$PENDING_DEPLOY_STDERR")
+PENDING_DEPLOY_EXIT=$?
+if [[ $PENDING_DEPLOY_EXIT -ne 0 ]]; then
+  echo "FATAL: could not derive the pending-deploy list." >&2
+  echo "Refusing to sweep without it — a route this branch has not deployed yet would" >&2
+  echo "read as a CLI regression, and a malformed declaration would be spliced into a" >&2
+  echo "regular expression instead of being refused." >&2
+  echo "  command : pnpm exec tsx scripts/command-universe.ts --print-pending-deploy" >&2
+  echo "  exit    : $PENDING_DEPLOY_EXIT" >&2
+  echo "  --- its stdout ---" >&2
+  printf '%s\n' "$PENDING_DEPLOY_RAW" >&2
+  echo "  --- its stderr ---" >&2
+  cat "$PENDING_DEPLOY_STDERR" >&2
+  rm -f "$PENDING_DEPLOY_STDERR"
+  exit 10
+fi
+rm -f "$PENDING_DEPLOY_STDERR"
+
 is_fixture_backed() {
   local needle="$1" line
   while IFS= read -r line; do
@@ -494,13 +644,42 @@ is_expected_skip() {
   return 1
 }
 
+# The declared route and cause for one leaf, printed as `route<TAB>cause`, or
+# nothing at all when the leaf carries no declaration.
+#
+# `IFS=$'\t' read -r p r c` and not a parser: the producer refuses a field
+# carrying a TAB or a newline, so one `read` per line is exact. The third field
+# takes the REST of the line by `read`'s own rule, so a cause containing spaces
+# arrives whole.
+pending_deploy_declaration() {
+  local needle="$1" p r c
+  while IFS=$'\t' read -r p r c; do
+    [[ -z "$p" ]] && continue
+    if [[ "$p" == "$needle" ]]; then
+      printf '%s\t%s' "$r" "$c"
+      return 0
+    fi
+  done <<< "$PENDING_DEPLOY_RAW"
+  return 1
+}
+
 for leaf in "${SWEEP_TARGETS[@]}"; do
   expected=false
   is_expected_skip "$leaf" && expected=true
+  # Two fields out of one lookup, split here rather than in `run_leaf`, for the
+  # same reason the two arguments above are passed rather than re-derived: the
+  # caller has already resolved membership, and a function that re-derives its own
+  # inputs is a second place for the two to disagree.
+  pending_route=""
+  pending_cause=""
+  pending_declaration=$(pending_deploy_declaration "$leaf")
+  if [[ -n "$pending_declaration" ]]; then
+    IFS=$'\t' read -r pending_route pending_cause <<< "$pending_declaration"
+  fi
   if is_fixture_backed "$leaf"; then
-    RESULTS+=("$(run_leaf "$leaf" true "$expected")")
+    RESULTS+=("$(run_leaf "$leaf" true "$expected" "$pending_route" "$pending_cause")")
   else
-    RESULTS+=("$(run_leaf "$leaf" false "$expected")")
+    RESULTS+=("$(run_leaf "$leaf" false "$expected" "$pending_route" "$pending_cause")")
   fi
 done
 
@@ -509,6 +688,14 @@ done
 # gets its declarations deleted rather than its news read. Drift in the other
 # direction — a declaration naming a leaf the sweep does not execute — is caught
 # by `--check-drift` in `Tests: Vitest`, where a stale line is unambiguous.
+#
+# ⚠️ THE PENDING-DEPLOY EQUIVALENT IS NOT HERE AND MUST NOT BE ADDED — do not read
+# its absence as an oversight. A stale SKIP is reported and fails nothing, so it
+# can only be computed after every leaf has run, which is what this loop is for. A
+# stale pending-deploy declaration IS a per-leaf FAILURE, so `run_leaf`'s `0)` arm
+# owns it: the leaf that answered is the leaf that reports it, with the entry to
+# delete named in its own note. A second loop here would be a second place for the
+# same verdict to live.
 STALE_SKIPS=()
 while IFS= read -r declared; do
   [[ -z "$declared" ]] && continue
@@ -528,13 +715,14 @@ ELAPSED=$(( $(date +%s) - START ))
 # Aggregate counts
 # ─────────────────────────────────────────────────────────────────────────────
 
-PASS=0; FAIL=0; WARN=0; SKIP=0
+PASS=0; FAIL=0; WARN=0; SKIP=0; PENDING=0
 for r in "${RESULTS[@]}"; do
   case "${r%%|*}" in
     PASS) ((PASS++)) ;;
     FAIL) ((FAIL++)) ;;
     WARN) ((WARN++)) ;;
     SKIP) ((SKIP++)) ;;
+    PENDING) ((PENDING++)) ;;
   esac
 done
 
@@ -547,6 +735,18 @@ DECLARED_TOTAL=0
 while IFS= read -r declared; do
   [[ -n "$declared" ]] && ((DECLARED_TOTAL++))
 done <<< "$EXPECTED_SKIPS_RAW"
+
+# The DENOMINATOR for the pending-deploy count, for the identical reason. A bare
+# `1 pending deploy` cannot separate "the one absence this branch declared" from
+# "one of three declarations fired and two silently stopped applying" — and the
+# two that stopped applying are leaves whose routes have gone live, which is the
+# event the whole disposition exists to catch. Every PENDING above is declared by
+# construction (an undeclared one is a FAIL), so this is what says whether the
+# DECLARATION still fits.
+PENDING_DECLARED_TOTAL=0
+while IFS= read -r declared; do
+  [[ -n "$declared" ]] && ((PENDING_DECLARED_TOTAL++))
+done <<< "$PENDING_DEPLOY_RAW"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Output
@@ -595,6 +795,8 @@ payload = {
         "skip": $SKIP,
         "skip_declared": $DECLARED_TOTAL,
         "skip_stale": len(stale_skips),
+        "pending_deploy": $PENDING,
+        "pending_deploy_declared": $PENDING_DECLARED_TOTAL,
         "total": ${#RESULTS[@]},
     },
     "results": results,
@@ -631,10 +833,16 @@ else
     done
     echo ""
   fi
+  # 🚨 THE PENDING PAIR GOES AFTER `$FAIL fail` AND NOT BETWEEN THE EXISTING
+  # FIELDS. `sweep-skips-only-a-declared-opt-out.test.ts` pins the run of
+  # `$PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail`
+  # as one contiguous string, and `sweep-promotes-warn-only-under-strict.test.ts`
+  # keys on `· N warn · N fail ·`. Splitting that run would red both for a reason
+  # that has nothing to do with either property.
   if [[ "$STRICT" == "true" ]]; then
-    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · ${ELAPSED}s · STRICT (warn counts as fail)"
+    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · $PENDING/$PENDING_DECLARED_TOTAL pending deploy · ${ELAPSED}s · STRICT (warn counts as fail)"
   else
-    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · ${ELAPSED}s"
+    echo "Summary: $PASS pass · $SKIP/$DECLARED_TOTAL declared skip · $WARN warn · $FAIL fail · $PENDING/$PENDING_DECLARED_TOTAL pending deploy · ${ELAPSED}s"
   fi
 fi
 
@@ -642,6 +850,10 @@ fi
 # - default: FAIL count (real CLI/API regressions)
 # - --strict (CI): FAIL + WARN count (JSON contract violations promoted)
 # SKIP never contributes — environment-policy gaps are not regressions.
+# PENDING never contributes either — a route this branch has not deployed yet is
+# not a regression, and the day it IS deployed the leaf turns up in the `0)` arm
+# as a FAIL naming the declaration to delete, so the acceptance cannot outlive
+# its reason.
 if [[ "$STRICT" == "true" ]]; then
   exit $(( FAIL + WARN ))
 fi

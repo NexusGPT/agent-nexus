@@ -29,6 +29,7 @@ import { registerExternalToolCommands } from "./external-tool";
 import { registerFolderCommands } from "./folder";
 import { registerHtmlMessageTemplateCommands } from "./html-message-template";
 import { registerKnownIssuesCommand } from "./known-issues";
+import { registerMcpServerCommands } from "./mcp-server";
 import { registerPermissionsCommands } from "./permissions";
 import { registerPhoneNumberCommands } from "./phone-number";
 import { registerPromptCommands } from "./prompt";
@@ -483,7 +484,8 @@ const NAMESPACE_REGISTRARS: Record<GeneratedNamespaceName, (program: Command) =>
   "known-issues": registerKnownIssuesCommand,
   score: registerScoreCommands,
   prompt: registerPromptCommands,
-  eval: registerEvalCommands
+  eval: registerEvalCommands,
+  "mcp-server": registerMcpServerCommands
 };
 
 /**

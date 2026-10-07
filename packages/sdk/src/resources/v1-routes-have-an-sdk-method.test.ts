@@ -208,6 +208,22 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * `../types/v1-response-types-match-the-contract.test.ts` that has no such
  * second direction, and the same two-lane composition applies to it; that file
  * carries the rule at its own literal.
+ *
+ * 25 → 26 for `McpServerToolCall`, the EXECUTE half of the outbound MCP surface,
+ * landing beside the two reads that are already here. ONE ORDINARY DEBT ROW, and
+ * its reason is written the way the `Chat*` lesson above demands: it names the
+ * method that retires it and says outright that nothing about the route resists
+ * one. An org-key POST with a JSON body and a JSON response is the shape this SDK
+ * already has nine resources for, so "impossible" would have been a claim about
+ * effort rather than about the route.
+ *
+ * 26 → 23. All three outbound MCP rows left together: `McpServersResource.list` /
+ * `.get` / `.callTool` reach `McpServerList`, `McpServerGet` and
+ * `McpServerToolCall`. Each of the three reasons named the method that would
+ * retire it — *"the day a McpServersResource lands with a list method"* — and that
+ * is the only property that made them retirable: a reason phrased as a fact about
+ * the ROUTE rather than about this client is a row nothing ever re-tests, which is
+ * the whole lesson the `Chat*` paragraphs above were written for.
  */
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 23;
 
@@ -243,6 +259,12 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // @agent-nexus/mcp-server forwards to it directly rather than through a
   // typed resource method, so a resource wrapper would have no caller.
   McpRpc: "JSON-RPC transport endpoint — @agent-nexus/mcp-server forwards to it directly",
+
+  // `McpServerList`, `McpServerGet` and `McpServerToolCall` were all three here
+  // and are all three gone: `McpServersResource.list` / `.get` / `.callTool` reach
+  // them. Do not re-add any of them. `McpRpc` above stays, and the two are not the
+  // same surface — it is Nexus AS the MCP server, reads no `McpServerTool` row, and
+  // differs from these by one plural.
 
   // ── Individually unreached ───────────────────────────────────────────────
   VibeRegisterAppAsTool: "vibe app surface is driven by the vibe SDK, not this one",

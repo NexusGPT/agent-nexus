@@ -634,8 +634,8 @@ describe("a producer re-read that comes back unreadable", () => {
  *
  * ── HOW A CASE LANDS AT A CHOSEN `provisioned` ──────────────────────────────
  *
- * 29 executable leaves. `tracks list` feeds 10 of them, `agent list` 4,
- * `collection list` 3, `execution list` 2, `document list` 2.
+ * 30 executable leaves. `tracks list` feeds 10 of them, `agent list` 4,
+ * `collection list` 3, `execution list` 2, `document list` 2, `mcp-server list` 1.
  * `FAKE_EMPTY_PRODUCERS` empties named
  * producers only, so the arithmetic is exact and the boundary is reachable from
  * both sides. Every case asserts the number it landed on rather than only the
@@ -643,10 +643,10 @@ describe("a producer re-read that comes back unreadable", () => {
  * new figure, instead of sliding one of them past the boundary in silence.
  */
 
-/** 29 - (10 + 4 + 3 + 2) = 10, EXACTLY the floor, which must pass. */
-const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list";
-/** 29 - (10 + 4 + 3 + 2 + 2) = 8, under the floor, which must not. */
-const BELOW_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list,document list";
+/** 30 - (10 + 4 + 3 + 2 + 1) = 10, EXACTLY the floor, which must pass. */
+const AT_FLOOR_PRODUCERS = "tracks list,agent list,collection list,execution list,mcp-server list";
+/** 30 - (10 + 4 + 3 + 2 + 1 + 2) = 8, under the floor, which must not. */
+const BELOW_FLOOR_PRODUCERS = `${AT_FLOOR_PRODUCERS},document list`;
 
 describe("the provisioned floor", () => {
   describe("when too few leaves had an id", () => {
@@ -664,7 +664,7 @@ describe("the provisioned floor", () => {
     }, ONE_SWEEP);
 
     it("reports the provisioned population it landed on", () => {
-      expect(provisioned).toEqual({ provisioned: 8, executable: 29, floor: 10 });
+      expect(provisioned).toEqual({ provisioned: 8, executable: 30, floor: 10 });
     });
 
     // Neither of the other two non-zero rungs applies, so 8 is the only code
@@ -678,8 +678,8 @@ describe("the provisioned floor", () => {
       expect(summary.failed).toBe(0);
     });
 
-    it("counts 21 no-id skips", () => {
-      expect(summary.noId).toBe(21);
+    it("counts 22 no-id skips", () => {
+      expect(summary.noId).toBe(22);
     });
 
     it("exits 8", () => {
@@ -714,7 +714,7 @@ describe("the provisioned floor", () => {
     });
 
     it("reports the provisioned population it landed on", () => {
-      expect(provisioned).toEqual({ provisioned: 10, executable: 29, floor: 10 });
+      expect(provisioned).toEqual({ provisioned: 10, executable: 30, floor: 10 });
     });
 
     it("fails nothing", () => {
@@ -727,9 +727,9 @@ describe("the provisioned floor", () => {
   });
 
   describe("on the concurrent-delete race, however many rows it takes", () => {
-    // 🔴 THE SELECTIVITY CASE. 21 leaves are SKIPPED_ID_VANISHED, so only 8 are
-    // reached — UNDER the floor of 10 — and every one of those 21 HAD a
-    // fixture, so provisioned is still the full 29 and the run passes. A floor
+    // 🔴 THE SELECTIVITY CASE. 22 leaves are SKIPPED_ID_VANISHED, so only 8 are
+    // reached — UNDER the floor of 10 — and every one of those 22 HAD a
+    // fixture, so provisioned is still the full 30 and the run passes. A floor
     // keyed on `reached` exits 8 here and calls a race a coverage outage.
     let run: Run;
     let summary: ReturnType<typeof counts>;
@@ -745,8 +745,8 @@ describe("the provisioned floor", () => {
       summary = counts(run.stdout);
     }, SLOW_SWEEP);
 
-    it("counts 21 rows as vanished", () => {
-      expect(summary.vanished).toBe(21);
+    it("counts 22 rows as vanished", () => {
+      expect(summary.vanished).toBe(22);
     });
 
     it("counts none of them as a no-id skip", () => {
@@ -775,7 +775,7 @@ describe("the provisioned floor", () => {
     });
 
     it("keeps the FULL provisioned population, because a vanished row HAD a fixture", () => {
-      expect(provisionedOf(run.stdout).provisioned).toBe(29);
+      expect(provisionedOf(run.stdout).provisioned).toBe(30);
     });
 
     it("exits 0", () => {
@@ -800,7 +800,7 @@ describe("the provisioned floor", () => {
     });
 
     it("reports the provisioned population it landed on", () => {
-      expect(provisionedOf(run.stdout).provisioned).toBe(19);
+      expect(provisionedOf(run.stdout).provisioned).toBe(20);
     });
 
     it("keeps NOTHING EXISTED TO TEST WITH", () => {
@@ -808,7 +808,7 @@ describe("the provisioned floor", () => {
     });
 
     it("names the unexercised namespace and its share of the harness", () => {
-      expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 34% of this harness/m);
+      expect(run.stdout).toMatch(/^\s+10 leaves in `tracks` unexercised - 33% of this harness/m);
     });
 
     it("names the remedy", () => {

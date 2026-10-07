@@ -24,6 +24,7 @@ import { FoldersResource } from "./resources/folders";
 import { GoldenConversationsResource } from "./resources/golden-conversations";
 import { HtmlMessageTemplatesResource } from "./resources/html-message-templates";
 import { KnownIssuesResource } from "./resources/known-issues";
+import { McpServersResource } from "./resources/mcp-servers";
 import { MeResource } from "./resources/me";
 import { ModelsResource } from "./resources/models";
 import { PermissionsResource } from "./resources/permissions";
@@ -325,6 +326,21 @@ export class NexusClient {
   /** Create and manage support tickets. */
   public readonly tickets: TicketsResource;
 
+  /**
+   * OUTBOUND MCP: this organization's OWN connected MCP servers, and one call
+   * against one approved tool.
+   *
+   * 🔴 THE DIRECTION IN WHICH NEXUS IS THE MCP CLIENT. `POST /public/v1/mcp` —
+   * singular — is the opposite one, where Nexus IS the server; it has no resource
+   * here because `@agent-nexus/mcp-server` forwards its JSON-RPC envelope
+   * directly. The two differ by one plural, so nothing but this sentence tells a
+   * reader which they are holding.
+   *
+   * Only an APPROVED tool is callable, and `callTool` dials a third party with
+   * this organization's stored credential — see {@link McpServersResource}.
+   */
+  public readonly mcpServers: McpServersResource;
+
   /** Set up deployment channels: connections, phone numbers, WhatsApp senders, and setup orchestrator. */
   public readonly channels: ChannelsResource;
 
@@ -461,6 +477,7 @@ export class NexusClient {
     this.skillFolders = new SkillFoldersResource(http);
     this.phoneNumbers = new PhoneNumbersResource(http);
     this.tickets = new TicketsResource(http);
+    this.mcpServers = new McpServersResource(http);
     this.channels = new ChannelsResource(http);
     this.chat = new ChatResource(http);
     this.tracing = new TracingResource(http);

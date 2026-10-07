@@ -39,6 +39,7 @@ export { FoldersResource } from "./folders";
 export { GoldenConversationsResource } from "./golden-conversations";
 export { HtmlMessageTemplatesResource } from "./html-message-templates";
 export { KnownIssuesResource } from "./known-issues";
+export { McpServersResource } from "./mcp-servers";
 export { MeResource } from "./me";
 export { ModelsResource } from "./models";
 export { PermissionsResource } from "./permissions";

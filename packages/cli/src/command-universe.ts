@@ -5,6 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, type Option } from "commander";
 
 import { indexCommandTree } from "./command-tree-index";
+import {
+  SWEEP_ROUTES_PENDING_DEPLOY,
+  type SweepPendingDeployRoute
+} from "./sweep-routes-pending-deploy";
 import { asDerivedCapture } from "./util/version-check";
 
 /**
@@ -138,6 +142,25 @@ export interface DriftReport {
    * excusing a future leaf that happens to reuse the name.
    */
   readonly staleExpectedSkips: readonly string[];
+  /**
+   * The subset of {@link safe} whose route the deployed API cannot serve yet —
+   * see {@link SWEEP_ROUTES_PENDING_DEPLOY}.
+   *
+   * Each entry carries its leaf path alongside the declaration, because
+   * `sweep.sh` needs the pairing: membership alone would tell it a leaf is
+   * declared without telling it WHICH absence is accepted, and an unbound
+   * matcher would then accept any 404 at all.
+   */
+  readonly pendingDeploy: readonly (SweepPendingDeployRoute & { readonly path: string })[];
+  /**
+   * Paths declared in {@link SWEEP_ROUTES_PENDING_DEPLOY} that the sweep does not
+   * execute — renamed, deleted, or reclassified away from `safe`.
+   *
+   * Drift, exactly like {@link staleExpectedSkips}. A declaration nothing can
+   * consume would sit there accepting a 404 on behalf of a leaf that no longer
+   * exists, and would accept it for whatever later takes that name.
+   */
+  readonly stalePendingDeploy: readonly string[];
   /** Every leaf the tree currently has. */
   readonly observed: readonly string[];
 }
@@ -568,6 +591,18 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "mcp serve": "never-execute",
   "mcp tools get": "registration-only",
   "mcp tools list": "safe",
+
+  // ── mcp-server ── THE OPPOSITE DIRECTION FROM `mcp` ABOVE ───────────────
+  // `list` is a bounded org-scoped read needing nothing, and an empty answer is
+  // its ordinary one, so `safe` rather than `safe-with-fixture` — an organization
+  // with no connected server is not a missing fixture. `get` is a read that needs
+  // a server id. `call` DIALS A THIRD-PARTY SERVER holding this organization's
+  // stored credential and runs whatever that remote does, so it is `mcp call`'s
+  // class and not a typed write's: a sweep must never fire one, at any blast
+  // radius, and `probe-barrier.ts` carries the same fact on its own axis.
+  "mcp-server call": "never-execute",
+  "mcp-server get": "registration-only",
+  "mcp-server list": "safe",
 
   // ── model ──────────────────────────────────────────────────────────────────
   "model list": "safe",
@@ -1080,6 +1115,23 @@ export const SWEEP_EXPECTED_SKIPS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The routes this branch introduces that the deployed API cannot serve yet.
+ *
+ * RE-EXPORTED, and the module is `./sweep-routes-pending-deploy`. It moved out
+ * because `scripts/id-thread-sweep.ts` needs this declaration and nothing else
+ * here, and the spec that drives that runner spawns it 84 times — so every spawn
+ * was parsing `COMMAND_CLASSIFICATION`'s ~470 rows to read one table.
+ *
+ * The re-export is the half that keeps the move honest: the three sweep
+ * declarations are read by one derivation and one bash face, so a reader who
+ * comes looking where the other two live must still find this one.
+ */
+export {
+  SWEEP_ROUTES_PENDING_DEPLOY,
+  type SweepPendingDeployRoute
+} from "./sweep-routes-pending-deploy";
+
+/**
  * The directory holding one module per command namespace.
  *
  * `__dirname` is unavailable under ESM and `import.meta.url` is a syntax error
@@ -1583,10 +1635,54 @@ export async function deriveCommandLeaves(): Promise<string[]> {
   return (await deriveCommandNodes()).filter((node) => node.isLeaf).map((node) => node.path);
 }
 
+/**
+ * Declared paths the sweep does not EXECUTE — drift, whichever declaration they
+ * came from.
+ *
+ * ⚠️ ONE FUNCTION FOR BOTH DECLARATIONS, AND THE EQUIVALENCE IS WHY IT IS SAFE.
+ * Each stale list was spelled `!observed.has(path) || the disposition is not
+ * executable`. That is exactly `path ∉ safe`, because {@link DriftReport.safe} is
+ * `observed` filtered to the executable dispositions — so set membership is the
+ * same predicate with the two halves already combined, not a loosening of it.
+ * Two copies of one idea is how the two lists start disagreeing about what drift
+ * means.
+ *
+ * 🚨 ITS ARM IS NOT ITS OWN SPEC'S GREEN. A caller asserting `toEqual([])` over a
+ * healthy tree is satisfied by this function returning `[]` for ANY reason —
+ * including doing nothing at all — so a mutant that forces the answer empty
+ * survives every such assertion. `sweep-declarations-report-drift.test.ts` is
+ * what scores this, with a NON-EMPTY expected list, and the inverted-predicate
+ * mutant is the one that proves the shipped callers are still watched.
+ *
+ * @param declaredPaths keys of a declaration — one of the `SWEEP_*` tables
+ * @param sweptPaths the leaves the sweep executes, i.e. `DriftReport.safe`
+ */
+export function staleDeclarations(
+  declaredPaths: readonly string[],
+  sweptPaths: readonly string[]
+): string[] {
+  const swept = new Set(sweptPaths);
+  return declaredPaths.filter((path) => !swept.has(path)).sort();
+}
+
 /** Diff the derived tree against the declared classification. */
 export async function classifyCommandUniverse(): Promise<DriftReport> {
   const observed = await deriveCommandLeaves();
   const observedSet = new Set(observed);
+
+  // `safe` is what the sweep RUNS, so both executable dispositions belong in it.
+  // Filtering this to `"safe"` alone would silently stop sweeping every
+  // fixture-backed leaf while `--check-drift` still reported them classified.
+  //
+  // Bound here rather than written inline four times: every list below is a
+  // subset of it or a complement of it, and the repeated predicate was the one
+  // place the two declarations could drift apart on what "the sweep executes"
+  // means.
+  const safe = observed.filter(
+    (path) =>
+      COMMAND_CLASSIFICATION[path] === "safe" ||
+      COMMAND_CLASSIFICATION[path] === "safe-with-fixture"
+  );
 
   return {
     observed,
@@ -1594,30 +1690,16 @@ export async function classifyCommandUniverse(): Promise<DriftReport> {
     stale: Object.keys(COMMAND_CLASSIFICATION)
       .filter((path) => !observedSet.has(path))
       .sort(),
-    // `safe` is what the sweep RUNS, so both executable dispositions belong in
-    // it. Filtering this to `"safe"` alone would silently stop sweeping every
-    // fixture-backed leaf while `--check-drift` still reported them classified.
-    safe: observed.filter(
-      (path) =>
-        COMMAND_CLASSIFICATION[path] === "safe" ||
-        COMMAND_CLASSIFICATION[path] === "safe-with-fixture"
-    ),
+    safe,
     fixtureBacked: observed.filter((path) => COMMAND_CLASSIFICATION[path] === "safe-with-fixture"),
-    // Both derived from the SAME predicate as `safe` above, so a leaf can never
-    // be an accepted skip without also being a leaf the sweep executes.
-    expectedSkips: observed.filter(
-      (path) =>
-        SWEEP_EXPECTED_SKIPS[path] !== undefined &&
-        (COMMAND_CLASSIFICATION[path] === "safe" ||
-          COMMAND_CLASSIFICATION[path] === "safe-with-fixture")
-    ),
-    staleExpectedSkips: Object.keys(SWEEP_EXPECTED_SKIPS)
-      .filter(
-        (path) =>
-          !observedSet.has(path) ||
-          (COMMAND_CLASSIFICATION[path] !== "safe" &&
-            COMMAND_CLASSIFICATION[path] !== "safe-with-fixture")
-      )
-      .sort()
+    // Both subsets of `safe`, so a leaf can never carry an accepted skip or an
+    // accepted absence without also being a leaf the sweep executes — or the
+    // acceptance would apply to nothing.
+    expectedSkips: safe.filter((path) => SWEEP_EXPECTED_SKIPS[path] !== undefined),
+    staleExpectedSkips: staleDeclarations(Object.keys(SWEEP_EXPECTED_SKIPS), safe),
+    pendingDeploy: safe
+      .filter((path) => SWEEP_ROUTES_PENDING_DEPLOY[path] !== undefined)
+      .map((path) => ({ path, ...SWEEP_ROUTES_PENDING_DEPLOY[path] })),
+    stalePendingDeploy: staleDeclarations(Object.keys(SWEEP_ROUTES_PENDING_DEPLOY), safe)
   };
 }

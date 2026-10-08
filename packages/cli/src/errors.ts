@@ -169,7 +169,30 @@ const CLI_CODES = {
    */
   HANDSHAKE_EXPIRED: "CLI_HANDSHAKE_EXPIRED",
   /** A mutation answered with an outcome kind this build does not list — `unmeasured`. */
-  OUTCOME_NOT_LISTED: "CLI_OUTCOME_NOT_LISTED"
+  OUTCOME_NOT_LISTED: "CLI_OUTCOME_NOT_LISTED",
+  /**
+   * `mcp-server sync` asked for a discovery and the job queue REFUSED it.
+   *
+   * Terminal, and the one state where RE-RUNNING the command is the remedy:
+   * nothing was queued, so nothing is coming, and the server's row says FAILED +
+   * `DISCOVERY_NOT_QUEUED` for ever until somebody asks again.
+   */
+  MCP_DISCOVERY_NOT_QUEUED: "CLI_MCP_DISCOVERY_NOT_QUEUED",
+  /**
+   * `mcp-server sync` read a row whose discovery RAN and whose remote failed.
+   *
+   * 🔴 SEPARATE FROM {@link CLI_CODES.MCP_DISCOVERY_NOT_QUEUED} BECAUSE THE TWO ARE
+   * OPPOSITE FACTS AND HAD ONE CODE. Both are `lastSyncOutcome: FAILED`; only
+   * `lastSyncErrorCode` separates them. `DISCOVERY_NOT_QUEUED` means no discovery
+   * happened; `TIMEOUT`, `UNREACHABLE`, `AUTHORIZATION_REQUIRED` and
+   * `INVALID_TOOL_LIST` mean one DID, against the remote, and lost. Re-running the
+   * command cures the first and repeats the second — so a script that cannot tell
+   * them apart retries work that already ran, and waits for it.
+   *
+   * It shares `remote-error`'s exit code, exactly as {@link CLI_CODES.HANDSHAKE_EXPIRED}
+   * shares it with a FAILED handshake. Only the code says which.
+   */
+  MCP_DISCOVERY_FAILED: "CLI_MCP_DISCOVERY_FAILED"
 } as const;
 
 /**
@@ -265,6 +288,20 @@ export const CLI_OUTCOME_NOT_LISTED = CLI_CODES.OUTCOME_NOT_LISTED;
  */
 export const CLI_HANDSHAKE_PENDING = CLI_CODES.HANDSHAKE_PENDING;
 export const CLI_HANDSHAKE_EXPIRED = CLI_CODES.HANDSHAKE_EXPIRED;
+
+/**
+ * The two MCP-discovery outcomes that are not a plain remote failure.
+ *
+ * Neither has a {@link FailureCause}: both share `remote-error`'s exit code — a
+ * discovery that did not happen and one that happened and failed are both failures of
+ * the operator's goal — while needing their OWN code, because the remedies are
+ * opposite. `MCP_DISCOVERY_NOT_QUEUED` is cured by re-running the command;
+ * `MCP_DISCOVERY_FAILED` is cured at the remote, and re-running repeats it. Both go
+ * through {@link printFailure}, which emits the document and leaves the verdict to the
+ * caller.
+ */
+export const CLI_MCP_DISCOVERY_NOT_QUEUED = CLI_CODES.MCP_DISCOVERY_NOT_QUEUED;
+export const CLI_MCP_DISCOVERY_FAILED = CLI_CODES.MCP_DISCOVERY_FAILED;
 
 /**
  * WHY A FAILURE THAT HAPPENED AFTER THE SEND CANNOT USE {@link refuse}.

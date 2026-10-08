@@ -1,12 +1,10 @@
 /**
  * `nexus admin vibe-tenant-cluster …` — the per-tenant data-plane lifecycle.
  *
- * Four verbs over one resource. `provision` opts an org into its own dedicated
- * cluster, `disable` opts it back out to DISABLED_RETAINED and leaves the
- * teardown reaper to destroy the stacks after the grace window. `force-converge`
- * and `complete-teardown` are the operator repair levers — they already existed
- * on the backend (`AdminVibeTenantClusterController`) with no CLI path to reach
- * them; this file is what closes that gap (NEX-4213).
+ * Five verbs over one resource: `provision` opts an org into its own cluster,
+ * `disable` opts it out to DISABLED_RETAINED; `force-converge` and
+ * `complete-teardown` are the operator repair levers (NEX-4213); and
+ * `request-server-roll` lives in `admin-vibe-tenant-cluster.request-server-roll.ts`.
  *
  * 🔴 `force-converge` IS NOT A GENERAL "UNSTICK A DEGRADED CLUSTER" LEVER — read
  * its own `--help` before reaching for it. It is HEALTHY-only: the reconcile
@@ -44,6 +42,7 @@ import {
   printCompleteTeardownOutcome,
   printForceConvergeOutcome
 } from "./admin-vibe-tenant-cluster.print-repair";
+import { registerRequestServerRollCommand } from "./admin-vibe-tenant-cluster.request-server-roll";
 
 export function registerVibeTenantClusterCommands(admin: Command, program: Command): void {
   const tc = admin
@@ -272,4 +271,5 @@ Notes:
         process.exitCode = handleAdminError(err);
       }
     });
+  registerRequestServerRollCommand(tc, admin, program);
 }

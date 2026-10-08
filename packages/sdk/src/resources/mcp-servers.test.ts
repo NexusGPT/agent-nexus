@@ -158,6 +158,72 @@ describe("mcpServers.get", () => {
   });
 });
 
+describe("mcpServers.sync", () => {
+  it("POSTs to /:serverId/sync with NO body", async () => {
+    const { mcpServers, seen } = resourceFor(() =>
+      jsonResponse({ serverId: SERVER_ID, lastSyncOutcome: "QUEUED" })
+    );
+
+    await mcpServers.sync(SERVER_ID);
+
+    // Three properties in one shape, and each one is a route refusal if it moves:
+    // the verb (a GET here would hit the detail READ and silently return without
+    // asking for anything), the path (`/sync` as a suffix, never `?sync=1`), and
+    // `body: undefined` — the descriptor declares no `Body`, and
+    // `contract-conformance.spec.ts` checks `Body` ⟺ `@Body()` in BOTH directions,
+    // so a body sent here is a payload no handler reads.
+    expect(seen).toEqual([
+      {
+        url: `https://api-staging.gpt.nexus/api/public/v1/mcp-servers/${SERVER_ID}/sync`,
+        method: "POST",
+        body: undefined
+      }
+    ]);
+  });
+
+  it("🔴 resolves on a FAILED outcome rather than rejecting — the body is the verdict", async () => {
+    // A 202 carrying `lastSyncOutcome: "FAILED"` is the honest answer to a refused
+    // enqueue: the request to us succeeded and the state it recorded is what the
+    // caller asked to see. So it must arrive as a RESOLVED promise, and a caller that
+    // reads only `await` succeeding reads it as a queued discovery.
+    const { mcpServers } = resourceFor(
+      () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              serverId: SERVER_ID,
+              lastSyncOutcome: "FAILED",
+              lastSyncErrorCode: "DISCOVERY_NOT_QUEUED"
+            }
+          }),
+          { status: 202, headers: { "content-type": "application/json" } }
+        )
+    );
+
+    const server = await mcpServers.sync(SERVER_ID);
+
+    expect(server.lastSyncOutcome).toBe("FAILED");
+  });
+
+  it("🔬 CONTROL — the same arm's 202 is not special-cased into a rejection", async () => {
+    // Its own block: the arm above would pass if `request` rejected on 202 for a
+    // DIFFERENT reason and the test happened to catch it, so the positive reading —
+    // a 202 with an accepted outcome also resolves — is asserted separately.
+    const { mcpServers } = resourceFor(
+      () =>
+        new Response(JSON.stringify({ success: true, data: { lastSyncOutcome: "QUEUED" } }), {
+          status: 202,
+          headers: { "content-type": "application/json" }
+        })
+    );
+
+    await expect(mcpServers.sync(SERVER_ID)).resolves.toMatchObject({
+      lastSyncOutcome: "QUEUED"
+    });
+  });
+});
+
 describe("mcpServers.callTool", () => {
   it("POSTs to /tools/call with the tool name in the BODY", async () => {
     const { mcpServers, seen } = resourceFor(() =>

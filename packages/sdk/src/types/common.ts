@@ -143,6 +143,28 @@ export interface ModelConfig {
    * `agents.create` and `agents.update` and unrepresentable on `AgentDetail`
    * (NEX-3869).
    */
+  /**
+   * How hard the model thinks for a turn — ONE field for every provider.
+   *
+   * Which values are valid depends on the model's thinking DIALECT, not on this
+   * type: the six vocabularies are disjoint and not nested, so this union is
+   * their sum and the model narrows it. Read `supportedReasoningLevels` off
+   * `GET /models` for the set a given model accepts.
+   *
+   * The four provider-prefixed fields below are the pre-collapse spellings. They
+   * are still accepted and still read, so nothing you already send breaks.
+   */
+  reasoningLevel?:
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "fast"
+    | "detailed"
+    | "extended"
+    | "dynamic"
+    | "minimal";
   thinkingLevel?: "fast" | "detailed" | "extended" | "low" | "medium" | "high" | "xhigh" | "max";
   /**
    * Anthropic adaptive thinking display mode — whether the model's thinking is

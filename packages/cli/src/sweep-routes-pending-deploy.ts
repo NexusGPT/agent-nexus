@@ -102,30 +102,30 @@ export interface SweepPendingDeployRoute {
  *     expires exactly once, at the deploy, and the person who put it there is
  *     the person whose change deployed. There is no weather.
  *
- * And the cost of the other direction is measured in this tree. `tracks list`
- * is parked at `registration-only` behind a block comment naming the probe that
- * would promote it — a comment with no arm. Measured 2026-10-07 against the
- * deployed staging API: `/api/public/v1/tracks` answers **401**, while a path
- * nobody has registered answers **404**. So the route is REGISTERED, where the
- * `CLI: Sweep` run that parked the leaf had it answering `Cannot GET
- * /api/public/v1/tracks`; it deployed, the leaf is still unswept, and nothing
- * anywhere went red — which is what that comment itself predicted of a
- * declaration with no mechanism behind it. An entry here cannot do that.
+ * And the cost of the other direction is measured. A leaf parked at
+ * `registration-only` behind a block comment naming the probe that would
+ * promote it is a comment with no arm: the route deploys, the leaf stays
+ * unswept, and nothing anywhere goes red — which is what such a comment
+ * predicts of itself. An entry here cannot do that.
  *
- * ⚠️ `401` IS NOT THAT COMMENT'S PROMOTION CONDITION, AND THE TWO ARE EASY TO
- * RUN TOGETHER. An unauthenticated 401 answers *is this route registered*; the
- * probe that block specifies is an AUTHENTICATED `api GET /public/v1/tracks` and
- * its condition is a **200**, which a registered route can still miss with a 403
- * or a 500. Nobody has run it, and nothing here claims otherwise — the argument
- * above needs only that the route stopped 404ing with no arm watching.
+ * ⚠️ TWO THINGS MAKE SUCH A PARK OUTLIVE ITS REASON, AND BOTH ARE PROPERTIES
+ * OF PROSE RATHER THAN OF THE LEAF. The first is that its promotion condition
+ * reads as met before it is: an unauthenticated 401 answers *is this route
+ * registered*, while a condition of **200** is an AUTHENTICATED call, which a
+ * registered route can still miss with a 403 or a 500. The second is that the
+ * probe may not be runnable as written — `nexus api` prepends `/api/public/v1`
+ * and REFUSES an argument repeating it, so a probe spelled with the route as
+ * {@link SweepPendingDeployRoute.route} stores it, or as the v1 contract spells
+ * it, exits 5 with `CLI_INVALID_ARGUMENTS` without reaching the network. That
+ * non-zero is indistinguishable from the route still being absent, and the
+ * control beside it is refused identically, so the control cannot catch it.
  *
  * ⚠️ IT IS NOT A DISPOSITION AND MUST NEVER BECOME ONE, for the reason
  * {@link SWEEP_EXPECTED_SKIPS} gives: the leaf stays `safe`, so the sweep keeps
  * executing it, so the deploy is noticed by the gate rather than by somebody
- * remembering. Parking the leaf as `registration-only` instead — the move the
- * tree makes by hand today — buys a green sweep and costs the leaf's live
- * coverage permanently, because nothing is watching for the day it could come
- * back.
+ * remembering. Parking the leaf as `registration-only` instead buys a green
+ * sweep and costs the leaf's live coverage permanently, because nothing is
+ * watching for the day it could come back.
  *
  * THE REMEDY, WHEN THE FAIL ARRIVES: delete the entry. That is the whole of it.
  *

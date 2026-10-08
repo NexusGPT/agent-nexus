@@ -12,11 +12,12 @@
 # command is right, and the environment simply cannot answer yet.
 #
 # That is structural and recurs for every CLI-noun-plus-new-route pairing. The
-# tree already carries one by hand: `tracks list` sits parked at
-# `registration-only` with a block comment naming the probe that would promote
-# it. A comment is not a mechanism — nothing reddens when the route starts
-# answering, so the leaf stays unswept after its own reason has expired, which
-# that comment calls "the silent half of this disposition" in its own words.
+# alternative is to park the leaf at `registration-only` behind a block comment
+# naming the probe that would promote it, and a comment is not a mechanism —
+# nothing reddens when the route starts answering, so the leaf stays unswept
+# after its own reason has expired. That is the silent half of the disposition:
+# the leaf's live coverage is gone permanently, because nothing is watching for
+# the day it could come back.
 #
 # `SWEEP_ROUTES_PENDING_DEPLOY` in `src/command-universe.ts` is the declared
 # form, and it SELF-RETIRES: a leaf whose declared route answers is a FAIL naming

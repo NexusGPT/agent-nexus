@@ -193,7 +193,22 @@ const gate = shrinkOnlyLedger({
   // `/api/vibe/git-projects/:id/credentials`, an internal `ZVibe` route with no v1
   // descriptor for `bindCommand` to take — the same reason `apps edge-token` sits
   // here — and the sweep must never run it anyway: its output is a live push token.
-  ceiling: 327,
+  //
+  // 327 -> 328: `mcp-server sync <serverId>`, `bound-but-mutates`. It IS bound —
+  // `McpServerSync` is a real v1 descriptor and `bindCommand` takes it — so its method
+  // is provable, and the method is POST. The id-thread harness only threads a GET, and
+  // that is correct here rather than a gap to close: the act asks Nexus to re-dial a
+  // third-party server with a tenant's stored credential and then REPLACES that
+  // server's tool list, so threading an id through it would have the harness mutate a
+  // live organisation's agent skills. The residue is the right answer.
+  //
+  // 328 -> 329: `admin vibe-tenant-cluster request-server-roll <organizationId>`,
+  // `unbound-no-provable-method`, for the reason `force-converge` beside it sits
+  // here: it talks to `/api/admin/vibe/tenant-cluster/…`, an admin route outside
+  // `/api/public/v1`, so there is no v1 descriptor for `bindCommand` to take. And
+  // the sweep must never run it regardless: it stamps a server roll generation and
+  // degrades the cluster, so the next converge rolls every one of its servers.
+  ceiling: 329,
   remedy:
     "Add a `bindCommand(...)` call to the leaf so its HTTP method is provable, or declare it " +
     "in `id-graph.leaf-residue.ts` with the refusal verbatim. Regenerating the ledger " +

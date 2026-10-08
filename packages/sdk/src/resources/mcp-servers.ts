@@ -2,7 +2,8 @@ import type {
   CallMcpServerToolBody,
   CallMcpServerToolResponse,
   GetMcpServerResponse,
-  ListMcpServersResponse
+  ListMcpServersResponse,
+  SyncMcpServerResponse
 } from "../types/mcp-servers";
 import { BaseResource } from "./base-resource";
 
@@ -24,11 +25,13 @@ import { BaseResource } from "./base-resource";
  * caller. A reader holding one of the two cannot tell which from the path alone,
  * which is why this paragraph exists.
  *
- * ## Three methods, and the asymmetry between the reads and the call
+ * ## Four methods, and the asymmetry between the reads, the call and the sync
  *
  * `list()` and `get()` answer *what has this organization connected, and what did
  * an administrator approve on it*. `callTool()` dials ONE approved tool, once.
- * The organization is the API key's on all three and is a parameter of none.
+ * `sync()` asks for a server to be dialled again and its tool list reconciled, and
+ * is the only one that returns before its work has happened. The organization is the
+ * API key's on all four and is a parameter of none.
  *
  * ## 🔴 ONLY AN `APPROVED` TOOL IS CALLABLE, AND THE READS PUBLISH EVERY STATUS
  *
@@ -84,6 +87,49 @@ export class McpServersResource extends BaseResource {
    */
   async get(serverId: string): Promise<GetMcpServerResponse> {
     return this.http.request<GetMcpServerResponse>("GET", `/mcp-servers/${serverId}`);
+  }
+
+  /**
+   * Ask for one server to be dialled again and its tool list reconciled.
+   *
+   * ## 🔴 IT RETURNS WHEN THE REQUEST IS RECORDED, NOT WHEN THE DISCOVERY IS DONE
+   *
+   * The route answers 202. The discovery runs out of band — it opens an MCP session,
+   * waits for `initialize`, then walks `tools/list`, which against a slow remote is
+   * bounded at eleven requests of 150 s. Nothing in this package waits that long and
+   * nothing should: a client deadline does not stop a server, so a synchronous door
+   * here would convert slow-but-correct discoveries into requests the caller never
+   * sees. That is why this method declares no `timeoutMs` — the request it makes is a
+   * local enqueue and the 30 s default is generous for it.
+   *
+   * ## 🚨 `await` RESOLVING IS NOT THE SYNC SUCCEEDING. READ `lastSyncOutcome`
+   *
+   * | the field reads | what happened |
+   * |---|---|
+   * | `QUEUED` | the job is on the queue and the discovery has not run |
+   * | `FAILED` + `lastSyncErrorCode: "DISCOVERY_NOT_QUEUED"` | the queue REFUSED; nothing is coming |
+   * | `SUCCEEDED` | a warm queue finished before this response was composed |
+   *
+   * Only a refusal to RECORD the request rejects — a bad id, a server in another
+   * organization (a 404, on purpose), a key without `mcp_servers:write`. A caller that
+   * reports success on the promise resolving reports it over a server that may be
+   * unreachable, which is the same mistake as not reading `isError` on
+   * {@link callTool}.
+   *
+   * ## What it can change, which is why it is its own scope
+   *
+   * A discovery REPLACES the tool list. A tool the remote no longer advertises goes
+   * `REMOVED`, which breaks an agent skill pinned to it, and the organization's
+   * auto-approval policy runs over what was found — so tools can become callable that
+   * were not. `mcp_servers:read` and `mcp_servers:execute` do not satisfy this route;
+   * it needs `mcp_servers:write`.
+   *
+   * @param serverId - UUID from {@link list}.
+   * @returns The server as the request left it. `tools` and `drift` are whatever the
+   * PREVIOUS discovery produced — poll {@link get} for the new ones.
+   */
+  async sync(serverId: string): Promise<SyncMcpServerResponse> {
+    return this.http.request<SyncMcpServerResponse>("POST", `/mcp-servers/${serverId}/sync`);
   }
 
   /**

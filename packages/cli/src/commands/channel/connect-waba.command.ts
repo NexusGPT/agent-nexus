@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { resolveDashboardUrl } from "../../config";
+import { resolveDashboardHost } from "../../dashboard-host";
 import { handleError } from "../../errors";
 import { color, isJsonMode, printSuccess } from "../../output";
 import { openUrl } from "../../util/open-url";
@@ -32,7 +32,7 @@ Notes:
     .action(async () => {
       try {
         const globals = program.optsWithGlobals();
-        const dashboardUrl = resolveDashboardUrl(globals.dashboardUrl, globals.profile);
+        const dashboardUrl = resolveDashboardHost(globals);
         const url = `${dashboardUrl}/app/connect-waba`;
         // The url is the only thing worth having here, and it was reachable ONLY
         // by reading four lines of prose off stdout. On a machine with no

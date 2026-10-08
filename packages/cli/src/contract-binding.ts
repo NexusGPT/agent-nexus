@@ -170,11 +170,22 @@ export function boundCommand(command: Command): BoundCommand | undefined {
  * 🚨 CALL THIS LAST IN THE CHAIN, after every `.option()` AND every
  * `.addArgument()`. It reads the command's own options and positionals to find
  * the divergences it must print, and either added afterwards is invisible to the
- * block it already rendered. The gate asserts the rendered block agrees with the
- * offered choices, so getting the order wrong is a red build rather than a quiet
- * omission.
+ * block it already rendered. `contract-binding.help-order.test.ts` captures the
+ * RENDERED help of every bound command and refuses one whose generated block
+ * prints above the command's own Examples or Notes, so getting the order wrong is
+ * a red build rather than a quiet omission.
  *
- * Three things happen here:
+ * ⚠️ `commands/contract-help.test.ts` CANNOT SEE THE ORDER, and reaching for it
+ * is the trap — it is the gate for everything else here. Every arm in it reads
+ * `boundCommand`, `cmd.options`, `argChoices` or `bodyOnly`: properties of the
+ * FULLY BUILT command, byte-identical whichever order produced them, so no
+ * assertion of that shape can refuse an order. Measured on commander 13.1.0 —
+ * the two orders differ in the rendering and in nothing else. A docs page is no
+ * substitute either: `cli-docs-are-generated.test.ts` compares a committed page
+ * against a fresh projection, so a wrong order reds it as snapshot DRIFT and
+ * regenerating the page clears the red with the defect still in the tree.
+ *
+ * Three things happen here, and the order decides all three:
  *   · the binding is recorded, so the gate can ask the question no flag can —
  *     does EVERY enum in this descriptor reach a flag, or is one silently
  *     undocumented?
@@ -182,7 +193,9 @@ export function boundCommand(command: Command): BoundCommand | undefined {
  *     prints those in registration order, so calling this LAST puts the
  *     generated reference below the hand-written Examples and Notes — the half
  *     carrying the meaning a schema cannot hold;
- *   · `--print-contract` is added, the escape hatch from the readability rule.
+ *   · `--print-contract` is added, the escape hatch from the readability rule —
+ *     and bound first it lands at the TOP of the options table, ahead of the
+ *     flags the command exists to offer.
  */
 export function bindCommand(
   command: Command,

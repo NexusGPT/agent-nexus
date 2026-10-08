@@ -1,8 +1,9 @@
 import { Command } from "commander";
 
 import { createClient, timeoutSecondsToMs } from "../client";
-import { resolveBaseUrl, resolveDashboardUrl } from "../config";
+import { resolveBaseUrl } from "../config";
 import { bindCommand } from "../contract-binding";
+import { resolveDashboardHost } from "../dashboard-host";
 import { handleError, reportFailure } from "../errors";
 import { color, emitDocument, isJsonMode } from "../output";
 import { DOCS_SEARCH_CONTRACT } from "./docs.contract.generated";
@@ -169,7 +170,7 @@ Notes:
       // Default: show links. These are pages a human opens in a browser, so they
       // are on the dashboard host — a different host from the feeds above, and
       // the reason both resolvers are used in one command.
-      const docsUrl = `${resolveDashboardUrl(globals.dashboardUrl, globals.profile).replace(/\/+$/, "")}/docs`;
+      const docsUrl = `${resolveDashboardHost(globals)}/docs`;
       const feeds = feedUrls(resolveBaseUrl(globals.baseUrl, globals.profile));
 
       // ══════════════════════════════════════════════════════════════════════

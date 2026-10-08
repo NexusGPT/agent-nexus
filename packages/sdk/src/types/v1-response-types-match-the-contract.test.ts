@@ -700,6 +700,13 @@ export type V1ResponseAssertions = [
       MethodResult<NexusClient["conversations"]["getMetadata"]>
     >
   >,
+  // CallRecordingGet  GET /public/v1/calls/:callSid/recording  ->  client.conversations.getCallRecording()
+  Expect<
+    Equals<
+      ResponseOf<"CallRecordingGet">,
+      MethodResult<NexusClient["conversations"]["getCallRecording"]>
+    >
+  >,
   // ConversationAddComment  POST /public/v1/conversations/:conversationId/comments  ->  client.conversations.addComment()
   Expect<
     Equals<
@@ -1849,7 +1856,9 @@ export type V1ResponseAssertions = [
   // McpServerToolCall  POST /public/v1/mcp-servers/:serverId/tools/call  ->  client.mcpServers.callTool()
   Expect<
     Equals<ResponseOf<"McpServerToolCall">, MethodResult<NexusClient["mcpServers"]["callTool"]>>
-  >
+  >,
+  // McpServerSync  POST /public/v1/mcp-servers/:serverId/sync  ->  client.mcpServers.sync()
+  Expect<Equals<ResponseOf<"McpServerSync">, MethodResult<NexusClient["mcpServers"]["sync"]>>>
 ];
 
 /**
@@ -1979,6 +1988,7 @@ const GATED_ROUTES = [
   "ConversationSearch",
   "ConversationListComments",
   "ConversationGetMetadata",
+  "CallRecordingGet",
   "ConversationAddComment",
   "ConversationMarkAsRead",
   "ConversationClose",
@@ -2210,7 +2220,8 @@ const GATED_ROUTES = [
   // ── outbound MCP: this organization's OWN connected servers (NOT `McpRpc`) ──
   "McpServerList",
   "McpServerGet",
-  "McpServerToolCall"
+  "McpServerToolCall",
+  "McpServerSync"
 ] as const;
 
 /**
@@ -3286,7 +3297,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 345;
+const GATED_ROUTE_COUNT = 347;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

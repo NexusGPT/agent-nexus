@@ -15,6 +15,21 @@ const TUNING_IS_PROVIDER_SPECIFIC =
   "set it inside --body's modelConfig — the field only applies to one provider family, " +
   "so a flag would advertise it for every model";
 
+/**
+ * `reasoningLevel` needs its OWN reason, because the one above is false about it.
+ *
+ * It is not provider-specific — it is the single level field every provider reads.
+ * What stops it being a flag is the shape of its vocabulary: the six dialects'
+ * value sets are disjoint and not nested, so the enum is their sum and `--choices()`
+ * would offer all ten to every model while only a subset is valid for any one of
+ * them. A flag bounded per model is not expressible in a static descriptor.
+ *
+ * Read `supportedReasoningLevels` off `GET /models` for the set a model accepts.
+ */
+const LEVEL_VOCABULARY_IS_PER_MODEL =
+  "set it inside --body's modelConfig — valid values depend on the model's thinking " +
+  "dialect, so a flag's --choices() would offer every dialect's vocabulary for every model";
+
 // `--model-provider` writes BOTH contract paths, so the flat mirror needs no
 // flag of its own. The handler sends `modelConfig.modelProvider` when a name
 // and a provider are both given, and the flat `modelProvider` when only the
@@ -30,6 +45,7 @@ const FLAT_MIRROR_IS_THE_SAME_FLAG =
   "provider is given and modelConfig.modelProvider when the name is given too";
 
 export const MODEL_CONFIG_TUNING = {
+  "Body.modelConfig.reasoningLevel": LEVEL_VOCABULARY_IS_PER_MODEL,
   "Body.modelConfig.thinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
   "Body.modelConfig.thinkingDisplay": TUNING_IS_PROVIDER_SPECIFIC,
   "Body.modelConfig.reasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,

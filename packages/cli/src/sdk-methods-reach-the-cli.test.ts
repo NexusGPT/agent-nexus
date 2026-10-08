@@ -87,6 +87,10 @@ const SDK_METHODS_WITHOUT_A_CLI_COMMAND: Record<string, string> = {
   // key. On the day one exists, this row comes out and the command is four
   // lines.
   "chat.refresh": "the terminal re-mints with --chat-id; refresh is for a caller with no api key",
+  // A PENDING GAP, not a design. `conversation recording <callSid>` would be four
+  // lines, but no CLI command emits a call id, so the id-thread sweep could not
+  // reach it. It lands with a call-listing command that supplies the id.
+  "conversations.getCallRecording": "needs a call-id source command; tracked in a ticket",
   // A PENDING GAP, not a design. This is the only v1 door that MINTS a value
   // `chat send --knowledge-id` can spend: that flag takes a `Knowledge` id, and
   // `document upload` writes a `Document` row, which is a different model — so

@@ -8,7 +8,7 @@ import type { JsonShapeId } from "./json-shape-help";
  * derivation and what it refuses to answer; `json-shape-help.ts` holds the
  * sentence each shape renders into `--help`.
  *
- * 446 of 558 leaves are answered here. The
+ * 448 of 560 leaves are answered here. The
  * rest carry NO shape line, which is the honest output rather than a gap:
  *
  *      3  no-registration
@@ -50,6 +50,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "admin vibe-tenant-cluster disable": "record",
   "admin vibe-tenant-cluster force-converge": "record",
   "admin vibe-tenant-cluster provision": "record",
+  "admin vibe-tenant-cluster request-server-roll": "record",
   "agent create": "success",
   "agent duplicate": "success",
   "agent generate-profile-picture": "success",
@@ -242,6 +243,7 @@ export const JSON_SHAPES: Readonly<Record<string, JsonShapeId>> = {
   "mcp-server call": "envelope",
   "mcp-server get": "envelope",
   "mcp-server list": "envelope",
+  "mcp-server sync": "envelope",
   "model list": "list",
   "permissions access": "envelope",
   "permissions grant": "success",

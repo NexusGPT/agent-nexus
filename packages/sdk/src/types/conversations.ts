@@ -334,3 +334,14 @@ export interface GetConversationParams {
    */
   satisfaction?: SatisfactionMode;
 }
+
+/**
+ * `GET /calls/:callSid/recording` — a presigned download URL for a call's
+ * recording, and when it stops working. Fetch `url` directly, with no Nexus
+ * headers; ask again for a fresh one rather than storing it.
+ */
+export interface CallRecordingDownload {
+  url: string;
+  /** ISO 8601. */
+  expiresAt: string;
+}

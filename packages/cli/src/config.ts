@@ -676,26 +676,79 @@ export function resolveBaseUrl(override?: string, profile?: string): string {
  * one invocation.
  */
 export function resolveDashboardUrl(override?: string, profile?: string): string {
-  if (override) return override;
+  return resolveDashboardUrlWithSource(override, profile).url;
+}
+
+/** Which step of {@link resolveDashboardUrlWithSource} answered. */
+export type DashboardUrlSource =
+  | "override" // --dashboard-url flag
+  | "named-profile" // the --profile's stored dashboardUrl
+  | "env" // NEXUS_DASHBOARD_URL
+  | "active-profile" // the active profile's stored dashboardUrl
+  | "env-name"; // the NEXUS_ENV table — the one host nobody typed
+
+export interface ResolvedDashboardUrl {
+  url: string;
+  source: DashboardUrlSource;
+}
+
+/**
+ * {@link resolveDashboardUrl}, with the step that answered. Same chain, same
+ * order; the tag is for a caller that also knows where the REQUEST went and
+ * wants to say so when a guessed link contradicts it. `env-name` is the only
+ * source a human never typed — every other step is a value somebody set.
+ */
+export function resolveDashboardUrlWithSource(
+  override?: string,
+  profile?: string
+): ResolvedDashboardUrl {
+  if (override) return { url: override, source: "override" };
 
   if (profile) {
     try {
       const resolved = resolveProfile({ profile });
-      if (resolved.profile.dashboardUrl) return resolved.profile.dashboardUrl;
+      if (resolved.profile.dashboardUrl) {
+        return { url: resolved.profile.dashboardUrl, source: "named-profile" };
+      }
     } catch {
       // Named profile missing — fall through to env / defaults.
     }
   }
 
-  if (process.env.NEXUS_DASHBOARD_URL) return process.env.NEXUS_DASHBOARD_URL;
+  if (process.env.NEXUS_DASHBOARD_URL) {
+    return { url: process.env.NEXUS_DASHBOARD_URL, source: "env" };
+  }
 
   try {
     const resolved = resolveProfile();
-    if (resolved.profile.dashboardUrl) return resolved.profile.dashboardUrl;
+    if (resolved.profile.dashboardUrl) {
+      return { url: resolved.profile.dashboardUrl, source: "active-profile" };
+    }
   } catch {
     // No profile — fall through to defaults
   }
 
   const env = resolveEnvName(process.env.NEXUS_ENV);
-  return DASHBOARD_URL_MAP[env];
+  return { url: DASHBOARD_URL_MAP[env], source: "env-name" };
+}
+
+/**
+ * The dashboard that goes with `apiBaseUrl`, or `undefined` when that API host
+ * is not one of the three this CLI ships.
+ *
+ * Two tables, one shared key. `URL_MAP` maps an environment name to its API
+ * host; `DASHBOARD_URL_MAP` maps the same name to its dashboard host. So the
+ * walk is: API host → environment name (first table, read backwards) →
+ * dashboard host (second table, read forwards). Nothing here spells a host, so
+ * the pair cannot drift from what `auth login --env` writes.
+ */
+export function dashboardHostPairedWith(apiBaseUrl: string): string | undefined {
+  const apiHost = apiBaseUrl.replace(/\/+$/, "");
+
+  // URL_MAP, read backwards: which environment name has this API host?
+  const environmentName = NEXUS_ENV_NAMES.find((candidate) => URL_MAP[candidate] === apiHost);
+  if (environmentName === undefined) return undefined;
+
+  // DASHBOARD_URL_MAP, read forwards: that environment's dashboard host.
+  return DASHBOARD_URL_MAP[environmentName];
 }

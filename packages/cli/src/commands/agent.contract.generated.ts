@@ -51,6 +51,22 @@ export const AGENT_CREATE__BODY_MODEL_CONFIG_MODEL_PROVIDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const AGENT_CREATE__BODY_MODEL_CONFIG_REASONING_LEVEL = {
+  path: "AgentCreate.Body.modelConfig.reasoningLevel",
+  contractValues: [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "fast",
+    "detailed",
+    "extended",
+    "dynamic",
+    "minimal"
+  ]
+} as const satisfies ContractEnum;
+
 export const AGENT_CREATE__BODY_MODEL_CONFIG_THINKING_LEVEL = {
   path: "AgentCreate.Body.modelConfig.thinkingLevel",
   contractValues: [
@@ -156,6 +172,22 @@ export const AGENT_UPDATE__BODY_MODEL_CONFIG_MODEL_PROVIDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const AGENT_UPDATE__BODY_MODEL_CONFIG_REASONING_LEVEL = {
+  path: "AgentUpdate.Body.modelConfig.reasoningLevel",
+  contractValues: [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "fast",
+    "detailed",
+    "extended",
+    "dynamic",
+    "minimal"
+  ]
+} as const satisfies ContractEnum;
+
 export const AGENT_UPDATE__BODY_MODEL_CONFIG_THINKING_LEVEL = {
   path: "AgentUpdate.Body.modelConfig.thinkingLevel",
   contractValues: [
@@ -236,6 +268,7 @@ export const AGENT_CREATE_CONTRACT = {
     { path: "Body.modelConfig", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.modelConfig.modelName", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
+    { path: "Body.modelConfig.reasoningLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "minimal"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
     { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },
@@ -279,6 +312,7 @@ export const AGENT_UPDATE_CONTRACT = {
     { path: "Body.modelConfig", slot: "Body", type: "object", required: false, depth: 0 },
     { path: "Body.modelConfig.modelName", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.modelConfig.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
+    { path: "Body.modelConfig.reasoningLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "minimal"] },
     { path: "Body.modelConfig.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelConfig.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
     { path: "Body.modelConfig.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },

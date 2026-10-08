@@ -35,6 +35,15 @@ export const MCP_SERVER_LIST_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const MCP_SERVER_SYNC_CONTRACT = {
+  name: "McpServerSync",
+  method: "POST",
+  route: "/public/v1/mcp-servers/:serverId/sync",
+  fields: [
+    { path: "PathVars.serverId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const MCP_SERVER_TOOL_CALL_CONTRACT = {
   name: "McpServerToolCall",
   method: "POST",

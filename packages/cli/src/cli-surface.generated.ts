@@ -12,14 +12,14 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 653 command nodes; 558 invocable leaves.
+ * 655 command nodes; 560 invocable leaves.
  * 54 top-level commands — 54 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         491 STABLE, 67 UNSTABLE
- *   disposition  27 never-execute, 466 registration-only, 60 safe, 5 safe-with-fixture
+ *   tier         492 STABLE, 68 UNSTABLE
+ *   disposition  27 never-execute, 467 registration-only, 61 safe, 5 safe-with-fixture
  *   --yes        46 destructive — 46 confirmable
- *   --json       446 answered, 112 abstain
+ *   --json       448 answered, 112 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -92,6 +92,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "admin vibe-tenant-cluster disable", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "bfa787b98a85" },
   { path: "admin vibe-tenant-cluster force-converge", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--reason <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "cc41f495c1fa" },
   { path: "admin vibe-tenant-cluster provision", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--region <region>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "c3c1782649e6" },
+  { path: "admin vibe-tenant-cluster request-server-roll", tier: "UNSTABLE", module: "admin.ts", disposition: "registration-only", args: ["<organizationId>"], flags: ["!--reason <text>"], aliases: [], hidden: false, confirm: null, json: "record", shape: "2ba3ac9e7444" },
   { path: "agent create", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: [], flags: ["--first-name <name>", "--last-name <name>", "--role <role>", "--bio <text>", "--short-bio <text>", "--model <model> {DEFAULT|GPT_4_TURBO|GPT_4|GPT_4_5|GPT_4_1|GPT_4_1_MINI|GPT_4_1_NANO|GPT_3_5_TURBO|GPT_3_5_TURBO_16K|MISTRAL_LARGE|OPENAI_O1|OPENAI_O1_MINI|OPENAI_O3_MINI|OPENAI_O3|OPENAI_O3_PRO|OPENAI_O4_MINI}", "--model-name <name>", "--model-provider <provider> {OPEN_AI|ANTHROPIC|GOOGLE_AI|KIMI|JEV}", "--custom-model-id <id>", "--prompt <file-or-->", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "66a39a7faad6" },
   { path: "agent delete", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes", "--dry-run"], aliases: [], hidden: false, confirm: "confirmable", json: "(abstains)", shape: "1d1b32b62f25" },
   { path: "agent duplicate", tier: "STABLE", module: "agent.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "success", shape: "a895387dc781" },
@@ -364,6 +365,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "mcp-server call", tier: "STABLE", module: "mcp-server.ts", disposition: "never-execute", args: ["<serverId>", "<toolName>"], flags: ["--arguments <json>", "--credential-id <uuid>", "--access-card-id <uuid>", "--card-variables <json>", "--expected-schema-hash <hash>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "e2b57205373f" },
   { path: "mcp-server get", tier: "STABLE", module: "mcp-server.ts", disposition: "registration-only", args: ["<serverId>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "c57ff19fc64b" },
   { path: "mcp-server list", tier: "STABLE", module: "mcp-server.ts", disposition: "safe", args: [], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "ec3f2cb478b9" },
+  { path: "mcp-server sync", tier: "STABLE", module: "mcp-server.ts", disposition: "registration-only", args: ["<serverId>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "481778aa4d5e" },
   { path: "model list", tier: "STABLE", module: "model.ts", disposition: "safe", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "list", shape: "37bb0947614a" },
   { path: "permissions access", tier: "STABLE", module: "permissions.ts", disposition: "registration-only", args: ["<resource-type> {agent|workflow|credential|access_card|template|document|deployment|feature|vibe_app|track}", "<resource-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "1cc529b64a0d" },
   { path: "permissions grant", tier: "STABLE", module: "permissions.ts", disposition: "registration-only", args: [], flags: ["--resource-type <type> {agent|workflow|credential|access_card|template|document|deployment|feature|vibe_app|track}", "--resource-id <id>", "--subject-type <type> {user|group|organization|api_key|role}", "--subject-id <id>", "--relation <relation> {owner|editor|viewer}", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "a72393e94477" },
@@ -538,7 +540,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "tracks event feed", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: [], flags: ["--limit <n>", "--cursor <cursor>", "--since <iso>", "--type <type>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "cc69de5e71ac" },
   { path: "tracks event list", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: ["<trackId>"], flags: ["--limit <n>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "a6bbe2c3341f" },
   { path: "tracks get", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: ["<trackId>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "50f34a0b3aa0" },
-  { path: "tracks list", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: [], flags: ["--limit <n>", "--cursor <cursor>", "--status <status> {PLANNED|IN_PROGRESS|BLOCKED|IN_REVIEW|DONE}", "--archived <mode> {exclude|only|include}", "--next-owner <owner> {CUE|USER|EVENT}", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "d3567f9e9914" },
+  { path: "tracks list", tier: "STABLE", module: "tracks.ts", disposition: "safe", args: [], flags: ["--limit <n>", "--cursor <cursor>", "--status <status> {PLANNED|IN_PROGRESS|BLOCKED|IN_REVIEW|DONE}", "--archived <mode> {exclude|only|include}", "--next-owner <owner> {CUE|USER|EVENT}", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "d3567f9e9914" },
   { path: "tracks memory delete", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: ["<trackId>", "<key>"], flags: ["--yes", "--print-contract"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "47d63a7d21f5" },
   { path: "tracks memory list", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: ["<trackId>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "envelope", shape: "18dbb20cef5c" },
   { path: "tracks memory put", tier: "STABLE", module: "tracks.ts", disposition: "registration-only", args: ["<trackId>"], flags: ["!--key <key>", "!--value <text>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "78d29e0459ff" },

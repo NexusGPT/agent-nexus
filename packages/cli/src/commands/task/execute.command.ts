@@ -15,6 +15,59 @@ import { buildModelOverrideFlags } from "./_shared/build-model-override-flags";
 import { EXECUTE_DEFAULT_TIMEOUT_SECONDS } from "./_shared/execute-default-timeout";
 import { TASK_EXECUTE_HELP } from "./copy/execute-help";
 
+/**
+ * Why the tuning knobs are body-only on this command, and why the reason is NOT
+ * the one this file used to give.
+ *
+ * 🔴 **IT SAID "inherited from the task unless the override changes provider", AND
+ * `AiTaskModelOverrideSchema` SAYS THE OPPOSITE IN ITS OWN WORDS**, in its own header in
+ * `packages/types/src/schemas/ModelConfig/model-override.schema.ts`: "The
+ * provider-specific knobs below are NOT inherited — not even when the override
+ * keeps the same provider. An override that names none runs with none, so name the
+ * one you want here." That is `mergeModelConfig`'s rule, shared with
+ * `PATCH /skills/tasks/:id` and the duplicate route. The old reason told an
+ * operator a level would carry over when it is cleared — a wrong fact reaching
+ * someone through published help, which nothing validates against the schema.
+ *
+ * WHY NOT A FLAG, which is the gate's other accepted answer. The valid values
+ * depend on the MODEL, and a flag's `--choices()` is a static list: it would offer
+ * every dialect's vocabulary for every model — `fast` on an OpenAI model — while
+ * `AiTaskModelOverrideSchema`'s own `.superRefine(applyReasoningLevelRefine)`
+ * rejects a level outside the named model's `supportedReasoningLevels`. The flag
+ * would advertise as valid what this very surface refuses.
+ *
+ * It is sharper here than on the agent surface. `buildModelOverrideFlags` refuses
+ * HALF of `--model-name`/`--model-provider` rather than completing the pair,
+ * because a mismatched pair addresses one vendor with another's model id. A level
+ * flag would be a fourth flag whose validity depends on one of those two — the
+ * shape that refusal exists to prevent.
+ */
+const TUNING_IS_BODY_ONLY =
+  "--body only under modelOverride; NOT inherited from the task, so name the one you want. " +
+  "Valid values depend on the model's thinking dialect, which a flag's --choices() cannot bound";
+
+/**
+ * Bind the contract and declare every tuning knob body-only.
+ *
+ * At module scope rather than inline because `max-lines-per-function` refused the
+ * registration at 93 lines, and the cap was right: the reason strings and the
+ * contract binding are one cohesive unit, and the registration is about the
+ * command's options. Extracted rather than exempted — that cap bounds a
+ * VIOLATION, not a size budget, so raising it would legalise what it refuses.
+ */
+function bindTaskExecuteContract(execute: Command): void {
+  bindCommand(execute, SKILLS_EXECUTE_TASK_CONTRACT, {
+    // The routing pair has flags; the provider TUNING does not, and the note at
+    // the command spells out how to send it.
+    "Body.modelOverride.reasoningLevel": TUNING_IS_BODY_ONLY,
+    "Body.modelOverride.thinkingLevel": TUNING_IS_BODY_ONLY,
+    "Body.modelOverride.thinkingDisplay": TUNING_IS_BODY_ONLY,
+    "Body.modelOverride.reasoningEffort": TUNING_IS_BODY_ONLY,
+    "Body.modelOverride.geminiThinkingLevel": TUNING_IS_BODY_ONLY,
+    "Body.modelOverride.kimiReasoningEffort": TUNING_IS_BODY_ONLY
+  });
+}
+
 /** `nexus task execute` — run the task, optionally on another model for this call. */
 export function registerTaskExecuteCommand(task: Command, program: Command): void {
   const execute = task
@@ -66,21 +119,6 @@ export function registerTaskExecuteCommand(task: Command, program: Command): voi
       }
     });
 
-  // Bound LAST, after every option and after the hand-written prose.
-  bindCommand(execute, SKILLS_EXECUTE_TASK_CONTRACT, {
-    // The routing pair has flags; the provider TUNING does not, and the note at
-    // the command spells out how to send it. Five flags for knobs that are
-    // inherited from the task in the common case would bury the two that this
-    // command exists to offer.
-    "Body.modelOverride.thinkingLevel":
-      "--body only under modelOverride; inherited from the task unless the override changes provider",
-    "Body.modelOverride.thinkingDisplay":
-      "--body only under modelOverride; inherited from the task unless the override changes provider",
-    "Body.modelOverride.reasoningEffort":
-      "--body only under modelOverride; inherited from the task unless the override changes provider",
-    "Body.modelOverride.geminiThinkingLevel":
-      "--body only under modelOverride; inherited from the task unless the override changes provider",
-    "Body.modelOverride.kimiReasoningEffort":
-      "--body only under modelOverride; inherited from the task unless the override changes provider"
-  });
+  // Renders from the options registered so far, and prints after TASK_EXECUTE_HELP, so it is last.
+  bindTaskExecuteContract(execute);
 }

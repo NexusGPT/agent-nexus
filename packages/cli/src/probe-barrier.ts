@@ -494,8 +494,8 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
   },
 
   // ── mcp-server ────────────────────────────────────────────────────────────
-  // Only the CALL carries a barrier. `list` and `get` are org-scoped reads of this
-  // organisation's own rows and cost nothing, which is why they are not here — and
+  // The CALL and the SYNC carry a barrier. `list` and `get` are org-scoped reads of
+  // this organisation's own rows and cost nothing, which is why they are not here — and
   // `probe-barrier.test.ts` refuses a barrier on any leaf the sweep runs as `safe`,
   // so `mcp-server list` could not carry one anyway.
   "mcp-server call": {
@@ -503,6 +503,19 @@ export const PROBE_BARRIER: Readonly<Record<string, ProbeBarrierEntry>> = {
     why: "dials a THIRD-PARTY MCP server with a credential this organisation stored, and runs whatever that remote tool does",
     safeCheck:
       "`mcp-server get <serverId>` is the free probe: it proves the server, the tool and its APPROVED status without dialling the remote"
+  },
+  // 🔴 THE DIAL IS NOT IN THE REQUEST, AND THE BARRIER IS STILL RIGHT. This verb
+  // enqueues; a processor does the dialling seconds later. What an operator is deciding
+  // is unchanged by which process performs it — their credential goes to a server they
+  // do not run, and the answer REPLACES the tool list, which can withdraw a tool an
+  // agent is pinned to and can make new ones callable under the auto-approval policy.
+  // A barrier keyed on "does this command itself open the socket" would miss every
+  // queued act in the product.
+  "mcp-server sync": {
+    barrier: "third-party",
+    why: "asks Nexus to re-dial a THIRD-PARTY MCP server with a credential this organisation stored, then REPLACES that server's tool list with whatever it advertises",
+    safeCheck:
+      "`mcp-server get <serverId>` is the free probe: it shows the tool list and the drift report as they stand, so you can read what a discovery would be reconciling against"
   },
 
   // ── phone-number ──────────────────────────────────────────────────────────

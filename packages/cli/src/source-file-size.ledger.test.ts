@@ -143,7 +143,7 @@ const CEILING_LINES = 150;
  */
 const LEDGER: Readonly<Record<string, number>> = {
   "auth-probe.ts": 318,
-  "cli-surface.generated.ts": 637,
+  "cli-surface.generated.ts": 639,
   "cli-surface.model.ts": 159,
   "cli-surface.project.ts": 404,
   "client.ts": 240,
@@ -168,7 +168,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   // ⚠️ That import cost was 8 of that file's 312 CI seconds. The cure for the
   // duration was bounding eleven concurrent real sweeps in one `vitest run`, not
   // this split — recorded here so nobody reads a shrinking row as the fix.
-  "command-universe.ts": 1705,
+  "command-universe.ts": 1723,
   "commands/access-card.ts": 355,
   "commands/admin-vibe-build-job.ts": 239,
   "commands/admin-vibe-consumption-cap.ts": 211,
@@ -178,7 +178,10 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/admin-vibe-tenant-cluster.ts": 275,
   "commands/agent-collection.ts": 179,
   "commands/agent-tool.ts": 406,
-  "commands/agent.contract.generated.ts": 295,
+  // GENERATED from the v1 contract, which gained `reasoningLevel`. Splitting is
+  // not available: the size is a function of the contract it mirrors, and the
+  // next generation would undo the split. A SIZE BUDGET, not a violation count.
+  "commands/agent.contract.generated.ts": 329,
   "commands/analytics.contract.generated.ts": 169,
   "commands/analytics.ts": 520,
   "commands/api.ts": 269,
@@ -186,7 +189,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/channel.contract.generated.ts": 167,
   "commands/claude-code.ts": 586,
   "commands/collection.contract.generated.ts": 155,
-  "commands/contract-help.ledger.ts": 579,
+  "commands/contract-help.ledger.ts": 583,
   "commands/contract-help.namespaces.ts": 524,
   "commands/conversation.contract.generated.ts": 168,
   "commands/credential.ts": 500,
@@ -195,7 +198,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/customer.contract.generated.ts": 151,
   "commands/customer.ts": 393,
   "commands/deployment.contract.generated.ts": 304,
-  "commands/docs.ts": 297,
+  "commands/docs.ts": 298,
   "commands/envelope-narrowing.scan.ts": 434,
   "commands/eval-run-render.ts": 283,
   "commands/eval-run.ts": 435,
@@ -215,7 +218,8 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/score.ts": 209,
   "commands/skill-folder.ts": 268,
   "commands/skills.ts": 452,
-  "commands/task.contract.generated.ts": 274,
+  // GENERATED, same reason as the agent contract above.
+  "commands/task.contract.generated.ts": 296,
   "commands/template.ts": 603,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,
@@ -231,15 +235,26 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/workspace-status.ts": 404,
   "commands/workspace-unmount.ts": 185,
   "commands/workspace.ts": 574,
-  "config.ts": 701,
-  "contract-binding.ts": 430,
+  "config.ts": 754,
+  // UP from 430, and the +13 is entirely docblock prose inside `/** */` — not one
+  // code line moved. It replaces a claim that had gone FALSE: the block said getting
+  // the `bindCommand` call order wrong was "a red build", and nothing enforced that
+  // until `contract-binding.help-order.test.ts` landed. The new text names the arm
+  // that now does, and names the two gates that CANNOT see the order — so the next
+  // reader does not reach for one of them and conclude it is covered.
+  //
+  // Splitting is the wrong cure for a comment. The prose documents `bindCommand`'s
+  // call-order contract and belongs on `bindCommand`; moving code into its own file
+  // to make room for it would cost exactly the adjacency that makes it work, which
+  // is moving code for the wrong reason. A SIZE BUDGET, not a violation count.
+  "contract-binding.ts": 443,
   "contract-help.codegen.ts": 237,
   "contract-help.render.ts": 183,
   "deprecation-cycle.ts": 660,
   "docs-page.frontmatter.ts": 381,
   "docs-page.model.ts": 185,
   "docs-page.render.ts": 198,
-  "errors.ts": 789,
+  "errors.ts": 826,
   "exit-codes.ts": 304,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.race.ts": 161,
@@ -254,14 +269,14 @@ const LEDGER: Readonly<Record<string, number>> = {
   // number.
   "id-graph.thread.ts": 160,
   "id-graph.ts": 252,
-  "id-graph.uncovered.generated.ts": 355,
+  "id-graph.uncovered.generated.ts": 357,
   "index.ts": 686,
-  "json-shape.generated.ts": 471,
+  "json-shape.generated.ts": 473,
   "json-terminal-contract.ts": 369,
   "mount-registry.ts": 718,
   "node-test-verdict.ts": 179,
   "output.ts": 751,
-  "probe-barrier.ts": 629,
+  "probe-barrier.ts": 642,
   "skills-corpus/platform.ts": 163,
   "skills-corpus/select-skill-dirs.ts": 242,
   "util/admin-errors.ts": 164,

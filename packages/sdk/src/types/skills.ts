@@ -119,6 +119,30 @@ export interface TaskModelTuning {
   /** Sampling temperature, 0–1. Defaults to 0.7 at create time. */
   temperature?: number;
   /**
+   * How hard the model thinks — ONE field for every provider.
+   *
+   * Typed as the exact union the contract publishes rather than as `string`,
+   * unlike the four provider-prefixed fields below. Those are exempted from
+   * `v1-response-types-match-the-contract.test.ts` by `SKILL_TUNING_PATHS`
+   * because they are `string` here against literal unions there; a new field
+   * does not need to inherit that, and typing it exactly keeps it out of that
+   * list.
+   *
+   * Which values a given model accepts depends on its thinking dialect — read
+   * `supportedReasoningLevels` off `GET /models`.
+   */
+  reasoningLevel?:
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "fast"
+    | "detailed"
+    | "extended"
+    | "dynamic"
+    | "minimal";
+  /**
    * Anthropic thinking level. `"fast" | "detailed" | "extended"` on legacy
    * models; `"low" | "medium" | "high" | "xhigh" | "max"` on adaptive ones.
    */
@@ -455,6 +479,30 @@ export interface AiTaskModelOverride {
   modelProvider: ModelProvider;
   /** Run this call on a custom (BYOM) endpoint instead of the platform one. */
   customModelId?: string;
+  /**
+   * How hard the model thinks — ONE field for every provider.
+   *
+   * Typed as the exact union the contract publishes rather than as `string`,
+   * unlike the four provider-prefixed fields below. Those are exempted from
+   * `v1-response-types-match-the-contract.test.ts` by `SKILL_TUNING_PATHS`
+   * because they are `string` here against literal unions there; a new field
+   * does not need to inherit that, and typing it exactly keeps it out of that
+   * list.
+   *
+   * Which values a given model accepts depends on its thinking dialect — read
+   * `supportedReasoningLevels` off `GET /models`.
+   */
+  reasoningLevel?:
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "fast"
+    | "detailed"
+    | "extended"
+    | "dynamic"
+    | "minimal";
   /** Anthropic thinking level. */
   thinkingLevel?: string;
   /** Anthropic adaptive thinking display mode. */

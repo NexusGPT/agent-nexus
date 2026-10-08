@@ -248,6 +248,7 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "admin vibe-tenant-cluster disable": "registration-only",
   "admin vibe-tenant-cluster force-converge": "registration-only",
   "admin vibe-tenant-cluster provision": "registration-only",
+  "admin vibe-tenant-cluster request-server-roll": "registration-only",
 
   // ── agent ──────────────────────────────────────────────────────────────────
   "agent create": "registration-only",
@@ -600,9 +601,28 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // stored credential and runs whatever that remote does, so it is `mcp call`'s
   // class and not a typed write's: a sweep must never fire one, at any blast
   // radius, and `probe-barrier.ts` carries the same fact on its own axis.
+  //
+  // 🔴 `sync` IS `registration-only` ON ITS OWN SHAPE, AND IT IS NOT PARKED. The two
+  // are easy to run together and they want opposite follow-ups. A PARKED leaf is one
+  // whose shape fits `safe` and whose ROUTE is not deployed yet — it carries a
+  // promotion condition somebody later discharges, which is what
+  // `SWEEP_ROUTES_PENDING_DEPLOY` exists to hold with an arm instead of a comment. This
+  // leaf fails `safe` on two counts that no deploy can change: it is a MUTATION, and it
+  // needs a required `<serverId>` the sweep has no value for. So there is NO promotion
+  // condition and nothing to discharge — `mcp-server get` sits beside it at the same
+  // disposition for the second of those reasons alone, and carries no such comment
+  // either. A reader who "promotes" this when the route goes live would have the sweep
+  // POST a discovery request at a third-party server on every CLI pull request.
+  //
+  // It is not `never-execute`: that is for a self-modifying, interactive,
+  // credential-destroying or unbounded-arbitrary surface, and `mcp-server call` is here
+  // because the remote runs whatever it likes. A discovery asks `tools/list` and nothing
+  // else, so a human may legitimately run this by hand — which is the whole point of the
+  // verb.
   "mcp-server call": "never-execute",
   "mcp-server get": "registration-only",
   "mcp-server list": "safe",
+  "mcp-server sync": "registration-only",
 
   // ── model ──────────────────────────────────────────────────────────────────
   "model list": "safe",
@@ -838,10 +858,10 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracing trace": "registration-only",
   "tracing traces": "safe",
   // ── tracks ─────────────────────────────────────────────────────────────────
-  // ONE LEAF HERE IS `safe`, AND THE RATIO IS THE DOMAIN RATHER THAN CAUTION.
-  // `tracks ready` is the only verb here that needs no argument: every other
-  // read is scoped to a track or a task the sweep has no id for, and every write
-  // changes a plan. A sweep that ran them would be authoring work items.
+  // TWO LEAVES HERE ARE `safe`, AND THE RATIO IS THE DOMAIN RATHER THAN CAUTION.
+  // `tracks ready` and `tracks list` are the swept ones: almost every other read
+  // is scoped to a track or a task the sweep has no id for, and every write
+  // changes a plan. A sweep that ran those would be authoring work items.
   //
   // `GET /public/v1/tracks/ready` answers 200 on staging, so `tracks ready` is
   // `safe` and the sweep watches it. It is `safe` rather than
@@ -867,7 +887,19 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // is why the sweep workflow sets `NEXUS_BASE_URL` explicitly:
   //
   //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
-  //     pnpm exec tsx src/index.ts api GET <route>
+  //     pnpm exec tsx src/index.ts api GET <path AFTER /api/public/v1>
+  //
+  // 🚨 THE PATH IS THE SUFFIX, AND THE TWO FULLER SPELLINGS ARE REFUSED BEFORE
+  // ANY REQUEST LEAVES THE MACHINE. `api` prepends `/api/public/v1` and rejects
+  // an argument that repeats it: both the spelling this module stores in
+  // {@link SweepPendingDeployRoute.route} (`/api/public/v1/<noun>`) and the one
+  // the v1 contract uses (`/public/v1/<noun>`) exit 5 with
+  // `CLI_INVALID_ARGUMENTS`. So a probe written with either — which is what
+  // substituting a route from this file produces — reports a non-200 having
+  // never reached staging, and that is INDISTINGUISHABLE from the route still
+  // being absent. It parks the leaf for ever, and the control below cannot
+  // catch it, because the control is refused in exactly the same way. Pass
+  // `/<noun>`.
   //
   // Read the STATUS, and carry a control — a neighbouring path that must answer
   // 404, so a probe that would report 200 for anything is caught before it
@@ -887,28 +919,12 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // has stopped watching, which is the silent half of this disposition rather
   // than a tidy backlog item.
   "tracks ready": "safe",
-  // 🔴 PARKED, AND `safe` IS THE WRONG ANSWER TODAY EVEN THOUGH THE SHAPE FITS.
-  // It is read-only, takes no required argument and emits `--json` — every
-  // property `safe` asks for. What `safe` actually claims is that the sweep can
-  // RUN it against staging, and `GET /public/v1/tracks` does not exist there
-  // until this branch deploys. Measured: `CLI: Sweep` on #4146 reported
-  // `FAIL tracks list exit=4: Not found: Cannot GET /api/public/v1/tracks`.
-  //
-  // A disposition is a claim about a LIVE ROUTE, never about the command's
-  // shape. Promote it when the route answers, with the probe this block's
-  // header specifies and a control beside it:
-  //
-  //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
-  //     pnpm exec tsx src/index.ts api GET /public/v1/tracks
-  //   # control — must be 404, or the probe would report 200 for anything
-  //   … api GET /public/v1/tracks-not-a-real-route
-  //
-  // On 200: flip to `safe`, re-run `gen:cli-surface`, and raise
-  // `COMPATIBILITY.md`'s `classified safe` count, which a test derives.
-  //
-  // Until then the sweep watches `tracks ready` and not this one — the silent
-  // half of the disposition, recorded here rather than left to be noticed.
-  "tracks list": "registration-only",
+  // A read that needs no argument and whose route answers 200 on staging, so the
+  // sweep runs it. `safe` rather than `safe-with-fixture`: nothing seeds tracks,
+  // so an organisation holding none answers `{"tracks":[]}`, and that is a
+  // correct answer — this leaf proves the route is alive and shaped like JSON,
+  // never that any track exists.
+  "tracks list": "safe",
   // A mutation. Every one of the three creates or rewrites a row, so the sweep
   // proves they are REGISTERED and never runs them — `tracks rollup` is the one
   // read among them and it still needs a track id, which the sweep has none of.
@@ -919,18 +935,9 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // should perform against a live organization.
   "tracks set-status": "registration-only",
   // A MUTATION, and the one that takes a track OUT of the ready set entirely.
-  // It is also parked for the reason `tracks list` is: `POST
-  // /public/v1/tracks/:trackId/archive` does not exist on staging until this
-  // branch deploys, and a disposition is a claim about a LIVE route rather than
-  // about a command's shape. Both facts point the same way here, so this stays
-  // `registration-only` permanently — the sweep must never archive a real track.
-  //
-  //   NEXUS_API_KEY=<a staging key> NEXUS_BASE_URL=https://api-staging.gpt.nexus \
-  //     pnpm exec tsx src/index.ts api GET /public/v1/tracks
-  //   # control — must be 404, or the probe would report 200 for anything
-  //   … api GET /public/v1/tracks-not-a-real-route
-  //
-  // On 200, promote `tracks list` (see its entry above). This one does not move.
+  // `registration-only` permanently, and for a reason no route status can lift:
+  // the sweep must never archive a real track. There is no probe that promotes
+  // this leaf.
   "tracks archive": "registration-only",
   "tracks set-next-owner": "registration-only",
   // A read, and still existence-only: it takes a track id and the sweep has
@@ -966,11 +973,22 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   "tracks memory put": "registration-only",
   "tracks memory delete": "registration-only",
   "tracks event list": "registration-only",
-  // Takes no argument and emits `--json`, which is the shape of a "safe" leaf —
-  // but the sweep RUNS a safe one, and this reads a live organisation's event
-  // stream over an authenticated API. `tracks list` is the same shape and is
-  // classified the same way for the same reason: the absence of a required
-  // positional is not the absence of a precondition.
+  // Takes no argument, emits `--json`, and answers 200 — the shape of a `safe`
+  // leaf, and it is held back by a SCOPE rather than by its shape. It needs
+  // `track_events:read`, which no swept leaf requires: `tracks ready` and
+  // `tracks list` both need `tracks:read` and nothing more, so the sweep has
+  // never established that its key carries the event scope at all. Promoting
+  // this leaf on the shape alone bets the gate on that, and a key without it
+  // answers 403 — which the skip grep does not match, so `CLI: Sweep` goes red
+  // for a credential reason that looks like a CLI regression.
+  //
+  // So the promotion test here is not a route probe. It is a scope probe, and
+  // the control is the key the sweep itself uses rather than a human's:
+  //
+  //   nexus tracks event feed --limit 1 --json       # 200 under the CI key
+  //   nexus tracks ready --json                      # control — already swept
+  //
+  // Both 200 under the SAME credential and this becomes `safe`.
   "tracks event feed": "registration-only",
   "tracks event append": "registration-only",
 

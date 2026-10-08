@@ -159,6 +159,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "ConversationGet",
   "ConversationGetAssignedUsers",
   "ConversationGetMetadata",
+  "CallRecordingGet",
   "ConversationList",
   "ConversationListComments",
   "ConversationListMessages",
@@ -240,6 +241,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   // alone cannot, because both are 200.
   "McpServerGet",
   "McpServerList",
+  "McpServerSync",
   "McpServerToolCall",
   "MeListOrganizations",
   "ModelList",

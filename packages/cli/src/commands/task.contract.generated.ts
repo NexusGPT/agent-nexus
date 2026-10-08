@@ -76,6 +76,22 @@ export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_MODEL_PROVIDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_REASONING_LEVEL = {
+  path: "SkillsExecuteTask.Body.modelOverride.reasoningLevel",
+  contractValues: [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "fast",
+    "detailed",
+    "extended",
+    "dynamic",
+    "minimal"
+  ]
+} as const satisfies ContractEnum;
+
 export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_THINKING_LEVEL = {
   path: "SkillsExecuteTask.Body.modelOverride.thinkingLevel",
   contractValues: [
@@ -185,14 +201,19 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
     { path: "Body.generation.expectedOutput", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.generation.jsonOutputSchema", slot: "Body", type: "object", required: false, depth: 1, opaque: true },
     { path: "Body.generation.documentTemplateId", slot: "Body", type: "string", required: false, depth: 1 },
-    { path: "Body.promptText", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.systemPrompt", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.instructions", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.promptText", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.systemPrompt", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.instructions", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.text", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.examples", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.fewShotExamples", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.samples", slot: "Body", type: "unknown", required: false, depth: 0 },
-    { path: "Body.demonstrations", slot: "Body", type: "unknown", required: false, depth: 0 }
+    { path: "Body.demonstrations", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.category", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.classification", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.extraction", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.translation", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.summarisation", slot: "Body", type: "unknown", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;
 
@@ -221,6 +242,7 @@ export const SKILLS_EXECUTE_TASK_CONTRACT = {
     { path: "Body.modelOverride.modelName", slot: "Body", type: "string", required: true, depth: 1 },
     { path: "Body.modelOverride.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelOverride.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.modelOverride.reasoningLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "minimal"] },
     { path: "Body.modelOverride.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max"] },
     { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
     { path: "Body.modelOverride.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "medium", "high", "xhigh", "max"] },
@@ -262,10 +284,10 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.generation.jsonOutputSchema", slot: "Body", type: "object", required: false, depth: 1, opaque: true },
     { path: "Body.generation.documentTemplateId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.kind", slot: "Body", type: "unknown", required: false, depth: 0 },
-    { path: "Body.promptText", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.systemPrompt", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.instructions", slot: "Body", type: "string", required: false, depth: 0 },
-    { path: "Body.text", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.promptText", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.systemPrompt", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.instructions", slot: "Body", type: "unknown", required: false, depth: 0 },
+    { path: "Body.text", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.examples", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.fewShotExamples", slot: "Body", type: "unknown", required: false, depth: 0 },
     { path: "Body.samples", slot: "Body", type: "unknown", required: false, depth: 0 },

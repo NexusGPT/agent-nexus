@@ -192,7 +192,7 @@ beforeAll(async () => {
   //
   // The ceiling stays finite on purpose, for the reason the config states: a sweep
   // that stops terminating must still fail rather than hang a CI job for ever.
-  // 600_000 matches the sibling's, so the two files cannot starve each other at
+  // 900_000 matches the sibling's, so the two files cannot starve each other at
   // different thresholds and report different causes for one contention.
   //
   // debt: this SIZES a bound, it does not cap concurrency. The ceiling is eleven

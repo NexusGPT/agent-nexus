@@ -28,9 +28,25 @@ const UNLISTED_TICK = { kind: "dispatched_race_lost_UNLISTED", buildJobId: "job-
 const LISTED_TICK = { kind: "dispatched", buildJobId: "job-0f0f" };
 const UNLISTED_CONVERGE = { kind: "forced_not_converging_UNLISTED", reason: "drift" };
 const LISTED_CONVERGE = { kind: "forced", reason: "drift" };
+const UNLISTED_SERVER_ROLL = {
+  kind: "requested_UNLISTED",
+  requestedAt: "2026-10-08T09:30:00.000Z"
+};
+const LISTED_SERVER_ROLL = {
+  kind: "requested",
+  requestedAt: "2026-10-08T09:30:00.000Z",
+  reason: "verify"
+};
 
 const TICK_ARGV = ["vibe-build-runner", "tick"];
 const CONVERGE_ARGV = ["vibe-tenant-cluster", "force-converge", "org_abc", "--reason", "drift"];
+const SERVER_ROLL_ARGV = [
+  "vibe-tenant-cluster",
+  "request-server-roll",
+  "org_abc",
+  "--reason",
+  "verify"
+];
 
 function stubFetch(data: unknown): void {
   vi.stubGlobal(
@@ -104,6 +120,12 @@ describe.each([
     argv: CONVERGE_ARGV,
     listed: LISTED_CONVERGE,
     unlisted: UNLISTED_CONVERGE
+  },
+  {
+    verb: "vibe-tenant-cluster request-server-roll",
+    argv: SERVER_ROLL_ARGV,
+    listed: LISTED_SERVER_ROLL,
+    unlisted: UNLISTED_SERVER_ROLL
   }
 ])(
   "nexus admin $verb — an outcome kind this binary does not list",

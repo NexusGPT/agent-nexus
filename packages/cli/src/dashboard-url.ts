@@ -1,4 +1,4 @@
-import { resolveDashboardUrl } from "./config";
+import { type DashboardUrlContext, resolveDashboardHost } from "./dashboard-host";
 
 /**
  * THE DASHBOARD LINK FOR A RESOURCE THIS CLI JUST TOUCHED.
@@ -34,7 +34,7 @@ import { resolveDashboardUrl } from "./config";
  * this is a CI gate and not a runtime one. Both limits are the reason the
  * patterns are few and boring.
  *
- * ⚠️ THE HOST IS RESOLVED PER CALL, NOT CACHED. `resolveDashboardUrl` reads the
+ * ⚠️ THE HOST IS RESOLVED PER CALL, NOT CACHED. `resolveDashboardHost` reads the
  * active profile, and `--dashboard-url` overrides it for one invocation. A
  * module-level constant would bake whichever profile happened to be active when
  * the process started, which is right until a command switches profiles.
@@ -88,27 +88,6 @@ const PATHS: Readonly<Record<DashboardResource, string>> = {
 export const DASHBOARD_PATHS = PATHS;
 
 /**
- * The globals that decide WHICH dashboard a link points at.
- *
- * 🚨 IT TAKES THE OBJECT, NOT ONE FIELD, AND THAT SHAPE IS THE FIX. The first
- * version of this took a bare `override?: string`, so every call site passed
- * `globals.dashboardUrl` and silently dropped `globals.profile` — while the
- * request itself went through `resolveBaseUrl(globals.baseUrl, globals.profile)`
- * and honoured it. `--profile staging` therefore created a resource on staging
- * and returned a link to production, where the link opens, the dashboard is the
- * wrong org's, and the resource is not there. It reads as a failed write.
- *
- * A call site that is handed `optsWithGlobals()` whole cannot forget half of it,
- * which is why the signature is this and not two optional strings.
- */
-export interface DashboardUrlContext {
-  /** The global `--dashboard-url`, when one was passed. */
-  readonly dashboardUrl?: string;
-  /** The global `--profile`, so the link follows the environment the request went to. */
-  readonly profile?: string;
-}
-
-/**
  * The dashboard URL for one resource, or `undefined` when there is no id to
  * build it from.
  *
@@ -128,7 +107,7 @@ export function dashboardUrlFor(
   context: DashboardUrlContext = {}
 ): string | undefined {
   const pattern = PATHS[resource];
-  const base = resolveDashboardUrl(context.dashboardUrl, context.profile).replace(/\/+$/, "");
+  const base = resolveDashboardHost(context);
 
   if (!pattern.includes("{id}")) return `${base}${pattern}`;
   if (typeof id !== "string" || id === "") return undefined;

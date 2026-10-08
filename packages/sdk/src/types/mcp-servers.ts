@@ -252,6 +252,21 @@ export interface ListMcpServersResponse {
 export type GetMcpServerResponse = McpServerDetail;
 
 /**
+ * Response from {@link McpServersResource.sync}.
+ *
+ * An ALIAS of {@link McpServerDetail}, never a restatement of its fields: the sync
+ * route declares the SAME `Response` schema object as the get route, so a second
+ * interface would be a second thing to keep in step with no gate comparing the two.
+ *
+ * ⚠️ IT IS A SNAPSHOT TAKEN AFTER THE REQUEST WAS RECORDED, NOT A RESULT. `lastSyncOutcome`
+ * normally reads `QUEUED` here — the discovery has not run — and reads `FAILED` with
+ * `lastSyncErrorCode: "DISCOVERY_NOT_QUEUED"` when the queue refused the job. `SUCCEEDED`
+ * is also legal and is not a contradiction: a warm queue can finish before the response
+ * is composed. `tools` and `drift` are whatever the PREVIOUS discovery left.
+ */
+export type SyncMcpServerResponse = McpServerDetail;
+
+/**
  * Body for {@link McpServersResource.callTool}.
  *
  * ## 🔴 THE SERVER REFUSES AN UNKNOWN KEY RATHER THAN DISCARDING IT

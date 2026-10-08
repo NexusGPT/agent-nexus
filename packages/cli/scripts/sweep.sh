@@ -64,9 +64,9 @@
 # lifts by somebody else's hand at any time. A pending-deploy entry is about THIS
 # branch's own undeployed diff, expires exactly once, and the person who wrote it
 # is the person whose change deployed — so its good news is a FAIL. The cost of
-# the other direction is in the tree: `tracks list` is parked behind a block
-# comment naming the probe that would promote it, its route has been answering
-# for some time, and nothing anywhere went red.
+# the other direction is a leaf parked behind a block comment naming the probe
+# that would promote it: the route starts answering, nothing anywhere goes red,
+# and the leaf's live coverage is gone with nobody watching for its return.
 #
 # 🚨 DOES THIS GATE? NOT ASSERTED HERE, AND THE LINE ABOVE USED TO ASSERT IT.
 #

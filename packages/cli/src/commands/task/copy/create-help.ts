@@ -30,8 +30,10 @@ Notes:
 
   THE PROMPT GOES AT THE BODY ROOT, or under "generation.prompt" — both are
   accepted and fold to the same field. What is NOT accepted: promptText,
-  systemPrompt, instructions and text. Those are rejected with a 400 naming the
-  right field, rather than being dropped.
+  systemPrompt, instructions and text, nor category, classification,
+  extraction, translation and summarisation — every task created here is
+  GENERATION, and the other categories are dashboard-only. All of those are
+  rejected with a 400 naming the right field, rather than being dropped.
 
   A BYTE-IDENTICAL PROMPT IS REFUSED WITH 409 DUPLICATE_TASK_PROMPT, and the
   error carries the id of the task that already has it. There are three ways on:

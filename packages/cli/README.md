@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 54 command groups, 558 invocable subcommands
+- 54 command groups, 560 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
@@ -897,9 +897,12 @@ The summary carries the denominator here too: `59 pass · 5/5 declared skip · 0
 
 **The last bullet is the point, and it is where this differs from a declared SKIP.** A stale skip declaration is _reported_ and fails nothing, because an environment policy lifts by somebody else's hand at any time. A pending-deploy entry is about this branch's own undeployed diff: it expires exactly once, at a deploy the declaring lane performed, so its good news is a **FAIL** that names the one-line remedy.
 
-**Why that matters rather than being a preference:** the alternative is a comment, and the tree has one. `tracks list` sits parked at `registration-only` behind a block comment naming the probe that would promote it. Measured 2026-10-07 against deployed staging, `/api/public/v1/tracks` answers **401** while a path nobody registered answers **404** — so the route is **registered**, where the sweep run that parked the leaf had it answering `Cannot GET /api/public/v1/tracks`. It deployed, the leaf is still unswept, and nothing went red. That is what a declaration with no mechanism behind it costs.
+**Why that matters rather than being a preference:** the alternative is a comment, and a comment has no arm. Park a leaf at `registration-only` behind prose naming the probe that would promote it, and the park outlives its own reason: the route deploys, the leaf stays unswept, and nothing anywhere goes red. The leaf's live coverage is gone permanently, because nothing is watching for the day it could come back. An entry in the pending-deploy table cannot do that — its good news is a **FAIL** that names the one-line remedy.
 
-An unauthenticated `401` is not that comment's promotion condition, and the two are easy to run together: it answers _is this route registered_, while the probe the comment specifies is an **authenticated** call whose condition is a `200` — which a registered route can still miss with a `403` or a `500`.
+Two things make such a park hard to notice, and both are properties of prose rather than of the leaf:
+
+- **The promotion condition is easy to read as met when it is not.** An unauthenticated `401` answers _is this route registered_. A probe whose condition is a `200` is an **authenticated** call, which a registered route can still miss with a `403` or a `500`. The two are different readings of the same route.
+- **The prescribed probe may not be runnable as written.** `nexus api` prepends `/api/public/v1` and refuses an argument that repeats it, so a probe spelled with a route as this package stores it — `/api/public/v1/<noun>` — or as the v1 contract spells it — `/public/v1/<noun>` — exits `5` locally without reaching the network. That non-zero is indistinguishable from the route still being absent, and the control beside it is refused identically, so it cannot catch the mistake. Pass the suffix.
 
 **Match the sentence, never the status, and bind it to the path.** `scripts/route-not-deployed.sh` is the matcher and carries the argument for each refused broadening — a bare `404` is also "that id does not exist", the commonest real failure a read-only sweep surfaces, and `Cannot GET` with no path is satisfied by a CLI calling a _typo'd_ route, which is a real defect.
 

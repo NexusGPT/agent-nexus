@@ -2,6 +2,7 @@ import type { HttpClient } from "../http-client";
 import type { PageResponse } from "../types/common";
 import type {
   AddConversationCommentBody,
+  CallRecordingDownload,
   ConversationComment,
   ConversationDetail,
   ConversationSummary,
@@ -119,6 +120,15 @@ export class ConversationsResource extends BaseResource {
       `/conversations/${conversationId}/topic`,
       { body }
     );
+  }
+
+  /**
+   * A short-lived download URL for a call's recording. `callSid` is the
+   * `call.callSid` the `call.ended` event carries — that event's `recording.url`
+   * is this same endpoint. Throws a 404 error when the call has no recording.
+   */
+  async getCallRecording(callSid: string): Promise<CallRecordingDownload> {
+    return this.http.request<CallRecordingDownload>("GET", `/calls/${callSid}/recording`);
   }
 
   async getMetadata(conversationId: string): Promise<{ metadata: Record<string, unknown> }> {

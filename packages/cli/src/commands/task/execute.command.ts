@@ -32,9 +32,9 @@ import { TASK_EXECUTE_HELP } from "./copy/execute-help";
  * WHY NOT A FLAG, which is the gate's other accepted answer. The valid values
  * depend on the MODEL, and a flag's `--choices()` is a static list: it would offer
  * every dialect's vocabulary for every model — `fast` on an OpenAI model — while
- * `AiTaskModelOverrideSchema`'s own `.superRefine(applyReasoningLevelRefine)`
- * rejects a level outside the named model's `supportedReasoningLevels`. The flag
- * would advertise as valid what this very surface refuses.
+ * the execute use case's `refuseAChangedEffortLevel` rejects a level the named
+ * model does not offer. The flag would advertise as valid what this very surface
+ * refuses.
  *
  * It is sharper here than on the agent surface. `buildModelOverrideFlags` refuses
  * HALF of `--model-name`/`--model-provider` rather than completing the pair,

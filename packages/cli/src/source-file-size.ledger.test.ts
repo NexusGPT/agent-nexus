@@ -178,10 +178,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/admin-vibe-tenant-cluster.ts": 275,
   "commands/agent-collection.ts": 179,
   "commands/agent-tool.ts": 406,
-  // GENERATED from the v1 contract, which gained `reasoningLevel`. Splitting is
-  // not available: the size is a function of the contract it mirrors, and the
-  // next generation would undo the split. A SIZE BUDGET, not a violation count.
-  "commands/agent.contract.generated.ts": 329,
+  // GENERATED from the v1 contract, which carries `reasoningLevel` and the stored-only
+  // `none` on every level field. Splitting is not available: the size is a function of
+  // the contract it mirrors, and the next generation would undo the split. A SIZE
+  // BUDGET, not a violation count.
+  "commands/agent.contract.generated.ts": 341,
   "commands/analytics.contract.generated.ts": 169,
   "commands/analytics.ts": 520,
   "commands/api.ts": 269,
@@ -219,7 +220,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/skill-folder.ts": 268,
   "commands/skills.ts": 452,
   // GENERATED, same reason as the agent contract above.
-  "commands/task.contract.generated.ts": 296,
+  "commands/task.contract.generated.ts": 302,
   "commands/template.ts": 603,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,

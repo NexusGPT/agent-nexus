@@ -141,7 +141,8 @@ export interface TaskModelTuning {
     | "detailed"
     | "extended"
     | "dynamic"
-    | "minimal";
+    | "minimal"
+    | "none";
   /**
    * Anthropic thinking level. `"fast" | "detailed" | "extended"` on legacy
    * models; `"low" | "medium" | "high" | "xhigh" | "max"` on adaptive ones.

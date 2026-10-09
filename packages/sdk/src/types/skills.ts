@@ -886,7 +886,10 @@ export interface CollectionQueryResult {
   score: number;
   /** UUID of the source document, when the index carries one. */
   documentId?: string;
-  /** Search metadata, or `null` unless `includeMetadata` was set. */
+  /**
+   * Search metadata, or `null`. Present when the request sets `includeMetadata`
+   * or, with the field omitted, when the collection's own `includeMetadata` is on.
+   */
   metadata: unknown;
 }
 

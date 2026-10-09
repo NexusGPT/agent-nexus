@@ -45,12 +45,13 @@ Notes:
   documentName, so a reader arriving from that command finds the field missing
   here rather than renamed.
 
-  metadata IS THE SNIPPET'S, NOT THE DOCUMENT'S, and it is a literal null
-  without --include-metadata. With the flag it is the retrieval provider's own
-  snippet payload minus this pipeline's injected keys — and still null when the
-  provider attached none. So a null never means "you forgot the flag", and a
-  document whose stored metadata "document get" shows can answer null here with
-  nothing having been dropped.
+  metadata IS THE SNIPPET'S, NOT THE DOCUMENT'S. Without --include-metadata the
+  collection's own includeMetadata setting decides: it is a literal null unless
+  the collection turns metadata on. When present it is the retrieval provider's
+  own snippet payload minus this pipeline's injected keys — and still null when
+  the provider attached none. So a null never means "you forgot the flag", and
+  a document whose stored metadata "document get" shows can answer null here
+  with nothing having been dropped.
 
   Under --json this answers {results: [...]}, which is neither "collection
   list"'s bare array nor "collection documents"'s {data, meta}.`;

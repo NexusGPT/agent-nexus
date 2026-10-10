@@ -80,6 +80,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { builtinModules } from "node:module";
 
+import { isEntrypoint } from "./_lib/is-entrypoint.mjs";
 import { stripComments } from "./_lib/strip-comments.mjs";
 
 /**
@@ -331,9 +332,6 @@ function main() {
 }
 
 // Only when run as a program. Imported by the spec, `main()` must not fire.
-if (
-  process.argv[1] !== undefined &&
-  path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)
-) {
+if (isEntrypoint(import.meta.url)) {
   main();
 }

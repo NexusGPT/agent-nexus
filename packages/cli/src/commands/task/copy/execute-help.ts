@@ -5,6 +5,16 @@ import { EXECUTE_DEFAULT_TIMEOUT_SECONDS } from "../_shared/execute-default-time
  *
  * Interpolates {@link EXECUTE_DEFAULT_TIMEOUT_SECONDS} so the number in `--help`
  * and the deadline the command actually uses cannot drift apart.
+ *
+ * 🚨 THE RUN AFTER `These have no flag: ` IS PINNED TO THE CONTRACT, AS A LIST.
+ * `provider-tuning-fields-match-the-contract.test.ts` captures this command's
+ * RENDERED help, slices on that exact marker up to the full stop, splits on
+ * commas and set-compares the result against the provider-tuning fields derived
+ * from `ModelConfigBaseShape`. Keep the names contiguous and comma-separated, and
+ * keep the marker — a reworded marker reds that spec rather than going quiet,
+ * which is the direction it is written to fail in. The list shipped naming five
+ * of the six, omitting `reasoningLevel`, which is the field the other four are
+ * `@deprecated` in favour of writing.
  */
 export const TASK_EXECUTE_HELP = `
 Examples:
@@ -32,9 +42,9 @@ Notes:
     --custom-model-id to point this call at a custom endpoint instead.
 
     THE PROVIDER TUNING IS NOT INHERITED BY AN OVERRIDE — not even on the same
-    provider. thinkingLevel, thinkingDisplay, reasoningEffort, geminiThinkingLevel
-    and kimiReasoningEffort have no flag; name the one you want under --body, or
-    the call runs with none:
+    provider. These have no flag: reasoningLevel, thinkingLevel, thinkingDisplay,
+    reasoningEffort, geminiThinkingLevel, kimiReasoningEffort.
+    Name the one you want under --body, or the call runs with none:
       --body '{"input":"...","modelOverride":{"modelName":"gpt-5","modelProvider":"OPEN_AI","reasoningEffort":"low"}}'
     Same rule as "task update", because it is the same code — these knobs are
     specific to a provider AND to a model generation, so carrying one across a

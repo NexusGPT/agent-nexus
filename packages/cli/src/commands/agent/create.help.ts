@@ -1,4 +1,15 @@
-/** `nexus agent create` — the hand-written prose. */
+/**
+ * `nexus agent create` — the hand-written prose.
+ *
+ * 🚨 THE `modelConfig{…}` RUN IS PINNED TO THE CONTRACT.
+ * `provider-tuning-fields-match-the-contract.test.ts` captures this command's
+ * RENDERED help, slices between those braces, splits on commas and requires every
+ * provider-tuning field derived from `ModelConfigBaseShape` to be one of the
+ * tokens. Keep the names inside one brace run — the list shipped naming five of
+ * the six, omitting `reasoningLevel`, and the note two lines down says an unknown
+ * `--body` key is silently stripped, so an operator who trusts this list and
+ * cannot find the field gets a 201 and no tuning.
+ */
 export const AGENT_CREATE_HELP = `
 Examples:
   $ nexus agent create --first-name Ada --last-name Lovelace --role "Assistant"
@@ -34,9 +45,9 @@ Notes:
   characters is a 400. Omit it to start with no prompt at all.
   --body accepts JSON string, .json file, or '-' for stdin. Flags override --body
   fields. It also takes shortBio, bio, tags, gender, playgroundFirstMessage,
-  model (the legacy enum) and modelConfig{modelName, modelProvider, thinkingLevel,
-  thinkingDisplay, reasoningEffort, geminiThinkingLevel, kimiReasoningEffort,
-  temperature, customModelId}.
+  model (the legacy enum) and modelConfig{modelName, modelProvider, reasoningLevel,
+  thinkingLevel, thinkingDisplay, reasoningEffort, geminiThinkingLevel,
+  kimiReasoningEffort, temperature, customModelId}.
   TAGS IS ONE STRING DESPITE THE PLURAL NAME. Sending an array is a 400 naming
   the field; put your own separator inside the string.
   AN UNKNOWN --body KEY IS SILENTLY STRIPPED, not refused. A typo returns 201

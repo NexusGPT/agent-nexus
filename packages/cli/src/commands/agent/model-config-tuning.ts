@@ -1,14 +1,32 @@
 /**
  * The body-only declarations `agent create` and `agent update` share.
  *
- * The five TUNING enums under modelConfig have no flag and are declared
- * body-only rather than exposed. They are not interchangeable knobs: each one
- * belongs to ONE provider family (thinkingLevel and thinkingDisplay to
- * Anthropic, reasoningEffort to OpenAI-shaped models, geminiThinkingLevel to
- * Google, kimiReasoningEffort to Kimi), and most of them are silently ignored
- * for whatever provider you picked. Five flags whose validity depends on the
- * value of a sixth is a worse surface than one JSON object, and --body
- * already carries the whole modelConfig.
+ * The TUNING enums under modelConfig have no flag and are declared body-only
+ * rather than exposed. They are not interchangeable knobs: all but
+ * `reasoningLevel` belong to ONE provider family — thinkingLevel and
+ * thinkingDisplay to Anthropic, reasoningEffort to OpenAI-shaped models,
+ * geminiThinkingLevel to Google, kimiReasoningEffort to Kimi — and are silently
+ * ignored for whatever other provider you picked. A flag per tuning field, each
+ * one's validity decided by the model named in a different flag, is a worse
+ * surface than one JSON object, and --body already carries the whole
+ * modelConfig.
+ *
+ * 🚨 NO COUNT OF THESE FIELDS GOES IN THIS DOCBLOCK, AND CORRECTING ONE TO THE
+ * RIGHT NUMBER IS THE WRONG FIX — it is the same cache with a fresher value in
+ * it. The set is `PROVIDER_TUNING_FIELDS` in `@nexus/types`, derived BY
+ * EXCLUSION from `ModelConfigBaseShape`, so it grows with no edit here and any
+ * figure written beside it has no invalidation. Two figures in this docblock
+ * went stale exactly that way when `reasoningLevel` arrived with its own reason
+ * below: a count of the enums, and a count of the hypothetical flags.
+ *
+ * The set cannot be DERIVED at this site. This file is reachable from
+ * `src/index.ts`, and `wire-types-bundle.test.ts` forbids `@nexus/types` in
+ * every file that is not a `*.conformance.ts`, because the package pulls Zod and
+ * the generated Prisma enums. So the keys below stay hand-written and
+ * `provider-tuning-fields-match-the-contract.test.ts` set-compares the
+ * `Body.modelConfig.*` ones against the derived set — reading them off the BOUND
+ * command rather than off this constant, so a correct record that stops being
+ * wired reds too.
  */
 
 const TUNING_IS_PROVIDER_SPECIFIC =

@@ -138,9 +138,34 @@ dump_diagnostics() {
 #  2. NEXUS_PROFILE must resolve to an explicit base URL — either via
 #     NEXUS_BASE_URL env var (CI sets it at the job level) or via the
 #     profile's persisted baseUrl from `auth login --base-url …`.
-#  3. The resolved URL must not match the prod host. NEXUS_E2E_ALLOW_PROD=1
+#  3. The resolved URL must not match ANY prod host. NEXUS_E2E_ALLOW_PROD=1
 #     overrides for genuinely-intended prod runs.
-PROD_API_HOST="api.nexusgpt.io"
+#
+# 🚨 PRODUCTION SERVES MORE THAN ONE HOSTNAME, so this is a LIST and a single
+# string here is a hole. `deployment/config.yml`'s production backend declares
+# `domain` plus every `extra_domains` entry, and `porter apply` unions that list
+# into the ingress — so a host that has ever been attached keeps answering. A
+# guard naming only the canonical host lets a run resolving to any of the others
+# straight through, and this suite CREATES `nexus_e2e_*` agents, deployments and
+# collections in whatever tenant it reaches.
+#
+# ⚠️ WIDENING THIS TO THE REGISTRABLE DOMAIN IS NOT THE FIX AND IS WORSE THAN
+# THE HOLE. The match below is a SUBSTRING test, and `api-staging.gpt.nexus`
+# contains `gpt.nexus` — so a `gpt.nexus` entry would refuse the staging target
+# this suite exists to run against. Each production host is named in full.
+#
+# `scripts/cli-e2e-reap-orphans.mjs` carries the same list for the same reason,
+# and `scripts/__tests__/cli-e2e-triggers.spec.ts` asserts the two AGREE with
+# `deployment/config.yml`, so neither can be widened alone and neither can lag a
+# newly declared host.
+#
+# 🔴 `api-production.gpt.nexus` IS THE WORKED EXAMPLE OF THE UNION ABOVE, not a
+# third name for completeness. It left `production.backend.domain` on 2025-11-21
+# and was declared in no file in this repository for ~11 months, while the live
+# ingress kept serving it under its own Let's Encrypt certificate — and for all
+# of that time this guard ACCEPTED it, because the declared set it is checked
+# against had stopped covering what production answers on.
+PROD_API_HOSTS=("api.nexusgpt.io" "api.gpt.nexus" "api-production.gpt.nexus")
 
 assert_safe_target() {
   if [[ "${NEXUS_E2E_ALLOW_DEFAULT:-}" == "1" ]]; then
@@ -177,9 +202,19 @@ EOF
     exit 2
   fi
 
-  if [[ "${target_url}" == *"${PROD_API_HOST}"* && "${NEXUS_E2E_ALLOW_PROD:-}" != "1" ]]; then
+  local matched_prod_host=""
+  local prod_host
+  for prod_host in "${PROD_API_HOSTS[@]}"; do
+    if [[ "${target_url}" == *"${prod_host}"* ]]; then
+      matched_prod_host="${prod_host}"
+      break
+    fi
+  done
+
+  if [[ -n "${matched_prod_host}" && "${NEXUS_E2E_ALLOW_PROD:-}" != "1" ]]; then
     cat >&2 <<EOF
 ERROR: profile '${NEXUS_PROFILE}' resolves to a prod-looking URL (${target_url}).
+  It matches the production host '${matched_prod_host}'.
   Refusing to create nexus_e2e_* artifacts in production.
   Override with NEXUS_E2E_ALLOW_PROD=1 only if this is genuinely intended.
 EOF

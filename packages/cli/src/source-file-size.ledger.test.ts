@@ -147,28 +147,25 @@ const LEDGER: Readonly<Record<string, number>> = {
   "cli-surface.model.ts": 159,
   "cli-surface.project.ts": 404,
   "client.ts": 240,
-  // DOWN from 1635, and the direction is the point. It first went UP to 1784 for
-  // SWEEP_ROUTES_PENDING_DEPLOY and the fields that carry it, on the argument that
-  // the three sweep declarations are read together and splitting one leaves a
-  // reader hunting two files. That argument was coherence-by-reading and it lost to
-  // a measurement: `scripts/id-thread-sweep.ts` needs only that one declaration,
-  // and the spec driving it SPAWNS that runner 84 times, so each spawn was parsing
-  // COMMAND_CLASSIFICATION's ~470 rows to read one table — about 0.1s per spawn.
+  // THE DECLARED COMMAND TABLE, and the only part of the command universe that
+  // needs a row: its siblings in that directory are all 150 or fewer. Its length
+  // is a function of how many leaves the CLI registers — one line each, sorted —
+  // which is the smallest honest representation of that set there is.
+  // A SIZE BUDGET, not a violation count.
   //
-  // So it moved to `sweep-routes-pending-deploy.ts` and this file RE-EXPORTS it,
-  // which keeps the coherence the first argument was actually about: a reader who
-  // looks where the other two declarations live still finds it.
+  // Splitting it further is the wrong cure and would be a REGRESSION. `classify.ts`
+  // diffs the derived tree against ONE table, so per-namespace shards would make a
+  // leaf missing from whichever shard nobody updated read as unclassified, and a
+  // leaf declared in two shards read as classified twice. The gate's whole claim is
+  // that an unclassified leaf is impossible to add silently, and that claim needs a
+  // single denominator.
   //
   // 🚨 THIS NUMBER IS RE-READ FROM THE COMMITTED BYTES, NOT FROM THE BYTES THAT
   // WERE MEASURED. `format-gate` reformats on commit and stages the result, so a
-  // count taken before it runs can be stale by the time it lands — it added 6
-  // lines to this file after the row was written, and the row shipped wrong. The
-  // row is pinned to EQUALITY in both directions, so a stale one reds either way.
-  //
-  // ⚠️ That import cost was 8 of that file's 312 CI seconds. The cure for the
-  // duration was bounding eleven concurrent real sweeps in one `vitest run`, not
-  // this split — recorded here so nobody reads a shrinking row as the fix.
-  "command-universe.ts": 1723,
+  // count taken before it runs can be stale by the time it lands — it once added 6
+  // lines after a row was written and that row shipped wrong. The row is pinned to
+  // EQUALITY in both directions, so a stale one reds either way.
+  "command-universe/command-classification.ts": 930,
   "commands/access-card.ts": 355,
   "commands/admin-vibe-build-job.ts": 239,
   "commands/admin-vibe-consumption-cap.ts": 211,

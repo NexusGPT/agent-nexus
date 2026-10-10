@@ -862,7 +862,7 @@ pnpm dlx tsx scripts/required-contexts.ts --reconcile   # needs repo admin
 
 `sweep.sh` SKIPs a leaf when the backend declares the feature unavailable by policy — a 403 the environment is right to send, with no CLI defect behind it. Accepting that is correct. Reporting it as a bare number is not: `64 pass · 5 skip · 0 fail` cannot tell an expected skip from a leaf that went dark this morning, and SKIP is excluded from the exit code by design.
 
-So the accepted skips are declared in `SWEEP_EXPECTED_SKIPS` in `src/command-universe.ts`, and the sweep reads that declaration:
+So the accepted skips are declared in `SWEEP_EXPECTED_SKIPS` in `src/command-universe/sweep-expected-skips.ts` — re-exported from `src/command-universe.ts`, which is what the sweep's own messages point at — and the sweep reads that declaration:
 
 - a skip **named** there is accepted, and the report line says what coverage is gone;
 - a skip **not** named there is a **FAIL**, naming the leaf and the remedy;

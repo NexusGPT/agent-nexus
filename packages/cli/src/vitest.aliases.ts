@@ -61,6 +61,7 @@ export const WORKSPACE_SOURCE_ALIASES: Record<string, string> = {
   "@nexus/types/domain": "../types/src/shared/domain/index.ts",
   "@nexus/types/public-api-v1": "../types/src/api/public/v1/index.ts",
   "@nexus/types/testing/each-or-refuse": "../types/src/testing/each-or-refuse.ts",
+  "@nexus/types/testing/hash-comments": "../types/src/testing/hash-comments.ts",
   "@nexus/types/testing/shrink-only-ledger": "../types/src/testing/shrink-only-ledger.ts",
   "@nexus/vibe-app-vendoring": "../vibe-app-vendoring/src/index.ts"
 };

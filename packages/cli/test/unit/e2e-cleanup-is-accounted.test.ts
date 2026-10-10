@@ -30,6 +30,7 @@
  * that would clean up after exactly this, and no such job had ever been written;
  * prose is measured not to fire. A test does.
  */
+import { stripHashComments } from "@nexus/types/testing/hash-comments";
 import * as fs from "fs";
 import * as path from "path";
 import { describe, expect, it } from "vitest";
@@ -45,11 +46,7 @@ const FLOWS = fs
 const read = (file: string): string => fs.readFileSync(file, "utf8");
 
 /** Shell comments are prose. A gate satisfied by prose stays green through a revert. */
-const code = (source: string): string =>
-  source
-    .split("\n")
-    .filter((line) => !/^\s*#/.test(line))
-    .join("\n");
+const code = (source: string): string => stripHashComments(source);
 
 describe("the E2E flow scripts exist and are discoverable", () => {
   it("finds the three flows — an empty population would pass every test below", () => {

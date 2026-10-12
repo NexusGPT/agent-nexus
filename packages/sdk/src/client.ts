@@ -1,3 +1,4 @@
+import type { DeprecationNotice } from "./deprecation";
 import { NexusError } from "./errors";
 import { HttpClient, type RetryNotice } from "./http-client";
 import { AgentCollectionsResource } from "./resources/agent-collections";
@@ -120,6 +121,22 @@ export interface NexusClientOptions {
    * @see HttpClientOptions.onRetry
    */
   onRetry?: (notice: RetryNotice) => void;
+
+  /**
+   * Called when a response carries `Deprecation` and/or `Sunset`, so an
+   * embedding application learns that a route it depends on is being removed
+   * while it still has the lead time those headers exist to give it.
+   *
+   * Forwarded to the transport, which observes it once per response for every
+   * resource on this client. The SDK writes nothing itself and a throw from the
+   * callback is swallowed.
+   *
+   * 🔴 No notice means the response said nothing — never that the route is
+   * current. A guard rejection (401, 429) answers with neither header.
+   *
+   * @see HttpClientOptions.onDeprecation
+   */
+  onDeprecation?: (notice: DeprecationNotice) => void;
 
   /**
    * Request timeout in milliseconds, applied to EVERY request.
@@ -442,6 +459,7 @@ export class NexusClient {
       maxRetries: opts.maxRetries,
       maxTotalRetryWaitMs: opts.maxTotalRetryWaitMs,
       onRetry: opts.onRetry,
+      onDeprecation: opts.onDeprecation,
       onResponseContract: opts.onResponseContract,
       responseContract: opts.responseContract
     });

@@ -3,6 +3,7 @@ import { HttpClient } from "@agent-nexus/sdk";
 import { type Seconds, timeoutSecondsToMs } from "../client";
 import { isCrossOrgToken } from "../commands/auth/_shared/token-prefixes";
 import { type ProfileSource, resolveBaseUrl, resolveOrganization, resolveProfile } from "../config";
+import { createApiDeprecationReporter } from "../route-deprecation-warnings";
 
 /**
  * ONE WAY TO SPEAK TO `POST /api/public/v1/mcp`, FOR EVERY `nexus mcp` LEAF.
@@ -211,7 +212,16 @@ export function createMcpTransport(config: McpTransportConfig = {}): McpTranspor
         timeout,
         maxRetries: 0,
         ...(organizationId ? { defaultHeaders: { "organization-id": organizationId } } : {}),
-        ...(signal ? { fetch: cancellableFetch } : {})
+        ...(signal ? { fetch: cancellableFetch } : {}),
+        // `POST /mcp` is one route and is not deprecated today, so this wires a
+        // channel rather than a message — which is the point: the client is
+        // rebuilt PER MESSAGE here, so nothing on this path could ever learn of
+        // a retirement unless the observer is installed at construction. The
+        // dedupe lives in module scope in the CLI, so a long-lived
+        // `nexus mcp serve` still warns once rather than once per message, and
+        // stderr is the correct stream for a stdio bridge whose stdout carries
+        // JSON-RPC.
+        onDeprecation: createApiDeprecationReporter()
       });
 
       const data = await http.request<unknown>("POST", MCP_PATH, { body: message });

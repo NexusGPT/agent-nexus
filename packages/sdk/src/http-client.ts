@@ -1,3 +1,4 @@
+import { type DeprecationNotice, readDeprecationNotice } from "./deprecation";
 import {
   NexusApiError,
   NexusAuthenticationError,
@@ -100,6 +101,29 @@ export interface HttpClientOptions {
    * be able to fail the request it is reporting on.
    */
   onRetry?: (notice: RetryNotice) => void;
+  /**
+   * Called when a response carries `Deprecation` and/or `Sunset`, so a caller
+   * learns that a route they depend on is being removed — while they still have
+   * the lead time the headers exist to give them.
+   *
+   * Observed ONCE PER RESPONSE, inside the transport's single `send`, so every
+   * door of this client is covered by one read: `request`, `requestWithMeta`,
+   * `requestRaw`, `openStream` and `requestSSE` all funnel through it. A request
+   * that is RETRIED reports per attempt, because each attempt is a response and
+   * the transport does not know which of them a consumer cares about —
+   * de-duplicating is the consumer's call, and the CLI does it by route and
+   * content rather than by a single flag.
+   *
+   * The SDK writes nothing itself, exactly as with {@link onRetry}: a library
+   * that owns stderr is a library that corrupts somebody's output eventually. A
+   * throw from this callback is swallowed — reporting a deprecation must never
+   * be able to fail the request that reported it.
+   *
+   * 🔴 ABSENCE OF A NOTICE IS NOT A STATEMENT THAT THE ROUTE IS CURRENT. See
+   * `./deprecation.ts` for the Nest ordering that makes a 401 and a 429 answer
+   * with neither header while the route behind them is deprecated.
+   */
+  onDeprecation?: (notice: DeprecationNotice) => void;
   /**
    * Injectable sleep, so a test does not have to wait out the backoff. Defaults
    * to a real timer. Not part of the API surface a caller is expected to use.
@@ -548,6 +572,7 @@ export class HttpClient {
   private readonly retryBaseDelayMs: number;
   private readonly maxTotalRetryWaitMs: number;
   private readonly onRetry: ((notice: RetryNotice) => void) | undefined;
+  private readonly onDeprecation: ((notice: DeprecationNotice) => void) | undefined;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
   private readonly onResponseContract: ContractReporter | undefined;
@@ -615,6 +640,7 @@ export class HttpClient {
       opts.maxTotalRetryWaitMs ?? DEFAULT_MAX_TOTAL_RETRY_WAIT_MS
     );
     this.onRetry = opts.onRetry;
+    this.onDeprecation = opts.onDeprecation;
     this.sleep =
       opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     this.random = opts.random ?? Math.random;
@@ -687,6 +713,37 @@ export class HttpClient {
       report({ state: "unchecked", route: null, method: method.toUpperCase(), path, reason });
     } catch {
       // See `reportContract`.
+    }
+  }
+
+  /**
+   * Hand on what one response said about its own route's retirement.
+   *
+   * Called from `send`, which is the ONE place every door of this client obtains
+   * a `Response` — so one read here covers `request`, `requestWithMeta`,
+   * `requestRaw`, `openStream` and `requestSSE`, and a door added later is
+   * covered the moment it goes through the transport. Reading the headers at
+   * each call site instead is how four of five doors come to be silent.
+   *
+   * Reads headers only. It must stay that way: `requestRaw` and
+   * `requestWithMeta` read the body themselves and `openStream` hands it to the
+   * caller unread, so touching the body here would consume somebody's stream.
+   *
+   * Every failure mode leaves the request exactly as it was — no observer, no
+   * headers, an observer that throws. An observer that can break a successful
+   * read is worse than no observer at all.
+   */
+  private reportDeprecation(method: string, url: string, res: Response): void {
+    const report = this.onDeprecation;
+    if (!report) return;
+
+    try {
+      const notice = readDeprecationNotice(method, url, res.headers);
+      if (notice === undefined) return;
+      report(notice);
+    } catch {
+      // Deliberately silent, exactly as in `reportContract`. The alternative is
+      // a diagnostic that can fail the thing it is diagnosing.
     }
   }
 
@@ -809,6 +866,12 @@ export class HttpClient {
 
       try {
         const res = await this.attempt(url, init, timeoutMs);
+        // HERE, and not at the four return points below, because a response that
+        // is about to be RETRIED is still a response that said its route is
+        // going away — and the retried attempt may be the one that earns a 401
+        // or a 429, neither of which carries the headers at all. One read per
+        // attempt; the consumer decides what to do with a repeat.
+        this.reportDeprecation(method, url, res);
         if (isLast || !isRetryableStatus(res.status, method)) {
           return { res, attempts: n, refusal: undefined };
         }

@@ -146,7 +146,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "cli-surface.generated.ts": 639,
   "cli-surface.model.ts": 159,
   "cli-surface.project.ts": 404,
-  "client.ts": 240,
+  // +6, RAISED: one import and one `onDeprecation:` line on `createClient` — the
+  // default every typed command inherits — plus why it needs a switch of its own.
+  // The reporting is already its own file, so shrinking back would mean moving an
+  // unrelated concern out to make room: the wrong reason, per `contract-binding.ts`.
+  "client.ts": 246,
   // THE DECLARED COMMAND TABLE, and the only part of the command universe that
   // needs a row: its siblings in that directory are all 150 or fewer. Its length
   // is a function of how many leaves the CLI registers — one line each, sorted —
@@ -182,7 +186,12 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/agent.contract.generated.ts": 341,
   "commands/analytics.contract.generated.ts": 169,
   "commands/analytics.ts": 520,
-  "commands/api.ts": 269,
+  // +6, RAISED: one import and one `onDeprecation:` line, plus why the raw
+  // `nexus api <path>` door needed wiring — it is the only way onto a route with
+  // no typed command. The reporting is already its own file, so shrinking back
+  // would mean moving an unrelated concern out to make room: the wrong reason,
+  // per `contract-binding.ts` below.
+  "commands/api.ts": 275,
   "commands/asset.ts": 261,
   "commands/channel.contract.generated.ts": 167,
   "commands/claude-code.ts": 586,
@@ -286,7 +295,12 @@ const LEDGER: Readonly<Record<string, number>> = {
   "util/follow-diagnose.ts": 207,
   "util/global-option-shadowing.ts": 152,
   "util/mcp-client-config.ts": 219,
-  "util/mcp-rpc.ts": 377,
+  // +10, RAISED: one import and one `onDeprecation:` line, plus why a per-message
+  // MCP client needs the observer at construction — it is rebuilt per message, so
+  // nothing on this path could otherwise learn of a retirement. The reporting is
+  // already its own file, so shrinking back would move an unrelated concern out
+  // for the wrong reason, as `contract-binding.ts` above says.
+  "util/mcp-rpc.ts": 387,
   "util/mcp-stdio.ts": 227,
   "util/required-field-refusals-name-both-paths.ts": 156,
   "util/resolve-on-path.ts": 284,

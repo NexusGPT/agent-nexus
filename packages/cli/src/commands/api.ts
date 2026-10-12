@@ -7,6 +7,7 @@ import { resolveBaseUrl, resolveOrganization, resolveProfile } from "../config";
 import { createContractReporter } from "../contract-warnings";
 import { handleError, refuse } from "../errors";
 import { isJsonMode } from "../output";
+import { createApiDeprecationReporter } from "../route-deprecation-warnings";
 import { resolveBody } from "../util/body";
 import { buildMultipartBody, MULTIPART_FILE_FIELD } from "../util/multipart";
 
@@ -174,6 +175,11 @@ Notes:
           // mean two different units depending on where it sits in argv.
           timeout: timeoutSecondsToMs(globals.timeout),
           onResponseContract: createContractReporter(),
+          // `nexus api <path>` is the ONE door that reaches a route this CLI has
+          // no typed command for, so it is the likeliest door onto a deprecated
+          // one — leaving it unwired would make the warning reach everything
+          // except the raw caller. See `../route-deprecation-warnings.ts`.
+          onDeprecation: createApiDeprecationReporter(),
           // Supplied rather than bundled — see the same pair in `../client.ts`.
           responseContract: V1_RESPONSE_CONTRACT
         });

@@ -35,6 +35,25 @@ export * from "./resources";
 export type { HttpClientOptions, RequestOptions, RetryNotice, RetryRefusal } from "./http-client";
 export { HttpClient, normalizePagingMeta } from "./http-client";
 
+// Route retirement — the `Deprecation` / `Sunset` signal a response carries
+// about its own route, exposed so an embedding application can log it, meter it
+// or put it in front of a user. Install `onDeprecation` on `HttpClient` or
+// `NexusClient`; the SDK writes nothing itself.
+//
+// The two parsers and the two header names are exported with the record because
+// a consumer proxying our responses, or holding its own transport, needs to read
+// the same two headers the same two ways — and because the VALUES are two
+// different syntaxes, which is the one thing about this signal that surprises
+// everyone. See `./deprecation.ts`.
+export type { DeprecationNotice } from "./deprecation";
+export {
+  DEPRECATION_HEADER,
+  parseDeprecationHeader,
+  parseSunsetHeader,
+  readDeprecationNotice,
+  SUNSET_HEADER
+} from "./deprecation";
+
 // Pagination — the one VALUE in `types/`, and it has to be named here because
 // the `export type *` at the foot of this file carries types only. It is the
 // list a consumer builds an exhaustive `Record<PagingState, T>` from.

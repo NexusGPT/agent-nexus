@@ -10,6 +10,7 @@ import {
 } from "./config";
 import { createContractReporter } from "./contract-warnings";
 import { color } from "./output";
+import { createApiDeprecationReporter } from "./route-deprecation-warnings";
 
 /**
  * A number that has been STATED to be in seconds.
@@ -199,6 +200,11 @@ export function createClient(opts?: {
     // publish. `undefined` when the user switched it off, which also switches
     // off the work behind it. See `./contract-warnings.ts`.
     onResponseContract: createContractReporter(),
+    // Warn on stderr when a response says its own route is being removed.
+    // Separate switch from the contract warnings on purpose — see
+    // `./route-deprecation-warnings.ts`, which is also where the reason it is
+    // not `./deprecation-notice.ts` is written down.
+    onDeprecation: createApiDeprecationReporter(),
     // The manifest is no longer compiled into the SDK's main entry — a browser
     // consumer embedding the client for chat was shipping the shape of every v1
     // route to run a check it never installed. The CLI is the consumer that DOES

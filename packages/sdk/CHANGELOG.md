@@ -1,5 +1,154 @@
 # @agent-nexus/sdk
 
+## 4.6.0
+### Minor Changes
+
+- 61c6b9d: An organization's MCP server can be re-discovered from the API and the CLI
+  
+  `POST /public/v1/mcp-servers/:serverId/sync` asks for one registered MCP server to be
+  dialled again and its tool list reconciled. `client.mcpServers.sync(serverId)` is the
+  SDK method and `nexus mcp-server sync <serverId>` is the command.
+  
+  Until now the only way to re-trigger a discovery was a button in the dashboard. A
+  server connected before the discovery trigger shipped — or one whose discovery was
+  never queued — sat at zero tools with no door an operator driving Nexus from a script
+  could reach.
+  
+  ## It ASKS for a discovery; it does not wait for one
+  
+  The route answers **202** once the request is recorded. The discovery itself runs out of
+  band, because dialling a third-party server and walking `tools/list` is bounded at
+  eleven requests of 150 seconds and no client deadline covers that — a synchronous door
+  would convert slow-but-correct discoveries into requests the caller pays for and never
+  sees.
+  
+  **So `lastSyncOutcome` on the response is the verdict, never the status line or the
+  promise resolving:**
+  
+  - `QUEUED` — the request is recorded and the discovery has not run.
+  - `FAILED` with `lastSyncErrorCode: "DISCOVERY_NOT_QUEUED"` — the queue refused the job
+    and nothing is coming. The CLI reports this as a failure and exits non-zero.
+  - `SUCCEEDED` — a warm queue finished before the response was composed.
+  
+  The `tools` array and the `drift` report it returns are the PREVIOUS discovery's. Read
+  `GET /public/v1/mcp-servers/:serverId` — or `nexus mcp-server get` — for what the new
+  one found.
+  
+  ## It needs a new scope, `mcp_servers:write`
+  
+  Neither existing scope covers it. A discovery REPLACES a server's tool list: a tool the
+  remote has stopped advertising goes `REMOVED`, which breaks an agent skill pinned to it,
+  and the organization's auto-approval policy runs over what was found, so tools can
+  become callable that were not. `mcp_servers:execute` discloses only that a call leaves
+  for a third party with a stored credential, so filing the sync there would have widened
+  every already-minted key holding that scope to capabilities its operator was never
+  shown. `mcp_servers:write` carries its own sentence in the key-minting UI and, like
+  every `write` scope, also satisfies `mcp_servers:read`.
+  
+  ## The CLI leaf is `registration-only`
+  
+  It is a mutation and it needs a required `<serverId>`, so the sweep asserts it exists
+  and never fires it. It also carries a `third-party` probe barrier: the dial happens in a
+  background processor rather than in the request, and that does not change what an
+  operator is deciding.
+- 835f4f6: `nexus mcp-server list|get|call` reads this organization's connected MCP servers and calls one approved tool on one of them
+  
+  Nexus is the MCP **client** here, and the servers are the organization's own
+  third-party ones: a call dials a remote holding a credential the organization
+  stored, and spends it.
+  
+  - CLI: a new `mcp-server` noun, one file per leaf. `list` and `get` are reads —
+    `get` publishes all five tool statuses and the standing drift report — and
+    `call <serverId> <tool> --arguments '<json>'` is the protocol's own
+    `tools/call`. **Only an APPROVED tool is callable**; any other status is
+    refused before anything is dialled, so read `get` before `call`.
+  - SDK: `client.mcpServers` with `list()`, `get(serverId)` and `callTool(...)`,
+    plus the `McpServer*` and `CallMcpServerTool*` types.
+  
+  🔴 **`nexus mcp-server` and `nexus mcp` are opposite directions of one protocol
+  and their names differ by one suffix.** `nexus mcp` is Nexus ITSELF serving the
+  Public API as tools to an editor or an agent; it shares no tool, no row and no
+  catalog with this noun, and `nexus mcp tools list` answers `0` rather than
+  erroring. Both namespaces' `--help` now names the direction and points at the
+  other.
+  
+  The scopes are `mcp_servers:read` and `mcp_servers:execute`. They are not the
+  `tool` scopes, and `call` is deliberately not spelled `execute` — `nexus tool
+  execute` runs a catalogued integration action and the two are not
+  interchangeable.
+- 1fe2860: `reasoningLevel` — one thinking-level field for every provider
+  
+  `ModelConfig` and `TaskModelTuning` carry a new `reasoningLevel`, and it is the
+  field the platform now reads when it decides how hard a model thinks for a turn.
+  
+  **Nothing you already send breaks.** `thinkingLevel`, `reasoningEffort`,
+  `geminiThinkingLevel` and `kimiReasoningEffort` are all still accepted and still
+  read off stored agents and tasks; they are marked `@deprecated` to point new code
+  at the one field. A stored record carrying one of them resolves through it exactly
+  as before — the platform reads the canonical field first, then the one legacy
+  field the model's own thinking dialect wrote.
+  
+  ## Which values are valid
+  
+  Not every value is valid for every model, and this type cannot say which are. The
+  six thinking dialects' vocabularies are disjoint and not nested:
+  
+  | dialect            | accepts                             |
+  | ------------------ | ----------------------------------- |
+  | Anthropic legacy   | `fast` `detailed` `extended`        |
+  | Anthropic adaptive | `low` `medium` `high` `xhigh` `max` |
+  | OpenAI reasoning   | `low` `medium` `high` `xhigh` `max` |
+  | Gemini budget      | `dynamic` `low` `medium` `high`     |
+  | Gemini level       | `minimal` `low` `medium` `high`     |
+  | Kimi effort        | `low` `high` `max`                  |
+  
+  So the published type is their **sum**, and the model narrows it. Read
+  `supportedReasoningLevels` off `GET /models` for the set a given model accepts —
+  that field already exists and is per-model rather than per-dialect, so it is
+  narrower than the table above wherever a model declares a subset.
+  
+  ## Why `minor` and not `major`
+  
+  Additive on both halves. One new optional field; two existing fields gain a
+  `@deprecated` tag and keep their types, their values and their behaviour. No key
+  was removed, renamed or narrowed, and no response shape changed.
+  `reasoningLevel` is typed as the exact union the v1 contract publishes rather than
+  as `string`, so a value outside it is a compile error at your call site instead of
+  a 400 at ours.
+- 334a021: `conversations.getCallRecording(callSid)` returns a short-lived download URL for a call's recording
+  
+  Calls `GET /public/v1/calls/:callSid/recording` and resolves to
+  `{ url, expiresAt }`: a presigned URL valid for five minutes, and when it stops
+  working. Fetch `url` directly, with no Nexus headers, and call the method again
+  for a fresh link rather than storing one.
+  
+  `callSid` is the `call.callSid` a `call.ended` event carries. That event's
+  `recording.url` is this same endpoint, so a workflow holding the event and an
+  SDK caller holding the call id reach the recording the same way.
+  
+  A call that was not recorded, or that belongs to another organization, rejects
+  with a not-found error. The two are not distinguished.
+- 65539f6: The agent model config accepts `"none"` and `"minimal"` as effort words
+  
+  `thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel` and `kimiReasoningEffort` now accept `"none"`, which turns reasoning off on a model that can stop thinking. `reasoningEffort` also accepts `"minimal"`, which the gpt-5 family offers. The SDK's `ModelConfig` type and the CLI's contract help list the new words; `"auto"` is not accepted anywhere.
+  
+  Writing `"none"` is refused until the platform enables it, so a script that sends it today still gets the same refusal it got before.
+
+### Patch Changes
+
+- fd5828d: A Role deletion request can be `SUPERSEDED`
+  
+  When an organization admin deletes a Role directly while a member's request to
+  delete it is still open, that request now moves to `SUPERSEDED` instead of
+  staying `PENDING` for a Role that no longer exists. A superseded request keeps
+  its `roleId` and carries no reviewer, because nobody reviewed it.
+  
+  `RoleDeletionRequest.status` is typed `RoleDeletionRequestStatus`, which adds
+  `SUPERSEDED` to the access-request states, and `client.roles.listDeletionRequests()`
+  takes `ListRoleDeletionRequestsParams`, so you can filter for it.
+  `nexus role deletion-requests --status superseded` does the same from the CLI.
+- 7e0230f: `collection query`: with `--include-metadata` omitted, the collection's own `includeMetadata` setting now decides whether results carry metadata, and a blank limit means the collection's `k` (capped at 50). The CLI help and the SDK's `CollectionQueryResult.metadata` comment say so.
+
 ## 4.5.0
 ### Minor Changes
 

@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.11.0 ───────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.12.0 ───────────────────────────────────────────────────
  *
- * 555 promised paths — 488 STABLE, 67 UNSTABLE.
+ * 560 promised paths — 492 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.11.0",
+  version: "1.12.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -49,6 +49,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "admin vibe-tenant-cluster disable", shape: "bfa787b98a85", tier: "UNSTABLE" },
     { path: "admin vibe-tenant-cluster force-converge", shape: "cc41f495c1fa", tier: "UNSTABLE" },
     { path: "admin vibe-tenant-cluster provision", shape: "c3c1782649e6", tier: "UNSTABLE" },
+    { path: "admin vibe-tenant-cluster request-server-roll", shape: "2ba3ac9e7444", tier: "UNSTABLE" },
     { path: "agent create", shape: "66a39a7faad6", tier: "STABLE" },
     { path: "agent delete", shape: "1d1b32b62f25", tier: "STABLE" },
     { path: "agent duplicate", shape: "a895387dc781", tier: "STABLE" },
@@ -318,6 +319,10 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "mcp serve", shape: "f81645d78a0b", tier: "STABLE" },
     { path: "mcp tools get", shape: "1bfd1a8afabd", tier: "STABLE" },
     { path: "mcp tools list", shape: "ee444b176c4a", tier: "STABLE" },
+    { path: "mcp-server call", shape: "e2b57205373f", tier: "STABLE" },
+    { path: "mcp-server get", shape: "c57ff19fc64b", tier: "STABLE" },
+    { path: "mcp-server list", shape: "ec3f2cb478b9", tier: "STABLE" },
+    { path: "mcp-server sync", shape: "481778aa4d5e", tier: "STABLE" },
     { path: "model list", shape: "37bb0947614a", tier: "STABLE" },
     { path: "permissions access", shape: "1cc529b64a0d", tier: "STABLE" },
     { path: "permissions grant", shape: "a72393e94477", tier: "STABLE" },
@@ -362,7 +367,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "role delete-job-type", shape: "cd3e4870e0a8", tier: "STABLE" },
     { path: "role delete-permission-set", shape: "4b87432e0f30", tier: "STABLE" },
     { path: "role deletion-request", shape: "3c549017d4c8", tier: "STABLE" },
-    { path: "role deletion-requests", shape: "117943c15225", tier: "STABLE" },
+    { path: "role deletion-requests", shape: "4ec23aed5ee7", tier: "STABLE" },
     { path: "role detach", shape: "d3b0f55782ed", tier: "STABLE" },
     { path: "role get", shape: "3569b12f24db", tier: "STABLE" },
     { path: "role governance", shape: "63ea45b53b12", tier: "STABLE" },

@@ -1,5 +1,252 @@
 # @agent-nexus/cli
 
+## 1.12.0
+### Minor Changes
+
+- 1fe2860: `modelConfig.reasoningLevel` — one thinking-level field in `--body`
+  
+  `nexus agent create`, `nexus agent update` and the task verbs accept a new
+  `reasoningLevel` inside `--body`'s `modelConfig`, and it is the field the platform
+  now reads when it decides how hard a model thinks for a turn.
+  
+  **Nothing you already send breaks.** `thinkingLevel`, `reasoningEffort`,
+  `geminiThinkingLevel` and `kimiReasoningEffort` are still accepted and still read
+  off stored agents and tasks. The published help still lists them.
+  
+  ## No flag, and the reason is its own
+  
+  The four it replaces are body-only because each belongs to ONE provider family, so
+  a flag would advertise it for every model. That reason is false about
+  `reasoningLevel` — it is the single field every provider reads.
+  
+  It stays body-only for a different reason: **valid values depend on the model's
+  thinking dialect, and the six vocabularies are disjoint.** A flag's `--choices()`
+  is a static list, so it would offer all ten values for every model while only a
+  subset is valid for any one of them — `fast` on an OpenAI model, `medium` on a
+  Kimi model. A per-model bound is not expressible in a static descriptor.
+  
+  Read `supportedReasoningLevels` off `nexus model list` for the set a given model
+  accepts.
+  
+  ## Why `minor` and not `major`
+  
+  Additive. One new optional key inside an existing object; the four it supersedes
+  keep their names, their values and their behaviour. No flag was added, removed or
+  re-spelled, and no `--json` document shape changed.
+- 61c6b9d: An organization's MCP server can be re-discovered from the API and the CLI
+  
+  `POST /public/v1/mcp-servers/:serverId/sync` asks for one registered MCP server to be
+  dialled again and its tool list reconciled. `client.mcpServers.sync(serverId)` is the
+  SDK method and `nexus mcp-server sync <serverId>` is the command.
+  
+  Until now the only way to re-trigger a discovery was a button in the dashboard. A
+  server connected before the discovery trigger shipped — or one whose discovery was
+  never queued — sat at zero tools with no door an operator driving Nexus from a script
+  could reach.
+  
+  ## It ASKS for a discovery; it does not wait for one
+  
+  The route answers **202** once the request is recorded. The discovery itself runs out of
+  band, because dialling a third-party server and walking `tools/list` is bounded at
+  eleven requests of 150 seconds and no client deadline covers that — a synchronous door
+  would convert slow-but-correct discoveries into requests the caller pays for and never
+  sees.
+  
+  **So `lastSyncOutcome` on the response is the verdict, never the status line or the
+  promise resolving:**
+  
+  - `QUEUED` — the request is recorded and the discovery has not run.
+  - `FAILED` with `lastSyncErrorCode: "DISCOVERY_NOT_QUEUED"` — the queue refused the job
+    and nothing is coming. The CLI reports this as a failure and exits non-zero.
+  - `SUCCEEDED` — a warm queue finished before the response was composed.
+  
+  The `tools` array and the `drift` report it returns are the PREVIOUS discovery's. Read
+  `GET /public/v1/mcp-servers/:serverId` — or `nexus mcp-server get` — for what the new
+  one found.
+  
+  ## It needs a new scope, `mcp_servers:write`
+  
+  Neither existing scope covers it. A discovery REPLACES a server's tool list: a tool the
+  remote has stopped advertising goes `REMOVED`, which breaks an agent skill pinned to it,
+  and the organization's auto-approval policy runs over what was found, so tools can
+  become callable that were not. `mcp_servers:execute` discloses only that a call leaves
+  for a third party with a stored credential, so filing the sync there would have widened
+  every already-minted key holding that scope to capabilities its operator was never
+  shown. `mcp_servers:write` carries its own sentence in the key-minting UI and, like
+  every `write` scope, also satisfies `mcp_servers:read`.
+  
+  ## The CLI leaf is `registration-only`
+  
+  It is a mutation and it needs a required `<serverId>`, so the sweep asserts it exists
+  and never fires it. It also carries a `third-party` probe barrier: the dial happens in a
+  background processor rather than in the request, and that does not change what an
+  operator is deciding.
+- 778c11b: An operator can ask a tenant cluster to roll every server
+  
+  `nexus admin vibe-tenant-cluster request-server-roll <organizationId> --reason <text>`
+  asks a HEALTHY dedicated cluster to roll every Nomad/Consul server through the
+  existing server roll: one surge member, then the old servers retired one at a
+  time. It answers `requested`, or — writing nothing — `already_pending`,
+  `reconcile_paused`, `not_settled` (the cluster is not HEALTHY) or `not_found`.
+  `--json` carries the server's answer.
+  
+  ## What changes for a caller who does not use it
+  
+  Nothing. The command count in `--help`, README and COMPATIBILITY moves by one
+  leaf; no existing command's flags, output or exit codes change.
+- 835f4f6: `nexus mcp-server list|get|call` reads this organization's connected MCP servers and calls one approved tool on one of them
+  
+  Nexus is the MCP **client** here, and the servers are the organization's own
+  third-party ones: a call dials a remote holding a credential the organization
+  stored, and spends it.
+  
+  - CLI: a new `mcp-server` noun, one file per leaf. `list` and `get` are reads —
+    `get` publishes all five tool statuses and the standing drift report — and
+    `call <serverId> <tool> --arguments '<json>'` is the protocol's own
+    `tools/call`. **Only an APPROVED tool is callable**; any other status is
+    refused before anything is dialled, so read `get` before `call`.
+  - SDK: `client.mcpServers` with `list()`, `get(serverId)` and `callTool(...)`,
+    plus the `McpServer*` and `CallMcpServerTool*` types.
+  
+  🔴 **`nexus mcp-server` and `nexus mcp` are opposite directions of one protocol
+  and their names differ by one suffix.** `nexus mcp` is Nexus ITSELF serving the
+  Public API as tools to an editor or an agent; it shares no tool, no row and no
+  catalog with this noun, and `nexus mcp tools list` answers `0` rather than
+  erroring. Both namespaces' `--help` now names the direction and points at the
+  other.
+  
+  The scopes are `mcp_servers:read` and `mcp_servers:execute`. They are not the
+  `tool` scopes, and `call` is deliberately not spelled `execute` — `nexus tool
+  execute` runs a catalogued integration action and the two are not
+  interchangeable.
+- 65539f6: The agent model config accepts `"none"` and `"minimal"` as effort words
+  
+  `thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel` and `kimiReasoningEffort` now accept `"none"`, which turns reasoning off on a model that can stop thinking. `reasoningEffort` also accepts `"minimal"`, which the gpt-5 family offers. The SDK's `ModelConfig` type and the CLI's contract help list the new words; `"auto"` is not accepted anywhere.
+  
+  Writing `"none"` is refused until the platform enables it, so a script that sends it today still gets the same refusal it got before.
+
+### Patch Changes
+
+- 0f5d183: A dashboard link the CLI guessed is said out loud, and `task create` refuses `category`
+  
+  **Dashboard links.** Every command that prints a `dashboardUrl` (`task get`,
+  `agent create`, `workflow get`, `nexus docs`, …) resolves the console host and
+  the API host through two independent chains. A profile saved by
+  `auth login --base-url http://localhost:3001` carries a `baseUrl` and no
+  `dashboardUrl`, so the request went to the laptop and the link fell back to
+  `https://gpt.nexus`, silently. The fallback stays. The CLI now warns on stderr
+  when the link came from the built-in default AND the request host's paired
+  console is not it:
+  
+      ⚠ Requests go to http://localhost:3001 but the dashboard link falls back to https://gpt.nexus.
+        Pin it once: nexus auth login --profile local --base-url http://localhost:3001 --dashboard-url http://localhost:3000
+        Or pass --dashboard-url on this command.
+  
+  A plain production profile never trips it: its request host pairs with the
+  default console. A typed `--dashboard-url`, a profile `dashboardUrl` or
+  `NEXUS_DASHBOARD_URL` is never second-guessed. `--json` stdout stays one
+  document; the warning is stderr only.
+  
+  **`task create` refuses `category`.** The body keys `category`, `classification`,
+  `extraction`, `translation` and `summarisation` were stripped by the v1 create
+  schema and the task saved as GENERATION, so a CLASSIFICATION create answered 201
+  for a task that was never made. They are now refused with a 400 naming the
+  field, like `promptText`. Every task created through the CLI is GENERATION; the
+  other categories are dashboard-only today. `task update` is unchanged.
+- fd5828d: A Role deletion request can be `SUPERSEDED`
+  
+  When an organization admin deletes a Role directly while a member's request to
+  delete it is still open, that request now moves to `SUPERSEDED` instead of
+  staying `PENDING` for a Role that no longer exists. A superseded request keeps
+  its `roleId` and carries no reviewer, because nobody reviewed it.
+  
+  `RoleDeletionRequest.status` is typed `RoleDeletionRequestStatus`, which adds
+  `SUPERSEDED` to the access-request states, and `client.roles.listDeletionRequests()`
+  takes `ListRoleDeletionRequestsParams`, so you can filter for it.
+  `nexus role deletion-requests --status superseded` does the same from the CLI.
+- 7e0230f: `collection query`: with `--include-metadata` omitted, the collection's own `includeMetadata` setting now decides whether results carry metadata, and a blank limit means the collection's `k` (capped at 50). The CLI help and the SDK's `CollectionQueryResult.metadata` comment say so.
+- 74955ee: `nexus mcp-server list` counts every tool status, so a REJECTED tool is visible without `get`
+  
+  The table rendered `approved`, `pending` and a combined `drifted = changed + removed` — four of
+  the five `McpToolStatus` members, dropping `REJECTED` entirely. A tool an administrator had
+  answered no to was uncounted in the list view and reachable only by running
+  `nexus mcp-server get <serverId>`.
+  
+  There is now one column per published status — `APPROVED`, `PENDING`, `CHANGED`, `REMOVED`,
+  `REJECTED` — and no combined one, because `changed + removed` reads as one number and is two
+  facts, and a rejection is an administrator's decision rather than the remote drifting. The
+  column set is derived from a map that is total over the published counts, so a status added
+  later cannot be silently uncollected again.
+  
+  `--json` is unchanged: it emits the API envelope, which already carried all five counts.
+  
+  A patch rather than a minor: no command, flag or machine-readable shape changed. This is a
+  status that was being dropped from human output.
+- e2b7631: `reasoningLevel` now appears in the provider-tuning help that left it out
+  
+  Two published help texts list the provider-tuning fields a model override accepts
+  under `--body`, and both named five of the six: the `modelConfig{…}` body-key run
+  printed by `nexus agent create --help`, and the "these have no flag" note printed
+  by `nexus task execute --help`. Both omitted `reasoningLevel` — the single level
+  field every provider reads, and the one the other four are deprecated in favour of
+  writing. The help therefore steered you at four superseded fields and hid the
+  current one.
+  
+  On `agent create` that cost more than a missing word. An unknown `--body` key is
+  silently stripped rather than refused, so an operator who trusted the list, could
+  not find the field and guessed at a spelling got a `201` back with no provider
+  tuning applied at all.
+  
+  Both lists now name all six fields, and they can no longer disagree with what the
+  commands accept. Read `supportedReasoningLevels` off `nexus model list` for the
+  values a given model takes.
+- dd4107a: `tracks list` is swept against staging rather than parked at `registration-only`
+  
+  The leaf's disposition is `safe`, so `scripts/sweep.sh` now EXECUTES it on every
+  PR instead of only asserting it is registered.
+  
+  Nothing a caller sees moves. No command, flag, argument, `--json` field or exit
+  code changes; `gen:json-shape --check` reports `up to date — 446 classified` and
+  the docs projection is `0 stale` across 53 pages, because neither reads this
+  table. What changes is which leaves the gate watches: `61 classified safe`
+  rather than 60, a published figure `compatibility-figures.test.ts` derives.
+  
+  ## Why it was parked, and why that reason is gone
+  
+  A disposition is a claim about a LIVE ROUTE rather than about a command's shape.
+  `tracks list` had every property `safe` asks for — read-only, no required
+  argument, emits `--json` — and `GET /api/public/v1/tracks` did not exist on the
+  deployed staging API, so a sweep that ran it reported
+  `FAIL tracks list exit=4: Not found: Cannot GET /api/public/v1/tracks`.
+  
+  The route answers now. Measured against `https://api-staging.gpt.nexus`: the
+  leaf exits 0 and emits a parseable envelope, and a coined neighbouring path
+  answers `404 Cannot GET /api/public/v1/tracks-not-a-real-route`, so the probe is
+  not reporting success for anything it is handed.
+  
+  `safe` rather than `safe-with-fixture` is deliberate: nothing seeds tracks, so
+  an organisation holding none answers `{"tracks":[]}`, and that is the correct
+  answer. The leaf proves the route is alive and shaped like JSON, never that any
+  track exists.
+  
+  ## The promotion adds no new credential requirement
+  
+  `tracks list` needs the `tracks:read` scope — the same scope `tracks ready`
+  needs, which the sweep already executes and which is already green. So the key
+  the sweep uses is known to carry what this leaf asks for, and promoting it
+  cannot red the gate for a credential reason.
+  
+  ## The probe that promotes a parked leaf is now runnable
+  
+  The namespace's standing rule told a reader to probe a candidate with
+  `api GET <route>`, and substituting a route as this package spells it produced a
+  command the CLI REFUSES locally: `api` prepends `/api/public/v1`, and both
+  `/api/public/v1/tracks` and `/public/v1/tracks` exit `5` with
+  `CLI_INVALID_ARGUMENTS` without a request leaving the machine. That non-zero is
+  indistinguishable from the route still being absent, and the control beside it
+  is refused in exactly the same way, so it could not catch the mistake either.
+  The rule now names the suffix and says what the two fuller spellings do.
+
 ## 1.11.0
 ### Minor Changes
 

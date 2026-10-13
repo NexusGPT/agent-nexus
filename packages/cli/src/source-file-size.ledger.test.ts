@@ -195,7 +195,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/asset.ts": 261,
   "commands/channel.contract.generated.ts": 167,
   "commands/claude-code.ts": 586,
-  "commands/collection.contract.generated.ts": 155,
+  "commands/collection.contract.generated.ts": 174,
   "commands/contract-help.ledger.ts": 583,
   "commands/contract-help.namespaces.ts": 524,
   "commands/conversation.contract.generated.ts": 168,

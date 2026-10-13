@@ -57,7 +57,10 @@ export function registerDocumentUpdateCommand(document: Command, program: Comman
         if (opts.name !== undefined) flags.name = opts.name;
         if (opts.description !== undefined) flags.description = opts.description;
         const metadataFlags = opts.metadata as string[];
-        if (metadataFlags.length > 0) flags.metadata = parseMetadataPairs(metadataFlags);
+        if (metadataFlags.length > 0) {
+          const metadata = parseMetadataPairs(metadataFlags);
+          flags.metadata = metadata;
+        }
         const body = mergeBodyWithFlags(base, flags);
 
         const doc = await client.documents.update(id, asRequestBody<UpdateDocumentBody>(body));

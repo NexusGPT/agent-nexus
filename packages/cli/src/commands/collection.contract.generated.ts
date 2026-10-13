@@ -15,7 +15,26 @@
 // `collection.ts` and printed in --help. The contract has already been the
 // wrong one: it lists a deployment type the server 500s on.
 
+import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";
+
+export const SKILLS_CREATE_COLLECTION__BODY_RERANKER = {
+  path: "SkillsCreateCollection.Body.reranker",
+  contractValues: [
+    "cohere-rerank-4-fast",
+    "bge-reranker-v2-m3",
+    "pinecone-rerank-v0"
+  ]
+} as const satisfies ContractEnum;
+
+export const SKILLS_UPDATE_COLLECTION__BODY_RERANKER = {
+  path: "SkillsUpdateCollection.Body.reranker",
+  contractValues: [
+    "cohere-rerank-4-fast",
+    "bge-reranker-v2-m3",
+    "pinecone-rerank-v0"
+  ]
+} as const satisfies ContractEnum;
 
 export const SKILLS_ATTACH_COLLECTION_DOCUMENTS_CONTRACT = {
   name: "SkillsAttachCollectionDocuments",
@@ -36,7 +55,7 @@ export const SKILLS_CREATE_COLLECTION_CONTRACT = {
     { path: "Body.displayName", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.k", slot: "Body", type: "integer", required: false, depth: 0 },
-    { path: "Body.reranker", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.reranker", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["cohere-rerank-4-fast", "bge-reranker-v2-m3", "pinecone-rerank-v0"] },
     { path: "Body.preciseResponses", slot: "Body", type: "boolean", required: false, depth: 0 },
     { path: "Body.includeMetadata", slot: "Body", type: "boolean", required: false, depth: 0 }
   ]
@@ -147,7 +166,7 @@ export const SKILLS_UPDATE_COLLECTION_CONTRACT = {
     { path: "Body.displayName", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.description", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.k", slot: "Body", type: "integer", required: false, depth: 0 },
-    { path: "Body.reranker", slot: "Body", type: "string", required: false, depth: 0 },
+    { path: "Body.reranker", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["cohere-rerank-4-fast", "bge-reranker-v2-m3", "pinecone-rerank-v0"] },
     { path: "Body.preciseResponses", slot: "Body", type: "boolean", required: false, depth: 0 },
     { path: "Body.includeMetadata", slot: "Body", type: "boolean", required: false, depth: 0 },
     { path: "Body.isActive", slot: "Body", type: "boolean", required: false, depth: 0 }

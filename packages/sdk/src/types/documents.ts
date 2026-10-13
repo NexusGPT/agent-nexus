@@ -123,7 +123,10 @@ export interface CreateTextDocumentBody {
   content: string;
   /** Optional description. */
   description?: string;
-  /** Optional filterable metadata (e.g. `{ language: "fr" }`). */
+  /**
+   * Optional filterable metadata (e.g. `{ language: "fr" }`).
+   * Keys follow the rule on {@link DocumentMetadataInput}.
+   */
   metadata?: DocumentMetadataInput;
 }
 
@@ -141,7 +144,10 @@ export interface AddWebsiteDocumentBody {
   };
   /** Optional description. */
   description?: string;
-  /** Optional filterable metadata, inherited by every crawled page. */
+  /**
+   * Optional filterable metadata, inherited by every crawled page.
+   * Keys follow the rule on {@link DocumentMetadataInput}.
+   */
   metadata?: DocumentMetadataInput;
 }
 
@@ -165,6 +171,10 @@ export interface CreateGoogleSheetDocumentBody {
  * User-declared, filterable document attributes (e.g. `{ language: "fr" }`).
  * Mirrors the Public API contract: scalars and arrays of scalars are accepted;
  * the server coerces every value to a string / string[] and strips reserved keys.
+ *
+ * Key rule: a key uses letters, digits, `-` or `_`, does not start with `_`, and
+ * is at most 64 characters. The API answers 400 naming the key that breaks the
+ * rule; this package does not check keys before the request.
  */
 export type DocumentMetadataInput = Record<
   string,
@@ -243,7 +253,10 @@ export interface UpdateDocumentBody {
   description?: string;
   /** Replacement tag list. */
   tags?: string[];
-  /** Replacement search metadata. */
+  /**
+   * Replacement search metadata.
+   * Keys follow the rule on {@link DocumentMetadataInput}.
+   */
   metadata?: DocumentMetadataInput;
 }
 

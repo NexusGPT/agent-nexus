@@ -5,6 +5,17 @@ import type { FolderRef } from "./workflows";
 // SHARED
 // ============================================================================
 
+/**
+ * The hosted reranking models a collection may name in `reranker`:
+ * `"cohere-rerank-4-fast"` (the model a search uses when the collection names
+ * none), `"bge-reranker-v2-m3"` and `"pinecone-rerank-v0"`. The API refuses any
+ * other name with a 400 that lists these three.
+ *
+ * Hand-mirrored from `RERANKER_MODELS` in the API's shared domain types, because
+ * this package never imports `@nexus/types` at runtime.
+ */
+export type RerankerModel = "cohere-rerank-4-fast" | "bge-reranker-v2-m3" | "pinecone-rerank-v0";
+
 /** Common query parameters for all skills list endpoints. */
 export interface ListSkillsCommonParams {
   /** Free-text search within names and descriptions. */
@@ -743,8 +754,12 @@ export interface CreateCollectionBody {
   description?: string;
   /** Number of chunks to retrieve per query (default 10). */
   k?: number;
-  /** Reranker model name. */
-  reranker?: string;
+  /**
+   * The reranking model this collection's searches use — one of
+   * {@link RerankerModel}. Omitted, searches use `"cohere-rerank-4-fast"`. The
+   * API refuses an unknown name with a 400.
+   */
+  reranker?: RerankerModel;
   /** Whether to use precise responses (default false). */
   preciseResponses?: boolean;
   /** Whether to include metadata (default false). */
@@ -943,8 +958,12 @@ export interface UpdateCollectionBody {
   description?: string;
   /** Number of chunks to retrieve per query. */
   k?: number;
-  /** Reranking model name — the same shape `createCollection` accepts. */
-  reranker?: string;
+  /**
+   * The reranking model this collection's searches use — one of
+   * {@link RerankerModel}, the same values `createCollection` accepts. The API
+   * refuses an unknown name with a 400.
+   */
+  reranker?: RerankerModel;
   /** Return fewer, higher-confidence chunks. */
   preciseResponses?: boolean;
   /** Attach document metadata to retrieved chunks. */

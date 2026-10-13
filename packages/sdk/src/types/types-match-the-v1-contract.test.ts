@@ -27,6 +27,7 @@ import {
   ConnectToolBodySchema,
   ConnectToolHttpBodySchema,
   ConnectToolOAuthBodySchema,
+  CreateCollectionBodySchema,
   CreateDeploymentFolderBodySchema,
   CreateDocumentTemplateFolderBodySchema,
   CreateFolderBodySchema,
@@ -94,6 +95,7 @@ import {
   SkillFolderSchema,
   TraceDetailSchema,
   TraceSummarySchema,
+  UpdateCollectionBodySchema,
   UpdateDeploymentFolderBodySchema,
   UpdateDocumentTemplateFolderBodySchema,
   UpdateFolderBodySchema,
@@ -203,7 +205,12 @@ import type {
   SkillFolder,
   UpdateSkillFolderBody
 } from "./skill-folders";
-import type { ExternalToolDetail, ListExternalToolsResponse } from "./skills";
+import type {
+  CreateCollectionBody,
+  ExternalToolDetail,
+  ListExternalToolsResponse,
+  UpdateCollectionBody
+} from "./skills";
 import type { ConnectToolBody, ConnectToolHttpBody, ConnectToolOAuthBody } from "./tool-connection";
 import type { GenerationDetail, GenerationSummary, TraceDetail, TraceSummary } from "./tracing";
 import type {
@@ -722,7 +729,26 @@ export type V1ContractAssertions = [
   // union around it — not detection.
   Expect<Equals<ConnectToolOAuthBody, Sent<typeof ConnectToolOAuthBodySchema>>>,
   Expect<Equals<ConnectToolHttpBody, Sent<typeof ConnectToolHttpBodySchema>>>,
-  Expect<Equals<ConnectToolBody, Sent<typeof ConnectToolBodySchema>>>
+  Expect<Equals<ConnectToolBody, Sent<typeof ConnectToolBodySchema>>>,
+
+  // ── the collection reranker ── /public/v1/skills/collections, create and update
+  //
+  // ONE FIELD, NOT THE BODY. `reranker` is this package's hand-mirrored
+  // `RerankerModel` union, and the contract's `RerankerModelSchema` enum is the
+  // list the server refuses against with a 400. A member added to the enum
+  // without this union following it is the "member the SDK omits" direction
+  // above: a legal model no SDK caller can name, with nothing going red.
+  //
+  // The field rather than the whole body because the two bodies carry
+  // `.default()`s (`k`, `preciseResponses`, `includeMetadata`) whose `Sent<>`
+  // shape is deliberately not what this package publishes; that gap stays
+  // unchecked and is named here rather than hidden behind a passing pair.
+  Expect<
+    Equals<CreateCollectionBody["reranker"], Sent<typeof CreateCollectionBodySchema>["reranker"]>
+  >,
+  Expect<
+    Equals<UpdateCollectionBody["reranker"], Sent<typeof UpdateCollectionBodySchema>["reranker"]>
+  >
 ];
 
 /**
@@ -854,7 +880,10 @@ const GATED_PAIRS = [
 
   "ConnectToolOAuthBody ↔ ConnectToolOAuthBodySchema",
   "ConnectToolHttpBody ↔ ConnectToolHttpBodySchema",
-  "ConnectToolBody ↔ ConnectToolBodySchema"
+  "ConnectToolBody ↔ ConnectToolBodySchema",
+
+  "CreateCollectionBody.reranker ↔ CreateCollectionBodySchema.reranker",
+  "UpdateCollectionBody.reranker ↔ UpdateCollectionBodySchema.reranker"
 ] as const;
 
 /**
@@ -1041,7 +1070,12 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // +3: the file version history and the revert body/response —
 // `nexus workspace history` and `nexus workspace revert` branch on their
 // `kind` / `outcome` discriminators.
-const GATED_PAIR_FLOOR = 113;
+//
+// +2: the collection `reranker` field on the create and update bodies. The
+// SDK's `RerankerModel` union is hand-mirrored from the contract's enum, and
+// these two pairs are the only thing that reds when the enum gains or loses a
+// model without the union following it (NEX-4608).
+const GATED_PAIR_FLOOR = 115;
 
 /**
  * The COMPILE-TIME half of the ratchet.

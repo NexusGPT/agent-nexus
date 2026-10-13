@@ -115,10 +115,11 @@ export function registerDocumentAddWebsiteCommand(document: Command, program: Co
           );
           return;
         }
+        const metadata = metadataFlags.length > 0 ? parseMetadataPairs(metadataFlags) : undefined;
         const body = mergeBodyWithFlags(base, {
           ...(opts.url !== undefined && { url: opts.url }),
           mode,
-          ...(metadataFlags.length > 0 && { metadata: parseMetadataPairs(metadataFlags) })
+          ...(metadata !== undefined && { metadata })
         });
 
         const doc = await client.documents.addWebsite(asRequestBody<AddWebsiteDocumentBody>(body));

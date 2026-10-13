@@ -46,6 +46,10 @@ Notes:
   only way to avoid a follow-up "collection update" — which does carry a
   --reranker flag, unlike this command.
 
+  reranker names the model that orders the search results: cohere-rerank-4-fast
+  (the default when none is stored), bge-reranker-v2-m3 or pinecone-rerank-v0.
+  The server refuses any other name with a 400 that lists these three.
+
   THE CREATE RESPONSE ECHOES NOTHING YOU SET. Under --json it prints success,
   message, id and name and stops there: the server sends the whole stored
   collection back and this command keeps two fields of it. So a --body key that
@@ -73,6 +77,8 @@ Notes:
       }
     });
 
-  bindCommand(leaf, SKILLS_CREATE_COLLECTION_CONTRACT);
+  bindCommand(leaf, SKILLS_CREATE_COLLECTION_CONTRACT, {
+    "Body.reranker": "set through --body only on create; collection update carries --reranker"
+  });
   return leaf;
 }

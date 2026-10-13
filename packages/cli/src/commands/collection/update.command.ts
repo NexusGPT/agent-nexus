@@ -2,11 +2,14 @@ import type { UpdateCollectionBody } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { createClient } from "../../client";
-import { bindCommand } from "../../contract-binding";
+import { bindCommand, enumOption } from "../../contract-binding";
 import { handleError } from "../../errors";
 import { printSuccess } from "../../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../../util/body";
-import { SKILLS_UPDATE_COLLECTION_CONTRACT } from "../collection.contract.generated";
+import {
+  SKILLS_UPDATE_COLLECTION__BODY_RERANKER,
+  SKILLS_UPDATE_COLLECTION_CONTRACT
+} from "../collection.contract.generated";
 
 /** `nexus collection update` */
 export function registerCollectionUpdateCommand(collection: Command, program: Command): Command {
@@ -17,19 +20,23 @@ export function registerCollectionUpdateCommand(collection: Command, program: Co
     .option("--display-name <name>", "Display name")
     .option("--description <text>", "Description")
     .option("--k <number>", "Number of results", parseInt)
-    .option("--reranker <model>", "Reranking model name")
+    .addOption(
+      enumOption("--reranker <model>", "Reranking model", SKILLS_UPDATE_COLLECTION__BODY_RERANKER)
+    )
     .option("--body <json>", "Request body as JSON, .json file, or '-' for stdin")
     .addHelpText(
       "after",
       `
 Examples:
   $ nexus collection update 11111111-1111-4111-8111-111111111111 --display-name "Updated FAQ"
-  $ nexus collection update 11111111-1111-4111-8111-111111111111 --k 20 --reranker zerank-1
+  $ nexus collection update 11111111-1111-4111-8111-111111111111 --k 20 --reranker cohere-rerank-4-fast
   $ nexus collection update 11111111-1111-4111-8111-111111111111 --body '{"displayName":"Updated"}'
 
 Notes:
-  --reranker takes a reranking MODEL NAME, passed through to the retrieval
-  provider. It is not an on/off switch, and "--reranker true" is rejected.
+  --reranker names the model that orders the search results: cohere-rerank-4-fast
+  (the default when none is stored), bge-reranker-v2-m3 or pinecone-rerank-v0.
+  It is not an on/off switch. ANY OTHER NAME IS REFUSED BEFORE THE REQUEST IS
+  SENT, with the allowed list; a "reranker" inside --body is checked by the server.
 
   Only the fields you send are written; everything you omit keeps its stored
   value. There is no way to clear --description or --reranker back to unset here.

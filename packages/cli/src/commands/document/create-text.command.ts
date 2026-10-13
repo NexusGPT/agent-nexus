@@ -55,7 +55,10 @@ export function registerDocumentCreateTextCommand(document: Command, program: Co
         if (opts.content) flags.content = await resolveInputValue(opts.content);
         if (opts.description !== undefined) flags.description = opts.description;
         const metadataFlags = opts.metadata as string[];
-        if (metadataFlags.length > 0) flags.metadata = parseMetadataPairs(metadataFlags);
+        if (metadataFlags.length > 0) {
+          const metadata = parseMetadataPairs(metadataFlags);
+          flags.metadata = metadata;
+        }
 
         const body = mergeBodyWithFlags(base, flags);
 

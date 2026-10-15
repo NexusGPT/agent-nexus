@@ -24,15 +24,26 @@
 import { lineCounts, renderDiff } from "./line-diff";
 import { RELEASE_STALENESS_TOLERANCE_HOURS } from "./release-deadline";
 
+/**
+ * One file as the payload stores it. `encoding` is absent for text and
+ * `"base64"` for a binary file; a value this script does not know is reported as
+ * such rather than rendered as if it were text.
+ */
+interface PayloadFile {
+  path: string;
+  content: string;
+  encoding?: string;
+}
+
 /** The fields of `skills-content.generated.json` this reads. */
 export interface BundlePayload {
   sha: string;
-  SKILLS: Record<string, { files: { path: string; content: string }[] }>;
+  SKILLS: Record<string, { files: PayloadFile[] }>;
   CLAUDE_MD: string;
-  SHARED_FILES: { path: string; content: string }[];
+  SHARED_FILES: PayloadFile[];
   SETTINGS_JSON: string;
-  HOOK_FILES: { path: string; content: string }[];
-  AGENT_FILES: { path: string; content: string }[];
+  HOOK_FILES: PayloadFile[];
+  AGENT_FILES: PayloadFile[];
 }
 
 const UPSTREAM = "https://github.com/NexusGPT/claude-code-skills-nexus";
@@ -128,21 +139,40 @@ function renderSettings(before: string, after: string): string[] {
   return lines;
 }
 
-function renderFiles(
-  label: string,
-  before: { path: string; content: string }[],
-  after: { path: string; content: string }[]
-): string[] {
-  const was = new Map(before.map((f) => [f.path, f.content]));
-  const now = new Map(after.map((f) => [f.path, f.content]));
+/**
+ * What changed in one file, for its row. A binary file has no lines, so it is
+ * described by its decoded size; counting the lines of its base64 would report
+ * `+1 −1` for any change at all.
+ */
+function describeChange(before: PayloadFile | undefined, after: PayloadFile | undefined): string {
+  const binary = (f: PayloadFile | undefined): boolean => f?.encoding !== undefined;
+  if (binary(before) || binary(after)) {
+    const size = (f: PayloadFile | undefined): string => {
+      if (f === undefined) return "absent";
+      if (f.encoding === undefined) return "text";
+      if (f.encoding !== "base64") return `encoding ${JSON.stringify(f.encoding)}`;
+      return `binary, ${Buffer.from(f.content, "base64").length} bytes`;
+    };
+    if (before === undefined) return size(after);
+    if (after === undefined) return size(before);
+    return `${size(before)} → ${size(after)}`;
+  }
+  return lineCounts(before?.content ?? "", after?.content ?? "");
+}
+
+function renderFiles(label: string, before: PayloadFile[], after: PayloadFile[]): string[] {
+  const was = new Map(before.map((f) => [f.path, f]));
+  const now = new Map(after.map((f) => [f.path, f]));
   const paths = [...new Set([...was.keys(), ...now.keys()])].sort();
   const rows: string[] = [];
   for (const p of paths) {
     const b = was.get(p);
     const a = now.get(p);
-    if (b === undefined) rows.push(`- \`${label}${p}\` — **added** (${lineCounts("", a ?? "")})`);
-    else if (a === undefined) rows.push(`- \`${label}${p}\` — **removed** (${lineCounts(b, "")})`);
-    else if (a !== b) rows.push(`- \`${label}${p}\` — modified (${lineCounts(b, a)})`);
+    if (b === undefined) rows.push(`- \`${label}${p}\` — **added** (${describeChange(b, a)})`);
+    else if (a === undefined)
+      rows.push(`- \`${label}${p}\` — **removed** (${describeChange(b, a)})`);
+    else if (a.content !== b.content || a.encoding !== b.encoding)
+      rows.push(`- \`${label}${p}\` — modified (${describeChange(b, a)})`);
   }
   return rows;
 }

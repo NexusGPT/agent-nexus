@@ -299,8 +299,12 @@ describe("one walk carries the metadata a rendering throws away", () => {
 
     // Attribution is refused, not guessed, when a module registers more than one
     // visible namespace. Empty today; a red here is a new shape to look at, not
-    // a regression to silence.
-    expect(await unattributedHiddenSiblings()).toEqual([]);
+    // a regression to silence. The walk it sweeps is floored first — a walk that
+    // resolved no module leaves nothing to refuse. 54 modules on 2026-10-13.
+    const modules = await deriveCommandModules();
+    expect(modules.length, "the module walk resolved almost nothing").toBeGreaterThan(40);
+    expect(modules.map((module) => module.sourceModule)).toContain("upgrade.ts");
+    expect(await unattributedHiddenSiblings(modules)).toEqual([]);
   });
 
   it("captures the addHelpText prose that helpInformation() drops", async () => {

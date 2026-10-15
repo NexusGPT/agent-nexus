@@ -126,6 +126,31 @@ describe("hooks and skills", () => {
     );
     expect(md.split("\n")).toContain("- `nexus-b` — **new skill**, 1 file(s)");
   });
+
+  it("describes a binary hook by its decoded size, never by base64 line counts", () => {
+    const v1 = Buffer.from([0x1f, 0x8b, 0x08, 0x00]).toString("base64");
+    const v2 = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xff]).toString("base64");
+    const md = renderBundleDelta(
+      payload("a".repeat(40), {
+        HOOK_FILES: [
+          { path: "kit.tgz", content: v1, encoding: "base64" },
+          { path: "was-text.bin", content: "plain" }
+        ]
+      }),
+      payload("b".repeat(40), {
+        HOOK_FILES: [
+          { path: "kit.tgz", content: v2, encoding: "base64" },
+          { path: "new.tgz", content: v1, encoding: "base64" },
+          { path: "was-text.bin", content: v1, encoding: "base64" }
+        ]
+      })
+    );
+    expect(md.split("\n").filter((l) => l.startsWith("- `hooks/"))).toEqual([
+      "- `hooks/kit.tgz` — modified (binary, 4 bytes → binary, 5 bytes)",
+      "- `hooks/new.tgz` — **added** (binary, 4 bytes)",
+      "- `hooks/was-text.bin` — modified (text → binary, 4 bytes)"
+    ]);
+  });
 });
 
 describe("an unchanged bundle says so in one line, and differently", () => {

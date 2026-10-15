@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit. Run: pnpm run gen:skills
-// Source: NexusGPT/claude-code-skills-nexus@33890ffc9591f0bb0ac750f4d66d869b55406990
+// Source: NexusGPT/claude-code-skills-nexus@cde9e3dc30f3b70b1c2875cb781595d61cff3840
 //
 // The BULK of the bundled skills lives in `skills-content.generated.json`, beside
 // this file, and is read on FIRST USE rather than compiled into the CLI bundle.
@@ -19,9 +19,18 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * How a file's `content` is stored. ABSENT means UTF-8 text, which is every file
+ * a bundle held before binary files could ship. `"base64"` means the content is
+ * the file's bytes, base64-encoded and untrimmed. The installer decodes by this
+ * marker alone (`skill-file.decode.ts`) and refuses a value it does not know.
+ */
+export type SkillFileEncoding = "base64";
+
 export interface SkillFile {
   path: string;
   content: string;
+  encoding?: SkillFileEncoding;
 }
 
 export interface SkillEntry {
@@ -30,7 +39,7 @@ export interface SkillEntry {
   files: SkillFile[];
 }
 
-export const SKILLS_NEXUS_SHA: string = "33890ffc9591f0bb0ac750f4d66d869b55406990";
+export const SKILLS_NEXUS_SHA: string = "cde9e3dc30f3b70b1c2875cb781595d61cff3840";
 
 /** The shape written by `scripts/bundle-skills.ts` into the JSON asset. */
 interface SkillsPayload {

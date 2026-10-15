@@ -391,7 +391,7 @@ const EXPECTED_BARE_ONE_SITES: readonly string[] = [
   "commands/auth/switch.command.ts",
   "commands/auth/switch.here.ts",
   "commands/auth/switch.session.ts",
-  "commands/skills.ts"
+  "commands/skills/update.command.ts"
 ];
 
 describe("no exit code is written as a number outside the taxonomy module", () => {

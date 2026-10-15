@@ -13,6 +13,7 @@ import {
   SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER,
   SKILLS_CREATE_TASK_CONTRACT
 } from "../task.contract.generated";
+import { REASONING_LEVEL_IS_BODY_ONLY } from "./_shared/reasoning-level-is-body-only";
 import { TASK_CREATE_HELP } from "./copy/create-help";
 
 /** `nexus task create` — a new AI task. */
@@ -92,6 +93,7 @@ export function registerTaskCreateCommand(task: Command, program: Command): void
     // so. Declaring them here is what stops the gate reading a deliberate
     // omission as a field somebody forgot to expose.
     "Body.inputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
-    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out"
+    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
+    "Body.reasoningLevel": REASONING_LEVEL_IS_BODY_ONLY
   });
 }

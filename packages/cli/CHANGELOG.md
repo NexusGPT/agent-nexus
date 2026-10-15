@@ -5,9 +5,13 @@
 
 - 1fe2860: `modelConfig.reasoningLevel` — one thinking-level field in `--body`
   
-  `nexus agent create`, `nexus agent update` and the task verbs accept a new
-  `reasoningLevel` inside `--body`'s `modelConfig`, and it is the field the platform
-  now reads when it decides how hard a model thinks for a turn.
+  `nexus agent create` and `nexus agent update` accept a new `reasoningLevel` inside
+  `--body`'s `modelConfig`, and `nexus task execute` accepts it inside `--body`'s
+  `modelOverride`, beside `modelName` and `modelProvider` — a task body has no
+  `modelConfig`. It is the field the platform now reads when it decides how hard a
+  model thinks for a turn. (Task create and update do not store it in this release;
+  a later entry in this changelog covers `reasoningLevel` at the top level of their
+  `--body`.)
   
   **Nothing you already send breaks.** `thinkingLevel`, `reasoningEffort`,
   `geminiThinkingLevel` and `kimiReasoningEffort` are still accepted and still read

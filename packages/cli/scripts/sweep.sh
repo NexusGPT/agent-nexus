@@ -697,12 +697,39 @@ done
 # owns it: the leaf that answered is the leaf that reports it, with the entry to
 # delete named in its own note. A second loop here would be a second place for the
 # same verdict to live.
+#
+# 🚨 STALENESS REQUIRES THE ENVIRONMENT TO HAVE *ANSWERED*, WHICH IS EXIT 0 FROM
+# THE CLI — SO `PASS` OR `WARN`, NEVER MERELY "NOT A SKIP".
+#
+# The test here read `!= SKIP` and that made an OUTAGE look like good news. During
+# the staging outage of 2026-10-15, `CLI: Sweep` (run 38676794108, attempt 1)
+# printed, under the headline
+# "This is GOOD NEWS and fails nothing: the environment answers again":
+#
+#   · role automation-settings answered FAIL        · role list answered FAIL
+#   · role governance answered FAIL                 · ticket list answered FAIL
+#   · role job-types answered FAIL
+#
+# All five are legitimate opt-out declarations whose leaves had 503'd like every
+# other leaf in the run. A reader following the remedy printed beside them would
+# have deleted five correct declarations — and then the next time those features
+# are opted out, each leaf reports an UNDECLARED SKIP instead, with the CAUSE that
+# justified the declaration gone from the tree.
+#
+# ⚠️ WARN COUNTS AS AN ANSWER, which is not an oversight either: a WARN is exit 0
+# from the CLI with a response that did not parse as JSON, so the environment
+# served this leaf and the opt-out really has lifted. That the response is
+# malformed is a separate finding, and `--strict` already fails on it.
+#
+# FAIL and PENDING are not answers. A FAIL is any error at all — a 503, a 401, an
+# unrelated regression — and a PENDING is a route the deployed API does not serve,
+# so neither tells you whether the policy opt-out has been lifted.
 STALE_SKIPS=()
 while IFS= read -r declared; do
   [[ -z "$declared" ]] && continue
   for r in "${RESULTS[@]}"; do
     IFS='|' read -r st pa _ <<< "$r"
-    if [[ "$pa" == "$declared" && "$st" != "SKIP" ]]; then
+    if [[ "$pa" == "$declared" && ("$st" == "PASS" || "$st" == "WARN") ]]; then
       # `path|status`, not a prose string: the text and JSON paths both render
       # from this, so the two cannot describe different sets of stale leaves.
       STALE_SKIPS+=("$declared|$st")

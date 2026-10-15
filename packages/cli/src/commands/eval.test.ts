@@ -6,6 +6,7 @@ import { GoldenConversationsResource } from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 
 /**
@@ -218,10 +219,44 @@ describe("eval conv checkpoint", () => {
     expect(options.body).toEqual({ isCheckpoint: false });
   });
 
-  it("refuses when neither --on nor --off is given, without calling the API", async () => {
-    await run(["eval", "conv", "checkpoint", "--conversation-id", CONV, "--index", "3"]);
+  /**
+   * 🔴 `expect(process.exitCode).not.toBe(0)` IS VACUOUS HERE AND THAT IS WHAT
+   * THIS BLOCK REPLACES. `process.exitCode` is `undefined` until something sets
+   * it, and `undefined !== 0`, so the loose arm passed over a bare
+   * `refuse(...)` whose return value — the exit code — was thrown away. The
+   * command printed a refusal and exited 0.
+   *
+   * So each arm PINS the code to `invalid-input` and SEEDS `0` first, which is
+   * the only shape that reds on the discarded-return bytes.
+   */
+  it.each([
+    ["neither --on nor --off", ["--conversation-id", CONV, "--index", "3"]],
+    ["both --on and --off", ["--conversation-id", CONV, "--index", "3", "--on", "--off"]]
+  ])("refuses %s with the invalid-input code, without calling the API", async (_label, flags) => {
+    process.exitCode = 0;
+    await run(["eval", "conv", "checkpoint", ...flags]);
     expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).not.toBe(0);
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
+    process.exitCode = 0;
+  });
+
+  it("refuses unparseable --criteria with the invalid-input code", async () => {
+    const file = writeTmp("{not json");
+    process.exitCode = 0;
+    await run([
+      "eval",
+      "conv",
+      "checkpoint",
+      "--conversation-id",
+      CONV,
+      "--index",
+      "3",
+      "--on",
+      "--criteria",
+      file
+    ]);
+    expect(request).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
     process.exitCode = 0;
   });
 });

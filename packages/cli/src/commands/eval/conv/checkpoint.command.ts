@@ -43,11 +43,11 @@ Notes:
       }) => {
         try {
           if (opts.on === undefined && opts.off === undefined) {
-            refuse("Pass --on or --off.");
+            process.exitCode = refuse("Pass --on or --off.");
             return;
           }
           if (opts.on !== undefined && opts.off !== undefined) {
-            refuse("Pass --on or --off, not both.");
+            process.exitCode = refuse("Pass --on or --off, not both.");
             return;
           }
           let criteria: { name: string; rubric: string; weight?: number }[] | undefined;
@@ -57,7 +57,7 @@ Notes:
             try {
               criteria = JSON.parse(raw) as { name: string; rubric: string; weight?: number }[];
             } catch {
-              refuse(`--criteria is not valid JSON: ${opts.criteria}`);
+              process.exitCode = refuse(`--criteria is not valid JSON: ${opts.criteria}`);
               return;
             }
           }

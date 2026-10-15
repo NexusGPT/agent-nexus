@@ -2,9 +2,9 @@ import type { WorkspaceKind } from "@agent-nexus/sdk";
 
 import type { Engine, MountRecord, MountScope } from "../../mount-registry";
 import { color, isJsonMode, printSuccess } from "../../output";
-import { printMountFooter } from "../workspace-mount-direct";
 import type { MountOutcome } from "./mount-outcome";
 import { printGrantedReadOnly } from "./print-granted-read-only";
+import { printMountFooter } from "./print-mount-footer";
 import { printPendingUploads } from "./print-pending-uploads";
 import {
   actingOrgNameFor,

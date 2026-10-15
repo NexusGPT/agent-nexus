@@ -37,6 +37,23 @@ export const SKILLS_CREATE_TASK__BODY_MODEL_PROVIDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const SKILLS_CREATE_TASK__BODY_REASONING_LEVEL = {
+  path: "SkillsCreateTask.Body.reasoningLevel",
+  contractValues: [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "fast",
+    "detailed",
+    "extended",
+    "dynamic",
+    "none"
+  ]
+} as const satisfies ContractEnum;
+
 export const SKILLS_CREATE_TASK__BODY_INPUT_FORMAT = {
   path: "SkillsCreateTask.Body.inputFormat",
   contractValues: [
@@ -162,6 +179,23 @@ export const SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER = {
   ]
 } as const satisfies ContractEnum;
 
+export const SKILLS_UPDATE_TASK__BODY_REASONING_LEVEL = {
+  path: "SkillsUpdateTask.Body.reasoningLevel",
+  contractValues: [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "fast",
+    "detailed",
+    "extended",
+    "dynamic",
+    "none"
+  ]
+} as const satisfies ContractEnum;
+
 export const SKILLS_UPDATE_TASK__BODY_INPUT_FORMAT = {
   path: "SkillsUpdateTask.Body.inputFormat",
   contractValues: [
@@ -192,6 +226,7 @@ export const SKILLS_CREATE_TASK_CONTRACT = {
     { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.temperature", slot: "Body", type: "number", required: false, depth: 0 },
+    { path: "Body.reasoningLevel", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["minimal", "low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "none"] },
     { path: "Body.inputFormat", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["text", "json"] },
     { path: "Body.outputFormat", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["text", "json", "template"] },
     { path: "Body.multimodal", slot: "Body", type: "boolean", required: false, depth: 0 },
@@ -270,6 +305,7 @@ export const SKILLS_UPDATE_TASK_CONTRACT = {
     { path: "Body.customModelId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.prompt", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.temperature", slot: "Body", type: "number", required: false, depth: 0 },
+    { path: "Body.reasoningLevel", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["minimal", "low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "none"] },
     { path: "Body.inputFormat", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["text", "json"] },
     { path: "Body.outputFormat", slot: "Body", type: "string", required: false, depth: 0, enumValues: ["text", "json", "template"] },
     { path: "Body.multimodal", slot: "Body", type: "boolean", required: false, depth: 0 },

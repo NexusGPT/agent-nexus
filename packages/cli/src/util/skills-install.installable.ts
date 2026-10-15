@@ -1,5 +1,6 @@
 import type { SkillEntry, SkillFile } from "../skills-content.generated";
 import type { SkillsCorpus } from "../skills-corpus/corpus";
+import { skillFileBytes } from "../skills-corpus/skill-file.decode";
 
 export interface InstallableSkill {
   slug: string;
@@ -12,17 +13,15 @@ export interface InstallableSkill {
 // SAME one: a builder that fell back to the bundle on its own would mix two
 // commits into one tree with nothing to notice it.
 //
-// The corpus stores file contents as UTF-8 strings and `writeSkillFiles` writes
-// raw buffers, so the round-trip is lossless exactly while every file is valid
-// UTF-8. Both sources enforce that before a corpus exists: `bundle-skills.ts`
-// fails the build, and the platform refuses the upload.
+// `writeSkillFiles` writes raw buffers, and `skillFileBytes` is the one place a
+// stored file becomes them: UTF-8 text by default, base64 where the file carries
+// `encoding: "base64"`, and a refusal for any marker this CLI does not know. Every
+// builder below runs while the install PLAN is built, before anything is written,
+// so a refusal leaves the target untouched.
 function corpusTreeToInstallable(slug: string, files: readonly SkillFile[]): InstallableSkill {
   return {
     slug,
-    files: files.map((f) => ({
-      path: f.path,
-      content: Buffer.from(f.content, "utf-8")
-    }))
+    files: files.map((f) => ({ path: f.path, content: skillFileBytes(f) }))
   };
 }
 

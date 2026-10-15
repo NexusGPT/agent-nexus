@@ -19,7 +19,7 @@
  */
 
 import { flattenCommands } from "./build-node";
-import type { CommandNamespace, CommandNode } from "./command-node";
+import type { CommandModule, CommandNamespace, CommandNode } from "./command-node";
 import { deriveCommandModules } from "./derive-modules";
 
 /**
@@ -110,11 +110,17 @@ export async function deriveCommandNamespaces(): Promise<CommandNamespace[]> {
 /**
  * Modules whose hidden siblings could not be attributed, because the module
  * registers more than one visible namespace. Reported, never guessed.
+ *
+ * `modules` is the walk this sweeps, and it is a parameter so a caller holding
+ * an empty answer can say how much was swept: an empty result over a walk that
+ * resolved no module reads exactly like a clean tree. Omitted, it is the walk.
  */
-export async function unattributedHiddenSiblings(): Promise<string[]> {
+export async function unattributedHiddenSiblings(
+  modules?: readonly CommandModule[]
+): Promise<string[]> {
   const orphans: string[] = [];
 
-  for (const module of await deriveCommandModules()) {
+  for (const module of modules ?? (await deriveCommandModules())) {
     const visible = module.roots.filter((root) => !root.hidden);
     const hidden = module.roots.filter((root) => root.hidden);
     if (hidden.length > 0 && visible.length !== 1) {

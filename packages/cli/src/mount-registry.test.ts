@@ -1512,9 +1512,17 @@ describe("the VFS cache: pending uploads and what unmount may delete", () => {
     fs.rmSync(cacheDir, { recursive: true, force: true });
   });
 
-  it("counts zero and holds nothing when the cache is absent (positive control below)", () => {
-    expect(countPendingUploads(path.join(cacheDir, "absent"))).toBe(0);
-    expect(cacheHoldsEntries(path.join(cacheDir, "absent"))).toBe(false);
+  it("counts zero and holds nothing while the cache is absent, and counts the same path once it holds a save", () => {
+    const dir = path.join(cacheDir, "absent");
+    expect(countPendingUploads(dir)).toBe(0);
+    expect(cacheHoldsEntries(dir)).toBe(false);
+
+    // The SAME path, populated: a counter that answered zero for every path
+    // would pass both arms above, so this is what makes them mean "absent".
+    fs.mkdirSync(path.join(dir, "vfsMeta", "x"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "vfsMeta", "x", "item"), '{"Dirty":true}');
+    expect(countPendingUploads(dir)).toBe(1);
+    expect(cacheHoldsEntries(dir)).toBe(true);
   });
 
   it("a cache holding the OTHER copy's saves is refused, not drained into this workspace", () => {

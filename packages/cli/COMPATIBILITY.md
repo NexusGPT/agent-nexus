@@ -208,7 +208,7 @@ with what it does about `--json`, so the next one cannot arrive in silence.
 
 `emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
 document is the payload and goes to stdout; anything after it is diverted to
-stderr. **85 leaves build their own document with a bare `console.log`** rather
+stderr. **84 leaves build their own document with a bare `console.log`** rather
 than going through a printer — the `writes-its-own-json` count in the generated
 `src/json-shape.generated.ts`, which is the only derived reading of that number.
 A module-level flag cannot see a write it was not asked to make, so that half is
@@ -399,8 +399,8 @@ command whose printer changes turns the build red rather than shipping a `--help
 line describing the old shape.
 
 The remaining 112 carry **no** shape line, and that is the honest output rather
-than a gap: 85 write their own document, 17 branch to two shapes, 3 have no
-registration the scan can read, 7 reach no printer, and 0 is ambiguous. A default
+than a gap: 84 write their own document, 17 branch to two shapes, 3 have no
+registration the scan can read, 8 reach no printer, and 0 is ambiguous. A default
 would be a claim nobody measured.
 
 `envelope` is the route's own response object, unnarrowed — the same document

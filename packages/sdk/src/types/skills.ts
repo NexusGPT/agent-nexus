@@ -1,4 +1,4 @@
-import type { ModelProvider } from "./common";
+import type { ModelConfig, ModelProvider } from "./common";
 import type { FolderRef } from "./workflows";
 
 // ============================================================================
@@ -384,6 +384,12 @@ export interface CreateTaskBody {
   prompt?: string;
   /** Temperature (0-2, default 0.7). */
   temperature?: number;
+  /**
+   * How hard the model thinks — the same field, with the same values, as an
+   * agent's `modelConfig.reasoningLevel`. A level the model does not offer is a
+   * 400; read `supportedReasoningLevels` off `GET /models`.
+   */
+  reasoningLevel?: ModelConfig["reasoningLevel"];
   /** Input format (default "text"). */
   inputFormat?: "text" | "json";
   /** Output format (default "text"). */
@@ -425,6 +431,12 @@ export interface UpdateTaskBody {
   customModelId?: string;
   prompt?: string;
   temperature?: number;
+  /**
+   * The level the task's model is asked for. Omitted, the stored level is kept —
+   * unless `modelProvider` is sent, which clears it; send one beside the switch to
+   * keep a level. A level the model does not offer is a 400.
+   */
+  reasoningLevel?: ModelConfig["reasoningLevel"];
   inputFormat?: "text" | "json";
   outputFormat?: "text" | "json" | "template";
   /**

@@ -13,8 +13,8 @@ import type { JsonShapeId } from "./json-shape-help";
  *
  *      3  no-registration
  *      0  ambiguous
- *     85  writes-its-own-json
- *      7  no-printer
+ *     84  writes-its-own-json
+ *      8  no-printer
  *     17  branches
  *
  * `json-shape.codegen.test.ts` recomputes this file and fails on any

@@ -39,7 +39,7 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
  *   commands/role/_shared/read-owner.ts
  *   commands/role/_shared/read-nullable-number.ts
  *   commands/role/_shared/read-nullable-string.ts
- *   commands/permissions.ts          (resolveVisibility)
+ *   commands/permissions/_shared/visibility.ts   (resolveVisibility)
  *
  * Those read a WIDER vocabulary — they accept `"none"` too — because their
  * fields are things like a currency code or an enum, where `"none"` cannot be a

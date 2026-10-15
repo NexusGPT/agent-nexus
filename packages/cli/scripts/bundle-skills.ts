@@ -39,6 +39,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildCorpusFromFiles } from "../src/skills-corpus/build-corpus";
+import { toBundlePayload } from "./skills-bundle/bundle-payload";
+import { corpusDirectory } from "./skills-bundle/corpus-directory";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = path.resolve(__dirname, "..");
@@ -54,55 +56,6 @@ const OUTPUT_FILE = path.join(CLI_ROOT, "src", "skills-content.generated.ts");
 const ASSET_BASENAME = "skills-content.generated.json";
 const ASSET_FILE = path.join(CLI_ROOT, "src", ASSET_BASENAME);
 const REPO = "NexusGPT/claude-code-skills-nexus";
-
-/**
- * Every file under `root`, as a path relative to it with forward slashes.
- *
- * Nothing is filtered here and nothing is read. Which files ship is decided in
- * ONE place, `buildCorpusFromFiles` (src/skills-corpus/build-corpus.ts), which
- * the CLI also runs over a corpus it downloads — so the bundle and a download of
- * the same commit cannot disagree about what a skill contains.
- *
- * That selection has no extension allowlist, and the reason is recorded here
- * because this is where it was learned: collection used to filter on
- * `/\.(md|ts)$/`, which silently dropped every JSON schema, example spec and
- * .mjs/.sh/.py script the skill docs tell an agent to run. Only editor and OS
- * cruft is skipped (dotfiles, __pycache__, compiled .pyc).
- */
-function listFiles(root: string, prefix = ""): string[] {
-  const paths: string[] = [];
-  for (const item of fs.readdirSync(root, { withFileTypes: true })) {
-    const relPath = prefix ? `${prefix}/${item.name}` : item.name;
-    if (item.isDirectory()) paths.push(...listFiles(path.join(root, item.name), relPath));
-    else paths.push(relPath);
-  }
-  return paths;
-}
-
-/**
- * Read a file as UTF-8, refusing anything that does not round-trip.
- *
- * The bundle stores contents as strings and the installer writes them back with
- * `Buffer.from(content, "utf-8")`, so a non-UTF-8 file (an image, a font, a
- * compiled binary) would be re-encoded with replacement characters and written
- * to disk corrupted — silently, since nothing compares the bytes afterwards.
- * Fail the build instead: a broken build is fixable, a corrupted install is not
- * diagnosable. Only files the corpus ships are ever read, so a binary file
- * somewhere no skill reaches does not fail the build.
- */
-function readUtf8OrThrow(fullPath: string, relPath: string): string {
-  const raw = fs.readFileSync(fullPath);
-  const decoded = raw.toString("utf-8");
-  if (!Buffer.from(decoded, "utf-8").equals(raw)) {
-    throw new Error(
-      `${relPath} is not valid UTF-8. The skills bundle stores file contents as ` +
-        `strings, so binary assets cannot round-trip and would install ` +
-        `corrupted. Either remove it from skills-nexus or teach the bundle to carry ` +
-        `base64 payloads.`
-    );
-  }
-  return decoded;
-}
 
 function tryResolveToken(): string | null {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
@@ -217,15 +170,23 @@ async function main(): Promise<void> {
   // upstream that matches nothing cannot reach zero users in silence the way
   // `skills/plain/` did. See `select-skill-dirs.ts` for why it warns rather than
   // failing.
-  const corpus = buildCorpusFromFiles(
-    sha,
-    {
-      paths: listFiles(extracted),
-      read: (relPath) => readUtf8OrThrow(path.join(extracted, relPath), relPath)
-    },
-    { log: (message) => console.log(message), warn: (message) => console.warn(message) }
-  );
+  const corpus = buildCorpusFromFiles(sha, corpusDirectory(extracted), {
+    log: (message) => console.log(message),
+    warn: (message) => console.warn(message)
+  });
+  const allFiles = [
+    ...corpus.skillList.flatMap((slug) => corpus.skills[slug].files),
+    ...corpus.sharedFiles,
+    ...corpus.hookFiles,
+    ...corpus.agentFiles
+  ];
   const totalFiles = corpus.skillList.reduce((n, slug) => n + corpus.skills[slug].files.length, 0);
+  // Named one by one: a binary file is the one kind of entry whose size in the
+  // asset is not its size on disk (base64 is 4/3 of it), and the release PR's
+  // reader should be able to see what made the payload grow.
+  for (const file of allFiles.filter((f) => f.encoding === "base64")) {
+    console.log(`Binary file carried as base64: ${file.path} (${file.content.length} chars)`);
+  }
   console.log(
     `Found settings.json (${corpus.settingsJson.length} bytes) and ${corpus.hookFiles.length} hook files`
   );
@@ -253,9 +214,18 @@ async function main(): Promise<void> {
     'import fs from "node:fs";',
     'import path from "node:path";',
     "",
+    "/**",
+    " * How a file's `content` is stored. ABSENT means UTF-8 text, which is every file",
+    ' * a bundle held before binary files could ship. `"base64"` means the content is',
+    " * the file's bytes, base64-encoded and untrimmed. The installer decodes by this",
+    " * marker alone (`skill-file.decode.ts`) and refuses a value it does not know.",
+    " */",
+    'export type SkillFileEncoding = "base64";',
+    "",
     "export interface SkillFile {",
     "  path: string;",
     "  content: string;",
+    "  encoding?: SkillFileEncoding;",
     "}",
     "",
     "export interface SkillEntry {",
@@ -370,17 +340,7 @@ async function main(): Promise<void> {
     ""
   ].join("\n");
 
-  const payload = {
-    sha,
-    SKILLS: corpus.skills,
-    SKILL_LIST: corpus.skillList,
-    CLAUDE_MD: corpus.claudeMd,
-    SHARED_FILES: corpus.sharedFiles,
-    SETTINGS_JSON: corpus.settingsJson,
-    HOOK_FILES: corpus.hookFiles,
-    AGENT_FILES: corpus.agentFiles
-  };
-  const payloadJson = JSON.stringify(payload);
+  const payloadJson = JSON.stringify(toBundlePayload(corpus));
 
   fs.writeFileSync(OUTPUT_FILE, output, "utf-8");
   fs.writeFileSync(ASSET_FILE, payloadJson, "utf-8");

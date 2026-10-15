@@ -66,7 +66,11 @@ describe("listFilesRecursively", () => {
   });
 
   it("never returns a directory, whatever the filter accepts", () => {
-    expect(listFilesRecursively(ROOT, () => true)).not.toContain("role");
+    const everything = listFilesRecursively(ROOT, () => true);
+    // The file INSIDE `role/` is what makes the absence below mean something: a
+    // walk that returned nothing would also not contain `role`.
+    expect(everything).toContain("role/notes.md");
+    expect(everything).not.toContain("role");
   });
 });
 

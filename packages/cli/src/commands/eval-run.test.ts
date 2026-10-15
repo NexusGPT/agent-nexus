@@ -2,8 +2,9 @@ import type { PromptEvalCaseDetail, PromptEvalRunResults } from "@agent-nexus/sd
 import { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { renderCaseDetail } from "./eval/run/render/case-detail";
+import { renderResultsMatrix } from "./eval/run/render/results-matrix";
 import { registerEvalRunCommands } from "./eval-run";
-import { renderCaseDetail, renderResultsMatrix } from "./eval-run-render";
 
 /** The `eval run` subtree on its own program, for flag-grammar assertions. */
 function tree(): Command {

@@ -1,10 +1,3 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-import ts from "typescript";
-
-import { createScanProgram, scanSourceFiles } from "../util/scan-program";
-
 /**
  * WHICH `--json` DOCUMENTS ARE MISSING A FIELD THE SERVER SENT — DERIVED, NOT LISTED.
  *
@@ -79,356 +72,44 @@ import { createScanProgram, scanSourceFiles } from "../util/scan-program";
  *     elsewhere by the response-contract check;
  *   · **a key dropped inside a nested object** rather than at the top level.
  *     This reads one level.
+ *
+ * ── THE PARTS ───────────────────────────────────────────────────────────────
+ *
+ * This file is the scan's DOCUMENT and its public surface; the bodies live in
+ * `envelope-narrowing/`, one concern per file:
+ *
+ *   · `narrowing.ts`               the finding shape, its key, and the scan root;
+ *   · `json-mode.ts`               the two `isJsonMode()` rules above;
+ *   · `envelope-callback.ts`       the cure, so it is not read as the disease;
+ *   · `expressions.ts`             peeling wrappers, and the body a response lives in;
+ *   · `document-keys.ts`           which keys still reach the document;
+ *   · `call-site.ts`               the three printers, the exemptions, the call site;
+ *   · `scan-printer-call-sites.ts` the one walk that answers both questions.
+ *
+ * 🚨 THE SCAN ROOT IS RESOLVED FROM ITS OWN MODULE, SO IT MOVED WITH THE SPLIT.
+ * `defaultScanRoot` sat in THIS file and resolved `".."`; it sits one directory
+ * deeper now and resolves `".." , ".."`. Both spellings answer `src/`, and a
+ * wrong one would answer `src/commands/` while leaving every count in this
+ * scan unchanged — the printers are all under `commands/`. `narrowing.ts`
+ * carries that argument at the resolver, which is where it reaches whoever
+ * moves the file next.
+ *
+ * ⚠️ THE EXPORT LIST BELOW IS EXACTLY WHAT THIS FILE EXPORTED BEFORE THE SPLIT,
+ * AND DELIBERATELY NOT ONE NAME MORE. `NARROWING_PRINTERS` became an export of
+ * `call-site.ts` so the walk can read it, and is NOT re-exported here: widening
+ * this module's public surface under cover of a refactor is a behaviour change
+ * nothing in a green suite reports. A part that needs a sibling's helper
+ * imports it directly.
  */
 
-/** The printers whose payload argument decides what a `--json` document holds. */
-const NARROWING_PRINTERS: ReadonlySet<string> = new Set(["printTable", "printList", "printRecord"]);
-
-/** One response key that never reaches `--json`. */
-export interface EnvelopeNarrowing {
-  /** Path relative to `src/`, e.g. `commands/folder.ts`. */
-  readonly file: string;
-  /** 1-based line of the printer call. */
-  readonly line: number;
-  /** The printer that received the narrowed payload. */
-  readonly printer: string;
-  /** The response variable the payload was taken off. */
-  readonly source: string;
-  /** The one key the printer was handed. */
-  readonly taken: string;
-  /** Keys of the response's declared type that no visible read reaches, sorted. */
-  readonly lost: readonly string[];
-}
-
-/** `src/` of this package, resolved from THIS file so the cwd cannot change it. */
-export function defaultScanRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-}
-
-/** Is this call `isJsonMode()`, however it was imported? */
-function isJsonModeCall(node: ts.Node): boolean {
-  if (!ts.isCallExpression(node)) return false;
-  if (ts.isIdentifier(node.expression)) return node.expression.text === "isJsonMode";
-  if (ts.isPropertyAccessExpression(node.expression)) {
-    return node.expression.name.text === "isJsonMode";
-  }
-  return false;
-}
-
-/**
- * Does this node only run when `--json` is OFF?
- *
- * True when some enclosing `if (!isJsonMode())` has the node in its THEN branch,
- * or some enclosing `if (isJsonMode())` has it in the ELSE. Both spellings are
- * in the tree and they mean the same thing.
- */
-function humanOnly(node: ts.Node): boolean {
-  let child: ts.Node = node;
-  let cursor: ts.Node | undefined = node.parent;
-
-  while (cursor !== undefined) {
-    if (ts.isIfStatement(cursor)) {
-      const condition = cursor.expression;
-      const negated =
-        ts.isPrefixUnaryExpression(condition) &&
-        condition.operator === ts.SyntaxKind.ExclamationToken &&
-        isJsonModeCall(condition.operand);
-
-      if (negated && cursor.thenStatement === child) return true;
-      if (isJsonModeCall(condition) && cursor.elseStatement === child) return true;
-    }
-    child = cursor;
-    cursor = cursor.parent;
-  }
-
-  return false;
-}
-
-/**
- * Is this node inside a `printEnvelope(envelope, render)` callback?
- *
- * 🚨 THE CURE MUST NOT READ AS THE DISEASE, AND WITHOUT THIS ARM IT DOES. Inside
- * that callback the document is ALREADY the whole envelope and the callback does
- * not run under `--json` at all, so a table there may take one key, or three, or
- * none — it cannot delete anything from a document it never writes.
- *
- * Left out, the scan reports every command that adopts `printEnvelope`, which
- * makes fixing a narrowing turn the gate red. Measured on the fixture in
- * `envelope-narrowing.test.ts`: the cured form was reported identically to the
- * broken one.
- */
-function insideEnvelopeCallback(node: ts.Node): boolean {
-  let child: ts.Node = node;
-  let cursor: ts.Node | undefined = node.parent;
-
-  while (cursor !== undefined) {
-    if (
-      ts.isCallExpression(cursor) &&
-      ts.isIdentifier(cursor.expression) &&
-      cursor.expression.text === "printEnvelope" &&
-      cursor.arguments.includes(child as ts.Expression)
-    ) {
-      return true;
-    }
-    child = cursor;
-    cursor = cursor.parent;
-  }
-
-  return false;
-}
-
-/** The function body this node sits in — the unit a response variable lives in. */
-function enclosingBody(node: ts.Node): ts.Node {
-  let cursor: ts.Node | undefined = node;
-  while (cursor !== undefined) {
-    if (
-      ts.isArrowFunction(cursor) ||
-      ts.isFunctionExpression(cursor) ||
-      ts.isFunctionDeclaration(cursor) ||
-      ts.isMethodDeclaration(cursor)
-    ) {
-      return cursor.body ?? cursor;
-    }
-    cursor = cursor.parent;
-  }
-  return node;
-}
-
-/**
- * Peel the wrappers a narrowing is written behind.
- *
- * `result.folders ?? result` takes the LEFT: the `??` is dead where the type is
- * non-nullable, and where it is not, the left is still the intended payload.
- * `Array.isArray(x) ? x : [x]` takes the true arm for the same reason.
- */
-function unwrap(expression: ts.Expression): ts.Expression {
-  let cursor = expression;
-  for (;;) {
-    if (ts.isParenthesizedExpression(cursor) || ts.isAwaitExpression(cursor)) {
-      cursor = cursor.expression;
-      continue;
-    }
-    if (ts.isAsExpression(cursor) || ts.isNonNullExpression(cursor)) {
-      cursor = cursor.expression;
-      continue;
-    }
-    if (
-      ts.isBinaryExpression(cursor) &&
-      cursor.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-    ) {
-      cursor = cursor.left;
-      continue;
-    }
-    if (ts.isConditionalExpression(cursor)) {
-      cursor = cursor.whenTrue;
-      continue;
-    }
-    return cursor;
-  }
-}
-
-/** The property access a printer argument ultimately reads, through one alias. */
-function resolveAccess(
-  argument: ts.Expression,
-  checker: ts.TypeChecker,
-  depth = 0
-): ts.PropertyAccessExpression | null {
-  if (depth > 6) return null;
-
-  const expression = unwrap(argument);
-  if (ts.isPropertyAccessExpression(expression)) return expression;
-
-  if (ts.isIdentifier(expression)) {
-    const declaration = checker.getSymbolAtLocation(expression)?.declarations?.[0];
-    if (
-      declaration !== undefined &&
-      ts.isVariableDeclaration(declaration) &&
-      declaration.initializer !== undefined
-    ) {
-      return resolveAccess(declaration.initializer, checker, depth + 1);
-    }
-  }
-
-  return null;
-}
-
-/**
- * Every key of `name` this body reads somewhere a `--json` caller can still see.
- *
- * Handing the object WHOLE to a printer counts as reading all of it — that is
- * what `printEnvelope(result, …)` does, and it is the cure this scan exists to
- * push people towards, so it must not be reported as the disease.
- */
-function keysReachingTheDocument(body: ts.Node, name: string): Set<string> | "all" {
-  const read = new Set<string>();
-  let whole = false;
-
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && !humanOnly(node)) {
-      const callee = ts.isIdentifier(node.expression) ? node.expression.text : null;
-      if (callee !== null && callee.startsWith("print")) {
-        for (const argument of node.arguments) {
-          const bare = unwrap(argument);
-          if (ts.isIdentifier(bare) && bare.text === name) whole = true;
-        }
-      }
-    }
-
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === name &&
-      !humanOnly(node)
-    ) {
-      read.add(node.name.text);
-    }
-
-    ts.forEachChild(node, visit);
-  };
-  visit(body);
-
-  return whole ? "all" : read;
-}
-
-/**
- * Why a printer call site is NOT reported as a narrowing.
- *
- * The two `*-reaches-the-document` values and `inside-envelope` are the CURED
- * shapes. They are named separately from the "there was nothing to lose" ones
- * because a control asserts the scan can still recognise a cure — see
- * `envelope-narrowing.test.ts`, part 3.
- */
-export type PrinterExemption =
-  /** The call takes no payload argument at all. */
-  | "no-payload-argument"
-  /** Under `!isJsonMode()`: it writes no document, so it drops nothing from one. */
-  | "human-only"
-  /** Inside a `printEnvelope(...)` callback. THE CURE. */
-  | "inside-envelope"
-  /** The payload is not a property read off a resolvable response variable. */
-  | "payload-is-not-a-response-key"
-  /** The response declares one key; narrowing it loses nothing. */
-  | "single-key-response"
-  /** The whole response is handed to a printer somewhere. THE CURE. */
-  | "whole-response-reaches-the-document"
-  /** Every declared key is read somewhere the caller can still see. */
-  | "every-key-reaches-the-document";
-
-/**
- * One narrowing-printer call site the walk reached, and what the scan made of it.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * THIS POPULATION SURVIVES THE CURE, AND THAT IS THE WHOLE REASON IT EXISTS
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * The narrowings are MEANT to reach zero. So "the scan found a narrowing" cannot
- * be the control that proves the scan looked at anything — it dies on success,
- * and a control that dies on success takes the gate with it on the day somebody
- * fixes the last command.
- *
- * A cured command still calls `printTable`; it simply calls it inside
- * `printEnvelope`. So this population does not drain, and a zero here means the
- * walk broke rather than that the tree got clean.
- */
-export interface PrinterCallSite {
-  /** Path relative to `src/`, e.g. `commands/folder.ts`. */
-  readonly file: string;
-  /** 1-based line of the printer call. */
-  readonly line: number;
-  /** The printer that was called. */
-  readonly printer: string;
-  /** The narrowing this site was reported as, or `null` when it is exempt. */
-  readonly narrowing: EnvelopeNarrowing | null;
-  /** Why it is exempt, or `null` when it IS a narrowing. */
-  readonly exempt: PrinterExemption | null;
-}
-
-/**
- * Every call to a narrowing printer in the tree, classified.
- *
- * One walk answers both questions — which sites narrow, and which sites exist —
- * because a type-checked walk of this package costs seconds and because two
- * walks could drift into two opinions about what a printer call is.
- */
-export function scanPrinterCallSites(root = defaultScanRoot()): PrinterCallSite[] {
-  const fileNames = scanSourceFiles(root);
-  const program = createScanProgram(fileNames);
-  const checker = program.getTypeChecker();
-  const sites: PrinterCallSite[] = [];
-
-  for (const source of program.getSourceFiles()) {
-    if (source.isDeclarationFile) continue;
-    if (!fileNames.includes(path.normalize(source.fileName))) continue;
-
-    const visit = (node: ts.Node): void => {
-      ts.forEachChild(node, visit);
-
-      if (!ts.isCallExpression(node)) return;
-      if (!ts.isIdentifier(node.expression)) return;
-      if (!NARROWING_PRINTERS.has(node.expression.text)) return;
-
-      const file = path.relative(root, source.fileName);
-      const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-      const printer = node.expression.text;
-      const exempt = (reason: PrinterExemption): void => {
-        sites.push({ file, line, printer, narrowing: null, exempt: reason });
-      };
-
-      if (node.arguments.length === 0) return exempt("no-payload-argument");
-
-      // A printer under `!isJsonMode()` writes no document, so it cannot drop a
-      // field from one. Neither does one inside a `printEnvelope` callback.
-      if (humanOnly(node)) return exempt("human-only");
-      if (insideEnvelopeCallback(node)) return exempt("inside-envelope");
-
-      const access = resolveAccess(node.arguments[0], checker);
-      if (access === null || !ts.isIdentifier(access.expression)) {
-        return exempt("payload-is-not-a-response-key");
-      }
-
-      const responseName = access.expression.text;
-      const declared = checker
-        .getTypeAtLocation(access.expression)
-        .getProperties()
-        .map((symbol) => symbol.getName());
-
-      // One key is the whole response; narrowing it loses nothing.
-      if (declared.length < 2) return exempt("single-key-response");
-
-      const reached = keysReachingTheDocument(enclosingBody(node), responseName);
-      if (reached === "all") return exempt("whole-response-reaches-the-document");
-
-      const lost = declared.filter((key) => !reached.has(key)).sort();
-      if (lost.length === 0) return exempt("every-key-reaches-the-document");
-
-      sites.push({
-        file,
-        line,
-        printer,
-        narrowing: { file, line, printer, source: responseName, taken: access.name.text, lost },
-        exempt: null
-      });
-    };
-
-    visit(source);
-  }
-
-  return sites.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line);
-}
-
-/** Every place a printer is handed one key of a multi-key response. */
-export function scanEnvelopeNarrowing(root = defaultScanRoot()): EnvelopeNarrowing[] {
-  return narrowingsIn(scanPrinterCallSites(root));
-}
-
-/** The reported narrowings among a set of classified call sites. */
-export function narrowingsIn(sites: readonly PrinterCallSite[]): EnvelopeNarrowing[] {
-  return sites
-    .map((site) => site.narrowing)
-    .filter((narrowing): narrowing is EnvelopeNarrowing => narrowing !== null);
-}
-
-/** `commands/folder.ts printTable folders` — stable across an edit above it. */
-export function narrowingKey(narrowing: EnvelopeNarrowing): string {
-  return `${narrowing.file} ${narrowing.printer} ${narrowing.taken}`;
-}
+export type { PrinterCallSite, PrinterExemption } from "./envelope-narrowing/call-site";
+export {
+  defaultScanRoot,
+  type EnvelopeNarrowing,
+  narrowingKey
+} from "./envelope-narrowing/narrowing";
+export {
+  narrowingsIn,
+  scanEnvelopeNarrowing,
+  scanPrinterCallSites
+} from "./envelope-narrowing/scan-printer-call-sites";

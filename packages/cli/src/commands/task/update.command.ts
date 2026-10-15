@@ -12,6 +12,7 @@ import {
   SKILLS_UPDATE_TASK__BODY_MODEL_PROVIDER,
   SKILLS_UPDATE_TASK_CONTRACT
 } from "../task.contract.generated";
+import { REASONING_LEVEL_IS_BODY_ONLY } from "./_shared/reasoning-level-is-body-only";
 import { TASK_UPDATE_HELP } from "./copy/update-help";
 
 /** `nexus task update` — a PATCH that versions whatever it names. */
@@ -80,6 +81,7 @@ export function registerTaskUpdateCommand(task: Command, program: Command): void
   // Bound LAST, after every option and after the hand-written prose.
   bindCommand(update, SKILLS_UPDATE_TASK_CONTRACT, {
     "Body.inputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
-    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out"
+    "Body.outputFormat": "--body only; see the namespace help — lowercase in, uppercase out",
+    "Body.reasoningLevel": REASONING_LEVEL_IS_BODY_ONLY
   });
 }

@@ -170,78 +170,31 @@ const LEDGER: Readonly<Record<string, number>> = {
   // lines after a row was written and that row shipped wrong. The row is pinned to
   // EQUALITY in both directions, so a stale one reds either way.
   "command-universe/command-classification.ts": 930,
-  "commands/access-card.ts": 355,
-  "commands/admin-vibe-build-job.ts": 239,
-  "commands/admin-vibe-consumption-cap.ts": 211,
-  "commands/admin-vibe-cost-safety.ts": 307,
-  "commands/admin-vibe-cron-sweeps.ts": 174,
-  "commands/admin-vibe-deployment.ts": 288,
-  "commands/admin-vibe-tenant-cluster.ts": 275,
-  "commands/agent-collection.ts": 179,
-  "commands/agent-tool.ts": 406,
   // GENERATED from the v1 contract, which carries `reasoningLevel` and the stored-only
   // `none` on every level field. Splitting is not available: the size is a function of
   // the contract it mirrors, and the next generation would undo the split. A SIZE
   // BUDGET, not a violation count.
   "commands/agent.contract.generated.ts": 341,
   "commands/analytics.contract.generated.ts": 169,
-  "commands/analytics.ts": 520,
   // +6, RAISED: one import and one `onDeprecation:` line, plus why the raw
   // `nexus api <path>` door needed wiring — it is the only way onto a route with
   // no typed command. The reporting is already its own file, so shrinking back
   // would mean moving an unrelated concern out to make room: the wrong reason,
   // per `contract-binding.ts` below.
-  "commands/api.ts": 275,
-  "commands/asset.ts": 261,
   "commands/channel.contract.generated.ts": 167,
-  "commands/claude-code.ts": 586,
   "commands/collection.contract.generated.ts": 174,
   "commands/contract-help.ledger.ts": 583,
-  "commands/contract-help.namespaces.ts": 524,
   "commands/conversation.contract.generated.ts": 168,
-  "commands/credential.ts": 500,
-  "commands/cue.ts": 182,
-  "commands/custom-model.ts": 326,
   "commands/customer.contract.generated.ts": 151,
-  "commands/customer.ts": 393,
   "commands/deployment.contract.generated.ts": 304,
-  "commands/docs.ts": 298,
-  "commands/envelope-narrowing.scan.ts": 434,
-  "commands/eval-run-render.ts": 283,
-  "commands/eval-run.ts": 435,
   "commands/eval.contract.generated.ts": 219,
-  "commands/evaluation.ts": 563,
-  "commands/folder.ts": 296,
   "commands/help-suggestions.ledger.ts": 2258,
-  "commands/html-message-template.ts": 381,
-  "commands/json-shape.command-path.ts": 162,
-  "commands/json-shape.project.ts": 166,
-  "commands/mcp.ts": 598,
   "commands/permissions.contract.generated.ts": 167,
-  "commands/permissions.ts": 462,
-  "commands/phone-number.ts": 375,
-  "commands/prompt.ts": 525,
   "commands/role.contract.generated.ts": 553,
-  "commands/score.ts": 209,
-  "commands/skill-folder.ts": 268,
-  "commands/skills.ts": 452,
   // GENERATED, same reason as the agent contract above.
-  "commands/task.contract.generated.ts": 302,
-  "commands/template.ts": 603,
+  "commands/task.contract.generated.ts": 338,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,
-  "commands/upgrade.ts": 509,
-  "commands/user-group.ts": 309,
-  "commands/version.ts": 392,
-  "commands/workspace-credential-process.ts": 361,
-  "commands/workspace-mount-direct.ts": 511,
-  "commands/workspace-mount-gateway.ts": 250,
-  "commands/workspace-pull.ts": 366,
-  "commands/workspace-push.ts": 598,
-  "commands/workspace-remount.ts": 276,
-  "commands/workspace-status.ts": 404,
-  "commands/workspace-unmount.ts": 185,
-  "commands/workspace.ts": 574,
   "config.ts": 754,
   // UP from 430, and the +13 is entirely docblock prose inside `/** */` — not one
   // code line moved. It replaces a claim that had gone FALSE: the block said getting
@@ -329,7 +282,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 114;
+const LEDGER_CEILING = 67;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

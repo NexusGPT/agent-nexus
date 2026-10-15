@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRefusalsNamingOnePath,
+  listCommandSources,
   REFUSALS_ALLOWED_TO_NAME_ONE_PATH
 } from "./required-field-refusals-name-both-paths";
 
@@ -58,12 +59,16 @@ describe("the detector detects", () => {
     ]);
   });
 
+  // The arms that expect NOTHING read their fixture through `files` and floor it
+  // first: a walk that reached no file reports no refusal, so "ignores X" would
+  // pass over an empty directory exactly as over the probe.
   it("passes the same refusal once it names --body", () => {
-    const found = findRefusalsNamingOnePath(
-      fixture(
-        BODY_TAKING('"--mode is required. Pass it as a flag, or as \\"mode\\" inside --body."')
-      )
+    const dir = fixture(
+      BODY_TAKING('"--mode is required. Pass it as a flag, or as \\"mode\\" inside --body."')
     );
+    const files = listCommandSources(dir);
+    expect(files).toEqual(["probe.ts"]);
+    const found = findRefusalsNamingOnePath(dir, files);
     expect(found).toEqual([]);
   });
 
@@ -71,8 +76,7 @@ describe("the detector detects", () => {
     // `--operation-id is required` on a command with no --body is correct as it
     // stands: there is no second path to name. Flagging it is the false positive
     // that would get this gate switched off.
-    const found = findRefusalsNamingOnePath(
-      fixture(`
+    const dir = fixture(`
   program
     .command("go")
     .option("--operation-id <id>", "op")
@@ -81,21 +85,23 @@ describe("the detector detects", () => {
         throw new Error("--operation-id is required");
       }
     });
-`)
-    );
+`);
+    const files = listCommandSources(dir);
+    expect(files).toEqual(["probe.ts"]);
+    const found = findRefusalsNamingOnePath(dir, files);
     expect(found).toEqual([]);
   });
 
   it("ignores a VALUE complaint, which read the field and disliked it", () => {
-    const found = findRefusalsNamingOnePath(
-      fixture(BODY_TAKING('`Invalid --mode "${raw}". Expected sitemap or crawl.`'))
-    );
+    const dir = fixture(BODY_TAKING('`Invalid --mode "${raw}". Expected sitemap or crawl.`'));
+    const files = listCommandSources(dir);
+    expect(files).toEqual(["probe.ts"]);
+    const found = findRefusalsNamingOnePath(dir, files);
     expect(found).toEqual([]);
   });
 
   it("ignores a prose --body that is not a JSON body", () => {
-    const found = findRefusalsNamingOnePath(
-      fixture(`
+    const dir = fixture(`
   program
     .command("comment")
     .requiredOption("--body <text-or-->", "Comment text")
@@ -104,15 +110,31 @@ describe("the detector detects", () => {
         throw new Error("--body is required");
       }
     });
-`)
-    );
+`);
+    const files = listCommandSources(dir);
+    expect(files).toEqual(["probe.ts"]);
+    const found = findRefusalsNamingOnePath(dir, files);
     expect(found).toEqual([]);
   });
 });
 
 describe("every refusal in this package names both paths", () => {
+  /**
+   * The population both arms below sweep, floored before either reads it — an
+   * empty answer over a walk that found nothing reads exactly like a clean
+   * tree. 1,022 command sources on 2026-10-13.
+   */
+  const COMMAND_SOURCES = listCommandSources(COMMANDS_DIR);
+
+  it("reads the whole commands tree (control)", () => {
+    expect(COMMAND_SOURCES.length, "the commands walk found almost nothing").toBeGreaterThan(800);
+    expect(COMMAND_SOURCES).toContain("upgrade.ts");
+  });
+
   it("finds nothing outside the allowlist", () => {
-    const found = findRefusalsNamingOnePath(COMMANDS_DIR).filter((r) => !allowed(r));
+    const found = findRefusalsNamingOnePath(COMMANDS_DIR, COMMAND_SOURCES).filter(
+      (r) => !allowed(r)
+    );
 
     expect(
       found.map((r) => `${r.file}:${r.line}  ${r.message}`),
@@ -124,7 +146,7 @@ describe("every refusal in this package names both paths", () => {
   });
 
   it("keeps no allowlist entry that no longer matches anything", () => {
-    const all = findRefusalsNamingOnePath(COMMANDS_DIR);
+    const all = findRefusalsNamingOnePath(COMMANDS_DIR, COMMAND_SOURCES);
     const dead = REFUSALS_ALLOWED_TO_NAME_ONE_PATH.filter(
       (a) => !all.some((r) => r.file === a.file && r.message.includes(a.fragment))
     );

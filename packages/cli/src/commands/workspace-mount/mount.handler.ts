@@ -6,7 +6,7 @@ import { createClient } from "../../client";
 import { handleError } from "../../errors";
 import { defaultMountPath, mountKey, readMounts } from "../../mount-registry";
 import { policyFrom } from "../../workspace-direct-mount/install/install-policy";
-import { refuseCodeWorkspaceOnDirect } from "../workspace-mount-direct";
+import { refuseCodeWorkspaceOnDirect } from "../../workspace-direct-mount/refuse-code-workspace-on-direct";
 import { assertMountableSlug } from "./assert-mountable-slug";
 import { claimMountSite } from "./claim-mount-site";
 import { performMount } from "./perform-mount";

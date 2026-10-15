@@ -182,6 +182,12 @@ describe("cli-surface — CONTROL: the population is the whole tree", () => {
     const derived = [...(await deriveCommandLeaves())].sort();
     const recorded = CLI_SURFACE.map((leaf) => leaf.path).sort();
 
+    // The DERIVED side's own denominator, asserted before it is swept: a walk
+    // that resolved no registrar derives no leaf, and the second direction below
+    // then passes over nothing. 560 leaves on 2026-10-13.
+    expect(derived.length, "command-universe derived almost no leaves").toBeGreaterThan(400);
+    expect(derived).toContain("agent list");
+
     // Both directions, named. `toEqual` on the arrays prints the difference,
     // which a length comparison would not.
     expect(recorded.filter((leafPath) => !derived.includes(leafPath))).toEqual([]);
@@ -198,6 +204,9 @@ describe("cli-surface — CONTROL: the population is the whole tree", () => {
 
     const nodePaths = (await deriveCommandNodes()).map((node) => node.path).sort();
     const programPaths = [...realRootProgram().keys()].sort();
+    // The swept side's denominator — 655 nodes on 2026-10-13.
+    expect(nodePaths.length, "command-universe derived almost no nodes").toBeGreaterThan(500);
+    expect(nodePaths).toContain("agent list");
     expect(programPaths.filter((p) => !nodePaths.includes(p))).toEqual([]);
     expect(nodePaths.filter((p) => !programPaths.includes(p))).toEqual([]);
   }, 60_000);

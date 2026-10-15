@@ -15,19 +15,20 @@ import {
   ships,
   SKILLS_ROOT
 } from "./shipped-paths";
+import { encodeSkillFile } from "./skill-file.encode";
 
 /**
  * The skills repository as a list of file paths, with a way to read one.
  *
- * `read` is called only for the files that ship, so a binary file somewhere the
- * corpus never reaches is never read. That matters to `bundle-skills.ts`, whose
- * reader refuses anything that is not UTF-8.
+ * `read` is called only for the files that ship, and returns BYTES: whether a file
+ * is stored as text or as base64 is decided here, once, by `encodeSkillFile`, so
+ * the two sources cannot disagree about it.
  */
 export interface CorpusFiles {
   /** Every file path, relative to the repository root, with forward slashes. */
   readonly paths: readonly string[];
-  /** The file's text, exactly as stored. */
-  read(path: string): string;
+  /** The file's bytes, exactly as stored. */
+  read(path: string): Buffer;
 }
 
 /**
@@ -45,12 +46,27 @@ function walkOrder(a: string, b: string): number {
   return left.length - right.length;
 }
 
-/** Every shipped file below `root/`, paths relative to it, contents trimmed as the bundle stores them. */
+/** Every shipped file below `root/`, paths relative to it, in the form `encodeSkillFile` stores them. */
 function collect(files: CorpusFiles, sorted: readonly string[], root: string): SkillFile[] {
   const prefix = `${root}/`;
   return sorted
     .filter((path) => path.startsWith(prefix) && ships(path.slice(prefix.length)))
-    .map((path) => ({ path: path.slice(prefix.length), content: files.read(path).trim() }));
+    .map((path) => encodeSkillFile(path.slice(prefix.length), files.read(path)));
+}
+
+/**
+ * The text of a file an install writes as a STRING — `CLAUDE.md`, `settings.json`
+ * — or reads as one, a `SKILL.md` for its description. Those have no byte form
+ * in the corpus, so a file that is not UTF-8 is refused by name rather than
+ * written back with replacement characters.
+ */
+function readText(files: CorpusFiles, path: string): string {
+  const bytes = files.read(path);
+  const text = bytes.toString("utf-8");
+  if (!Buffer.from(text, "utf-8").equals(bytes)) {
+    throw new Error(`${path} is not valid UTF-8, and the corpus stores it as text.`);
+  }
+  return text;
 }
 
 /** First meaningful line of a SKILL.md, outside its frontmatter and headings, capped at 120 chars. */
@@ -97,7 +113,7 @@ export function buildCorpusFromFiles(
   const sorted = [...files.paths].sort(walkOrder);
   const present = new Set(sorted);
   const readIfPresent = (path: string): string | undefined =>
-    present.has(path) ? files.read(path) : undefined;
+    present.has(path) ? readText(files, path) : undefined;
 
   const entries = skillsRootEntries(sorted);
   const skillList = report ? selectSkillDirs(entries, report) : classifySkillsRoot(entries).bundled;

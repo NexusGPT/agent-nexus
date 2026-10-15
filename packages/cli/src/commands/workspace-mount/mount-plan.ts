@@ -1,5 +1,5 @@
-import type { DirectPlan } from "../workspace-mount-direct";
-import type { GatewaySettlement } from "../workspace-mount-gateway";
+import type { DirectPlan } from "../../workspace-direct-mount/direct-plan";
+import type { GatewaySettlement } from "./gateway-mount-request";
 
 // ── Mount engines ─────────────────────────────────────────────────────────────
 //

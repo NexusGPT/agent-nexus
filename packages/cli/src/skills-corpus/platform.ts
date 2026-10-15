@@ -158,6 +158,6 @@ export async function fetchCorpus(
   const contents = new Map(corpus.files.map((file) => [file.path, file.content]));
   return buildCorpusFromFiles(manifest.commitSha, {
     paths: [...contents.keys()],
-    read: (path) => contents.get(path) ?? ""
+    read: (path) => Buffer.from(contents.get(path) ?? "", "utf-8")
   });
 }

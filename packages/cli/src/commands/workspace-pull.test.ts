@@ -29,7 +29,12 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 import { registerWorkspaceCommands } from "./workspace";
-import { parseSource, unpackCommand } from "./workspace-pull";
+// RETARGETED, not re-exported: `workspace-pull.ts` is now the registrar alone,
+// and `workspace.ts`'s header states why no `export { … } from` shim stands in
+// for a moved path here — the ledger-assertion scan in `packages/types` does not
+// follow that clause, so a shim would count as a module it could not open.
+import { parseSource } from "./workspace/pull/parse-source";
+import { unpackCommand } from "./workspace/pull/unpack-command";
 
 async function run(
   argv: string[],

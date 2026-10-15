@@ -20,13 +20,14 @@ vi.mock("../client", async (importOriginal) => ({
 }));
 
 import { registerWorkspaceCommands } from "./workspace";
-import {
-  PACK_MAX_BYTES,
-  PACK_MAX_FILES,
-  packEntries,
-  parseDestination,
-  planPush
-} from "./workspace-push";
+// RETARGETED, not re-exported: `workspace-push.ts` is now the registrar alone,
+// and `workspace.ts`'s header states why no `export { … } from` shim stands in
+// for a moved path here — the ledger-assertion scan in `packages/types` does not
+// follow that clause, so a shim would count as a module it could not open.
+import { packEntries } from "./workspace/push/pack-entries";
+import { PACK_MAX_BYTES, PACK_MAX_FILES } from "./workspace/push/pack-limits";
+import { parseDestination } from "./workspace/push/parse-destination";
+import { planPush } from "./workspace/push/plan-push";
 
 async function run(
   argv: string[],

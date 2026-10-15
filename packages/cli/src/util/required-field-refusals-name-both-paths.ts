@@ -36,21 +36,18 @@ import { listFilesRecursively } from "./list-files-recursively";
  * --body" is syntax rather than judgement. So the gate reads messages.
  *
  * 🚨 **WHAT THIS DELIBERATELY DOES NOT CATCH.** A check whose LOGIC ignores the
- * body while its MESSAGE names `--body` passes here and is still broken. That
- * hole is real and unclosable by this instrument; the behavioural sweep is what
- * finds it — supply every field inside `--body` and see which commands still
- * refuse. That sweep executes arbitrary leaves, several of which are destructive
- * or interactive (which is why this package maintains a disposition list at all),
- * so it is not safe to run as a unit test and is not one.
+ * body while its MESSAGE names `--body` passes here and is still broken. Only the
+ * behavioural sweep finds it — supply every field in `--body`, see what still
+ * refuses — and it runs arbitrary leaves, some destructive or interactive (hence
+ * this package's disposition list), so it is not, and cannot be, a unit test.
  *
  * ── THE TWO CORRECT IDIOMS ALREADY IN THIS CODEBASE ──────────────────────────
  *
  *   readStringField(opts.mode, base, "mode")   // flag first, then the body
  *   requireAll(body, [{ field, flag }], hint)  // check the MERGED object
  *
- * Both read the body. Neither is required by this gate — a hand-written check
- * that reads the merged body is equally fine. What is required is that the
- * refusal tells the operator the truth about how to satisfy it.
+ * Both read the body; neither is required — a hand-written check reading the merged
+ * body is fine. What is required is a refusal telling the truth about how to satisfy it.
  */
 
 /** A refusal that says a field is absent, as opposed to malformed. */
@@ -70,12 +67,9 @@ export interface Refusal {
 }
 
 /**
- * Slice out each `.action(` callback body by brace matching.
- *
- * Crude on purpose: the alternative is a TypeScript program, and this only needs
- * to know which text belongs to which action. Brace counting ignores braces
- * inside strings and comments, so a slice can end late — that widens what is
- * scanned and never narrows it, which is the safe direction for a gate.
+ * Slice out each `.action(` callback body by brace matching — crude on purpose,
+ * the alternative being a TypeScript program. Braces inside strings and comments
+ * can end a slice late, which widens the scan and never narrows it: the safe side.
  */
 function actionBodies(source: string): Array<{ start: number; text: string }> {
   const out: Array<{ start: number; text: string }> = [];
@@ -114,16 +108,22 @@ function chainTakesJsonBody(source: string, actionStart: number): boolean {
 
 const lineOf = (source: string, index: number): number => source.slice(0, index).split("\n").length;
 
+/** Every command source under `commandsDir`, at any depth, relative to it. */
+export function listCommandSources(commandsDir: string): string[] {
+  return listFilesRecursively(commandsDir, (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+}
+
 /**
- * Every presence refusal, from a body-taking command, that names a flag without
- * naming the body.
+ * Every presence refusal, from a body-taking command, naming a flag but not the
+ * body. `files` lets a caller assert the population read: a walk that found no
+ * file reads exactly like a clean tree. Omitted, it is `listCommandSources`.
  */
-export function findRefusalsNamingOnePath(commandsDir: string): Refusal[] {
+export function findRefusalsNamingOnePath(
+  commandsDir: string,
+  files: readonly string[] = listCommandSources(commandsDir)
+): Refusal[] {
   const out: Refusal[] = [];
-  for (const file of listFilesRecursively(
-    commandsDir,
-    (f) => f.endsWith(".ts") && !f.endsWith(".test.ts")
-  )) {
+  for (const file of files) {
     const source = readFileSync(join(commandsDir, file), "utf-8");
     for (const { start, text } of actionBodies(source)) {
       if (!chainTakesJsonBody(source, start)) continue;

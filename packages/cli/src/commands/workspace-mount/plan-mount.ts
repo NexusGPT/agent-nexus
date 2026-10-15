@@ -1,10 +1,11 @@
 import type { Engine, MountRecord, MountScope } from "../../mount-registry";
 import type { InstallPolicy } from "../../workspace-direct-mount/install/install-policy";
 import { mountIdFor } from "../../workspace-direct-mount/mount-id";
-import { planDirectMount, retireDeadDirectRow } from "../workspace-mount-direct";
 import { settleGatewayMount } from "../workspace-mount-gateway";
 import { detachDeadMount } from "./detach-dead-mount";
 import type { MountPlan } from "./mount-plan";
+import { planDirectMount } from "./plan-direct-mount";
+import { retireDeadDirectRow } from "./retire-dead-direct-row";
 
 /**
  * Retire a dead row the new mount replaces: its direct session and cache first

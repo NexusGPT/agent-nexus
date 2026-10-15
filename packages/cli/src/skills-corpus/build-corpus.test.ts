@@ -11,7 +11,7 @@ function corpusOf(files: Record<string, string>) {
     read: (path) => {
       const content = files[path];
       if (content === undefined) throw new Error(`read a file that is not there: ${path}`);
-      return content;
+      return Buffer.from(content, "utf-8");
     }
   });
 }
@@ -47,7 +47,7 @@ describe("buildCorpusFromFiles", () => {
       paths: ["skills/nexus-a/SKILL.md", "skills/plain/logo.png", "tools/x.bin", "hooks/.DS_Store"],
       read: (path) => {
         read.push(path);
-        return "# A";
+        return Buffer.from("# A", "utf-8");
       }
     });
     expect([...new Set(read)]).toEqual(["skills/nexus-a/SKILL.md"]);
@@ -69,6 +69,46 @@ describe("buildCorpusFromFiles", () => {
     // the directory `b` before the file `b-x.md` and visits b/y.md first.
     const corpus = corpusOf({ "agents/b-x.md": "1", "agents/b/y.md": "2", "agents/a.md": "3" });
     expect(corpus.agentFiles.map((f) => f.path)).toEqual(["a.md", "b/y.md", "b-x.md"]);
+  });
+
+  it("stores text exactly as before: decoded, trimmed, and with NO encoding field", () => {
+    const corpus = corpusOf({ "skills/nexus-a/SKILL.md": "# A", "agents/a.md": "\n  é text \n" });
+    // `toStrictEqual`, not `toEqual`: an `encoding: undefined` key would change the
+    // asset's bytes, and only the strict form tells a missing key from an undefined one.
+    expect(corpus.agentFiles).toStrictEqual([{ path: "a.md", content: "é text" }]);
+  });
+
+  it("stores a non-UTF-8 file as untrimmed base64, marked", () => {
+    // A gzip header: 0x8b is not valid UTF-8, and the trailing space and newline
+    // must survive — a trimmed binary is a corrupted one.
+    const bytes = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xff, 0x20, 0x0a]);
+    const corpus = buildCorpusFromFiles(SHA, {
+      paths: ["skills/nexus-a/SKILL.md", "skills/nexus-a/vendor/kit.tgz"],
+      read: (path) => (path.endsWith(".tgz") ? bytes : Buffer.from("# A", "utf-8"))
+    });
+    const file = corpus.skills["nexus-a"].files.find((f) => f.path === "vendor/kit.tgz");
+    expect(file).toStrictEqual({
+      path: "vendor/kit.tgz",
+      content: bytes.toString("base64"),
+      encoding: "base64"
+    });
+  });
+
+  it("stores valid UTF-8 holding a NUL as base64 too, so it is never trimmed", () => {
+    const bytes = Buffer.from("ab\u0000cd ", "utf-8");
+    const corpus = buildCorpusFromFiles(SHA, {
+      paths: ["hooks/blob.bin"],
+      read: () => bytes
+    });
+    expect(corpus.hookFiles).toStrictEqual([
+      { path: "blob.bin", content: bytes.toString("base64"), encoding: "base64" }
+    ]);
+  });
+
+  it("refuses a root text file that is not UTF-8, naming it", () => {
+    expect(() =>
+      buildCorpusFromFiles(SHA, { paths: ["CLAUDE.md"], read: () => Buffer.from([0xff, 0xfe]) })
+    ).toThrow("CLAUDE.md is not valid UTF-8");
   });
 
   it("answers empty strings for root files the commit does not have", () => {
@@ -113,7 +153,7 @@ describe("mayShip agrees with what the corpus reads", () => {
       paths: Object.keys(TREE),
       read: (path) => {
         read.add(path);
-        return TREE[path] ?? "";
+        return Buffer.from(TREE[path] ?? "", "utf-8");
       }
     });
     // The CONTROL: a corpus that read nothing would make the loop below vacuous.

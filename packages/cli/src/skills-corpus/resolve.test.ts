@@ -4,7 +4,8 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import { SKILLS_NEXUS_SHA } from "../skills-content.generated";
-import { PlatformCorpusError, type PlatformIo } from "./platform";
+import type { PlatformIo } from "./platform";
+import { PlatformCorpusError } from "./platform-corpus-error";
 import { normalizeSkillsRef, resolveInstallCorpus } from "./resolve";
 
 const BASE = "https://api.test.example";
@@ -14,9 +15,11 @@ const PINNED = "2".repeat(40);
 interface Published {
   commitSha: string;
   minCliVersion?: string | null;
-  files?: { path: string; content: string }[];
+  files?: { path: string; content: string; encoding?: string }[];
   /** Serve these bytes as the corpus instead of the real gzip. */
   tamperedCorpus?: Buffer;
+  /** Serve this corpus `schemaVersion` instead of the current one. */
+  corpusSchemaVersion?: number;
 }
 
 /** A fake platform: the manifest and corpus routes for each published commit, and a call log. */
@@ -25,7 +28,7 @@ function platform(published: Published[], latest: string | null, cliVersion = "1
   const releases = new Map(
     published.map((p) => {
       const corpus = {
-        schemaVersion: 1,
+        schemaVersion: p.corpusSchemaVersion ?? 2,
         commitSha: p.commitSha,
         minCliVersion: p.minCliVersion ?? null,
         files: p.files ?? [
@@ -35,6 +38,8 @@ function platform(published: Published[], latest: string | null, cliVersion = "1
         ]
       };
       const gzip = gzipSync(Buffer.from(JSON.stringify(corpus)));
+      // The MANIFEST stays at 1: its shape has not changed, and the two versions are
+      // deliberately independent. A corpus at 2 behind a manifest at 1 is the live shape.
       const manifest = {
         schemaVersion: 1,
         commitSha: p.commitSha,

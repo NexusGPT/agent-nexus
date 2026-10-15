@@ -1,11 +1,17 @@
-import { createHash } from "node:crypto";
-import { gunzipSync } from "node:zlib";
-
 import { timeoutSecondsToMs } from "../client";
-import type { FailureCause } from "../errors";
-import { buildCorpusFromFiles } from "./build-corpus";
 import type { SkillsCorpus } from "./corpus";
-import { type CliSkillsManifestWire, parseCorpus, parseManifestEnvelope } from "./wire";
+import { corpusFromServedBytes } from "./corpus-document";
+import { PlatformCorpusError } from "./platform-corpus-error";
+import { type CliSkillsManifestWire, parseManifestEnvelope } from "./wire";
+
+/**
+ * TALKING TO THE PLATFORM'S CLI-SKILLS ROUTES. Transport only.
+ *
+ * What a read MEANS once the bytes have arrived is `corpus-document.ts` — the checksum,
+ * the document shape, path safety and the per-record decode. The split is at the point
+ * where this file stops needing its `PlatformIo`: everything here is a URL, a timeout,
+ * a status code or a socket, and everything there is a pure function of bytes.
+ */
 
 /**
  * How long an install waits for each read before it gives up on the platform,
@@ -14,19 +20,11 @@ import { type CliSkillsManifestWire, parseCorpus, parseManifestEnvelope } from "
  * bundled corpus in seconds, not half a minute.
  */
 export const MANIFEST_TIMEOUT_MS = 5_000;
-/** The corpus is about 2 MB of gzip. */
+/**
+ * The corpus is several MB of gzip — measured at 6.0 MB over the skills tree at
+ * `cde9e3dc30f3`, of which 1.1 MB is the vendored tarballs now carried as base64.
+ */
 export const CORPUS_TIMEOUT_MS = 30_000;
-
-/** Why the platform's corpus could not be used, and which failure category that is. */
-export class PlatformCorpusError extends Error {
-  readonly failure: FailureCause;
-
-  constructor(failure: FailureCause, message: string) {
-    super(message);
-    this.failure = failure;
-    this.name = "PlatformCorpusError";
-  }
-}
 
 export interface PlatformIo {
   readonly baseUrl: string;
@@ -34,12 +32,6 @@ export interface PlatformIo {
   readonly fetch: typeof fetch;
   /** The global flags that reach these reads: `--timeout <seconds>` replaces both budgets. */
   readonly globals: { readonly timeout?: number };
-}
-
-/** A path the installer can write under its target: relative, forward slashes, no `.`, `..` or empty segment. */
-function isInstallablePath(path: string): boolean {
-  if (path.includes("\0") || path.includes("\\") || path.startsWith("/")) return false;
-  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 async function send(io: PlatformIo, path: string, defaultTimeoutMs: number): Promise<Response> {
@@ -101,9 +93,9 @@ export async function fetchManifest(io: PlatformIo, ref: string): Promise<CliSki
 }
 
 /**
- * Download the corpus a manifest names, and refuse it unless its bytes hash to
- * the manifest's `sha256` — before anything is unpacked, and long before anything
- * is written. The corpus carries hooks: code that runs on this machine.
+ * Download the corpus a manifest names and hand its bytes to
+ * {@link corpusFromServedBytes}, which refuses them unless they hash to the manifest's
+ * `sha256` — before anything is unpacked, and long before anything is written.
  */
 export async function fetchCorpus(
   io: PlatformIo,
@@ -127,37 +119,5 @@ export async function fetchCorpus(
       `the corpus for ${what} did not finish downloading (${detail})`
     );
   }
-  const digest = createHash("sha256").update(gzip).digest("hex");
-  if (gzip.length !== manifest.size || digest !== manifest.sha256) {
-    throw new PlatformCorpusError(
-      "remote-error",
-      `the corpus for ${what} does not match its checksum (got ${gzip.length} bytes, sha256 ${digest.slice(0, 12)})`
-    );
-  }
-
-  let corpus: ReturnType<typeof parseCorpus>;
-  try {
-    corpus = parseCorpus(JSON.parse(gunzipSync(gzip).toString("utf-8")));
-  } catch {
-    corpus = null;
-  }
-  if (!corpus || corpus.commitSha !== manifest.commitSha) {
-    throw new PlatformCorpusError(
-      "remote-error",
-      `the corpus for ${what} is not one this CLI reads`
-    );
-  }
-  const unsafe = corpus.files.find((file) => !isInstallablePath(file.path));
-  if (unsafe) {
-    throw new PlatformCorpusError(
-      "remote-error",
-      `the corpus for ${what} names an unsafe path: ${unsafe.path}`
-    );
-  }
-
-  const contents = new Map(corpus.files.map((file) => [file.path, file.content]));
-  return buildCorpusFromFiles(manifest.commitSha, {
-    paths: [...contents.keys()],
-    read: (path) => Buffer.from(contents.get(path) ?? "", "utf-8")
-  });
+  return corpusFromServedBytes(gzip, manifest);
 }

@@ -1353,7 +1353,7 @@ export const HELP_SUGGESTIONS: readonly HelpSuggestion[] = [
     summary: "describe the response by its real keys.",
     state: "placed",
     leaf: "folder assign",
-    probe: "THE PRESENCE OF folderId IS THE SIGNAL"
+    probe: "THE RESPONSE CARRIES assigned"
   },
   {
     id: "folder-03",

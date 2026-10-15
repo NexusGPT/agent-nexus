@@ -1,12 +1,46 @@
-import type { AssignAgentToFolderBody } from "@agent-nexus/sdk";
+import type { AssignAgentToFolderBody, AssignAgentToFolderResponse } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { createClient } from "../../client";
 import { bindCommand } from "../../contract-binding";
 import { handleError } from "../../errors";
-import { printSuccess } from "../../output";
+import { absent, printSuccess } from "../../output";
 import { asRequestBody, mergeBodyWithFlags, readClearableFlag, resolveBody } from "../../util/body";
 import { FOLDER_ASSIGN_AGENT_CONTRACT } from "../folder.contract.generated";
+
+/**
+ * Report what the server SAID, never what it was asked.
+ *
+ * The server echoes: `agentId` and `folderId` come straight back off the
+ * request body and `assigned` is derived from them, so rendering the request
+ * produces the same bytes today — and would go on producing them the moment
+ * the server stopped agreeing. `--body` can also carry an `agentId` that
+ * `--agent-id` does not, which is the one divergence a live server already
+ * produces.
+ *
+ * `assigned` is in the payload because this command's own `--help` tells a
+ * script to test it. Under `--json` the payload IS the document, so leaving it
+ * out would make that instruction false on the surface it names.
+ *
+ * 🔴 ONE PAYLOAD, NOT ONE PER BRANCH — the branch picks the SENTENCE and
+ * nothing else. The help promises `{agentId, folderId, assigned}` on EVERY
+ * answer, and a second object literal is how that promise goes false: the
+ * removal branch first shipped without `folderId`, so a script reading
+ * `.folderId` off an unassign got `undefined` where the paragraph said `null`.
+ * Built this way the two cannot disagree, because there is only one of them.
+ *
+ * `absent("(none)")` is `null` under `--json` and the word in the terminal, so
+ * the key is in the document on both branches without the human channel
+ * printing a bare `folderId:` — `renderCell(null)` is the empty string.
+ * `skill-folder assign` renders its own nullable folderId the same way.
+ */
+function reportAssignment(assignment: AssignAgentToFolderResponse): void {
+  printSuccess(assignment.assigned ? "Agent assigned to folder." : "Agent removed from folder.", {
+    agentId: assignment.agentId,
+    folderId: assignment.folderId ?? absent("(none)"),
+    assigned: assignment.assigned
+  });
+}
 
 /** `nexus folder assign` */
 export function registerFolderAssignCommand(folder: Command, program: Command): void {
@@ -36,10 +70,11 @@ Notes:
   where an agent came from.
   --folder-id null UNASSIGNS. "null" is the literal token; the flag is
   required, so absence cannot say it.
-  THE PRESENCE OF folderId IS THE SIGNAL — THERE IS NO "assigned" FIELD. An
-  assign answers {agentId, folderId}; an unassign answers {agentId} with the key
-  gone. A script testing .assigned reads undefined on both and cannot tell them
-  apart. Test whether folderId is there.
+  THE RESPONSE CARRIES assigned, AND THAT IS THE FIELD TO TEST. Every answer is
+  {agentId, folderId, assigned}: an assign is folderId "<uuid>" with assigned
+  true, an unassign is folderId null with assigned false. Both keys are always
+  there, so a script reading .assigned gets a boolean either way and one
+  reading .folderId gets null rather than nothing. --json carries all three.
   IDEMPOTENT AND QUIET: unassigning an agent that was in no folder answers 200,
   not a 404. So does re-assigning it to the folder it is already in.
   --agent-id IS NOT CHECKED FOR EXISTENCE. It must be a UUID, but a deleted or
@@ -59,20 +94,10 @@ Notes:
           flags.folderId = readClearableFlag(opts.folderId);
         }
         const assignBody = mergeBodyWithFlags(base, flags);
-        const folderId = assignBody.folderId;
 
-        await client.folders.assignAgent(asRequestBody<AssignAgentToFolderBody>(assignBody));
-
-        if (folderId) {
-          printSuccess("Agent assigned to folder.", {
-            agentId: opts.agentId,
-            folderId
-          });
-        } else {
-          printSuccess("Agent removed from folder.", {
-            agentId: opts.agentId
-          });
-        }
+        reportAssignment(
+          await client.folders.assignAgent(asRequestBody<AssignAgentToFolderBody>(assignBody))
+        );
       } catch (err) {
         process.exitCode = handleError(err);
       }

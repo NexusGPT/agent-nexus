@@ -3,7 +3,8 @@ import type { Command } from "commander";
 import { color, isJsonMode } from "../../output";
 import { getSkillList, SKILLS_NEXUS_SHA } from "../../skills-content.generated";
 import { platformIo } from "../../skills-corpus/command";
-import { fetchManifest, PlatformCorpusError } from "../../skills-corpus/platform";
+import { fetchManifest } from "../../skills-corpus/platform";
+import { PlatformCorpusError } from "../../skills-corpus/platform-corpus-error";
 
 const VERSION_HELP = `
 Examples:

@@ -4,7 +4,8 @@ import packageJson from "../../package.json" with { type: "json" };
 import { resolveBaseUrl } from "../config";
 import { refuse, reportFailure } from "../errors";
 import { color } from "../output";
-import { PlatformCorpusError, type PlatformIo } from "./platform";
+import type { PlatformIo } from "./platform";
+import { PlatformCorpusError } from "./platform-corpus-error";
 import {
   type CorpusChoice,
   normalizeSkillsRef,

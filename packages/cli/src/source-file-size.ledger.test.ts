@@ -237,7 +237,6 @@ const LEDGER: Readonly<Record<string, number>> = {
   "node-test-verdict.ts": 179,
   "output.ts": 751,
   "probe-barrier.ts": 642,
-  "skills-corpus/platform.ts": 163,
   "skills-corpus/select-skill-dirs.ts": 242,
   "util/admin-errors.ts": 164,
   "util/admin-http.ts": 162,
@@ -282,7 +281,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 67;
+const LEDGER_CEILING = 66;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

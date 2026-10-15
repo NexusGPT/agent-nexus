@@ -1,6 +1,7 @@
 import { compareVersions } from "../deprecation-cycle";
 import { bundledCorpus, type SkillsCorpus } from "./corpus";
-import { fetchCorpus, fetchManifest, PlatformCorpusError, type PlatformIo } from "./platform";
+import { fetchCorpus, fetchManifest, type PlatformIo } from "./platform";
+import { PlatformCorpusError } from "./platform-corpus-error";
 
 /**
  * Where an install's corpus came from:

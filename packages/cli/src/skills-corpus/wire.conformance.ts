@@ -17,7 +17,7 @@
  * the binary can reach.
  */
 
-import type { CliSkillsCorpus, CliSkillsManifest } from "@nexus/types";
+import type { CliSkillsManifest, CliSkillsReadableCorpus } from "@nexus/types";
 
 import type { CliSkillsCorpusWire, CliSkillsManifestWire } from "./wire";
 
@@ -33,5 +33,17 @@ export const MANIFEST_AGREES: Same<
   CliSkillsManifest
 > = true;
 
-export const CORPUS_AGREES: Same<"CliSkillsCorpusWire", CliSkillsCorpusWire, CliSkillsCorpus> =
-  true;
+/**
+ * Compared against the READABLE corpus schema, not the one the platform writes.
+ *
+ * `CliSkillsCorpus` pins `schemaVersion` to the single version the publish route emits;
+ * this CLI accepts every version it can interpret, which is a strictly wider set. Those
+ * are two different contracts on purpose — writer strict, reader tolerant — and
+ * `CliSkillsReadableCorpusSchema` is the one that describes a reader. Pointing this at
+ * the write schema would force the CLI to refuse every corpus already in storage.
+ */
+export const CORPUS_AGREES: Same<
+  "CliSkillsCorpusWire",
+  CliSkillsCorpusWire,
+  CliSkillsReadableCorpus
+> = true;

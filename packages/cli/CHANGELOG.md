@@ -1,5 +1,262 @@
 # @agent-nexus/cli
 
+## 1.13.0
+### Minor Changes
+
+- 24a75d4: `collection update --reranker` accepts only `cohere-rerank-4-fast`, `bge-reranker-v2-m3` or `pinecone-rerank-v0` and refuses any other name before sending, with the allowed list. `document upload`, `create-text`, `add-website` and `update` refuse a `--metadata` key that starts with `_` or is longer than 64 characters before sending, naming the key and the rule. The SDK's `reranker` type is the same three models, and `DocumentMetadataInput` documents the same key rule.
+- cccbfba: `reasoningLevel` on task create and update
+  
+  `client.skills.createTask()` and `client.skills.updateTask()` — and `nexus task
+  create` / `nexus task update` through `--body` — accept a top-level
+  `reasoningLevel`, the same field with the same values as an agent's
+  `modelConfig.reasoningLevel`.
+  
+  **The level is stored now.** The task bodies are lenient, so an undeclared key is
+  dropped rather than refused: a PATCH carrying `reasoningLevel` beside a model
+  answered 200, moved the model, and stored no level. It is declared, stored
+  canonical, and judged for the task's model like an agent's — a level the model
+  does not offer, or one the platform has not yet opened for your organization, is
+  a 400 that names the field.
+  
+  **On update, omitting it keeps the stored level** — unless the same PATCH sends
+  `modelProvider`, which clears it so the old provider's level is never applied to
+  the new one. Send `reasoningLevel` beside the switch to keep a level.
+  
+  No flag, for the reason the agent verbs have none: the values a model accepts
+  depend on its thinking dialect, which a flag's `--choices()` cannot bound. Read
+  `supportedReasoningLevels` off `nexus model list`.
+  
+  ## Why `minor`
+  
+  Additive. One optional field on two request bodies; nothing already sent changes
+  meaning, and an unknown key is still dropped exactly as before.
+
+### Patch Changes
+
+- 19e77d4: A refused `eval` invocation exits `5` rather than `0`
+  
+  Six refusal sites across `nexus eval` printed their refusal and then exited
+  `0`, so a script branching on the exit code read a rejected invocation as a
+  success. They now exit `5` — `invalid-input` — which is the code
+  `refuse(...)` has always returned and the code every other refusal in this
+  package already carries.
+  
+  The affected invocations:
+  
+  - `nexus eval conv checkpoint` with neither `--on` nor `--off`
+  - `nexus eval conv checkpoint` with both `--on` and `--off`
+  - `nexus eval conv checkpoint --criteria <file>` where the file is not JSON
+  - `nexus eval run create --repetitions <n>` outside 1–5
+  - `nexus eval run preview --repetitions <n>` outside 1–5
+  - `nexus eval run create --budget-cap-usd <v>` where `v` is not a positive
+    amount
+  
+  **Nothing else moves.** The refusal text, the `--json` error document, the
+  `--help` surface and every successful path are byte-identical.
+  
+  ## The mechanism, because it is invisible at the call site
+  
+  `refuse(message)` RETURNS the exit code; it does not set it. A bare
+  `refuse("…")` therefore discards the one value that makes the refusal
+  observable to a caller, and reads exactly like the assigned form two lines
+  further down the same file. The fix is `process.exitCode = refuse("…")` at
+  each site.
+  
+  🔴 **The arm that was supposed to catch this could not.**
+  `expect(process.exitCode).not.toBe(0)` passed on the broken bytes, because
+  `process.exitCode` is `undefined` until something sets it and `undefined !== 0`.
+  Every arm added here seeds `0` first and pins the code to `invalid-input`,
+  which is the only shape that reds on the discarded-return bytes — measured: 8
+  arms red on the restored defect, 33 unrelated arms green.
+  
+  ## Two sites deliberately NOT changed
+  
+  `--checkpoints <conv>:<n,..|all>` refuses a malformed spec from inside a
+  commander `argParser`, which runs during option parsing rather than in the
+  action. Assigning `process.exitCode` there would leave the invocation running:
+  the malformed selection is dropped, the matrix is still created, real money is
+  still spent, and the process would then exit non-zero over a run that
+  succeeded. Refusing the invocation properly means throwing
+  `InvalidArgumentError`, which replaces this package's own error envelope with
+  commander's and changes the code again — a separate change with its own
+  evidence. The reason is recorded at the call site.
+- d67b584: A `prompt save` refusal exits `invalid-input` rather than `0`
+  
+  `nexus prompt save` refused three malformed invocations with a correct refusal
+  document and then exited **`0`**:
+  
+  - `--file` and `--text` together
+  - neither `--file` nor `--text`
+  - `--file` naming a path that is not a readable file
+  
+  All three printed the right sentence on the right stream. A script branching on
+  the status read every one of them as a success, so a save that never happened
+  was indistinguishable from one that did.
+  
+  ## The mechanism
+  
+  `refuse()` RETURNS the invalid-input exit code; it does not set it. Its own
+  declaration says so — _"assign it to `process.exitCode`"_ — and these three call
+  sites dropped the return value. The surrounding code then read `undefined` back
+  from the helper, returned early, and left `process.exitCode` untouched.
+  
+  The fix is this CLI's majority spelling for a refusal, `process.exitCode =
+  refuse(...)`, applied in the helper that owns all three paths. `return
+  refuse(...)` was the other option and is wrong here: the caller needs the prompt
+  BODY back, and a number is not one — threading a second channel out of a helper
+  whose whole job is to yield a string is a worse seam than letting it own the
+  whole refusal. So `undefined` from that helper now means _already refused, and
+  the status is set_.
+  
+  ## Why no existing test caught it
+  
+  The sibling spec asserts a local refusal by "the transport stayed silent", which
+  is equally true of a refusal that sets the code and one that does not. The exit
+  code is the only field that separates them and no arm read it on these paths.
+  `prompt-refuses-with-the-invalid-input-code.test.ts` reads it now, with a fourth
+  arm that drives a WELL-FORMED save — so the three cannot be satisfied by a
+  command that has started refusing everything.
+  
+  ## What did NOT change
+  
+  - **The refusal documents.** Same sentences, same hints, same stream.
+  - **The `--help` surface.** Every command name, option, flag, description and
+    rendered help block in `prompt`, `analytics`, `upgrade` and `credential` is
+    byte-identical, verified field by field against the pre-change tree.
+  - **Every other exit code in the namespace.** A successful save still exits `0`.
+  
+  ## Why `patch`
+  
+  The published help for `save` already states that passing both `--file` and
+  `--text`, or neither, "is refused here rather than sent". A refusal that exits
+  `0` contradicts that sentence; this makes the status agree with the documented
+  behaviour rather than changing what the command does. A caller that branched on
+  `0` to mean "saved" was already wrong about these three inputs.
+- cb9098a: The bundled skills carry binary files byte for byte
+  
+  The skills repository now vendors two npm tarballs inside the app builder skill
+  (`references/e2e-kit/vendor/e2e-0.19.0.tgz` and `e2e-dev-acp-0.0.0.tgz`). The
+  bundle stored every file as a UTF-8 string, so its generator refused the tarballs
+  and no CLI release could carry the skills cut after them.
+  
+  A file that is not UTF-8 text is now stored base64-encoded with an explicit
+  `encoding: "base64"` marker, and `nexus skills install` writes its exact bytes.
+  The installer decodes by that marker alone and never guesses: a file with no
+  marker is UTF-8 text, and a marker it does not know is refused with the file
+  named, before anything is written.
+  
+  ## What did NOT change
+  
+  - **Text files.** They are stored exactly as before — decoded, trimmed, no
+    marker — so a bundle cut from the same skills commit is byte-identical to the
+    one this CLI already ships.
+  - **The platform channel.** The corpus `nexus skills install` downloads is still
+    text only; its upload route refuses binary files, and its wire format is
+    unchanged.
+  
+  ## Why `patch`
+  
+  No command, flag or output changes. An install that used to be impossible to
+  publish now carries the files the skills reference, written as the skills
+  repository holds them.
+- c754698: The bundled skills pin reaches upstream head, and ships its first binary assets
+  
+  `packages/cli/skills-nexus.lock` moves from `33890ffc9591` (2026-10-11) to
+  `cde9e3dc30f3`, nine commits on, and both generated halves are regenerated from
+  it.
+  
+  ## What the stale pin was shipping
+  
+  `skills/nexus-app-builder/references/starter-guide.md` told an agent that a repo
+  with no `Dockerfile` is built from one the platform generates and "that one copies
+  the manifests and nothing else: the app needs a `Dockerfile` of its own". Upstream
+  corrected that on 2026-10-13 — the generated Dockerfile reads the manifest's own
+  `file:`/`link:` specs and copies every declared path immediately before the
+  install, so the app needs no `Dockerfile` of its own — and the same commit fixed
+  the warning list in Route A, which claimed `nexus apps vendor-package` emits a
+  "no `Dockerfile`" warning when what it emits is "no lockfile at all".
+  
+  Verified by content rather than by commit number: the stale sentence is absent
+  from the regenerated payload and its replacement present, and both are the other
+  way round in the payload this replaces.
+  
+  ## The first bundle to exercise the base64 path
+  
+  Carrying binary skill files landed one commit ago and the pin it landed with
+  holds none, so the code path shipped unexercised. This pin is the first that
+  carries any: `e2e-0.19.0.tgz` (1,106,880 bytes) and `e2e-dev-acp-0.0.0.tgz`
+  (20,675 bytes), both vendored because no published version of either package
+  carries the five `e2e/agent` symbols `@e2e-dev/acp` imports. Decoded out of the
+  committed payload, each is sha256-identical to the file in the upstream tarball
+  at that commit.
+  
+  `e2e-dev-web-0.14.0.tgz` is gone rather than carried: upstream deleted it in the
+  same window because it is byte-identical to the published `@e2e-dev/web@0.14.0`
+  and now installs from the registry.
+  
+  The payload grows from 16,637,255 to 18,182,130 bytes. About 1.5 MB of that is
+  the two tarballs in base64; the rest is nine commits of upstream prose.
+  
+  ## One new spec, over the artefact rather than the code
+  
+  `test/skills-bundle/the-committed-asset-carries-its-binaries.test.ts` reads the
+  committed `skills-content.generated.json` — every record's marker is one this CLI
+  reads, every base64 record decodes, and each installs with the bytes it decodes
+  to. `binary-round-trip.test.ts` beside it already proves the mechanism over a
+  tree it builds itself; this covers the one artefact no CI run reproduces, because
+  it is written by hand against a private repository. `check-skills-lock.ts`
+  compares the two halves' recorded shas and never reads a file record, so a
+  truncated payload passed every existing gate.
+  
+  ## The platform channel still cannot carry these
+  
+  `nexus skills install` without `--bundled` prefers the corpus the platform
+  serves, whose wire format is `schemaVersion: 1` — a file record is a bare string
+  with no encoding — and the server refuses to publish a corpus containing any file
+  that is not UTF-8 text, one bad file rejecting the whole upload. So this commit
+  cannot be published to that channel, and nothing compares the platform's commit
+  against the bundled one. Until a `schemaVersion` 2 exists on the contract and on
+  the server, these two tarballs reach a user through the bundled corpus only.
+- 4926bb5: The 47 flat command files are decomposed, and the 150/80 caps are armed over them
+  
+  No behaviour changes. 47 top-level files in `packages/cli/src/commands/` went from
+  17,246 lines to 2,350 across their own trees, and the `max-lines` 150 /
+  `max-lines-per-function` 80 ratchet now covers every one of them.
+  
+  Before → after, by family:
+  
+  | family                                                                                                                            | before | after |
+  | --------------------------------------------------------------------------------------------------------------------------------- | ------ | ----- |
+  | `workspace` · `workspace-push` · `workspace-status` · `workspace-pull`                                                            | 1,942  | 211   |
+  | `workspace-mount-direct` · `workspace-credential-process` · `workspace-remount` · `workspace-mount-gateway` · `workspace-unmount` | 1,583  | 279   |
+  | the six `admin-vibe-*`                                                                                                            | 1,494  | 252   |
+  | `evaluation` · `eval-run` · `eval-run-render` · `score`                                                                           | 1,490  | 141   |
+  | `contract-help.namespaces` · `envelope-narrowing.scan` · `json-shape.project` · `json-shape.command-path`                         | 1,286  | 281   |
+  | `template` · `mcp` · `claude-code`                                                                                                | 1,787  | 169   |
+  | `prompt` · `analytics` · `upgrade` · `credential`                                                                                 | 2,054  | 239   |
+  | `permissions` · `skills` · `agent-tool` · `customer` · `version`                                                                  | 2,105  | 204   |
+  | `html-message-template` · `phone-number` · `access-card` · `custom-model` · `user-group`                                          | 1,746  | 258   |
+  | `docs` · `folder` · `api` · `skill-folder` · `asset` · `cue` · `agent-collection`                                                 | 1,759  | 316   |
+  
+  The shape most of them take is the one `deployment.ts` already had: the root file
+  keeps the `Command` construction, its description, its `addHelpText` block and one
+  `register*Command(parent, program)` call per subcommand, and each subcommand moves
+  to `<stem>/<verb>.command.ts`. Several files turned out not to be registrars at all
+  — `workspace-mount-direct.ts` and `workspace-mount-gateway.ts` carry no `Command`,
+  `api.ts` and `upgrade.ts` have one verb each, and `eval-run-render.ts` is a pure
+  renderer — and those were split by concern instead of having a registrar invented
+  for them.
+  
+  Every family's published surface was proved byte-identical: the whole commander
+  tree — names, registration order, every option's flags and description, every
+  argument, and the fully rendered `--help` of every node including its
+  `addHelpText` prose — was dumped before and after and compared, with a planted
+  change watched to make the comparator refuse first.
+  
+  Two behaviour fixes rode along and carry their own changesets: a refused
+  `prompt save` and a refused `eval conv checkpoint` / `eval run create|preview`
+  now exit `invalid-input` instead of 0.
+
 ## 1.12.0
 ### Minor Changes
 

@@ -1,5 +1,36 @@
 # @agent-nexus/sdk
 
+## 4.7.0
+### Minor Changes
+
+- 24a75d4: `collection update --reranker` accepts only `cohere-rerank-4-fast`, `bge-reranker-v2-m3` or `pinecone-rerank-v0` and refuses any other name before sending, with the allowed list. `document upload`, `create-text`, `add-website` and `update` refuse a `--metadata` key that starts with `_` or is longer than 64 characters before sending, naming the key and the rule. The SDK's `reranker` type is the same three models, and `DocumentMetadataInput` documents the same key rule.
+- cccbfba: `reasoningLevel` on task create and update
+  
+  `client.skills.createTask()` and `client.skills.updateTask()` — and `nexus task
+  create` / `nexus task update` through `--body` — accept a top-level
+  `reasoningLevel`, the same field with the same values as an agent's
+  `modelConfig.reasoningLevel`.
+  
+  **The level is stored now.** The task bodies are lenient, so an undeclared key is
+  dropped rather than refused: a PATCH carrying `reasoningLevel` beside a model
+  answered 200, moved the model, and stored no level. It is declared, stored
+  canonical, and judged for the task's model like an agent's — a level the model
+  does not offer, or one the platform has not yet opened for your organization, is
+  a 400 that names the field.
+  
+  **On update, omitting it keeps the stored level** — unless the same PATCH sends
+  `modelProvider`, which clears it so the old provider's level is never applied to
+  the new one. Send `reasoningLevel` beside the switch to keep a level.
+  
+  No flag, for the reason the agent verbs have none: the values a model accepts
+  depend on its thinking dialect, which a flag's `--choices()` cannot bound. Read
+  `supportedReasoningLevels` off `nexus model list`.
+  
+  ## Why `minor`
+  
+  Additive. One optional field on two request bodies; nothing already sent changes
+  meaning, and an unknown key is still dropped exactly as before.
+
 ## 4.6.0
 ### Minor Changes
 

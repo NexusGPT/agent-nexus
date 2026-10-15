@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.12.0 ───────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.13.0 ───────────────────────────────────────────────────
  *
  * 560 promised paths — 492 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.12.0",
+  version: "1.13.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -181,7 +181,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "collection search", shape: "3dc20a12dcce", tier: "STABLE" },
     { path: "collection search-multiple", shape: "e36c673b9971", tier: "STABLE" },
     { path: "collection stats", shape: "91f419b9c827", tier: "STABLE" },
-    { path: "collection update", shape: "2df39eb74d04", tier: "STABLE" },
+    { path: "collection update", shape: "2e99fe93339c", tier: "STABLE" },
     { path: "conversation assign", shape: "c50a6bcfb4cc", tier: "STABLE" },
     { path: "conversation assigned-users", shape: "98d8918077fd", tier: "STABLE" },
     { path: "conversation close", shape: "b9cf54cafe35", tier: "STABLE" },

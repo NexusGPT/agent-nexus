@@ -1,5 +1,92 @@
 # @agent-nexus/cli
 
+## 1.13.1
+### Patch Changes
+
+- ba2c8b3: `folder assign` renders the server's answer, and its `--json` document gains `assigned`
+  
+  `nexus folder assign` built its branch and every printed field from the REQUEST
+  body and threw the response away. The output was right only because the server
+  echoes: `agentId` and `folderId` come straight back off the request and
+  `assigned` is derived from them. The command now renders the response.
+  
+  ## What a script sees that it did not before
+  
+  The `--json` document gains **`assigned`**, a boolean, on both branches. It also
+  carries **`folderId`** on an unassign, where it previously carried no such key —
+  the value is `null`, which is what the server sends.
+  
+  Both are additive. No key was removed, renamed, or changed type, and the two
+  human-channel sentences — `Agent assigned to folder.` and
+  `Agent removed from folder.` — are byte-identical to what they were.
+  
+  ## Why the keys had to be there
+  
+  The command's own `--help` describes the response so a script can parse it, and
+  that paragraph was wrong on all three counts: it said there is no `assigned`
+  field, that an unassign omits `folderId`, and that a script must therefore test
+  `folderId`. The server's schema, the SDK type, the repository and the controller
+  all agree the answer is `{agentId, folderId, assigned}`.
+  
+  Correcting the paragraph to name `.assigned` is only half a fix, because under
+  `--json` the printed payload IS the document a script reads. Telling a caller to
+  test a field the document does not carry would have moved the false claim rather
+  than removed it — the old wording, wrong about the API, happened to describe the
+  old `--json` output correctly. So the paragraph and the payload were changed
+  together, and the payload is built once for both branches rather than per
+  branch, which is what makes "every answer carries all three" structural instead
+  of a promise.
+  
+  The terminal output changes too, and that is the one change here a human sees:
+  an unassign now prints `folderId: (none)`, where before it printed no `folderId`
+  line at all. `(none)` rather than a bare `folderId:` because `null` renders as
+  the empty string — it is the same rendering `skill-folder assign` already uses
+  for its own nullable folder, and the `--json` document still carries `null`.
+  
+  ## Why `patch`
+  
+  Additive fields on a success payload, a corrected help paragraph, and no change
+  to exit codes, flags, request bodies or the two result sentences.
+- bd0db95: The platform skills corpus carries binary files byte for byte
+  
+  `nexus skills install` downloads its corpus from the platform, and that corpus
+  stored every file as a UTF-8 string. The skills repository vendors npm tarballs
+  inside the app builder skill, so the publish route refused the whole corpus on
+  the first one and **no skills change reached that route for four days** — the
+  platform kept serving the last corpus that predated the tarballs, while every
+  text correction merged upstream in the meantime went nowhere. One unreadable
+  file stranded every unrelated file beside it.
+  
+  A corpus file that is not UTF-8 text is now carried base64-encoded with an
+  explicit `encoding: "base64"` marker, and an install writes its exact bytes.
+  This is the same marker and the same decoder the bundled corpus already uses, so
+  a file installs identically whichever source it came from.
+  
+  ## The corpus `schemaVersion` is now 2
+  
+  A reader that knew only version 1 does not know the `encoding` field. It would
+  drop it and write the base64 TEXT to disk as though it were the file — silently,
+  with nothing comparing the bytes afterwards. So a version-1 reader has to be
+  turned away rather than handed one of these:
+  
+  - **An older CLI** reads the manifest, fetches the corpus, does not recognise
+    version 2, and installs the corpus bundled with itself instead — saying which
+    commit it used and why. That is the same fallback it already takes for a
+    timeout, a 404 or a checksum mismatch, and it is a complete install of a known
+    commit rather than a failure.
+  - **This CLI** refuses a version-1 corpus the same way, which is what it meets
+    if it asks a platform that has not deployed this change yet.
+  
+  Upgrade with `nexus upgrade` to install the latest skills again.
+  
+  ## What did NOT change
+  
+  - **Text files.** Stored exactly as before — no marker — so every text record in
+    the corpus is byte-identical to what this route has always served.
+  - **The manifest.** Its shape is unchanged and its own `schemaVersion` stays 1,
+    so every manifest already published stays readable.
+  - **Commands, flags and output.** None, which is why this is a `patch`.
+
 ## 1.13.0
 ### Minor Changes
 

@@ -33,7 +33,7 @@ import { registerAgentSkillUploadCommand } from "./agent-skill/upload.command";
  *
  * 🚨 BINDING ONE OF THOSE FIVE DOES NOT LEAVE IT HONESTLY UNSWEPT — IT THREADS
  * THE WRONG ID, AND THE GATE GOES GREEN ON IT. All five take `:skillId`, and
- * `resolveProducer` in `id-graph.ts` answers it like this:
+ * `resolveProducer` in `id-graph.producer.ts` answers it like this:
  *
  *   · The route-prefix rule lands on `/public/v1/agents/:agentId/skills`, which is
  *     `agent-skill list`'s OWN route. A producer must be param-free — the runner

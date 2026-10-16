@@ -1,5 +1,7 @@
 import { exitCategoryFor } from "./exit-codes";
 import { rowsFrom } from "./id-graph.ids";
+import { listsId } from "./id-graph.race.rows";
+import type { RaceVerdict, ThreadedId } from "./id-graph.race.types";
 
 /**
  * DID THE ROW VANISH UNDERNEATH US, OR IS THE ROUTE BROKEN? Both render as a
@@ -60,23 +62,7 @@ import { rowsFrom } from "./id-graph.ids";
  * doubt would rebuild the false green in a different costume.
  */
 
-/** One id this run actually passed to a leaf, and where it came from. */
-export interface ThreadedId {
-  /** The route's own spelling of the param, e.g. `agentId`. */
-  readonly param: string;
-  /** The producer leaf that published it, e.g. `agent list`. */
-  readonly producer: string;
-  /** The id as passed on the command line. */
-  readonly id: string;
-}
-
-export type RaceVerdict =
-  /** At least one threaded id is provably gone from its producer. */
-  | { readonly kind: "vanished"; readonly gone: readonly ThreadedId[] }
-  /** Every threaded id is still published by its producer. */
-  | { readonly kind: "still-listed" }
-  /** Absence could not be established. Never a reason to retire a red. */
-  | { readonly kind: "unmeasured"; readonly why: string };
+export type { RaceVerdict, ThreadedId } from "./id-graph.race.types";
 
 /**
  * Is this exit code the CLI's own `not-found`?
@@ -139,23 +125,4 @@ export function raceVerdict(
   }
 
   return gone.length > 0 ? { kind: "vanished", gone } : { kind: "still-listed" };
-}
-
-/**
- * Does any row publish `id` for `param`?
- *
- * The same field rule `idsFrom` threads by — the param's own name first, `id`
- * only as a fallback — because the question is whether THIS id would still be
- * threaded, not whether the string appears anywhere in the body. A substring
- * search over the whole body would answer yes for an id quoted inside an
- * unrelated field and turn a genuine race back into a red.
- */
-function listsId(rows: readonly unknown[], param: string, id: string): boolean {
-  for (const row of rows) {
-    if (typeof row !== "object" || row === null) continue;
-    const record = row as Record<string, unknown>;
-    const picked = record[param] ?? record.id;
-    if (picked === id) return true;
-  }
-  return false;
 }

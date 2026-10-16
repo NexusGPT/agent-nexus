@@ -35,7 +35,7 @@ import { describe, expect, it } from "vitest";
  *
  * The five spellings, each of which resolved a host its own way:
  *
- *   1. `config.ts` `resolveBaseUrl(override, profile)` — the canon.
+ *   1. `config-resolve.ts` `resolveBaseUrl(override, profile)` — the canon.
  *   2. `client.ts` — `--base-url` then the ENV then the profile, which is the
  *      canon's second and third terms INVERTED, reaching every SDK-backed
  *      command.
@@ -71,7 +71,16 @@ import { describe, expect, it } from "vitest";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGES = join(HERE, "..", "..");
 
-const CLI_CONFIG = join(PACKAGES, "cli", "src", "config.ts");
+/**
+ * The CLI's canon.
+ *
+ * ⚠️ `cli/src/config.ts` IS A RE-EXPORT INDEX AND HOLDS NO RESOLVER. Pointed at
+ * it, every `bodyOf` below returns `null` and every selector-order assertion
+ * compares `[]` against `[]` — the empty-region failure the locator arm exists
+ * to refuse. The chain lives in `config-resolve.ts`, with `resolveProfile`
+ * beside it because the two share the `NEXUS_BASE_URL` read the census tracks.
+ */
+const CLI_CONFIG = join(PACKAGES, "cli", "src", "config-resolve.ts");
 const MCP_CONFIG = join(PACKAGES, "mcp-server", "src", "config.ts");
 
 /**
@@ -83,7 +92,7 @@ const MCP_CONFIG = join(PACKAGES, "mcp-server", "src", "config.ts");
  * host or accepts the documented default.
  */
 const SANCTIONED_ENV_READERS = [
-  "cli/src/config.ts",
+  "cli/src/config-resolve.ts",
   "mcp-server/src/config.ts",
   "sdk/src/client.ts"
 ] as const;
@@ -97,7 +106,28 @@ const SANCTIONED_ENV_READERS = [
  * `NEXUS_BASE_URL` with the profile and drops `--base-url` on the floor. The env
  * census below is structurally blind to it.
  */
-const SANCTIONED_PROFILE_BASE_READERS = ["cli/src/config.ts"] as const;
+const SANCTIONED_PROFILE_BASE_READERS = ["cli/src/config-resolve.ts"] as const;
+
+/**
+ * The files allowed to NAME either host table — the one that declares them, and
+ * the two canon resolvers that each read one.
+ *
+ * 🔴 THIS ARM EXISTS BECAUSE THE SPLIT OPENED A DOOR THE TWO CENSUSES BELOW
+ * CANNOT SEE. `URL_MAP` and `DASHBOARD_URL_MAP` were private to a single
+ * `config.ts`; they now sit in `config-env-hosts.ts` so the API resolver and the
+ * console resolver can each read one without either file holding both. A third
+ * importer could resolve a host straight off a table — a sixth copy of the
+ * precedence that names NO environment variable and reads NO profile, so both
+ * censuses below return clean over it.
+ *
+ * `config.ts` deliberately does not re-export either map, which is what keeps
+ * this set at two.
+ */
+const SANCTIONED_HOST_TABLE_IMPORTERS = [
+  "cli/src/config-dashboard-url.ts",
+  "cli/src/config-env-hosts.ts",
+  "cli/src/config-resolve.ts"
+] as const;
 
 /**
  * Call sites allowed to invoke the canon with fewer than both arguments, and why.
@@ -300,13 +330,39 @@ describe("the base URL precedence is one rule", () => {
     expect(readers).toEqual([...SANCTIONED_PROFILE_BASE_READERS].sort());
   });
 
+  it("names a host TABLE in exactly the three sanctioned files", () => {
+    expect(SCANNED.length).toBeGreaterThan(50);
+
+    // Scoped to the CLI: the two tables are this package's own module and no
+    // other package can reach them.
+    //
+    // `\bURL_MAP\b` does NOT match inside `DASHBOARD_URL_MAP` — the preceding
+    // `_` is a word character — so the alternation is a real alternation and not
+    // one pattern shadowing the other.
+    const readers = filesMatching(sourceFilesOf("cli"), (line) =>
+      /\b(?:URL_MAP|DASHBOARD_URL_MAP)\b/.test(line)
+    );
+
+    // Set equality both ways. A NEW reader resolves a host from a table and is
+    // invisible to both censuses above; a MISSING one means a canon resolver
+    // stopped reading the shared table and now spells a host of its own.
+    expect(readers).toEqual([...SANCTIONED_HOST_TABLE_IMPORTERS].sort());
+  });
+
   it("hands the canon BOTH globals at every call site that has them", () => {
     expect(SCANNED.length).toBeGreaterThan(50);
 
     // Scoped to the CLI: the bridge's `resolveBaseUrl` is a DIFFERENT function
     // that takes no arguments at all, and judging its call sites by this rule
     // would red every one of them for a flag that package does not have.
-    const cliFiles = sourceFilesOf("cli").filter((relative) => relative !== "cli/src/config.ts");
+    //
+    // The canon's own file is excluded because its DECLARATION
+    // `export function resolveBaseUrl(override?: string, profile?: string)`
+    // matches the call pattern below; `config.ts` re-exports the name without
+    // calling it, so it needs no exclusion and gets none.
+    const cliFiles = sourceFilesOf("cli").filter(
+      (relative) => relative !== "cli/src/config-resolve.ts"
+    );
 
     // `resolveBaseUrl(a, b)` — two arguments, neither of them empty. Anything
     // else is a dropped `--base-url` or a dropped `--profile`, which is how a

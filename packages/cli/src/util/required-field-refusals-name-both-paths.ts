@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { listFilesRecursively } from "./list-files-recursively";
+import {
+  actionBodies,
+  chainTakesJsonBody,
+  lineOf
+} from "./required-field-refusals-name-both-paths.scan";
 
 /**
  * A REFUSAL FROM A BODY-TAKING COMMAND MUST NAME BOTH WAYS TO SUPPLY THE FIELD.
@@ -48,6 +53,14 @@ import { listFilesRecursively } from "./list-files-recursively";
  *
  * Both read the body; neither is required — a hand-written check reading the merged
  * body is fine. What is required is a refusal telling the truth about how to satisfy it.
+ *
+ * ── THE POPULATION ───────────────────────────────────────────────────────────
+ *
+ * 🔴 DERIVED, never a hand-written list and never a path key:
+ * {@link listCommandSources} walks `commandsDir` recursively, so a command added
+ * in a new subdirectory is in the population the moment it exists, and moving a
+ * file cannot drop it out. The source-text slicing that turns each file into
+ * regions is `required-field-refusals-name-both-paths.scan.ts`.
  */
 
 /** A refusal that says a field is absent, as opposed to malformed. */
@@ -65,48 +78,6 @@ export interface Refusal {
   line: number;
   message: string;
 }
-
-/**
- * Slice out each `.action(` callback body by brace matching — crude on purpose,
- * the alternative being a TypeScript program. Braces inside strings and comments
- * can end a slice late, which widens the scan and never narrows it: the safe side.
- */
-function actionBodies(source: string): Array<{ start: number; text: string }> {
-  const out: Array<{ start: number; text: string }> = [];
-  const marker = ".action(";
-  let from = 0;
-  for (;;) {
-    const at = source.indexOf(marker, from);
-    if (at === -1) return out;
-    let depth = 0;
-    let i = at + marker.length - 1;
-    for (; i < source.length; i++) {
-      const ch = source[i];
-      if (ch === "(") depth++;
-      else if (ch === ")") {
-        depth--;
-        if (depth === 0) break;
-      }
-    }
-    out.push({ start: at, text: source.slice(at, i + 1) });
-    from = i + 1;
-  }
-}
-
-/**
- * Does the fluent chain this action terminates declare a JSON body flag?
- *
- * The chain runs from the nearest preceding `.command(` to the `.action(`, which
- * is how every command in this package is written.
- */
-function chainTakesJsonBody(source: string, actionStart: number): boolean {
-  const commandAt = source.lastIndexOf(".command(", actionStart);
-  if (commandAt === -1) return false;
-  const chain = source.slice(commandAt, actionStart);
-  return /\.option\(\s*"--(?:body|data) <json/.test(chain);
-}
-
-const lineOf = (source: string, index: number): number => source.slice(0, index).split("\n").length;
 
 /** Every command source under `commandsDir`, at any depth, relative to it. */
 export function listCommandSources(commandsDir: string): string[] {

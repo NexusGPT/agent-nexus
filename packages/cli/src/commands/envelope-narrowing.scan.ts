@@ -10,7 +10,7 @@
  *     const folders = result.folders ?? result;
  *     printTable(folders, COLUMNS);
  *
- * `printTable` owns the `if (_jsonMode)` branch, so it is the only line that
+ * `printTable` owns the `if (isJsonMode())` branch, so it is the only line that
  * knows whether a table or a document is wanted — and the narrowing happens the
  * line ABOVE it. By the time the branch runs, `assignments` is gone from both
  * arms. `--json`, the flag whose whole purpose is machine consumption, was the

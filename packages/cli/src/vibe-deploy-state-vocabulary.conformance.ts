@@ -10,8 +10,8 @@
  * would print as "not known to this CLI version" from a binary that could have
  * known it, and a value listed here and dropped there is a word nobody can
  * explain. The UNLISTED half needs no assertion of its own:
- * `vibe-wire-types.conformance.ts`'s `_deployState` already requires the wire's
- * read type to be assignable to `Listed | VibeUnlistedValue`.
+ * `vibe-deploy-state-wire-types.conformance.ts`'s `_deployState` already requires
+ * the wire's read type to be assignable to `Listed | VibeUnlistedValue`.
  */
 
 import type { VibeDeployStateOutcomeValue, VibeDeployStateResolvedFromValue } from "@nexus/types";

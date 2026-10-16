@@ -23,9 +23,9 @@ export const STDERR_PROSE = new Set(["console.error", "console.warn", "printWarn
  * through a printer, and a rule that ignored them would report every one of
  * those commands as a violation.
  *
- * 🚨 THE PAYLOAD PRINTERS ARE EVERY FUNCTION IN `output.ts` WITH AN
- * `if (_jsonMode) { emitDocument(…); return; }` BRANCH — read that file, never
- * this list from memory. `printEnvelope` and `printTable` were both absent, and
+ * 🚨 THE PAYLOAD PRINTERS ARE EVERY FUNCTION IN THE `output-*` FAMILY WITH AN
+ * `if (isJsonMode()) { emitDocument(…); return; }` BRANCH — `output.ts`'s header
+ * maps each one to its file; read those, never this list from memory. `printEnvelope` and `printTable` were both absent, and
  * an omission here is a FALSE VIOLATION rather than a missed one: the scan
  * concludes the command exited non-zero having written nothing to stdout, when
  * it wrote the whole document. It surfaced the moment a command that exits on a
@@ -47,7 +47,7 @@ export const DOCUMENT_EMITTERS = new Set([
   "refuse",
   "reportFailure",
   // TWO DOMAIN HELPERS, and they are the only ones here. `reportNodeTestRefusal`
-  // (`node-test-verdict.ts`) and `reportRunRefusal` (`run-verdict.ts`) each
+  // (`node-test-verdict.report.ts`) and `reportRunRefusal` (`run-verdict.ts`) each
   // decide which of `reportFailure` / `printFailure` their subject's verdict
   // means, print it, and return the exit code — so
   // `process.exitCode = reportNodeTestRefusal(verdict)` routes through the

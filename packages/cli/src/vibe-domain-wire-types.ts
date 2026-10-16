@@ -27,6 +27,20 @@ export const VIBE_APP_DOMAIN_STATUSES = [
 export type VibeAppDomainStatus = (typeof VIBE_APP_DOMAIN_STATUSES)[number];
 
 /**
+ * How many days an unproven claim on a host is held before the server releases
+ * it. Mirrors `VIBE_APP_DOMAIN_PENDING_CLAIM_TTL_DAYS`.
+ *
+ * `add` prints this figure to the owner, so the number has to be right: a stale
+ * one promises a deadline the server does not keep, and the reader plans a DNS
+ * change around it. Hand-written because the binary cannot reach
+ * `@nexus/types` — `wire-types-bundle.test.ts` forbids that import outside a
+ * `*.conformance.ts` — and PINNED by `SameLiteral` in
+ * `vibe-domain-claim-ttl.conformance.ts`, so `pnpm typecheck` fails the day the
+ * contract's figure moves.
+ */
+export const VIBE_APP_DOMAIN_WIRE_PENDING_CLAIM_TTL_DAYS = 7;
+
+/**
  * Whether the host is a zone apex or a name under one. Decides the record type:
  * an apex cannot carry a CNAME, so it is pointed with A records.
  */

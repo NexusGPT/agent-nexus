@@ -81,7 +81,7 @@ let unresolved: readonly string[];
  * `process.exit` is replaced for the duration: several terminal paths in this
  * binary call it, and one reaching the real implementation kills the vitest
  * worker and reports as a crash naming no test. Same construction as
- * `destructive-confirmation.scan.ts`, for the same reason.
+ * `destructive-confirmation.drive-one.ts`, for the same reason.
  */
 async function drive(argv: readonly string[], records: readonly DeprecationRecord[]): Promise<Run> {
   const { buildRootProgram } = await import("./root-program");

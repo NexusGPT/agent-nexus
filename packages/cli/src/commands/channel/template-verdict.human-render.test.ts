@@ -38,7 +38,7 @@ import { renderDeliveryOutcome } from "./template-test-send.delivery.render";
  * whichever is written first while the block still reads red — and which one
  * that is depends on the mutant, not on the writing order.
  *
- * ⚠️ COLOUR IS STRIPPED AND IS NOT ASSERTED. `NO_COLOR` in `output.ts` is
+ * ⚠️ COLOUR IS STRIPPED AND IS NOT ASSERTED. `NO_COLOR` in `output-color.ts` is
  * computed at module load from `process.stdout.isTTY`, so whether these lines
  * carry ANSI at all is a property of how the suite was launched rather than of
  * the code. Stripping makes the arms answer the question they ask — what words
@@ -48,7 +48,7 @@ import { renderDeliveryOutcome } from "./template-test-send.delivery.render";
 /** ESC, built rather than written: a literal control character in a regex trips `no-control-regex`. */
 const ESC = String.fromCharCode(27);
 
-/** Drop `ESC[…m` sequences. Everything `output.ts` emits is that one shape. */
+/** Drop `ESC[…m` sequences. Everything the printers emit is that one shape. */
 function stripAnsi(text: string): string {
   return text
     .split(ESC)

@@ -142,15 +142,7 @@ const CEILING_LINES = 150;
  * Sorted by path so a row moves only when its own file does.
  */
 const LEDGER: Readonly<Record<string, number>> = {
-  "auth-probe.ts": 318,
   "cli-surface.generated.ts": 639,
-  "cli-surface.model.ts": 159,
-  "cli-surface.project.ts": 404,
-  // +6, RAISED: one import and one `onDeprecation:` line on `createClient` — the
-  // default every typed command inherits — plus why it needs a switch of its own.
-  // The reporting is already its own file, so shrinking back would mean moving an
-  // unrelated concern out to make room: the wrong reason, per `contract-binding.ts`.
-  "client.ts": 246,
   // THE DECLARED COMMAND TABLE, and the only part of the command universe that
   // needs a row: its siblings in that directory are all 150 or fewer. Its length
   // is a function of how many leaves the CLI registers — one line each, sorted —
@@ -179,8 +171,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   // +6, RAISED: one import and one `onDeprecation:` line, plus why the raw
   // `nexus api <path>` door needed wiring — it is the only way onto a route with
   // no typed command. The reporting is already its own file, so shrinking back
-  // would mean moving an unrelated concern out to make room: the wrong reason,
-  // per `contract-binding.ts` below.
+  // would mean moving an unrelated concern out to make room: the wrong reason.
   "commands/channel.contract.generated.ts": 167,
   "commands/collection.contract.generated.ts": 174,
   "commands/contract-help.ledger.ts": 583,
@@ -195,76 +186,11 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/task.contract.generated.ts": 338,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,
-  "config.ts": 754,
-  // UP from 430, and the +13 is entirely docblock prose inside `/** */` — not one
-  // code line moved. It replaces a claim that had gone FALSE: the block said getting
-  // the `bindCommand` call order wrong was "a red build", and nothing enforced that
-  // until `contract-binding.help-order.test.ts` landed. The new text names the arm
-  // that now does, and names the two gates that CANNOT see the order — so the next
-  // reader does not reach for one of them and conclude it is covered.
-  //
-  // Splitting is the wrong cure for a comment. The prose documents `bindCommand`'s
-  // call-order contract and belongs on `bindCommand`; moving code into its own file
-  // to make room for it would cost exactly the adjacency that makes it work, which
-  // is moving code for the wrong reason. A SIZE BUDGET, not a violation count.
-  "contract-binding.ts": 443,
-  "contract-help.codegen.ts": 237,
-  "contract-help.render.ts": 183,
-  "deprecation-cycle.ts": 660,
   "docs-page.frontmatter.ts": 381,
-  "docs-page.model.ts": 185,
-  "docs-page.render.ts": 198,
-  "errors.ts": 826,
-  "exit-codes.ts": 304,
   "id-graph.leaf-residue.ts": 161,
-  "id-graph.race.ts": 161,
-  // NEW ROW: this file crossed 150 when `planThread` gained the pending-deploy
-  // branch — the producer whose route is declared absent from the deployed API,
-  // which blocks every consumer threading from it. `LEDGER_CEILING` goes up by
-  // exactly one for exactly this row, which is what the ceiling's contract asks:
-  // adding a row REQUIRES +1 in the same diff and the primitive refuses any
-  // other value. The branch's comment is the reasoning that put it over — why it
-  // sits ahead of the FAILED branch, and why it cannot go stale — and trimming
-  // that to stay under a gate would be deleting the argument to satisfy the
-  // number.
-  "id-graph.thread.ts": 160,
-  "id-graph.ts": 252,
   "id-graph.uncovered.generated.ts": 357,
-  "index.ts": 686,
   "json-shape.generated.ts": 473,
-  "json-terminal-contract.ts": 369,
-  "mount-registry.ts": 718,
-  "node-test-verdict.ts": 179,
-  "output.ts": 751,
-  "probe-barrier.ts": 642,
-  "skills-corpus/select-skill-dirs.ts": 242,
-  "util/admin-errors.ts": 164,
-  "util/admin-http.ts": 162,
-  "util/body-satisfies-required.ts": 398,
-  "util/body.ts": 263,
-  "util/confirm.ts": 182,
-  "util/destructive-confirmation.scan.ts": 552,
-  "util/follow-diagnose.ts": 207,
-  "util/global-option-shadowing.ts": 152,
-  "util/mcp-client-config.ts": 219,
-  // +10, RAISED: one import and one `onDeprecation:` line, plus why a per-message
-  // MCP client needs the observer at construction — it is rebuilt per message, so
-  // nothing on this path could otherwise learn of a retirement. The reporting is
-  // already its own file, so shrinking back would move an unrelated concern out
-  // for the wrong reason, as `contract-binding.ts` above says.
-  "util/mcp-rpc.ts": 387,
-  "util/mcp-stdio.ts": 227,
-  "util/required-field-refusals-name-both-paths.ts": 156,
-  "util/resolve-on-path.ts": 284,
-  "util/secret-file.ts": 173,
-  "util/tenant-http.ts": 530,
-  "util/test-body.ts": 160,
-  "util/track-blockers.render.ts": 171,
-  "util/track-blockers.ts": 393,
-  "util/version-check.ts": 677,
-  "util/zip.ts": 173,
-  "vibe-wire-types.conformance.ts": 518,
-  "vibe-wire-types.ts": 494
+  "probe-barrier.ts": 642
 };
 
 /**
@@ -281,7 +207,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 66;
+const LEDGER_CEILING = 22;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

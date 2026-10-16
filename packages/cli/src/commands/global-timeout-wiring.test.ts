@@ -346,7 +346,7 @@ const FETCH_SITES = collectFetchSites(dirname(dirname(fileURLToPath(import.meta.
  * differently-shaped `fetch` in the same file is a NEW key and reds.
  */
 const RELAY_FETCHES_CANNOT_DROP_A_SIGNAL: Readonly<Record<string, string>> = {
-  "auth-probe.ts -> fetch(url, init)": [
+  "auth-probe-request.ts -> fetch(url, init)": [
     "The `ProbeFetch` -> real-fetch ADAPTER. It forwards the caller's `init`",
     "unchanged and builds none of its own, and `ProbeFetch`'s own type REQUIRES",
     "`signal: AbortSignal` on that init — so a caller that omits one does not",

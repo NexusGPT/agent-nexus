@@ -84,14 +84,49 @@
  *   cannot span a line. A bad guess therefore costs one line, never the rest of
  *   the file.
  *
- * A template literal is copied whole rather than parsed, so a `${...}`
- * substitution stays scannable. That is the strict direction too: real code
- * inside a substitution is still judged.
+ * A pattern also begins after a KEYWORD that cannot end a value — `return`,
+ * `typeof`, `case` and the rest of `PATTERN_KEYWORDS`. Each ends in a word
+ * character, so the character rule alone reads the `/` after `return` as
+ * division; a pattern there whose body holds an escaped slash followed by a star
+ * then opens a block comment that swallows code up to the next block closer. A
+ * keyword reached through `.` is a property (`a.in / 2`), so it still divides.
+ *
+ * A template literal's TEXT is copied verbatim; its `${...}` substitutions are
+ * walked as code. That is the strict direction too: real code inside a
+ * substitution is still judged, and a comment there is still a comment. A
+ * substitution can hold strings and templates of its own, nested to any depth, so
+ * the walk keeps one open-brace count per substitution it is inside and returns
+ * to the template only at the `}` that closes it. Copying a template "whole" up
+ * to its next backtick is wrong the moment a substitution holds a template: that
+ * backtick is the nested OPENER, the state inverts, and the rest of the file is
+ * read inside out — a URL's `//` in a later template drops the line after it.
  *
  * Zero dependencies, plain `node`: both callers run as `node scripts/<name>.mjs`
  * with no tsx and no bundler, so anything imported here would have to be plain
  * `.mjs` as well.
  */
+
+/**
+ * Keywords after which a `/` opens a pattern. Each ends in a word character, so
+ * the character rule alone reads the `/` after it as division.
+ */
+const PATTERN_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "case",
+  "default",
+  "do",
+  "else",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "yield",
+  "await"
+]);
 
 /**
  * @param {string} text JavaScript or TypeScript declaration source
@@ -105,11 +140,56 @@ export function stripComments(text) {
   // emitted. Strings, templates and patterns are copied verbatim, so they extend
   // the run; only a comment ends it.
   let runStart = 0;
-  // The last character that decides whether a `/` divides or opens a regex.
+  // The last character that decides whether a `/` divides or opens a regex, and
+  // where it sits, so a word ending there can be read whole.
   let lastSignificant = "";
+  let lastSignificantAt = -1;
+  // One entry per `${...}` substitution the walk is inside, innermost last: the
+  // number of `{` opened in it and not yet closed. The `}` met at a count of zero
+  // closes the substitution and returns the walk to that template's text.
+  /** @type {number[]} */
+  const substitutions = [];
   const closesValue = (ch) => /[)\]}\w$'"`]/.test(ch);
   const flushRun = () => {
     if (i > runStart) chunks.push(text.slice(runStart, i));
+  };
+  /** The word ending at the last significant character, or "" after a property dot. */
+  const lastWord = () => {
+    let start = lastSignificantAt;
+    while (start > 0 && /[\w$]/.test(text[start - 1])) start -= 1;
+    return text[start - 1] === "." ? "" : text.slice(start, lastSignificantAt + 1);
+  };
+  const slashOpensPattern = () => {
+    // A `/` straight after `<` is never a pattern: in JSX it closes a tag
+    // (`</div>`, `</>`), and in TypeScript `a </b` is a comparison.
+    if (text[i - 1] === "<") return false;
+    if (!closesValue(lastSignificant)) return true;
+    return /[\w$]/.test(lastSignificant) && PATTERN_KEYWORDS.has(lastWord());
+  };
+  /**
+   * Walk a template's text from `i`, just past its opening backtick or past the
+   * `}` that closed a substitution, to its closing backtick or its next `${`.
+   */
+  const walkTemplateText = () => {
+    while (i < text.length) {
+      if (text[i] === "\\") {
+        i += 2;
+        continue;
+      }
+      if (text[i] === "`") {
+        i += 1;
+        lastSignificant = "`";
+        return;
+      }
+      if (text[i] === "$" && text[i + 1] === "{") {
+        i += 2;
+        substitutions.push(0);
+        lastSignificant = "{";
+        lastSignificantAt = i - 1;
+        return;
+      }
+      i += 1;
+    }
   };
 
   while (i < text.length) {
@@ -133,7 +213,22 @@ export function stripComments(text) {
       runStart = i;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === "`") {
+    if (ch === "`") {
+      i += 1;
+      walkTemplateText();
+      continue;
+    }
+    if (substitutions.length > 0 && (ch === "{" || ch === "}")) {
+      const innermost = substitutions.length - 1;
+      if (ch === "}" && substitutions[innermost] === 0) {
+        substitutions.pop();
+        i += 1;
+        walkTemplateText();
+        continue;
+      }
+      substitutions[innermost] += ch === "{" ? 1 : -1;
+    }
+    if (ch === '"' || ch === "'") {
       const quote = ch;
       i += 1;
       while (i < text.length) {
@@ -143,7 +238,7 @@ export function stripComments(text) {
         }
         // Only a template can span a line. A quote that has not closed by the
         // newline was never a string: JSX text such as `Google's token` opens one.
-        if (text[i] === "\n" && quote !== "`") break;
+        if (text[i] === "\n") break;
         if (text[i] === quote) {
           i += 1;
           break;
@@ -153,9 +248,7 @@ export function stripComments(text) {
       lastSignificant = quote;
       continue;
     }
-    // A `/` straight after `<` is never a pattern: in JSX it closes a tag
-    // (`</div>`, `</>`), and in TypeScript `a </b` is a comparison.
-    if (ch === "/" && !closesValue(lastSignificant) && text[i - 1] !== "<") {
+    if (ch === "/" && slashOpensPattern()) {
       // A regex literal. Skip it whole so its contents cannot be read as code.
       i += 1;
       let inClass = false;
@@ -177,13 +270,15 @@ export function stripComments(text) {
         }
         i += 1;
       }
-      // `lastSignificant` is left alone: a pattern only opens where it cannot end
-      // a value, so it already holds a non-value character, and the body never
-      // moves it.
+      // `lastSignificant` is left alone and the body never moves it. A `/` can
+      // only follow a pattern directly in `/a/ / b`, which no program writes.
       continue;
     }
 
-    if (!/\s/.test(ch)) lastSignificant = ch;
+    if (!/\s/.test(ch)) {
+      lastSignificant = ch;
+      lastSignificantAt = i;
+    }
     i += 1;
   }
   // `i` can overshoot the end (an unterminated block comment or a trailing

@@ -40,7 +40,7 @@ export function printDeploymentRecord(data: AdminVibeDeploymentResponse): void {
  * held exhaustive by the typecheck, and `admin-vibe-build-job.ts` — a sibling in
  * this same family — already prints through it. This function is reached only by
  * `admin vibe-deployment`. Measured over the eight deployment statuses, with a
- * control proving the probe can see colour at all (`NO_COLOR` in `output.ts` is
+ * control proving the probe can see colour at all (`NO_COLOR` in `output-color.ts` is
  * computed at module load from `process.stdout.isTTY`, so an un-stubbed probe
  * reads PLAIN for every row and scores zero divergence):
  *

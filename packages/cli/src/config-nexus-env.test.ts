@@ -175,7 +175,7 @@ describe("NEXUS_ENV picks an environment, and an unknown name picks none", () =>
     expect.soft(thrown.message).toContain("staging");
     expect.soft(thrown.category).toBe("invalid-input");
     expect.soft(thrown.exitCode).not.toBe(0);
-    // ⚠️ `config.ts` SPELLS THIS LITERALLY to dodge a module cycle through
+    // ⚠️ `config-env-resolve.ts` SPELLS THIS LITERALLY to dodge a module cycle
     // `output.ts`, so the literal and the `CLI_CODES` row in `errors.ts` can
     // diverge in silence. This arm is the only thing holding them together.
     expect.soft(thrown.code).toBe("CLI_UNKNOWN_NEXUS_ENV");

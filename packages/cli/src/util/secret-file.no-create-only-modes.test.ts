@@ -78,12 +78,41 @@ describe("the helper is mirrored byte for byte across the two packages", () => {
    * `~/.nexus-mcp/config.json` and have no dependency edge between them, so the
    * helper cannot be shared by import. It is shared by copy, and a copy with no
    * gate is two helpers that agree today.
+   *
+   * 🔴 THE HELPER IS A FAMILY, NOT A FILE — `secret-file.ts` plus every
+   * `secret-file.*.ts` leaf beside it. Gating only the stem would leave each
+   * leaf an ungated copy, which is the same hole one file further down, so the
+   * BASENAME SET is asserted equal before any content is compared: a leaf added
+   * on one side and not the other reds here rather than drifting in silence.
    */
-  it("holds the two copies identical", () => {
-    const cli = fs.readFileSync(path.join(REPO, "packages/cli/src/util/secret-file.ts"), "utf-8");
-    const mcp = fs.readFileSync(path.join(REPO, "packages/mcp-server/src/secret-file.ts"), "utf-8");
+  const CLI_DIR = path.join(REPO, "packages/cli/src/util");
+  const MCP_DIR = path.join(REPO, "packages/mcp-server/src");
 
-    expect(cli).not.toBe(""); // both reads landed
-    expect(mcp).toBe(cli);
+  /** Every mirrored helper file in a directory, sorted. Specs are not mirrored. */
+  const mirrored = (dir: string): string[] =>
+    fs
+      .readdirSync(dir)
+      .filter((n) => n.startsWith("secret-file") && n.endsWith(".ts") && !n.endsWith(".test.ts"))
+      .sort();
+
+  it("mirrors a non-empty family, so the comparison below cannot be vacuous", () => {
+    // The stem must be among them, or the glob has stopped matching the helper
+    // and every `toBe` below would be comparing an empty list with itself.
+    expect(mirrored(CLI_DIR)).toContain("secret-file.ts");
+    expect(mirrored(CLI_DIR).length).toBeGreaterThan(1);
+  });
+
+  it("holds the same files on both sides", () => {
+    expect(mirrored(MCP_DIR)).toEqual(mirrored(CLI_DIR));
+  });
+
+  it("holds every pair identical", () => {
+    for (const name of mirrored(CLI_DIR)) {
+      const cli = fs.readFileSync(path.join(CLI_DIR, name), "utf-8");
+      const mcp = fs.readFileSync(path.join(MCP_DIR, name), "utf-8");
+
+      expect(cli, `${name} read empty on the cli side`).not.toBe("");
+      expect(mcp, `${name} differs between the two packages`).toBe(cli);
+    }
   });
 });

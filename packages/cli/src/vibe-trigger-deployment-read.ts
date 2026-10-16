@@ -4,11 +4,11 @@
  *
  * The listed statuses are a `Record` over the union, so a status added to it does
  * not compile here until it is listed — `isListedVariant` can never file a known
- * answer as unlisted. `vibe-wire-types.conformance.ts` holds the listed union
- * and the unlisted twin to the contract.
+ * answer as unlisted. `vibe-deployment-trigger-wire-types.conformance.ts` holds
+ * the listed union and the unlisted twin to the contract.
  *
- * Its own module because `vibe-wire-types.ts` sits on the shrink-only size
- * ledger, and these are runtime values the trigger flow needs.
+ * Its own module because these are runtime VALUES the trigger flow needs, where
+ * `vibe-deployment-trigger-wire-types.ts` declares the type alone.
  */
 
 import type { ListedDiscriminants, VibeUnlistedVariant } from "./vibe-unlisted-variant";

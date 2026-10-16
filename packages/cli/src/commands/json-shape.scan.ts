@@ -14,8 +14,9 @@
  * rather than as a wrong parse.
  *
  * What makes that mechanical rather than a matter of opinion is that every one
- * of those shapes is produced by exactly ONE function in `output.ts`, and each
- * of those functions has a single `if (_jsonMode)` branch:
+ * of those shapes is produced by exactly ONE function in the `output-*` family
+ * behind `output.ts`, and each of those functions has a single
+ * `if (isJsonMode())` branch:
  *
  *   printRecord(data, fields)   -> emitDocument(data)          the object, flat
  *   printList(data, meta, cols) -> emitDocument({ data, meta })

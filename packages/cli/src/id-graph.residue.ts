@@ -7,7 +7,7 @@ import type { ResidueReason } from "./id-graph.model";
  * WHY THIS TABLE IS SHORT, AND WHY IT MUST STAY SHORT
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `id-graph.ts` resolves a param to its producing leaf with two rules that read
+ * `id-graph.producer.ts` resolves a param to its producing leaf with two rules that read
  * the ROUTE TREE, never a list written by hand. A hand-written id map beside an
  * evolving API is the same defect `command-universe.ts` deleted one layer up: it
  * goes stale in silence, and a harness driven by a stale map reads exactly like

@@ -658,19 +658,19 @@ describe("the diagnostic channel never reaches stdout under `--json`", () => {
   it("the profile banner writes NOTHING under `--json` — not even to stderr", () => {
     // 🚨 THE CORRECTION INSIDE THE CORRECTION. Both guides said "warnings and the
     // profile banner go to STDERR", and the banner does not: `printContextBanner`
-    // returns on `_jsonMode` before it reaches the TTY check, so under `--json` it
+    // returns on `isJsonMode()` before it reaches the TTY check, so under `--json` it
     // is suppressed outright and cannot contaminate `2>&1` at all. Naming it as a
     // contaminant sends a reader looking for a line that is never written.
     //
     // 🚨 THE TTY FORCING IS WHAT MAKES THIS CASE MEAN ANYTHING. Under a test
     // runner `process.stderr.isTTY` is undefined, so the SECOND guard suppresses
     // the banner on its own and the assertion below passes whether or not the
-    // `_jsonMode` guard exists at all. Measured by mutation: with the guard
+    // `isJsonMode()` guard exists at all. Measured by mutation: with the guard
     // deleted this case still read green until the TTY was forced true. A fixture
     // that never reaches the line under test is not coverage.
     asTTY(() => {
       // CONTROL — outside JSON mode the same call DOES write, so the silence
-      // below is the `_jsonMode` guard and not the harness.
+      // below is the `isJsonMode()` guard and not the harness.
       setJsonMode(false);
       printContextBanner(PROFILE);
       expect(channels.stderr.join("")).toContain("acme");

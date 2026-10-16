@@ -1,7 +1,7 @@
 import type { TestNodeResult } from "@agent-nexus/sdk";
 
-import { CLI_NODE_TEST_NOT_MEASURED, printFailure, reportFailure } from "./errors";
-import { EXIT_CODES } from "./exit-codes";
+import { errorMessageIn } from "./node-test-verdict.error-message";
+import type { NodeTestVerdict } from "./node-test-verdict.types";
 
 /**
  * THE ONE PLACE THIS CLI DECIDES WHETHER A SINGLE-NODE TEST PASSED.
@@ -26,7 +26,8 @@ import { EXIT_CODES } from "./exit-codes";
  *     is the frontend's own test panel condition
  *     (`Nodes/Main/InternalTools/CustomScriptNode/TestSection.tsx`). One rule,
  *     two surfaces, so the CLI cannot disagree with the screen about whether the
- *     same node test failed.
+ *     same node test failed. {@link errorMessageIn} is that rule, in a file of
+ *     its own so there is one copy of it to read.
  *
  * ── WHY THIS IS A MODULE AND NOT A HELPER IN EACH FILE ──────────────────────
  *
@@ -48,7 +49,8 @@ import { EXIT_CODES } from "./exit-codes";
  * close, one layer down — a script gating on the exit code would read "the node
  * works" off a run that had not started producing an answer.
  *
- * So the union below has three arms and they map to three different exits:
+ * So the union in `node-test-verdict.types.ts` has three arms and they map to
+ * three different exits:
  *
  * | outcome        | what happened                             | exit category  |
  * | -------------- | ----------------------------------------- | -------------- |
@@ -60,71 +62,14 @@ import { EXIT_CODES } from "./exit-codes";
  * only file allowed to write one. `unmeasured`'s own declaration there says it
  * "IS NOT A FAILURE AND IT IS NOT A SUCCESS", which is why it is deliberately
  * not `remote-error`: a caller must not go and debug a node that has not run.
+ * `node-test-verdict.report.ts` turns a failed verdict into that exit.
  */
 
-/**
- * What a single-node test actually reports. A CLOSED union, so a caller cannot
- * handle the good arm and let both failures fall through a default — the shape
- * that produced the defect this module exists to close.
- */
-export type NodeTestVerdict =
-  /** The node ran and reported no error. The only arm that exits `0`. */
-  | { readonly outcome: "passed" }
-  /**
-   * The node ran and FAILED. `message` is the executor's own message, read from
-   * `data.error` or `data.errorDetails.message`; neither is guaranteed by the
-   * SDK's type, so it falls back to a sentence rather than to `undefined`.
-   */
-  | { readonly outcome: "node-failed"; readonly message: string }
-  /**
-   * The test was dispatched to the background. `data` is `null` and there is no
-   * outcome to judge. `status` is carried so the refusal can name what the
-   * response actually said rather than asserting `"PENDING"`.
-   */
-  | { readonly outcome: "not-finished"; readonly status: string };
-
-/** Every arm that is not a pass, so a caller that forgets to branch is a type error. */
-export type FailedNodeTestVerdict = Exclude<NodeTestVerdict, { outcome: "passed" }>;
+export { reportNodeTestRefusal } from "./node-test-verdict.report";
+export type { FailedNodeTestVerdict, NodeTestVerdict } from "./node-test-verdict.types";
 
 /** The run status the platform stamps on a test that produced an answer inline. */
 const FINISHED_STATUS = "COMPLETED";
-
-/**
- * The error payload a failed node test returns, as the two keys that identify it.
- *
- * Read as `unknown` and narrowed here rather than typed on `TestNodeResult.data`,
- * which the SDK declares `unknown` because the success arm is whatever the node
- * produced. A cast would claim a shape nobody verified.
- *
- * ⚠️ TRUTHY, NEVER "THE KEY IS PRESENT". The console's condition is
- * `runOutput?.error || runOutput?.errorDetails`, and the whole justification for
- * this module is that one rule serves both surfaces. A presence test diverges on
- * every falsy value a node can legitimately emit — `{ error: null }` is a common
- * success envelope, and `false`, `0` and `""` are all real outputs — so the
- * screen would read PASS while the CLI exited non-zero for the same run. Neither
- * key alone is safe to demand either: `error` is `errorData.message`, which
- * `toNodeTestErrorData` declares OPTIONAL, and `errorDetails` is the object it
- * always writes beside it.
- */
-function errorMessageIn(data: unknown): string | null {
-  if (typeof data !== "object" || data === null) return null;
-  const record = data as { error?: unknown; errorDetails?: unknown };
-
-  if (!record.error && !record.errorDetails) return null;
-
-  if (typeof record.error === "string" && record.error !== "") return record.error;
-
-  const details = record.errorDetails;
-  if (typeof details === "object" && details !== null) {
-    const message = (details as { message?: unknown }).message;
-    if (typeof message === "string" && message !== "") return message;
-  }
-
-  // A failure whose message did not survive is still a failure. Returning `null`
-  // here would report the node as PASSED because its error text was malformed,
-  // which is the false green in its purest form.
-  return "the node reported an error with no message";
-}
 
 /**
  * Judge a single-node test result.
@@ -142,38 +87,4 @@ export function judgeNodeTest(result: TestNodeResult): NodeTestVerdict {
   }
 
   return { outcome: "passed" };
-}
-
-/**
- * PRINT the refusal a failed verdict means and RETURN its exit code.
- *
- * ⚠️ THE RETURN VALUE IS THE WHOLE POINT — assign it. `reportFailure` and
- * `printFailure` only write the document; a bare call here emits a perfect error
- * and exits `0`, which is the class this change is draining.
- *
- * Takes {@link FailedNodeTestVerdict} rather than {@link NodeTestVerdict} so a
- * caller that forgets to branch gets a type error instead of a refusal
- * describing a success — the same construction `refusalForProbe` uses.
- */
-export function reportNodeTestRefusal(verdict: FailedNodeTestVerdict): number {
-  if (verdict.outcome === "node-failed") {
-    // `remote-error`, never a refusal of the command line: the invocation was
-    // ACCEPTED and the platform answered that the node under test does not work.
-    // The caller's next move is to fix the node. Same taxonomy choice as
-    // `external-tool test-auth`, for the same reason.
-    return reportFailure(
-      "remote-error",
-      `Node test failed: ${verdict.message}`,
-      "Fix the node's configuration or its inputs, then test it again. Under --json " +
-        "this document REPLACES the result — re-run without it to read `data.errorDetails`."
-    );
-  }
-
-  printFailure(
-    `The node test reported "${verdict.status}" — it was dispatched to the background, so its outcome is NOT in this response.`,
-    CLI_NODE_TEST_NOT_MEASURED,
-    "Nothing failed and nothing passed. This node type runs asynchronously, so `data` " +
-      "is null and no verdict was measured — the exit code is UNMEASURED, never a failure."
-  );
-  return EXIT_CODES.unmeasured;
 }

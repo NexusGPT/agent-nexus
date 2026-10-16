@@ -5,92 +5,26 @@ import { Command } from "commander";
 import packageJson from "../package.json" with { type: "json" };
 import { getBanner } from "./banner";
 import { parseTimeoutSeconds } from "./client";
-import { registerAccessCardCommands } from "./commands/access-card";
-import { registerAdminCommands } from "./commands/admin";
-import { registerAgentCommands } from "./commands/agent";
-import { registerAgentCollectionCommands } from "./commands/agent-collection";
-import { registerAgentSkillCommands } from "./commands/agent-skill";
-import { registerAgentToolCommands } from "./commands/agent-tool";
-import { registerAnalyticsCommands } from "./commands/analytics";
-import { registerApiCommand } from "./commands/api";
-import { registerAppsCommands } from "./commands/apps";
-import { registerAssetCommands } from "./commands/asset";
-// Commands
-import { registerAuthCommands } from "./commands/auth";
-import { registerChannelCommands } from "./commands/channel";
-import { registerChatCommands } from "./commands/chat";
-import { registerClaudeCodeCommands } from "./commands/claude-code";
-import { registerCloudImportCommands } from "./commands/cloud-import";
-import { registerCollectionCommands } from "./commands/collection";
-import { registerConversationCommands } from "./commands/conversation";
-import { registerCredentialCommands } from "./commands/credential";
-import { registerCueCommands } from "./commands/cue";
-import { registerCustomModelCommands } from "./commands/custom-model";
-import { registerCustomerCommands } from "./commands/customer";
-import { registerDeploymentCommands } from "./commands/deployment";
-import { registerDocsCommand } from "./commands/docs";
-import { registerDocumentCommands } from "./commands/document";
-import { registerEmulatorCommands } from "./commands/emulator";
-import { registerEvalCommands } from "./commands/eval";
-import { registerEvaluationCommands } from "./commands/evaluation";
-import { registerExecutionCommands } from "./commands/execution";
-import { registerExternalToolCommands } from "./commands/external-tool";
-import { registerFolderCommands } from "./commands/folder";
-import { registerHtmlMessageTemplateCommands } from "./commands/html-message-template";
-import { registerKnownIssuesCommand } from "./commands/known-issues";
-import { registerMcpCommands } from "./commands/mcp";
-import { registerMcpServerCommands } from "./commands/mcp-server";
-import { registerModelCommands } from "./commands/model";
-import { registerPermissionsCommands } from "./commands/permissions";
-import { registerPhoneNumberCommands } from "./commands/phone-number";
-import { registerPromptCommands } from "./commands/prompt";
-import { registerPromptAssistantCommands } from "./commands/prompt-assistant";
-import { registerRoleCommands } from "./commands/role";
-import { registerScoreCommands } from "./commands/score";
-import { registerSkillFolderCommands } from "./commands/skill-folder";
-import { registerSkillsCommands } from "./commands/skills";
-import { registerTaskCommands } from "./commands/task";
-import { registerTemplateCommands } from "./commands/template";
-import { registerTicketCommands } from "./commands/ticket";
-import { registerToolCommands } from "./commands/tool";
-import { registerTracingCommands } from "./commands/tracing";
-import { registerTracksCommands } from "./commands/tracks";
-import { registerUpgradeCommand, UPGRADE_ALIASES } from "./commands/upgrade";
-import { registerUserGroupCommands } from "./commands/user-group";
-import { registerVersionCommands } from "./commands/version";
-import { registerWorkflowCommands } from "./commands/workflow";
-import { registerWorkspaceCommands } from "./commands/workspace";
-import { assertKnownNexusEnv, resolveProfile } from "./config";
-import { applyDeprecationNotices } from "./deprecation-notice";
-import { handleError, installArgumentRefusalReporting } from "./errors";
 import { registerHelpScopeFooter } from "./help-scope";
-import { applyJsonShapeHelpLine } from "./json-shape-help";
-import { installJsonTerminalContract } from "./json-terminal-contract";
-import { applyKnownIssuesHelpLine } from "./known-issues-help";
-import { isJsonMode, printContextBanner, setJsonMode } from "./output";
-import { applyProbeBarrierHelpLine } from "./probe-barrier-help";
-import { applyBodySatisfiesRequired } from "./util/body-satisfies-required";
-import { refuseMultipleStdinReaders } from "./util/one-stdin-reader";
-import { autoUpdate, checkForUpdate, isAutoUpdateDisabled } from "./util/version-check";
+import { addGlobalFlagsFooter } from "./root-global-flags-footer";
+import { ROOT_EPILOGUE } from "./root-help-epilogue";
+import { registerNamespaces } from "./root-namespace-registrars";
+import { rootPreAction } from "./root-pre-action";
+import { runCli } from "./root-run-cli";
+import { applyFinishedTreeDecorations } from "./root-tree-decorations";
 
 export const VERSION = packageJson.version;
 
 /**
  * BUILD THE ROOT PROGRAM, AND RETURN IT WITHOUT PARSING.
  *
- * ══════════════════════════════════════════════════════════════════════════════
- * WHY THIS IS A FUNCTION AND NOT MODULE-LEVEL CODE
- * ══════════════════════════════════════════════════════════════════════════════
+ * ── WHY THIS IS A FUNCTION AND NOT MODULE-LEVEL CODE ─────────────────────────
  *
- * This file used to build `program` at module scope and then call
- * `program.help()` and `program.parseAsync(...)`, so IMPORTING it RAN the CLI.
- * Nothing could ever read the tree it builds.
- *
- * Every tool that needs the tree therefore rebuilt one: import the `register*`
- * functions individually, hand them a fresh `Command`, and hope the result
- * matches. That workaround reaches the NAMESPACE registrars and structurally
- * cannot reach the PROGRAM-LEVEL options below, because those are applied to
- * the root object this file builds and immediately consumes.
+ * This file used to build `program` at module scope and then parse argv, so
+ * IMPORTING it RAN the CLI and nothing could read the tree it builds. Every tool
+ * that needed the tree rebuilt one from the `register*` functions — which
+ * reaches the NAMESPACE registrars and structurally cannot reach the
+ * PROGRAM-LEVEL options below, applied to the root object this file builds.
  *
  * The cost was measured, not predicted:
  *
@@ -104,19 +38,18 @@ export const VERSION = packageJson.version;
  *     user-named third-party host. Detecting the CLASS needs the global set,
  *     which needs this function.
  *
- * ── WHY THE DECLARATIONS STAYED IN THIS FILE ─────────────────────────────────
+ * ── 🚨 WHY THE OPTION CHAIN STAYS HERE WHEN EVERYTHING ELSE COMPOSED OUT ─────
  *
- * The obvious move is to lift all of it into a `root-program.ts` and leave a
- * thin entry behind. That was tried and reverted: FIVE test files derive facts
- * by reading `src/index.ts` AS TEXT — the auto-update flag pair, the registrar
- * wiring, the global set, the generated-docs projection — and every one of them
- * went red naming a file that had simply stopped being where the CLI is
- * declared. Moving the code would have made this package's own gates report a
- * defect that did not exist, in four files belonging to other people.
+ * The GLOBAL OPTION DECLARATIONS below are read as TEXT by
+ * `auto-update-is-opt-in.test.ts`, which derives the `--…auto-update…` flag set
+ * from this file and asserts the resulting commander VALUE. So the two flags
+ * stay declared here, in one chain, spelled literally. Three of the siblings
+ * this function composes are text-read too and each says so in its own header:
+ * `root-namespace-registrars.ts` and the `root-help-epilogue.*` set.
  *
- * So the side effect moved instead of the declarations. Everything a text scan
- * expects is exactly where it was; only the two statements that must not happen
- * on import are now behind {@link isProcessEntryPoint}.
+ * Only the two statements that must not happen on import are behind
+ * {@link isProcessEntryPoint}. Import this module, or `./root-program`, and you
+ * get the tree without running the CLI.
  *
  * ── WHY THE VERSION IS A PARAMETER ───────────────────────────────────────────
  *
@@ -145,7 +78,8 @@ export function buildRootProgram(version: string = VERSION): Command {
     // Declaring BOTH forms is what makes the default OFF: commander gives a lone
     // `--no-x` an implicit default of true, and stops doing so once the positive
     // flag exists. So `opts.autoUpdate` is `undefined` unless one is passed, and
-    // the `else` branch below — print a notice, install nothing — is the default.
+    // the `else` branch in `root-run-cli.ts` — print a notice, install nothing —
+    // is the default.
     // Why the default moved (NEX-3708): the updater replaces the directory the
     // running binary lives in, from inside that binary, and cannot relink the
     // global shim itself. A half-applied update leaves the shim pointing at a
@@ -154,312 +88,15 @@ export function buildRootProgram(version: string = VERSION): Command {
     // dist/index.js before our first line executes.
     .option("--auto-update", "Self-update to the latest version on exit (off by default)")
     .option("--no-auto-update", "Do not self-update on exit (the default)")
-    .hook("preAction", (thisCommand) => {
-      const opts = thisCommand.optsWithGlobals();
-      if (opts.json) setJsonMode(true);
-
-      // 🔴 VALIDATE `NEXUS_ENV` HERE, BEFORE ANY ACTION HANDLER RUNS, BECAUSE A
-      // REFUSAL THAT ARRIVES AFTER A WRITE IS WORSE THAN NO REFUSAL.
-      //
-      // `resolveBaseUrl` and `resolveDashboardUrl` walk INDEPENDENT chains and
-      // each consults the environment name LAST, so the API host can be pinned
-      // by any of four earlier terms while the console host falls all the way
-      // through and throws. An active profile carrying a `baseUrl` and no
-      // `dashboardUrl` reproduces it with no flag and no other variable set.
-      // Roughly sixteen commands build their console link AFTER the mutating
-      // call, so the resource was created and the process then exited non-zero
-      // — which a script reads as a failed create and retries, duplicating it.
-      //
-      // Every command, with no exemption list. A name this CLI cannot resolve
-      // breaks every host-resolving command anyway, so saying so at `version`
-      // costs a line and an exemption list is one more thing to drift.
-      //
-      // ⚠️ AFTER `setJsonMode`, deliberately: the refusal has to be emitted as
-      // the JSON error document when `--json` was passed. `parseAsync`'s
-      // `.catch` in `main()` routes it through `handleError`, which is what
-      // turns it into the right exit code and the right document.
-      assertKnownNexusEnv();
-
-      // Show context banner (skip for auth/upgrade/version — they handle their own output)
-      const cmdName = thisCommand.name();
-      const skipBanner = [
-        "auth",
-        "upgrade",
-        "version",
-        "login",
-        "logout",
-        "whoami",
-        "switch",
-        "list",
-        "pin",
-        "unpin",
-        "status",
-        "docs",
-        "claude-code",
-        "skills",
-        ...UPGRADE_ALIASES
-      ].includes(cmdName);
-      if (!skipBanner && !isJsonMode()) {
-        try {
-          const resolved = resolveProfile(opts);
-          printContextBanner(resolved);
-        } catch {
-          // No profile configured — skip banner, the command will error later
-        }
-      }
-    });
+    .hook("preAction", rootPreAction);
 
   // Prepend banner to top-level --help only (not subcommands)
   program.addHelpText("before", getBanner(version));
-  /**
-   * The root epilogue — the contract that holds for EVERY command.
-   *
-   * ══════════════════════════════════════════════════════════════════════════════
-   * THE STANDARD THIS HELP IS WRITTEN TO (NEX-3626)
-   * ══════════════════════════════════════════════════════════════════════════════
-   *
-   * `--help` carries exactly the instruction a prompt would carry, in full. The
-   * test is operational: paste a command's `--help` into an agent prompt with no
-   * other source available, and the agent must use that command correctly FIRST
-   * TIME — including the cases where it would otherwise silently do the wrong
-   * thing. If Nexus documentation states something about a command that its
-   * `--help` does not, the help is incomplete by definition.
-   *
-   * What that means per command, and what {@link help-completeness.test.ts}
-   * enforces for the namespaces that have been converted:
-   *
-   *   - an `Examples:` block of REAL invocations, and a `Notes:` block;
-   *   - every precondition, and the scope the call needs;
-   *   - the exact body shape — which field sits where, and what type it is;
-   *   - what a value MEANS, and specifically what null means as distinct from
-   *     zero and from absent;
-   *   - the destructive consequence, NAMED, including effects on objects the
-   *     caller never mentioned;
-   *   - what a SILENT FAILURE looks like — the call that answers 2xx and does
-   *     not do the thing;
-   *   - how to VERIFY the call did what it claims.
-   *
-   * The form is `nexus role`'s: imperative, consequence-first sentences in a
-   * `Notes:` block. `role attach` is the model — "THIS IS A MOVE, NOT AN ADD. A
-   * system belongs to exactly ONE Role, so this revokes the previous Role's claim
-   * AND the access its members had through it." Copy that. Do not invent a second
-   * convention beside it.
-   *
-   * Facts that hold for MORE THAN ONE command belong here in the root epilogue
-   * rather than being repeated per command; facts about one command belong on
-   * that command, where the reader is when they need them.
-   *
-   * ── THE COMPATIBILITY LINK IS A URL, AND IT HAS TO BE ───────────────────────
-   *
-   * `COMPATIBILITY.md` is this package's stability contract, and until now the
-   * binary never named it. `git grep COMPATIBILITY -- packages/cli/src` is NOT
-   * empty — it returns 30 lines across 9 files — and every one of them is a
-   * comment, a test description, a test assertion message, a test's own path
-   * constant, or a ledger `note` that only a test reads. Not one is a string
-   * this program prints, so no help screen, no command and no error led anyone
-   * to the document. A promise the tool cannot lead you to is not a promise.
-   *
-   * 🚨 A REPO-RELATIVE PATH WOULD NAME A FILE NOBODY OUTSIDE THIS REPO CAN OPEN.
-   * The product repo the document lives in is private, so `packages/cli/…` is a
-   * path only a monorepo checkout can follow. The public mirror named by
-   * `repository.url` is where a reader outside this machine opens it, which is
-   * why the epilogue spells the whole URL.
-   *
-   * The URL is not enough on its own, and the second sentence beside it is not
-   * decoration. It points at branch `main` — the NEWEST contract — while the
-   * reader is holding whatever version they installed, and it needs a network at
-   * the exact moment someone is debugging a script. So `package.json` names
-   * `COMPATIBILITY.md` in `files` too, and the document is on disk in every
-   * install, at the version that install actually promises.
-   *
-   * Two specs hold the two halves. {@link compatibility-link-is-in-root-help.test.ts}
-   * pins the link to that `repository` field, so moving the mirror fails rather
-   * than rotting. {@link compatibility-ships-in-the-tarball.test.ts} asks npm what
-   * it would publish, so the shipped copy disappearing fails rather than rotting.
-   */
-  program.addHelpText(
-    "after",
-    `
-  Global flags work anywhere in the line, before or after the subcommand:
-    --json                 machine-readable output
-    --profile <name>       use a named profile instead of the active one
-    --api-key <key>        override the key for this invocation
-    --base-url <url>       point at another environment
-    --timeout <seconds>    client-side only; default 30, and 600 for the
-                           operations that run a model before they answer
-                           (task execute, tool execute, external-tool test, …)
-    --auto-update          self-update on exit; OFF by default
+  program.addHelpText("after", ROOT_EPILOGUE);
+  program.configureHelp({ sortSubcommands: true });
 
-  UPDATES
-    This CLI does NOT install over itself unless you pass --auto-update. Without
-    it you get one line naming the newer version and the command that installs
-    it. Set NEXUS_NO_AUTO_UPDATE=1, or run where CI is set, and it also stops
-    ASKING npm — no request on any invocation, and the notice comes from
-    whatever the last check left on disk. --json skips both.
-
-    Keeping the flag off by default is deliberate: a self-install replaces the
-    directory this binary is running from and cannot relink the global shim
-    itself, so an interrupted one leaves a shim pointing at nothing. Once that
-    happens NO nexus command runs — not even --no-auto-update — because the
-    failure is in Node's module resolution, before any of this code.
-    Reinstalling is the only repair.
-
-  READING THE OUTPUT
-    --json prints ONE JSON document on STDOUT and nothing else. Warnings, the
-    profile banner and progress go to STDERR, so a pipe stays parseable. Without
-    --json you get a table, and a table COLUMN IS TRUNCATED TO ITS WIDTH — never
-    parse one, and never conclude a value is short because it looked short.
-    "-" and a blank cell mean NULL, which is not zero and not false.
-    A list command prints only the columns it chose; --json can carry fields the
-    table does not show, and a few commands drop response fields from BOTH. When
-    a value matters and you cannot see it, "nexus api GET <path>" returns the
-    untouched response.
-
-  FAILURE
-    EVERY failure exits NON-ZERO, and the value NAMES THE CATEGORY:
-      1  failed — no more specific category applies
-      2  not authenticated      3  permission denied      4  not found
-      5  invalid input          6  the server failed      7  could not connect
-      8  timed out              9  a local operation failed
-      10 the operation ran and the outcome did not happen (retrying is the trap)
-      11 the operation ran and the result COULD NOT BE MEASURED
-      130 interrupted (128 + 2 — the shell's number, not ours). ONLY
-          "apps logs --follow" emits it, and only on the SECOND signal;
-          the first Ctrl-C ends that follow at 0.
-    Under --json an error is a JSON document on STDOUT:
-    {"error":{"message","hint","code"}}, all three keys ALWAYS present, hint null
-    when there is none. Without --json the code is printed dim in brackets after
-    the message.
-    THE EXIT CODE IS THE CATEGORY; THE CODE FIELD IS THE CONDITION. Branch on $?
-    to decide whether to RETRY, on the code to decide WHAT to say. An API
-    refusal's own name comes through unchanged (NODE_IS_TRIGGER,
-    WORKFLOW_ALREADY_PUBLISHED, …); a refusal the API sent without one falls
-    back to HTTP_<status>; and a CLI_ prefix means the
-    failure never reached the server at all. Match on the code, never on the
-    message, which is prose and gets rewritten.
-    --timeout IS CLIENT-SIDE. Hitting it means this CLI stopped waiting; THE
-    SERVER MAY STILL BE COMPLETING THE REQUEST. Never retry a write on a timeout
-    without checking whether the first one landed.
-    A 2xx IS NOT ALWAYS THE THING HAPPENING. Several commands accept and discard
-    input, or file a request instead of acting. Where that is true the command's
-    own Notes say so and name the verification step — run it.
-
-  SENDING A BODY
-    --body takes inline JSON, a path ending in .json, or "-" for stdin. An
-    explicit flag ALWAYS overrides the same field inside --body.
-    A REQUIRED FLAG IS SATISFIED BY --body TOO. The body key is the flag name in
-    camelCase, so --first-name is satisfied by "firstName". A command refuses only
-    when the field is in NEITHER place, and says so naming both.
-    A KEY THE SERVER DOES NOT KNOW IS USUALLY DROPPED, NOT REFUSED — a typo'd or
-    misplaced field is accepted and silently ignored, so read each command's body
-    shape rather than guessing it.
-    FIVE COMMANDS SPELL THE BODY FLAG --data, ACROSS THREE NAMESPACES:
-    "ticket create", "ticket update", "credential update", "access-card create"
-    and "access-card update". Every other command spells it --body, and neither
-    spelling is accepted where the other is declared — commander refuses the flag
-    it does not know, so this costs you a retry rather than a silent drop.
-    "html-template render" ALSO TAKES --data AND IT IS NOT A REQUEST BODY: it is
-    the data object a template renders against, on a namespace whose create and
-    update take --body. Read the command's own Options block, never the
-    namespace's.
-
-  SCOPES AND WHO YOU ARE
-    Scopes have exactly ONE implication: :write implies :read on the SAME
-    resource, so a key that can rewrite a list can always fetch it first. Nothing
-    else bridges: :write does not imply :delete, :delete implies nothing at all,
-    and a scope on one surface says nothing about another — implication never
-    crosses a resource. A missing scope is a 403, not an empty result.
-    A key minted for an org MEMBER sees only what that user created on several
-    surfaces, so a list can be empty while the organization has rows, and
-    somebody else's id answers 404 rather than 403.
-    Commands act on the profile's ACTIVE organization. "nexus auth whoami" says
-    which. Changing it needs a personal (cross-org) token and
-    "nexus auth use-org <orgId>"; an org-scoped key reaches exactly one org by
-    construction, so switch profile instead.
-
-  WHICH PROFILE A COMMAND USES, AND WHY IT CAN CHANGE UNDER YOU
-    Resolution, highest first — each level is checked only when the ones above it
-    are absent:
-      1  --api-key <key>            this invocation only; uses no profile at all
-      2  --profile <name>           this invocation only
-      3  NEXUS_API_KEY              this shell; uses no profile at all
-      4  NEXUS_PROFILE              this shell     — nexus auth switch <n> --session
-      5  .nexusrc                   this directory — nexus auth switch <n> --here
-      6  active profile             THIS MACHINE   — nexus auth switch <n>
-      7  the profile named "default"
-    AN EXPLICIT --profile OUTRANKS AN EXPORTED NEXUS_API_KEY, which is why it is
-    the reliable per-command escape hatch: 2 beats 3, so the named profile's key
-    is used even in a shell that exported one. Nothing else outranks NEXUS_API_KEY
-    — with it set, levels 4-7 are not consulted at all.
-    LEVEL 6 IS SHARED BY EVERY PROCESS ON THE MACHINE. A plain "auth switch" in
-    one terminal repoints every other session that has no binding of its own,
-    mid-task and without printing anything there — reads answer from the other
-    organization, and writes LAND in it. Working two organizations at once means
-    binding each session at level 4 or 5, which are per-shell and per-directory
-    and cannot collide.
-    The organization is a SECOND resolution and does not follow the profile: on a
-    cross-org token it is NEXUS_ORGANIZATION_ID (this shell), else the orgId saved
-    on the profile by "auth use-org" (every session on the machine).
-    "nexus auth status" names the level in force, and the org with it.
-
-  WHAT YOU MAY SCRIPT AGAINST
-    NOT EVERY PART OF THIS SURFACE IS PROMISED. Four tiers — STABLE, EVOLVING,
-    UNSTABLE and INTERNAL — say which parts you may build on, which ones move,
-    and what counts as a breaking change for each. A field name you read out of
-    a --json payload is not covered by the same promise as the command that
-    printed it. Read the contract before you script any of it:
-    https://github.com/NexusGPT/agent-nexus/blob/main/packages/cli/COMPATIBILITY.md
-    That page is branch main, so it is the newest contract and not necessarily
-    the one this build promises. The copy that shipped with the version you are
-    running is on disk, as COMPATIBILITY.md beside this package's package.json.
-
-  Tip: Run "nexus docs" for full documentation, gotchas, and recipes.
-       Run "nexus docs <topic>" for a specific section (overview, commands, gotchas, input-output, recipes).
-  `
-  );
-
-  program.configureHelp({
-    sortSubcommands: true
-  });
-
-  // THE GLOBAL FLAGS, NAMED ON THE SCREEN THAT DOES NOT DECLARE THEM.
-  //
-  // Every global option is declared ONCE, here on the program. So they appear in
-  // the Options block of the root and of NO subcommand — while `--json` appears
-  // in the Examples block of nearly every subcommand. A reader on a leaf
-  // therefore sees the flag used and never sees it documented, which reads as
-  // undocumented rather than as inherited.
-  //
-  // 🚨 THE LIST IS DERIVED FROM `program.options`, NEVER TYPED OUT. A
-  // hand-written one is the defect this closes, one level up: it goes stale the
-  // moment an option is added here, and it silently omits whatever its author
-  // forgot. The docblock on `buildRootProgram` records that `--dashboard-url`
-  // and `--timeout` were "real global options documented on no page" for exactly
-  // that reason — and a hand-typed five-flag version of this footer reproduced
-  // the `--dashboard-url` half of it before the derivation replaced it.
-  //
-  // `--no-auto-update` is filtered out because commander declares it as the
-  // negated twin of `--auto-update`; printing both would advertise the default
-  // as if it were an action.
-  //
-  // Registered BEFORE the scope footer so it renders above it, and suppressed on
-  // the root itself, whose epilogue already spells them out with their
-  // resolution order. `afterAll` fires on the helped command and its ancestors,
-  // so the guard is on the command being helped, not on the registration.
-  program.addHelpText("afterAll", (ctx) => {
-    if (ctx.command === program) return "";
-    const flags = program.options
-      .filter((option) => !option.long?.startsWith("--no-"))
-      .map((option) => option.flags)
-      .join("  ");
-    return (
-      '\nGLOBAL FLAGS, USABLE HERE THOUGH THEY ARE LISTED ONLY ON "nexus --help"\n' +
-      `  ${flags}\n` +
-      "  They work anywhere in the line, before or after the subcommand, and none\n" +
-      "  of them appears in a subcommand's own Options block. --json is one of\n" +
-      "  them, which is why the Examples above use a flag this screen never lists.\n"
-    );
-  });
+  // BEFORE the scope footer, so the derived global-flag block renders above it.
+  addGlobalFlagsFooter(program);
 
   // The scope footer, on EVERY help screen at every depth. One registration:
   // commander fires `afterAll` on the helped command and all its ancestors.
@@ -467,111 +104,8 @@ export function buildRootProgram(version: string = VERSION): Command {
   // position below the command's own Notes block is the point of it.
   registerHelpScopeFooter(program, version);
 
-  // Register all command groups
-  registerAuthCommands(program);
-  registerAdminCommands(program);
-  registerAgentCommands(program);
-  registerAgentCollectionCommands(program);
-  registerAgentToolCommands(program);
-  registerAgentSkillCommands(program);
-  registerVersionCommands(program);
-  registerFolderCommands(program);
-  registerDeploymentCommands(program);
-  registerWorkflowCommands(program);
-  registerWorkspaceCommands(program);
-  registerExecutionCommands(program);
-  registerDocumentCommands(program);
-  registerAssetCommands(program);
-  registerCollectionCommands(program);
-  registerConversationCommands(program);
-  registerTaskCommands(program);
-  registerToolCommands(program);
-  registerAnalyticsCommands(program);
-  registerTicketCommands(program);
-  registerApiCommand(program);
-  registerEmulatorCommands(program);
-  registerEvaluationCommands(program);
-  registerTemplateCommands(program);
-  registerHtmlMessageTemplateCommands(program);
-  registerKnownIssuesCommand(program);
-  registerScoreCommands(program);
-  registerMcpCommands(program);
-  registerMcpServerCommands(program);
-  registerExternalToolCommands(program);
-  registerPromptAssistantCommands(program);
-  registerPromptCommands(program);
-  registerEvalCommands(program);
-  registerSkillFolderCommands(program);
-  registerModelCommands(program);
-  registerCustomModelCommands(program);
-  registerPhoneNumberCommands(program);
-  registerChannelCommands(program);
-  registerChatCommands(program);
-  registerTracingCommands(program);
-  registerTracksCommands(program);
-  registerCueCommands(program);
-  registerCredentialCommands(program);
-  registerCustomerCommands(program);
-  registerAccessCardCommands(program);
-  registerPermissionsCommands(program);
-  registerUserGroupCommands(program);
-  registerRoleCommands(program);
-  registerClaudeCodeCommands(program);
-  registerSkillsCommands(program);
-  registerCloudImportCommands(program);
-  registerAppsCommands(program);
-  registerUpgradeCommand(program);
-  registerDocsCommand(program);
-
-  // One stdin, one claimant. Registered BEFORE the seam below, because that
-  // seam's pre-action hook reads --body and hooks run in registration order.
-  refuseMultipleStdinReaders(program);
-
-  // A required flag is satisfiable from --body. Runs LAST and walks the finished
-  // tree, so it needs no cooperation from any command file and no list of
-  // participating commands to keep current. See the module docblock.
-  applyBodySatisfiesRequired(program);
-
-  // Which of the five --json shapes each leaf prints. Walks the FINISHED tree
-  // for the same reason as the two lines above, and reads a GENERATED map: the
-  // shape is derived from the printer a command's action reaches, never
-  // authored. A leaf the derivation cannot answer for carries no line at all.
-  // See `json-shape-help.ts`.
-  applyJsonShapeHelpLine(program);
-
-  // The known-issues pointer, on every command's --help. Walks the FINISHED
-  // tree, so it needs no list of participating commands; a namespace added
-  // tomorrow carries the line without being registered anywhere. Static text —
-  // `--help` must never touch the network. See `known-issues-help.ts`.
-  applyKnownIssuesHelpLine(program);
-
-  // Which of the notes above nobody can check for free. Walks the FINISHED tree
-  // for the same reason as the line before it, and lands ABOVE the scope footer
-  // so the global caveat stays last. See `probe-barrier.ts`.
-  applyProbeBarrierHelpLine(program);
-
-  // The announcement half of a deprecation cycle: a line on the leaf's own
-  // `--help` and a warning on STDERR when it is invoked. Walks the FINISHED tree
-  // for the same reason as the three lines above, so deprecating a command needs
-  // no edit to the file that registers it. The stderr half is load-bearing —
-  // stdout under `--json` is ONE document and the notice must never become the
-  // breaking change it was meant to give a release of warning about. See
-  // `deprecation-notice.ts`; `deprecation-cycle.ts` is the half that refuses a
-  // removal which skipped this.
-  applyDeprecationNotices(program);
-
-  // An argument refusal becomes a throw, so it reaches `handleError` and emits
-  // the error document the root epilogue promises. Walks the FINISHED tree for
-  // the same reason as the two lines above, and for one more: commander copies
-  // `_exitCallback` at subcommand CREATION, so a call on the root alone would
-  // reach the root alone. See `installArgumentRefusalReporting`.
-  installArgumentRefusalReporting(program);
-
-  // `--json` holds on every way this process can TERMINATE, not only on the ones
-  // that run an action. Walks the FINISHED tree for the same reason as the line
-  // above, and must come after it: the stray-operand refusal it installs exits
-  // through the callback that line registers. See `json-terminal-contract.ts`.
-  installJsonTerminalContract(program);
+  registerNamespaces(program);
+  applyFinishedTreeDecorations(program);
 
   return program;
 }
@@ -611,76 +145,5 @@ if (isProcessEntryPoint()) {
     program.help();
   }
 
-  /**
-   * 🚨 THIS `.catch` IS NOT A SPARE COPY OF THE PER-LEAF ONE, AND DELETING
-   *    EITHER SIDE CHANGES BEHAVIOUR.
-   *
-   * Almost every command leaf ends its action with the identical arm
-   * `catch (err) { process.exitCode = handleError(err); }`, and the `.catch`
-   * below is that expression again. No figure is written here — leaves move, and
-   * a count in prose reads as checked long after it stopped being. Re-derive it
-   * from `packages/cli`, with a CONTROL that must come back LARGER:
-   *
-   *     /usr/bin/grep -rl 'process.exitCode = handleError(err);' src --include='*.command.ts' | wc -l
-   *     /usr/bin/grep -rl 'process.exitCode = handleError(err);' src --include='*.ts' | wc -l
-   *
-   * That over-counts a little: a handful of leaves special-case one error and
-   * then fall THROUGH to the same arm, so they match too.
-   *
-   * That reads as pure duplication and is not. A leaf that handles its own error
-   * RETURNS NORMALLY, so `.then()` runs and the auto-update path below runs with
-   * it. A leaf that lets the rejection out reaches this `.catch` instead, and
-   * `.then()` is skipped entirely.
-   *
-   * Measured, one leaf, one mutation, same primed version cache — removing
-   * `tracks list`'s own catch left the exit code (7), stdout and the `--json`
-   * document byte-identical and DROPPED the `Update available:` notice from
-   * stderr. With auto-update on, which is the default, it also drops the
-   * install `autoUpdate()` would have performed.
-   *
-   * So "collapse every leaf catch into this one" is not a de-duplication.
-   * It is a decision about whether a command that FAILED should still run the
-   * updater, and it is unmade — the current answer is yes, by accident of where
-   * the catch sits. A wrapper that catches INSIDE the action preserves today's
-   * behaviour; one that removes the boundary from the leaf does not.
-   */
-  program
-    .parseAsync(process.argv)
-    .then(async () => {
-      if (isJsonMode()) return;
-
-      // Skip auto-update when running `nexus upgrade` (or any alias) — it handles its own update
-      const ranCommand = process.argv[2];
-      if (ranCommand === "upgrade" || UPGRADE_ALIASES.includes(ranCommand)) return;
-      // The credential refresh helper runs unattended under rclone's AWS SDK,
-      // which kills it at 60 s: an install or a detached registry fetch does
-      // not belong inside that window, and the banner would land in rclone's
-      // log.
-      if (ranCommand === "workspace" && process.argv[3] === "credential-process") return;
-
-      const opts = program.opts();
-
-      if (opts.autoUpdate && !isAutoUpdateDisabled()) {
-        // Default: auto-update when a new version is detected
-        const msg = await autoUpdate(VERSION);
-        if (msg) {
-          const { color } = await import("./output");
-          process.stderr.write(color.green(msg));
-        }
-      } else {
-        // --no-auto-update / NEXUS_NO_AUTO_UPDATE / CI: print a notice, install
-        // nothing. `checkForUpdate` enforces the environment opt-out itself —
-        // under it the notice comes from the cache and no request is made. The
-        // condition above is a BRANCH SELECTOR, not the gate; see the docblock
-        // on `checkForUpdate` for why the gate had to move into that module.
-        const updateMsg = await checkForUpdate(VERSION);
-        if (updateMsg) {
-          const { color } = await import("./output");
-          process.stderr.write(color.yellow(updateMsg));
-        }
-      }
-    })
-    .catch((err) => {
-      process.exitCode = handleError(err);
-    });
+  void runCli(program, VERSION);
 }

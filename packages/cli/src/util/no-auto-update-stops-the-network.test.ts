@@ -37,7 +37,8 @@ const UPGRADE_SRC = fs.readFileSync(
 /**
  * THE DOCUMENTED OPT-OUT DID NOT STOP THE NETWORK CALL.
  *
- * `index.ts` decides what to do after every non-`--json` command with ONE `if`:
+ * `root-run-cli.ts` decides what to do after every non-`--json` command with
+ * ONE `if`:
  *
  *     if (opts.autoUpdate && !isAutoUpdateDisabled())  -> install over yourself
  *     else                                             -> checkForUpdate(...)
@@ -55,7 +56,7 @@ const UPGRADE_SRC = fs.readFileSync(
  *   no variable              refresh scheduled
  *   NEXUS_NO_AUTO_UPDATE=1   nothing scheduled   <- the escape hatch
  *   CI=1                     nothing scheduled   <- and the implicit one
- *   --json                   nothing scheduled   (index.ts returns first)
+ *   --json                   nothing scheduled   (`runCli` returns first)
  *
  * The opt-out has to cover the SPAWN, not only the request. A detached child
  * making an unasked-for registry call is the worse version of the same offence:

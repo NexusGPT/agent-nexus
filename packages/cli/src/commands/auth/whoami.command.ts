@@ -57,7 +57,7 @@ export function registerAuthWhoamiCommand(auth: Command, program: Command): Comm
       // Both verbs answer "is this key good", and this file used to hold the only
       // correct copy while `status` had none. Two copies of that answer is two
       // things to drift, silently, in the direction that reads as fine — so the
-      // mapping lives in `auth-probe.ts` and neither verb owns it.
+      // mapping lives in `auth-probe-refusal.ts` and neither verb owns it.
       //
       // Behaviour preserved exactly, with ONE narrowing that the old bare `catch`
       // could not express: a TIMEOUT now reports as `timed-out` rather than as

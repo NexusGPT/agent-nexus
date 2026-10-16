@@ -27,7 +27,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *
  * ── Why the whole module is re-imported per case ────────────────────────────
  *
- * `NO_COLOR` in `output.ts` is a module-level `const` evaluated at import, so an
+ * `NO_COLOR` in `output-color.ts` is a module-level `const` evaluated at import, so an
  * env stub set afterwards changes nothing. Each case therefore resets the module
  * registry and imports fresh — which also means `AdminCliError` must be minted
  * from the SAME fresh module, or `instanceof` inside `handleAdminError` fails

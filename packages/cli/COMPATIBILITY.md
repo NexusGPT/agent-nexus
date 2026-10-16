@@ -138,7 +138,7 @@ Under `--json`, a failure is a JSON document on **stdout**:
 ```
 
 All three keys are **always present**. `hint` is `null` when there is none — never
-absent. `src/errors.ts` states why: an optional key is a second shape wearing one
+absent. `src/errors-document.ts` states why: an optional key is a second shape wearing one
 name, and it forces every consumer to write a presence check before it can branch.
 
 **`code` is the field to branch on.** Three families, and the prefix tells you
@@ -187,7 +187,9 @@ stdout got a silent wrong answer for a command that does not exist. That was not
 `--json` bug — `nexus agnt --help` exited 0 in prose mode too, because commander
 renders a requested help screen before it reports an unknown command.
 
-Two constructions hold this, both in `src/json-terminal-contract.ts`:
+Two constructions hold this, both installed by `src/json-terminal-contract.ts` —
+the parse wrapper in `src/json-terminal-parse-seam.ts`, the stdout door in
+`src/json-terminal-state.ts`:
 
 - **JSON mode is resolved from argv before the parse**, by wrapping
   `parse`/`parseAsync`. Nothing runs earlier, because nothing runs before a parse.
@@ -206,7 +208,7 @@ branches on JSON mode itself, and `every-zero-exit-path-is-ledgered.test.ts`
 fails on any `process.exit(` call site in this package that is not written down
 with what it does about `--json`, so the next one cannot arrive in silence.
 
-`emitDocument` in `src/output.ts` enforces first-wins for the printers: the first
+`emitDocument` in `src/output-json-mode.ts` enforces first-wins for the printers: the first
 document is the payload and goes to stdout; anything after it is diverted to
 stderr. **84 leaves build their own document with a bare `console.log`** rather
 than going through a printer — the `writes-its-own-json` count in the generated

@@ -30,7 +30,8 @@ import { JSON_SHAPES } from "./json-shape.generated";
  *
  * `json-shape.generated.ts`, projected by `scripts/generate-json-shape.ts` from
  * `json-shape.scan.ts`. Nothing here is authored: the six shapes are six
- * functions in `output.ts`, each with one `if (_jsonMode)` branch, so "which
+ * functions in the `output-*` family behind `output.ts`, each with one
+ * `if (isJsonMode())` branch, so "which
  * shape does this command print" is "which of the six does its action reach".
  * Read that file's header for what the derivation refuses to answer and why.
  *

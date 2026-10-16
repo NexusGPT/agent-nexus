@@ -24,7 +24,7 @@ export const SHAPE_PRINTERS = [
  * had just been made answerable.
  *
  * It is a definition rather than a tie-break. `printEnvelope` owns the only
- * `if (_jsonMode)` branch on the path and never calls its callback under
+ * `if (isJsonMode())` branch on the path and never calls its callback under
  * `--json`, so a printer inside that callback is human-channel BY
  * CONSTRUCTION. There is no branch for the two to disagree about: the document
  * is the envelope, always.

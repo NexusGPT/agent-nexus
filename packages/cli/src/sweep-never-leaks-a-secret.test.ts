@@ -76,7 +76,7 @@ describe("the sweep never leaks a secret", () => {
   });
 
   it("catches the exact shape that is already in the tree", () => {
-    // `vibe-wire-types.ts` declares `pushToken: string`. This is that response.
+    // `vibe-git-project-wire-types.ts` declares `pushToken: string`. This is that response.
     const result = scan(JSON.stringify({ username: "u", pushToken: "a".repeat(40) }));
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("pushToken");

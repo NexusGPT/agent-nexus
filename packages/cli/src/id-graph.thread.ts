@@ -1,7 +1,8 @@
 import { idsFrom } from "./id-graph.ids";
 import type { ThreadableLeaf } from "./id-graph.model";
-import type { LeafOutcome } from "./id-graph.outcome";
-import type { ThreadedId } from "./id-graph.race";
+import type { ThreadedId } from "./id-graph.race.types";
+import { blockedByBrokenProducer, blockedByNoUsableId } from "./id-graph.thread.blocked";
+import type { ThreadPlan } from "./id-graph.thread.plan";
 
 /**
  * WHICH IDS ONE LEAF IS ABOUT TO BE GIVEN, or why it cannot be invoked at all.
@@ -17,19 +18,16 @@ import type { ThreadedId } from "./id-graph.race";
  * fresh producer body, skipping the ids already proven gone. Doing that inside
  * the runner's loop would put the one branch that decides whether a leaf is
  * retried somewhere no test can see it.
+ *
+ * The two ways a single source stops the plan — a producer that did not answer,
+ * and a producer that offered nothing usable — are `id-graph.thread.blocked.ts`,
+ * which owns the discriminator inside each.
  */
+
+export type { ThreadPlan } from "./id-graph.thread.plan";
 
 /** Shared empty set, so the lookup below needs no allocation per source. */
 const EMPTY: ReadonlySet<string> = new Set();
-
-/** What to invoke a leaf with, or the verdict that stops it being invoked. */
-export type ThreadPlan =
-  | {
-      readonly kind: "ready";
-      readonly args: readonly string[];
-      readonly threaded: readonly ThreadedId[];
-    }
-  | { readonly kind: "blocked"; readonly status: LeafOutcome; readonly note: string };
 
 /**
  * Plan one leaf's invocation from the producer bodies this run holds.
@@ -74,82 +72,14 @@ export function planThread(
 
     const broke = producerBroke.get(source.leaf);
     if (broke !== undefined) {
-      // 🚨 BEFORE THE FAILED BRANCH, AND ONLY ON A POSITIVE ANSWER. The runner
-      // has already asked the shell matcher whether THIS producer's refusal is
-      // the exact path `SWEEP_ROUTES_PENDING_DEPLOY` declares absent; presence in
-      // this map IS that answer. A producer that broke for any other reason — a
-      // 401, a 500, a 404 naming a different path — is absent from it and falls
-      // through to FAILED, which is the loud direction and the default.
-      //
-      // Why the consumer is not simply FAILED: `cli-sweep` builds the CLI from
-      // the PR's own sources and runs it against the DEPLOYED API, so a branch
-      // adding a noun AND the route it calls cannot serve its own producer yet.
-      // That is not a defect in the consumer, and no code change clears it.
-      //
-      // It cannot go STALE. This fires only while the producer is FAILING right
-      // now, so the day the route deploys the producer answers, this branch is
-      // never reached, and the consumer is threaded and actually tested. The
-      // DECLARATION outliving its reason is caught by `sweep.sh`, which executes
-      // the producer leaf directly and reds with STALE PENDING-DEPLOY — in this
-      // same job. One stale detector, not two.
-      const pendingRoute = producerPendingDeploy.get(source.leaf);
-      if (pendingRoute !== undefined) {
-        return {
-          kind: "blocked",
-          status: "PENDING_DEPLOY",
-          note:
-            `producer \`${source.leaf}\` cannot be served yet — DECLARED ` +
-            `pending-deploy: ${pendingRoute} is absent from the deployed API`
-        };
-      }
-
-      // A producer that ERRORED is not a producer that is EMPTY. Conflating them
-      // would report a broken list route as "nothing to test with", which is the
-      // exact substitution this harness exists to refuse.
-      return {
-        kind: "blocked",
-        status: "FAILED",
-        note: `producer \`${source.leaf}\` failed: ${broke}`
-      };
+      return blockedByBrokenProducer(source, broke, producerPendingDeploy.get(source.leaf));
     }
 
     const lostHere = vanishedBy.get(source.leaf) ?? EMPTY;
     const offered = idsFrom(bodyOf.get(source.leaf) ?? "", source.param);
     const usable = offered.filter((id) => !lostHere.has(id));
     if (usable.length === 0) {
-      // 🚨 TWO REASONS, TWO STATUSES, AND THE DISCRIMINATOR IS `lostHere` — NEVER
-      // `offered.length`. "The producer has no rows" and "every row it had was
-      // deleted underneath this leaf" are different facts, and reporting the
-      // second under the first's wording hides a live race behind a sentence
-      // that is simply untrue.
-      //
-      // 🔴 READING IT OFF `offered.length` GETS THE RACE-AT-FULL-STRENGTH CASE
-      // EXACTLY BACKWARDS, which is the bug this branch shipped with. When the
-      // re-read that PROVED the deletion also comes back EMPTY — the producer's
-      // last row was the one that vanished — `offered.length === 0` is true and
-      // the old test called it "returned zero rows". That is the single case the
-      // fifth outcome exists for, rendered as the ordinary skip a reader scrolls
-      // past. `lostHere` is non-empty exactly when this producer lost a row we
-      // used, whether or not anything survived it.
-      //
-      // ⚠️ And it is per-producer for the other direction: a leaf threading two
-      // producers, where A raced and B is legitimately empty, must still report
-      // B as SKIPPED_NO_ID. A flat "has anything vanished" set answers that one
-      // wrong too, in the opposite direction.
-      if (lostHere.size > 0) {
-        return {
-          kind: "blocked",
-          status: "SKIPPED_ID_VANISHED",
-          note:
-            `every \`${source.param}\` producer \`${source.leaf}\` offered was deleted ` +
-            `mid-sweep (${lostHere.size} proven gone, ${offered.length} still listed)`
-        };
-      }
-      return {
-        kind: "blocked",
-        status: "SKIPPED_NO_ID",
-        note: `no \`${source.param}\` existed - producer \`${source.leaf}\` returned zero rows`
-      };
+      return blockedByNoUsableId(source, lostHere.size, offered.length);
     }
 
     args.push(usable[0]);

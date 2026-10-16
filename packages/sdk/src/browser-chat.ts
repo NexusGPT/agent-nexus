@@ -1,5 +1,7 @@
-import { HttpClient } from "./http-client";
+import type { DeprecationNotice } from "./deprecation";
+import { HttpClient, type RetryNotice } from "./http-client";
 import { ChatResource } from "./resources/chat";
+import type { ContractReporter, RouteShapeManifest } from "./response-contract";
 
 /**
  * How a browser reaches the chat routes, and nothing else.
@@ -24,8 +26,9 @@ import { ChatResource } from "./resources/chat";
  *
  * It returns a {@link ChatResource} and no client, deliberately: the type is
  * the boundary. Every method that takes a token per call works — `refresh()`,
- * `stream()`, `streamRaw()`, `resume()`, `resumeRaw()`, `stop()` and
- * `status()`.
+ * `stream()`, `streamRaw()`, `resume()`, `resumeRaw()`, `stop()`, `status()`
+ * and `uploadAttachments()`, which is the only door that MINTS a
+ * `knowledgeIds` value for `stream()` to consume.
  * `createSession()` is on the same object and will THROW by name — it mints
  * with the org API key, which is the one credential that must never reach a
  * browser, so the refusal is the contract rather than a gap.
@@ -78,6 +81,80 @@ export interface BrowserChatClientOptions {
   timeout?: number;
   /** Additional headers sent with every request. */
   defaultHeaders?: Record<string, string>;
+  /**
+   * Called immediately before each retry wait, so the page can say that a
+   * message is still being delivered rather than leaving a visitor in front of
+   * a UI that has gone quiet.
+   *
+   * 🔴 THIS IS THE ONLY WAY A BROWSER EMBED LEARNS A REQUEST WAS REPLAYED AT
+   * ALL. `DEFAULT_MAX_RETRIES` is 2 and this factory passes no `maxRetries`, so
+   * a transient failure is replayed twice on every chat call — and without a
+   * callback here the whole sequence is invisible: the consumer sees one slow
+   * success, or one failure after three attempts, with nothing to distinguish
+   * either from a single attempt. The notice carries the attempt number, the
+   * total, the status that triggered it and the wait about to be taken.
+   *
+   * The SDK writes nothing itself — a library that owns the console is a
+   * library that pollutes somebody's telemetry eventually, so where the notice
+   * goes is the consumer's call. A throw from this callback is swallowed:
+   * reporting a retry must never be able to fail the request it is reporting
+   * on.
+   *
+   * @see HttpClientOptions.onRetry
+   */
+  onRetry?: (notice: RetryNotice) => void;
+  /**
+   * Called when a response carries `Deprecation` and/or `Sunset`, so an embed
+   * shipped inside somebody else's product learns that a chat route it depends
+   * on is being removed while the lead time those headers exist to give is
+   * still there.
+   *
+   * Observed once per response inside the transport's single `send`, so every
+   * door of the returned {@link ChatResource} is covered — `stream()`,
+   * `resume()`, `stop()`, `status()` and `refresh()` alike. A retried request
+   * reports per attempt, because each attempt is a response.
+   *
+   * 🔴 NO NOTICE MEANS THE RESPONSE SAID NOTHING — never that the route is
+   * current. A guard rejection answers with neither header, and a 401 is the
+   * commonest answer a browser gets, since that is how a finished token is
+   * reported.
+   *
+   * @see HttpClientOptions.onDeprecation
+   */
+  onDeprecation?: (notice: DeprecationNotice) => void;
+  /**
+   * Notified of what each read's payload had to say about itself, against the
+   * shape its route publishes. See `./response-contract.ts`.
+   *
+   * Installing one is what turns the check ON; with none, nothing is consulted
+   * and this client behaves byte-for-byte as it did before. It NEVER changes
+   * what a call returns — a mismatch is described and the payload handed back
+   * untouched. A reporter that throws is caught and ignored.
+   *
+   * A reporter alone checks nothing. {@link responseContract} is what it is
+   * checked against.
+   */
+  onResponseContract?: ContractReporter;
+  /**
+   * The manifest {@link onResponseContract} scores payloads against.
+   *
+   * ```ts
+   * import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+   * ```
+   *
+   * 🚨 SUPPLIED, NEVER BUNDLED — and in a browser that is the whole reason it
+   * is an option rather than an import. The published v1 manifest is the
+   * largest thing this package ships, so it sits behind its own entry point: an
+   * embed that imports it pays those bytes in the shipped bundle, and one that
+   * does not pays nothing. This module imports it nowhere, deliberately.
+   *
+   * Absent while a reporter IS installed, every read comes back `unchecked`
+   * with that import named as the reason — an observer that observes nothing,
+   * which reads as working. That silence is deliberate: a quiet return would be
+   * indistinguishable from a contract that passed, which is the drift the
+   * feature exists to detect.
+   */
+  responseContract?: RouteShapeManifest;
 }
 
 /**
@@ -90,7 +167,11 @@ export function createBrowserChatClient(opts: BrowserChatClientOptions): ChatRes
     baseUrl: opts.baseUrl,
     fetch: opts.fetch,
     timeout: opts.timeout,
-    defaultHeaders: opts.defaultHeaders
+    defaultHeaders: opts.defaultHeaders,
+    onRetry: opts.onRetry,
+    onDeprecation: opts.onDeprecation,
+    onResponseContract: opts.onResponseContract,
+    responseContract: opts.responseContract
     // No `apiKey`, and that is the whole point. `HttpClient.credentialHeaders`
     // refuses any request that resolves to no credential, by name, before the
     // request is built — so `createSession()` on the returned resource throws

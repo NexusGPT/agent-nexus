@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installArgumentRefusalReporting } from "../errors";
 import { installJsonTerminalContract } from "../json-terminal-contract";
 import { setJsonMode } from "../output";
-import type { VibeAppDomainDnsInstructionsDto, VibeAppDomainDto } from "../vibe-domain-wire-types";
+import {
+  VIBE_APP_DOMAIN_WIRE_PENDING_CLAIM_TTL_DAYS,
+  type VibeAppDomainDnsInstructionsDto,
+  type VibeAppDomainDto
+} from "../vibe-domain-wire-types";
 
 /**
  * WHAT `apps domains` PUTS ON THE WIRE, AND WHAT IT TELLS A PERSON TO TYPE INTO
@@ -212,6 +216,61 @@ describe("apps domains add", () => {
       tableHeader: /^\s*Type\s+Name\s+Value\s*$/m.test(run.stdout)
     };
     expect(leaks).toEqual({ ipv4: false, recordRow: false, tableHeader: false });
+  });
+
+  /**
+   * THE CLAIM EXPIRY, WHICH IS THE ONE THING ON THIS SCREEN THE READER ACTS ON
+   * AWAY FROM THE TERMINAL — they schedule a DNS change against it.
+   *
+   * These arms assert the SENTENCE, never the figure's correctness: both the
+   * printer and this spec read one constant, so neither could notice it being
+   * wrong. What keeps the number honest is the `SameLiteral` pin on
+   * `VIBE_APP_DOMAIN_WIRE_PENDING_CLAIM_TTL_DAYS` in
+   * `vibe-domain-claim-ttl.conformance.ts`, which fails the typecheck the day
+   * the contract's figure moves. Reading the constant here rather than writing
+   * `7` is what keeps that division intact — a literal would pass while the
+   * printer said something else.
+   */
+  it("tells the owner the unproven claim is released, naming the number of days", async () => {
+    serve({ [`POST ${DOMAINS_PATH}`]: { domain: SUB } });
+
+    const run = await drive(["apps", "domains", "add", APP_ID, "shop.acme.test", ...KEY]);
+
+    expect(run.stdout).toContain(
+      `does not point here within ${VIBE_APP_DOMAIN_WIRE_PENDING_CLAIM_TTL_DAYS} days`
+    );
+  });
+
+  it("says the host becomes free for any organisation, not merely that it lapses", async () => {
+    serve({ [`POST ${DOMAINS_PATH}`]: { domain: SUB } });
+
+    const run = await drive(["apps", "domains", "add", APP_ID, "shop.acme.test", ...KEY]);
+
+    expect(run.stdout).toContain("free for any organisation to add");
+  });
+
+  /**
+   * The negative twin of the two arms above, and it needs them: on its own
+   * "the sentence is absent" is satisfied by a printer that says nothing at all.
+   * A domain already serving is not a claim anyone can lose, and a domain that
+   * verified once and lost its DNS is an owner's problem rather than a squat —
+   * telling either of them the host is about to be given away would be false.
+   */
+  it("says nothing about expiry for a domain that is already serving", async () => {
+    serve({ [`POST ${DOMAINS_PATH}`]: { domain: ACTIVE } });
+
+    const run = await drive(["apps", "domains", "add", APP_ID, "www.acme.test", ...KEY]);
+
+    expect(run.stdout).not.toContain("free for any organisation to add");
+  });
+
+  it("says nothing about expiry for a PENDING_DNS domain that once verified", async () => {
+    const RELAPSED = domain({ host: "shop.acme.test", verifiedAt: "2026-09-22T10:00:00.000Z" });
+    serve({ [`POST ${DOMAINS_PATH}`]: { domain: RELAPSED } });
+
+    const run = await drive(["apps", "domains", "add", APP_ID, "shop.acme.test", ...KEY]);
+
+    expect(run.stdout).not.toContain("free for any organisation to add");
   });
 
   it("--json prints the response envelope unchanged, as ONE document", async () => {

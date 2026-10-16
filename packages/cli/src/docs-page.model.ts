@@ -36,109 +36,32 @@
  * reference to either, so a contract divergence is unreachable from the node —
  * and the divergence is the whole of this renderer's RED rule.
  *
- * So {@link divergencesByPath} runs the registrars once more and collects ONLY a
- * `path -> divergence` map. It builds no tree, no model and no second opinion
- * about what commands exist; the population still comes from
- * `deriveCommandNamespaces()`.
+ * So `divergencesByPath()` — in `docs-page.divergences.ts` — runs the registrars
+ * once more and collects ONLY a `path -> divergence` map. It builds no tree, no
+ * model and no second opinion about what commands exist; the population still
+ * comes from `deriveCommandNamespaces()`.
  *
  * It disappears the moment `CommandNode` can answer the question — either a
  * `contractDivergences?: readonly {flags, contractValues, offered, omit,
  * alsoAccepts, because}[]` field populated where `boundOption` resolves, or a
  * non-enumerable reference to the `Command` itself. Either ends this pass.
+ *
+ * The row types are `docs-page.model.types.ts`; neither sibling imports this
+ * file back, so the re-export stays acyclic.
  */
 
-import { indexCommandTree } from "./command-tree-index";
 import {
   type CommandNamespace,
   type CommandNode,
-  type CommandOption,
   deriveCommandNamespaces,
-  discoverRootRegistrars,
   flattenCommands,
   unattributedHiddenSiblings
 } from "./command-universe";
-import { boundOption } from "./contract-binding";
+import { divergencesByPath } from "./docs-page.divergences";
+import type { DocCommand, DocDivergence, DocNamespace } from "./docs-page.model.types";
 
 export { unattributedHiddenSiblings };
-
-/**
- * A declared disagreement between the contract and what the CLI offers.
- *
- * 🚨 BOTH SIDES ARE CARRIED, ALWAYS. This type has no field for "the answer".
- * Where the two sources disagree the page goes RED and names both; it never
- * resolves the disagreement, because resolving it is how the wrong one becomes
- * authoritative. `DeploymentTypeSchema` lists `SMS`, the server 500s on `SMS`,
- * and the CLI omits it on purpose — a page printing only the contract's list
- * republishes a broken value, and a page printing only the CLI's list hides that
- * every SDK and MCP consumer is still being told it works.
- */
-export interface DocDivergence {
-  readonly flags: string;
-  readonly contractValues: readonly string[];
-  readonly offered: readonly string[];
-  readonly omitted: readonly string[];
-  readonly alsoAccepts: readonly string[];
-  readonly because: string;
-}
-
-export interface DocCommand {
-  readonly path: string;
-  readonly description: string;
-  readonly aliases: readonly string[];
-  readonly hidden: boolean;
-  readonly help: string;
-  readonly options: readonly CommandOption[];
-  readonly divergences: readonly DocDivergence[];
-}
-
-export interface DocNamespace {
-  readonly name: string;
-  readonly description: string;
-  readonly help: string;
-  readonly aliases: readonly string[];
-  readonly hiddenSiblings: readonly string[];
-  readonly commands: readonly DocCommand[];
-  readonly sourceRefs: readonly string[];
-}
-
-/**
- * `path -> divergences`, collected by running each registrar once.
- *
- * See this module's header: this exists ONLY because the WeakMaps are keyed on
- * live `Command`/`Option` objects that a `CommandNode` does not carry. It is not
- * a population source — nothing here decides which commands exist.
- */
-async function divergencesByPath(): Promise<Map<string, DocDivergence[]>> {
-  const { Command: CommandCtor } = await import("commander");
-  const found = new Map<string, DocDivergence[]>();
-
-  for (const registrar of await discoverRootRegistrars()) {
-    const program = new CommandCtor();
-    program.name("nexus").exitOverride();
-    registrar.register(program);
-
-    for (const [path, command] of indexCommandTree(program)) {
-      const here: DocDivergence[] = [];
-
-      for (const option of command.options) {
-        const bound = boundOption(option);
-        if (bound?.divergence === undefined) continue;
-        here.push({
-          flags: option.flags,
-          contractValues: bound.source.contractValues,
-          offered: bound.offered,
-          omitted: bound.divergence.omit ?? [],
-          alsoAccepts: bound.divergence.alsoAccepts ?? [],
-          because: bound.divergence.because
-        });
-      }
-
-      if (here.length > 0) found.set(path, here);
-    }
-  }
-
-  return found;
-}
+export type { DocCommand, DocDivergence, DocNamespace } from "./docs-page.model.types";
 
 /** Field by field — NEVER a spread. See the header on the lazy `help` getter. */
 function toDocCommand(node: CommandNode, divergences: Map<string, DocDivergence[]>): DocCommand {

@@ -150,7 +150,7 @@ describe("mountKey", () => {
   });
 
   it("keeps org ids and profile names in disjoint key spaces", () => {
-    // Profile names are `^[a-z0-9][a-z0-9_-]{0,31}$` (config.ts), which an org id
+    // Profile names are `^[a-z0-9][a-z0-9_-]{0,31}$` (config-profile-name.ts), which an org id
     // satisfies — so a profile CAN be named exactly like some org's id. Untagged
     // `${id}|${slug}` keys would put both in one flat space and let the profile
     // address that org's rows.

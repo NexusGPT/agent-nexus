@@ -17,13 +17,19 @@ import { allRouteIds, routeIdOf } from "./route-id";
  *    id. Otherwise `nexus skills install` and `nexus skills sync` would each be
  *    their own route and neither would carry `skills update`'s known issues.
  *
- * ── WHY THE PROGRAM IS REBUILT FROM `index.ts` AS TEXT ────────────────────────
+ * ── WHY THE PROGRAM IS REBUILT FROM THE WIRING FILE AS TEXT ──────────────────
  *
  * `src/index.ts` builds the tree AND parses `process.argv` at module scope, so
  * importing it RUNS the CLI: with no arguments it prints help and exits, which
- * takes the test process with it. The registrars are therefore read out of that
- * file as TEXT and imported one by one — the same idiom five other files in this
- * package already use to derive facts from `index.ts`.
+ * takes the test process with it. The registrars are therefore read as TEXT and
+ * imported one by one — the same idiom three other files in this package use to
+ * derive facts from the root program's own declarations.
+ *
+ * 🔴 THE SUBJECT IS `src/root-namespace-registrars.ts`, NOT `index.ts`. That is
+ * where the registrar imports are declared and where `registerNamespaces` wires
+ * them; `index.ts` imports that one symbol and holds no registrar at all. The
+ * specifiers inside it are still written relative to `src/`, so the re-rooting
+ * below is unchanged. That file's own header names this spec as a reader.
  *
  * A hand-copied registrar list is the alternative and it is the wrong one: it
  * would drift the moment a namespace lands, and it would drift SILENTLY — the
@@ -31,16 +37,16 @@ import { allRouteIds, routeIdOf } from "./route-id";
  * the declaration means a new namespace joins this assertion by itself.
  */
 
-/** Every `register*Commands` export `index.ts` actually wires into the tree. */
+/** Every `register*Commands` export the root program actually wires into the tree. */
 function declaredRegistrars(): { symbol: string; module: string }[] {
-  const source = readFileSync(join(__dirname, "..", "index.ts"), "utf8");
+  const source = readFileSync(join(__dirname, "..", "root-namespace-registrars.ts"), "utf8");
   const pattern = /import \{ (register\w+)(?:,[^}]*)? \} from "(\.\/commands\/[a-z-]+)"/g;
 
   const seen = new Set<string>();
   const found: { symbol: string; module: string }[] = [];
   for (const match of source.matchAll(pattern)) {
     const [, symbol, module] = match;
-    // `index.ts` may import one registrar under two statements; commander
+    // The file may import one registrar under two statements; commander
     // throws on a duplicate command name, so register each exactly once.
     if (seen.has(symbol)) continue;
     seen.add(symbol);
@@ -74,8 +80,8 @@ beforeAll(async () => {
   registrarCount = registrars.length;
 
   for (const { symbol, module } of registrars) {
-    // The specifier is written relative to `src/index.ts`; this file is one
-    // directory deeper, so it is re-rooted rather than used verbatim.
+    // The specifier is written relative to `src/`; this file is one directory
+    // deeper, so it is re-rooted rather than used verbatim.
     const specifier = module.replace(/^\.\//, "../");
     const loaded = (await import(specifier)) as Record<string, (p: Command) => void>;
     loaded[symbol](program);

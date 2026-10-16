@@ -50,7 +50,8 @@ interface Driven {
 /**
  * Drive the REAL root program the way the binary does, and capture both streams.
  *
- * `index.ts` ends with `.catch((err) => { process.exitCode = handleError(err); })`
+ * `runCli` in `root-run-cli.ts` — which `index.ts` calls behind its entry-point
+ * guard — ends with `.catch((err) => { process.exitCode = handleError(err); })`
  * and that line is where a refusal becomes its document, so the catch below is
  * the entry point's, not an invention of this file. No `process.exit` neutraliser
  * is needed: every argv here refuses with a NON-ZERO code, and

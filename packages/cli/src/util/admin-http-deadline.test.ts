@@ -11,7 +11,8 @@ import { resolveAdminOpts } from "./admin-opts";
 
 // NOT MOCKED, deliberately: `adminRequest` goes through the real
 // `resolveBaseUrl`, which returns an explicit override before it looks at any
-// profile (`config.ts` — `if (override) return override;` is its first line). So
+// profile (`config-resolve.ts` — `if (override) return override;` is its first
+// line). So
 // every case below passes its listener's URL as `baseUrl` and exercises the
 // production resolution rather than a double standing in for it.
 

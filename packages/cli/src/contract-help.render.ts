@@ -16,71 +16,25 @@
  * carries only the contract's facts as DATA, and the sentence is composed here,
  * where both halves are in scope. A generated string that can disagree with the
  * `.choices()` beside it is worse than no generated string at all.
+ *
+ * ── WHERE EACH HALF LIVES ───────────────────────────────────────────────────
+ *
+ * This module is the PUBLIC NAME for the projected-contract types and the
+ * rendering over them. The data shapes are `contract-help.types.ts` and the
+ * wrapping and slot labels are `contract-help.layout.ts`; neither imports this
+ * file back, so the re-export stays acyclic.
  */
 
-/** A slot a contract descriptor can carry, in the order a reader meets them. */
-export const SLOTS = ["PathVars", "Params", "Body"] as const;
-export type Slot = (typeof SLOTS)[number];
+import { SLOT_LABEL, wrapValues } from "./contract-help.layout";
+import { type ProjectedDescriptor, type RenderedOmission, SLOTS } from "./contract-help.types";
 
-/** One leaf or branch of a descriptor's input, flattened to a dotted path. */
-export interface ProjectedField {
-  /** `<slot>.<dotted path>`, with `[]` stepping into an array element. */
-  readonly path: string;
-  readonly slot: Slot;
-  /** JSON Schema `type`, or `"unknown"` where the converter emitted none. */
-  readonly type: string;
-  /** Required by its immediate parent object. */
-  readonly required: boolean;
-  /** Present only for an enum. Contract order, never sorted. */
-  readonly enumValues?: readonly string[];
-  /**
-   * An object the contract does not describe — a record, a passthrough, a
-   * `z.custom`. Its shape is decided elsewhere (by another field's value, or by
-   * the handler), so there is nothing here to print and saying so is the honest
-   * output.
-   */
-  readonly opaque?: boolean;
-  /** Nesting depth. 0 is a direct child of the slot. */
-  readonly depth: number;
-}
-
-export interface ProjectedDescriptor {
-  readonly name: string;
-  readonly method: string;
-  readonly route: string;
-  /** Every field, depth-first, in contract declaration order. */
-  readonly fields: readonly ProjectedField[];
-}
-
-/** What the command file declared it does not offer, keyed by contract path. */
-export interface RenderedOmission {
-  readonly values: readonly string[];
-  readonly because: string;
-}
-
-const WRAP_AT = 76;
-
-function wrapValues(values: readonly string[], indent: string): string[] {
-  const lines: string[] = [];
-  let current = "";
-  for (const value of values) {
-    const next = current === "" ? value : `${current}, ${value}`;
-    if (`${indent}${next}`.length > WRAP_AT && current !== "") {
-      lines.push(indent + current);
-      current = value;
-    } else {
-      current = next;
-    }
-  }
-  if (current !== "") lines.push(indent + current);
-  return lines;
-}
-
-const SLOT_LABEL: Record<Slot, string> = {
-  PathVars: "Path",
-  Params: "Query",
-  Body: "Body"
-};
+export type {
+  ProjectedDescriptor,
+  ProjectedField,
+  RenderedOmission,
+  Slot
+} from "./contract-help.types";
+export { SLOTS } from "./contract-help.types";
 
 /**
  * THE READABILITY RULE, stated once and implemented once:

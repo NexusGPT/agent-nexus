@@ -23,7 +23,7 @@ import {
 } from "./deferred-requirements.testkit";
 
 const COMMANDS_DIR = join(__dirname, "../commands");
-const INDEX_TS = join(__dirname, "../index.ts");
+const WIRING_TS = join(__dirname, "../root-namespace-registrars.ts");
 
 /**
  * The rebuild and the floors live in `deferred-requirements.testkit.ts`, so this
@@ -33,10 +33,16 @@ const INDEX_TS = join(__dirname, "../index.ts");
  *
  * The drift guard below is what makes "the same tree" a checked claim rather
  * than a comment: the set of one-argument `register*` exports and the set of
- * `register*(program)` calls in `root-program.ts` must be equal in BOTH
- * directions. A registrar that stops being wired, or one wired without being
- * discoverable here, fails that test rather than silently shrinking the
- * population every other test in this file measures.
+ * `register*(program);` calls in `src/root-namespace-registrars.ts` must be
+ * equal in BOTH directions. A registrar that stops being wired, or one wired
+ * without being discoverable here, fails that test rather than silently
+ * shrinking the population every other test in this file measures.
+ *
+ * 🔴 THE SUBJECT IS THAT WIRING FILE, NOT `index.ts`. `index.ts` imports the one
+ * `registerNamespaces` symbol and holds no registrar call, so a scan of it
+ * matches nothing — and an empty `wired` set fails LOUDLY here only because the
+ * `discovered` control below is floored. That file's own header names this spec
+ * as a reader and asks for one call per line, which is what this regex needs.
  */
 async function discoveredRegistrars(): Promise<string[]> {
   const out: string[] = [];
@@ -60,7 +66,7 @@ describe("the tree this file measures is the tree the entry point builds", () =>
     async () => {
       const discovered = await discoveredRegistrars();
       const wired = [
-        ...readFileSync(INDEX_TS, "utf-8").matchAll(/^\s*(register[A-Za-z]+)\(program\);$/gm)
+        ...readFileSync(WIRING_TS, "utf-8").matchAll(/^\s*(register[A-Za-z]+)\(program\);$/gm)
       ]
         .map((m) => m[1])
         .sort();

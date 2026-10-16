@@ -64,11 +64,21 @@ import { describe, expect, it } from "vitest";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGES = join(HERE, "..", "..");
 
-const CLI_CONFIG = join(PACKAGES, "cli", "src", "config.ts");
+/**
+ * The CLI's selector.
+ *
+ * ⚠️ `cli/src/config.ts` IS A RE-EXPORT INDEX AND HOLDS NO RESOLVER. Pointed at
+ * it, `bodyOf` returns `null` and every selector-order assertion compares `[]`
+ * against `[]` — the empty-region failure the locator arm exists to refuse.
+ */
+const CLI_CONFIG = join(PACKAGES, "cli", "src", "config-organization.ts");
 const MCP_CONFIG = join(PACKAGES, "mcp-server", "src", "config.ts");
 
 /** The two files allowed to read the org env var in a value position. */
-const SANCTIONED_SELECTORS = ["cli/src/config.ts", "mcp-server/src/config.ts"] as const;
+const SANCTIONED_SELECTORS = [
+  "cli/src/config-organization.ts",
+  "mcp-server/src/config.ts"
+] as const;
 
 const ORG_ENV_TOKEN = ["process", "env", "NEXUS_ORGANIZATION_ID"].join(".");
 

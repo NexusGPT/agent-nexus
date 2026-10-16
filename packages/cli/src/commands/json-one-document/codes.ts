@@ -26,7 +26,7 @@ export const REMOTE_ONLY_CODES = new Set([
  * without editing the gate.
  *
  * `CLI_ADMIN_ERROR` is the one addition, and it is deliberate: the admin tree
- * mints it in `util/admin-errors.ts`, outside `CLI_CODES`.
+ * mints it in `util/admin-errors.handle.ts`, outside `CLI_CODES`.
  */
 export const KNOWN_CODES = new Set([...CLI_MINTED_CODES, "CLI_ADMIN_ERROR"]);
 

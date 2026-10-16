@@ -13,6 +13,49 @@ export function registerVersionCommands(program: Command): void {
     .command("version")
     .description("Manage agent prompt versions — exactly one is production, publishing moves it");
 
+  // 🔴 EVERY ROUTE BEHIND THIS NAMESPACE IS DEPRECATED, AND THE ANNOUNCEMENT HAS
+  // TO REACH THE GENERATED DOCS PAGE AS WELL AS THE TERMINAL.
+  //
+  // `apps/backend/src/public/v1/v1-agent-versions.controller.ts` applies
+  // `@DeprecatedForPromptVariants()` — `applyDecorators(Header("Deprecation", …),
+  // Header("Sunset", …))` — to all seven of its handlers, which resolve to four
+  // distinct served paths. `content/docs/cli/commands/version.mdx` is a projection
+  // of this tree, and it cited one of those paths while never saying the word:
+  // the citation is UNPREFIXED (`/public/v1/...`), so it is outside
+  // `scripts/verify-docs-deprecations.ts`'s population, and the page is
+  // `generated: true`, so it is exempt from `scripts/verify-docs-api-urls.ts`'s
+  // route-path rule. Both exemptions are correct and neither gate reaches it, so
+  // the repair belongs in the generator — which is this file.
+  // `scripts/_lib/generated-docs-deprecation-disclosure.ts` is the gate that
+  // reads the controller's OWN headers and refuses a silent citation, so this
+  // declaration cannot be deleted or go stale without a red.
+  //
+  // `beforeAll` rather than `after`: measured on commander 13.1.0, it reaches
+  // this namespace AND every leaf under it from ONE registration and does not
+  // leak to the root — so there is no per-command list to keep in step, the same
+  // argument `applyKnownIssuesHelpLine` and `registerHelpScopeFooter` make. And
+  // it reads FIRST, which is where `deprecation-notice.ts` puts an announcement,
+  // for the reason it gives: every other block here is about how to use something
+  // that is going away.
+  //
+  // ⚠️ NO DATE, DELIBERATELY. `SUNSET_HTTP_DATE` is computed in that controller at
+  // module load from an anchor plus a notice period; a date typed here would be a
+  // second copy of that arithmetic, which is the drift the controller's own
+  // comments exist to prevent. The live `Deprecation`/`Sunset` headers carry the
+  // schedule, and `route-deprecation-warnings.ts` surfaces them on any call this
+  // binary actually makes.
+  version.addHelpText(
+    "beforeAll",
+    `
+DEPRECATED — THE PROMPT-VERSION ROUTES BEHIND THIS NAMESPACE ARE BEING REMOVED.
+  Every route "nexus version" calls answers RFC 9745 "Deprecation" and RFC 8594
+  "Sunset" headers. They still operate, and they are scheduled for removal.
+  Read the live schedule off those headers rather than from this screen —
+  "nexus api GET /agents/<agent-id>/versions" prints them — or from the API
+  reference. Prompt variants replace this surface.
+`
+  );
+
   version.addHelpText(
     "after",
     `

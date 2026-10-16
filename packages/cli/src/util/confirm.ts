@@ -1,8 +1,3 @@
-import { Command } from "commander";
-
-import { refuse } from "../errors";
-import { askYesNo } from "./ask";
-
 /**
  * ONE ANSWER TO "NO TERMINAL, NO --yes": REFUSE.
  *
@@ -53,130 +48,19 @@ import { askYesNo } from "./ask";
  *
  * Redirecting output is not a statement about who is answering. Reading stdin
  * is the only test of that, so it is the only one used here.
+ *
+ * ── WHERE EACH PART LIVES ───────────────────────────────────────────────────
+ *
+ * This file is the entry point and declares nothing of its own, so every
+ * importer keeps one import path while each concern stays its own module:
+ *
+ *   `.flag.ts`         declaring `--yes`, and the WeakSet that lets the gate
+ *                      see a confirmation exists at all
+ *   `.stream.ts`       which stream a question and its conversation go on
+ *   `.destructive.ts`  the ask itself, and the refusal when there is no
+ *                      terminal to ask
  */
 
-/** The description every `--yes` flag carries, in these exact words. */
-export const YES_FLAG_DESCRIPTION =
-  "Confirm without prompting. Required in a script: with no terminal this refuses instead of proceeding.";
-
-/**
- * Commands whose confirmation is known to go through this path.
- *
- * A WeakMap keyed on the `Command`, the same shape `contract-binding.ts` uses
- * and for the same reason: the gate builds throwaway trees, and a module-level
- * array would carry one tree's registrations into the next.
- *
- * This is what makes the gate structural rather than a source scan. Which
- * function a closure calls is not visible on the `Command` object, so a test
- * could only grep for it — and a grep cannot tell a hand-rolled prompt that
- * happens to look right from one that is right. Registration is a fact ON the
- * object, and the only way to get it is to call {@link confirmable}.
- */
-const CONFIRMABLE = new WeakSet<Command>();
-
-/** True when this command's `--yes` was declared through {@link confirmable}. */
-export function isConfirmable(command: Command): boolean {
-  return CONFIRMABLE.has(command);
-}
-
-/**
- * Declare `--yes` on a destructive command. Use this instead of writing
- * `.option("--yes", ...)` by hand, so the description cannot drift and the gate
- * can see that the command has a confirmation at all.
- */
-export function confirmable(command: Command): Command {
-  command.option("--yes", YES_FLAG_DESCRIPTION);
-  CONFIRMABLE.add(command);
-  return command;
-}
-
-/**
- * The stream a QUESTION is written on.
- *
- * 🚨 IT IS NOT `process.stdout`, AND THIS IS THE OTHER HALF OF READING STDIN.
- * Deciding on stdin makes `nexus <destructive> > log` from a real keyboard ask
- * — correctly, because the operator is right there and can answer. Writing the
- * question on stdout then sends it into the log file, so the terminal shows
- * NOTHING while the process waits for a keystroke. To the operator that is
- * indistinguishable from the hang this whole change removes, and it appears in
- * exactly the case the change set out to support.
- *
- * A prompt is interaction, not output. stderr is where interaction goes: it is
- * unredirected in the common case, it is not the pipe a caller parses, and it
- * keeps a question out of a `--json` document by construction.
- *
- * stdout is used for the one combination where stderr cannot be seen and stdout
- * can. When neither is a terminal the choice cannot matter — `confirmDestructive`
- * has already refused before reaching here, and the local parsers that call this
- * refuse on the same test.
- */
-export function promptStream(): NodeJS.WriteStream {
-  return process.stdout.isTTY && !process.stderr.isTTY ? process.stdout : process.stderr;
-}
-
-/**
- * Write one line of the CONVERSATION — anything a person needs in order to
- * answer, or to understand the answer they just gave.
- *
- * 🚨 THE QUESTION IS NOT THE ONLY HALF THAT HAS TO BE VISIBLE. A spend gate
- * printed its cost-safety status and its message with `console.log` and asked
- * through {@link promptStream}: with stdout redirected the operator got a bare
- * "accept the additional spend? [y/N]" and none of the figures it refers to, and
- * on decline lost the re-run line as well. Splitting a dialogue across two
- * streams is the same defect as asking on the wrong one, one step later.
- *
- * The rule that decides which function to call: a RESULT goes to `console.log`,
- * because a caller parses it. A PROMPT, its preamble and its acknowledgement go
- * here, because a person reads them.
- */
-export function promptLine(text = ""): void {
-  promptStream().write(`${text}\n`);
-}
-
-/**
- * Ask before an irreversible action.
- *
- * Returns true only when the caller may proceed. On a refusal it has already
- * reported and set `process.exitCode`, so the caller returns without acting.
- *
- * `rerun` is the exact command line that WOULD have worked, and it exists so a
- * per-command hint is no longer a reason to hand-roll the whole helper. `apps`
- * kept its own copy of this function for exactly that one line, and the copy
- * then drifted: it tested `isJsonMode()` as well as stdin, so `--json` at a
- * terminal refused a question a person was standing right there to answer.
- * Passing the line here gets the hint without a second implementation of the
- * rule — and the prompt already lands on stderr, so a `--json` run's stdout
- * stays one document either way.
- */
-export async function confirmDestructive(
-  question: string,
-  opts: { yes?: boolean; force?: boolean; rerun?: string }
-): Promise<boolean> {
-  if (opts.yes || opts.force) return true;
-
-  if (!process.stdin.isTTY) {
-    // A REFUSAL, so it owes the caller a document. `console.error` + exit 1 left
-    // stdout empty under --json, and this helper is shared — so the one defect
-    // reached every destructive verb that routes through it, none of which the
-    // driven scan can see (the argv synthesizer passes `--yes`, which is the
-    // arm that returns early above).
-    process.exitCode = refuse(
-      `${question} — refusing without a terminal to ask.`,
-      opts.rerun === undefined
-        ? "Pass --yes to confirm in a script."
-        : `Re-run with --yes:  ${opts.rerun}`
-    );
-    return false;
-  }
-
-  // `askYesNo` owns the interface's lifetime and the answer's normalisation, so
-  // neither can drift per call site. It closes in a `finally` — an interface
-  // left open holds stdin and the process never exits, so a read error would
-  // hang the CLI rather than report — and it trims, so `"y "` and a CRLF `"y\r"`
-  // are the yes they were typed as. See `./ask`.
-  if (!(await askYesNo(question, promptStream()))) {
-    promptLine("Aborted.");
-    return false;
-  }
-  return true;
-}
+export { confirmDestructive } from "./confirm.destructive";
+export { confirmable, isConfirmable, YES_FLAG_DESCRIPTION } from "./confirm.flag";
+export { promptLine, promptStream } from "./confirm.stream";

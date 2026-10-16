@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
+import { ROOT_EPILOGUE } from "./root-help-epilogue";
+
 /**
  * NEX-3708: the CLI self-corrupted mid-session. `pnpm add -g` writes a NEW
  * hash directory under `<pnpm home>/global/v11/` and relinks the global shim;
@@ -197,16 +199,34 @@ describe("no authored page says self-update is on by default", () => {
   });
 });
 
+/**
+ * 🔴 THESE READ THE COMPOSED EPILOGUE, NOT `index.ts`, AND THE DIFFERENCE IS
+ * WHICH CLAIM IS BEING CHECKED. The cases ABOVE derive the FLAG DECLARATIONS
+ * from `index.ts`'s own text, because that is where the two `.option()` calls
+ * live and the whole point is that deleting the positive one turns the updater
+ * back on. These check the HELP PROSE, which lives in
+ * `root-help-epilogue.flags.ts` and reaches a user only through the composed
+ * constant — so the constant is the honest subject: a section dropped from the
+ * composition reds here, where a scan of whichever file still holds the words
+ * would read clean over a help screen that no longer prints them.
+ */
 describe("the help text does not promise a repair the CLI cannot perform", () => {
+  it("read a real epilogue", () => {
+    // Anti-vacuity. An empty string makes every `toMatch` below fail rather
+    // than pass, but a TRUNCATED one would not, and that is the shape a broken
+    // composition takes.
+    expect(ROOT_EPILOGUE.length).toBeGreaterThan(1000);
+  });
+
   it("says the updater is off by default", () => {
-    expect(INDEX).toMatch(/--auto-update\s+self-update on exit; OFF by default/);
+    expect(ROOT_EPILOGUE).toMatch(/--auto-update\s+self-update on exit; OFF by default/);
   });
 
   it("says plainly that no command runs once the install is broken", () => {
     // The reporter's complaint was that --no-auto-update did not repair an
     // existing break. It cannot, and the help now says so instead of implying
     // otherwise by silence.
-    expect(INDEX).toMatch(/NO nexus command runs/);
-    expect(INDEX).toMatch(/Reinstalling is the only repair/);
+    expect(ROOT_EPILOGUE).toMatch(/NO nexus command runs/);
+    expect(ROOT_EPILOGUE).toMatch(/Reinstalling is the only repair/);
   });
 });

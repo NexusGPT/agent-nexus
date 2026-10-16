@@ -426,7 +426,7 @@ describe("nexus workspace unmount (NEX-2360 org scoping)", () => {
   });
 
   it("refuses to detach an org's mount for a profile named after that org's id", async () => {
-    // Profile names allow `org_aaa` (config.ts: ^[a-z0-9][a-z0-9_-]{0,31}$), and
+    // Profile names allow `org_aaa` (config-profile-name.ts: ^[a-z0-9][a-z0-9_-]{0,31}$), and
     // a profile with no selected org is keyed by its NAME. In a flat key space
     // that name IS org A's registry key, so this unmount would detach org A's
     // live drive and delete its row. The kind tag keeps the two spaces disjoint:

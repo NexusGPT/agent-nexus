@@ -4,10 +4,10 @@
  * value it does not.
  *
  * Mirrors `packages/types/src/api/domains/vibe/schemas/deploy-state.schemas.ts`.
- * Its own module rather than a block in `vibe-wire-types.ts` because that file
- * sits on the shrink-only size ledger, and these are runtime values the renderer
- * needs as well as types. `vibe-wire-types.conformance.ts` holds both lists to
- * the contract's, in both directions.
+ * Its own module rather than a block in a wire-types module because these are
+ * runtime values the renderer needs as well as types.
+ * `vibe-deploy-state-vocabulary.conformance.ts` holds both lists to the
+ * contract's, in both directions.
  */
 
 /**

@@ -20,7 +20,7 @@
  * registry's VALUES and matches on each record's own `slug`, scoped to the acting
  * org. This file exists to keep it that way, because the coupling is the kind
  * nobody looks for — an audit of the registry's WRITERS finds only
- * `mount-registry.ts` and concludes no migration is needed, while the readers that
+ * `mount-registry.store.ts` and concludes no migration is needed, while the readers that
  * would break ship from a different repository entirely.
  *
  * ── Why this cannot be fixed in this repository ──────────────────────────────

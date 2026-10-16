@@ -1,10 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import type { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
+import { ROOT_EPILOGUE } from "./root-help-epilogue";
 import { buildRootProgram } from "./root-program";
 
 /**
@@ -49,10 +46,14 @@ import { buildRootProgram } from "./root-program";
  * commands in the tree.
  */
 
-const SRC_DIR = dirname(fileURLToPath(import.meta.url));
-
-/** The epilogue is registered in `index.ts`, and read here as text. */
-const INDEX = readFileSync(join(SRC_DIR, "index.ts"), "utf8");
+/**
+ * 🔴 THE SUBJECT IS THE COMPOSED CONSTANT, NOT A SOURCE FILE'S BYTES. This is
+ * the exact string `index.ts` installs on the root, so a `SENDING A BODY`
+ * section dropped from the composition in `root-help-epilogue.ts` is caught by
+ * the anti-vacuity case below — where a text scan over whichever file still
+ * holds the block would read clean over a help screen that no longer prints it.
+ */
+const EPILOGUE = ROOT_EPILOGUE;
 
 /**
  * Every command in the tree, root included, depth first — the same walk
@@ -99,9 +100,9 @@ function dataFlagCommands(): string[] {
 
 /** The epilogue's SENDING A BODY block — the paragraph making the claim. */
 function sendingABodyBlock(): string {
-  const start = INDEX.indexOf("SENDING A BODY");
-  const end = INDEX.indexOf("SCOPES AND WHO YOU ARE", start);
-  return start === -1 || end === -1 ? "" : INDEX.slice(start, end);
+  const start = EPILOGUE.indexOf("SENDING A BODY");
+  const end = EPILOGUE.indexOf("SCOPES AND WHO YOU ARE", start);
+  return start === -1 || end === -1 ? "" : EPILOGUE.slice(start, end);
 }
 
 describe("the root epilogue's --data list is the tree's --data list", () => {

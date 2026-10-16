@@ -1,263 +1,29 @@
-import { readStdin, resolveInputValue } from "./stdin";
-
 /**
- * One resolution per distinct raw `--body` value, for the lifetime of the
- * process.
+ * `--body` — resolving it, reading fields out of it, and handing it to the SDK.
  *
- * `--body` is now resolved TWICE on every command that also declares required
- * flags: once by {@link applyBodySatisfiesRequired}'s pre-action check, which
- * has to know which fields the body supplies before it can decide whether a
- * required field is missing, and once by the action handler that builds the
- * request. Without a cache those two reads are not guaranteed to be the same
- * bytes, and for two of the three accepted forms they are actively wrong:
+ * The PUBLIC NAME for the family. Every import in the package names this path,
+ * and the three leaves behind it are the three jobs:
  *
- *  - `--body -` — stdin is consumable exactly ONCE. The second `readStdin()`
- *    attaches listeners to a stream that has already emitted `end`, so its
- *    promise never settles and the CLI hangs with no output and no exit.
- *  - `--body file.json` — a second read can see different bytes than the ones
- *    the check approved, so the request would carry a body nobody validated.
+ *  - `body.resolve.ts`    — turning a raw `--body` flag value into an object,
+ *                           once per distinct value, because stdin is readable
+ *                           exactly once.
+ *  - `body.input-json.ts` — the same for `--input`-style flags, which accept
+ *                           arrays and scalars that `--body` does not.
+ *  - `body.fields.ts`     — reading one field back out, with the flag winning
+ *                           over the body, and the one assertion that turns
+ *                           operator JSON into a typed SDK argument.
  *
- * Keyed on the raw flag value, which is the whole input to the resolution.
- * This process is one-shot per command, so there is no staleness window to
- * reason about.
+ * Nothing is declared here: each value lives in the leaf that owns it and no
+ * leaf imports this file back, so `import/no-cycle` has nothing to report.
  */
-const resolvedBodies = new Map<string, Promise<Record<string, unknown>>>();
 
-/**
- * Forget every memoized body. For a caller that runs MANY commands in one
- * process — there is exactly one, and it is a scanner, not the CLI.
- *
- * 🚨 "ONE-SHOT PER PROCESS" IS TRUE OF THE BINARY AND FALSE OF THE GATE.
- * `help-truth-rules.ts` parses every `--help` example in the package in a single
- * node process, and the key for a piped body is the literal `"-"` for all of
- * them. Without this the FIRST example to resolve stdin answers for every later
- * one: `role create --body -` would be judged against the document
- * `workflow node update --body -` had piped in, so an example could pass on
- * another example's bytes, or fail on them. Both verdicts are about the wrong
- * input, and neither says so.
- *
- * Nothing in `src/` calls this and nothing should. The alternative — the scanner
- * spawning a process per example — costs about a thousand node startups to avoid
- * four lines.
- */
-export function resetResolvedBodies(): void {
-  resolvedBodies.clear();
-}
-
-/**
- * Resolve a `--body` flag value that the caller guarantees is present, into a
- * parsed object.
- *
- * Accepts:
- *  - `"-"` → reads JSON from stdin
- *  - A path ending in `.json` → reads and parses the file
- *  - A raw JSON string → parses directly
- *
- * Separate from {@link resolveBody} rather than an overload of it: TypeScript
- * overloads are the natural spelling, but the base `no-redeclare` rule does not
- * understand them and reports two errors. Two named functions say the same thing
- * and let the required case return a `Record` with no narrowing step and no
- * unreachable guard at the call site.
- */
-export async function resolveRequiredBody(raw: string): Promise<Record<string, unknown>> {
-  const cached = resolvedBodies.get(raw);
-  if (cached) return cached;
-
-  const pending = readAndParseBody(raw);
-  resolvedBodies.set(raw, pending);
-  return pending;
-}
-
-async function readAndParseBody(raw: string): Promise<Record<string, unknown>> {
-  let jsonStr: string;
-
-  if (raw === "-") {
-    jsonStr = await readStdin();
-  } else if (raw.endsWith(".json")) {
-    try {
-      const fs = await import("node:fs/promises");
-      jsonStr = (await fs.readFile(raw, "utf-8")).trim();
-    } catch (err) {
-      throw new Error(
-        `Could not read file "${raw}": ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  } else {
-    jsonStr = raw;
-  }
-
-  try {
-    return JSON.parse(jsonStr) as Record<string, unknown>;
-  } catch {
-    throw new Error(
-      `Invalid JSON in --body: ${jsonStr.length > 120 ? jsonStr.slice(0, 120) + "…" : jsonStr}`
-    );
-  }
-}
-
-/**
- * {@link resolveRequiredBody} for an OPTIONAL `--body`.
- *
- * Returns `undefined` when the flag was not provided, and the caller must deal
- * with that itself — silently substituting `{}` sends the server a DIFFERENT
- * request rather than no request.
- */
-export async function resolveBody(
-  raw: string | undefined
-): Promise<Record<string, unknown> | undefined> {
-  return raw === undefined ? undefined : resolveRequiredBody(raw);
-}
-
-/**
- * Resolve a `--input` style flag value into parsed JSON.
- *
- * Like {@link resolveBody}, but for arbitrary JSON inputs (objects, arrays,
- * scalars) and with the more permissive file detection used by other
- * file-or-stdin flags (`--prompt`, `--content`, …):
- *  - `"-"` → reads JSON from stdin
- *  - A path to an existing file → reads and parses the file contents
- *  - Anything else → parses the literal value as inline JSON
- *
- * Returns `undefined` when `raw` is `undefined` (flag not provided).
- */
-export async function resolveInputJson(
-  raw: string | undefined,
-  flagName = "--input"
-): Promise<unknown> {
-  if (raw === undefined) return undefined;
-
-  const jsonStr = await resolveInputValue(raw);
-
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    throw new Error(
-      `Invalid JSON in ${flagName}: ${jsonStr.length > 120 ? jsonStr.slice(0, 120) + "…" : jsonStr}`
-    );
-  }
-}
-
-/**
- * Narrow one untyped value — a commander option, or a field read off a
- * `--body` — to the string it is supposed to be, or `undefined`.
- *
- * Commander types an action handler's `opts` as `any`, and `--body` arrives as
- * `Record<string, unknown>`, so BOTH sources reach a command with the check
- * switched off. Passing either straight into a typed request body compiles and
- * validates nothing; that is how `{ authType: "oauth" }` reached the server for
- * months against a contract that requires a `service` too.
- *
- * An empty string collapses to `undefined` on purpose. `--service ""` supplies
- * no service, and the caller's `?? ` chain must fall through to the next source
- * and then to a stated error, rather than putting `""` on the wire for the
- * server to reject with a field name the operator never typed. That is a
- * deliberate `||`-shaped decision, written once here instead of being re-derived
- * per call site — see the `prefer-nullish-coalescing` trap: `??` and `||` differ
- * on exactly this value.
- */
-export function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/**
- * Read a field the operator may have supplied twice — as a flag, or inside
- * `--body` — with the flag winning.
- *
- * This is {@link mergeBodyWithFlags}'s precedence, minus its defect. That helper
- * merges every flag whose value is not `undefined`, and a commander DEFAULT is
- * never `undefined`: `--auth-type <type>` declared with a default of `"oauth"`
- * overwrote the `authType` of every `--body`, including the one `nexus tool
- * connect --help` printed as its own example. The flag looked explicit and was
- * not, and nothing in commander distinguishes the two.
- *
- * So a flag that can also be supplied through `--body` must carry NO commander
- * default, and be read through here. Its default then belongs after both sources
- * are known — the only place a value can mean "neither source said". The rule is
- * enforced by `commands/flag-defaults-never-overwrite-body.test.ts`.
- */
-export function readStringField(
-  flagValue: unknown,
-  body: Record<string, unknown> | undefined,
-  key: string
-): string | undefined {
-  return readString(flagValue) ?? readString(body?.[key]);
-}
-
-/**
- * The literal token this CLI reads as a wire `null`.
- *
- * A PATCH leaves an omitted field alone, so absence already means "don't touch
- * this". A nullable field needs a SECOND thing said — "clear it" — and absence
- * cannot say both. This token is what says the second.
- */
-export const CLEAR_TOKEN = "null";
-
-/**
- * Read a flag whose field is NULLABLE, where {@link CLEAR_TOKEN} clears it.
- *
- * `nexus folder update --parent-id null` moves a folder to the root;
- * `--parent-id <uuid>` re-parents it; omitting the flag leaves the parent alone.
- * Three outcomes, two of which absence cannot distinguish — hence the token.
- *
- * ⚠️ THE TOKEN IS DELIBERATELY NARROW, AND `"none"` IS NOT A SYNONYM HERE. The
- * `role` commands read a WIDER vocabulary through
- * `commands/role/_shared/read-nullable-string.ts`, which accepts `"none"` too,
- * because their fields are things like a currency code where `"none"` cannot be
- * a real value. The fields this helper serves include free text — `nexus
- * deployment update --description none` must set the description to the string
- * `"none"`, because that is a description somebody can legitimately want. The
- * two vocabularies are a decision, not drift; converging them would either break
- * `--currency none` or swallow a legitimate `--description none`.
- *
- * Callers still guard on `!== undefined` themselves: this helper answers what a
- * SUPPLIED flag means, never whether one was supplied.
- */
-export function readClearableFlag(raw: string): string | null {
-  return raw === CLEAR_TOKEN ? null : raw;
-}
-
-/**
- * Merge a `--body` JSON object with explicit CLI flags.
- * Flags take precedence — any non-`undefined` flag value overwrites the body field.
- *
- * ⚠️ A commander DEFAULT is not `undefined`, so it merges too and silently wins
- * over `--body`. Declare no default on a flag merged here; use
- * {@link readStringField} and apply the default afterwards.
- */
-export function mergeBodyWithFlags(
-  body: Record<string, unknown> | undefined,
-  flags: Record<string, unknown>
-): Record<string, unknown> {
-  const merged = { ...body };
-  for (const [key, value] of Object.entries(flags)) {
-    if (value !== undefined) merged[key] = value;
-  }
-  return merged;
-}
-
-/**
- * THE boundary where operator-supplied JSON becomes a typed SDK argument.
- *
- * `--body` accepts arbitrary JSON — a literal, a file, or stdin — so what
- * arrives is `Record<string, unknown>` and nothing in the CLI can narrow it. The
- * CLI cannot validate it either: `safeParse` means a Zod import, and Zod pulls
- * the generated Prisma enums, which is the +5MB a published binary exists to
- * keep out. The server validates and returns a 400 with the field names, which
- * is a better error than anything a hand-rolled check here would produce.
- *
- * So the assertion is unavoidable. What is avoidable is it appearing inline at
- * every call site, where each one reads as a local shortcut rather than as the
- * one place a whole class of unchecked value enters. Naming it once means a
- * reader asking "where does unvalidated operator input cross into typed code?"
- * gets a single answer, and `as any` — which would also switch OFF checking on
- * everything downstream of the call — never has to be reached for.
- *
- * It takes a REQUIRED `Record`. An earlier version accepted `undefined` and
- * substituted `{}`, which turned "the operator omitted `--body`" into "the
- * operator sent an empty object" — a different request, reaching the server as
- * `{"auth":{}}` where it used to send nothing at all. A missing body is the
- * caller's problem to state, not this function's to invent.
- */
-export function asRequestBody<T>(body: Record<string, unknown>): T {
-  return body as unknown as T;
-}
+export {
+  asRequestBody,
+  CLEAR_TOKEN,
+  mergeBodyWithFlags,
+  readClearableFlag,
+  readString,
+  readStringField
+} from "./body.fields";
+export { resolveInputJson } from "./body.input-json";
+export { resetResolvedBodies, resolveBody, resolveRequiredBody } from "./body.resolve";

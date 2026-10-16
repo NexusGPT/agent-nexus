@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { posixModesCarryAccess, SECRET_DIR_MODE, SECRET_FILE_MODE } from "./secret-file.modes";
+
 /**
  * The one way this package writes a file that holds, or sits beside, a secret.
  *
@@ -25,50 +27,37 @@ import path from "node:path";
  * a directory that holds one, goes through here — so the next person to add a
  * credential write cannot get this wrong by omission.
  *
- * ⚠️ THIS FILE IS MIRRORED, BYTE FOR BYTE, BETWEEN `@agent-nexus/cli` AND
- * `@agent-nexus/mcp-server`. The two packages write the SAME
- * `~/.nexus-mcp/config.json` and have no dependency edge between them — neither
- * depends on the other, nor on the SDK — so the guarantee cannot be shared by
- * import. It is shared by copy, and the mirror assertion in
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ⚠️ THIS HELPER IS MIRRORED, BYTE FOR BYTE, BETWEEN `@agent-nexus/cli` AND
+ * `@agent-nexus/mcp-server` — AND SO IS EVERY `secret-file.*` FILE BESIDE IT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The two packages write the SAME `~/.nexus-mcp/config.json` and have no
+ * dependency edge between them — neither depends on the other, nor on the SDK —
+ * so the guarantee cannot be shared by import. It is shared by copy, and the
+ * mirror assertion in
  * `packages/cli/src/util/secret-file.no-create-only-modes.test.ts` fails when the
  * copies drift, which is the enforceable form of "one helper" across a boundary
  * that has no edge to route through.
+ *
+ * 🔴 THAT ASSERTION COVERS THE WHOLE `secret-file.*` FAMILY, NOT THIS FILE
+ * ALONE, and it has to: a helper split across three files with a gate on one of
+ * them is two ungated copies wearing one gate's name. It also refuses a file
+ * present on one side and absent on the other, so adding a fourth leaf here
+ * without adding it there is a failing test rather than a silent divergence.
+ *
+ * Every relative import below is `./secret-file.*`, which resolves identically
+ * in `packages/cli/src/util/` and in `packages/mcp-server/src/` — that is what
+ * lets the copies be byte-identical rather than merely equivalent.
  */
 
-/** Owner-only on a directory that holds a secret: `rwx------`. */
-export const SECRET_DIR_MODE = 0o700;
-
-/** Owner-only on a file that holds a secret: `rw-------`. */
-export const SECRET_FILE_MODE = 0o600;
-
-/** Permission bits, isolated from the file-type bits `fs.Stats.mode` also carries. */
-export function permissionBits(mode: number): number {
-  return mode & 0o777;
-}
-
-/**
- * Whether a POSIX permission bit on this platform says anything about WHO CAN
- * READ the file.
- *
- * ⚠️ ON WINDOWS IT DOES NOT, AND READING IT AS IF IT DID PRODUCES A PERMANENT
- * FALSE ALARM. Node synthesises the mode there from one bit: a writable file
- * reports `0666` and a read-only one `0444`, whatever the ACLs actually grant,
- * and `chmod` toggles only that read-only bit. So `0666` read back immediately
- * after a SUCCESSFUL `writeSecretFile` is the normal, correct result — and a
- * warning keyed on the group/other bits would fire on every `loadConfig`, on
- * every invocation, and would never clear, telling the user to rotate a key that
- * nothing is wrong with.
- *
- * Access control on Windows is an ACL question, and this CLI does not answer it.
- * It stays silent there rather than guessing, which is the honest outcome: an
- * instrument that cannot read this platform must not report a verdict about it.
- *
- * Evaluated per call rather than captured at module load, so a spec can exercise
- * both branches on one machine.
- */
-function posixModesCarryAccess(): boolean {
-  return process.platform !== "win32";
-}
+export {
+  loosePermissionBits,
+  permissionBits,
+  SECRET_DIR_MODE,
+  SECRET_FILE_MODE
+} from "./secret-file.modes";
+export { resetLoosePermissionWarning, warnIfLoosePermissions } from "./secret-file.warn-loose";
 
 /**
  * A chmod that could not be applied is REPORTED, never swallowed and never
@@ -115,59 +104,4 @@ export function writeSecretFile(file: string, contents: string): void {
   ensureSecretDir(path.dirname(file));
   fs.writeFileSync(file, contents, { mode: SECRET_FILE_MODE });
   chmodOrWarn(file, SECRET_FILE_MODE);
-}
-
-/**
- * The bits that make a mode readable by somebody other than its owner.
- * Returns 0 when the mode is already owner-only.
- */
-export function loosePermissionBits(mode: number): number {
-  return permissionBits(mode) & 0o077;
-}
-
-/** Fires the read-time warning at most once per process, however many reads happen. */
-let warnedAbout: string | undefined;
-
-/**
- * Warn on STDERR when a credential file was found group- or world-accessible.
- *
- * The write path repairs the mode, and repairing it in silence is the failure
- * mode this exists to prevent: the exposure is in the PAST — every user on the
- * machine could already have read the token — and a chmod does not un-read it.
- * The only useful action is to rotate the key, and the user cannot decide to do
- * that if nobody tells them.
- *
- * STDERR, never STDOUT: `--json` mode's stdout must stay a single parseable
- * document. Once per process, because `loadConfig` is called many times per
- * invocation and a warning printed nine times is a warning nobody reads.
- */
-export function warnIfLoosePermissions(file: string): void {
-  // See `posixModesCarryAccess`: on Windows the mode is synthesised from the
-  // read-only bit alone, so 0666 is what a correctly written secret file reports
-  // and the warning below would be permanent and wrong.
-  if (!posixModesCarryAccess()) return;
-
-  let mode: number;
-  try {
-    mode = fs.statSync(file).mode;
-  } catch {
-    return; // No file, or unreadable — nothing to say about a file we cannot see.
-  }
-
-  const loose = loosePermissionBits(mode);
-  if (loose === 0) return;
-  if (warnedAbout === file) return;
-  warnedAbout = file;
-
-  const octal = permissionBits(mode).toString(8).padStart(4, "0");
-  process.stderr.write(
-    `warning: ${file} is mode ${octal} — readable by other users on this machine.\n` +
-      `         It holds an API key in plaintext. Assume the key is exposed and rotate it.\n` +
-      `         The next write by this CLI restores mode 0600; run: chmod 600 ${file}\n`
-  );
-}
-
-/** Test seam: forget that the warning already fired. Not used by the CLI itself. */
-export function resetLoosePermissionWarning(): void {
-  warnedAbout = undefined;
 }

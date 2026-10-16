@@ -107,8 +107,15 @@ import {
   readCachedNewerVersion
 } from "./version-check";
 
-const INDEX_SRC = fs.readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "../index.ts"),
+/**
+ * 🔴 THE GUARD IS IN `root-run-cli.ts`, NOT `index.ts`. `runCli` holds the whole
+ * post-parse chain — the `--json` early return, the upgrade-alias skip and the
+ * branch into this module — and `index.ts` calls it behind the entry-point
+ * guard. A scan of `index.ts` would match nothing and the case below would red
+ * over a guard that is perfectly in place.
+ */
+const RUN_CLI_SRC = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../root-run-cli.ts"),
   "utf8"
 );
 
@@ -821,9 +828,11 @@ describe("the paths that must schedule nothing", () => {
   });
 
   it("is never reached at all in --json mode", () => {
-    // Read as text because the guard is a `return` in `index.ts`, above every
+    // Read as text because the guard is a `return` in `runCli`, above every
     // call into this module. A unit test of `checkForUpdate` cannot see it, and
     // a `--json` run that emitted one extra byte would stop being parseable.
-    expect(INDEX_SRC).toMatch(/if \(isJsonMode\(\)\) return;/);
+    // Anti-vacuity: an unreadable or empty file makes the match fail, not pass.
+    expect(RUN_CLI_SRC.length).toBeGreaterThan(500);
+    expect(RUN_CLI_SRC).toMatch(/if \(isJsonMode\(\)\) return;/);
   });
 });

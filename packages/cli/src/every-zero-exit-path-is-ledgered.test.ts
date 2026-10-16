@@ -235,7 +235,7 @@ interface ZeroExitEntry {
 const ZERO_EXIT_LEDGER_CEILING = 2;
 
 const ZERO_EXIT_LEDGER: Readonly<Record<string, ZeroExitEntry>> = {
-  "src/contract-binding.ts": {
+  "src/contract-binding.bind-command.ts": {
     maxSites: 1,
     why:
       "--print-contract, declared on 177 commands. Terminal by design: it answers a " +
@@ -380,7 +380,7 @@ describe("controls", () => {
     // The first version asserted EQUALITY and excluded the one divergence it knew
     // about by name — `json-one-document.scan.ts` building the message
     // `` `process.exit(${code})` ``. A second arrived within days:
-    // `util/version-check.ts` emits an entire child-process script as a template
+    // `util/version-check.refresh-script.ts` emits a child-process script as a template
     // literal, and that script exits twice. An equality control grows a name
     // every time somebody writes the token inside a string, and every new name is
     // a red build with no defect in it — which is how a control gets deleted.

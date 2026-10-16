@@ -1,3 +1,15 @@
+import { resolveBaseUrl } from "../config";
+import { AdminCliError } from "./admin-errors";
+import { buildAdminUrl } from "./admin-http.build-url";
+import { readAdminEnvelope } from "./admin-http.read-envelope";
+import { resolveAdminToken } from "./admin-http.resolve-token";
+import {
+  ADMIN_REQUEST_DEFAULT_TIMEOUT_MS,
+  type AdminHttpOptions,
+  type AdminRequestOptions
+} from "./admin-http.types";
+import { fetchWithDeadline, RequestTimedOutError } from "./request-deadline";
+
 /**
  * Admin HTTP client — separate from `@agent-nexus/sdk`.
  *
@@ -7,10 +19,16 @@
  * `AdminPermissionGuard`, which reads the user identity off the Clerk JWT —
  * not the org API key. So admin commands need their own auth pipe.
  *
- * Token source: `--admin-token` global flag, then `NEXUS_ADMIN_TOKEN` env var.
- * Matches the precedent set by `apps/backend/src/tools/scripts/nuke-orgs.ts` —
- * the operator copies a Clerk JWT out of the browser session and passes it
- * here. CLI never persists the token (admin sessions are short-lived).
+ * Token source: `--admin-token` global flag, then `NEXUS_ADMIN_TOKEN` env var —
+ * `admin-http.resolve-token.ts`. The request and envelope shapes are
+ * `admin-http.types.ts`; the response half is `admin-http.read-envelope.ts`.
+ *
+ * 🔴 WHAT IS LEFT HERE IS THE SEQUENCE, AND THAT IS THE POINT OF THE SPLIT.
+ * Everything a reader needs in order to check that the deadline wraps the
+ * request, that the write is announced BEFORE it is sent, and that a timeout
+ * is classified apart from an unreachable host, is now in one screen — because
+ * a step moved past the `await` is a behaviour change that passes every unit
+ * test. The leaves are all synchronous and none of them can reorder it.
  *
  * Base URL resolution piggy-backs on the existing profile chain (--base-url
  * → NEXUS_BASE_URL → active profile's baseUrl → NEXUS_ENV; an unknown
@@ -20,50 +38,7 @@
  * `admin-opts.ts`; it bounds the body read as well as the headers.
  */
 
-import { resolveBaseUrl } from "../config";
-import { AdminCliError } from "./admin-errors";
-import { fetchWithDeadline, RequestTimedOutError } from "./request-deadline";
-
-/**
- * The deadline when `--timeout` is not given. MILLISECONDS, and the same figure
- * `tenant-http.ts` uses — same backend, same link, so one number to remember
- * rather than two. A DEFAULT, never a ceiling: the global moves it.
- */
-const ADMIN_REQUEST_DEFAULT_TIMEOUT_MS = 30_000;
-
-export interface AdminHttpOptions {
-  /** Override token (from `--admin-token`). Falls back to `NEXUS_ADMIN_TOKEN`. */
-  adminToken?: string;
-  /** Override base URL (from `--base-url`). Falls back to the profile chain. */
-  baseUrl?: string;
-  /** Override profile (used solely to find a baseUrl). */
-  profile?: string;
-  /** Request timeout in ms (default 30_000). Carries the global `--timeout`. */
-  timeout?: number;
-}
-
-interface AdminRequestOptions {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
-  path: string;
-  /**
-   * Query string parameters. `undefined` values are DROPPED rather than sent
-   * empty, so an omitted CLI flag leaves the server's own default in force
-   * instead of overriding it with a blank string. Booleans + numbers coerce
-   * to string. Same contract as `tenant-http.ts`, which mirrors this file.
-   */
-  query?: Record<string, string | number | boolean | undefined>;
-  body?: unknown;
-}
-
-interface ApiSuccessEnvelope<T> {
-  success: true;
-  data: T;
-}
-
-interface ApiErrorEnvelope {
-  success: false;
-  error: { code: string; message: string; details?: unknown };
-}
+export type { AdminHttpOptions } from "./admin-http.types";
 
 /**
  * Send a request against an `/api/admin/*` endpoint. Returns the unwrapped
@@ -81,14 +56,7 @@ export async function adminRequest<T>(
   // run exited 0 with no host printed anywhere. Stdout would corrupt `--json`,
   // which is ONE document; announcing reads too would make the line ambient.
   if (req.method !== "GET") process.stderr.write(`admin ${req.method} → ${baseUrl}\n`);
-  const parsedUrl = new URL(`${baseUrl}${req.path}`);
-  if (req.query) {
-    for (const [key, value] of Object.entries(req.query)) {
-      if (value === undefined) continue;
-      parsedUrl.searchParams.append(key, String(value));
-    }
-  }
-  const url = parsedUrl.toString();
+  const url = buildAdminUrl(baseUrl, req);
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -124,39 +92,5 @@ export async function adminRequest<T>(
     throw AdminCliError.network(err instanceof Error ? err.message : String(err));
   }
 
-  let parsed: unknown;
-  if (rawBody.length > 0) {
-    try {
-      parsed = JSON.parse(rawBody);
-    } catch {
-      // Non-JSON body (typically an HTML error page from a proxy). Surface
-      // the status + a snippet so the operator can diagnose.
-      throw AdminCliError.fromStatus(
-        response.status,
-        `Non-JSON response from ${url}: ${rawBody.slice(0, 200)}`
-      );
-    }
-  }
-
-  if (!response.ok) {
-    const envelope = parsed as ApiErrorEnvelope | undefined;
-    const message =
-      envelope?.error?.message ?? `${req.method} ${req.path} failed with HTTP ${response.status}`;
-    throw AdminCliError.fromStatus(response.status, message, envelope?.error?.code);
-  }
-
-  const envelope = parsed as ApiSuccessEnvelope<T> | undefined;
-  if (!envelope || envelope.success !== true) {
-    throw AdminCliError.fromStatus(response.status, `Malformed success envelope from ${url}`);
-  }
-  return envelope.data;
-}
-
-function resolveAdminToken(opts: AdminHttpOptions): string {
-  const raw = opts.adminToken ?? process.env.NEXUS_ADMIN_TOKEN ?? "";
-  const stripped = raw.replace(/^Bearer\s+/i, "").trim();
-  if (!stripped) {
-    throw AdminCliError.missingToken();
-  }
-  return stripped;
+  return readAdminEnvelope<T>(response, rawBody, url, req);
 }

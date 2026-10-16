@@ -230,7 +230,7 @@ const AUTHORED_PAGES: ReadonlySet<string> = new Set([
   "authentication",
   // STAYS AUTHORED, deliberately. Only its flags table is derivable; its
   // "Environment variables" and "Resolution order" sections are precedence,
-  // decided by branching in `config.ts`, and no option list contains them.
+  // decided by branching in `config-resolve.ts`, and no option list contains them.
   // `buildRootProgram()` exists now, so generating it is POSSIBLE and still
   // wrong — it would trade the only written account of how a profile, an env var
   // and a flag resolve for a uniform list. The completeness assertion below
@@ -695,7 +695,7 @@ describe("CLI docs are generated, and authored pages carry no command reference"
     // Once `buildRootProgram()` existed it looked like the obvious next page to
     // project. It is not: only the flags table is derivable. "Environment
     // variables" and "Resolution order — which credential is used, which API
-    // base URL is used" are PRECEDENCE, decided by branching in `config.ts`, and
+    // base URL is used" are PRECEDENCE, decided by branching in `config-resolve.ts`, and
     // no option list contains them. Generating the page would trade three
     // missing flag names for the only written account of how a profile, an env
     // var and a flag resolve against each other. That is the "uniformly true and

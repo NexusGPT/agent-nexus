@@ -26,8 +26,10 @@ import {
   exitCodeTaxonomyViolations,
   isDeclaredExitCode
 } from "./exit-codes";
+import { ROOT_EPILOGUE } from "./root-help-epilogue";
 import { buildRootProgram } from "./root-program";
 import { AdminCliError, handleAdminError } from "./util/admin-errors";
+import { stripTsComments } from "./util/strip-ts-comments";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -88,11 +90,18 @@ const REQUIRED_CATEGORIES: readonly ExitCategory[] = [
  * on its own documentation gets its regex loosened by whoever is unblocking a
  * build, and the loosening is what lets a real call through.
  *
+ * The comments go through {@link stripTsComments}, the package's one stripper,
+ * never a pattern pass of this file's own: deleting from `//` to end of line
+ * eats the rest of any string holding one, and deleting `/*` to the next closer runs
+ * through a pattern literal that holds one, so both delete code the scans below
+ * then report as absent.
+ *
  * 🚨 TEMPLATE LITERALS, BECAUSE A `process.exit` INSIDE ONE IS NOT THIS
  *    PROCESS'S EXIT — AND "FIXING" ONE SHIPS A ReferenceError.
  *
- * `util/version-check.ts` RETURNS a backtick string that is the complete source
- * of a detached child process, and that child ends with `process.exit(0)`. The
+ * `util/version-check.refresh-script.ts` RETURNS a backtick string that is the
+ * complete source of a detached child process, and that child ends with
+ * `process.exit(0)`. The
  * scan flagged it, the flag was acted on, and `EXIT_CODES.success` went into a
  * script that imports nothing and runs in another process — a crash in the
  * auto-update path, introduced by the gate meant to prevent defects. Its own
@@ -108,10 +117,7 @@ const REQUIRED_CATEGORIES: readonly ExitCategory[] = [
  * the code it flags.
  */
 function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  return stripTsComments(source).replace(/`(?:\\.|[^`\\])*`/g, "``");
 }
 
 /** The `.ts` sources of this package, excluding specs and generated bundles. */
@@ -141,6 +147,93 @@ function productionSources(): readonly string[] {
   walk(SRC_DIR);
   return found;
 }
+
+/**
+ * Every source that DESCRIBES the taxonomy, as `[name, text]`.
+ *
+ * The prose about `130` used to sit in one file and now spans the family: the
+ * band rule is in `exit-codes.ts`, the `interrupted` category's own paragraph is
+ * in `exit-code-categories.ts`. A surface check reading ONE of them would pass
+ * over a dead phrase reinstated in any other.
+ *
+ * It REFUSES rather than returning a short list. A scan with no way to say "I
+ * read less than I should have" reports its own gap as a clean result, which is
+ * the failure mode this whole file is written against.
+ */
+function exitCodeSources(): readonly (readonly [string, string])[] {
+  const found = productionSources()
+    .filter((file) => /(^|[/\\])exit-codes?(-[a-z-]+)?\.ts$/.test(file))
+    .map((file) => [relative(SRC_DIR, file), readFileSync(file, "utf8")] as const);
+  if (found.length < 6) {
+    throw new Error(
+      `exitCodeSources() reached ${String(found.length)} files, under the 6 that declare the ` +
+        "taxonomy — the walk is not finding the family and its silence is not compliance."
+    );
+  }
+  return found;
+}
+
+/**
+ * The error-reporting layer: `errors.ts`, its `errors-*.ts` siblings, and the
+ * admin tree's own map.
+ *
+ * RESOLVED FROM THE WALK, never named. `errors.ts` used to hold every body in
+ * this layer and is now a re-export index over nine siblings, so a list of file
+ * names would have gone stale on the split itself — and a stale list here reads
+ * as a clean scan rather than as a missing one.
+ *
+ * `(^|/)errors(-…)?\.ts` and not a bare `errors`: `git-errors.ts` and
+ * `error-next-steps.ts` are different concerns, so the admin tree's map needs a
+ * clause of its own — the separator before `errors` there is a dash.
+ *
+ * 🔴 THAT CLAUSE IS A PATTERN OVER THE FAMILY, NOT A PATH. It used to be
+ * `file.endsWith(join("util", "admin-errors.ts"))`, and `admin-errors.ts` then
+ * split into `admin-errors.cli-error.ts` (the class) and
+ * `admin-errors.handle.ts` (the renderer, which is where the `return` this gate
+ * is about actually lives), leaving the named path a twenty-line re-export
+ * index. A key naming ONE file survives that split in the worst way: the walk
+ * still finds the path, the floor below is still met, and the arm prints a tick
+ * over a body it no longer reads. `admin-errors(\.…)?\.ts` follows the split
+ * instead, so a further leaf is covered the day it is born.
+ *
+ * It REFUSES rather than returning a short list, for the same reason
+ * {@link exitCodeSources} does: a set that collapsed would make the scan below
+ * read as a clean bill of health over nothing at all.
+ */
+function errorsLayerSources(): readonly string[] {
+  const found = productionSources().filter(
+    (file) =>
+      /(^|[/\\])errors(-[a-z-]+)?\.ts$/.test(file) ||
+      /(^|[/\\])admin-errors(\.[a-z-]+)?\.ts$/.test(file)
+  );
+  if (found.length < 12) {
+    throw new Error(
+      `errorsLayerSources() reached ${String(found.length)} files, under the 12 the error ` +
+        "layer holds — the walk is not finding it and its silence is not compliance."
+    );
+  }
+  return found;
+}
+
+describe("withoutComments reads code, not prose", () => {
+  // Prose in this tree usually quotes a call in backticks, which the template
+  // pass blanks on its own, so no scan below proves the comment pass runs. This
+  // does: a comment naming a call without backticks is gone, and the code after
+  // a pattern literal holding a quote survives.
+  it("removes a comment naming an exit call and keeps the code around it", () => {
+    const source = [
+      "// commander calls process.exit(1) here",
+      "/* and process.exit(2) there */",
+      'const quote = /"/;',
+      'const url = "https://example.com"; process.exit(EXIT_CODES.failed);'
+    ].join("\n");
+
+    const code = withoutComments(source);
+
+    expect(code).not.toMatch(/process\.exit\(\d\)/);
+    expect(code).toContain('const url = "https://example.com"; process.exit(EXIT_CODES.failed);');
+  });
+});
 
 describe("the exit-code taxonomy is declared once and is internally sound", () => {
   it("declares a non-empty set of categories", () => {
@@ -366,7 +459,7 @@ describe("the admin tree reads the same taxonomy it used to own", () => {
 });
 
 /**
- * NO SOURCE OUTSIDE `exit-codes.ts` WRITES AN EXIT CODE AS A NUMBER.
+ * NO SOURCE OUTSIDE `exit-code-table.ts` WRITES AN EXIT CODE AS A NUMBER.
  *
  * The four maps this change replaced were four integer literals in four files.
  * A gate that only checks the taxonomy is self-consistent would have passed on
@@ -410,7 +503,7 @@ describe("no exit code is written as a number outside the taxonomy module", () =
   it("finds no integer literal in a process.exit(...) call", () => {
     const offenders: string[] = [];
     for (const file of productionSources()) {
-      if (file.endsWith(`${"/"}exit-codes.ts`)) continue;
+      if (file.endsWith(`${"/"}exit-code-table.ts`)) continue;
       const source = withoutComments(readFileSync(file, "utf8"));
       for (const [line] of source.matchAll(/process\.exit\(\s*\d+\s*\)/g)) {
         offenders.push(`${relative(SRC_DIR, file)}: ${line}`);
@@ -422,7 +515,7 @@ describe("no exit code is written as a number outside the taxonomy module", () =
   it("finds no integer literal assigned to process.exitCode", () => {
     const offenders: string[] = [];
     for (const file of productionSources()) {
-      if (file.endsWith(`${"/"}exit-codes.ts`)) continue;
+      if (file.endsWith(`${"/"}exit-code-table.ts`)) continue;
       const source = withoutComments(readFileSync(file, "utf8"));
       for (const [line] of source.matchAll(/process\.exitCode\s*=\s*\d+\s*;/g)) {
         offenders.push(`${relative(SRC_DIR, file)}: ${line}`);
@@ -457,14 +550,14 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     expect(bare).toEqual(EXPECTED_BARE_ONE_SITES);
   });
 
-  it("leaves no bare `return <int>` inside errors.ts or admin-errors.ts", () => {
-    // The two files that WERE the two maps. A number reappearing in either is
+  it("leaves no bare `return <int>` inside the errors layer or admin-errors.ts", () => {
+    // The files that WERE the two maps. A number reappearing in any of them is
     // the taxonomy being forked again.
     const offenders: string[] = [];
-    for (const file of ["errors.ts", join("util", "admin-errors.ts")]) {
-      const source = withoutComments(readFileSync(join(SRC_DIR, file), "utf8"));
+    for (const file of errorsLayerSources()) {
+      const source = withoutComments(readFileSync(file, "utf8"));
       for (const [line] of source.matchAll(/^\s*return \d+;\s*$/gm)) {
-        offenders.push(`${file}: ${line.trim()}`);
+        offenders.push(`${relative(SRC_DIR, file)}: ${line.trim()}`);
       }
     }
     expect(offenders).toEqual([]);
@@ -477,11 +570,24 @@ describe("no exit code is written as a number outside the taxonomy module", () =
  * The root epilogue said "EVERY failure exits 1" while three other maps in the
  * same binary produced 2, 3, 5, 6 and 130. A published promise nothing checks is
  * how that survived. This checks it.
+ *
+ * 🔴 THE SUBJECT IS THE COMPOSED `ROOT_EPILOGUE` CONSTANT, not a source file's
+ * bytes. That is the string `index.ts` installs on the root, so a section
+ * dropped from the composition in `root-help-epilogue.ts` is caught here — where
+ * a text scan over whichever file still holds the FAILURE block would read clean
+ * over a help screen that no longer prints it.
  */
 describe("the root --help exit-code table is true of the code", () => {
+  it("read a real epilogue", () => {
+    // Anti-vacuity. An empty or section-less string makes both cases below pass
+    // by checking nothing, and `indexOf` returning -1 silently slices the WHOLE
+    // string rather than the FAILURE block.
+    expect(ROOT_EPILOGUE.length).toBeGreaterThan(1000);
+    expect(ROOT_EPILOGUE.indexOf("  FAILURE\n")).toBeGreaterThan(-1);
+  });
+
   it("names every non-success category's number", () => {
-    const epilogue = readFileSync(join(SRC_DIR, "index.ts"), "utf8");
-    const failureSection = epilogue.slice(epilogue.indexOf("  FAILURE\n"));
+    const failureSection = ROOT_EPILOGUE.slice(ROOT_EPILOGUE.indexOf("  FAILURE\n"));
     const missing = EXIT_CATEGORIES.filter((name) => name !== "success").filter(
       (name) => !new RegExp(`(^|\\s)${String(EXIT_CODES[name])}\\s`, "m").test(failureSection)
     );
@@ -489,8 +595,7 @@ describe("the root --help exit-code table is true of the code", () => {
   });
 
   it("no longer claims every failure exits 1", () => {
-    const epilogue = readFileSync(join(SRC_DIR, "index.ts"), "utf8");
-    expect(epilogue).not.toContain("EVERY failure exits 1");
+    expect(ROOT_EPILOGUE).not.toContain("EVERY failure exits 1");
   });
 });
 
@@ -536,7 +641,7 @@ function categoryAccessor(category: ExitCategory): string {
  * ever yields nothing.
  */
 const PRODUCERS: Readonly<Record<ExitCategory, () => number>> = {
-  success: () => processLevelExit("contract-binding.ts", "success"),
+  success: () => processLevelExit("contract-binding.bind-command.ts", "success"),
   interrupted: () =>
     processLevelExit(join("commands", "apps", "logs", "run-app-logs-follow.ts"), "interrupted"),
   failed: () => handleError(new Error("unexpected")),
@@ -1019,7 +1124,7 @@ describe("every surface that describes 130 describes the same 130", () => {
     ];
     const surfaces: readonly (readonly [string, string])[] = [
       ["COMPATIBILITY.md", readFileSync(COMPATIBILITY_DOC, "utf8")],
-      ["exit-codes.ts", readFileSync(join(SRC_DIR, "exit-codes.ts"), "utf8")],
+      ...exitCodeSources(),
       ["nexus --help", renderedHelp().find(([path]) => path === "nexus")?.[1] ?? ""]
     ];
     const found = surfaces.flatMap(([name, text]) =>

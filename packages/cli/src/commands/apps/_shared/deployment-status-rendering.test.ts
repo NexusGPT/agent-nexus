@@ -152,7 +152,7 @@ describe("apps deploy-state — the commit a newer push displaced", () => {
 });
 
 /**
- * The colour is decided when `output.ts` loads: `NO_COLOR` includes
+ * The colour is decided when `output-color.ts` loads: `NO_COLOR` includes
  * `!process.stdout.isTTY`, and vitest's stdout is not a TTY. So every paint is
  * the identity function here, and a tone assertion against the statically
  * imported module would pass whatever tone was chosen. Each case forces a TTY

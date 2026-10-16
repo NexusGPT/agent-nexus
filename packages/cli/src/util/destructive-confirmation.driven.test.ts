@@ -8,9 +8,12 @@ import { EXIT_CODES } from "../exit-codes";
 /**
  * EVERY DESTRUCTIVE COMMAND, DRIVEN WITH NO TERMINAL AND NO `--yes`.
  *
- * The rule, the derivation and the three named sets live in
- * `destructive-confirmation.scan.ts`; read its header first. This file is the
- * harness and the assertions.
+ * The rule lives in `destructive-confirmation.scan.ts`; read its header first.
+ * That file is the entry point and declares nothing — the derivation is in
+ * `destructive-confirmation.candidates.ts`, and the three named sets are
+ * `CONFIRMS_BEFORE_ACTING`/`NOT_DESTRUCTIVE` in `destructive-confirmation.sets.ts`
+ * and `UNCONFIRMED_DESTRUCTIVE` in `destructive-confirmation.debt.ts`. This file
+ * is the harness and the assertions.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * WHY THE SPY DELEGATES TO THE REAL HELPER INSTEAD OF REPLACING IT
@@ -253,11 +256,14 @@ describe("every destructive candidate is accounted for by name", () => {
     expect(
       unaccounted,
       "This command's name carries a destructive verb, or it declares --yes, and no " +
-        "list in destructive-confirmation.scan.ts names it. Put it in exactly one:\n" +
-        "  CONFIRMS_BEFORE_ACTING   — and make the action call confirmDestructive(), so\n" +
-        "                             a script without --yes refuses instead of destroying.\n" +
-        "  NOT_DESTRUCTIVE          — with a written reason nothing stored can be lost.\n" +
-        "  UNCONFIRMED_DESTRUCTIVE  — it destroys and does not ask. Debt, and it is read.\n" +
+        "list names it. Put it in exactly one:\n" +
+        "  CONFIRMS_BEFORE_ACTING   (destructive-confirmation.sets.ts) — and make the action\n" +
+        "                             call confirmDestructive(), so a script without --yes\n" +
+        "                             refuses instead of destroying.\n" +
+        "  NOT_DESTRUCTIVE          (destructive-confirmation.sets.ts) — with a written reason\n" +
+        "                             nothing stored can be lost.\n" +
+        "  UNCONFIRMED_DESTRUCTIVE  (destructive-confirmation.debt.ts) — it destroys and does\n" +
+        "                             not ask. Debt, and it is read.\n" +
         "The first is the answer for a new command. The other two exist so the gate can " +
         "be honest about what is already here, not so a new one can dodge it."
     ).toEqual([]);
@@ -269,8 +275,9 @@ describe("every destructive candidate is accounted for by name", () => {
 
     expect(
       stale,
-      "This path is named in destructive-confirmation.scan.ts and is not in the command " +
-        "tree. A rename is an edit here; a removal is a deletion here. A list that keeps " +
+      "This path is named in destructive-confirmation.sets.ts or " +
+        "destructive-confirmation.debt.ts and is not in the command " +
+        "tree. A rename is an edit there; a removal is a deletion there. A list that keeps " +
         "an entry for a command nobody can run is a list nobody is reading."
     ).toEqual([]);
   });

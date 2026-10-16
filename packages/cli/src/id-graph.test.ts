@@ -109,7 +109,8 @@ describe("no write can enter the population", () => {
 describe("every unresolved param is declared", () => {
   /**
    * THE GATE. An undeclared residue carries an empty `because`, which is what
-   * this refuses on - see `id-graph.ts`, which never drops one silently.
+   * this refuses on - see `sourceFor` in `id-graph.producer.ts`, which never drops
+   * one silently.
    */
   it("has no residue without a stated reason", () => {
     const undeclared = residues(graph).filter((entry) => entry.source.because === "");

@@ -101,7 +101,7 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
  *    `handWrittenSources`, deliberately, for the reasons written on it.
  */
 
-/** The helpers that produce operator-supplied JSON. `src/util/body.ts`. */
+/** The helpers that produce operator-supplied JSON. `src/util/body.resolve.ts` and `.fields.ts`. */
 const OPERATOR_JSON_SOURCES = ["resolveBody", "resolveRequiredBody", "mergeBodyWithFlags"];
 
 /** The one sanctioned way for that JSON to become a typed SDK argument. */
@@ -117,14 +117,14 @@ const AS_REQUEST_BODY = "asRequestBody";
  */
 const UNGATED_WITH_REASON: readonly { file: string; code: string; reason: string }[] = [
   {
-    file: "util/body.ts",
+    file: "util/body.fields.ts",
     code: "body as unknown as T",
     reason:
       "This IS the boundary. `asRequestBody` is the one place the assertion is made, " +
       "and every other site in this package exists to route through it."
   },
   {
-    file: "config.ts",
+    file: "config-store.ts",
     code: "parsed as unknown as NexusConfigV2",
     reason:
       "A config file on disk, not a request body. Narrowing it honestly means validating " +

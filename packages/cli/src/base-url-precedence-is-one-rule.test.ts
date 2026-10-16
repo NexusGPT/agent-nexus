@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { stripTsComments } from "./util/strip-ts-comments";
+
 /**
  * WHICH HOST A REQUEST GOES TO IS ONE RULE, AND IT WAS WRITTEN FIVE WAYS.
  *
@@ -150,7 +152,7 @@ const BASE_URL_ENV_READS = [
 ] as const;
 
 /**
- * Drop whole-line comments before a source census.
+ * The non-blank code lines of a source, comments removed by the shared stripper.
  *
  * Every file under census is REQUIRED to discuss these names in prose — this
  * file's own siblings explain the precedence by naming the variable — and a
@@ -159,10 +161,9 @@ const BASE_URL_ENV_READS = [
  * proving the filter fires on prose and never on a statement.
  */
 function codeLinesOf(source: string): string[] {
-  return source.split("\n").filter((line) => {
-    const trimmed = line.trimStart();
-    return !trimmed.startsWith("*") && !trimmed.startsWith("//") && !trimmed.startsWith("/*");
-  });
+  return stripTsComments(source)
+    .split("\n")
+    .filter((line) => line.trim() !== "");
 }
 
 /**
@@ -395,7 +396,7 @@ describe("the base URL precedence is one rule", () => {
     // filter is what stands between the censuses above and the docblocks that
     // are required to name the variable.
     const token = BASE_URL_ENV_READS[0];
-    const prose = ` * falls back when ${token} is unset`;
+    const prose = `/** falls back when ${token} is unset */`;
     const code = `  if (${token}) return ${token};`;
 
     expect(codeLinesOf(prose)).toEqual([]);

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { stripTsComments } from "./util/strip-ts-comments";
+
 /**
  * WHICH ORGANIZATION A REQUEST ACTS ON IS ONE RULE, AND IT IS WRITTEN TWICE.
  *
@@ -83,20 +85,18 @@ const SANCTIONED_SELECTORS = [
 const ORG_ENV_TOKEN = ["process", "env", "NEXUS_ORGANIZATION_ID"].join(".");
 
 /**
- * Drop whole-line comments before a source census.
+ * The non-blank code lines of a source, comments removed by the shared stripper.
  *
  * Both files under census are REQUIRED to discuss this env var in prose — the
  * explanation of why the copy exists names it — and a census that reported the
- * explanation as the offence would make the correct docblock unwritable. This
- * is line-level on purpose: every comment in the scanned corpus is a `//` line
- * or a JSDoc continuation, and `commentIsNotCode` below is the two-direction
- * control proving the filter fires on one and not the other.
+ * explanation as the offence would make the correct docblock unwritable.
+ * `commentIsNotCode` below is the two-direction control proving the filter
+ * fires on prose and never on a statement.
  */
 function codeLinesOf(source: string): string[] {
-  return source.split("\n").filter((line) => {
-    const trimmed = line.trimStart();
-    return !trimmed.startsWith("*") && !trimmed.startsWith("//") && !trimmed.startsWith("/*");
-  });
+  return stripTsComments(source)
+    .split("\n")
+    .filter((line) => line.trim() !== "");
 }
 
 /**
@@ -214,7 +214,7 @@ describe("the organization precedence is one rule, written twice on purpose", ()
     // strips nothing are indistinguishable from inside a green run — and this
     // filter is what stands between the census above and the docblocks that are
     // required to name the variable.
-    const prose = ` * falls back when ${ORG_ENV_TOKEN} is unset`;
+    const prose = `/** falls back when ${ORG_ENV_TOKEN} is unset */`;
     const code = `  const fromEnv = ${ORG_ENV_TOKEN};`;
 
     expect(codeLinesOf(prose)).toEqual([]);

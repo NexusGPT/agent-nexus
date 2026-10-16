@@ -68,9 +68,9 @@ import { stripTsComments } from "./util/strip-ts-comments";
  * inside one.
  *
  * {@link blankNonCode} does both in ONE offset-preserving pass, for a reason its
- * own docblock records: the shared {@link stripTsComments} deletes a block
- * comment newlines and all, so a scanner built on it reports the wrong LINE. The
- * two are held in agreement by a corpus-wide control below.
+ * own docblock records: the shared {@link stripTsComments} removes comments and
+ * copies string content through, so it cannot do the second half. The two are
+ * held in agreement by a corpus-wide control below.
  *
  * Every arm of the detector is tested against fixtures before anything is
  * measured with it.
@@ -83,21 +83,19 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * keeping the total length, every newline, and every `${…}` interpolation.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 WHY THIS DOES ITS OWN COMMENT PASS INSTEAD OF USING `stripTsComments`
+ * 🚨 WHY THIS DOES ITS OWN PASS INSTEAD OF USING `stripTsComments`
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `stripTsComments` DELETES a block comment, newlines and all, which is right for
- * its other callers and wrong for a scanner that reports a LINE NUMBER. This gate
- * shipped one version doing exactly that, and it printed
- * `src/contract-binding.ts: found 2 at line(s) 135, 236` for a file whose only
- * real exit is at line **248** — every docblock above a match shifted the number.
- * A gate that names the wrong line sends a reader to the wrong place with full
- * confidence, which is worse than naming no line at all.
+ * `stripTsComments` REMOVES comments and copies string and template content
+ * through verbatim, which is right for its other callers and wrong here: the
+ * message `` `process.exit(${code})` `` in a template literal would read as a
+ * call. This pass BLANKS that content instead, and it keeps every character's
+ * offset, so a reported line is the line in the file.
  *
- * ⚠️ THE TEST THAT SHOULD HAVE CAUGHT IT WAS VACUOUS. "Line numbers survive the
- * blanking" ran on a two-line fixture with NO block comment — it asserted the one
- * case that could not fail. The fixture below has a block comment in it, which is
- * the whole difference.
+ * ⚠️ A LINE-NUMBER TEST NEEDS A BLOCK COMMENT IN ITS FIXTURE. A stripper that
+ * deletes a block comment's newlines shifts every line below it — a gate built on
+ * one named line 135 for a real exit at line **248** — and a fixture with no block
+ * comment asserts the one case that cannot fail. The fixture below has one.
  *
  * The two passes are kept in agreement by a corpus-wide control: for every source
  * file, this and `stripTsComments` must reach the SAME verdict about whether the
@@ -285,9 +283,14 @@ function sourceFiles(root: string): string[] {
  * is known. That control is the one that survives this class being drained to
  * zero; see `controls` below.
  */
-function findExitSites(root: string = HERE): ExitSite[] {
+function findExitSites(root: string): ExitSite[] {
+  return sitesIn(root, sourceFiles(root));
+}
+
+/** The call sites in `files`, each named relative to `root`. */
+function sitesIn(root: string, files: readonly string[]): ExitSite[] {
   const sites: ExitSite[] = [];
-  for (const file of sourceFiles(root)) {
+  for (const file of files) {
     const cleaned = blankNonCode(readFileSync(file, "utf8"));
     cleaned.split("\n").forEach((text, index) => {
       if (/\bprocess\s*\.\s*exit\s*\(/.test(text)) {
@@ -298,7 +301,13 @@ function findExitSites(root: string = HERE): ExitSite[] {
   return sites;
 }
 
-const sites = findExitSites();
+/**
+ * The real tree's listing, read ONCE at module scope so every test below judges
+ * and floors the same value — `the walk reached real source` is this listing's
+ * floor, and a floor over a second walk would say nothing about this one.
+ */
+const realFiles = sourceFiles(HERE);
+const sites = sitesIn(HERE, realFiles);
 const ledgeredFiles = Object.keys(ZERO_EXIT_LEDGER).map((key) => key.replace(/^src\//, ""));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,12 +344,9 @@ describe("the detector reads CODE, never the prose describing it", () => {
   });
 
   /**
-   * 🔴 THE CASE THE PREVIOUS VERSION OF THIS FILE GOT WRONG.
-   *
-   * Its fixture had no block comment, so "line numbers survive" asserted the one
-   * shape that could not fail — and the gate then reported line 135 for a call on
-   * line 248, because the shared comment stripper deletes a block comment's
-   * newlines along with its text.
+   * 🔴 A block comment above the call is the case a line-number test must hold:
+   * a pass that deleted the comment's newlines would report every call below it
+   * on the wrong line, and a fixture without one could not show it.
    */
   it("a BLOCK COMMENT above the call does not shift its line number", () => {
     const source = ["/**", " * three", " * lines", " */", "process.exit(0);"].join("\n");
@@ -363,7 +369,7 @@ describe("the detector reads CODE, never the prose describing it", () => {
 
 describe("controls", () => {
   it("the walk reached real source", () => {
-    expect(sourceFiles(HERE).length).toBeGreaterThan(100);
+    expect(realFiles.length).toBeGreaterThan(100);
   });
 
   it("every file THIS pass flags is also flagged by the shared stripTsComments", () => {
@@ -392,7 +398,7 @@ describe("controls", () => {
     const call = /\bprocess\s*\.\s*exit\s*\(/;
     const invented: string[] = [];
     let sharedOnly = 0;
-    for (const file of sourceFiles(HERE)) {
+    for (const file of realFiles) {
       const source = readFileSync(file, "utf8");
       const mine = call.test(blankNonCode(source));
       const shared = call.test(stripTsComments(source));

@@ -229,10 +229,10 @@ describe("scanSourceFiles hands the scanners a list their checker can answer fro
   });
 
   it("excludes a .test.ts, so a gate cannot report its own fixtures at itself", () => {
-    expect(scanSourceFiles(fixtureDir)).not.toContain(fixtureSpec);
-  });
-
-  it("CONTROL — the fixture walk found the ordinary source, so the exclusion above is not vacuous", () => {
-    expect(scanSourceFiles(fixtureDir)).toContain(fixtureSource);
+    const files = scanSourceFiles(fixtureDir);
+    // CONTROL, over the SAME walk — it found the ordinary source, so the
+    // exclusion below is not vacuous.
+    expect(files).toContain(fixtureSource);
+    expect(files).not.toContain(fixtureSpec);
   });
 });

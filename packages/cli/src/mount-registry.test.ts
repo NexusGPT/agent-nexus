@@ -1598,6 +1598,14 @@ describe("the VFS cache: pending uploads and what unmount may delete", () => {
   });
 
   it("holds entries while only the data tree has a file, so a clean cache is still not deleted", () => {
+    // The SAME counter over the SAME cache, holding a save first: a counter that
+    // answered zero for every path would pass the zero below. Written here
+    // rather than inherited from the case above, which leaves this cache in
+    // whatever state its own fixture needed.
+    fs.mkdirSync(metaRoot, { recursive: true });
+    fs.writeFileSync(path.join(metaRoot, "pending.md"), JSON.stringify({ Size: 1, Dirty: true }));
+    expect(countPendingUploads(cacheDir)).toBeGreaterThan(0);
+
     fs.rmSync(path.join(cacheDir, "vfsMeta"), { recursive: true, force: true });
     const dataRoot = path.join(cacheDir, "vfs", "nxws{abc}", "support-docs");
     fs.mkdirSync(dataRoot, { recursive: true });
@@ -1610,6 +1618,18 @@ describe("the VFS cache: pending uploads and what unmount may delete", () => {
 describe("checkRefreshPath / directMountHealth — the status verdict from local reads", () => {
   const profileExists = (name: string): boolean => name === "work";
   const input = { mountId: MOUNT_ID, slug: "support-docs", profileExists, now: NOW };
+
+  /** Records one item in the mount's VFS metadata, as rclone does for a save. */
+  function writePendingItem(name: string, dirty: boolean): void {
+    const metaRoot = path.join(
+      sessionPathsFor(MOUNT_ID).cacheDir,
+      "vfsMeta",
+      "nxws{abc}",
+      "support-docs"
+    );
+    fs.mkdirSync(metaRoot, { recursive: true });
+    fs.writeFileSync(path.join(metaRoot, name), JSON.stringify({ Dirty: dirty }));
+  }
 
   function writeGoodConfig(): void {
     const config = awsConfigFor({
@@ -1689,6 +1709,10 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(fresh.verdict).toEqual({ kind: "ok", at: NOW.toISOString() });
     expect(fresh.expiresAt).toBe(session().expiresAt);
     expect(fresh.pendingUploads).toBe(0);
+    // The SAME read once the cache holds a save, so the zero above is this
+    // cache being empty rather than a counter that cannot see it.
+    writePendingItem("saved.md", true);
+    expect(directMountHealth(input).pendingUploads).toBe(1);
     expect(refreshVerdictIsUnhealthy(fresh.verdict)).toBe(false);
     expect(describeRefresh(fresh.verdict, new Date(at(3 * 60_000)), true)).toBe("ok 3m ago");
     expect(refreshJson(fresh.verdict)).toEqual({
@@ -1775,16 +1799,9 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
   });
 
   it("counts the cache's pending uploads alongside the verdict, whatever the verdict", () => {
-    const metaRoot = path.join(
-      sessionPathsFor(MOUNT_ID).cacheDir,
-      "vfsMeta",
-      "nxws{abc}",
-      "support-docs"
-    );
-    fs.mkdirSync(metaRoot, { recursive: true });
-    fs.writeFileSync(path.join(metaRoot, "a.md"), JSON.stringify({ Dirty: true }));
-    fs.writeFileSync(path.join(metaRoot, "b.md"), JSON.stringify({ Dirty: true }));
-    fs.writeFileSync(path.join(metaRoot, "c.md"), JSON.stringify({ Dirty: false }));
+    writePendingItem("a.md", true);
+    writePendingItem("b.md", true);
+    writePendingItem("c.md", false);
     expect(directMountHealth(input).pendingUploads).toBe(2);
     writeSession(session());
     writeGoodConfig();
@@ -1799,6 +1816,9 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     const health = directMountHealth(input);
     const text =
       describeRefresh(health.verdict, NOW, true) + JSON.stringify(refreshJson(health.verdict));
+    // The floor: the text under inspection carries the verdict, so the two
+    // absences below are about real prose rather than an empty string.
+    expect(text).toContain("failed");
     expect(text).not.toMatch(/nxw-|not-a-secret|not-a-token|ASIA_/);
     expect(text).not.toContain("support-docs/");
   });

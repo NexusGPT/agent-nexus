@@ -52,9 +52,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { hashCodeLines } from "@nexus/types/testing/hash-comments";
 import { describe, expect, it } from "vitest";
 
 import { splitLeafOutput } from "./id-graph.streams";
+import { stripTsComments } from "./util/strip-ts-comments";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNER = join(PACKAGE_ROOT, "scripts", "scan-response.py");
@@ -74,7 +76,8 @@ function scan(payload: string): { code: number; stdout: string } {
 }
 
 /**
- * A file with its comments removed.
+ * A file with its comments removed, and its blank lines: a shell script through
+ * the shared `#` filter, anything else through the shared JS/TS stripper.
  *
  * ⚠️ The wiring arms below match SOURCE, and a source match is satisfied by a
  * comment by default — `sweep-never-leaks-a-secret.test.ts` records a mutation
@@ -83,19 +86,9 @@ function scan(payload: string): { code: number; stdout: string } {
  * at length, so an unstripped match here would be vacuous by construction.
  */
 function code(path: string): string {
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => {
-      const t = line.trim();
-      return (
-        t !== "" &&
-        !t.startsWith("*") &&
-        !t.startsWith("//") &&
-        !t.startsWith("#") &&
-        !t.startsWith("/*")
-      );
-    })
-    .join("\n");
+  const source = readFileSync(path, "utf8");
+  const lines = path.endsWith(".sh") ? hashCodeLines(source) : stripTsComments(source).split("\n");
+  return lines.filter((line) => line.trim() !== "").join("\n");
 }
 
 /** The real shape: a v1 payload the CLI printed, plus the warning it raised about it. */

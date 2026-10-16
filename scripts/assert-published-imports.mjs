@@ -81,7 +81,7 @@ import path from "node:path";
 import { builtinModules } from "node:module";
 
 import { isEntrypoint } from "./_lib/is-entrypoint.mjs";
-import { stripComments } from "./_lib/strip-comments.mjs";
+import { blankCommentsAndLiterals, stripComments } from "./_lib/strip-comments.mjs";
 
 /**
  * File extensions whose contents a consumer resolves through.
@@ -111,6 +111,16 @@ export { stripComments };
  * whenever a type is referenced without a named import, so a declaration can
  * name a package that appears in no import statement anywhere.
  *
+ * The keyword is matched on `blankCommentsAndLiterals` output and the specifier
+ * is read from the ORIGINAL at the same offsets. Blanking removes the two places
+ * a keyword next to a quote is not code — a comment, and the inside of a string,
+ * template or pattern — while a quote that opens a real literal stays a quote.
+ * Measured on the published CLI bundle, help text such as `the difference from
+ * "fail"` read as five imports of packages named `fail`, `mark-failed`,
+ * `nobody`, `lines` and `tasks`; and a child-process source held in a string
+ * read as imports of `node:fs` and `node:path`. A specifier IS a string literal,
+ * so it has to come from the original: in the projection it is blank.
+ *
  * Every keyword carries a `(?<![.\w$])` lookbehind, and it is load-bearing
  * rather than defensive. Without it `this.import("google-drive", params)` — a
  * cloud-import method the SDK really has — reads as a dynamic import of a
@@ -125,22 +135,24 @@ export function moduleSpecifiers(text) {
     found.push(match[1]);
   }
 
-  const code = stripComments(text);
+  const code = blankCommentsAndLiterals(text);
   const patterns = [
     // import … from "x" · export … from "x" · import type … from "x"
-    /(?<![.\w$])from\s*["']([^"'\n]+)["']/g,
+    /(?<![.\w$])from\s*["']([^"'\n]+)["']/dg,
     // import("x") — dynamic import, and the type-position `import("x").T`
-    /(?<![.\w$])import\s*\(\s*["']([^"'\n]+)["']/g,
+    /(?<![.\w$])import\s*\(\s*["']([^"'\n]+)["']/dg,
     // require("x")
-    /(?<![.\w$])require\s*\(\s*["']([^"'\n]+)["']/g,
-    // bare side-effect import — anchored to a statement boundary, because the
-    // word alone appears inside data. `"POST /documents/imports/:provider/import"`
-    // is a real key in the SDK's generated response contract, and an unanchored
-    // pattern reads the tail of it as an import of whatever string follows.
-    /(?:^|[;{}])\s*import\s*["']([^"'\n]+)["']/gm
+    /(?<![.\w$])require\s*\(\s*["']([^"'\n]+)["']/dg,
+    // bare side-effect import — anchored to a statement boundary, because only a
+    // statement can be one: `x.import "y"` is not code, and the lookbehind the
+    // other three carry cannot express "starts a statement".
+    /(?:^|[;{}])\s*import\s*["']([^"'\n]+)["']/dgm
   ];
   for (const pattern of patterns) {
-    for (const match of code.matchAll(pattern)) found.push(match[1]);
+    for (const match of code.matchAll(pattern)) {
+      const [start, end] = match.indices[1];
+      found.push(text.slice(start, end));
+    }
   }
   return found.filter(isPlausibleSpecifier);
 }
@@ -148,12 +160,15 @@ export function moduleSpecifiers(text) {
 /**
  * Whether `specifier` is shaped like something a resolver could be handed.
  *
- * The patterns above match a KEYWORD next to a QUOTE, and both can occur inside
- * string data that is not code at all. This is the backstop, and it is a
- * statement about specifiers rather than a list of things to ignore: a module
- * specifier is one path-like token, optionally behind a protocol (`node:`), so
- * it carries no whitespace, brackets, commas or bare colons. `": { name: "`,
- * captured out of the generated contract table, fails every one of those.
+ * The patterns above match a KEYWORD next to a QUOTE on the blanked projection,
+ * which removes every comment and every closed literal's contents. What it leaves
+ * as written is the misread it bounds rather than guesses at: a quote that never
+ * closes on its line was never a string, so its line is scanned as code. This is
+ * the backstop for that residue, and it is a statement about specifiers rather
+ * than a list of things to ignore: a module specifier is one path-like token,
+ * optionally behind a protocol (`node:`), so it carries no whitespace, brackets,
+ * commas or bare colons. It cannot catch one-word prose — `fail` is a plausible
+ * package name — which is why the blanking, not this, is what keeps help text out.
  *
  * It drops, so it is the direction that manufactures a clean result — the spec
  * beside this pins both halves: a real specifier survives, invented noise does

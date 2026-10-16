@@ -99,7 +99,11 @@ function scan(pattern: RegExp): { findings: Finding[]; filesRead: number } {
 
 describe("the clear token is read in one place", () => {
   it("is never compared directly against a commander option", () => {
-    const { findings } = scan(INLINE_COMPARISON);
+    const { findings, filesRead } = scan(INLINE_COMPARISON);
+    // This scan's own floor. The CONTROL below proves the machinery on a
+    // different pattern, which is a different call and says nothing about how
+    // much THIS one read.
+    expect(filesRead).toBeGreaterThan(20);
     expect(findings.map(describeFinding)).toEqual([]);
   });
 

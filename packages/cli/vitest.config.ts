@@ -30,7 +30,7 @@ export default defineConfig({
     // package owns in this one list, so `pnpm test` and a bare `vitest run` can
     // never diverge again.
     //
-    // `scripts/typecheck-guards.ts` (`orphanTestFileViolations`) reads this array
+    // `orphanTestFileViolations` (`scripts/typecheck-guards/orphan-test-files.ts`) reads this array
     // and reports any test file no glob here reaches, which is what stops a new
     // directory going invisible the way `test/unit` did.
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],

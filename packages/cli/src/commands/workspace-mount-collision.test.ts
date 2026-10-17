@@ -87,7 +87,7 @@ vi.mock("@agent-nexus/sdk", async (importOriginal) => {
 });
 
 // The workspace list is irrelevant here — a failing list degrades to the plain
-// bare-slug mount (resolveMountTarget → null), which is what we want to test.
+// bare-slug mount (resolveMountTargetDetailed → null target), which is what we want to test.
 // PARTIAL, via `importOriginal`: `workspace.ts` reads the `seconds` brand
 // constructor off this module at load, and a total mock makes the suite fail
 // to COLLECT — which reports as no tests, not as a red.

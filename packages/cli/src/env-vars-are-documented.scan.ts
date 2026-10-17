@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { envVarNamesIn } from "./env-var-reads";
+
 /**
  * WHICH `NEXUS_*` VARIABLES THE BINARY READS, AND WHICH HELP SCREEN NAMES EACH.
  *
@@ -34,9 +36,10 @@ import { fileURLToPath } from "node:url";
  *
  * ── WHAT THIS CANNOT DO ──────────────────────────────────────────────────────
  *
- *  - It matches `process.env.X` and `process.env["X"]` textually. A variable
- *    reached through a computed key (`process.env[name]`) is invisible to it,
- *    and so is one read by a dependency this scan does not walk.
+ *  - It matches `process.env.X` and `process.env["X"]` textually, in CODE only
+ *    ({@link envVarNamesIn}). A variable reached through a computed key
+ *    (`process.env[name]`) is invisible to it, and so is one read by a
+ *    dependency this scan does not walk.
  *  - `named on a screen` means the screen's text CONTAINS the name. It cannot
  *    tell a real explanation from a passing mention, and it should not try: a
  *    mention is what makes a reader able to find the variable at all, which is
@@ -80,10 +83,6 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** `process.env.NEXUS_X` and `process.env["NEXUS_X"]`, in that order. */
-const ENV_READ =
-  /process\s*\.\s*env\s*(?:\.\s*(NEXUS_[A-Z0-9_]+)|\[\s*["'`](NEXUS_[A-Z0-9_]+)["'`]\s*\])/g;
-
 /** Every root this binary's behaviour can come from. The SDK is bundled in. */
 export const SOURCE_ROOTS: readonly string[] = [join(HERE), join(HERE, "..", "..", "sdk", "src")];
 
@@ -95,11 +94,7 @@ export function readEnvVarNames(): string[] {
   const found = new Set<string>();
   for (const root of SOURCE_ROOTS) {
     for (const file of walk(root)) {
-      const text = readFileSync(file, "utf-8");
-      for (const match of text.matchAll(ENV_READ)) {
-        const name = match[1] ?? match[2];
-        if (name !== undefined) found.add(name);
-      }
+      for (const name of envVarNamesIn(readFileSync(file, "utf-8"))) found.add(name);
     }
   }
   return [...found].sort();

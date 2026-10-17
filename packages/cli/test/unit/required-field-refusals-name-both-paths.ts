@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { listFilesRecursively } from "./list-files-recursively";
+import { listFilesRecursively } from "../../src/util/list-files-recursively";
 import {
   actionBodies,
   chainTakesJsonBody,
-  lineOf
+  lineOf,
+  projectCommandSource
 } from "./required-field-refusals-name-both-paths.scan";
 
 /**
@@ -61,6 +62,14 @@ import {
  * in a new subdirectory is in the population the moment it exists, and moving a
  * file cannot drop it out. The source-text slicing that turns each file into
  * regions is `required-field-refusals-name-both-paths.scan.ts`.
+ *
+ * ── WHAT IT READS ────────────────────────────────────────────────────────────
+ *
+ * Code, never prose. Every slice and every literal comes from a projection with
+ * the comments blanked, because a docblock that quotes an unpaired `"` inverts
+ * quote pairing for the rest of the file and turns the gate's reading of every
+ * real message into a reading of the code between them. The scan module states
+ * the mechanism and the file it was measured on.
  */
 
 /** A refusal that says a field is absent, as opposed to malformed. */
@@ -95,7 +104,7 @@ export function findRefusalsNamingOnePath(
 ): Refusal[] {
   const out: Refusal[] = [];
   for (const file of files) {
-    const source = readFileSync(join(commandsDir, file), "utf-8");
+    const source = projectCommandSource(readFileSync(join(commandsDir, file), "utf-8"));
     for (const { start, text } of actionBodies(source)) {
       if (!chainTakesJsonBody(source, start)) continue;
       // Every string or template literal in the action, one per match.
@@ -106,7 +115,7 @@ export function findRefusalsNamingOnePath(
         if (NAMES_THE_BODY.test(literal)) continue;
         out.push({
           file,
-          line: lineOf(source, start + (m.index ?? 0)),
+          line: lineOf(source.text, start + (m.index ?? 0)),
           message: literal.length > 140 ? `${literal.slice(0, 140)}…` : literal
         });
       }

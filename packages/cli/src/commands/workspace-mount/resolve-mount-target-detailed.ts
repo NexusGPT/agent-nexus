@@ -13,8 +13,8 @@ import type { MountTargetResolution } from "./mount-target";
  *
  * A list call that fails yields a null `target` beside the `listError` that
  * caused it, so the caller can fall back to a plain bare-slug mount AND still
- * name the cause. {@link resolveMountTarget} is the wrapper that drops the
- * error for callers which genuinely do not need it.
+ * name the cause. A caller that never reports the failure reads `.target`
+ * alone.
  *
  * ⚠️ `kind` IS ABSENT ON THE DEGRADED PATH, AND ABSENT IS NOT "WRITABLE".
  * A null target and a `kind`-less target both mean the same thing — nobody
@@ -27,11 +27,11 @@ export async function resolveMountTargetDetailed(
   slug: string,
   wantShared: boolean
 ): Promise<MountTargetResolution> {
-  // `kind` is on the wire (`WorkspaceItemSchema`) and was missing from this
-  // annotation AND from the SDK's own `Workspace` interface, so no compiler
-  // anywhere could see that the mount path never read it. Both are widened
-  // together; `packages/sdk/src/types/types-match-the-v1-contract.test.ts` now
-  // pins the SDK half against the contract so it cannot narrow again.
+  // `kind` is on the wire (`WorkspaceItemSchema`), and this annotation AND the
+  // SDK's own `Workspace` interface both declare it: drop it from either and no
+  // compiler can see that the mount path stops reading it.
+  // `packages/sdk/src/types/types-match-the-v1-contract.test.ts` pins the SDK
+  // half against the contract so it cannot narrow.
   let workspaces: { id: string; slug: string; isShared: boolean; kind: WorkspaceKind }[];
   try {
     ({ workspaces } = await client.workspaces.list());

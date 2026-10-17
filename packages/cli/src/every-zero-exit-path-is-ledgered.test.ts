@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { blankCommentsAndLiterals } from "../../../scripts/_lib/strip-comments.mjs";
 import { stripTsComments } from "./util/strip-ts-comments";
 
 /**
@@ -68,9 +69,9 @@ import { stripTsComments } from "./util/strip-ts-comments";
  * inside one.
  *
  * {@link blankNonCode} does both in ONE offset-preserving pass, for a reason its
- * own docblock records: the shared {@link stripTsComments} removes comments and
- * copies string content through, so it cannot do the second half. The two are
- * held in agreement by a corpus-wide control below.
+ * own docblock records: {@link stripTsComments} removes comments and copies
+ * string content through, so it cannot do the second half. Both are the same
+ * walk, and a corpus-wide control below holds their verdicts together.
  *
  * Every arm of the detector is tested against fixtures before anything is
  * measured with it.
@@ -83,96 +84,33 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * keeping the total length, every newline, and every `${…}` interpolation.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 WHY THIS DOES ITS OWN PASS INSTEAD OF USING `stripTsComments`
+ * 🚨 WHY THIS IS NOT `stripTsComments`
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * `stripTsComments` REMOVES comments and copies string and template content
  * through verbatim, which is right for its other callers and wrong here: the
  * message `` `process.exit(${code})` `` in a template literal would read as a
- * call. This pass BLANKS that content instead, and it keeps every character's
- * offset, so a reported line is the line in the file.
+ * call. This projection BLANKS that content instead, and it keeps every
+ * character's offset, so a reported line is the line in the file.
+ *
+ * It is `blankCommentsAndLiterals` from `scripts/_lib/strip-comments.mjs`, the
+ * same walk `stripTsComments` delegates to, imported here rather than through
+ * `./util/strip-ts-comments` because that module sits under `src/` outside every
+ * test pattern, so the release gate treats a change to it as a change to what
+ * the CLI publishes. The walk also knows PATTERN literals and nested templates,
+ * which a quote-only pass reads wrong: `/"/` opens a "string" that blanks the
+ * code after it, and a brace counter ends `${…}` at a `}` inside a string.
  *
  * ⚠️ A LINE-NUMBER TEST NEEDS A BLOCK COMMENT IN ITS FIXTURE. A stripper that
  * deletes a block comment's newlines shifts every line below it — a gate built on
  * one named line 135 for a real exit at line **248** — and a fixture with no block
  * comment asserts the one case that cannot fail. The fixture below has one.
  *
- * The two passes are kept in agreement by a corpus-wide control: for every source
- * file, this and `stripTsComments` must reach the SAME verdict about whether the
- * file contains a call. So this cannot quietly drift into a second opinion about
- * what counts as code.
+ * The corpus-wide control below holds this and `stripTsComments` to the SAME
+ * verdict about whether each source file contains a call.
  */
 export function blankNonCode(source: string): string {
-  let out = "";
-  let index = 0;
-  let quote: string | null = null;
-
-  const blank = (text: string): string => text.replace(/[^\n]/g, " ");
-
-  while (index < source.length) {
-    const char = source[index];
-    const next = source[index + 1];
-
-    if (quote === null) {
-      if (char === "/" && next === "/") {
-        const end = source.indexOf("\n", index);
-        const stop = end === -1 ? source.length : end;
-        out += blank(source.slice(index, stop));
-        index = stop;
-        continue;
-      }
-      if (char === "/" && next === "*") {
-        const end = source.indexOf("*/", index + 2);
-        const stop = end === -1 ? source.length : end + 2;
-        out += blank(source.slice(index, stop));
-        index = stop;
-        continue;
-      }
-      if (char === '"' || char === "'" || char === "`") {
-        quote = char;
-        out += char;
-        index += 1;
-        continue;
-      }
-      out += char;
-      index += 1;
-      continue;
-    }
-
-    if (char === "\\") {
-      out += "  ";
-      index += 2;
-      continue;
-    }
-
-    if (quote === "`" && char === "$" && next === "{") {
-      // An interpolation is CODE. Copy it through, tracking braces so a nested
-      // object literal inside it does not end it early.
-      let depth = 1;
-      out += "${";
-      index += 2;
-      while (index < source.length && depth > 0) {
-        const inner = source[index];
-        if (inner === "{") depth += 1;
-        if (inner === "}") depth -= 1;
-        out += inner;
-        index += 1;
-      }
-      continue;
-    }
-
-    if (char === quote) {
-      quote = null;
-      out += char;
-      index += 1;
-      continue;
-    }
-
-    out += char === "\n" ? "\n" : " ";
-    index += 1;
-  }
-
-  return out;
+  return blankCommentsAndLiterals(source);
 }
 
 /**

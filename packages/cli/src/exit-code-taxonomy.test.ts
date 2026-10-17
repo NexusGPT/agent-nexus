@@ -6,30 +6,25 @@ import {
   NexusApiError,
   NexusAuthenticationError,
   NexusConnectionError,
-  NexusError,
   NexusTimeoutError
 } from "@agent-nexus/sdk";
 import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import type { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
+import { blankCommentsAndLiterals } from "../../../scripts/_lib/strip-comments.mjs";
 import { captureHelp } from "./command-universe";
 import { EXIT_INSTALLED_BUT_NOT_RESOLVED, EXIT_VERIFICATION_NOT_YOURS } from "./commands/upgrade";
 import { handleError, printNotFound, refuse, reportFailure } from "./errors";
 import {
-  CategorizedCliError,
   EXIT_CATEGORIES,
   EXIT_CODES,
   type ExitCategory,
   exitCategoryFor,
-  exitCodeForHttpStatus,
-  exitCodeTaxonomyViolations,
-  isDeclaredExitCode
+  exitCodeTaxonomyViolations
 } from "./exit-codes";
 import { ROOT_EPILOGUE } from "./root-help-epilogue";
 import { buildRootProgram } from "./root-program";
-import { AdminCliError, handleAdminError } from "./util/admin-errors";
-import { stripTsComments } from "./util/strip-ts-comments";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -81,7 +76,7 @@ const REQUIRED_CATEGORIES: readonly ExitCategory[] = [
 /**
  * A source reduced to the code this process actually RUNS.
  *
- * Two things are removed, and the second one was learned expensively.
+ * Two things are blanked, and the second one was learned expensively.
  *
  * ⚠️ COMMENTS. Without this the scans read prose as code, and they fail in the
  * expensive direction first: `errors.ts` DISCUSSES commander calling
@@ -90,35 +85,46 @@ const REQUIRED_CATEGORIES: readonly ExitCategory[] = [
  * on its own documentation gets its regex loosened by whoever is unblocking a
  * build, and the loosening is what lets a real call through.
  *
- * The comments go through {@link stripTsComments}, the package's one stripper,
- * never a pattern pass of this file's own: deleting from `//` to end of line
- * eats the rest of any string holding one, and deleting `/*` to the next closer runs
- * through a pattern literal that holds one, so both delete code the scans below
- * then report as absent.
- *
- * 🚨 TEMPLATE LITERALS, BECAUSE A `process.exit` INSIDE ONE IS NOT THIS
- *    PROCESS'S EXIT — AND "FIXING" ONE SHIPS A ReferenceError.
+ * 🚨 LITERAL TEXT, BECAUSE A `process.exit` INSIDE A STRING OR A TEMPLATE IS NOT
+ *    THIS PROCESS'S EXIT — AND "FIXING" ONE SHIPS A ReferenceError.
  *
  * `util/version-check.refresh-script.ts` RETURNS a backtick string that is the
  * complete source of a detached child process, and that child ends with
- * `process.exit(0)`. The
- * scan flagged it, the flag was acted on, and `EXIT_CODES.success` went into a
- * script that imports nothing and runs in another process — a crash in the
- * auto-update path, introduced by the gate meant to prevent defects. Its own
- * spec caught it, which is the only reason it is not in this diff.
+ * `process.exit(0)`. The scan flagged it, the flag was acted on, and
+ * `EXIT_CODES.success` went into a script that imports nothing and runs in
+ * another process — a crash in the auto-update path, introduced by the gate
+ * meant to prevent defects. Its own spec caught it, which is the only reason it
+ * is not in this diff.
  *
- * A number inside a template literal is generated source or documentation. It
+ * A number in a string or in a template's text is generated source or prose. It
  * cannot reference this module's imports, so it can never be bound to the
  * taxonomy, so demanding that it be bound is demanding something impossible.
  *
- * This is a REAL blind spot and it is stated rather than hidden: a genuine
- * `process.exit(1)` written inside a template literal is invisible here. That
- * is accepted — the alternative is a gate whose only available remedy breaks
- * the code it flags.
+ * A `${…}` interpolation is different: it is an expression this process
+ * evaluates, so a call written inside one is read as the code it is. Only the
+ * template's TEXT is blanked.
+ *
+ * Both halves are {@link blankCommentsAndLiterals} from
+ * `scripts/_lib/strip-comments.mjs`, the repository's one walk, which tracks
+ * comment, string, template and pattern state one character at a time. A
+ * pattern pass cannot do this. Deleting from `//` to end of line eats the rest
+ * of any string holding one. A backtick pair matched by pattern pairs a backtick
+ * QUOTED inside a string with the next one it finds. Inside one string that is
+ * harmless, but a string holding an odd number — the markdown fence
+ * `docs-page.render.ts` builds as `"```" + language` — leaves one over, which is
+ * paired with the next string's, and the real code between the two strings is
+ * blanked. A call written there is invisible to every scan below, and
+ * `codeOnly reads code, not prose` plants one.
+ *
+ * Offsets and line breaks are kept, so a line counted on the output is the line
+ * in the file.
  */
-function withoutComments(source: string): string {
-  return stripTsComments(source).replace(/`(?:\\.|[^`\\])*`/g, "``");
+function codeOnly(source: string): string {
+  return blankCommentsAndLiterals(source);
 }
+
+/** A `process.exit` call whose argument is an integer literal, not a taxonomy member. */
+const EXIT_INTEGER_CALL = /process\.exit\(\s*\d+\s*\)/g;
 
 /** The `.ts` sources of this package, excluding specs and generated bundles. */
 function productionSources(): readonly string[] {
@@ -215,11 +221,17 @@ function errorsLayerSources(): readonly string[] {
   return found;
 }
 
-describe("withoutComments reads code, not prose", () => {
-  // Prose in this tree usually quotes a call in backticks, which the template
-  // pass blanks on its own, so no scan below proves the comment pass runs. This
-  // does: a comment naming a call without backticks is gone, and the code after
-  // a pattern literal holding a quote survives.
+describe("codeOnly reads code, not prose", () => {
+  // The integer-exit scan below, run on one planted source. Every arm reads the
+  // projection THROUGH that scan's own pattern, so an arm cannot pass on a
+  // projection the scan would read differently.
+  const integerExits = (source: string): string[] =>
+    [...codeOnly(source).matchAll(EXIT_INTEGER_CALL)].map(([call]) => call);
+
+  // Prose in this tree usually quotes a call in backticks, so no scan below
+  // proves the comment half runs. This does: a comment naming a call without
+  // backticks is gone, a string after a pattern literal holding a quote is still
+  // read as a string, and the code after it survives on the same line.
   it("removes a comment naming an exit call and keeps the code around it", () => {
     const source = [
       "// commander calls process.exit(1) here",
@@ -228,10 +240,33 @@ describe("withoutComments reads code, not prose", () => {
       'const url = "https://example.com"; process.exit(EXIT_CODES.failed);'
     ].join("\n");
 
-    const code = withoutComments(source);
+    expect(integerExits(source)).toEqual([]);
+    expect(codeOnly(source)).toMatch(/const url = " +"; process\.exit\(EXIT_CODES\.failed\);/);
+  });
 
-    expect(code).not.toMatch(/process\.exit\(\d\)/);
-    expect(code).toContain('const url = "https://example.com"; process.exit(EXIT_CODES.failed);');
+  // The hazard a backtick-pair pattern carries. A string holding an ODD number
+  // of backticks — the markdown fence `docs-page.render.ts` builds as
+  // `"```" + language` — leaves one unpaired, which such a pattern pairs with the
+  // next string's, and the code between the two strings is blanked. Several files here already have code in
+  // that gap; a call written there would be invisible.
+  it("reads a call written between two strings that each hold a markdown fence", () => {
+    const source = 'const open = "```"; process.exit(1); const close = "```";';
+
+    expect(integerExits(source)).toEqual(["process.exit(1)"]);
+  });
+
+  it("reads a call inside a template's ${…}, and not one in its text", () => {
+    const source = ["const script = `process.exit(0)`;", "const t = `${process.exit(1)}`;"].join(
+      "\n"
+    );
+
+    expect(integerExits(source)).toEqual(["process.exit(1)"]);
+  });
+
+  it("does not read a call spelled inside a quoted string", () => {
+    const source = "const s = \"process.exit(1)\"; const t = 'process.exit(2)';";
+
+    expect(integerExits(source)).toEqual([]);
   });
 });
 
@@ -276,188 +311,6 @@ describe("the exit-code taxonomy is declared once and is internally sound", () =
   });
 });
 
-describe("the HTTP rule is one function, and both trees read it", () => {
-  it("maps 401 to not-authenticated", () => {
-    expect(exitCodeForHttpStatus(401)).toBe(EXIT_CODES["not-authenticated"]);
-  });
-  it("maps 403 to permission-denied", () => {
-    expect(exitCodeForHttpStatus(403)).toBe(EXIT_CODES["permission-denied"]);
-  });
-  it("maps 404 to not-found", () => {
-    expect(exitCodeForHttpStatus(404)).toBe(EXIT_CODES["not-found"]);
-  });
-  it("maps 400, 409 and 422 to invalid-input", () => {
-    expect(exitCodeForHttpStatus(400)).toBe(EXIT_CODES["invalid-input"]);
-    expect(exitCodeForHttpStatus(409)).toBe(EXIT_CODES["invalid-input"]);
-    expect(exitCodeForHttpStatus(422)).toBe(EXIT_CODES["invalid-input"]);
-  });
-  it("maps 500 and 503 to remote-error", () => {
-    expect(exitCodeForHttpStatus(500)).toBe(EXIT_CODES["remote-error"]);
-    expect(exitCodeForHttpStatus(503)).toBe(EXIT_CODES["remote-error"]);
-  });
-  it("maps a status it does not name to the generic failure, never to a guess", () => {
-    expect(exitCodeForHttpStatus(418)).toBe(EXIT_CODES.failed);
-  });
-});
-
-describe("handleError returns a declared code on every branch", () => {
-  const declared = (code: number): void => {
-    expect({ code, declared: isDeclaredExitCode(code) }).toEqual({ code, declared: true });
-  };
-
-  it("a 401 exits not-authenticated", () => {
-    const code = handleError(new NexusAuthenticationError("nope", "UNAUTHORIZED"));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["not-authenticated"]);
-  });
-
-  it("a 403 exits permission-denied", () => {
-    const code = handleError(new NexusApiError("FORBIDDEN", "nope", 403));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["permission-denied"]);
-  });
-
-  it("a 404 exits not-found", () => {
-    const code = handleError(new NexusApiError("NOT_FOUND", "gone", 404));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["not-found"]);
-  });
-
-  it("a 422 exits invalid-input", () => {
-    const code = handleError(new NexusApiError("VALIDATION_ERROR", "bad", 422));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["invalid-input"]);
-  });
-
-  it("a 500 exits remote-error", () => {
-    const code = handleError(new NexusApiError("INTERNAL", "boom", 500));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["remote-error"]);
-  });
-
-  it("an unreachable API exits connection-failed, which is the retryable one", () => {
-    const code = handleError(new NexusConnectionError("offline"));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["connection-failed"]);
-  });
-
-  it("a client-side timeout exits timed-out, NOT connection-failed", () => {
-    // The distinction is load-bearing: the server may still be completing the
-    // request, so a blind retry of a write can duplicate it.
-    const code = handleError(new NexusTimeoutError(30_000));
-    declared(code);
-    expect(code).toBe(EXIT_CODES["timed-out"]);
-    expect(code).not.toBe(EXIT_CODES["connection-failed"]);
-  });
-
-  it("an SDK error with no category exits the generic failure", () => {
-    const code = handleError(new NexusError("something"));
-    declared(code);
-    expect(code).toBe(EXIT_CODES.failed);
-  });
-
-  it("a plain Error exits the generic failure", () => {
-    const code = handleError(new Error("unexpected"));
-    declared(code);
-    expect(code).toBe(EXIT_CODES.failed);
-  });
-
-  it("a non-Error throw exits the generic failure", () => {
-    const code = handleError("a string nobody should have thrown");
-    declared(code);
-    expect(code).toBe(EXIT_CODES.failed);
-  });
-
-  it("an error carrying its own category exits that category", () => {
-    const code = handleError(
-      new CategorizedCliError("not-authenticated", "CLI_NOT_AUTHENTICATED", "log in")
-    );
-    declared(code);
-    expect(code).toBe(EXIT_CODES["not-authenticated"]);
-  });
-});
-
-describe("the resource tree's own verbs decide a category, not a constant", () => {
-  it("refuse() exits invalid-input", () => {
-    expect(refuse("--body is required.")).toBe(EXIT_CODES["invalid-input"]);
-  });
-
-  it("printNotFound() exits not-found", () => {
-    expect(printNotFound("no such customer")).toBe(EXIT_CODES["not-found"]);
-  });
-
-  it("reportFailure(not-found) exits not-found", () => {
-    expect(reportFailure("not-found", "no profile")).toBe(EXIT_CODES["not-found"]);
-  });
-  it("reportFailure(not-authenticated) exits not-authenticated", () => {
-    expect(reportFailure("not-authenticated", "log in")).toBe(EXIT_CODES["not-authenticated"]);
-  });
-  it("reportFailure(connection-failed) exits connection-failed", () => {
-    expect(reportFailure("connection-failed", "offline")).toBe(EXIT_CODES["connection-failed"]);
-  });
-  it("reportFailure(timed-out) exits timed-out", () => {
-    expect(reportFailure("timed-out", "gave up")).toBe(EXIT_CODES["timed-out"]);
-  });
-  it("reportFailure(remote-error) exits remote-error", () => {
-    expect(reportFailure("remote-error", "500")).toBe(EXIT_CODES["remote-error"]);
-  });
-  it("reportFailure(local-failed) exits local-failed", () => {
-    expect(reportFailure("local-failed", "write failed")).toBe(EXIT_CODES["local-failed"]);
-  });
-});
-
-describe("the admin tree reads the same taxonomy it used to own", () => {
-  it("a missing admin token exits not-authenticated", () => {
-    expect(handleAdminError(AdminCliError.missingToken())).toBe(EXIT_CODES["not-authenticated"]);
-  });
-
-  it("a CLI-side validation refusal exits invalid-input", () => {
-    expect(handleAdminError(AdminCliError.localValidation("--reason required"))).toBe(
-      EXIT_CODES["invalid-input"]
-    );
-  });
-
-  it("an unreachable admin API exits connection-failed", () => {
-    expect(handleAdminError(AdminCliError.network("ECONNREFUSED"))).toBe(
-      EXIT_CODES["connection-failed"]
-    );
-  });
-
-  it("an admin deadline exits timed-out — the same number as the resource tree", () => {
-    // The admin tree used to route a deadline through `network`, so it exited 7
-    // while the resource tree exited 8 for the same fact. Every non-GET through
-    // `adminRequest` is a WRITE, and 7 tells a script the request never arrived.
-    const admin = handleAdminError(AdminCliError.timedOut("no response within 30000 ms"));
-    const resource = handleError(new NexusTimeoutError(30_000));
-    expect(admin).toBe(resource);
-    expect(admin).toBe(EXIT_CODES["timed-out"]);
-  });
-
-  it("CONTROL — and it is NOT connection-failed, which is the number it used to take", () => {
-    expect(handleAdminError(AdminCliError.timedOut("no response within 30000 ms"))).not.toBe(
-      EXIT_CODES["connection-failed"]
-    );
-  });
-
-  it("a 403 from the admin API exits permission-denied — the same number as the resource tree", () => {
-    const admin = handleAdminError(AdminCliError.fromStatus(403, "nope"));
-    const resource = handleError(new NexusApiError("FORBIDDEN", "nope", 403));
-    expect(admin).toBe(resource);
-    expect(admin).toBe(EXIT_CODES["permission-denied"]);
-  });
-
-  it("a 500 from the admin API exits remote-error — the same number as the resource tree", () => {
-    const admin = handleAdminError(AdminCliError.fromStatus(500, "boom"));
-    const resource = handleError(new NexusApiError("INTERNAL", "boom", 500));
-    expect(admin).toBe(resource);
-    expect(admin).toBe(EXIT_CODES["remote-error"]);
-  });
-
-  it("an unexpected admin throw exits the generic failure", () => {
-    expect(handleAdminError(new Error("weird"))).toBe(EXIT_CODES.failed);
-  });
-});
-
 /**
  * NO SOURCE OUTSIDE `exit-code-table.ts` WRITES AN EXIT CODE AS A NUMBER.
  *
@@ -495,8 +348,8 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     // names, but a walk that quietly stopped descending into some OTHER subtree
     // passes every assertion here while having read none of it.
     //
-    // 214 files today; a hundred is the structural claim — this scans the CLI's
-    // whole source tree, not a corner of it — and it stays true without editing.
+    // A hundred is the structural claim — this scans the CLI's whole source
+    // tree, not a corner of it — and it stays true without editing.
     expect(productionSources().length).toBeGreaterThan(100);
   });
 
@@ -504,8 +357,8 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     const offenders: string[] = [];
     for (const file of productionSources()) {
       if (file.endsWith(`${"/"}exit-code-table.ts`)) continue;
-      const source = withoutComments(readFileSync(file, "utf8"));
-      for (const [line] of source.matchAll(/process\.exit\(\s*\d+\s*\)/g)) {
+      const source = codeOnly(readFileSync(file, "utf8"));
+      for (const [line] of source.matchAll(EXIT_INTEGER_CALL)) {
         offenders.push(`${relative(SRC_DIR, file)}: ${line}`);
       }
     }
@@ -516,7 +369,7 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     const offenders: string[] = [];
     for (const file of productionSources()) {
       if (file.endsWith(`${"/"}exit-code-table.ts`)) continue;
-      const source = withoutComments(readFileSync(file, "utf8"));
+      const source = codeOnly(readFileSync(file, "utf8"));
       for (const [line] of source.matchAll(/process\.exitCode\s*=\s*\d+\s*;/g)) {
         offenders.push(`${relative(SRC_DIR, file)}: ${line}`);
       }
@@ -555,7 +408,7 @@ describe("no exit code is written as a number outside the taxonomy module", () =
     // the taxonomy being forked again.
     const offenders: string[] = [];
     for (const file of errorsLayerSources()) {
-      const source = withoutComments(readFileSync(file, "utf8"));
+      const source = codeOnly(readFileSync(file, "utf8"));
       for (const [line] of source.matchAll(/^\s*return \d+;\s*$/gm)) {
         offenders.push(`${relative(SRC_DIR, file)}: ${line.trim()}`);
       }
@@ -719,7 +572,7 @@ const EXIT_PRODUCER_EXIT = /process\.exit\(\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*
 function exitProducingFunctions(): readonly string[] {
   const names = new Set<string>();
   for (const file of productionSources()) {
-    const source = withoutComments(readFileSync(file, "utf8"));
+    const source = codeOnly(readFileSync(file, "utf8"));
     for (const [, name] of source.matchAll(EXIT_PRODUCER_CALL)) names.add(name);
     for (const [, name] of source.matchAll(EXIT_PRODUCER_EXIT)) names.add(name);
   }
@@ -767,7 +620,7 @@ function exitProducingFunctions(): readonly string[] {
 function bodiesOf(name: string): readonly { file: string; body: string }[] {
   const found: { file: string; body: string }[] = [];
   for (const file of productionSources()) {
-    const source = withoutComments(readFileSync(file, "utf8"));
+    const source = codeOnly(readFileSync(file, "utf8"));
     const pattern = new RegExp(`function ${name}\\s*\\(`, "g");
     for (const match of source.matchAll(pattern)) {
       const open = source.indexOf("{", match.index + match[0].length - 1);
@@ -837,102 +690,6 @@ describe("no exit-producing function returns a bare integer verdict", () => {
 });
 
 /**
- * `nexus admin --help` RESTATES THE HTTP MAP, AND A SECOND COPY IS A SECOND
- * THING TO DRIFT.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 THAT TABLE IS THE ORIGINAL SIN OF THIS WHOLE CHANGE, IN MINIATURE.
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * The admin namespace published `2 → 401, 3 → 403, 4 → 404, 5 → 400/422,
- * 6 → 5xx` as prose beside a function that decided the same thing in code, and
- * nothing compared them. It is exactly how the CLI came to hold four maps that
- * disagreed. Deleting the table would be worse — an operator reading `--help`
- * needs it — so it is JOINED to `exitCodeForHttpStatus` instead.
- *
- * Parsed from the help text rather than from the source, because the help text
- * is what a reader acts on. A row whose status this cannot parse is REPORTED as
- * unparsed, never skipped: a regex that silently matches nothing would make an
- * empty comparison look like agreement, which is this file's own failure mode.
- */
-describe("the admin --help exit table agrees with the one HTTP rule", () => {
-  const adminHelp = (): string => readFileSync(join(SRC_DIR, "commands", "admin.ts"), "utf8");
-
-  /**
-   * Each row classified, never silently dropped. A row is EXACT (it names
-   * statuses), a RANGE (`5xx`), or UNPARSED — and unparsed is a failure, so a
-   * regex that stops matching cannot read as agreement.
-   */
-  const rows = (): readonly {
-    code: number;
-    exact: readonly number[];
-    ranges: readonly string[];
-  }[] => {
-    const help = adminHelp();
-    const table = help.slice(help.indexOf("Exit codes"));
-    return [...table.matchAll(/^ {2}(\d+) {2}[^\n(]*\(HTTP ([^)]+)\)/gm)].map(([, code, raw]) => {
-      const parts = raw.split("/").map((part) => part.trim());
-      return {
-        code: Number(code),
-        exact: parts.filter((part) => /^\d+$/.test(part)).map(Number),
-        ranges: parts.filter((part) => /^\dxx$/.test(part))
-      };
-    });
-  };
-
-  it("finds a non-empty table — an unparsed table must not read as agreement", () => {
-    expect(rows().length).toBeGreaterThan(0);
-  });
-
-  it("classifies every row it found — nothing is silently dropped", () => {
-    const unparsed = rows()
-      .filter((row) => row.exact.length === 0 && row.ranges.length === 0)
-      .map((row) => row.code);
-    expect(unparsed).toEqual([]);
-  });
-
-  it("agrees with exitCodeForHttpStatus on every status it names", () => {
-    const disagreements = rows().flatMap((row) =>
-      row.exact
-        .filter((status) => exitCodeForHttpStatus(status) !== row.code)
-        .map(
-          (status) =>
-            `--help says HTTP ${String(status)} exits ${String(row.code)}, the code says ${String(
-              exitCodeForHttpStatus(status)
-            )}`
-        )
-    );
-    expect(disagreements).toEqual([]);
-  });
-
-  it("agrees on every range row, at both ends of the range", () => {
-    const ranged = rows().flatMap((row) => row.ranges.map((r) => ({ code: row.code, r })));
-    // The table names exactly one range today. Asserting it is non-empty stops
-    // a reworded row from turning this case into a green that checks nothing.
-    expect(ranged.length).toBeGreaterThan(0);
-
-    const disagreements = ranged.flatMap(({ code, r }) => {
-      const hundred = Number(r[0]) * 100;
-      return [hundred, hundred + 99]
-        .filter((status) => exitCodeForHttpStatus(status) !== code)
-        .map(
-          (status) =>
-            `--help says HTTP ${r} exits ${String(code)}, the code says ${String(
-              exitCodeForHttpStatus(status)
-            )} for ${String(status)}`
-        );
-    });
-    expect(disagreements).toEqual([]);
-  });
-
-  it("no longer tells the reader this table is namespace-only", () => {
-    // It said "every other command in this CLI exits 0 or 1 and nothing else",
-    // which instructed a reader to distrust the one table that became universal.
-    expect(adminHelp()).not.toContain("THIS NAMESPACE ONLY");
-  });
-});
-
-/**
  * NO COMMAND'S HELP NAMES A SPECIFIC EXIT CODE EXCEPT THE THREE THAT OWN ONE.
  *
  * ══════════════════════════════════════════════════════════════════════════════
@@ -948,9 +705,10 @@ describe("the admin --help exit table agrees with the one HTTP rule", () => {
  * tree instead of concentrated in one epilogue.
  *
  * THE RULE: only three surfaces may print an exit NUMBER, and each is joined to
- * the code by a case above — the root, which owns the table; `admin`, whose
- * table is asserted against `exitCodeForHttpStatus`; and `upgrade`, whose four
- * outcomes are the CLI's only per-command exit contract.
+ * the code by a case — the root, which owns the table; `admin`, whose table
+ * `admin-help-exit-table.test.ts` asserts against `exitCodeForHttpStatus`; and
+ * `upgrade`, whose four outcomes are the CLI's only per-command exit contract.
+ * The root and `upgrade` cases are above, in this file.
  *
  * Everywhere else a failure is described as NON-ZERO, which stays true however
  * the category is later refined. That is not vagueness — it is the only claim a
@@ -1086,7 +844,7 @@ const COMPATIBILITY_DOC = join(SRC_DIR, "..", "COMPATIBILITY.md");
 describe("every surface that describes 130 describes the same 130", () => {
   it("has exactly ONE producer in the whole package — the claim the prose rests on", () => {
     const producers = productionSources().filter((file) =>
-      withoutComments(readFileSync(file, "utf8")).includes("process.exit(EXIT_CODES.interrupted)")
+      codeOnly(readFileSync(file, "utf8")).includes("process.exit(EXIT_CODES.interrupted)")
     );
     expect(producers.map((file) => relative(SRC_DIR, file))).toEqual([
       join("commands", "apps", "logs", "run-app-logs-follow.ts")

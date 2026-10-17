@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { blankCommentsAndLiterals } from "../../../scripts/_lib/strip-comments.mjs";
 import {
   classifyCommandUniverse,
   COMMAND_CLASSIFICATION,
@@ -127,6 +128,60 @@ describe("the command universe is derived, and every leaf is classified", () => 
   });
 });
 
+/**
+ * Every `registerX(` CALL in one source text.
+ *
+ * 🔴 A SENTENCE ABOUT A CALL IS NOT A CALL. Matched on raw text, a comment left
+ * where a root registrar's call used to be (`// registerFolderCommands(program) is
+ * wired by …`) keeps the command reading as registered, and the orphan check below
+ * passes over the exact edit it exists to catch. A call cannot live in a string or
+ * in template text either, so the match runs on `blankCommentsAndLiterals`, which
+ * blanks comments and literal contents while keeping code inside `${…}` and every
+ * offset. The walk and not the TypeScript parse: this package has no `.tsx`, the
+ * one grammar where the two disagree.
+ */
+const registrarCallsIn = (source: string): string[] => [
+  ...new Set(
+    [...blankCommentsAndLiterals(source).matchAll(/\b(register\w+)\s*\(/g)].map((m) => m[1])
+  )
+];
+
+describe("the registrar harvest counts calls, never prose about calls", () => {
+  it("POSITIVE: a call, and a call interpolated into a template, are found", () => {
+    expect(
+      registrarCallsIn(
+        ["registerFolderCommands(program);", "const t = `${registerAgentCommands(program)}`;"].join(
+          "\n"
+        )
+      ).sort()
+    ).toEqual(["registerAgentCommands", "registerFolderCommands"]);
+  });
+
+  it("a comment left where a call used to be is not a call", () => {
+    expect(
+      registrarCallsIn(
+        [
+          "export function registerRootNamespaces(program: Command): void {",
+          "  // registerFolderCommands(program) is wired by the workspace namespace now",
+          "  /* registerAgentCommands(program); */",
+          "}"
+        ].join("\n")
+      )
+    ).toEqual(["registerRootNamespaces"]);
+  });
+
+  it("a string naming a call is not a call", () => {
+    expect(
+      registrarCallsIn(
+        [
+          'const hint = "registerFolderCommands(program) attaches `folder`";',
+          "const tip = `call registerAgentCommands(program) first`;"
+        ].join("\n")
+      )
+    ).toEqual([]);
+  });
+});
+
 describe("every registrar the derivation finds is one the CLI actually calls", () => {
   it("finds a call site in src/ for each root registrar", () => {
     // Scan ALL of `src/` outside `commands/`, not one named file. The first
@@ -146,9 +201,7 @@ describe("every registrar the derivation finds is one the CLI actually calls", (
           continue;
         }
         if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) continue;
-        for (const match of readFileSync(full, "utf8").matchAll(/\b(register\w+)\s*\(/g)) {
-          called.add(match[1]);
-        }
+        for (const name of registrarCallsIn(readFileSync(full, "utf8"))) called.add(name);
       }
     };
     scan(sourceRoot);

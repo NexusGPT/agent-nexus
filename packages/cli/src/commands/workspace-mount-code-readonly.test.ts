@@ -33,19 +33,19 @@ import {
 import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
 
 /**
- * NEX-3872: a CODE workspace mounted READ-WRITE, then refused on every write.
+ * NEX-3872: a CODE workspace must never mount READ-WRITE.
  *
  * `WorkspaceKind` is `DRIVE | CODE`, and CODE is a read-only projection of a
  * git project — the WebDAV gateway answers 403 to every PUT, DELETE, MKCOL and
  * MOVE against one (`KIND_IS_READ_ONLY`, `workspace.entity.ts`). The mount path
- * never read that field: `resolveMountTarget` annotated the list rows
- * `{ id, slug, isShared }`, and the SDK's own `Workspace` interface omitted
- * `kind` too, so the field was on the wire and invisible to every compiler
- * between it and the user.
+ * learns the kind from the workspace list in `resolveMountTargetDetailed`. The
+ * field is on the wire whether or not anything declares it, so that function's
+ * row annotation and the SDK's own `Workspace` interface carrying `kind` are
+ * what make a dropped read visible to a compiler.
  *
- * What that cost: the mount succeeded, `workspace status` printed `Mode rw`,
- * and the first save came back as a bare "Permission denied" naming no
- * workspace and no reason. Under a local write cache it is worse than a
+ * What a read-write mount of one costs: the mount succeeds, `workspace status`
+ * prints `Mode rw`, and the first save comes back as a bare "Permission denied"
+ * naming no workspace and no reason. Under a local write cache it is worse than a
  * refusal — the write is buffered and fails on flush, so the editor reports a
  * SUCCESSFUL save and the bytes are dropped. That is why the direct engine
  * refuses the kind outright rather than mounting it read-only.

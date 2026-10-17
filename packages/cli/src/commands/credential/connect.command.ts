@@ -15,7 +15,7 @@ import { CREDENTIAL_CONNECT_HELP } from "./connect.help";
  *    FILE, UNDER A CHAIN THAT DECLARES `--body`.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `util/required-field-refusals-name-both-paths.ts` is the gate that keeps a
+ * `test/unit/required-field-refusals-name-both-paths.ts` is the gate that keeps a
  * presence refusal from naming only the flag when the field can also come from
  * `--body`. Its MODEL of a command is three things in one file: it brace-matches
  * each `.action(`, walks BACK to the nearest preceding `.command(` and requires

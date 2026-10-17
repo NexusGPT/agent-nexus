@@ -2,19 +2,18 @@ import type { WorkspaceKind } from "@agent-nexus/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import type { createClient } from "../client";
-import { resolveMountTarget } from "./workspace-mount/resolve-mount-target";
+import { resolveMountTargetDetailed } from "./workspace-mount/resolve-mount-target-detailed";
 
 /**
  * NEX-2362: the mount must learn whether a slug is org-owned, admin-shared, or
  * BOTH so it can warn on ambiguity and pick the right copy.
  *
- * NEX-3872 added the second thing it must learn: the chosen copy's storage
- * KIND. A CODE workspace is a read-only projection of a git project and the
- * server refuses every write to it, so a mount that cannot see `kind` mounts
- * read-write and hands the user a bare "Permission denied" on first save. The
- * field was on the wire the whole time — it was dropped by this function's own
- * annotation and by the SDK's `Workspace` interface, so no compiler could say
- * so.
+ * NEX-3872: it must also learn the chosen copy's storage KIND. A CODE
+ * workspace is a read-only projection of a git project and the server refuses
+ * every write to it, so a mount that cannot see `kind` mounts read-write and
+ * hands the user a bare "Permission denied" on first save. The field is on the
+ * wire whether or not anything declares it, so only the resolver's own row
+ * annotation and the SDK's `Workspace` interface let a compiler see it dropped.
  *
  * These cover the resolution logic without spawning a real mount.
  *
@@ -32,14 +31,14 @@ function clientWith(
   } as unknown as ReturnType<typeof createClient>;
 }
 
-describe("resolveMountTarget", () => {
+describe("resolveMountTargetDetailed", () => {
   it("flags an org-owned + shared collision and picks the org-owned copy by default", async () => {
     const client = clientWith([
       { id: "org-id", slug: "tools", isShared: false, kind: "DRIVE" },
       { id: "shared-id", slug: "tools", isShared: true, kind: "DRIVE" }
     ]);
 
-    const target = await resolveMountTarget(client, "tools", false);
+    const target = (await resolveMountTargetDetailed(client, "tools", false)).target;
 
     expect(target).toEqual({
       shared: true,
@@ -55,7 +54,7 @@ describe("resolveMountTarget", () => {
       { id: "shared-id", slug: "tools", isShared: true, kind: "DRIVE" }
     ]);
 
-    const target = await resolveMountTarget(client, "tools", true);
+    const target = (await resolveMountTargetDetailed(client, "tools", true)).target;
 
     expect(target).toEqual({
       shared: true,
@@ -68,7 +67,7 @@ describe("resolveMountTarget", () => {
   it("reports no shared copy when only an org-owned workspace exists", async () => {
     const client = clientWith([{ id: "org-id", slug: "tools", isShared: false, kind: "DRIVE" }]);
 
-    const target = await resolveMountTarget(client, "tools", true);
+    const target = (await resolveMountTargetDetailed(client, "tools", true)).target;
 
     expect(target).toEqual({
       shared: false,
@@ -83,7 +82,7 @@ describe("resolveMountTarget", () => {
       { id: "shared-id", slug: "community", isShared: true, kind: "DRIVE" }
     ]);
 
-    const target = await resolveMountTarget(client, "community", false);
+    const target = (await resolveMountTargetDetailed(client, "community", false)).target;
 
     expect(target).toEqual({
       shared: true,
@@ -102,7 +101,7 @@ describe("resolveMountTarget", () => {
       }
     } as unknown as ReturnType<typeof createClient>;
 
-    expect(await resolveMountTarget(client, "tools", false)).toBeNull();
+    expect((await resolveMountTargetDetailed(client, "tools", false)).target).toBeNull();
   });
 
   // ── the storage kind (NEX-3872) ───────────────────────────────────────────
@@ -110,7 +109,7 @@ describe("resolveMountTarget", () => {
   it("reports the CODE kind of the copy it chose, so the mount can go read-only", async () => {
     const client = clientWith([{ id: "code-id", slug: "app-src", isShared: false, kind: "CODE" }]);
 
-    const target = await resolveMountTarget(client, "app-src", false);
+    const target = (await resolveMountTargetDetailed(client, "app-src", false)).target;
 
     expect(target).toEqual({
       shared: false,
@@ -130,11 +129,11 @@ describe("resolveMountTarget", () => {
       { id: "shared-drive", slug: "tools", isShared: true, kind: "DRIVE" }
     ]);
 
-    expect(await resolveMountTarget(client, "tools", false)).toMatchObject({
+    expect((await resolveMountTargetDetailed(client, "tools", false)).target).toMatchObject({
       workspaceId: "org-code",
       kind: "CODE"
     });
-    expect(await resolveMountTarget(client, "tools", true)).toMatchObject({
+    expect((await resolveMountTargetDetailed(client, "tools", true)).target).toMatchObject({
       workspaceId: "shared-drive",
       kind: "DRIVE"
     });
@@ -146,7 +145,7 @@ describe("resolveMountTarget", () => {
     // read-write with the warning lost rather than the refusal lost.
     const client = clientWith([{ id: "other", slug: "elsewhere", isShared: false, kind: "CODE" }]);
 
-    expect(await resolveMountTarget(client, "tools", false)).toEqual({
+    expect((await resolveMountTargetDetailed(client, "tools", false)).target).toEqual({
       shared: false,
       orgOwned: false,
       workspaceId: undefined,

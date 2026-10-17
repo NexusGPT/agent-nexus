@@ -1,0 +1,5 @@
+{
+  "//": "GENERATED — do not edit. Regenerate with: pnpm exec tsx scripts/published-inputs.ts --write. Lists the src modules no tsup entry bundles and no declaration program emits; scripts/_lib/inert-sources.mjs says why the release gate may trust it.",
+  "declarations": ["tsconfig.build.json"],
+  "inert": []
+}

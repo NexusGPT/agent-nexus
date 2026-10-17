@@ -42,6 +42,9 @@ Notes:
   value. There is no way to clear --description or --reranker back to unset here.
 
   preciseResponses and includeMetadata are --body only, as on create.
+  preciseResponses shortens each search result to its best-matching sentences
+  and does not make answers more accurate; "collection create --help" explains
+  what it costs and what it can drop.
 
   A "name" in --body IS ACCEPTED AND SILENTLY IGNORED. The slug is fixed at
   creation and this route does not carry it — the call returns success and the

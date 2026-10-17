@@ -8,6 +8,18 @@ import { printSuccess } from "../../output";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../../util/body";
 import { SKILLS_CREATE_COLLECTION_CONTRACT } from "../collection.contract.generated";
 
+/** What the flag named "precise" really changes — its name promises accuracy. */
+const PRECISE_RESPONSES_NOTE = `  preciseResponses DOES NOT MAKE ANSWERS MORE ACCURATE. It changes what each
+  search of this collection returns, not which chunks come back or their order:
+  every returned chunk is split into sentences, the query and those sentences
+  are embedded (extra embedding requests at search time), and each result is
+  cut to the sentence closest to the query plus one neighbour on each side.
+  Effect: fewer tokens for whatever reads the results (agents, workflows, the
+  search API); it can drop an answer that spans several sentences, and adds one
+  embedding round trip of latency to every search. start_index and end_index
+  point at the cut window; page_span stays the whole chunk's pages, so its first
+  page is a lower bound. If the embedding fails, the full chunks are returned.`;
+
 /** `nexus collection create` */
 export function registerCollectionCreateCommand(collection: Command, program: Command): Command {
   const leaf = collection
@@ -45,6 +57,8 @@ Notes:
   flags, and the two booleans default to false. Setting them at create is the
   only way to avoid a follow-up "collection update" — which does carry a
   --reranker flag, unlike this command.
+
+${PRECISE_RESPONSES_NOTE}
 
   reranker names the model that orders the search results: cohere-rerank-4-fast
   (the default when none is stored), bge-reranker-v2-m3 or pinecone-rerank-v0.

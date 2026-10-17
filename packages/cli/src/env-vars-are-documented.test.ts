@@ -2,6 +2,7 @@ import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { captureHelp, deriveCommandNodes } from "./command-universe";
+import { envVarNamesIn } from "./env-var-reads";
 import {
   ENV_VAR_DOCUMENTATION,
   readEnvVarNames,
@@ -74,6 +75,52 @@ describe("controls", () => {
     // reads. A scan over the CLI alone would miss NEXUS_BASE_URL's read site.
     expect(SOURCE_ROOTS.length).toBeGreaterThan(1);
     expect(readEnvVarNames()).toContain("NEXUS_API_KEY");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE INSTRUMENT. A read is CODE. A sentence about one, in a comment or a string,
+// would keep a dropped variable in the read-set and turn the "nothing reads it"
+// half of the equality below green over the edit it exists to catch.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("the read-set counts code, never prose about code", () => {
+  it("POSITIVE: both read forms, and a read interpolated into a template, are found", () => {
+    expect(
+      envVarNamesIn(
+        [
+          "const a = process.env.NEXUS_DOTTED;",
+          'const b = process.env["NEXUS_BRACKETED"];',
+          "const c = `profile ${process.env.NEXUS_INTERPOLATED ?? 'none'}`;"
+        ].join("\n")
+      )
+    ).toEqual(["NEXUS_BRACKETED", "NEXUS_DOTTED", "NEXUS_INTERPOLATED"]);
+  });
+
+  it("a comment left where a read used to be is not a read", () => {
+    // The read in `config-organization.ts`, removed, with the note a reviewer
+    // would leave in its place.
+    expect(
+      envVarNamesIn(
+        [
+          "export function resolveOrganization(profile) {",
+          "  // was: const fromEnv = process.env.NEXUS_ORGANIZATION_ID; the flag replaced it",
+          "  /* process.env['NEXUS_ORGANIZATION_ID'] is gone too */",
+          "  return { source: profile.orgId ? 'profile' : 'token' };",
+          "}"
+        ].join("\n")
+      )
+    ).toEqual([]);
+  });
+
+  it("a string quoting a read is not a read", () => {
+    expect(
+      envVarNamesIn(
+        [
+          'const hint = "set process.env.NEXUS_ORGANIZATION_ID to pin an org";',
+          "const tip = `or process.env.NEXUS_PROFILE for a profile`;"
+        ].join("\n")
+      )
+    ).toEqual([]);
   });
 });
 

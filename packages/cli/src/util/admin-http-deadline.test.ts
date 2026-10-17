@@ -98,7 +98,7 @@ describe("adminRequest gives up on a peer that never answers", () => {
   /**
    * THE WIRING, NOT THE FACTORY.
    *
-   * 🔴 `exit-code-taxonomy.test.ts` proves `AdminCliError.timedOut` CARRIES 8.
+   * 🔴 `exit-code-mapping.test.ts` proves `AdminCliError.timedOut` CARRIES 8.
    * It cannot prove `adminRequest` REACHES it — that arm passes unchanged with
    * this catch still calling `AdminCliError.network`, which is the state this
    * repair was made from. Same distinction `json-one-document.scan.ts`'s header

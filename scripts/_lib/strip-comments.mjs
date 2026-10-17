@@ -1,11 +1,15 @@
 /**
- * Two projections of JavaScript or TypeScript source, from ONE walk, so a textual
+ * Three projections of JavaScript or TypeScript source, from ONE walk, so a textual
  * scan reads only CODE.
  *
  * - `stripComments` REMOVES every comment. Newlines inside a block comment are
  *   kept, so line positions do not collapse. Nothing else is altered: string,
  *   template and pattern contents are copied through verbatim, for a caller that
  *   needs a literal's TEXT (a path, a key) but must not read prose as code.
+ * - `blankComments` replaces every comment with spaces and copies every literal
+ *   through verbatim. Line breaks and every offset stay where they were, so it is
+ *   `stripComments` for a caller that reports a column or reads two projections at
+ *   one offset — a module specifier is a string, and an edge scan must still see it.
  * - `blankCommentsAndLiterals` replaces every comment AND the contents of every
  *   string, template text and pattern with spaces. Delimiters, `${`, `}`, line
  *   breaks and every offset stay where they were, so a match found in the
@@ -43,9 +47,11 @@
  *
  * A gate that reds on correct work is deleted by the first person it blocks, and
  * then the real defect flows again. That is why this is shared rather than copied:
- * one subtle state machine, one spec per consumer, no second copy to drift. Both
+ * one subtle state machine, one spec per consumer, no second copy to drift. All three
  * projections are built from the same list of regions, so they cannot disagree
- * about where a comment or a literal is.
+ * about where a comment or a literal is — which is what lets a caller match on
+ * `blankCommentsAndLiterals` and read the text at that offset out of
+ * `blankComments`.
  *
  * ── WHY THIS CANNOT BE A REGEX ─────────────────────────────────────────────
  *
@@ -326,6 +332,26 @@ export function stripComments(text) {
     chunks.push(text.slice(kept, start));
     // A block comment's newlines stay, so the lines below it keep their numbers.
     if (text[start + 1] === "*") chunks.push(text.slice(start, end).replace(/[^\n]/g, ""));
+    kept = end;
+  }
+  chunks.push(text.slice(kept));
+  return chunks.join("");
+}
+
+/**
+ * @param {string} text JavaScript or TypeScript source
+ * @returns {string} the same text, the same length, with every comment replaced by
+ *   spaces. String, template and pattern contents are copied through. Line breaks
+ *   inside a comment stay.
+ */
+export function blankComments(text) {
+  /** @type {string[]} */
+  const chunks = [];
+  let kept = 0;
+  for (const [start, end, kind] of regionsOf(text)) {
+    if (kind !== "comment") continue;
+    chunks.push(text.slice(kept, start));
+    chunks.push(text.slice(start, end).replace(/[^\r\n]/g, " "));
     kept = end;
   }
   chunks.push(text.slice(kept));

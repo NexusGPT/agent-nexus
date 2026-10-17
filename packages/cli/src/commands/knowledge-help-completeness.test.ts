@@ -163,6 +163,26 @@ const CLAIMS: readonly HelpClaim[] = [
     ]
   },
   {
+    // The flag's name promises accuracy; what it changes is result length.
+    what: "collection create says what preciseResponses really does and costs",
+    register: registerCollectionCommands,
+    namespace: "collection",
+    path: ["create"],
+    phrases: [
+      "preciseResponses DOES NOT MAKE ANSWERS MORE ACCURATE",
+      "can drop an answer that spans several sentences",
+      "adds one\n  embedding round trip of latency",
+      "If the embedding fails, the full chunks are returned"
+    ]
+  },
+  {
+    what: "collection update says preciseResponses does not improve accuracy",
+    register: registerCollectionCommands,
+    namespace: "collection",
+    path: ["update"],
+    phrases: ["does not make answers more accurate"]
+  },
+  {
     what: "collection update names the silently ignored slug",
     register: registerCollectionCommands,
     namespace: "collection",

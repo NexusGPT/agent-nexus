@@ -1,6 +1,6 @@
 import type { WorkspaceKind } from "@agent-nexus/sdk";
 
-/** What `resolveMountTarget` learned about the slug we're about to mount. */
+/** What `resolveMountTargetDetailed` learned about the slug we're about to mount. */
 export interface MountTarget {
   /** True when an admin-shared workspace owns this slug. */
   shared: boolean;
@@ -9,13 +9,13 @@ export interface MountTarget {
   /** Immutable id of the copy we'll actually mount (the chosen one). */
   workspaceId?: string;
   /**
-   * Storage kind of the copy we'll actually mount, and the reason this
-   * function reads more than ownership. A CODE workspace is a read-only
+   * Storage kind of the copy we'll actually mount, and the reason the
+   * resolver reads more than ownership. A CODE workspace is a read-only
    * projection, so mounting it read-write produces a drive that accepts a save
    * and then answers 403 — "Permission denied", naming nothing.
    *
    * Absent when the list couldn't be fetched for this slug, which is NOT the
-   * same as "writable": see `resolveMountTarget`'s degradation note.
+   * same as "writable": see `resolveMountTargetDetailed`'s degradation note.
    */
   kind?: WorkspaceKind;
 }

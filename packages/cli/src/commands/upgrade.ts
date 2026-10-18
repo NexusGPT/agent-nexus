@@ -28,7 +28,7 @@ import { UPGRADE_HELP } from "./upgrade/upgrade.help";
  *
  * Four consumers import these names from `./commands/upgrade` and none of them
  * is touched by the split: `index.ts` (`UPGRADE_ALIASES`),
- * `exit-code-taxonomy.test.ts` (both exit codes),
+ * `exit-code-reachability.test.ts` (both exit codes),
  * `commands/upgrade-environment.test.ts` and
  * `test/install/the-install-step-executes.test.ts` (`runUpgrade`,
  * `UpgradeEnvironment`), and `commands/upgrade-*.test.ts` (`UPGRADE_ALIASES`,

@@ -100,6 +100,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
+import { includesInCode } from "../../../../scripts/_lib/strip-comments.mjs";
 import {
   acquireRefreshLock,
   buildRefreshScript,
@@ -113,6 +114,10 @@ import {
  * branch into this module — and `index.ts` calls it behind the entry-point
  * guard. A scan of `index.ts` would match nothing and the case below would red
  * over a guard that is perfectly in place.
+ *
+ * Read as written, and pinned at a CODE position: a comment or a string quoting
+ * the early return would otherwise stand in for it, and the scan would report the
+ * guard present with it gone. A comment-stripped read was satisfied by the string.
  */
 const RUN_CLI_SRC = fs.readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../root-run-cli.ts"),
@@ -833,6 +838,6 @@ describe("the paths that must schedule nothing", () => {
     // a `--json` run that emitted one extra byte would stop being parseable.
     // Anti-vacuity: an unreadable or empty file makes the match fail, not pass.
     expect(RUN_CLI_SRC.length).toBeGreaterThan(500);
-    expect(RUN_CLI_SRC).toMatch(/if \(isJsonMode\(\)\) return;/);
+    expect(includesInCode(RUN_CLI_SRC, "if (isJsonMode()) return;")).toBe(true);
   });
 });

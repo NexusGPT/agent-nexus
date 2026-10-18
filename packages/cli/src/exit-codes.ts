@@ -43,7 +43,7 @@
  * and not executable", `127` is "not found", `128 + n` is "killed by signal n".
  * A CLI that emits one of those tells a script a lie about its own process.
  * {@link exitCodeTaxonomyViolations} refuses any declared code in that band
- * except `130`, and `exit-code-taxonomy.test.ts` runs it.
+ * except `130`, and `exit-code-declaration.test.ts` runs it.
  *
  * ── HOW THE NUMBERS WERE CHOSEN ──────────────────────────────────────────────
  *

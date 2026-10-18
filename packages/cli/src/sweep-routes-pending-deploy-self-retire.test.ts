@@ -87,6 +87,7 @@ import {
   staleDeclarations,
   SWEEP_ROUTES_PENDING_DEPLOY
 } from "./command-universe";
+import { atStatement, guardedBlock, sourceCode } from "./source-code.testkit";
 
 /**
  * 🚨 THE END-TO-END ARMS BELOW CANNOT RUN WITH NO DECLARATION, AND NOTHING IN
@@ -134,6 +135,13 @@ const STUB = join(PACKAGE_ROOT, "test", "fixtures", "nexus-stub.sh");
 const MATCHER = join(PACKAGE_ROOT, "scripts", "route-not-deployed.sh");
 const MATCHER_SOURCE = readFileSync(MATCHER, "utf8");
 const SWEEP_SOURCE = readFileSync(SWEEP, "utf8");
+/**
+ * The script's CODE. Every positive wiring pin below reads this, never
+ * `SWEEP_SOURCE`: a raw match finds the guarded `source` line in a comment that
+ * quotes it — full-line or trailing — after the statement itself is gone. The
+ * negative pins keep the raw text, which is the stricter reading for an absence.
+ */
+const SWEEP_CODE = sourceCode(SWEEP);
 
 interface Outcome {
   readonly status: number;
@@ -510,17 +518,20 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
       );
     }
     expect(SWEEP_SOURCE).not.toContain(pattern[1]);
-    expect(SWEEP_SOURCE).toContain('. "$SCRIPT_DIR/route-not-deployed.sh"');
-    expect(SWEEP_SOURCE).toMatch(/\bis_route_not_deployed\b/);
+    expect(SWEEP_CODE).toMatch(
+      atStatement(/is_route_not_deployed "\$transcript" "\$pending_route"/)
+    );
 
     // Sourced under a GUARD. `set -e` is off, so an unguarded source would leave
     // the function undefined, every call would fail, and a declared absence would
-    // read as a CLI regression while the self-retiring arm never ran at all.
-    const start = SWEEP_SOURCE.indexOf("# shellcheck source=./route-not-deployed.sh");
-    expect(start).toBeGreaterThan(-1);
-    const guard = SWEEP_SOURCE.slice(start);
-    const refusal = guard.slice(0, guard.indexOf("\nfi") + 3);
-    expect(refusal).toMatch(/if\s+!\s+\.\s+"\$SCRIPT_DIR\/route-not-deployed\.sh";\s+then/);
+    // read as a CLI regression while the self-retiring arm never ran at all. The
+    // guard IS the source statement, so one anchored block pins both: an empty
+    // block means the matcher is not sourced at statement position at all.
+    const refusal = guardedBlock(
+      SWEEP_CODE,
+      /if\s+!\s+\.\s+"\$SCRIPT_DIR\/route-not-deployed\.sh";\s+then/
+    );
+    expect(refusal, "the route matcher is not sourced under a guard").not.toBe("");
     expect(refusal).toMatch(/exit 9/);
   });
 
@@ -530,14 +541,14 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
     // here would turn a declared absence back into a red nobody can clear AND
     // make the stale arm unreachable, so the failure would be loud for a reason
     // that says nothing about the environment.
-    expect(SWEEP_SOURCE).toMatch(
+    expect(SWEEP_CODE).toMatch(
       /PENDING_DEPLOY_RAW=\$\(.*--print-pending-deploy\s+2>"\$PENDING_DEPLOY_STDERR"\)/
     );
-    expect(SWEEP_SOURCE).toMatch(/^PENDING_DEPLOY_EXIT=\$\?$/m);
+    expect(SWEEP_CODE).toMatch(/^PENDING_DEPLOY_EXIT=\$\?$/m);
 
-    const refusal = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf("PENDING_DEPLOY_EXIT=$?"),
-      SWEEP_SOURCE.indexOf("is_fixture_backed()")
+    const refusal = SWEEP_CODE.slice(
+      SWEEP_CODE.indexOf("PENDING_DEPLOY_EXIT=$?"),
+      SWEEP_CODE.indexOf("is_fixture_backed()")
     );
     expect(refusal).toMatch(/if\s+\[\[\s+\$PENDING_DEPLOY_EXIT\s+-ne\s+0\s+\]\]/);
     expect(refusal).toContain("could not derive the pending-deploy list");
@@ -549,9 +560,9 @@ describe("a declared pending-deploy route is accepted once, and retires itself",
 
     // And the derived pairing has to reach the arguments `run_leaf` reads — the
     // link that makes all of the above load-bearing.
-    const membership = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf("pending_deploy_declaration()"),
-      SWEEP_SOURCE.indexOf("ELAPSED=")
+    const membership = SWEEP_CODE.slice(
+      SWEEP_CODE.indexOf("pending_deploy_declaration()"),
+      SWEEP_CODE.indexOf("ELAPSED=")
     );
     expect(membership).toMatch(/done\s*<<<\s*"\$PENDING_DEPLOY_RAW"/);
     expect(membership).toMatch(

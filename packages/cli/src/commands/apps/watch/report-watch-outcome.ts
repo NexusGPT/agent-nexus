@@ -24,7 +24,7 @@ import type { WatchOutcome } from "./watch-outcome";
  * deliberate decision and not a side effect of declaring the numbers.
  *
  * 🚨 THE SHAPE OF THIS FUNCTION IS READ BY A GATE, NOT JUST BY PEOPLE.
- * `src/exit-code-taxonomy.test.ts` resolves the exit-producing closure by
+ * `src/exit-code-reachability.test.ts` resolves the exit-producing closure by
  * matching `function reportWatchOutcome(` and requires exactly ONE definition
  * of that name in the package, so this must stay a `function` DECLARATION with
  * a unique name — an arrow assigned to a `const`, or a re-export shim that

@@ -43,11 +43,12 @@
  * while the 40-character value appears nowhere in the log.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+
+import { atStatement, sourceCode, SWEEP_SCANS_STDOUT } from "./source-code.testkit";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNER = join(PACKAGE_ROOT, "scripts", "scan-response.py");
@@ -110,10 +111,14 @@ describe("the sweep never leaks a secret", () => {
     // The INVOCATION, never the mention. This assertion was written as
     // `toContain("scan-response.py")` and it survived a mutation that replaced
     // the call with `/dev/null`, because the script also names the file in a
-    // comment. A test that stays green under the mutation it exists to catch is
-    // not a weaker test — it is no test, and it reads identically to a real one.
-    const sweep = readFileSync(SWEEP, "utf8");
-    expect(sweep).toMatch(/python3\s+"\$SCRIPT_DIR\/scan-response\.py"/);
+    // comment. Its first cure, a regex on the invocation over the raw file,
+    // survived the same mutation with the invocation kept in a comment. A test
+    // that stays green under the mutation it exists to catch is not a weaker
+    // test — it is no test, and it reads identically to a real one. So the
+    // statement is read from CODE and anchored where it opens its line, which
+    // is what refuses a trailing `#` carrier too.
+    const sweep = sourceCode(SWEEP);
+    expect(sweep).toMatch(SWEEP_SCANS_STDOUT);
   });
 
   it("prints the NOT-JSON marker, which is the only thing that licenses a preview", () => {
@@ -130,10 +135,10 @@ describe("the sweep never leaks a secret", () => {
     // missing interpreter or any unexpected status therefore previewed a
     // response nothing had scanned — reintroducing the exact leak, inside the
     // gate's own error path.
-    const sweep = readFileSync(SWEEP, "utf8");
+    const sweep = sourceCode(SWEEP);
 
     // The preview is reachable ONLY behind the positive marker.
-    expect(sweep).toMatch(/if\s*\[\[\s*"\$scan_out"\s*==\s*"NOT-JSON"\s*\]\]/);
+    expect(sweep).toMatch(atStatement(/if\s*\[\[\s*"\$scan_out"\s*==\s*"NOT-JSON"\s*\]\]/));
 
     // Every other status is UNMEASURED, and UNMEASURED is a FAIL that quotes
     // nothing. Three outcomes, never two: read, refused, and not-read.
@@ -151,10 +156,10 @@ describe("the sweep never leaks a secret", () => {
     // `--strict` promotes WARN to FAIL, so a WARN here would be a gate that is
     // off by default and on in CI. A leaf returning a live credential is not a
     // severity anyone gets to tune down.
-    const sweep = readFileSync(SWEEP, "utf8");
+    const sweep = sourceCode(SWEEP);
     const secretBranch = sweep.slice(sweep.indexOf("SECRET-SHAPED RESPONSE"));
     const line = secretBranch.slice(0, secretBranch.indexOf("\n"));
-    expect(sweep).toContain("FAIL|%s|SECRET-SHAPED RESPONSE");
+    expect(sweep).toMatch(atStatement(/printf 'FAIL\|%s\|SECRET-SHAPED RESPONSE/));
     expect(line).not.toContain("WARN");
   });
 
@@ -163,11 +168,13 @@ describe("the sweep never leaks a secret", () => {
     // root in CI and from this package by hand. A relative path would resolve to
     // one of the two and silently skip the scan in the other — and a skipped
     // scan prints PASS.
-    const sweep = readFileSync(SWEEP, "utf8");
+    const sweep = sourceCode(SWEEP);
 
     // SCRIPT_DIR has to be assigned ABOVE run_leaf. Bash resolves at call time,
     // so a definition below works today and breaks the moment anything calls
     // run_leaf earlier — the kind of break that shows up as a clean sweep.
-    expect(sweep.indexOf("SCRIPT_DIR=")).toBeLessThan(sweep.indexOf("run_leaf()"));
+    const assigned = sweep.search(atStatement(/SCRIPT_DIR=/));
+    expect(assigned).toBeGreaterThan(-1);
+    expect(assigned).toBeLessThan(sweep.search(atStatement(/run_leaf\(\) \{/)));
   });
 });

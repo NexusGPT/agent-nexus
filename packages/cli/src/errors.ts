@@ -6,7 +6,7 @@
  *    RATHER THAN A STYLE.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `exit-code-taxonomy.test.ts` resolves every exit-producing function by name
+ * `exit-code-reachability.test.ts` resolves every exit-producing function by name
  * across the whole package and requires EXACTLY ONE definition of each — "a gate
  * that cannot tell WHICH definition is called must say so rather than pick one".
  * A wrapper here that forwarded to a sibling would be a second definition and

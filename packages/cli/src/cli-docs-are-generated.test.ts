@@ -84,6 +84,11 @@ import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
+import {
+  type CommandNamespace,
+  deriveCommandNamespaces,
+  flattenCommands
+} from "./command-universe";
 import { AUTHORED_FRONTMATTER } from "./docs-page.frontmatter";
 import { buildDocNamespaces, type DocNamespace } from "./docs-page.model";
 import { GENERATED_MARKER, renderNamespacePage } from "./docs-page.render";
@@ -307,6 +312,21 @@ const programLongFlags = (): string[] =>
 const namesFlag = (page: string, flag: string): boolean =>
   new RegExp(`(?<![\\w-])${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(page);
 
+/**
+ * Every subcommand under the visible namespaces, counted on the command tree
+ * itself — the population the docs projection pages. Zero refuses: a tree with
+ * no subcommands would make the equality it floors true of an empty projection.
+ */
+function subcommandsInTree(tree: readonly CommandNamespace[]): number {
+  const total = tree.reduce((sum, root) => sum + flattenCommands(root).length - 1, 0);
+  if (total === 0) {
+    throw new Error(
+      "the command tree holds no subcommands, so the docs projection's population is unmeasured"
+    );
+  }
+  return total;
+}
+
 describe("CLI docs are generated, and authored pages carry no command reference", () => {
   const pages = existsSync(COMMAND_DOCS)
     ? readdirSync(COMMAND_DOCS).filter((file) => file.endsWith(".mdx"))
@@ -323,8 +343,11 @@ describe("CLI docs are generated, and authored pages carry no command reference"
    * the cost is paid once here and the hook carries an explicit budget.
    */
   let namespaces: DocNamespace[] = [];
+  let treeSubcommands = 0;
   beforeAll(async () => {
-    namespaces = await buildDocNamespaces();
+    const [projected, tree] = await Promise.all([buildDocNamespaces(), deriveCommandNamespaces()]);
+    namespaces = projected;
+    treeSubcommands = subcommandsInTree(tree);
   }, 60_000);
 
   // ── Anti-vacuity. Every assertion below is satisfied by an empty scan, and an
@@ -345,7 +368,10 @@ describe("CLI docs are generated, and authored pages carry no command reference"
 
   it("the projection produces a real population", () => {
     expect(namespaces.length).toBeGreaterThan(40);
-    expect(namespaces.every((n) => n.commands.length >= 0)).toBe(true);
+    // Every subcommand the command tree holds reaches a page. Not a per-namespace
+    // floor: a namespace with no subcommands is a leaf command (`upgrade`, `api`)
+    // and is correct at zero, so the floor is the tree's own total.
+    expect(namespaces.flatMap((n) => n.commands)).toHaveLength(treeSubcommands);
   });
 
   // ── Direction 0: the page EXISTS at all. ────────────────────────────────────

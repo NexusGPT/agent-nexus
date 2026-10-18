@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { classifyCommandUniverse, COMMAND_CLASSIFICATION } from "./command-universe";
+import { atStatement, sourceCode } from "./source-code.testkit";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNER = join(PACKAGE_ROOT, "scripts", "scan-response.py");
@@ -130,10 +131,17 @@ describe("safe-with-fixture", () => {
     // silently skipped — the sweep reporting PASS over exactly the leaves the
     // disposition exists to check.
     const sweep = readFileSync(SWEEP, "utf8");
+    // The statements are pinned on the script's CODE, where each opens a line: a comment,
+    // a heredoc body or the later line of a quoted string that spells one is not a
+    // statement the sweep runs. The slices below still read the raw text, because they
+    // are cut at comments.
+    const sweepCode = sourceCode(SWEEP);
 
     // 1. Derive, with the redirect on the same assertion as the command.
-    expect(sweep).toMatch(/FIXTURE_RAW=\$\(.*--print-fixture-leaves\s+2>"\$FIXTURE_STDERR"\)/);
-    expect(sweep).toMatch(/^FIXTURE_EXIT=\$\?$/m);
+    expect(sweepCode).toMatch(
+      atStatement(/FIXTURE_RAW=\$\(.*--print-fixture-leaves\s+2>"\$FIXTURE_STDERR"\)/)
+    );
+    expect(sweepCode).toMatch(atStatement(/FIXTURE_EXIT=\$\?$/));
 
     // 2. Refuse on a failed derivation, printing BOTH streams — stdout is where
     //    `pnpm exec` names an unresolvable tool, and `$(...)` traps it.
@@ -155,8 +163,12 @@ describe("safe-with-fixture", () => {
     expect(membership).toMatch(/if\s+is_fixture_backed\s+"\$leaf"/);
     expect(membership).toMatch(/run_leaf "\$leaf" true/);
 
-    // 5. Which is the flag the scanner reads.
-    expect(sweep).toContain("--require-non-empty");
+    // 5. Which is the flag the scanner reads, appended where `run_leaf` was told to.
+    expect(sweepCode).toMatch(
+      atStatement(
+        /\[\[ "\$require_non_empty" == "true" \]\] && scan_args\+=\(--require-non-empty\)/
+      )
+    );
   });
 
   it("READS that flag on the SKIP path too, which is where the chain used to end", () => {
@@ -220,6 +232,9 @@ describe("safe-with-fixture", () => {
     // Verified by mutation: declare a sixth leaf with no `ensure` call, and the
     // seed goes exit 0 -> exit 1 with `UNSATISFIED emulator scenario list`.
     const seed = readFileSync(SEED, "utf8");
+    // The derivation and the exit are pinned on the script's CODE, where each opens a
+    // line, so a comment spelling the old statement is not read as it.
+    const seedCode = sourceCode(SEED);
 
     // 🚨 SCATTERED SUBSTRINGS WERE NOT ENOUGH, AND BUGBOT CAUGHT THAT TOO. This
     // asserted that `--print-fixture-leaves`, `DERIVE_EXIT` and the exit
@@ -231,8 +246,10 @@ describe("safe-with-fixture", () => {
     // 1. It asks the derivation rather than trusting its own `ensure` calls —
     //    and the stderr redirect is part of the SAME assertion, so restoring
     //    `2>/dev/null` breaks the line rather than some other line.
-    expect(seed).toMatch(/FIXTURE_LEAVES=\$\(.*--print-fixture-leaves\s+2>"\$FIXTURE_STDERR"\)/);
-    expect(seed).toMatch(/^DERIVE_EXIT=\$\?$/m);
+    expect(seedCode).toMatch(
+      atStatement(/FIXTURE_LEAVES=\$\(.*--print-fixture-leaves\s+2>"\$FIXTURE_STDERR"\)/)
+    );
+    expect(seedCode).toMatch(atStatement(/DERIVE_EXIT=\$\?$/));
 
     // 2. THE REFUSAL GATE ITSELF, pinned as a unit rather than as substrings
     //    scattered near each other. The hole this closes: leave every message
@@ -262,7 +279,7 @@ describe("safe-with-fixture", () => {
     expect(verification).toContain("UNSATISFIED=$((UNSATISFIED + 1))");
 
     // 5. The count reaches the exit code. `exit "$FAILED"` alone would drop it.
-    expect(seed).toMatch(/exit \$\(\( *FAILED \+ UNSATISFIED *\)\)/);
+    expect(seedCode).toMatch(atStatement(/exit \$\(\( *FAILED \+ UNSATISFIED *\)\)/));
   });
 
   it("records what it refuses to seed, and why, beside the seed itself", () => {
@@ -312,7 +329,7 @@ describe("safe-with-fixture", () => {
     // assertion working, not breaking: the exit is what it is pinning, and the
     // exit genuinely changed. It now names the term this test owns and lets the
     // derived-set test own the other.
-    expect(seed).toMatch(/exit \$\(\([^)]*FAILED[^)]*\)\)/);
+    expect(sourceCode(SEED)).toMatch(atStatement(/exit \$\(\([^)]*FAILED[^)]*\)\)/));
   });
 
   it("says which CI job runs it, and why the SWEEP's own job still cannot", () => {

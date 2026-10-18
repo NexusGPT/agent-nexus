@@ -21,8 +21,9 @@ import { AdminCliError, handleAdminError } from "./util/admin-errors";
  *
  * The cases here drive the real mappers: the one HTTP rule, `handleError`, the
  * resource tree's own verbs, and the admin tree's `handleAdminError`. Whether
- * the taxonomy itself is declared once, reachable, and never bypassed by an
- * integer literal is `exit-code-taxonomy.test.ts`.
+ * the taxonomy itself is declared once is `exit-code-declaration.test.ts`,
+ * whether it is reachable is `exit-code-reachability.test.ts`, and whether it is
+ * never bypassed by an integer literal is `exit-code-taxonomy.test.ts`.
  */
 
 describe("the HTTP rule is one function, and both trees read it", () => {

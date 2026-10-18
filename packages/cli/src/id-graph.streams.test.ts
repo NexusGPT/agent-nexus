@@ -52,11 +52,16 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { hashCodeLines } from "@nexus/types/testing/hash-comments";
 import { describe, expect, it } from "vitest";
 
+import { includesInCode } from "../../../scripts/_lib/strip-comments.mjs";
 import { splitLeafOutput } from "./id-graph.streams";
-import { stripTsComments } from "./util/strip-ts-comments";
+import {
+  atStatement,
+  POLICY_REFUSAL_ON_TRANSCRIPT,
+  sourceCode,
+  SWEEP_SCANS_STDOUT
+} from "./source-code.testkit";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNER = join(PACKAGE_ROOT, "scripts", "scan-response.py");
@@ -73,22 +78,6 @@ function scan(payload: string): { code: number; stdout: string } {
     const failure = error as { status?: number; stdout?: string };
     return { code: failure.status ?? -1, stdout: failure.stdout ?? "" };
   }
-}
-
-/**
- * A file with its comments removed, and its blank lines: a shell script through
- * the shared `#` filter, anything else through the shared JS/TS stripper.
- *
- * ⚠️ The wiring arms below match SOURCE, and a source match is satisfied by a
- * comment by default — `sweep-never-leaks-a-secret.test.ts` records a mutation
- * that survived for exactly that reason, because the script named the file it
- * had stopped calling. This file's own headers discuss `body` and `transcript`
- * at length, so an unstripped match here would be vacuous by construction.
- */
-function code(path: string): string {
-  const source = readFileSync(path, "utf8");
-  const lines = path.endsWith(".sh") ? hashCodeLines(source) : stripTsComments(source).split("\n");
-  return lines.filter((line) => line.trim() !== "").join("\n");
 }
 
 /** The real shape: a v1 payload the CLI printed, plus the warning it raised about it. */
@@ -157,36 +146,49 @@ describe("the credential scan survives commentary — the reason for the split",
   });
 });
 
+/**
+ * ⚠️ The wiring arms below match SOURCE, and a source match is satisfied by a
+ * comment by default — `sweep-never-leaks-a-secret.test.ts` records a mutation
+ * that survived for exactly that reason, because the script named the file it
+ * had stopped calling. This file's own headers discuss `body` and `transcript`
+ * at length, so every arm reads {@link sourceCode}, and a shell statement is
+ * pinned with {@link atStatement} so a trailing `#` comment cannot carry it. A
+ * TypeScript call that must be PRESENT is matched at a code position on the file
+ * as written instead, because a string quoting the call survives
+ * {@link sourceCode} and satisfies a plain `toContain`.
+ */
 describe("both sweeps are WIRED to the body — an unwired split reads exactly like a fixed one", () => {
   it("id-thread-sweep scans the BODY and diagnoses a refusal from the TRANSCRIPT", () => {
-    const source = code(ID_THREAD);
-    expect(source).toContain("scan(res.body)");
+    const written = readFileSync(ID_THREAD, "utf8");
+    const source = sourceCode(ID_THREAD);
+    expect(includesInCode(written, "scan(res.body)")).toBe(true);
     expect(source).not.toContain("scan(res.transcript)");
     // The non-zero path genuinely needs stderr; losing it would turn every
     // client-side refusal into an unrecognised failure.
-    expect(source).toContain("fromExitCode(leaf.path, res.code, res.transcript)");
+    expect(includesInCode(written, "fromExitCode(leaf.path, res.code, res.transcript)")).toBe(true);
   });
 
   it("id-thread-sweep stores the BODY as a producer's rows", () => {
     // A producer body poisoned by commentary does not merely fail itself:
     // `bodyOf` is shared, so every consumer of that producer reports
     // SKIPPED_NO_ID — "returned zero rows" — about a list this run actually held.
-    const source = code(ID_THREAD);
-    expect(source).toContain("bodyOf.set(producer, res.body)");
-    expect(source).toContain("rowsFrom(res.body)");
+    const written = readFileSync(ID_THREAD, "utf8");
+    const source = sourceCode(ID_THREAD);
+    expect(includesInCode(written, "bodyOf.set(producer, res.body)")).toBe(true);
+    expect(includesInCode(written, "rowsFrom(res.body)")).toBe(true);
     expect(source).not.toContain("bodyOf.set(producer, res.out)");
   });
 
   it("sweep.sh captures stderr to its own file rather than folding it into stdout", () => {
-    const source = code(SWEEP);
+    const source = sourceCode(SWEEP);
     // The invocation must not merge. `2>&1` on this line is the whole defect.
     const invocation = source.split("\n").find((l) => l.includes("$path --json"));
     expect(invocation).toBeDefined();
     expect(invocation).not.toContain("2>&1");
     expect(invocation).toContain('2>"$errfile"');
     // And the scan must be handed stdout, while the refusal matcher gets both.
-    expect(source).toContain('printf \'%s\' "$out" | python3 "$SCRIPT_DIR/scan-response.py"');
-    expect(source).toContain('is_policy_refusal "$transcript"');
+    expect(source).toMatch(SWEEP_SCANS_STDOUT);
+    expect(source).toMatch(POLICY_REFUSAL_ON_TRANSCRIPT);
   });
 
   it("seed-sweep-fixtures.sh splits too, because it asks emptiness with the SAME instrument", () => {
@@ -201,15 +203,17 @@ describe("both sweeps are WIRED to the body — an unwired split reads exactly l
     // wrote fixtures over it, because one byte of stderr makes
     // `scan-response.py --require-non-empty` answer NOT-JSON. Two tools, one
     // leaf, opposite answers, and a write on the strength of the wrong one.
-    const source = code(SEED);
+    const source = sourceCode(SEED);
     const invocation = source.split("\n").find((l) => l.includes("nx $leaf --json"));
     expect(invocation).toBeDefined();
     expect(invocation).not.toContain("2>&1");
     expect(invocation).toContain('2>"$errfile"');
     // The emptiness probe gets stdout; the refusal matcher gets both.
-    expect(source).toContain(
-      'printf \'%s\' "$out" | python3 "$SCRIPT_DIR/scan-response.py" --require-non-empty'
+    expect(source).toMatch(
+      atStatement(
+        /if printf '%s' "\$out" \| python3 "\$SCRIPT_DIR\/scan-response\.py" --require-non-empty/
+      )
     );
-    expect(source).toContain('is_policy_refusal "$transcript"');
+    expect(source).toMatch(POLICY_REFUSAL_ON_TRANSCRIPT);
   });
 });

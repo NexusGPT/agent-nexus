@@ -29,6 +29,7 @@ const SANDBOX = vi.hoisted(() => {
   return dir;
 });
 
+import { matchesInCode } from "../../../scripts/_lib/strip-comments.mjs";
 import { DASHBOARD_PATHS, dashboardUrlFor } from "./dashboard-url";
 
 /**
@@ -57,10 +58,27 @@ import { DASHBOARD_PATHS, dashboardUrlFor } from "./dashboard-url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROUTES = path.resolve(here, "../../../apps/frontend/src/routes.tsx");
 
-/** Every `"app/..."` literal the SPA registers, normalised to a leading slash. */
+const ROUTE_LITERAL = /"(app\/[A-Za-z0-9:/*.-]+)"/g;
+
+/**
+ * Every `"app/..."` literal the SPA registers, normalised to a leading slash — at a
+ * CODE position, so its opening quote is a real string's. A route commented out of
+ * the table, or quoted inside another string, is not declared: a raw read counted a
+ * commented-out route as live, and the link it backed would 404.
+ */
 function declaredRoutes(): string[] {
   const text = fs.readFileSync(ROUTES, "utf8");
-  return [...text.matchAll(/"(app\/[A-Za-z0-9:/*.-]+)"/g)].map((m) => `/${m[1]}`);
+  return matchesInCode(text, ROUTE_LITERAL).map((m) => `/${m[1]}`);
+}
+
+/**
+ * Every `"app/..."` literal anywhere in the file, comments included. A NEGATIVE
+ * control reads this one: a route the SPA must not match is refused even in prose,
+ * which is the strict direction for a "never".
+ */
+function routeLiteralsAnywhere(): string[] {
+  const text = fs.readFileSync(ROUTES, "utf8");
+  return [...text.matchAll(ROUTE_LITERAL)].map((m) => `/${m[1]}`);
 }
 
 /**
@@ -116,7 +134,7 @@ describe("dashboard-url — every pattern is a route the SPA actually declares",
   it("CONTROL — a route the SPA does not declare is NOT matched", () => {
     if (!monorepo) return;
     const renamed = "/app/my-agents-renamed/{id}/tabs/prompt";
-    expect(declaredRoutes().filter((route) => routeAccepts(route, renamed))).toHaveLength(0);
+    expect(routeLiteralsAnywhere().filter((route) => routeAccepts(route, renamed))).toHaveLength(0);
   });
 
   it("CONTROL — a tab key the agent page does not offer is NOT matched", () => {
@@ -127,13 +145,15 @@ describe("dashboard-url — every pattern is a route the SPA actually declares",
     const view = path.resolve(here, "../../../apps/frontend/src/modules/Profiles/ProfileView.tsx");
     expect(fs.existsSync(view), `no ProfileView at ${view}`).toBe(true);
 
-    const keys = [...fs.readFileSync(view, "utf8").matchAll(/key:\s*"([a-z-]+)"/g)].map(
-      (m) => m[1]
-    );
+    // The keys the page offers are read at CODE positions, so a key commented out of the
+    // list is not offered; the "never" below reads every key in the file, prose included.
+    const source = fs.readFileSync(view, "utf8");
+    const tabKey = /key:\s*"([a-z-]+)"/g;
+    const keys = matchesInCode(source, tabKey).map((m) => m[1]);
     expect(keys.length).toBeGreaterThan(3);
     expect(keys).toContain("prompt");
     expect(keys).toContain("skills");
-    expect(keys).not.toContain("promt");
+    expect([...source.matchAll(tabKey)].map((m) => m[1])).not.toContain("promt");
   });
 });
 

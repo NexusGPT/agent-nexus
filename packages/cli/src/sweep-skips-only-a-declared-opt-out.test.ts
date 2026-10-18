@@ -77,17 +77,33 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { classifyCommandUniverse } from "./command-universe";
+import {
+  atStatement,
+  guardedBlock,
+  POLICY_REFUSAL_ON_TRANSCRIPT,
+  sourceCode
+} from "./source-code.testkit";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SWEEP = join(PACKAGE_ROOT, "scripts", "sweep.sh");
 const SWEEP_SOURCE = readFileSync(SWEEP, "utf8");
 const SEED = join(PACKAGE_ROOT, "scripts", "seed-sweep-fixtures.sh");
 const SEED_SOURCE = readFileSync(SEED, "utf8");
+/**
+ * Both scripts' CODE. Every positive wiring pin below reads these: a raw match
+ * finds a statement in a comment that quotes it, full-line or trailing, after
+ * the statement is gone. The negative pins keep the raw text, which is the
+ * stricter reading for an absence.
+ */
+const SWEEP_CODE = sourceCode(SWEEP);
+const SEED_CODE = sourceCode(SEED);
 const MATCHER = join(PACKAGE_ROOT, "scripts", "policy-refusal.sh");
 const MATCHER_SOURCE = readFileSync(MATCHER, "utf8");
 
 /**
- * The call both scripts make, and the only spelling either one may write.
+ * The policy branch of `run_leaf`: from the call both scripts make — the only
+ * spelling either one may write, {@link POLICY_REFUSAL_ON_TRANSCRIPT} — to the
+ * secret scan that follows it. `""` when the call is not at statement position.
  *
  * ⚠️ `$transcript`, NOT `$out`, and the rename is load-bearing rather than
  * cosmetic. Both scripts used to invoke a leaf with `2>&1` and hold one merged
@@ -102,7 +118,11 @@ const MATCHER_SOURCE = readFileSync(MATCHER, "utf8");
  * stop matching, every declared skip would become an `error`, and the sweep
  * would go red for a reason that says nothing about the environment.
  */
-const CALL = 'is_policy_refusal "$transcript"';
+function policyBranch(): string {
+  const at = SWEEP_CODE.search(POLICY_REFUSAL_ON_TRANSCRIPT);
+  const end = SWEEP_CODE.indexOf("local scan_out scan_code");
+  return at === -1 || end <= at ? "" : SWEEP_CODE.slice(at, end);
+}
 
 /**
  * The live skip pattern, lifted from `policy-refusal.sh` rather than restated.
@@ -224,15 +244,12 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // exists somewhere in the file would survive a mutation that left it in a
     // comment while the branch matched everything.
     //
-    // The region is bounded by the scanner comment rather than by the first
-    // `return`: the branch now returns EARLY for an undeclared skip, so slicing
+    // The region is bounded by the scanner's declaration rather than by the
+    // first `return`: the branch returns EARLY for an undeclared skip, so slicing
     // to the first `return` would cut the SKIP emission off entirely and this
     // assertion would fail for a reason that has nothing to do with wiring.
-    const branch = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf(CALL),
-      SWEEP_SOURCE.indexOf("# One pass answers both questions")
-    );
-    expect(SWEEP_SOURCE).toContain(CALL);
+    const branch = policyBranch();
+    expect(SWEEP_CODE).toMatch(POLICY_REFUSAL_ON_TRANSCRIPT);
     expect(branch.length).toBeGreaterThan(0);
     expect(branch).toContain("printf 'SKIP|%s|%s — DECLARED");
   });
@@ -251,17 +268,19 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // So: the pattern appears in the matcher file and NOWHERE ELSE, and each
     // caller sources it. Asserting only that they source it would pass a script
     // that sources the file and then greps its own inline copy anyway.
-    for (const [name, source] of [
-      ["sweep.sh", SWEEP_SOURCE],
-      ["seed-sweep-fixtures.sh", SEED_SOURCE]
+    for (const [name, source, code] of [
+      ["sweep.sh", SWEEP_SOURCE, SWEEP_CODE],
+      ["seed-sweep-fixtures.sh", SEED_SOURCE, SEED_CODE]
     ] as const) {
       expect(source, `${name} inlines a second copy of the phrase list`).not.toContain(
         skipPattern()
       );
-      expect(source, `${name} does not source the matcher`).toContain(
-        '. "$SCRIPT_DIR/policy-refusal.sh"'
+      expect(code, `${name} does not source the matcher`).toMatch(
+        atStatement(/if ! \. "\$SCRIPT_DIR\/policy-refusal\.sh"; then/)
       );
-      expect(source, `${name} does not call the shared matcher`).toMatch(/\bis_policy_refusal\b/);
+      expect(code, `${name} does not call the shared matcher`).toMatch(
+        POLICY_REFUSAL_ON_TRANSCRIPT
+      );
     }
   });
 
@@ -272,21 +291,17 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // policy refusal as a CLI regression, and the seed would report a
     // permanently-unseedable leaf as a fixture somebody has to create. A
     // degraded run is worse than no run in both, so both refuse.
-    for (const [name, source] of [
-      ["sweep.sh", SWEEP_SOURCE],
-      ["seed-sweep-fixtures.sh", SEED_SOURCE]
+    for (const [name, code] of [
+      ["sweep.sh", SWEEP_CODE],
+      ["seed-sweep-fixtures.sh", SEED_CODE]
     ] as const) {
-      // Anchored on the shellcheck directive that sits ABOVE the source line —
-      // slicing from the source line itself starts one token past the `if !`
-      // this then asserts on, and the assertion fails for a reason that has
-      // nothing to do with the guard being present.
-      const start = source.indexOf("# shellcheck source=./policy-refusal.sh");
-      expect(start, `${name} has no shellcheck directive on the source`).toBeGreaterThan(-1);
-      const guard = source.slice(start);
-      const refusal = guard.slice(0, guard.indexOf("\nfi") + 3);
-      expect(refusal, `${name} sources the matcher unguarded`).toMatch(
+      // The guard IS the source statement, so the block it opens at statement
+      // position pins both: empty means the matcher is not sourced under it.
+      const refusal = guardedBlock(
+        code,
         /if\s+!\s+\.\s+"\$SCRIPT_DIR\/policy-refusal\.sh";\s+then/
       );
+      expect(refusal, `${name} sources the matcher unguarded`).not.toBe("");
       expect(refusal, `${name} does not exit on a failed source`).toMatch(/exit 8/);
     }
   });
@@ -295,12 +310,12 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // A silently-omitted case is indistinguishable from one that passed. The
     // SKIP line names the leaf AND the backend's own sentence, and the summary
     // carries the skip count beside the pass count.
-    expect(SWEEP_SOURCE).toContain('"$path" "$reason"');
+    expect(SWEEP_CODE).toContain('"$path" "$reason"');
     // 🚨 THE COUNT NOW CARRIES ITS DENOMINATOR. `5 skip` is a numerator, and a
     // numerator alone cannot separate the skips somebody declared from the ones
     // that arrived on their own — which is exactly how four leaves went dark
     // with nothing to point at. A bare `$SKIP skip` must not come back.
-    expect(SWEEP_SOURCE).toMatch(
+    expect(SWEEP_CODE).toMatch(
       /\$PASS pass · \$SKIP\/\$DECLARED_TOTAL declared skip · \$WARN warn · \$FAIL fail/
     );
     expect(SWEEP_SOURCE).not.toMatch(/\$PASS pass · \$SKIP skip/);
@@ -314,10 +329,7 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // a fact about this repository, and only `SWEEP_EXPECTED_SKIPS` carries it.
     // Before this branch the two were the same answer, so a leaf going dark cost
     // its whole coverage and moved one digit in a line nobody reads.
-    const branch = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf(CALL),
-      SWEEP_SOURCE.indexOf("# One pass answers both questions")
-    );
+    const branch = policyBranch();
 
     expect(branch).toMatch(/if\s+\[\[\s+"\$expected_skip"\s+!=\s+"true"\s+\]\]/);
     expect(branch).toContain("UNDECLARED SKIP");
@@ -331,14 +343,14 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
     // makes every skip undeclared, so the failure direction here is loud rather
     // than silent — but it would be loud for a reason that says nothing about
     // the environment, which is its own kind of untrustworthy red.
-    expect(SWEEP_SOURCE).toMatch(
+    expect(SWEEP_CODE).toMatch(
       /EXPECTED_SKIPS_RAW=\$\(.*--print-expected-skips\s+2>"\$SKIPS_STDERR"\)/
     );
-    expect(SWEEP_SOURCE).toMatch(/^SKIPS_EXIT=\$\?$/m);
+    expect(SWEEP_CODE).toMatch(/^SKIPS_EXIT=\$\?$/m);
 
-    const refusal = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf("SKIPS_EXIT=$?"),
-      SWEEP_SOURCE.indexOf("is_fixture_backed()")
+    const refusal = SWEEP_CODE.slice(
+      SWEEP_CODE.indexOf("SKIPS_EXIT=$?"),
+      SWEEP_CODE.indexOf("is_fixture_backed()")
     );
     expect(refusal).toMatch(/if\s+\[\[\s+\$SKIPS_EXIT\s+-ne\s+0\s+\]\]/);
     expect(refusal).toContain("could not derive the expected-skip list");
@@ -350,9 +362,9 @@ describe("the sweep skips a declared feature opt-out, and nothing else", () => {
 
     // And the derived list has to reach the membership test that decides the
     // third argument — the link that makes all of the above load-bearing.
-    const membership = SWEEP_SOURCE.slice(
-      SWEEP_SOURCE.indexOf("is_expected_skip()"),
-      SWEEP_SOURCE.indexOf("ELAPSED=")
+    const membership = SWEEP_CODE.slice(
+      SWEEP_CODE.indexOf("is_expected_skip()"),
+      SWEEP_CODE.indexOf("ELAPSED=")
     );
     expect(membership).toMatch(/done\s*<<<\s*"\$EXPECTED_SKIPS_RAW"/);
     expect(membership).toMatch(/is_expected_skip\s+"\$leaf"\s+&&\s+expected=true/);

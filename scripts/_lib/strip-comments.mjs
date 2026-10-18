@@ -15,6 +15,14 @@
  *   breaks and every offset stay where they were, so a match found in the
  *   projection names the same span in the original.
  *
+ * And one question asked of them: is a match AT A CODE POSITION? `matchesInCode`,
+ * `firstMatchInCode`, `includesInCode` and `codePositionsOf` match on the text as
+ * written and keep a match only where the code projection still holds its head —
+ * so a comment or a string quoting the code cannot stand in for it, while a pinned
+ * string argument after the head is still read. They also read plain CSS. The
+ * section above `codePositionsOf` says how, and `strip-comments.fixtures.mjs` is the
+ * table every position check is held to.
+ *
  * ── THE BUILD GATES SHARE THIS, AND THEY FAIL THE SAME WAY WITHOUT IT ───────
  *
  * Two scan a built artefact textually for a module specifier, and a textual scan
@@ -359,20 +367,247 @@ export function blankComments(text) {
 }
 
 /**
- * @param {string} text JavaScript or TypeScript source
- * @returns {string} the same text, the same length, with every comment and the
- *   contents of every closed string, template text and pattern replaced by
- *   spaces. Line breaks inside them stay.
+ * `text` with every region replaced by spaces, line breaks kept, so every offset
+ * names the same character in both.
+ *
+ * @param {string} text
+ * @param {Array<[number, number, "comment" | "literal"]>} regions in source order
+ * @returns {string}
  */
-export function blankCommentsAndLiterals(text) {
+function blankRegions(text, regions) {
   /** @type {string[]} */
   const chunks = [];
   let kept = 0;
-  for (const [start, end] of regionsOf(text)) {
+  for (const [start, end] of regions) {
     chunks.push(text.slice(kept, start));
     chunks.push(text.slice(start, end).replace(/[^\r\n]/g, " "));
     kept = end;
   }
   chunks.push(text.slice(kept));
   return chunks.join("");
+}
+
+/**
+ * @param {string} text JavaScript or TypeScript source
+ * @returns {string} the same text, the same length, with every comment and the
+ *   contents of every closed string, template text and pattern replaced by
+ *   spaces. Line breaks inside them stay.
+ */
+export function blankCommentsAndLiterals(text) {
+  return blankRegions(text, regionsOf(text));
+}
+
+/**
+ * Every comment and the contents of every closed string in a CSS stylesheet, as
+ * the same `[start, end, kind]` regions {@link regionsOf} returns.
+ *
+ * CSS is not read through the JavaScript walk, because the two grammars disagree
+ * in both directions. CSS has no `//` comment, so `url(http://x)` would end a line
+ * early under the JavaScript rules, and CSS has no pattern literal, so the `/` in
+ * `calc(100% / 3)` would open one. Here a comment is `/* … *\/` and nothing else,
+ * and a string is a quoted run that closes before an unescaped newline. A string
+ * left open at the newline is a CSS bad-string, never a string, so its line stays
+ * as written: the same strict direction as the JavaScript walk.
+ *
+ * Plain CSS only. SCSS adds `//` comments, and no caller reads SCSS through this.
+ *
+ * @param {string} text CSS source
+ * @returns {Array<[number, number, "comment" | "literal"]>}
+ */
+function cssRegionsOf(text) {
+  /** @type {Array<[number, number, "comment" | "literal"]>} */
+  const regions = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "/" && text[i + 1] === "*") {
+      const start = i;
+      const close = text.indexOf("*/", i + 2);
+      i = close === -1 ? text.length : close + 2;
+      regions.push([start, i, "comment"]);
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      i += 1;
+      const bodyStart = i;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "\n") break;
+        if (text[i] === ch) {
+          regions.push([bodyStart, i, "literal"]);
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    i += 1;
+  }
+  return regions;
+}
+
+/** The grammars {@link codePositionsOf} reads, by the name a caller passes. */
+const CODE_PROJECTIONS = {
+  js: blankCommentsAndLiterals,
+  css: (text) => blankRegions(text, cssRegionsOf(text))
+};
+
+/**
+ * ── WHERE A MATCH SITS: CODE, OR TEXT THAT QUOTES CODE ──────────────────────
+ *
+ * A positive pin — "this file CALLS x", "this file DECLARES y" — that matches raw
+ * text is satisfied by a comment quoting the code, and blanking comments first is
+ * not enough: a STRING that quotes the code satisfies it too, and so does a
+ * template's text. The obvious cure, matching on `blankCommentsAndLiterals`, deletes
+ * every pinned argument along with the strings, so a pin on
+ * `.option("--no-auto-update"` could never match at all.
+ *
+ * So the match is made on the text AS WRITTEN, and it counts only where its HEAD —
+ * its first non-whitespace character — is still the same character in the code
+ * projection at the same offset. The projection keeps every offset and blanks only
+ * comments and literal contents, so a preserved head is code, or the delimiter
+ * that opens a real literal. Everything after the head may be a literal's contents,
+ * which is how the pinned argument survives.
+ *
+ * ⚠️ ONLY THE HEAD IS JUDGED. A pattern that spans a gap — `if \(!ok\)[\s\S]{0,400}exit` —
+ * has its far end judged by nothing, so a caller that needs both ends in code
+ * matches each end on its own.
+ *
+ * A match the walk rejects advances the search by ONE character, never past the
+ * match, so a quoted copy that overlaps a real one cannot hide it. That is the
+ * strict direction for a positive pin, and a detection scan that projected its
+ * population through this would lose nothing a raw scan finds at a code position.
+ *
+ * `options.language` picks the grammar: `"js"` (the default; JavaScript and
+ * TypeScript, with the walk's limits stated above — `//` in JSX TEXT reads as a
+ * comment, which rejects a match and never invents one) or `"css"` (plain CSS
+ * stylesheets, through {@link cssRegionsOf}).
+ */
+
+/**
+ * @param {{ language?: "js" | "css" } | undefined} options
+ * @returns {(text: string) => string}
+ */
+function projectionFor(options) {
+  const language = options?.language ?? "js";
+  const project = Object.hasOwn(CODE_PROJECTIONS, language)
+    ? CODE_PROJECTIONS[language]
+    : undefined;
+  if (project === undefined) {
+    throw new TypeError(
+      `codePositionsOf: no grammar for language ${JSON.stringify(language)} (js, css)`
+    );
+  }
+  return project;
+}
+
+/**
+ * A predicate over offsets into `text`: is the span at `index` at a CODE position?
+ * It judges the span's first non-whitespace character, and a span with none is not
+ * code. The projection is built once, so a scan that judges many matches in one
+ * file pays for one walk.
+ *
+ * @param {string} text the source as written
+ * @param {{ language?: "js" | "css" }} [options]
+ * @returns {(index: number, length?: number) => boolean}
+ */
+export function codePositionsOf(text, options) {
+  const code = projectionFor(options)(text);
+  return (index, length = 1) => {
+    const end = Math.min(text.length, index + Math.max(1, length));
+    for (let at = Math.max(0, index); at < end; at += 1) {
+      if (/\s/.test(text[at])) continue;
+      return code[at] === text[at];
+    }
+    return false;
+  };
+}
+
+/**
+ * `pattern` as a fresh global regex: a string matches literally, a regex keeps its
+ * own flags apart from `y`, which would stop the one-character advance.
+ *
+ * @param {string | RegExp} pattern
+ * @returns {RegExp}
+ */
+function globalPattern(pattern) {
+  if (typeof pattern === "string") {
+    if (pattern.length === 0)
+      throw new TypeError("matchesInCode: an empty pattern has no head to judge");
+    return new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+  }
+  const flags = pattern.flags.replace(/[gy]/g, "");
+  return new RegExp(pattern.source, `${flags}g`);
+}
+
+/**
+ * Every match of `pattern` in `text` whose head is at a code position, in source
+ * order, as `RegExpExecArray`s over the ORIGINAL text — so `index`, captures and
+ * groups read the source as written, string contents included.
+ *
+ * @param {string} text the source as written
+ * @param {string | RegExp} pattern a string matches literally
+ * @param {{ language?: "js" | "css" }} [options]
+ * @returns {RegExpExecArray[]}
+ */
+export function matchesInCode(text, pattern, options) {
+  const isCode = codePositionsOf(text, options);
+  const regex = globalPattern(pattern);
+  /** @type {RegExpExecArray[]} */
+  const kept = [];
+  for (let match = regex.exec(text); match !== null; match = regex.exec(text)) {
+    if (match[0].length === 0) {
+      throw new TypeError(
+        `matchesInCode: ${regex} matched the empty string, which has no head to judge`
+      );
+    }
+    if (isCode(match.index, match[0].length)) {
+      kept.push(match);
+      regex.lastIndex = match.index + match[0].length;
+    } else {
+      regex.lastIndex = match.index + 1;
+    }
+  }
+  return kept;
+}
+
+/**
+ * The first match of `pattern` whose head is at a code position, or `null`. For a
+ * VALUE read out of a declaration: a raw `exec` takes the first match in the file,
+ * and a comment above the declaration that quotes an older value comes first.
+ *
+ * @param {string} text the source as written
+ * @param {string | RegExp} pattern a string matches literally
+ * @param {{ language?: "js" | "css" }} [options]
+ * @returns {RegExpExecArray | null}
+ */
+export function firstMatchInCode(text, pattern, options) {
+  const isCode = codePositionsOf(text, options);
+  const regex = globalPattern(pattern);
+  for (let match = regex.exec(text); match !== null; match = regex.exec(text)) {
+    if (match[0].length === 0) {
+      throw new TypeError(
+        `firstMatchInCode: ${regex} matched the empty string, which has no head to judge`
+      );
+    }
+    if (isCode(match.index, match[0].length)) return match;
+    regex.lastIndex = match.index + 1;
+  }
+  return null;
+}
+
+/**
+ * Does `text` hold `pattern` at a code position? The positive pin's question.
+ *
+ * @param {string} text the source as written
+ * @param {string | RegExp} pattern a string matches literally
+ * @param {{ language?: "js" | "css" }} [options]
+ * @returns {boolean}
+ */
+export function includesInCode(text, pattern, options) {
+  return firstMatchInCode(text, pattern, options) !== null;
 }

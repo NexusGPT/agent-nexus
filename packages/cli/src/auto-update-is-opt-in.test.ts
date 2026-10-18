@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
+import { matchesInCode } from "../../../scripts/_lib/strip-comments.mjs";
 import { ROOT_EPILOGUE } from "./root-help-epilogue";
 
 /**
@@ -35,14 +36,16 @@ import { ROOT_EPILOGUE } from "./root-help-epilogue";
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX = readFileSync(join(SRC_DIR, "index.ts"), "utf8");
 
-/** Every `--…auto-update…` flag string `index.ts` declares, in order. */
+/**
+ * Every `--…auto-update…` flag string `index.ts` declares, in order — each `.option(`
+ * at a CODE position, so a declaration commented out, or quoted in a string, declares
+ * nothing. A raw read derived `--no-auto-update` from a commented `.option(`, and the
+ * cases below then judged a program the CLI does not build.
+ */
 function declaredAutoUpdateFlags(): string[] {
   const flags: string[] = [];
-  const option = /\.option\(\s*"(--[^"]*auto-update[^"]*)"/g;
-  let match = option.exec(INDEX);
-  while (match !== null) {
+  for (const match of matchesInCode(INDEX, /\.option\(\s*"(--[^"]*auto-update[^"]*)"/)) {
     if (match[1] !== undefined) flags.push(match[1]);
-    match = option.exec(INDEX);
   }
   return flags;
 }

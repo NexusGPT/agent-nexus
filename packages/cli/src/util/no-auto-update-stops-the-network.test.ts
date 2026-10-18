@@ -27,8 +27,14 @@ vi.mock("node:child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...(args as [string, string[], Record<string, unknown>]))
 }));
 
+import { includesInCode } from "../../../../scripts/_lib/strip-comments.mjs";
 import { autoUpdate, checkForUpdate, fetchLatestVersion } from "./version-check";
 
+/**
+ * Read as written, and pinned at a CODE position: neither a comment nor a string quoting
+ * the wiring may stand in for it. A comment-stripped read was satisfied by the wiring kept
+ * in a string literal beside a stub.
+ */
 const UPGRADE_SRC = fs.readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../commands/upgrade.ts"),
   "utf8"
@@ -274,10 +280,10 @@ describe("an explicit upgrade is not the automatic updater", () => {
   });
 
   it("and `nexus upgrade` is wired to that function, so the case above is the real path", () => {
-    // Read as text on purpose: the wiring is the whole claim, and a refactor
+    // Read as code on purpose: the wiring is the whole claim, and a refactor
     // that routed the command through `checkForUpdate` would leave every
     // assertion in this file green while `nexus upgrade` stopped working
     // wherever the variable is set.
-    expect(UPGRADE_SRC).toMatch(/fetchLatest:\s*fetchLatestVersion/);
+    expect(includesInCode(UPGRADE_SRC, /fetchLatest:\s*fetchLatestVersion/)).toBe(true);
   });
 });

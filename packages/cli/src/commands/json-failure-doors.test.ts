@@ -178,7 +178,7 @@ function expectOneErrorDocument(run: Driven, door: string, hintMustMention?: str
   expect(run.threw, `${door}: the harness itself threw — this is not a finding`).toBeUndefined();
   // NON-ZERO, not 1. This helper drives doors whose categories differ — a
   // removed flag is `invalid-input` (5), a failed auth test is `remote-error`
-  // (6). The subject here is the DOCUMENT on stdout; `exit-code-taxonomy.test.ts`
+  // (6). The subject here is the DOCUMENT on stdout; `exit-code-declaration.test.ts`
   // owns which number each category gets.
   expect(run.exitCode, `${door}: a failure must exit non-zero`).not.toBe(0);
   expect(

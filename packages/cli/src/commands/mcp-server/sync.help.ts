@@ -6,8 +6,8 @@
  * file under `packages/cli/src` to — a ceiling whose own remedy says SPLIT rather than
  * write a row — and they are edited for different reasons.
  *
- * ⚠️ NOTHING HERE MAY NAME AN EXIT NUMBER. `exit-code-taxonomy.test.ts` scans every
- * RENDERED help screen for a non-zero integer in the window after the word "exit".
+ * ⚠️ NOTHING HERE MAY NAME AN EXIT NUMBER. `exit-code-per-command-help.test.ts` scans
+ * every RENDERED help screen for a non-zero integer in the window after the word "exit".
  */
 /**
  * ⚠️ EVERY EXAMPLE INVOKES THIS VERB, AND A SIBLING'S IS NOT A HARMLESS EXTRA.

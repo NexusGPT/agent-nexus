@@ -27,7 +27,8 @@ import {
  *
  * Sets `process.exitCode` on every refusal exactly as the command's own action
  * callback did, rather than returning a code for the caller to assign: the
- * exit-code gates in `src/exit-code-taxonomy.test.ts` and
+ * exit-code gates in `src/exit-code-taxonomy.test.ts`,
+ * `src/exit-code-reachability.test.ts` and
  * `src/every-zero-exit-path-is-ledgered.test.ts` read these assignments
  * statically, so the statement SHAPE is load-bearing and not a style choice.
  */

@@ -12,10 +12,11 @@ import { parse, proseOnlyHelpers, scanSources, scanTree } from "./json-error-doc
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * That gate drives every command and parses stdout, and it is the stronger
- * instrument. Its two ledgers sat at ZERO while NINE call sites still exited
- * non-zero with prose on stderr and nothing on stdout.
+ * instrument inside the branches it can enter. Its two ledgers can read ZERO
+ * while NINE call sites exit non-zero with prose on stderr and nothing on
+ * stdout, and that is measured, not hypothetical.
  *
- * None of the nine was a hole in that gate's logic. Every one lived in a branch
+ * None of the nine is a hole in that gate's logic. Every one lives in a branch
  * the driver cannot enter: behind a `=== "success"` equality its proxy stub
  * cannot satisfy, behind a hand-rolled required-option guard its argv
  * synthesizer does not fill, or behind the `--yes` it always passes so that a
@@ -36,12 +37,13 @@ import { parse, proseOnlyHelpers, scanSources, scanTree } from "./json-error-doc
  * stdout. It proves something this walk cannot — that the document actually
  * arrives — so both stay.
  *
- * It found six of the nine. The three it does not name are the three this walk
- * found on its own, all in `external-tool`, all with the prose in a HELPER one
- * call away from the exit. Run against the tree with those six doors already
- * closed, this gate reported exactly `external-tool.ts:555`, `:636` and `:680`
- * and nothing else. That is the case for a derived population over a written
- * one, measured rather than argued.
+ * It names six of the nine. The three it does not name are the three only this
+ * walk reaches, all in `external-tool`, all with the prose in a HELPER one call
+ * away from the exit: `external-tool update` and `external-tool update-spec`,
+ * whose prose is in `reportSpecBreakingChange`, and `external-tool delete`,
+ * whose prose is in `reportToolHasAttachments`. A hand-written census does not
+ * look one call past the exit, and a derived population does — that is the
+ * case for the walk, measured rather than argued.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * THE DETECTOR IS PROVEN BEFORE ANYTHING IS MEASURED WITH IT
@@ -53,11 +55,10 @@ import { parse, proseOnlyHelpers, scanSources, scanTree } from "./json-error-doc
  * `printWarning` form, the helper form, and prose carried across a boolean
  * return — and stay SILENT on the four that are this package's chosen design.
  *
- * Two of those cases exist because the rule got them WRONG first, and both
- * failed in the direction that reads as clean: a branch's THEN arm folding its
- * document into the ELSE arm, and a `catch` clause counted as what FOLLOWS its
- * `try`. The second was found only by mutating the real tree, and it had
- * silenced the entire gate.
+ * Two of those cases pin shapes a rule gets WRONG in the direction that reads
+ * as clean: a branch's THEN arm folding its document into the ELSE arm, and a
+ * `catch` clause counted as what FOLLOWS its `try`. The second silences the
+ * entire gate when it regresses, and only mutating the real tree shows it.
  *
  * A gate whose only evidence is its own green result proves nothing — which is
  * the exact criticism that produced this file.
@@ -97,7 +98,8 @@ describe("the detector fires on the defect and stays silent on the design", () =
     // rule that reads the catch clause as "what follows the try" finds a
     // document after every exit in the package and reports nothing, ever.
     // Proven by mutation before this case existed: restoring the real
-    // `console.error` in `external-tool test-auth` left all 16 tests GREEN.
+    // `console.error` in `external-tool test-auth` left every test then in
+    // this file GREEN.
     const report = scanFixture(`
       async function action(result: { status: string; error?: string }) {
         try {

@@ -7,8 +7,8 @@
  * edited for different reasons: one by whoever changes a flag, one by whoever
  * learns something new about what this verb costs an operator.
  *
- * ⚠️ NOTHING HERE MAY NAME AN EXIT NUMBER. `exit-code-taxonomy.test.ts` scans every
- * RENDERED help screen for a non-zero integer in the window after the word "exit",
+ * ⚠️ NOTHING HERE MAY NAME AN EXIT NUMBER. `exit-code-per-command-help.test.ts` scans
+ * every RENDERED help screen for a non-zero integer in the window after the word "exit",
  * because a per-command help that promises a number goes false the moment the
  * taxonomy refines that failure into a more specific category. An earlier draft of
  * the paragraph below put an HTTP status one clause after the word, and the gate

@@ -13,7 +13,7 @@
  * author two false things: that a Ctrl-C yields `130` (it yields `0`), and that
  * nothing but a Ctrl-C can yield it (a `SIGTERM` can).
  *
- * `exit-code-taxonomy.test.ts` asserts `interrupted` is REACHABLE, and it does
+ * `exit-code-reachability.test.ts` asserts `interrupted` is REACHABLE, and it does
  * that by reading the source for the string `process.exit(EXIT_CODES.interrupted)`
  * — which is the only thing a spec can do about a call that would end the run.
  * A string scan cannot see WHEN the call happens, and "when" is the entire

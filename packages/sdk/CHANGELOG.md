@@ -1,5 +1,104 @@
 # @agent-nexus/sdk
 
+## 4.8.0
+### Minor Changes
+
+- 44aa2d1: A browser chat client can be handed an observer surface
+  
+  `createBrowserChatClient` takes four more optional options — `onRetry`,
+  `onDeprecation`, `onResponseContract` and `responseContract` — and forwards each to the
+  transport it builds. They are the same four `HttpClientOptions` has always declared and
+  `NexusClient` has always accepted, so a browser embed and a server-side client now see
+  the same events on the same shapes.
+  
+  Until now `BrowserChatClientOptions` declared `baseUrl`, `fetch`, `timeout` and
+  `defaultHeaders` and nothing else. **This is a type gaining a vocabulary, not a call
+  site gaining an argument:** the transport underneath was already reading all four, and
+  there was no spelling in which a caller of this factory could supply one. An embed could
+  not learn that a request had been replayed, that a chat route it depends on is being
+  removed, or that a payload had drifted from the shape its route publishes — not because
+  it passed the wrong thing, but because there was nothing to pass.
+  
+  ## The reporter and the manifest are a PAIR
+  
+  `onResponseContract` installs the reporter; `responseContract` is the table it scores
+  payloads against. Supplying the reporter alone is the shape to avoid — every read then
+  comes back `unchecked`, so the observer runs, reports on every response, and establishes
+  nothing. That silence is deliberate: a quiet return would be indistinguishable from a
+  contract that passed, which is the drift the feature exists to detect.
+  
+  The manifest is supplied rather than bundled, and in a browser that is the whole reason
+  it is an option instead of an import:
+  
+  ```ts
+  import { V1_RESPONSE_CONTRACT } from "@agent-nexus/sdk/v1-response-contract";
+  ```
+  
+  It is the largest thing this package ships and it lives behind its own entry point, so
+  an embed that wants the check pays those bytes deliberately and one that does not never
+  carries them. `browser-chat.ts` imports it nowhere.
+  
+  ### `unchecked` has FOUR reasons, and the `reason` text is a SUBSTRING
+  
+  🔴 Do not assert that reason by equality. The missing-manifest value is assembled from
+  three concatenated fragments and begins
+  `"no response contract was supplied, so there is nothing to check against — "`, so an
+  arm comparing it to that sentence is red for a reason that has nothing to do with the
+  behaviour. Match the substring.
+  
+  And `state: "unchecked"` on its own does not mean the manifest is missing. Four distinct
+  causes render as that one state:
+  
+  - no manifest was supplied — the three-part sentence above, naming the subpath that
+    fixes it;
+  - the route publishes no response schema;
+  - the route writes a raw response, so there is no envelope to describe;
+  - the route's shape is `opaque`, which passes its own reason through.
+  
+  Only the first is the consumer's to fix. The other three are routes that are simply not
+  covered, and reading them as a missing manifest sends someone to supply one that is
+  already there.
+  
+  ## What an embed can now explain: up to 60 s of `Retry-After` silence
+  
+  `DEFAULT_MAX_RETRIES` is 2 and this factory passes no `maxRetries`, so a transient
+  failure is replayed without the caller hearing about it. The exposure is narrower than
+  "every failure is retried twice", and it splits by verb, because `isRetryableStatus`
+  gates the proxy statuses — and the dropped-connection arm gates itself — behind
+  `IDEMPOTENT_METHODS`, which excludes POST:
+  
+  |                    | POST: `stream`, `streamRaw`, `stop`, `refresh` | GET: `resume`, `resumeRaw`, `status` |
+  | ------------------ | ---------------------------------------------- | ------------------------------------ |
+  | 429                | replayed                                       | replayed                             |
+  | 502 / 503 / 504    | never                                          | replayed                             |
+  | dropped connection | never                                          | replayed                             |
+  
+  So on the POST doors the only replay is a **429**, which is a refusal rather than an
+  ambiguous outcome — it is thrown by a guard before any handler runs, so there is no
+  duplicate effect. What it costs instead is time: a 429 is the one status carrying
+  `Retry-After`, the total-wait budget is 60,000 ms, and a sequence may absorb all of it.
+  A visitor then watches a chat UI sit silent for up to a minute with nothing on screen to
+  say why. `onRetry` carries the attempt number, the total, the status that triggered it,
+  the wait about to be taken and whether the server stated it — which is enough to render
+  "rate limited, retrying in 40 s" instead of leaving a chat that reads as hung.
+  
+  ## Nothing is observed by default, and no default moved
+  
+  Every member is optional and every one defaults to absent, so an existing caller
+  compiles unchanged and behaves identically — installing a reporter is what turns the
+  contract check on, and a published SDK should not start spending cycles because it was
+  upgraded. No retry count, timeout or budget changed. Whether 2 is still the right
+  `maxRetries` once it is observable is a separate question and is not answered here.
+
+### Patch Changes
+
+- 1e2ae59: The package no longer ships `dist/cli/connect.d.ts`
+  
+  It declared an unused `nexus-connect` script that no `bin`, no `exports` subpath and no
+  entry point ever reached, so nothing could import or run it. Connect a tool's OAuth
+  account with `nexus tool connect` from `@agent-nexus/cli`, or call
+  `client.toolConnection.connect()` and `waitForConnection()` directly.
+
 ## 4.7.0
 ### Minor Changes
 

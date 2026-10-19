@@ -1,5 +1,49 @@
 # @agent-nexus/mcp-server
 
+## 1.2.1
+### Patch Changes
+
+- 460b03a: The last three CLI trees are decomposed, and the 150/80 caps are armed over them
+  
+  No behaviour changes. 44 files in `packages/cli/src/` flat, `packages/cli/src/util/`
+  and `packages/cli/src/skills-corpus/` went from 15,077 lines to their own trees, and
+  the `max-lines` 150 / `max-lines-per-function` 80 ratchet now covers all three
+  directories. With this the ratchet reaches every production file the package ships.
+  
+  Before → after, by family:
+  
+  | family                                                                           | before          | after         |
+  | -------------------------------------------------------------------------------- | --------------- | ------------- |
+  | `errors` · `exit-codes`                                                          | 826 · 304       | 59 · 86       |
+  | `output` · `json-terminal-contract`                                              | 751 · 369       | 57 · 72       |
+  | `config` · `auth-probe` · `client`                                               | 754 · 318 · 246 | 77 · 51 · 131 |
+  | `index` · `contract-binding`                                                     | 686 · 443       | 149 · 78      |
+  | `mount-registry` · `deprecation-cycle`                                           | 718 · 660       | 68 · 89       |
+  | `vibe-wire-types` and its conformance                                            | 494 · 518       | 69 · 101      |
+  | the six docs generators                                                          | 1,109           | 601           |
+  | the four `id-graph` trees                                                        | 752             | 436           |
+  | `util/version-check` · `util/tenant-http` · `util/destructive-confirmation.scan` | 677 · 530 · 552 | 56 · 58 · 102 |
+  | the six body and blocker trees                                                   | 1,243           | 510           |
+  | the five mcp and resolution trees                                                | 872             | 208           |
+  | the seven util tail trees and `skills-corpus`                                    | 1,255           | 608           |
+  
+  The shape is the one the earlier waves settled on: a root file keeps the public
+  names and re-exports, and each concern moves to `<stem>.<concern>.ts`. Shared values
+  are declared in the LEAVES rather than in the root, because `import/no-cycle` is
+  armed on this package and an index whose siblings import back from it costs one
+  warning per sibling.
+  
+  `packages/mcp-server/src/secret-file.ts` is a byte-for-byte mirror of the CLI's, so
+  it was split the same way and is declared here with it.
+  
+  Every family's published surface was proved unchanged, and three path-keyed gates
+  that would have gone vacuous over the new file names were repaired at their input
+  and proved with a two-tree control — the repaired key refusing a planted violation
+  that the old key passed over.
+  
+  The size ledger that capped these files shrank by 44 rows and its ceiling fell from
+  66 to 22.
+
 ## 1.2.0
 ### Minor Changes
 

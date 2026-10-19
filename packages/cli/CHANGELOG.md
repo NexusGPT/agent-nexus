@@ -1,5 +1,92 @@
 # @agent-nexus/cli
 
+## 1.13.2
+### Patch Changes
+
+- 179fa86: `apps domains add` tells the owner when an unproven claim is released
+  
+  `nexus apps domains add` now closes with the deadline on the DNS step it has
+  just asked for: if the domain does not point here within 7 days, the claim is
+  released and the host becomes free for any organisation to add.
+  
+  It is the one thing on that screen the reader acts on away from the terminal.
+  The command already printed the records to create and the next verb to run; what
+  it did not say is that the host is only held while the claim is. A domain parked
+  behind an unmade DNS change was given up with no warning the owner had been
+  given a deadline at all.
+  
+  **The line prints only where it is true — the domain is waiting on DNS and has
+  never been seen at the edge.** A domain that verified once and has since lost
+  its DNS stays with the organisation that proved it, so no release line appears
+  there: telling that owner the host is about to be given away would be false.
+  
+  ## What did NOT change
+  
+  - **`--json` is untouched.** No key was added, removed or renamed; the line is
+    terminal prose and `--json` output never carries it.
+  - **Every other line of `add`** — the confirmation, the DNS records, and the
+    existing `Next:` step for both the ready and the unavailable case — is
+    unchanged, as is the command's exit code.
+- 45e067d: `collection create --help` and `collection update --help` say what `preciseResponses` really does: each search result is cut to its best-matching sentences, which lowers token use but does not make answers more accurate, can drop an answer that spans several sentences, and adds an embedding round trip to every search.
+- 460b03a: The last three CLI trees are decomposed, and the 150/80 caps are armed over them
+  
+  No behaviour changes. 44 files in `packages/cli/src/` flat, `packages/cli/src/util/`
+  and `packages/cli/src/skills-corpus/` went from 15,077 lines to their own trees, and
+  the `max-lines` 150 / `max-lines-per-function` 80 ratchet now covers all three
+  directories. With this the ratchet reaches every production file the package ships.
+  
+  Before → after, by family:
+  
+  | family                                                                           | before          | after         |
+  | -------------------------------------------------------------------------------- | --------------- | ------------- |
+  | `errors` · `exit-codes`                                                          | 826 · 304       | 59 · 86       |
+  | `output` · `json-terminal-contract`                                              | 751 · 369       | 57 · 72       |
+  | `config` · `auth-probe` · `client`                                               | 754 · 318 · 246 | 77 · 51 · 131 |
+  | `index` · `contract-binding`                                                     | 686 · 443       | 149 · 78      |
+  | `mount-registry` · `deprecation-cycle`                                           | 718 · 660       | 68 · 89       |
+  | `vibe-wire-types` and its conformance                                            | 494 · 518       | 69 · 101      |
+  | the six docs generators                                                          | 1,109           | 601           |
+  | the four `id-graph` trees                                                        | 752             | 436           |
+  | `util/version-check` · `util/tenant-http` · `util/destructive-confirmation.scan` | 677 · 530 · 552 | 56 · 58 · 102 |
+  | the six body and blocker trees                                                   | 1,243           | 510           |
+  | the five mcp and resolution trees                                                | 872             | 208           |
+  | the seven util tail trees and `skills-corpus`                                    | 1,255           | 608           |
+  
+  The shape is the one the earlier waves settled on: a root file keeps the public
+  names and re-exports, and each concern moves to `<stem>.<concern>.ts`. Shared values
+  are declared in the LEAVES rather than in the root, because `import/no-cycle` is
+  armed on this package and an index whose siblings import back from it costs one
+  warning per sibling.
+  
+  `packages/mcp-server/src/secret-file.ts` is a byte-for-byte mirror of the CLI's, so
+  it was split the same way and is declared here with it.
+  
+  Every family's published surface was proved unchanged, and three path-keyed gates
+  that would have gone vacuous over the new file names were repaired at their input
+  and proved with a two-tree control — the repaired key refusing a planted violation
+  that the old key passed over.
+  
+  The size ledger that capped these files shrank by 44 rows and its ceiling fell from
+  66 to 22.
+- 7b92f91: `nexus version --help` announces that the routes behind it are being removed
+  
+  Every route the `nexus version` namespace calls answers RFC 9745 `Deprecation` and RFC
+  8594 `Sunset` headers, and the help text said nothing about it. The namespace and every
+  leaf under it now print that notice first, so somebody reading the help learns the
+  surface is scheduled for removal before they build against it. Prompt variants replace
+  it.
+  
+  **Nothing a caller can express changed.** No command, flag, argument, exit code or
+  output format moved — an already-reachable command prints more, which is why this is a
+  patch and not a minor.
+  
+  **No date is printed, deliberately.** The sunset instant is computed in
+  `apps/backend/src/public/v1/v1-agent-versions.controller.ts` at module load from an
+  anchor plus a notice period, so a date typed into the help text would be a second copy
+  of that arithmetic and would drift from the live schedule the moment either moved. Read
+  the schedule off the headers themselves — `nexus api GET /agents/<agent-id>/versions`
+  prints them — or off the API reference.
+
 ## 1.13.1
 ### Patch Changes
 

@@ -31,8 +31,6 @@ import {
 import type { GitHubReader, ReadResult } from "../../../../scripts/skills-drift/upstream";
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
-/** The monorepo root, for arms that read a workflow's own text. */
-export const REPO_ROOT = path.resolve(HERE, "..", "..", "..", "..", "..", "..");
 
 export function fixture(name: string): {
   commits: { sha: string; commit: { committer: { date: string } } }[];

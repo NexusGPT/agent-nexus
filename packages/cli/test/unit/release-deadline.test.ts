@@ -11,12 +11,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  RELEASE_COMMIT_SUBJECT,
   RELEASE_STALENESS_TOLERANCE_HOURS,
   releaseDeadline,
   resolveReleaseDeadline
 } from "../../scripts/skills-drift/release-deadline";
-import { DEADLINE_1_10_0, readerFor, REPO_ROOT } from "./fixtures/publish-pin/recorded";
+import { DEADLINE_1_10_0, readerFor } from "./fixtures/publish-pin/recorded";
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "publish-pin");
 
@@ -120,12 +119,7 @@ describe("resolving the release from the monorepo", () => {
     });
     expect(resolved).toMatchObject({ kind: "unknown", code: "RELEASE_PR_UNREADABLE" });
   });
-
-  it("matches the subject release-version.yml actually writes", () => {
-    const workflow = fs.readFileSync(
-      path.join(REPO_ROOT, ".github", "workflows", "release-version.yml"),
-      "utf-8"
-    );
-    expect(workflow).toContain(`RELEASE_TITLE: "${RELEASE_COMMIT_SUBJECT}"`);
-  });
 });
+
+// That `release-version.yml` writes RELEASE_COMMIT_SUBJECT is read off the parsed
+// workflow by `scripts/__tests__/changeset-config.spec.ts`.

@@ -20,9 +20,6 @@
  * author's model of the defect. These are the defect, and the race.
  */
 
-import fs from "node:fs";
-import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -45,7 +42,6 @@ import {
   PIN_1_10_0,
   PIN_7344,
   readerFor,
-  REPO_ROOT,
   ROUTES_1_3_0,
   ROUTES_1_10_0,
   ROUTES_7344,
@@ -309,19 +305,11 @@ describe("the controls that must stay green", () => {
     });
     expect(verdict.state).toBe("RELEASE_PIN_CURRENT");
   });
-
-  it("never runs at all on a sync that carries no CLI release tag, and judges a release when it does", () => {
-    // AND THIS ARM READS TEXT, NOT BEHAVIOUR — it catches the guard or the flag
-    // being deleted, and cannot catch either being present and wrong.
-    const workflow = fs.readFileSync(
-      path.join(REPO_ROOT, ".github", "workflows", "mirror-public-packages.yml"),
-      "utf-8"
-    );
-    expect(workflow).toContain("grep -q '^cli-v' \"${GITHUB_WORKSPACE}/tags-to-push.txt\"");
-    expect(workflow).toContain('check-publish-pin.ts" --release-ref "${GITHUB_SHA}"');
-    expect(workflow).toContain("NEXUS_REPO_READ_TOKEN: ${{ github.token }}");
-  });
 });
+
+// The workflow half — the gate step's guard, invocation and token, the job outputs and
+// both guarded steps' `if:` — is read off the parsed workflow by
+// `scripts/__tests__/mirror-publish-pin-guard-holds-on-each-step.spec.ts`.
 
 describe("a gate that cannot measure must not report success", () => {
   it("refuses with NO_TOKEN when there is no credential", async () => {
@@ -435,19 +423,5 @@ describe("the verdict the workflow reads, one arm per state", () => {
 
   it("UNCHECKED withholds and is NOT a refusal, so a tooling failure still pages", () => {
     expect(gateOutputs("RELEASE_PIN_UNCHECKED")).toEqual({ verdict: "unchecked", withhold: true });
-  });
-
-  it("only `current` and `not-applicable` may publish, and the workflow tests that negatively", () => {
-    const workflow = fs.readFileSync(
-      path.join(REPO_ROOT, ".github", "workflows", "mirror-public-packages.yml"),
-      "utf-8"
-    );
-    expect(workflow).toContain("steps.publish_pin.outputs.verdict != 'current'");
-    expect(workflow).toContain("steps.publish_pin.outputs.verdict != 'not-applicable'");
-    expect(workflow).toContain("publish_pin_verdict: ${{ steps.publish_pin.outputs.verdict }}");
-    expect(workflow).toContain(
-      "release_withheld: ${{ steps.withhold_decl.outputs.release_withheld }}"
-    );
-    expect(workflow).toContain("id: withhold_decl");
   });
 });

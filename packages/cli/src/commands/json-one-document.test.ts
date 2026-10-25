@@ -561,7 +561,8 @@ describe("the failure vocabulary", () => {
       "connection-failed",
       "timed-out",
       "remote-error",
-      "local-failed"
+      "local-failed",
+      "interrupted"
     ];
     const codes = causes.map((cause) => codeOf(() => void reportFailure(cause, "x")));
 

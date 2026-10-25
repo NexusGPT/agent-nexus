@@ -1,3 +1,5 @@
+import type { VibeUnlistedValue } from "./vibe-deploy-state-vocabulary";
+
 /**
  * THE GIT PROJECT — the repository an app builds from, its deprecated alias,
  * and the per-project push credential.
@@ -8,7 +10,7 @@
  * dependency. `vibe-git-project-wire-types.conformance.ts` is the gate.
  */
 
-/** Mirrors `VibeGitProjectSchema` in full — twelve fields, all twelve declared. */
+/** Mirrors `VibeGitProjectSchema` in full — thirteen fields, all thirteen declared. */
 export interface VibeGitProjectDto {
   id: string;
   organizationId: string;
@@ -29,8 +31,17 @@ export interface VibeGitProjectDto {
    * for exactly that reason), but `--git-url` on provision sets it to whatever
    * the user supplied, which per schema.prisma's `VibeGitProject.gitRemoteUrl`
    * comment may be a local path, `file://`, or a public https URL.
+   *
+   * Null whenever `gitRemoteState` is not `available` — including while the
+   * tenant's git host has no live address, when the backend withholds the URL
+   * rather than answer with the host's last, possibly reassigned, IP.
    */
   gitRemoteUrl: string | null;
+  /**
+   * Why `gitRemoteUrl` is or is not set. Absent only from a backend that
+   * predates it; a state a newer backend adds arrives as the server's word.
+   */
+  gitRemoteState?: "available" | "none" | "git_host_unavailable" | VibeUnlistedValue;
   status: string;
   createdByUserId: string | null;
   createdAt: string;

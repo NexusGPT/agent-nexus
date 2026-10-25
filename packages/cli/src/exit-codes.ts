@@ -76,7 +76,7 @@
 
 export type { ExitCategory } from "./exit-code-categories";
 export { CategorizedCliError } from "./exit-code-error";
-export { exitCodeForHttpStatus } from "./exit-code-http-status";
+export { categoryForHttpStatus, exitCodeForHttpStatus } from "./exit-code-http-status";
 export {
   EXIT_CATEGORIES,
   EXIT_CODES,

@@ -2,21 +2,25 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { WorkspaceMountCredentials } from "@agent-nexus/sdk";
+import { NexusApiError, type WorkspaceMountCredentials } from "@agent-nexus/sdk";
 import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+
+import { hostPlatform, stagePlatform } from "../stage-platform";
 
 /**
  * The state directory is resolved from HOME when `../mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
  * wherever it sits in the file. The direct-engine cases below write real
  * session and cache files under it; nothing here may reach the developer's own
- * `~/.nexus-mcp`. Without the trailing slash macOS puts on TMPDIR: the fs mock
- * below decides "inside the sandbox" by string prefix, against paths
- * `os.homedir()` has already normalised.
+ * `~/.nexus-mcp`. Joined by the host's own `path` (no import exists this
+ * early): the fs mock below decides "inside the sandbox" by string prefix,
+ * against paths the source builds with `path.join` — one separator, and no
+ * trailing slash.
  */
 const SANDBOX = vi.hoisted(() => {
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-workspace-unmount-${process.pid}`;
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-workspace-unmount-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
@@ -31,13 +35,20 @@ import {
   FUSE_T_LIBRARY,
   LEGACY_MACFUSE_LIBRARY,
   MACFUSE_LIBRARY
-} from "../workspace-direct-mount/fuse-libraries";
-import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
+} from "../workspace-direct-mount/darwin/fuse-libraries";
+import { managedRcloneFor } from "../workspace-direct-mount/managed-rclone";
+import { mountIdFor } from "../workspace-direct-mount/mount-id";
 import type { MountSession } from "../workspace-direct-mount/mount-session";
 import { readSession } from "../workspace-direct-mount/read-session";
 import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
 import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
+import { powerShellExe, system32Exe } from "../workspace-direct-mount/win32/win32-system-exe";
+import { isWinFspArch, winFspLibraryFor } from "../workspace-direct-mount/win32/winfsp-library";
 import { writeSession } from "../workspace-direct-mount/write-session";
+import { gatewayCacheDirFor } from "./workspace-mount/gateway-cache";
+import { jsonPendingUploads } from "./workspace-mount/json-pending-uploads";
+import { isStartScript, leaveStarted } from "./workspace-mount/win32/started-rclone";
+import { STOP_ENV, STOP_SCRIPT } from "./workspace-mount/win32/stop-rclone-hidden";
 
 /**
  * NEX-2360: `unmount` disambiguates by the org recorded at mount time.
@@ -87,12 +98,102 @@ vi.mock("@agent-nexus/sdk", async (importOriginal) => {
 // live; `spawn` returns a live-looking child so the remount records this
 // process's pid.
 const spawn = vi.fn();
+// Windows: the command line comes from PowerShell (a stranger's, an rclone's,
+// or a probe that could not run), WinFsp is installed, and `whoami` answers
+// nothing unless a case hands it the elevated token's SID.
+// `whoami` answers only at its System32 address (SystemRoot is unset here), and
+// the UAC policy reads UAC on for a user who is not the built-in Administrator.
+// `ps` and the Windows command line name an rclone mount at the path of the row
+// that recorded the probed pid (`null`: each pid still runs its own row's
+// drive) unless a case hands a pid to a stranger.
+const WINFSP_DIR = "C:\\Program Files (x86)\\WinFsp";
+const WINFSP_DLL = winFspLibraryFor(WINFSP_DIR, isWinFspArch(process.arch) ? process.arch : "x64");
+const RENEWAL_DOCUMENT = JSON.stringify({
+  Version: 1,
+  AccessKeyId: "ASIA_FRESH_KEY",
+  SecretAccessKey: "s",
+  SessionToken: "t"
+});
+let commandLineAnswer: string | Error | null = null;
+let withheldImageName: string | null = null;
+let whoamiAnswer = "";
+let psAnswer: string | null = null;
+/**
+ * What the Windows stop leaves: rclone's answer to the Ctrl-C `unmount` sends
+ * before any kill. `exited` is the drive closing itself (the default); `killed`
+ * one the script ended through its handle (still running after the window, or
+ * no console to tell); an Error is a PowerShell that could not run.
+ */
+let stopAnswer: "exited" | "killed" | Error = "exited";
+/** What rclone does as it closes on the Ctrl-C — a case that needs its last write sets it. */
+let onStop: (() => void) | null = null;
+/** The argv the PowerShell runner is called with carries the script fourth; the stop script is the one to answer. */
+function isStopScript(args: readonly string[] | undefined): boolean {
+  return args?.[3]?.endsWith(STOP_SCRIPT) ?? false;
+}
+/** Answer the stop as the staged rclone would: throw for a PowerShell that could not run, else the one word in the file the env names. */
+function answerStop(env: NodeJS.ProcessEnv): string {
+  if (stopAnswer instanceof Error) throw stopAnswer;
+  onStop?.();
+  const resultPath = env[STOP_ENV.result];
+  if (resultPath === undefined) throw new Error("the stop was given no result path");
+  fs.writeFileSync(resultPath, `${stopAnswer}\r\n`);
+  return "";
+}
+/** The server REFUSING the workspace list (401, 403), which a gateway remount asks for. */
+let listFailure: Error | null = null;
+// Drive the registry off memory instead of ~/.nexus-mcp — reads AND writes
+// (the `node:fs` fake below).
+let registry: Record<string, unknown> = {};
+/** One process per pid, as `ps -p` and WMI answer: the drive of the row that recorded it. */
+function rcloneMountOfPid(program: string, pid: number): string {
+  const row = Object.values(registry)
+    .filter(isRow)
+    .find((candidate) => candidate.pid === pid);
+  return row === undefined ? "" : `${program} mount nxws: ${String(row.mountPath)}\n`;
+}
+/** A registry row as the fakes read it: any object, its fields read as unknown. */
+function isRow(value: unknown): value is { readonly pid?: unknown; readonly mountPath?: unknown } {
+  return typeof value === "object" && value !== null;
+}
+/** The pid the PowerShell command-line script asks WMI for. */
+function pidInScript(script: string): number {
+  return Number(/ProcessId = (\d+)/.exec(script)?.[1] ?? "NaN");
+}
 vi.mock("node:child_process", () => ({
-  execFileSync: vi.fn((command: string) => {
-    if (command === "rclone") return "rclone v1.74.4\n- go/tags: cmount\n";
-    if (command === "ps") return "rclone mount nxws: /Users/me/nexus/acme/support-docs\n";
-    return "";
-  }),
+  execFileSync: vi.fn(
+    (command: string, args?: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
+      // Windows runs only the managed copy, which a Windows host finds in place (the fs fake below).
+      if (command === "rclone" || command === managedRcloneFor("win32")) {
+        return "rclone v1.74.4\n- go/tags: cmount\n";
+      }
+      if (command === "ps") return psAnswer ?? rcloneMountOfPid("rclone", Number(args?.[4]));
+      if (command === powerShellExe(process.env)) {
+        const script = args?.[3] ?? "";
+        // The Windows start of a remount: PowerShell leaves this process's pid behind, so the row reads live.
+        if (isStartScript(args)) {
+          leaveStarted(options?.env ?? {}, { pid: process.pid, log: [] });
+          return "";
+        }
+        // The Windows stop: rclone told to exit through its console, before any kill.
+        if (isStopScript(args)) return answerStop(options?.env ?? {});
+        if (script.includes("EnableLUA"))
+          return "EnableLUA=1\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-1111-2222-3333-1001\r\n";
+        if (!script.includes("Win32_Process")) return `${WINFSP_DIR}\r\n`;
+        // WMI withholds another account's command line; only a script that asks
+        // for the image name too learns what holds the pid.
+        if (withheldImageName !== null) {
+          return script.includes("$p.Name") ? `${withheldImageName}\r\n` : "\r\n";
+        }
+        if (commandLineAnswer instanceof Error) throw commandLineAnswer;
+        return commandLineAnswer ?? rcloneMountOfPid("rclone.exe", pidInScript(script));
+      }
+      if (command === system32Exe(process.env, "whoami.exe")) return whoamiAnswer;
+      // renew.cmd, run once before a Windows direct mount: the key a remount mints.
+      if (command === system32Exe(process.env, "cmd.exe")) return RENEWAL_DOCUMENT;
+      return "";
+    }
+  ),
   execSync: vi.fn(() => ""),
   spawn: (...args: unknown[]) => spawn(...args)
 }));
@@ -114,16 +215,24 @@ vi.mock("../client", async (importOriginal) => {
     ...actual,
     createClient: (opts: Record<string, unknown>) => {
       clientOpts.push(opts);
-      return { workspaces: { mintMountCredentials: mint } };
+      return {
+        workspaces: {
+          mintMountCredentials: mint,
+          // The list a gateway remount asks for: empty, unless a case makes the server refuse it.
+          list: async () => {
+            if (listFailure !== null) throw listFailure;
+            return { workspaces: [] };
+          }
+        }
+      };
     }
   };
 });
 
-// Drive the registry off memory instead of ~/.nexus-mcp — reads AND writes.
-// Everything else under the sandbox HOME is real; a path outside it (the
-// fixtures' `/a/…` mount points) is created and read as empty without touching
-// the disk. FUSE-T is the library "installed" here, so no loader runs.
-let registry: Record<string, unknown> = {};
+// The registry (declared above) lives in memory. Everything else under the
+// sandbox HOME is real; a path outside it (the fixtures' `/a/…` mount points)
+// is created and read as empty without touching the disk. FUSE-T is the library
+// "installed" here, so no loader runs.
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   const inSandbox = (p: unknown): boolean => String(p).startsWith(SANDBOX);
@@ -154,8 +263,12 @@ vi.mock("node:fs", async (importOriginal) => {
       ),
       existsSync: vi.fn((p: string) => {
         if (p === FUSE_T_LIBRARY) return true;
+        // Linux mounts need the FUSE device; this spec's host may have none.
+        if (p === "/dev/fuse") return true;
+        if (p === WINFSP_DLL) return true;
         if (p === MACFUSE_LIBRARY || p === LEGACY_MACFUSE_LIBRARY) return false;
-        if (p === MANAGED_RCLONE) return false;
+        if (p === managedRcloneFor("darwin")) return false;
+        if (p === managedRcloneFor("win32")) return true;
         return actual.existsSync(p);
       }),
       openSync: vi.fn(() => 1)
@@ -231,14 +344,34 @@ async function runUnmount(slug: string): Promise<unknown> {
  * probe (signal 0) real and swallows the kill, recording it.
  */
 const killed: number[] = [];
+/** What the killed process does as it goes — a case that needs rclone's last write sets it. */
+let onKill: (() => void) | null = null;
 let realKill: typeof process.kill;
+/** A pid alive under another account: the signal-0 probe answers EPERM, never ESRCH. */
+const FOREIGN_PID = 424242;
 beforeEach(() => {
   realKill = process.kill;
   vi.spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
-    if (signal === 0) return realKill.call(process, pid, 0);
+    if (signal === 0) {
+      if (pid === FOREIGN_PID) throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+      return realKill.call(process, pid, 0);
+    }
     killed.push(pid);
+    onKill?.();
     return true;
   });
+});
+
+const pretendPlatform = stagePlatform();
+afterEach(() => {
+  onKill = null;
+  onStop = null;
+  stopAnswer = "exited";
+  commandLineAnswer = null;
+  withheldImageName = null;
+  whoamiAnswer = "";
+  psAnswer = null;
+  listFailure = null;
 });
 afterEach(() => {
   vi.mocked(process.kill).mockRestore();
@@ -501,6 +634,25 @@ function directRow(over: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
+/** The mount id of org A's `tools` row, and the folder its rclone drive caches in. */
+const RCLONE_ID = mountIdFor("org:org_aaa|tools");
+const RCLONE_CACHE_DIR = gatewayCacheDirFor({ mountId: RCLONE_ID, shared: false });
+
+/** Org A's live rclone row for `tools`, running on its own cache folder. */
+function rcloneRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return mountRow({
+    slug: "tools",
+    engine: "rclone",
+    mountPath: path.join(SANDBOX, "nexus", "acme", "tools"),
+    mountId: RCLONE_ID,
+    pid: process.pid,
+    orgId: "org_aaa",
+    orgName: "Acme",
+    profile: "org-a",
+    ...over
+  });
+}
+
 function sessionFixture(over: Partial<MountSession> = {}): MountSession {
   return {
     version: 1,
@@ -545,13 +697,8 @@ function mintedFixture(over: Partial<WorkspaceMountCredentials> = {}): Workspace
 }
 
 /** rclone's cache, holding `count` saves the dead mount never uploaded. */
-function leaveDirtyItems(count: number): void {
-  const metaRoot = path.join(
-    sessionPathsFor(MOUNT_ID).cacheDir,
-    "vfsMeta",
-    "nxws{abc}",
-    "support-docs"
-  );
+function leaveDirtyItems(count: number, cacheDir = sessionPathsFor(MOUNT_ID).cacheDir): void {
+  const metaRoot = path.join(cacheDir, "vfsMeta", "nxws{abc}", "support-docs");
   fs.mkdirSync(metaRoot, { recursive: true });
   for (let index = 0; index < count; index += 1) {
     fs.writeFileSync(
@@ -591,10 +738,14 @@ describe("nexus workspace unmount — a direct row", () => {
   });
 
   it("kills the recorded process, deletes the session directory and an EMPTY cache, and says how long the last key lives", async () => {
+    // The kill road is POSIX; Windows asks the drive to close first (its cases below).
+    pretendPlatform("linux");
     const session = sessionFixture();
     writeSession(session);
     const paths = sessionPathsFor(MOUNT_ID);
     fs.mkdirSync(paths.cacheDir, { recursive: true });
+    const rm = vi.spyOn(fs, "rmSync");
+    onTestFinished(() => rm.mockRestore());
 
     const out = (await runUnmount("support-docs")) as Record<string, unknown>;
 
@@ -605,8 +756,24 @@ describe("nexus workspace unmount — a direct row", () => {
       accessValidUntil: session.expiresAt
     });
     expect(killed).toEqual([process.pid]);
+    // Retried: a file a renewal or an antivirus still holds must not fail the
+    // unmount after the drive was stopped.
+    expect(rm).toHaveBeenCalledWith(
+      paths.dir,
+      expect.objectContaining({ recursive: true, maxRetries: 10, retryDelay: 100 })
+    );
     expect(fs.existsSync(paths.dir)).toBe(false);
     expect(fs.existsSync(paths.cacheDir)).toBe(false);
+    expect(registry).toEqual({});
+
+    // Held past the retries: named, never thrown — the drive is stopped, so its row goes too.
+    writeSession(session);
+    registry = { "org:org_aaa|support-docs": directRow() };
+    rm.mockImplementationOnce(() => {
+      throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+    });
+    await runUnmount("support-docs");
+    expect(process.exitCode ?? 0).toBe(0);
     expect(registry).toEqual({});
   });
 
@@ -644,28 +811,44 @@ describe("nexus workspace unmount — a direct row", () => {
     expect(fs.existsSync(paths.cacheDir)).toBe(true);
   });
 
-  it("says UNKNOWN, never Infinity and never null, when the cache cannot be read", async () => {
-    // The unknown sentinel is infinite so both in-process comparisons fail
-    // safe. Two surfaces must not see it raw: a human would read "Infinity
-    // file(s)", and `JSON.stringify` renders infinity as `null` — the value the
-    // help defines as "null on other engines", i.e. nothing to lose. A script
-    // gating teardown on `pendingUploads === null || === 0` would then discard
-    // a cache holding every unsent save.
-    const paths = sessionPathsFor(MOUNT_ID);
-    fs.rmSync(paths.cacheDir, { recursive: true, force: true });
-    fs.mkdirSync(path.join(paths.cacheDir, "vfsMeta", "locked"), { recursive: true });
-    fs.writeFileSync(path.join(paths.cacheDir, "vfsMeta", "locked", "item"), '{"Dirty":true}');
-    fs.chmodSync(path.join(paths.cacheDir, "vfsMeta", "locked"), 0o000);
-    registry = { "org:org_aaa|support-docs": directRow() };
-    writeSession(sessionFixture());
-    try {
-      const doc = (await runUnmount("support-docs")) as Record<string, unknown>;
-      expect(doc.pendingUploads).toBe("unknown");
-      expect(doc.pendingUploads).not.toBeNull();
-      expect(JSON.stringify(doc)).not.toContain("Infinity");
-    } finally {
-      fs.chmodSync(path.join(paths.cacheDir, "vfsMeta", "locked"), 0o700);
+  // POSIX hosts only: `chmod 000` makes nothing unreadable on NTFS.
+  it.skipIf(hostPlatform() === "win32")(
+    "says UNKNOWN, never Infinity and never null, when the cache cannot be read",
+    async () => {
+      // The unknown sentinel is infinite so both in-process comparisons fail
+      // safe. Two surfaces must not see it raw: a human would read "Infinity
+      // file(s)", and `JSON.stringify` renders infinity as `null` — the value the
+      // help defines as "null on other engines", i.e. nothing to lose. A script
+      // gating teardown on `pendingUploads === null || === 0` would then discard
+      // a cache holding every unsent save.
+      const paths = sessionPathsFor(MOUNT_ID);
+      fs.rmSync(paths.cacheDir, { recursive: true, force: true });
+      fs.mkdirSync(path.join(paths.cacheDir, "vfsMeta", "locked"), { recursive: true });
+      fs.writeFileSync(path.join(paths.cacheDir, "vfsMeta", "locked", "item"), '{"Dirty":true}');
+      fs.chmodSync(path.join(paths.cacheDir, "vfsMeta", "locked"), 0o000);
+      registry = { "org:org_aaa|support-docs": directRow() };
+      writeSession(sessionFixture());
+      try {
+        const doc = (await runUnmount("support-docs")) as Record<string, unknown>;
+        expect(doc.pendingUploads).toBe("unknown");
+        expect(doc.pendingUploads).not.toBeNull();
+        expect(JSON.stringify(doc)).not.toContain("Infinity");
+      } finally {
+        fs.chmodSync(path.join(paths.cacheDir, "vfsMeta", "locked"), 0o700);
+      }
     }
+  );
+
+  it("renders any count JSON cannot carry as unknown — NaN serialises as null too — and a real count as itself", () => {
+    expect(jsonPendingUploads(Number.NaN)).toBe("unknown");
+    expect(jsonPendingUploads(2)).toBe(2);
+  });
+
+  it("says UNKNOWN for a direct row whose mount id is corrupt: no cache was looked at", async () => {
+    registry = { "org:org_aaa|support-docs": directRow({ mountId: "BAD" }) };
+    const doc = (await runUnmount("support-docs")) as Record<string, unknown>;
+    expect(doc).toMatchObject({ unmounted: true, pendingUploads: "unknown" });
+    expect(registry).toEqual({});
   });
 
   it("leaves the two fields null on a webdav row", async () => {
@@ -685,6 +868,105 @@ describe("nexus workspace unmount — a direct row", () => {
       pendingUploads: null,
       accessValidUntil: null
     });
+  });
+});
+
+describe("nexus workspace unmount — an rclone row", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.NEXUS_ORGANIZATION_ID;
+    resolveProfile.mockReturnValue(ORG_A_PROFILE);
+    fs.rmSync(SANDBOX, { recursive: true, force: true });
+    registry = { "org:org_aaa|tools": rcloneRow() };
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    setJsonMode(false);
+    process.exitCode = undefined;
+  });
+
+  it("counts an unsent save after the kill, KEEPS the drive's cache folder, and names the mount that uploads it", async () => {
+    // The kill road is POSIX; Windows asks the drive to close first (its cases below).
+    pretendPlatform("linux");
+    leaveDirtyItems(1, RCLONE_CACHE_DIR);
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toEqual({
+      unmounted: true,
+      slug: "tools",
+      pendingUploads: 1,
+      accessValidUntil: null
+    });
+    expect(killed).toEqual([process.pid]);
+    expect(fs.existsSync(RCLONE_CACHE_DIR)).toBe(true);
+    expect(registry).toEqual({});
+
+    registry = { "org:org_aaa|tools": rcloneRow() };
+    const { lines } = await runWorkspace(["unmount", "tools"], { json: false });
+    expect(lines.join("\n")).toContain(
+      "1 file(s) not yet uploaded; nexus workspace mount tools --engine rclone uploads them"
+    );
+  });
+
+  it("names --shared in that hint for the admin-shared copy: the bare slug would mount the other copy's folder", async () => {
+    const sharedCache = gatewayCacheDirFor({ mountId: RCLONE_ID, shared: true });
+    leaveDirtyItems(1, sharedCache);
+    registry = { "org:org_aaa|tools": rcloneRow({ shared: true }) };
+    const { lines } = await runWorkspace(["unmount", "tools"], { json: false });
+    expect(lines.join("\n")).toContain(
+      "1 file(s) not yet uploaded; nexus workspace mount tools --shared --engine rclone uploads them"
+    );
+    expect(fs.existsSync(sharedCache)).toBe(true);
+  });
+
+  it("deletes an EMPTY cache folder, and counts nothing on a row mounted before drives had their own folder", async () => {
+    fs.mkdirSync(RCLONE_CACHE_DIR, { recursive: true });
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+    expect(out).toMatchObject({ pendingUploads: 0 });
+    expect(fs.existsSync(RCLONE_CACHE_DIR)).toBe(false);
+
+    // No mount id: rclone cached in its own default folder, which this CLI never
+    // reads — null ("not counted"), never a 0 that would read as "nothing lost".
+    registry = { "org:org_aaa|tools": rcloneRow({ mountId: undefined }) };
+    const legacy = (await runUnmount("tools")) as Record<string, unknown>;
+    expect(legacy).toMatchObject({ pendingUploads: null });
+  });
+
+  it("on Windows counts AFTER rclone.exe has closed on the Ctrl-C: a save it wrote as it closed is counted, and its folder kept", async () => {
+    // The drive takes saves until rclone is gone: a count taken before would
+    // miss this one and delete the folder that holds it.
+    pretendPlatform("win32");
+    fs.mkdirSync(RCLONE_CACHE_DIR, { recursive: true });
+    onStop = () => leaveDirtyItems(1, RCLONE_CACHE_DIR);
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(killed).toEqual([]);
+    expect(out).toMatchObject({ pendingUploads: 1 });
+    expect(fs.existsSync(RCLONE_CACHE_DIR)).toBe(true);
+  });
+
+  it("on Windows counts AFTER the stop ended an rclone.exe that did not close: its last save is counted, and its folder kept", async () => {
+    pretendPlatform("win32");
+    stopAnswer = "killed";
+    fs.mkdirSync(RCLONE_CACHE_DIR, { recursive: true });
+    onStop = () => leaveDirtyItems(1, RCLONE_CACHE_DIR);
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    // Ended through the script's handle: no kill by a bare pid follows.
+    expect(killed).toEqual([]);
+    expect(out).toMatchObject({ pendingUploads: 1 });
+    expect(fs.existsSync(RCLONE_CACHE_DIR)).toBe(true);
+  });
+
+  it("unmounts a hand-edited row that names no engine at all, in text mode too, exit 0", async () => {
+    const { engine: _dropped, ...engineless } = rcloneRow();
+    registry = { "org:org_aaa|tools": engineless };
+    await runWorkspace(["unmount", "tools"], { json: false });
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(registry).toEqual({});
   });
 });
 
@@ -708,6 +990,18 @@ describe("nexus workspace remount", () => {
     process.exitCode = undefined;
   });
 
+  it("refuses a direct row whose mount id is corrupt before anything is minted, naming unmount", async () => {
+    registry = { "org:org_aaa|support-docs": directRow({ pid: undefined, mountId: "../../x" }) };
+    const { out } = await runWorkspace(["remount", "support-docs"]);
+    expect((out as ErrorDocument).error).toMatchObject({
+      code: "CLI_LOCAL_FAILED",
+      hint: "Run: nexus workspace unmount support-docs, then mount it again."
+    });
+    expect(process.exitCode).toBe(9);
+    expect(mint).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("refuses a row that is still live, naming the path", async () => {
     registry = { "org:org_aaa|support-docs": directRow() };
     const { out } = await runWorkspace(["remount", "support-docs"]);
@@ -719,26 +1013,16 @@ describe("nexus workspace remount", () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  const rcloneRow = {
-    "org:org_aaa|tools": {
-      slug: "tools",
-      engine: "rclone",
-      mountPath: path.join(SANDBOX, "nexus", "acme", "tools"),
-      baseUrl: "https://api.nexusgpt.io",
-      readOnly: false,
-      orgId: "org_aaa",
-      orgName: "Acme",
-      profile: "org-a",
-      mountedAt: "2026-06-24T00:00:00.000Z"
-    }
-  };
+  /** A dead rclone row that recorded no mount id, alone in its registry. */
+  const deadRcloneRow = rcloneRow({ pid: undefined, mountId: undefined, readOnly: false });
+  const deadRcloneRegistry = { "org:org_aaa|tools": deadRcloneRow };
 
   it("refuses an rclone row on macOS, where that engine is retired, naming direct and the WebDAV default", async () => {
     const real = Object.getOwnPropertyDescriptor(process, "platform");
     if (!real) throw new Error("process.platform has no descriptor to restore");
-    Object.defineProperty(process, "platform", { ...real, value: "darwin" });
+    pretendPlatform("darwin");
     try {
-      registry = rcloneRow;
+      registry = deadRcloneRegistry;
       const { out } = await runWorkspace(["remount", "tools"]);
       const doc = out as ErrorDocument;
       expect(doc.error?.message).toContain("retired on macOS");
@@ -799,16 +1083,18 @@ describe("nexus workspace remount", () => {
   it("remounts an rclone row on Linux the ordinary way: the gateway over FUSE, the key in the environment, no mint", async () => {
     const real = Object.getOwnPropertyDescriptor(process, "platform");
     if (!real) throw new Error("process.platform has no descriptor to restore");
-    Object.defineProperty(process, "platform", { ...real, value: "linux" });
+    pretendPlatform("linux");
     try {
-      registry = rcloneRow;
+      registry = deadRcloneRegistry;
       const { out } = await runWorkspace(["remount", "tools"]);
+      // A row recorded with no mount id gets one now: its drive's own cache folder.
+      const mountId = mountIdFor("org:org_aaa|tools");
       expect(out).toMatchObject({
         remounted: true,
         engine: "rclone",
-        mountId: null,
+        mountId,
         access: null,
-        pendingUploads: null,
+        pendingUploads: 0,
         pid: process.pid
       });
       expect(mint).not.toHaveBeenCalled();
@@ -819,8 +1105,28 @@ describe("nexus workspace remount", () => {
         { env: NodeJS.ProcessEnv }
       ];
       expect(argv.slice(0, 2)).toEqual(["mount", ":webdav:"]);
+      expect(argv).toContain(gatewayCacheDirFor({ mountId, shared: false }));
       expect(options.env.RCLONE_WEBDAV_URL).toBe("https://api.nexusgpt.io/api/dav/tools");
       expect(options.env.RCLONE_WEBDAV_HEADERS).toBe("api-key,nxs_a");
+
+      // A row that records its id keeps it — the folder its dead drive wrote
+      // into — and the copy it mounted picks the folder's side.
+      const recorded = mountIdFor("an earlier key");
+      spawn.mockClear();
+      registry = { "org:org_aaa|tools": { ...deadRcloneRow, mountId: recorded, shared: true } };
+      await runWorkspace(["remount", "tools"]);
+      const [, again] = spawn.mock.calls[0] as [string, string[]];
+      expect(again).toContain(gatewayCacheDirFor({ mountId: recorded, shared: true }));
+
+      // A corrupt id is refused before anything is installed or spawned, naming the way out.
+      spawn.mockClear();
+      registry = { "org:org_aaa|tools": { ...deadRcloneRow, mountId: "zz" } };
+      const corrupt = await runWorkspace(["remount", "tools"]);
+      expect((corrupt.out as ErrorDocument).error?.hint).toBe(
+        "Run: nexus workspace unmount tools, then mount it again."
+      );
+      expect(process.exitCode).toBe(9);
+      expect(spawn).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, "platform", real);
     }
@@ -829,7 +1135,7 @@ describe("nexus workspace remount", () => {
   it("--no-install-deps reaches the preflight: a missing rclone is refused with the install hint, never offered", async () => {
     const real = Object.getOwnPropertyDescriptor(process, "platform");
     if (!real) throw new Error("process.platform has no descriptor to restore");
-    Object.defineProperty(process, "platform", { ...real, value: "linux" });
+    pretendPlatform("linux");
     const probes = vi.mocked(execFileSync);
     const answer = probes.getMockImplementation();
     probes.mockImplementation(((command: string, ...rest: unknown[]) => {
@@ -839,7 +1145,7 @@ describe("nexus workspace remount", () => {
       return (answer as (...a: unknown[]) => unknown)(command, ...rest);
     }) as typeof execFileSync);
     try {
-      registry = rcloneRow;
+      registry = deadRcloneRegistry;
       const { out } = await runWorkspace(["remount", "tools", "--no-install-deps"]);
       const doc = out as ErrorDocument;
       expect(doc.error?.message).toContain("none was found on PATH");
@@ -881,7 +1187,7 @@ describe("nexus workspace remount", () => {
     // siblings rather than reading the runner's platform.
     const real = Object.getOwnPropertyDescriptor(process, "platform");
     if (!real) throw new Error("process.platform has no descriptor to restore");
-    Object.defineProperty(process, "platform", { ...real, value: "darwin" });
+    pretendPlatform("darwin");
     onTestFinished(() => {
       Object.defineProperty(process, "platform", real);
     });
@@ -891,11 +1197,11 @@ describe("nexus workspace remount", () => {
     leaveDirtyItems(3);
     // The dead mount's session: an old key, soon to be replaced.
     writeSession(sessionFixture());
-    const oldConfig = awsConfigFor({
-      execPath: "/old/node",
-      entry: "/old/cli.js",
-      mountId: MOUNT_ID
-    });
+    const oldConfig = awsConfigFor(
+      { execPath: "/old/node", entry: "/old/cli.js", mountId: MOUNT_ID },
+      sessionPathsFor(MOUNT_ID).renewCmdFile,
+      "darwin"
+    );
     if (!oldConfig.ok) throw new Error("fixture must be writable");
     fs.writeFileSync(sessionPathsFor(MOUNT_ID).awsConfigFile, oldConfig.text);
 
@@ -969,7 +1275,7 @@ describe("nexus workspace remount", () => {
     expect(doc.error?.message).toContain('2 file(s) saved to "support-docs" have not uploaded yet');
     expect(doc.error?.message).toContain("Nexus now grants read-only access");
     expect(doc.error?.hint).toContain("restore write access");
-    expect(doc.error?.hint).toContain(`${sessionPathsFor(MOUNT_ID).cacheDir}/vfs`);
+    expect(doc.error?.hint).toContain(path.join(sessionPathsFor(MOUNT_ID).cacheDir, "vfs"));
     expect(doc.error?.hint).toContain("discard them");
     expect(doc.error?.code).toBe("CLI_LOCAL_FAILED");
     expect(spawn).not.toHaveBeenCalled();
@@ -1008,7 +1314,7 @@ describe("nexus workspace remount", () => {
   it("remounts a dead webdav row the ordinary way, with a fresh mount token", async () => {
     const real = Object.getOwnPropertyDescriptor(process, "platform");
     if (!real) throw new Error("process.platform has no descriptor to restore");
-    Object.defineProperty(process, "platform", { ...real, value: "darwin" });
+    pretendPlatform("darwin");
     vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ token: "dav-token" })));
     try {
       const mountPath = path.join(SANDBOX, "nexus", "acme", "general-context");
@@ -1037,5 +1343,381 @@ describe("nexus workspace remount", () => {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", real);
     }
+  });
+});
+
+// ── Nothing kills what it cannot prove is ours ───────────────────────────────
+//
+// A pid is reused after a mount dies. The command line is the witness, read
+// through `ps` on POSIX and PowerShell on Windows; `EPERM` on the signal probe
+// is a process alive under another account or an administrator, on every
+// platform. A row is deleted only for a drive that is dead or ours.
+
+describe("nexus workspace unmount — nothing kills what it cannot prove is ours", () => {
+  const ROW_KEY = "org:org_aaa|tools";
+  const toolsRow = (pid: number): Record<string, unknown> =>
+    rcloneRow({ mountPath: "/a/tools", mountId: undefined, pid });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveProfile.mockReturnValue(ORG_A_PROFILE);
+    registry = {};
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    setJsonMode(false);
+    process.exitCode = undefined;
+  });
+
+  it("on Windows, a pid that now belongs to notepad is a DEAD drive: not killed, row removed", async () => {
+    pretendPlatform("win32");
+    commandLineAnswer = '"C:\\Windows\\System32\\notepad.exe" notes.txt\r\n';
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("on Windows, a pid whose command line is still rclone.exe mount is ours: told to exit through its console, closed, NOT killed, row removed", async () => {
+    pretendPlatform("win32");
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true });
+    // Only the proven pid is told, through the environment the stop script reads.
+    const stops = vi
+      .mocked(execFileSync)
+      .mock.calls.filter(
+        ([command, args]) => command === powerShellExe(process.env) && isStopScript(args)
+      );
+    expect(stops).toHaveLength(1);
+    const [, , options] = stops[0] as [string, readonly string[], { env: NodeJS.ProcessEnv }];
+    expect(options.env[STOP_ENV.pid]).toBe(String(process.pid));
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("on Windows, an rclone.exe the stop had to end is never killed again by pid, row removed, and the text says to refresh Explorer", async () => {
+    pretendPlatform("win32");
+    stopAnswer = "killed";
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true });
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+    // JSON carries no new field; the hint is a text line, on the kill path only.
+    expect(out).not.toHaveProperty("ended");
+
+    killed.length = 0;
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    const { lines } = await runWorkspace(["unmount", "tools"], { json: false });
+    expect(lines.join("\n")).toContain(
+      "rclone did not close itself and was ended; if Explorer still shows the drive, refresh that window (F5)."
+    );
+    expect(killed).toEqual([]);
+  });
+
+  it.each([
+    ["win32", "exited"],
+    ["darwin", "exited"]
+  ] as const)(
+    "on %s with the ask answered %j, no refresh line is printed",
+    async (platform, answer) => {
+      // macOS never asks (the umount is the ask) and kills as routine; Windows asked and rclone closed itself.
+      pretendPlatform(platform);
+      stopAnswer = answer;
+      registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+      const { lines } = await runWorkspace(["unmount", "tools"], { json: false });
+
+      expect(lines.join("\n")).toContain('Unmounted "tools"');
+      expect(lines.join("\n")).not.toContain("refresh that window");
+    }
+  );
+
+  it("on Windows, a stop PowerShell that could not run says nothing: the proven rclone.exe is killed as before", async () => {
+    pretendPlatform("win32");
+    stopAnswer = Object.assign(new Error("spawnSync powershell.exe ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+      status: null
+    });
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    await runUnmount("tools");
+
+    expect(killed).toEqual([process.pid]);
+    expect(registry).toEqual({});
+  });
+
+  it("on Windows, a pid that now belongs to notepad is never told anything: no stop script runs", async () => {
+    pretendPlatform("win32");
+    commandLineAnswer = '"C:\\Windows\\System32\\notepad.exe" notes.txt\r\n';
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    await runUnmount("tools");
+
+    const stops = vi.mocked(execFileSync).mock.calls.filter(([, args]) => isStopScript(args));
+    expect(stops).toEqual([]);
+    expect(killed).toEqual([]);
+  });
+
+  it("on Windows, a PowerShell that cannot run leaves the pid unconfirmed: refused, not killed, row kept", async () => {
+    pretendPlatform("win32");
+    commandLineAnswer = Object.assign(new Error("spawnSync powershell.exe ENOENT"), {
+      code: "ENOENT"
+    });
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as ErrorDocument;
+
+    expect(out.error?.message).toContain("Could not confirm");
+    expect(out.error?.hint).toContain("Task Manager");
+    expect(process.exitCode).toBe(9);
+    expect(killed).toEqual([]);
+    expect(registry[ROW_KEY]).toBeDefined();
+  });
+
+  it("on Windows, a PowerShell that prints nothing for a live pid proved nothing: refused, not killed, row kept", async () => {
+    pretendPlatform("win32");
+    // A WMI query that failed quietly: exit 0, no command line, no image name.
+    commandLineAnswer = "\r\n";
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as ErrorDocument;
+
+    expect(out.error?.message).toContain("Could not confirm");
+    expect(killed).toEqual([]);
+    expect(registry[ROW_KEY]).toBeDefined();
+  });
+
+  it("a row whose pid is 0, negative or not a whole number names no process: nothing is probed or signalled", async () => {
+    // kill(2) reads 0 and a negative pid as a process GROUP: -1 is every
+    // process this user may signal.
+    pretendPlatform("darwin");
+    for (const pid of [0, -1, -4242, 1.5]) {
+      registry = { [ROW_KEY]: toolsRow(pid) };
+      const out = (await runUnmount("tools")) as Record<string, unknown>;
+      expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+      expect(registry).toEqual({});
+    }
+    expect(killed).toEqual([]);
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("on macOS a pid the OS re-issued while the unmount ran is not killed: the probe is read again at the kill", async () => {
+    pretendPlatform("darwin");
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    const probes = vi.mocked(execFileSync);
+    const answer = probes.getMockImplementation();
+    probes.mockImplementation(((command: string, ...rest: unknown[]) => {
+      // rclone exits on the umount, and its pid now runs something else.
+      if (command === "umount") psAnswer = "/usr/sbin/cupsd -l\n";
+      return (answer as (...a: unknown[]) => unknown)(command, ...rest);
+    }) as typeof execFileSync);
+    try {
+      const out = (await runUnmount("tools")) as Record<string, unknown>;
+      expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+      expect(killed).toEqual([]);
+      expect(registry).toEqual({});
+      // The umount is the ask on macOS: no PowerShell stop script runs here.
+      expect(probes.mock.calls.filter(([, args]) => isStopScript(args))).toEqual([]);
+    } finally {
+      probes.mockImplementation(answer as typeof execFileSync);
+    }
+  });
+
+  /** The `LC_ALL` the `ps` probe ran under. */
+  function psLocale(): unknown {
+    const call = vi
+      .mocked(execFileSync)
+      .mock.calls.find(([command]) => command === "ps") as unknown as
+      | [string, string[], { env: NodeJS.ProcessEnv }]
+      | undefined;
+    return call?.[2].env.LC_ALL;
+  }
+
+  it("on macOS reads the command line under a UTF-8 locale, so a mount path with an accent matches when LANG is unset", async () => {
+    pretendPlatform("darwin");
+    vi.stubEnv("LC_ALL", "");
+    vi.stubEnv("LC_CTYPE", "");
+    vi.stubEnv("LANG", "");
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    try {
+      await runUnmount("tools");
+      expect(psLocale()).toBe("en_US.UTF-8");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("on Linux runs ps under the caller's own UTF-8 locale when there is one: C.UTF-8 is not compiled on every host", async () => {
+    pretendPlatform("linux");
+    vi.stubEnv("LC_ALL", "");
+    vi.stubEnv("LC_CTYPE", "");
+    vi.stubEnv("LANG", "fr_FR.UTF-8");
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    try {
+      await runUnmount("tools");
+      expect(psLocale()).toBe("fr_FR.UTF-8");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("a live pid running the rclone mount at a LONGER path that starts with this row's is not this row's: not killed, row removed", async () => {
+    pretendPlatform("darwin");
+    psAnswer = "rclone mount nxws: /a/tools-archive --vfs-cache-mode writes\n";
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("a live pid whose rclone line names this row's path followed by rclone's flags is ours: killed", async () => {
+    pretendPlatform("darwin");
+    psAnswer =
+      "rclone mount nxws: /a/tools --vfs-cache-mode writes --cache-dir /c/x --devname nexus-tools\n";
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true });
+    expect(killed).toEqual([process.pid]);
+  });
+
+  it("on Windows the quoted, differently-cased path WMI prints is this row's; a longer one is not", async () => {
+    // Ours is told to exit through its console (and closes, so no kill follows); a stranger is told nothing.
+    const stopsSent = (): number =>
+      vi.mocked(execFileSync).mock.calls.filter(([, args]) => isStopScript(args)).length;
+    pretendPlatform("win32");
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    commandLineAnswer = '"C:\\bin\\rclone.exe" mount :webdav: "/A/Tools" --volname tools\r\n';
+    expect((await runUnmount("tools")) as Record<string, unknown>).toMatchObject({
+      unmounted: true
+    });
+    expect(stopsSent()).toBe(1);
+    expect(killed).toEqual([]);
+
+    vi.mocked(execFileSync).mockClear();
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+    commandLineAnswer =
+      '"C:\\bin\\rclone.exe" mount :webdav: "/a/tools-archive" --volname tools\r\n';
+    expect((await runUnmount("tools")) as Record<string, unknown>).toMatchObject({
+      unmounted: true
+    });
+    expect(stopsSent()).toBe(0);
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("a pid alive under another account (EPERM) is refused as not ours, row kept — on macOS too", async () => {
+    pretendPlatform("darwin");
+    registry = { [ROW_KEY]: toolsRow(FOREIGN_PID) };
+
+    const out = (await runUnmount("tools")) as ErrorDocument;
+
+    expect(out.error?.message).toContain("started by another user or an administrator");
+    expect(out.error?.hint).toContain("row is kept");
+    expect(process.exitCode).toBe(9);
+    expect(killed).toEqual([]);
+    expect(registry[ROW_KEY]).toBeDefined();
+  });
+
+  it("on macOS, a pid a root process now holds (EPERM) whose command line is not rclone is a DEAD drive: not killed, row removed", async () => {
+    pretendPlatform("darwin");
+    psAnswer = "/sbin/launchd\n";
+    registry = { [ROW_KEY]: toolsRow(FOREIGN_PID) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+    expect(process.exitCode).toBeUndefined();
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("on Windows, a pid a SYSTEM service now holds (EPERM, command line withheld) is a DEAD drive: not killed, row removed", async () => {
+    pretendPlatform("win32");
+    withheldImageName = "svchost.exe";
+    registry = { [ROW_KEY]: toolsRow(FOREIGN_PID) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("on Windows, an elevated rclone.exe on the pid (EPERM, command line withheld) stays not ours: refused, row kept", async () => {
+    pretendPlatform("win32");
+    withheldImageName = "rclone.exe";
+    registry = { [ROW_KEY]: toolsRow(FOREIGN_PID) };
+
+    const out = (await runUnmount("tools")) as ErrorDocument;
+
+    expect(out.error?.message).toContain("started by another user or an administrator");
+    expect(killed).toEqual([]);
+    expect(registry[ROW_KEY]).toBeDefined();
+  });
+
+  it("a live pid now running ANOTHER drive's rclone mount is not this row's: not killed, row removed", async () => {
+    pretendPlatform("darwin");
+    psAnswer = "rclone mount nxws: /b/another-orgs-drive\n";
+    registry = { [ROW_KEY]: toolsRow(process.pid) };
+
+    const out = (await runUnmount("tools")) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ unmounted: true, slug: "tools" });
+    expect(killed).toEqual([]);
+    expect(registry).toEqual({});
+  });
+
+  it("remount on Windows refuses an elevated terminal before any mint", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = "Mandatory Label\\High Mandatory Level  Label  S-1-16-12288\r\n";
+    registry = { [ROW_KEY]: toolsRow(999999999) };
+    mint.mockReset();
+
+    const { out } = await runWorkspace(["remount", "tools"]);
+
+    expect((out as ErrorDocument).error?.message).toContain("runs as administrator");
+    expect(process.exitCode).toBe(9);
+    expect(mint).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("remount of a gateway row refuses when the workspace list answers 403: the key is another organization's, and the drive would open on it", async () => {
+    pretendPlatform("linux");
+    registry = {
+      [ROW_KEY]: rcloneRow({
+        mountPath: "/a/tools",
+        mountId: undefined,
+        pid: 999999999,
+        readOnly: false
+      })
+    };
+    // The SDK's shape (code, message, status); the spec's mocked class keeps none of it, so the fields are set beside.
+    const message = "You are not a member of the requested organization, or it does not exist.";
+    listFailure = Object.assign(new NexusApiError("ORGANIZATION_ACCESS_DENIED", message, 403), {
+      status: 403,
+      code: "ORGANIZATION_ACCESS_DENIED",
+      message
+    });
+
+    const { out } = await runWorkspace(["remount", "tools"]);
+
+    expect((out as ErrorDocument).error?.message).toContain("was refused (403)");
+    expect(process.exitCode).toBe(3);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(registry[ROW_KEY]).toBeDefined();
   });
 });

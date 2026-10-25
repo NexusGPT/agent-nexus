@@ -10,7 +10,9 @@ import { rcloneTargetFor } from "./rclone-target";
 export type InstallStep =
   | { readonly kind: "rclone-zip"; readonly target: RcloneTarget }
   | { readonly kind: "fuse-t-cask" }
-  | { readonly kind: "fuse-t-pkg"; readonly password: PasswordPrompt };
+  | { readonly kind: "fuse-t-pkg"; readonly password: PasswordPrompt }
+  /** Windows: the pinned WinFsp MSI through `msiexec` behind the UAC prompt — terminal or not, the one road. */
+  | { readonly kind: "winfsp-msi" };
 
 /**
  * Where the administrator password is asked for: `sudo` on the terminal, or
@@ -19,8 +21,20 @@ export type InstallStep =
  */
 export type PasswordPrompt = "terminal" | "dialog";
 
-/** Why the CLI has no step to offer, so the manual hint is all it can print. */
-export type ManualReason = "macfuse-not-approved" | "no-build-for-platform";
+/**
+ * Why the CLI has no step to offer, so the manual hint is all it can print.
+ * `rclone-blocked` is manual: a policy refused a file that is there (a damaged
+ * copy reads as missing and is reinstalled instead), and only an
+ * administrator's allow rule lifts that. `no-fuse-device`
+ * is the machine itself (WSL1, a container): nothing this CLI installs adds a
+ * device.
+ */
+export type ManualReason =
+  | "macfuse-not-approved"
+  | "no-build-for-platform"
+  | "rclone-blocked"
+  | "no-fuse-device"
+  | "winfsp-restart-pending";
 
 /**
  * Everything the preflight found, answered at once: nothing to do, an ordered
@@ -69,6 +83,18 @@ function stepFor(problem: RclonePreflightProblem, host: InstallHost): StepOrManu
     }
     case "macfuse-not-approved":
       return { manual: "macfuse-not-approved" };
+    case "rclone-blocked":
+      return { manual: "rclone-blocked" };
+    case "no-fuse-device":
+    case "winfsp-restart-pending":
+      return { manual: problem.kind };
+    case "no-winfsp": {
+      // The WinFsp probe runs on win32 only (`win32FuseProblem` in rclone-preflight.ts).
+      // Windows has no sudo, so terminal and no-terminal are the same step:
+      // msiexec behind the UAC prompt, on the session's interactive desktop.
+      if (host.platform !== "win32") throw new Error(`no-winfsp planned on ${host.platform}`);
+      return { step: { kind: "winfsp-msi" } };
+    }
     default:
       return problem satisfies never;
   }

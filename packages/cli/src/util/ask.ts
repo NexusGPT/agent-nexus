@@ -45,8 +45,16 @@
 export async function askLine(question: string, output: NodeJS.WritableStream): Promise<string> {
   const readline = await import("node:readline/promises");
   const rl = readline.createInterface({ input: process.stdin, output });
+  // Node 18 leaves the question pending on Ctrl-C and Ctrl-D (measured on
+  // 18.20.8; 24 rejects): both end it here with the AbortError later lines reject with.
+  const stopped = new Promise<never>((_resolve, reject) => {
+    const abort = (): void =>
+      reject(Object.assign(new Error("interrupted"), { name: "AbortError" }));
+    rl.once("SIGINT", abort).once("close", abort);
+  });
+  stopped.catch(() => undefined);
   try {
-    return (await rl.question(question)).trim();
+    return (await Promise.race([rl.question(question), stopped])).trim();
   } finally {
     rl.close();
   }

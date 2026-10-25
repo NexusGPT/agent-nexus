@@ -32,12 +32,24 @@ export interface DepsIo {
   /** Whether a person can type an answer: `process.stdin.isTTY`, decided on STDIN, never stdout. */
   readonly stdinIsTTY: boolean;
 
-  /** `fs.existsSync`: the managed rclone, the FUSE libraries. */
+  /** `fs.existsSync`: the managed rclone, the FUSE libraries, WinFsp's DLL. */
   exists(file: string): boolean;
-  /** `<binary> version`, or null when it could not run at all. */
-  rcloneVersion(binary: RcloneBinary): string | null;
+  /**
+   * `<binary> version`; `null` when there is no such file (ENOENT) or the file
+   * is a damaged copy the reinstall replaces; `refused` with the errno when a
+   * policy would not run a file that is there (Smart App Control, AppLocker or
+   * an antivirus on Windows; a noexec mount or SELinux on macOS and Linux) — a
+   * different sentence, and never a reinstall.
+   */
+  rcloneVersion(binary: RcloneBinary): string | null | { readonly refused: string };
   /** `load_macfuse` exits 0 → true; ran and failed → false; could not run → "unknown". */
   macFuseApproved(): boolean | "unknown";
+  /**
+   * WinFsp's install directory from the registry; `null` when not installed;
+   * could not read → "unknown". The directory is wrapped so it is never a bare
+   * `string`, which would absorb `"unknown"` and let a caller use it as a path.
+   */
+  winFspInstallDir(): { readonly dir: string } | null | "unknown";
   /** Whether `brew` answers; asked only when a FUSE-T step is being planned. */
   hasBrew(): boolean;
 

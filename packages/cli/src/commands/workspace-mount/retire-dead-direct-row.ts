@@ -15,9 +15,9 @@ import type { MountPlan } from "./mount-plan";
  * so any other replacement is refused while they exist; otherwise the session
  * goes the way `unmount` sends it and the empty cache with it.
  */
-export function retireDeadDirectRow(record: MountRecord, replacement: MountPlan): void {
+export function retireDeadDirectRow(record: MountRecord, replacement: MountPlan | null): void {
   if (record.engine !== "direct" || record.mountId === undefined) return;
-  if (replacement.engine === "direct" && replacement.mountId === record.mountId) return;
+  if (replacement?.engine === "direct" && replacement.mountId === record.mountId) return;
   const cacheDir = sessionPathsFor(record.mountId).cacheDir;
   const pendingUploads = countPendingUploads(cacheDir);
   if (pendingUploads > 0) {

@@ -19,12 +19,17 @@ export const STRIPPED_ENV_KEYS = [
  * through `credential_process`, which reads its pins from the session file.
  * Everything else — PATH, HOME, the locale — stays, because rclone and the
  * helper need it to run.
+ *
+ * Names match in any case, on every platform. Windows reads `rclone_dump` as
+ * `RCLONE_DUMP`; on macOS and Linux a lower-case twin is a different variable
+ * rclone ignores, and removing it costs the child nothing.
  */
 export function secretFreeEnv(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(inherited)) {
-    if (/^(AWS|RCLONE)_/.test(key)) continue;
-    if (STRIPPED_ENV_KEYS.some((stripped) => stripped === key)) continue;
+    const name = key.toUpperCase();
+    if (/^(AWS|RCLONE)_/.test(name)) continue;
+    if (STRIPPED_ENV_KEYS.some((stripped) => stripped === name)) continue;
     env[key] = value;
   }
   return env;

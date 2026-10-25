@@ -18,7 +18,7 @@ export function workspaceClaudeMdSection(
     ``,
     `The Nexus workspace \`${slug}\` is mounted at \`${mountPath}\` (${mode}).`,
     ``,
-    `- It is **live shared team storage** — other people and agents (including Ultimate Cue)`,
+    `- It is **live shared team storage** — other people and agents (including Cue)`,
     `  may read and write the same files concurrently. Re-read a file before relying on`,
     `  cached contents; writes are last-write-wins per file.`,
     `- Treat it like a normal directory: \`bash\`, \`python\`, Read/Write/Glob all work on it.`,

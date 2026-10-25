@@ -23,7 +23,10 @@ Notes:
   IT RESOLVES BY ACTING ORG, like "unmount": when the active org holds no row
   for the slug, the error lists the orgs that do.
   A WEBDAV OR RCLONE ROW IS REMOUNTED THE ORDINARY WAY — webdav with a fresh
-  mount token, rclone with the current key. A row this platform cannot run
+  mount token, rclone with the current key and the drive's own cache folder,
+  so its unsent saves upload too. An rclone drive last mounted before drives
+  had their own folder gets one now; the saves it left in rclone's default
+  cache folder are not uploaded, and the command says so. A row this platform cannot run
   (webdav off macOS, rclone on macOS) is refused, naming the engine to use.
   IT NEEDS A VALID KEY AND THE NETWORK: the drive is minted again. A direct
   row is minted under the profile it RECORDED; an --api-key on this command is

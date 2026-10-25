@@ -1,8 +1,8 @@
 import type { MountScope } from "../../mount-registry";
-import { directAwsConfigOrRefuse } from "../../workspace-direct-mount/accepted-aws-config";
-import { directPins } from "../../workspace-direct-mount/direct-pins";
 import type { DirectPlan } from "../../workspace-direct-mount/direct-plan";
 import type { InstallPolicy } from "../../workspace-direct-mount/install/install-policy";
+import type { MountId } from "../../workspace-direct-mount/mount-id";
+import { settleDirectLocally } from "../../workspace-direct-mount/settle-direct-locally";
 import { ensureRcloneCanMount } from "./ensure-rclone-can-mount";
 
 /**
@@ -15,11 +15,11 @@ import { ensureRcloneCanMount } from "./ensure-rclone-can-mount";
  */
 export async function planDirectMount(
   scope: MountScope,
-  mountId: string,
+  mountId: MountId,
   policy: InstallPolicy
 ): Promise<DirectPlan> {
-  const pins = directPins(scope);
-  const awsConfig = directAwsConfigOrRefuse(mountId);
+  const local = settleDirectLocally(scope, mountId);
+  if (!local.ok) throw local.refusal;
   const binary = await ensureRcloneCanMount("direct", policy);
-  return { mountId, pins, awsConfig, binary };
+  return { mountId, pins: local.pins, awsConfig: local.awsConfig, binary };
 }

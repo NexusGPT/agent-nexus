@@ -9,7 +9,6 @@ import type { MountPlan } from "./mount-plan";
 export interface PerformMountInput {
   readonly plan: MountPlan;
   readonly slug: string;
-  readonly davPath: string;
   readonly mountPath: string;
   readonly readOnly: boolean;
   readonly useShared: boolean;
@@ -22,7 +21,7 @@ export interface PerformMountInput {
 
 /** Mount the drive with whichever engine the plan settled on. */
 export async function performMount(input: PerformMountInput): Promise<MountOutcome> {
-  const { plan, slug, davPath, mountPath, readOnly, useShared, workspaceId } = input;
+  const { plan, slug, mountPath, readOnly, useShared, workspaceId } = input;
   const { baseUrl, apiKey, timeoutSeconds, client } = input;
   return mountOnto(mountPath, () =>
     plan.engine === "direct"
@@ -42,11 +41,11 @@ export async function performMount(input: PerformMountInput): Promise<MountOutco
       : mountGateway({
           settled: plan,
           slug,
-          davPath,
           baseUrl,
           apiKey,
           mountPath,
           readOnly,
+          shared: useShared,
           timeoutSeconds
         })
   );

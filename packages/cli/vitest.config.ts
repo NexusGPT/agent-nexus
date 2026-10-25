@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { defineConfig } from "vitest/config";
 
-import { WORKSPACE_SOURCE_ALIASES } from "./src/vitest.aliases";
+import { WORKSPACE_SOURCE_ALIASES } from "./vitest.aliases";
 
 export default defineConfig({
   // Each `find` is ANCHORED (`^…$`) so it matches the bare specifier and never a

@@ -27,8 +27,13 @@ Notes:
   saves have not reached the workspace yet. Other
   engines print "-"; under --json the three are expiresAt, refresh
   {outcome, at, reason, transient, fix} and pendingUploads, null elsewhere.
-  mountId IS PRINTED UNDER --json ONLY: the direct engine's per-mount id, the
-  operand "nexus workspace credential-process" takes. Null on other engines.
+  AN RCLONE MOUNT GETS PENDING TOO, counted in the drive's own cache folder —
+  not a drive mounted before drives had their own folder, which prints "-".
+  A count this CLI could not read is "unknown", never 0.
+  mountId IS PRINTED UNDER --json ONLY: the per-mount id that names a direct
+  or rclone drive's cache folder, and on a direct drive the operand
+  "nexus workspace credential-process" takes. Null on the webdav engine and
+  on an rclone drive mounted before drives had their own folder.
   Never a bucket, a prefix or a credential value, on either channel.
   Mode is what the mount was CREATED with. It does not re-derive the scopes the
   key actually holds, so Mode rw on a key without workspaces:write is possible.

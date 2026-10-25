@@ -1,8 +1,9 @@
 import { Command } from "commander";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
+import { powerShellExe } from "../workspace-direct-mount/win32/win32-system-exe";
 import { describeStdout } from "./json-one-document.scan";
 
 /**
@@ -52,21 +53,48 @@ vi.mock("../mount-registry", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../mount-registry")>()),
   readMounts
 }));
+// Read at call time by the factory below, which vitest hoists above this line.
+// `null`: each recorded pid still runs an rclone mount at its own row's path.
+let powerShellAnswer: string | Error | null = null;
+let psAnswer: string | null = null;
+/** One process per pid, as `ps -p` and WMI answer: the drive of the row that recorded it. */
+function rcloneMountOfPid(program: string, pid: number): string {
+  const rows: unknown = readMounts();
+  const row = isRow(rows)
+    ? Object.values(rows)
+        .filter(isRow)
+        .find((candidate) => candidate.pid === pid)
+    : undefined;
+  return row === undefined ? "" : `${program} mount nxws: ${String(row.mountPath)}\n`;
+}
+/** A registry row as the fake reads it: any object, its fields read as unknown. */
+function isRow(value: unknown): value is { readonly pid?: unknown; readonly mountPath?: unknown } {
+  return typeof value === "object" && value !== null;
+}
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
-    execFileSync: (command: string, ...rest: unknown[]) =>
-      command === "ps"
-        ? "rclone mount nxws: /mnt\n"
-        : (actual.execFileSync as unknown as (...a: unknown[]) => unknown)(command, ...rest)
+    execFileSync: (command: string, ...rest: unknown[]) => {
+      const args = Array.isArray(rest[0]) ? (rest[0] as readonly string[]) : [];
+      if (command === "ps") return psAnswer ?? rcloneMountOfPid("rclone", Number(args[4]));
+      // Windows reads the command line through PowerShell; a case decides
+      // whether that probe can run at all.
+      if (command === powerShellExe(process.env)) {
+        if (powerShellAnswer instanceof Error) throw powerShellAnswer;
+        const pid = Number(/ProcessId = (\d+)/.exec(args[3] ?? "")?.[1] ?? "NaN");
+        return powerShellAnswer ?? rcloneMountOfPid("rclone.exe", pid);
+      }
+      return (actual.execFileSync as unknown as (...a: unknown[]) => unknown)(command, ...rest);
+    }
   };
 });
 
 import { registerWorkspaceCommands } from "./workspace";
 
 /** A recorded rclone mount. `alive: false` drops the pid, which is how a dead one reads. */
-function mount(slug: string, alive: boolean) {
+/** A row; a live one holds a pid that is really alive, and one pid runs ONE drive, so two live rows need two. */
+function mount(slug: string, alive: boolean, pid: number = process.pid) {
   return {
     slug,
     engine: "rclone" as const,
@@ -77,7 +105,7 @@ function mount(slug: string, alive: boolean) {
     profile: "default",
     mountPath: `/mnt/${slug}`,
     mountedAt: "2026-08-19T00:00:00.000Z",
-    ...(alive ? { pid: process.pid } : {})
+    ...(alive ? { pid } : {})
   };
 }
 
@@ -131,11 +159,99 @@ async function runJson(): Promise<{ stdout: string; exitCode: number | undefined
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset for EVERY case: on a Windows host a command line one case staged
+  // would otherwise answer for every row the later cases record.
+  powerShellAnswer = null;
+  psAnswer = null;
+});
+
+// ── A drive that is running but not ours ─────────────────────────────────────
+//
+// `EPERM` on the signal probe is a process alive under another account or an
+// administrator: live, and named as such in the table — never "dead", which
+// would refuse the whole status and invite an `unmount` that deletes its row.
+
+/** A pid alive under another account: the signal-0 probe answers EPERM. */
+const FOREIGN_PID = 424242;
+const REAL_PLATFORM = Object.getOwnPropertyDescriptor(process, "platform");
+
+async function runTable(): Promise<string> {
+  const program = tree();
+  const before = process.exitCode;
+  process.exitCode = undefined;
+  const out: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+    out.push(args.map((a) => String(a)).join(" "));
+  });
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    await program.parseAsync(["node", "nexus", "workspace", "status"]);
+    return out.join("\n");
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+    process.exitCode = before;
+  }
+}
+
+describe("nexus workspace status — a drive another user or an administrator holds", () => {
+  let realKill: typeof process.kill;
+  beforeEach(() => {
+    realKill = process.kill;
+    vi.spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
+      if (pid === FOREIGN_PID) throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+      return realKill.call(process, pid, signal);
+    });
+  });
+  afterEach(() => {
+    vi.mocked(process.kill).mockRestore();
+    if (REAL_PLATFORM) Object.defineProperty(process, "platform", REAL_PLATFORM);
+  });
+
+  it("on macOS a pid a root process now holds, whose command line is not rclone, is a DEAD row — the recorded rclone is gone", async () => {
+    if (!REAL_PLATFORM) throw new Error("process.platform has no descriptor to restore");
+    Object.defineProperty(process, "platform", { ...REAL_PLATFORM, value: "darwin" });
+    readMounts.mockReturnValue({ "org:org_1|a": { ...mount("a", false), pid: FOREIGN_PID } });
+    psAnswer = "/sbin/launchd\n";
+    expect(await run()).toBe(EXIT_CODES["local-failed"]);
+    expect(await runTable()).not.toContain("another user");
+
+    // The conservative arm: a command line that reads empty keeps the row live and not ours.
+    psAnswer = "";
+    expect(await run()).toBeUndefined();
+    expect(await runTable()).toContain("yes (another user / administrator)");
+  });
+
+  it("is live, exits 0, and the table says who else holds it — on every platform", async () => {
+    readMounts.mockReturnValue({ "org:org_1|a": { ...mount("a", false), pid: FOREIGN_PID } });
+    expect(await runTable()).toContain("yes (another user / administrator)");
+    const { stdout, exitCode } = await runJson();
+    expect(exitCode).toBeUndefined();
+    expect(JSON.parse(stdout)).toMatchObject([{ slug: "a", live: "yes" }]);
+  });
+
+  it("on Windows a command line PowerShell could not read leaves the row live — a read fails open", async () => {
+    if (!REAL_PLATFORM) throw new Error("process.platform has no descriptor to restore");
+    Object.defineProperty(process, "platform", { ...REAL_PLATFORM, value: "win32" });
+    powerShellAnswer = Object.assign(new Error("spawnSync powershell.exe ENOENT"), {
+      code: "ENOENT"
+    });
+    readMounts.mockReturnValue({ "org:org_1|a": mount("a", true) });
+    expect(await run()).toBeUndefined();
+    expect(await runTable()).not.toContain("another user");
+
+    // The positive control: a command line that names notepad is a DEAD row.
+    powerShellAnswer = '"C:\\Windows\\System32\\notepad.exe"\r\n';
+    expect(await run()).toBe(EXIT_CODES["local-failed"]);
+  });
 });
 
 describe("nexus workspace status", () => {
   it("still exits 0 when every recorded mount is live", async () => {
-    readMounts.mockReturnValue({ a: mount("alpha", true), b: mount("beta", true) });
+    readMounts.mockReturnValue({
+      a: mount("alpha", true),
+      b: mount("beta", true, process.ppid)
+    });
 
     expect(await run()).toBeUndefined();
   });

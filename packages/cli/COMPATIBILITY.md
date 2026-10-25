@@ -287,15 +287,17 @@ any file that does.
 discard input, or file a request instead of acting. Where that is true, the
 command's own `--help` Notes say so and name the verification step.
 
-🚨 **`130` HAS EXACTLY ONE PRODUCER, AND THE FIRST Ctrl-C IS NOT IT.**
-`nexus apps logs --follow` is the only command that can emit it. It counts
-signals and exits `130` on the SECOND — the second signal of EITHER kind, because
-one counter serves `SIGINT` and `SIGTERM`. The FIRST signal ends the follow
-cleanly at `0`, so `nexus apps logs --follow; echo $?` after one Ctrl-C
-prints `0`. A Ctrl-C followed by a supervisor's `SIGTERM` reaches `130`, and so
-does a `SIGTERM` pair — which reports `130`, never `143`. This taxonomy declares
-ONE code in the shell's band on purpose, so "the caller stopped it" is one
-category rather than one per signal.
+🚨 **`130` HAS EXACTLY TWO PRODUCERS, AND THE FIRST Ctrl-C OF A FOLLOW IS NOT ONE.**
+`nexus apps logs --follow` counts signals and exits `130` on the SECOND — the
+second signal of EITHER kind, because one counter serves `SIGINT` and `SIGTERM`.
+The FIRST signal ends the follow cleanly at `0`, so
+`nexus apps logs --follow; echo $?` after one Ctrl-C prints `0`. A Ctrl-C
+followed by a supervisor's `SIGTERM` reaches `130`, and so does a `SIGTERM` pair
+— which reports `130`, never `143`. `nexus workspace mount` exits `130` on the
+FIRST Ctrl-C at its install question ("Install it now?"): the person stopped the
+command, nothing failed, nothing was mounted (`code` is `CLI_INTERRUPTED`). This
+taxonomy declares ONE code in the shell's band on purpose, so "the caller stopped
+it" is one category rather than one per signal.
 
 ⚠️ **Nothing above `11` is ours except `130`.** `126` is "found and not
 executable", `127` is "not found", `128 + n` is "killed by signal n". The taxonomy

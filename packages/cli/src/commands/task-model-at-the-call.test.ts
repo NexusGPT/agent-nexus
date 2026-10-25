@@ -20,6 +20,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executed: Array<{ taskId: string; body: Record<string, unknown> }> = [];
 const duplicated: Array<{ taskId: string; body: Record<string, unknown> }> = [];
+const EXECUTE_RESPONSE = { output: "ok", outputType: "TEXT" };
+let executeResponse: Record<string, unknown> = EXECUTE_RESPONSE;
 
 vi.mock("../client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../client")>();
@@ -29,7 +31,7 @@ vi.mock("../client", async (importOriginal) => {
       skills: {
         executeTask: (taskId: string, body: Record<string, unknown>) => {
           executed.push({ taskId, body });
-          return Promise.resolve({ output: "ok", outputType: "TEXT" });
+          return Promise.resolve(executeResponse);
         },
         duplicateTask: (taskId: string, body: Record<string, unknown>) => {
           duplicated.push({ taskId, body });
@@ -74,6 +76,55 @@ async function run(argv: string[]): Promise<{ errors: string[]; exitCode: number
 beforeEach(() => {
   executed.length = 0;
   duplicated.length = 0;
+  executeResponse = EXECUTE_RESPONSE;
+});
+
+describe("task execute — a run answered by a fallback model", () => {
+  /** What the command wrote to stdout and stderr. */
+  async function runCapturing(argv: string[]): Promise<{ stdout: string; stderr: string }> {
+    const program = new Command();
+    program.name("nexus").option("--json", "Output as JSON");
+    registerTaskCommands(program);
+
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const logSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation((...args: unknown[]) => void stdout.push(args.join(" ")));
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    try {
+      await program.parseAsync(["node", "nexus", ...argv]);
+      return { stdout: stdout.join("\n"), stderr: stderr.join("") };
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      process.exitCode = undefined;
+    }
+  }
+
+  it("warns on stderr naming both models, and keeps stdout the answer", async () => {
+    executeResponse = {
+      ...EXECUTE_RESPONSE,
+      modelNotice: { requested: "retired-model", servedBy: "gpt-4o" }
+    };
+
+    const { stdout, stderr } = await runCapturing(["task", "execute", TASK_ID, "--input", "x"]);
+
+    expect(stdout).toBe("ok");
+    expect(stderr).toContain(
+      "Task model 'retired-model' is not available (unknown or retired); 'gpt-4o' answered instead."
+    );
+  });
+
+  it("prints no warning when the task's model answered", async () => {
+    const { stdout, stderr } = await runCapturing(["task", "execute", TASK_ID, "--input", "x"]);
+
+    expect(stdout).toBe("ok");
+    expect(stderr).toBe("");
+  });
 });
 
 describe("task execute", () => {

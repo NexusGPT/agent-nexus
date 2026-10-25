@@ -1,5 +1,6 @@
 import type { Engine, MountRecord } from "../../mount-registry";
 import { isJsonMode, printSuccess } from "../../output";
+import { type JsonPendingUploads, jsonPendingUploads } from "./json-pending-uploads";
 import type { MountOutcome } from "./mount-outcome";
 import { printGrantedReadOnly } from "./print-granted-read-only";
 import { printMountFooter } from "./print-mount-footer";
@@ -31,8 +32,8 @@ export function reportRemount(report: RemountReport): void {
           pid: mounted.record.pid ?? null,
           mountId: mounted.record.mountId ?? null,
           access: mounted.record.access ?? null,
-          pendingUploads: mounted.pendingUploads
-        },
+          pendingUploads: jsonPendingUploads(mounted.pendingUploads)
+        } satisfies Record<string, unknown> & { readonly pendingUploads: JsonPendingUploads },
         null,
         2
       )
@@ -47,5 +48,5 @@ export function reportRemount(report: RemountReport): void {
   });
   if (mounted.grantedReadOnly) printGrantedReadOnly(slug);
   printPendingUploads(mounted.pendingUploads);
-  printMountFooter(engine, slug);
+  printMountFooter(engine, slug, readOnly);
 }

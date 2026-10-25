@@ -1,22 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { DepsIo } from "../../workspace-direct-mount/deps-io";
 import {
   FUSE_T_LIBRARY,
   LEGACY_MACFUSE_LIBRARY,
   MACFUSE_LIBRARY
-} from "../../workspace-direct-mount/fuse-libraries";
-import { MANAGED_RCLONE, PATH_RCLONE } from "../../workspace-direct-mount/managed-rclone";
+} from "../../workspace-direct-mount/darwin/fuse-libraries";
+import type { DepsIo } from "../../workspace-direct-mount/deps-io";
+import { winFspRestartMarker } from "../../workspace-direct-mount/install/win32/winfsp-restart-marker";
+import { managedRcloneFor, PATH_RCLONE } from "../../workspace-direct-mount/managed-rclone";
 import { rclonePreflight } from "./rclone-preflight";
 
+/** The managed copy's path on the platform this spec fakes: the POSIX spelling. */
+const MANAGED = managedRcloneFor("darwin");
 const OFFICIAL = "rclone v1.74.4\n- go/tags: cmount\n";
 const HOMEBREW = "rclone v1.74.4\n- go/tags: none\n";
 
 interface Fake {
   readonly platform?: NodeJS.Platform;
+  readonly arch?: NodeJS.Architecture;
   readonly present?: readonly string[];
-  readonly version?: string | null;
+  readonly version?: string | null | { readonly refused: string };
   readonly approved?: boolean | "unknown";
+  readonly winFsp?: ReturnType<DepsIo["winFspInstallDir"]>;
   readonly env?: NodeJS.ProcessEnv;
 }
 
@@ -28,18 +33,23 @@ const io = (
   const present = new Set(fake.present ?? [MACFUSE_LIBRARY]);
   return {
     platform: fake.platform ?? "darwin",
-    arch: "arm64",
+    arch: fake.arch ?? "arm64",
     env: fake.env ?? {},
     stdinIsTTY: true,
     exists: (file) => present.has(file),
+    // A file that is not there answers ENOENT (null), as the real probe does; the
+    // PATH name stands for a binary PATH resolves.
     rcloneVersion: (binary) => {
       calls.version.push(binary);
+      if (binary !== PATH_RCLONE && !present.has(binary)) return null;
       return fake.version === undefined ? OFFICIAL : fake.version;
     },
     macFuseApproved: () => {
       calls.approval += 1;
       return fake.approved ?? true;
     },
+    // Not `??`: `null` is a real answer here (the key is absent).
+    winFspInstallDir: () => (fake.winFsp === undefined ? "unknown" : fake.winFsp),
     hasBrew: () => true,
     download: vi.fn(),
     run: vi.fn(),
@@ -51,9 +61,9 @@ const io = (
 
 describe("rclonePreflight — which binary, and the two slots", () => {
   it("probes the managed copy when it exists, else the PATH name, and versions THAT binary", () => {
-    const managed = io({ present: [MANAGED_RCLONE, MACFUSE_LIBRARY] });
-    expect(rclonePreflight(managed).binary).toBe(MANAGED_RCLONE);
-    expect(managed.calls.version).toEqual([MANAGED_RCLONE]);
+    const managed = io({ present: [MANAGED, MACFUSE_LIBRARY] });
+    expect(rclonePreflight(managed).binary).toBe(MANAGED);
+    expect(managed.calls.version).toEqual([MANAGED]);
     const onPath = io();
     expect(rclonePreflight(onPath).binary).toBe(PATH_RCLONE);
     expect(onPath.calls.version).toEqual([PATH_RCLONE]);
@@ -105,9 +115,70 @@ describe("rclonePreflight — which binary, and the two slots", () => {
     expect(custom.calls.approval).toBe(0);
   });
 
-  it("fuse slot: nothing on a Mac is a problem; off macOS the slot is never probed", () => {
+  it("fuse slot: nothing on a Mac is a problem; on Linux the FUSE device is the whole question", () => {
     expect(rclonePreflight(io({ present: [] })).problems.fuse).toEqual({ kind: "no-fuse-library" });
-    expect(rclonePreflight(io({ platform: "linux", present: [] })).problems.fuse).toBeNull();
-    expect(rclonePreflight(io({ platform: "win32", present: [] })).problems.fuse).toBeNull();
+    expect(
+      rclonePreflight(io({ platform: "linux", present: ["/dev/fuse"] })).problems.fuse
+    ).toBeNull();
+    expect(rclonePreflight(io({ platform: "linux", present: [] })).problems.fuse).toEqual({
+      kind: "no-fuse-device"
+    });
+    // FreeBSD lands on the linux row, device and all.
+    expect(
+      rclonePreflight(io({ platform: "freebsd", present: ["/dev/fuse"] })).problems.fuse
+    ).toBeNull();
+  });
+
+  it("fuse slot on Windows: WinFsp's key AND its DLL for this CPU, or no-winfsp; a key it could not read passes", () => {
+    const dir = "C:\\Program Files (x86)\\WinFsp";
+    const dll = `${dir}\\bin\\winfsp-x64.dll`;
+    const win = (fake: Fake) => rclonePreflight(io({ platform: "win32", arch: "x64", ...fake }));
+    expect(win({ winFsp: { dir }, present: [dll] }).problems.fuse).toBeNull();
+    expect(win({ winFsp: null, present: [dll] }).problems.fuse).toEqual({ kind: "no-winfsp" });
+    expect(win({ winFsp: { dir }, present: [] }).problems.fuse).toEqual({ kind: "no-winfsp" });
+    expect(win({ winFsp: "unknown", present: [] }).problems.fuse).toBeNull();
+    // An install of THIS boot asked for a restart: refused until Windows restarts, even with the DLL in place.
+    expect(win({ winFsp: { dir }, present: [dll, winFspRestartMarker()] }).problems.fuse).toEqual({
+      kind: "winfsp-restart-pending"
+    });
+    // A marker from another boot is a restart that already happened.
+    expect(
+      win({ winFsp: { dir }, present: [dll, winFspRestartMarker(1)] }).problems.fuse
+    ).toBeNull();
+    // The arm64 DLL carries WinFsp's own `a64` spelling.
+    expect(
+      rclonePreflight(
+        io({
+          platform: "win32",
+          arch: "arm64",
+          winFsp: { dir },
+          present: [`${dir}\\bin\\winfsp-a64.dll`]
+        })
+      ).problems.fuse
+    ).toBeNull();
+  });
+
+  it("rclone slot: a file the OS refused to run is named with its errno, never read as missing", () => {
+    const WIN_MANAGED = managedRcloneFor("win32");
+    const blocked = io({
+      platform: "win32",
+      version: { refused: "EACCES" },
+      present: [WIN_MANAGED]
+    });
+    expect(rclonePreflight(blocked).problems.rclone).toEqual({
+      kind: "rclone-blocked",
+      path: WIN_MANAGED,
+      code: "EACCES"
+    });
+    const missing = io({ platform: "win32", version: null });
+    expect(rclonePreflight(missing).problems.rclone).toEqual({ kind: "rclone-missing" });
+  });
+
+  it("on Windows an rclone found by name is never probed nor run: without the managed copy the slot is missing, so the offer installs it", () => {
+    const onPathOnly = io({ platform: "win32", version: OFFICIAL, present: [] });
+    const result = rclonePreflight(onPathOnly);
+    expect(result.binary).toBe(managedRcloneFor("win32"));
+    expect(result.problems.rclone).toEqual({ kind: "rclone-missing" });
+    expect(onPathOnly.calls.version).not.toContain(PATH_RCLONE);
   });
 });

@@ -7,9 +7,13 @@ export type RefreshOutcome = (typeof REFRESH_OUTCOMES)[number];
  * Why a refresh failed. A CLOSED union: the CLI's own failure vocabulary plus
  * the two refusals the helper makes on a mint that SUCCEEDED but must not be
  * served — a lower grade than the mount was made with, or a different
- * workspace behind the same slug.
+ * workspace behind the same slug. `interrupted` is left out: the helper asks no
+ * question, so nobody can stop it at one.
  */
-export type RefreshFailureReason = FailureCause | "access-downgraded" | "workspace-replaced";
+export type RefreshFailureReason =
+  | Exclude<FailureCause, "interrupted">
+  | "access-downgraded"
+  | "workspace-replaced";
 
 /** A refresh that failed always says why; one that succeeded has nothing to add. */
 export type RefreshRecord =

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { MANAGED_RCLONE } from "../managed-rclone";
+import { managedRcloneFor } from "../managed-rclone";
 import { rcloneInstallHint } from "../rclone-install-hint";
 import { FUSE_T_PIN, fuseTPkgUrl, RCLONE_PIN, rcloneZipUrl } from "./install-pins";
 import { renderStep, stepNotes } from "./render-step";
+import { WINFSP_PIN, winFspMsiName, winFspMsiUrl } from "./win32/winfsp-pin";
 
 describe("renderStep — what a person reads before answering the question", () => {
   it("rclone-zip names the pinned version, the exact url, the full hash and the managed path", () => {
@@ -11,8 +12,30 @@ describe("renderStep — what a person reads before answering the question", () 
     expect(lines).toContain(`rclone ${RCLONE_PIN.version} (osx-arm64)`);
     expect(lines).toContain(rcloneZipUrl("osx-arm64"));
     expect(lines).toContain(RCLONE_PIN.sha256["osx-arm64"]);
-    expect(lines).toContain(MANAGED_RCLONE);
+    expect(lines).toContain(managedRcloneFor("darwin"));
     expect(lines).toContain("no sudo");
+  });
+
+  it("a Windows rclone-zip places rclone.exe with no administrator prompt, and leaves a winget copy alone", () => {
+    const lines = renderStep({ kind: "rclone-zip", target: "windows-amd64" }).join("\n");
+    expect(lines).toContain(rcloneZipUrl("windows-amd64"));
+    expect(lines).toContain(RCLONE_PIN.sha256["windows-amd64"]);
+    expect(lines).toContain(managedRcloneFor("win32"));
+    expect(lines).toContain("no administrator prompt");
+    expect(lines).toContain("winget rclone");
+    expect(lines).not.toContain("sudo");
+  });
+
+  it("winfsp-msi names the version, the url, the full hash, msiexec silent with no restart, and the UAC prompt", () => {
+    const lines = renderStep({ kind: "winfsp-msi" }).join("\n");
+    expect(lines).toContain(`WinFsp ${WINFSP_PIN.version}`);
+    expect(lines).toContain(winFspMsiUrl());
+    expect(lines).toContain(WINFSP_PIN.sha256);
+    expect(lines).toContain(`msiexec /i ${winFspMsiName()} /qn /norestart`);
+    expect(lines).toContain("Windows shows its UAC prompt");
+    const notes = stepNotes({ kind: "winfsp-msi" }).join("\n");
+    expect(notes).toContain("kernel-mode driver");
+    expect(notes).toContain("names msiexec, not Nexus");
   });
 
   it("fuse-t-cask is the one brew command, tap included, and promises no version it does not pin", () => {

@@ -53,6 +53,13 @@ function withPlatform(platform: string, body: () => void): void {
   }
 }
 
+/**
+ * NTFS carries no POSIX mode: Node reports 0666 or 0444 there, and `chmod`
+ * moves only the read-only flag. A case that sets a mode and reads it back, or
+ * needs the loose-mode warning to fire, runs on a POSIX host only.
+ */
+const onPosixHost = it.skipIf(process.platform === "win32");
+
 let root: string;
 
 beforeEach(() => {
@@ -66,7 +73,7 @@ afterEach(() => {
 });
 
 describe("writeSecretFile", () => {
-  it("leaves a PRE-EXISTING 0644 file at 0600", () => {
+  onPosixHost("leaves a PRE-EXISTING 0644 file at 0600", () => {
     const file = path.join(root, "config.json");
     fs.writeFileSync(file, "{}");
     fs.chmodSync(file, 0o644);
@@ -78,7 +85,7 @@ describe("writeSecretFile", () => {
     expect(fs.readFileSync(file, "utf-8")).toBe('{"apiKey":"x"}\n');
   });
 
-  it("leaves a PRE-EXISTING 0755 directory at 0700", () => {
+  onPosixHost("leaves a PRE-EXISTING 0755 directory at 0700", () => {
     const dir = path.join(root, "dot-nexus-mcp");
     fs.mkdirSync(dir);
     fs.chmodSync(dir, 0o755);
@@ -89,7 +96,7 @@ describe("writeSecretFile", () => {
     expect(MODE(dir)).toBe(0o700);
   });
 
-  it("repairs a world-WRITABLE file too, not only a readable one", () => {
+  onPosixHost("repairs a world-WRITABLE file too, not only a readable one", () => {
     const file = path.join(root, "config.json");
     fs.writeFileSync(file, "{}");
     fs.chmodSync(file, 0o666);
@@ -102,13 +109,13 @@ describe("writeSecretFile", () => {
   // ── Controls. These pass against the BROKEN code and prove nothing on their
   //    own; they are here so a regression that breaks the create path is caught
   //    too.
-  it("control: a fresh file is created at 0600", () => {
+  onPosixHost("control: a fresh file is created at 0600", () => {
     const file = path.join(root, "fresh", "config.json");
     writeSecretFile(file, "{}\n");
     expect(MODE(file)).toBe(0o600);
   });
 
-  it("control: a fresh parent directory is created at 0700", () => {
+  onPosixHost("control: a fresh parent directory is created at 0700", () => {
     const file = path.join(root, "fresh", "config.json");
     writeSecretFile(file, "{}\n");
     expect(MODE(path.dirname(file))).toBe(0o700);
@@ -116,7 +123,7 @@ describe("writeSecretFile", () => {
 });
 
 describe("ensureSecretDir", () => {
-  it("leaves a PRE-EXISTING 0755 directory at 0700", () => {
+  onPosixHost("leaves a PRE-EXISTING 0755 directory at 0700", () => {
     const dir = path.join(root, "logs-parent");
     fs.mkdirSync(dir);
     fs.chmodSync(dir, 0o755);
@@ -126,7 +133,7 @@ describe("ensureSecretDir", () => {
     expect(MODE(dir)).toBe(0o700);
   });
 
-  it("does not tighten a parent it merely walked through", () => {
+  onPosixHost("does not tighten a parent it merely walked through", () => {
     const parent = path.join(root, "home");
     fs.mkdirSync(parent);
     fs.chmodSync(parent, 0o755);
@@ -148,7 +155,7 @@ describe("warnIfLoosePermissions", () => {
     return lines;
   };
 
-  it("names the file and tells the user to rotate when the mode is 0644", () => {
+  onPosixHost("names the file and tells the user to rotate when the mode is 0644", () => {
     const file = path.join(root, "config.json");
     fs.writeFileSync(file, "{}");
     fs.chmodSync(file, 0o644);
@@ -178,7 +185,7 @@ describe("warnIfLoosePermissions", () => {
     expect(lines).toEqual([]);
   });
 
-  it("warns once per process, however many reads happen", () => {
+  onPosixHost("warns once per process, however many reads happen", () => {
     const file = path.join(root, "config.json");
     fs.writeFileSync(file, "{}");
     fs.chmodSync(file, 0o644);

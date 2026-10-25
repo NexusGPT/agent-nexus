@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { STATE_DIR } from "../mount-registry";
+import type { MountPlatform } from "./mount-platform";
 
 /**
  * Where the CLI keeps the rclone it installed itself: `~/.nexus-mcp/bin/rclone`.
@@ -14,7 +15,21 @@ import { STATE_DIR } from "../mount-registry";
  * absolute path, is reached by neither trap.
  */
 export const MANAGED_RCLONE_DIR = path.join(STATE_DIR, "bin");
-export const MANAGED_RCLONE = path.join(MANAGED_RCLONE_DIR, "rclone");
+
+/** The managed binary's file name per platform: Windows needs the `.exe`, or nothing spawns it. */
+const MANAGED_RCLONE_FILE = {
+  darwin: "rclone",
+  linux: "rclone",
+  win32: "rclone.exe"
+} as const satisfies Record<MountPlatform, string>;
+
+/**
+ * The managed copy's full path for a platform, and the only way any code names
+ * it: the probe, the zip installer and the rendered place line call this.
+ */
+export function managedRcloneFor(platform: MountPlatform): string {
+  return path.join(MANAGED_RCLONE_DIR, MANAGED_RCLONE_FILE[platform]);
+}
 
 /**
  * The PATH name rclone is spawned by when no managed copy exists — the

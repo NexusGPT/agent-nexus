@@ -11,6 +11,6 @@
  * its own: its level sits under `modelOverride` and is not inherited from the
  * task, which is a different thing to say.
  */
-export const REASONING_LEVEL_IS_BODY_ONLY =
+export const EFFORT_LEVEL_IS_BODY_ONLY =
   "--body only. Valid values depend on the model's thinking dialect, which a flag's " +
   "--choices() cannot bound; read supportedReasoningLevels off 'nexus model list'";

@@ -164,3 +164,38 @@ describe("nexus admin vibe-build-runner tick — region_at_capacity", () => {
     expect((await tick()).exitCode).toBeUndefined();
   });
 });
+
+const GIT_HOST_DOWN: AdminVibeBuildRunnerTickResponse = {
+  kind: "git_host_unavailable",
+  buildJobId: "job-0e3f",
+  organizationId: "org_git_host_down",
+  reason: "no_git_host_address"
+};
+
+describe("nexus admin vibe-build-runner tick — git_host_unavailable", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the outcome, the organization and the build left queued", async () => {
+    stubFetch(GIT_HOST_DOWN);
+
+    const { lines } = await tick();
+
+    expect(valueOf(lines, "Outcome")).toBe("git_host_unavailable");
+    expect(valueOf(lines, "Organization")).toBe("org_git_host_down");
+    expect(valueOf(lines, "Build job")).toBe("job-0e3f");
+  });
+
+  it("says why in words, not the raw code", async () => {
+    stubFetch(GIT_HOST_DOWN);
+
+    expect(valueOf((await tick()).lines, "Reason")).toContain("no live address");
+  });
+
+  it("is a successful tick, not an error exit", async () => {
+    stubFetch(GIT_HOST_DOWN);
+
+    expect((await tick()).exitCode).toBeUndefined();
+  });
+});

@@ -44,7 +44,9 @@ export type FailureCause =
   /** The request completed and the answer reports a failure. */
   | "remote-error"
   /** A local operation this CLI performed failed — install, config write, spawn. */
-  | "local-failed";
+  | "local-failed"
+  /** The person stopped the command at a question — Ctrl-C at an install prompt. */
+  | "interrupted";
 
 export const FAILURE_CAUSE_CODES: Readonly<Record<FailureCause, string>> = {
   "not-found": CLI_CODES.NOT_FOUND,
@@ -52,11 +54,12 @@ export const FAILURE_CAUSE_CODES: Readonly<Record<FailureCause, string>> = {
   "connection-failed": CLI_CODES.CONNECTION_FAILED,
   "timed-out": CLI_CODES.TIMEOUT,
   "remote-error": CLI_CODES.REMOTE_ERROR,
-  "local-failed": CLI_CODES.LOCAL_FAILED
+  "local-failed": CLI_CODES.LOCAL_FAILED,
+  interrupted: CLI_CODES.INTERRUPTED
 };
 
 /**
- * THE SAME SIX CAUSES, AS EXIT CODES. The vocabulary is declared once and read
+ * THE SAME SEVEN CAUSES, AS EXIT CODES. The vocabulary is declared once and read
  * twice — once for the document's `code`, once for the process's status.
  *
  * Written as a `Record<FailureCause, …>` so adding a cause is a compile error
@@ -70,5 +73,6 @@ export const FAILURE_CAUSE_EXIT_CATEGORIES: Readonly<Record<FailureCause, ExitCa
   "connection-failed": "connection-failed",
   "timed-out": "timed-out",
   "remote-error": "remote-error",
-  "local-failed": "local-failed"
+  "local-failed": "local-failed",
+  interrupted: "interrupted"
 };

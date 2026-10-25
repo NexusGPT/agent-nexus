@@ -5,6 +5,7 @@ import { createClient } from "../../client";
 import { bindCommand, enumOption } from "../../contract-binding";
 import { handleError } from "../../errors";
 import { isJsonMode } from "../../output";
+import { printWarning } from "../../output-warning";
 import { asRequestBody, mergeBodyWithFlags, resolveBody } from "../../util/body";
 import { resolveInputValue } from "../../util/stdin";
 import {
@@ -108,6 +109,15 @@ export function registerTaskExecuteCommand(task: Command, program: Command): voi
           id,
           asRequestBody<ExecuteTaskBody>(execBody)
         );
+
+        // On stderr, so the answer on stdout stays the answer in every mode.
+        if (result.modelNotice) {
+          printWarning(
+            `Task model '${result.modelNotice.requested}' is not available (unknown or retired); ` +
+              `'${result.modelNotice.servedBy}' answered instead.`,
+            "Pick a model from the model list: nexus task update <id> --model-name <model> --model-provider <provider>"
+          );
+        }
 
         if (isJsonMode()) {
           console.log(JSON.stringify(result, null, 2));

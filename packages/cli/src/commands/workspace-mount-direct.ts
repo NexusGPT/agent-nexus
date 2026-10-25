@@ -9,6 +9,7 @@ import { refusePendingUploadsUnderReadOnly } from "../workspace-direct-mount/ref
 import { refuseWrongCacheCopy } from "../workspace-direct-mount/refuse-wrong-cache-copy";
 import { removeOwnSession } from "../workspace-direct-mount/remove-own-session";
 import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
+import { mintOrRefuse } from "./workspace-mount/mint-or-refuse";
 import type { MountOutcome } from "./workspace-mount/mount-outcome";
 import { startDirectDrive } from "./workspace-mount/start-direct-drive";
 
@@ -44,8 +45,8 @@ export async function mountDirect(request: DirectMountRequest): Promise<MountOut
   }
 
   const requestedAccess = request.readOnly ? "read" : "read-write";
-  const minted = await request.client.workspaces.mintMountCredentials(
-    slug,
+  const minted = await mintOrRefuse(
+    request,
     mintBodyFor({ shared: request.shared, id: request.workspaceId }, requestedAccess)
   );
   // The list may have been unreachable, or answered before a replacement: the

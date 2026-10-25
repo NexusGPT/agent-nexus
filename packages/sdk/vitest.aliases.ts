@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /**
  * Workspace specifiers this package's vitest suite must resolve to SOURCE.
  *
@@ -14,21 +18,18 @@
  *
  * `tsc` was never part of the defect: under `moduleResolution: "bundler"` it does
  * not match the `node` condition and falls through to `default`, which is source.
- * The type-level half of the contract gates was always reading the current
- * contract; the runtime half was not, and the two halves of one file could
- * disagree about which contract they were checking.
  *
  * WHY AN ALIAS RATHER THAN THE `exports` MAP. `@nexus/types` is a dependency of
  * the backend and of every app; reordering its conditions changes resolution for
  * all of them. The alias is local to this package's test run and changes nothing
  * that is built or published.
  *
- * THE LIST IS THE WHOLE GUARANTEE. An alias maps only the specifiers it names, so
- * one new import of an unmapped `@nexus/types` subpath silently reacquires the
- * defect — `tsc` resolves it happily, ESLint has no opinion, the suite goes green.
- * `scripts/workspace-imports-stay-aliased.test.ts` asserts every workspace
- * specifier this package imports is a key below, and that each key resolves, at
- * run time, to the very module its target names.
+ * DERIVED, NOT LISTED. `sourceAliasesFor` (`@nexus/config/lib/source-aliases.cjs`) reads
+ * the table off each `workspace:` dependency's `exports`, through the derivation the
+ * backend's jest resolver aliases from, so a new `@nexus/types` subpath is aliased here the
+ * moment it is exported. `scripts/workspace-imports-stay-aliased.test.ts` asserts every
+ * workspace specifier this package imports is in it, and that each imported one resolves,
+ * at run time, to the very module it names.
  *
  * WHY THIS SITS AT THE PACKAGE ROOT, and the guard in `scripts/`, when
  * `packages/cli` keeps both in `src/`. Anything in this package's `src/` that is
@@ -37,21 +38,19 @@
  * as PUBLISHABLE by the version-bump gate (`scripts/_lib/published-surface.mjs`),
  * so a test-only table there would ship a `.d.ts` to npm and oblige a release.
  * Here it reaches neither: `files` ships `dist` only, and tsup's entries never
- * import it. `tsconfig.json`'s `rootDir: "src"` forbids a spec in `src/` from
- * importing it (`TS6059`), which is why the guard lives in `scripts/`, whose
- * `tsconfig.scripts.json` sets no `rootDir`.
+ * import it.
  *
- * The public mirror (`NexusGPT/agent-nexus`) copies this whole directory, and
- * strips devDependencies, so no suite runs there and the `../types/` targets
- * below — absent from the mirror — are never resolved.
+ * The public mirror (`NexusGPT/agent-nexus`) copies this whole directory and strips
+ * devDependencies, `@nexus/config` among them, so no suite runs there and this module is
+ * never loaded.
  *
- * The paths are relative to the PACKAGE ROOT, because `vitest.config.ts` resolves
- * them against its own `__dirname`.
+ * Values are ABSOLUTE paths; `vitest.config.ts`'s `path.resolve(__dirname, source)` leaves
+ * them as they are.
  */
-export const WORKSPACE_SOURCE_ALIASES: Record<string, string> = {
-  "@nexus/types": "../types/src/index.ts",
-  "@nexus/types/contracts": "../types/src/api/index.ts",
-  "@nexus/types/public-api-v1": "../types/src/api/public/v1/index.ts",
-  "@nexus/types/testing/each-or-refuse": "../types/src/testing/each-or-refuse.ts",
-  "@nexus/types/testing/shrink-only-ledger": "../types/src/testing/shrink-only-ledger.ts"
-};
+const { sourceAliasesFor }: typeof import("@nexus/config/lib/source-aliases.cjs") = createRequire(
+  import.meta.url
+)("@nexus/config/lib/source-aliases.cjs");
+
+export const WORKSPACE_SOURCE_ALIASES: Readonly<Record<string, string>> = sourceAliasesFor(
+  path.dirname(fileURLToPath(import.meta.url))
+);

@@ -34,9 +34,9 @@ export function exitCodeTaxonomyViolations(): readonly string[] {
   for (const category of EXIT_CATEGORIES) {
     const code = EXIT_CODES[category];
 
-    const twin = seen.get(code);
-    if (twin !== undefined) {
-      problems.push(`"${category}" and "${twin}" both claim exit ${String(code)}`);
+    const counterpart = seen.get(code);
+    if (counterpart !== undefined) {
+      problems.push(`"${category}" and "${counterpart}" both claim exit ${String(code)}`);
     }
     seen.set(code, category);
 

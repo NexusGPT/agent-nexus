@@ -6,8 +6,9 @@ export interface MountOutcome {
   /** True when a read-write request was granted read: the drive is read-only. */
   readonly grantedReadOnly: boolean;
   /**
-   * Saves a previous direct mount left in the cache, now uploading; null on
-   * other engines, {@link PENDING_UPLOADS_UNKNOWN} when the cache cannot be read.
+   * Saves a previous direct or rclone mount left in the cache, now uploading;
+   * null on the webdav engine, {@link PENDING_UPLOADS_UNKNOWN} when the cache
+   * cannot be read.
    */
   readonly pendingUploads: number | null;
   /**

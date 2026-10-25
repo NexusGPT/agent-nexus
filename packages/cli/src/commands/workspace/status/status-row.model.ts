@@ -1,6 +1,7 @@
 import type { Engine } from "../../../mount-registry";
 import type { DirectMountHealth } from "../../../workspace-direct-mount/direct-mount-health";
 import type { RefreshJson } from "../../../workspace-direct-mount/refresh-json";
+import type { JsonPendingUploads } from "../../workspace-mount/json-pending-uploads";
 
 /** One registry row, projected for `--json` and rendered for the table. */
 export interface StatusRow {
@@ -16,8 +17,8 @@ export interface StatusRow {
     readonly mountId: string | null;
     readonly expiresAt: string | null;
     readonly refresh: RefreshJson | null;
-    /** A count, `"unknown"` for a cache present and unreadable, `null` off the direct engine. */
-    readonly pendingUploads: number | "unknown" | null;
+    /** A count, `"unknown"` for a cache present and unreadable, `null` where no cache is counted. */
+    readonly pendingUploads: JsonPendingUploads;
     readonly live: "yes" | "no";
     readonly mountedAt: string;
   };
@@ -29,7 +30,8 @@ export interface StatusRow {
     readonly engine: Engine;
     readonly kind: "shared" | "org";
     readonly mountPath: string;
-    readonly live: "yes" | "no";
+    /** `yes` / `no`, or `yes` with who else holds it — the JSON keeps the bare pair. */
+    readonly live: string;
     readonly expires: string;
     readonly refresh: string;
     readonly pending: string;

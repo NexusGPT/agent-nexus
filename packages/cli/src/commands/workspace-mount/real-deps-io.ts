@@ -8,8 +8,11 @@ import {
   downloadWithStallDeadline
 } from "../../util/stall-deadline";
 import type { DepsIo, RunOutcome } from "../../workspace-direct-mount/deps-io";
-import type { RcloneBinary } from "../../workspace-direct-mount/managed-rclone";
-import { macFuseApproved } from "./mac-fuse-approved";
+import { errnoOf } from "../../workspace-direct-mount/errno-of";
+import { macFuseApproved } from "./darwin/mac-fuse-approved";
+import { rcloneVersionOf } from "./rclone-version-of";
+import { readPowerShell } from "./win32/win32-powershell";
+import { WINFSP_INSTALL_DIR_SCRIPT, winFspInstallDirFrom } from "./win32/win32-winfsp-install-dir";
 
 /** The one place the seam meets the real disk, the real processes and the real terminal. */
 export function realDepsIo(): DepsIo {
@@ -22,26 +25,15 @@ export function realDepsIo(): DepsIo {
     // `node:fs` through its default export only, so a named `existsSync`
     // would read the developer's real disk under them.
     exists: (file) => fs.existsSync(file),
-    rcloneVersion: (binary) => versionOf(binary),
+    rcloneVersion: (binary) => rcloneVersionOf(binary, process.platform),
     macFuseApproved,
+    winFspInstallDir: () => winFspInstallDirFrom(readPowerShell(WINFSP_INSTALL_DIR_SCRIPT)),
     hasBrew: () => runs("brew", ["--prefix"]),
     download: downloadBytes,
     run: runInherited,
     askYesNo: (question) => askYesNo(question, promptStream()),
     promptLine
   };
-}
-
-/** `<binary> version` as text, or null when the binary could not run at all. */
-function versionOf(binary: RcloneBinary): string | null {
-  try {
-    return execFileSync(binary, ["version"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"]
-    });
-  } catch {
-    return null;
-  }
 }
 
 /** True when the command ran and exited 0; its output is not read. */
@@ -100,8 +92,7 @@ function promptFd(): 1 | 2 {
  * here and nowhere downstream.
  */
 function classifyRunFailure(error: unknown): RunOutcome {
-  const code = error instanceof Error && "code" in error ? error.code : undefined;
-  if (code === "ENOENT") return { ok: false, reason: "not-found" };
+  if (errnoOf(error) === "ENOENT") return { ok: false, reason: "not-found" };
   const status = error instanceof Error && "status" in error ? error.status : undefined;
   return { ok: false, reason: "exit", status: typeof status === "number" ? status : null };
 }

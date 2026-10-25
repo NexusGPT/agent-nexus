@@ -87,14 +87,14 @@ export type ExitCategory =
    * "killed by signal 2" — see `exit-codes.ts` for why the band above `126` is
    * not ours to assign.
    *
-   * 🚨 THE CLI DOES CHOOSE THIS ONE, FROM EXACTLY ONE PLACE, AND NOT ON THE
-   * SIGNAL A READER EXPECTS. `runAppLogsFollow` in
-   * `commands/apps/logs/run-app-logs-follow.ts` counts signals and exits here
-   * on the SECOND. ONE counter serves both `SIGINT` and `SIGTERM`, so the pair
-   * that reaches it is usually MIXED — a user presses Ctrl-C, a supervisor then
-   * sends `SIGTERM` into the same process, and that is the second. THE FIRST
-   * SIGNAL OF EITHER KIND ABORTS THE STREAM AND THE COMMAND EXITS `success`,
-   * which is why "Ctrl-C gives you 130" is the wrong thing to script against.
+   * 🚨 THE CLI DOES CHOOSE THIS ONE, FROM EXACTLY TWO PLACES. (1) `runAppLogsFollow`
+   * in `commands/apps/logs/run-app-logs-follow.ts` counts signals and exits here
+   * on the SECOND — ONE counter serves both `SIGINT` and `SIGTERM`, so the pair
+   * that reaches it is usually MIXED (Ctrl-C, then a supervisor's `SIGTERM`); THE
+   * FIRST SIGNAL OF EITHER KIND ABORTS THE STREAM AND THE FOLLOW EXITS `success`,
+   * which is why "Ctrl-C gives you 130" is the wrong thing to script against
+   * there. (2) `workspace mount`'s install question: Ctrl-C at the prompt is a
+   * thrown `interrupted` failure (`commands/workspace-mount/local-failure-of.ts`).
    *
    * ⚠️ A FOLLOW ENDED BY TWO `SIGTERM`s ALSO REPORTS `128 + 2`, NEVER
    * `128 + 15`. Deliberate: this taxonomy declares ONE code in the shell's band

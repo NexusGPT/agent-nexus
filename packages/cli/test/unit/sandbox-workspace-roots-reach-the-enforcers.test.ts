@@ -5,7 +5,7 @@
  * ── The defect this exists to catch ─────────────────────────────────────────────────
  *
  * `nexus claude-code install` writes `hooks/nexus-fs-firewall.py` and
- * `hooks/lib/destructive_guard.py` onto the user's machine and into the UC sandbox
+ * `hooks/lib/destructive_guard.py` onto the user's machine and into the Cue sandbox
  * snapshot, and both key safety decisions on "is this path a workspace mount root".
  * Measured on the bundle pinned at `bc52b93c42b6d9cda80746e5ef43856984d96c57`, each
  * carried its own copy of a different SUBSET:
@@ -15,7 +15,7 @@
  *   destructive_guard EQUALITY tier "/mnt/workspace" alone
  *
  * `/mnt/workspace/_shared` is the volume-era layout and is impossible under in-sandbox
- * mount-s3 — see `UC_SHARED_WORKSPACE_SIBLING_ROOT`'s docblock, which records the
+ * mount-s3 — see `CUE_SHARED_WORKSPACE_SIBLING_ROOT`'s docblock, which records the
  * four-month bug that moved shared workspaces to a sibling root. So the only entry those
  * copies shared beyond the org root was DEAD, and `/mnt/workspace-shared` and
  * `/mnt/workspaces` were in none of them.
@@ -49,7 +49,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { UC_ORG_WORKSPACE_MOUNT_ROOT, UC_SHARED_WORKSPACE_SIBLING_ROOT } from "@nexus/types/domain";
+import { CUE_ORG_SANDBOX_MOUNT_ROOT, CUE_SHARED_WORKSPACE_SIBLING_ROOT } from "@nexus/types/domain";
 import { describe, expect, it } from "vitest";
 
 import { getHookFiles, getSettingsJson } from "../../src/skills-content.generated";
@@ -69,7 +69,7 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 /**
  * The code-interpreter root, read out of the backend rather than imported.
  *
- * `WORKSPACE_MOUNT_ROOT` is declared in `apps/backend`, which this package does not and
+ * `SANDBOX_MOUNT_ROOT` is declared in `apps/backend`, which this package does not and
  * should not depend on. Copying its value here would reproduce the exact defect this file
  * exists to catch, one repository closer. So the declaration is READ, and a read that
  * finds nothing THROWS rather than returning a default — an absent third root would
@@ -78,13 +78,13 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 function readCodeInterpreterRoot(): string {
   const declPath = path.join(
     REPO_ROOT,
-    "apps/backend/src/chats/code-interpreter/workspace-mount-key.ts"
+    "apps/backend/src/chats/code-interpreter/sandbox-mount-key.ts"
   );
   const source = fs.readFileSync(declPath, "utf8");
-  const match = /export const WORKSPACE_MOUNT_ROOT\s*=\s*"([^"]+)"/.exec(source);
+  const match = /export const SANDBOX_MOUNT_ROOT\s*=\s*"([^"]+)"/.exec(source);
   if (!match) {
     throw new Error(
-      `WORKSPACE_MOUNT_ROOT not found in ${declPath}. It was renamed, moved, or respelled — ` +
+      `SANDBOX_MOUNT_ROOT not found in ${declPath}. It was renamed, moved, or respelled — ` +
         "which silently drops a mount root from this check. Fix the pattern, do not delete it."
     );
   }
@@ -97,8 +97,8 @@ function readCodeInterpreterRoot(): string {
  * asserts nothing about it. Adding a root means adding a line here, and that is the point.
  */
 const DECLARED_ROOTS = [
-  UC_ORG_WORKSPACE_MOUNT_ROOT,
-  UC_SHARED_WORKSPACE_SIBLING_ROOT,
+  CUE_ORG_SANDBOX_MOUNT_ROOT,
+  CUE_SHARED_WORKSPACE_SIBLING_ROOT,
   readCodeInterpreterRoot()
 ] as const;
 
@@ -247,7 +247,7 @@ describe("sandbox workspace roots reach the shipped enforcers", () => {
     // own, because a root entry for it reads as shared-workspace coverage and is not.
     const declaration = /SANDBOX_WORKSPACE_ROOTS\s*=\s*\(([\s\S]*?)\)/.exec(hookCore);
     expect(declaration).not.toBeNull();
-    expect(declaration?.[1]).not.toContain(`${UC_ORG_WORKSPACE_MOUNT_ROOT}/_shared`);
+    expect(declaration?.[1]).not.toContain(`${CUE_ORG_SANDBOX_MOUNT_ROOT}/_shared`);
   });
 
   it("strips prose and keeps code (the anchor control for the two arms below)", () => {

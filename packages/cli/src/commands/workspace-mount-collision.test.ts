@@ -1,9 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { WorkspaceMountCredentials } from "@agent-nexus/sdk";
+import {
+  NexusApiError,
+  type WorkspaceKind,
+  type WorkspaceMountCredentials
+} from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { stagePlatform } from "../stage-platform";
 
 /**
  * The state directory is resolved from HOME when `../mount-registry` loads,
@@ -13,11 +19,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
  * `~/.nexus-mcp`.
  */
 const SANDBOX = vi.hoisted(() => {
-  // Without the trailing slash macOS puts on TMPDIR: the fs mock below decides
-  // "inside the sandbox" by string prefix, against paths `os.homedir()` has
-  // already normalised.
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-workspace-mount-collision-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early): the fs mock
+  // below decides "inside the sandbox" by string prefix, against paths the
+  // source builds with `path.join` — one separator, and no trailing slash.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-workspace-mount-collision-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
@@ -31,16 +38,32 @@ import {
   LEGACY_MACFUSE_LIBRARY,
   MACFUSE_LIBRARY,
   MACFUSE_LOADER
-} from "../workspace-direct-mount/fuse-libraries";
-import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
-import { mountIdFor } from "../workspace-direct-mount/mount-id";
+} from "../workspace-direct-mount/darwin/fuse-libraries";
+import { managedRcloneFor } from "../workspace-direct-mount/managed-rclone";
+import { awsProfileFor, mountIdFor } from "../workspace-direct-mount/mount-id";
+import { mountPlatformOf } from "../workspace-direct-mount/mount-platform";
 import { readSession } from "../workspace-direct-mount/read-session";
 import {
   DIRECT_MOUNT_INTRO_MARKER,
   sessionPathsFor
 } from "../workspace-direct-mount/session-paths";
 import { stableNodePath } from "../workspace-direct-mount/stable-node-path";
+import { powerShellExe, system32Exe } from "../workspace-direct-mount/win32/win32-system-exe";
+import { isWinFspArch, winFspLibraryFor } from "../workspace-direct-mount/win32/winfsp-library";
 import { writeSession } from "../workspace-direct-mount/write-session";
+import { gatewayCacheDirFor } from "./workspace-mount/gateway-cache";
+import {
+  isStartScript,
+  leaveStarted,
+  startedRclone,
+  type StartLeft
+} from "./workspace-mount/win32/started-rclone";
+import { HIGH_INTEGRITY_SID } from "./workspace-mount/win32/win32-elevated";
+
+/** The managed copy's path on the host this spec runs on: a case that stages no platform probes that one. */
+const MANAGED = managedRcloneFor(mountPlatformOf(process.platform));
+/** The managed copy on Windows — the ONLY rclone a Windows mount runs; a case that stages win32 finds it present. */
+const MANAGED_WIN = managedRcloneFor("win32");
 
 /**
  * NEX-2360 follow-up: org-scoping the registry KEY does not scope the mount
@@ -86,18 +109,29 @@ vi.mock("@agent-nexus/sdk", async (importOriginal) => {
   };
 });
 
-// The workspace list is irrelevant here — a failing list degrades to the plain
-// bare-slug mount (resolveMountTargetDetailed → null target), which is what we want to test.
+// The workspace list fails unless a case names the workspaces it answers — a
+// failing list degrades to the plain bare-slug mount (resolveMountTargetDetailed
+// → null target), which is what most cases test.
 // PARTIAL, via `importOriginal`: `workspace.ts` reads the `seconds` brand
 // constructor off this module at load, and a total mock makes the suite fail
 // to COLLECT — which reports as no tests, not as a red.
 const mint = vi.fn<(slug: string, body: unknown) => Promise<WorkspaceMountCredentials>>();
+type ListedWorkspace = { id: string; slug: string; isShared: boolean; kind: WorkspaceKind };
+let listedWorkspaces: ListedWorkspace[] | null = null;
+/** The server REFUSING the list (a 401 or 403), as opposed to the list being offline. */
+let listFailure: Error | null = null;
+/** The list answering that the slug is an ordinary drive — what `auto` needs before it picks direct. */
+const DRIVE_LISTED: ListedWorkspace[] = [
+  { id: "ws-gc", slug: "general-context", isShared: false, kind: "DRIVE" }
+];
 vi.mock("../client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../client")>()),
   createClient: vi.fn(() => ({
     workspaces: {
       list: vi.fn(async () => {
-        throw new Error("offline");
+        if (listFailure !== null) throw listFailure;
+        if (listedWorkspaces === null) throw new Error("offline");
+        return { workspaces: listedWorkspaces };
       }),
       mintMountCredentials: mint
     }
@@ -107,47 +141,119 @@ vi.mock("../client", async (importOriginal) => ({
 // Never shell out: an empty mount table makes every webdav record read as NOT
 // live; `rclone version` answers the official build's tag line unless a case
 // says otherwise; the macFUSE loader succeeds unless a case makes it fail; `ps`
-// reports every recorded pid as an rclone mount, so a row carrying this
-// process's pid reads live.
+// (and the Windows command line) report every recorded pid as an rclone mount
+// at every recorded path (`null`), so a row carrying this process's pid reads
+// live.
 const spawn = vi.fn();
 let rcloneVersion: string | Error = "rclone v1.74.4\n- go/tags: cmount\n";
 let macFuseLoader: Error | null = null;
-const PS_RCLONE = "rclone mount nxws: /Users/me/nexus/acme/general-context\n";
-let psAnswer: string | Error = PS_RCLONE;
-const execFileSync = vi.fn((command: string) => {
-  if (command === "rclone" || command === MANAGED_RCLONE) {
-    if (rcloneVersion instanceof Error) throw rcloneVersion;
-    return rcloneVersion;
+// Drive the registry off memory instead of ~/.nexus-mcp — reads AND writes.
+// Everything else under the sandbox HOME is real; a path outside it (an `--at`
+// elsewhere) is created and read as empty without touching the disk.
+let registry: Record<string, unknown> = {};
+let psAnswer: string | Error | null = null;
+/** One process per pid, as `ps -p` and WMI answer: the drive of the row that recorded it. */
+function commandLineAnswer(pid: number): string {
+  if (psAnswer instanceof Error) throw psAnswer;
+  if (psAnswer !== null) return psAnswer;
+  const row = Object.values(registry)
+    .filter(isRow)
+    .find((candidate) => candidate.pid === pid);
+  return row === undefined ? "" : `rclone mount nxws: ${String(row.mountPath)}\n`;
+}
+/** A registry row as the fakes read it: any object, its fields read as unknown. */
+function isRow(value: unknown): value is { readonly pid?: unknown; readonly mountPath?: unknown } {
+  return typeof value === "object" && value !== null;
+}
+/** The pid the PowerShell command-line script asks WMI for. */
+function pidInScript(script: string): number {
+  return Number(/ProcessId = (\d+)/.exec(script)?.[1] ?? "NaN");
+}
+// Windows: WinFsp is installed unless a case says otherwise (`""` is the
+// registry key absent; an Error is PowerShell itself failing to run), and the
+// terminal is not elevated unless a case hands `whoami` the high-integrity SID.
+// `whoami` answers ONLY at its System32 address (SystemRoot is unset in every
+// case): a bare `whoami.exe` under Git Bash is coreutils, which has no `/groups`.
+// The UAC policy reads UAC on, for a user who is not the built-in Administrator.
+const WINFSP_DIR = "C:\\Program Files (x86)\\WinFsp";
+let winFspDir: string | Error = `${WINFSP_DIR}\r\n`;
+let whoamiAnswer: string = "";
+const WHOAMI_EXE = "C:\\Windows\\System32\\whoami.exe";
+const UAC_ON_NORMAL_ADMIN =
+  "EnableLUA=1\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-1111-2222-3333-1001\r\n";
+let uacPolicy: string | Error = UAC_ON_NORMAL_ADMIN;
+// renew.cmd's run through cmd.exe before rclone starts: the minted credentials
+// document, unless a case puts something in front of it.
+const RENEWAL_DOCUMENT = JSON.stringify(
+  { Version: 1, AccessKeyId: "ASIA_MINTED_KEY", SecretAccessKey: "s", SessionToken: "t" },
+  null,
+  2
+);
+let renewalRunOutput = RENEWAL_DOCUMENT;
+// What the Windows start (PowerShell's Start-Process) leaves behind: by default
+// a live pid — this process's — and an empty log. A case stages the code rclone
+// ended with inside the window, the lines it wrote first, and anything else
+// that happened meanwhile.
+let windowsStart: StartLeft & { readonly then?: () => void } = { pid: process.pid, log: [] };
+const execFileSync = vi.fn(
+  (command: string, args?: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
+    if (command === system32Exe(process.env, "cmd.exe")) return renewalRunOutput;
+    if (command === "rclone" || command === MANAGED || command === MANAGED_WIN) {
+      if (rcloneVersion instanceof Error) throw rcloneVersion;
+      return rcloneVersion;
+    }
+    if (command === powerShellExe(process.env)) {
+      // One reader, three scripts: the command line of a pid, the UAC policy, and WinFsp's key —
+      // and the one starter: the Start-Process line that starts rclone hidden and leaves its pid in a file.
+      const script = args?.[3] ?? "";
+      if (isStartScript(args)) {
+        // PowerShell's redirect CREATES the log (an earlier run's lines are gone), the
+        // new process writes what a case staged, and the result lands in the result file.
+        leaveStarted(options?.env ?? {}, windowsStart);
+        windowsStart.then?.();
+        return "";
+      }
+      // The UAC script also names Win32_Process (Explorer's owner), so it is matched first.
+      if (script.includes("EnableLUA")) {
+        if (uacPolicy instanceof Error) throw uacPolicy;
+        return uacPolicy;
+      }
+      if (script.includes("Win32_Process")) return commandLineAnswer(pidInScript(script));
+      if (winFspDir instanceof Error) throw winFspDir;
+      return winFspDir;
+    }
+    if (command === WHOAMI_EXE) return whoamiAnswer;
+    // Homebrew is present unless a case says otherwise; an answer of "" would
+    // read as present too, so the arm is explicit rather than the fallthrough.
+    if (command === "brew") return "/opt/homebrew\n";
+    if (command === "ps") return commandLineAnswer(Number(args?.[4]));
+    if (command === MACFUSE_LOADER && macFuseLoader !== null) throw macFuseLoader;
+    return "";
   }
-  // Homebrew is present unless a case says otherwise; an answer of "" would
-  // read as present too, so the arm is explicit rather than the fallthrough.
-  if (command === "brew") return "/opt/homebrew\n";
-  if (command === "ps") {
-    if (psAnswer instanceof Error) throw psAnswer;
-    return psAnswer;
-  }
-  if (command === MACFUSE_LOADER && macFuseLoader !== null) throw macFuseLoader;
-  return "";
-});
+);
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => execFileSync(...(args as [string])),
   execSync: vi.fn(() => ""),
   spawn: (...args: unknown[]) => spawn(...args)
 }));
 
-// Drive the registry off memory instead of ~/.nexus-mcp — reads AND writes.
-// Everything else under the sandbox HOME is real; a path outside it (an `--at`
-// elsewhere) is created and read as empty without touching the disk.
-let registry: Record<string, unknown> = {};
 /**
  * Which files the preflight asks about "exist" on this Mac — FUSE-T alone by
  * default, and no managed rclone, so PATH's `rclone` is the one probed.
  */
+/** The DLL rclone loads on Windows, for THIS host's CPU: the win32 cases pretend the platform, never the arch. */
+const WINFSP_DLL = winFspLibraryFor(WINFSP_DIR, isWinFspArch(process.arch) ? process.arch : "x64");
 const NOTHING_BUT_FUSE_T: Record<string, boolean> = {
   [FUSE_T_LIBRARY]: true,
   [MACFUSE_LIBRARY]: false,
   [LEGACY_MACFUSE_LIBRARY]: false,
-  [MANAGED_RCLONE]: false
+  [MANAGED]: false,
+  // Windows runs only the managed copy: a case that stages win32 finds it in place.
+  [MANAGED_WIN]: true,
+  [WINFSP_DLL]: true,
+  // Linux mounts need the FUSE device; this Mac has none, and the fake falls
+  // to the real disk for any path not listed here.
+  "/dev/fuse": true
 };
 let libraries: Record<string, boolean> = { ...NOTHING_BUT_FUSE_T };
 vi.mock("node:fs", async (importOriginal) => {
@@ -215,6 +321,25 @@ const OVERRIDE_PROFILE: ResolvedProfile = {
   name: "override",
   source: "override",
   profile: { apiKey: "nxs_raw_key", baseUrl: "https://api.nexusgpt.io" }
+};
+
+/** The mount id org A's row key hashes to, and the folder its rclone drive caches in. */
+const ORG_A_MOUNT_ID = mountIdFor("org:org_aaa|general-context");
+const ORG_A_GATEWAY_CACHE = gatewayCacheDirFor({ mountId: ORG_A_MOUNT_ID, shared: false });
+
+/** Org A's own rclone row with no pid: a drive that died and left its cache folder. */
+const ORG_A_DEAD_RCLONE_ROW = {
+  slug: SLUG,
+  engine: "rclone",
+  mountPath: ORG_A_DEFAULT_PATH,
+  baseUrl: "https://api.nexusgpt.io",
+  mountId: ORG_A_MOUNT_ID,
+  shared: false,
+  readOnly: false,
+  orgId: "org_aaa",
+  orgName: "Acme",
+  profile: "org-a",
+  mountedAt: "2026-09-29T12:00:00.000Z"
 };
 
 /** A registry row owned by org B (Globex), parked on org A's default mount point. */
@@ -297,22 +422,70 @@ async function runMount(
 
 type ErrorDocument = { error?: { message?: string; hint?: string; code?: string } };
 
-/** The argv and env rclone was spawned with — the mount itself. */
-function spawned(): { argv: string[]; env: NodeJS.ProcessEnv } {
+/**
+ * The argv and env rclone was started with — the mount itself. On macOS and
+ * Linux that is the one detached `spawn`; on Windows it is the one PowerShell
+ * `Start-Process` line, whose argument list is read back the way the C
+ * runtime reads a command line, and whose env is PowerShell's (rclone inherits it).
+ */
+function spawned(): {
+  exe: string;
+  argv: string[];
+  env: NodeJS.ProcessEnv;
+  cwd: string | undefined;
+} {
+  const started = startedRclone(execFileSync.mock.calls, powerShellExe(process.env));
+  if (process.platform === "win32") {
+    // The Windows route, and only it: a detached spawn there is the console window at every renewal.
+    expect(spawn).not.toHaveBeenCalled();
+    expect(started).not.toBeNull();
+    if (started === null) throw new Error("unreachable");
+    return started;
+  }
+  expect(started).toBeNull();
   expect(spawn).toHaveBeenCalledTimes(1);
-  const [, argv, options] = spawn.mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }];
-  return { argv, env: options.env };
+  const [exe, argv, options] = spawn.mock.calls[0] as [
+    string,
+    string[],
+    { env: NodeJS.ProcessEnv; cwd?: string }
+  ];
+  return { exe, argv, env: options.env, cwd: options.cwd };
 }
 
-const REAL_PLATFORM = Object.getOwnPropertyDescriptor(process, "platform");
-function pretendPlatform(platform: NodeJS.Platform): void {
-  if (!REAL_PLATFORM) throw new Error("process.platform has no descriptor to restore");
-  Object.defineProperty(process, "platform", { ...REAL_PLATFORM, value: platform });
+/**
+ * An rclone that ends inside the fail-fast window, having written `lines` to
+ * its log: on macOS and Linux the detached child exits 2 after appending them;
+ * on Windows the started process leaves them in the rewritten log and its pid
+ * is dead. Either way the mount reports "rclone exited immediately".
+ */
+function failFastWriting(
+  lines: readonly string[],
+  stage: { readonly meanwhile?: () => void; readonly logPath?: string } = {}
+): void {
+  windowsStart = { exited: 2, log: lines, then: stage.meanwhile };
+  spawn.mockImplementation(() => {
+    // By path, never through the fd the spawn was handed: the fs fake above knows paths.
+    if (stage.logPath !== undefined) fs.appendFileSync(stage.logPath, `${lines.join("\n")}\n`);
+    stage.meanwhile?.();
+    return {
+      pid: 4242,
+      once: vi.fn((event: string, handler: (code: number) => void) => {
+        if (event === "exit") handler(2);
+      }),
+      unref: vi.fn()
+    };
+  });
 }
+
+const pretendPlatform = stagePlatform();
 
 /** Saves a previous mount left in the cache: rclone's own dirty markers under vfsMeta. */
-function leaveDirtyItems(mountId: string, count: number): void {
-  const metaRoot = path.join(sessionPathsFor(mountId).cacheDir, "vfsMeta", "nxws{abc}", SLUG);
+function leaveDirtyItems(
+  mountId: string,
+  count: number,
+  cacheDir = sessionPathsFor(mountId).cacheDir
+): void {
+  const metaRoot = path.join(cacheDir, "vfsMeta", "nxws{abc}", SLUG);
   fs.mkdirSync(metaRoot, { recursive: true });
   for (let index = 0; index < count; index += 1) {
     fs.writeFileSync(
@@ -324,6 +497,8 @@ function leaveDirtyItems(mountId: string, count: number): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listedWorkspaces = null;
+  listFailure = null;
   resolveProfile.mockReturnValue(ORG_A_PROFILE);
   delete process.env.NEXUS_ORGANIZATION_ID;
   delete process.env.NEXUS_BASE_URL;
@@ -333,7 +508,13 @@ beforeEach(() => {
   registry = {};
   rcloneVersion = "rclone v1.74.4\n- go/tags: cmount\n";
   macFuseLoader = null;
-  psAnswer = PS_RCLONE;
+  psAnswer = null;
+  winFspDir = `${WINFSP_DIR}\r\n`;
+  whoamiAnswer = "";
+  uacPolicy = UAC_ON_NORMAL_ADMIN;
+  renewalRunOutput = RENEWAL_DOCUMENT;
+  windowsStart = { pid: process.pid, log: [] };
+  delete process.env.SystemRoot;
   libraries = { ...NOTHING_BUT_FUSE_T };
   process.exitCode = undefined;
   // A live rclone mount is one whose recorded pid is alive; this process is.
@@ -347,7 +528,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  if (REAL_PLATFORM) Object.defineProperty(process, "platform", REAL_PLATFORM);
   setJsonMode(false);
   process.exitCode = undefined;
 });
@@ -393,11 +573,20 @@ describe("nexus workspace mount — cross-org mount-point collision", () => {
     expect(out).toMatchObject({ mounted: true, slug: SLUG, mountPath: ORG_A_DEFAULT_PATH });
     expect(warnings).toContain("Reclaiming");
     expect(registry["org:org_bbb|general-context"]).toBeUndefined();
-    expect(execFileSync).toHaveBeenCalledWith(
-      "ps",
-      ["-o", "command=", "-p", String(process.pid)],
-      expect.anything()
-    );
+    // The command line was read with the host's own reader.
+    if (process.platform === "win32") {
+      expect(execFileSync).toHaveBeenCalledWith(
+        powerShellExe(process.env),
+        expect.arrayContaining([expect.stringContaining(`ProcessId = ${String(process.pid)}`)]),
+        expect.anything()
+      );
+    } else {
+      expect(execFileSync).toHaveBeenCalledWith(
+        "ps",
+        ["-ww", "-o", "command=", "-p", String(process.pid)],
+        expect.anything()
+      );
+    }
   });
 
   it("treats an UNREADABLE `ps` as still-running, so a stripped container does not detach a live drive", async () => {
@@ -525,57 +714,329 @@ describe("nexus workspace mount — cross-org mount-point collision", () => {
 // ── The direct engine, end to end ─────────────────────────────────────────────
 
 describe("nexus workspace mount --engine — which engine runs where, and the default path", () => {
-  it("refuses --engine rclone on macOS as retired there, naming direct and the WebDAV default, before any auth", async () => {
+  it("refuses --engine rclone on macOS as retired there, naming direct (the default) and webdav, before any auth", async () => {
     pretendPlatform("darwin");
     const { out } = await runMount([SLUG, "--engine", "rclone"]);
     const doc = out as ErrorDocument;
     expect(doc.error?.message).toContain("--engine rclone is retired on macOS");
-    expect(doc.error?.hint).toContain("--engine direct");
-    expect(doc.error?.hint).toContain("drop --engine");
+    expect(doc.error?.hint).toContain("Drop --engine for direct");
+    expect(doc.error?.hint).toContain('"--engine webdav", which needs nothing installed');
     expect(doc.error?.code).toBe("CLI_INVALID_ARGUMENTS");
     expect(process.exitCode).toBe(5);
     expect(mint).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it("on Linux, auto is rclone over the gateway: the key in the environment, no mint, no cmount tag needed", async () => {
+  it("on Linux, --engine rclone is the gateway over FUSE: the key in the environment, no mint, no cmount tag needed", async () => {
     pretendPlatform("linux");
     // Linux rclone mounts without the `cmount` build tag; only macOS and
     // Windows builds need it. A Homebrew-shaped tag line must pass here.
     rcloneVersion = "rclone v1.74.4\n- go/tags: none\n";
 
-    const { out } = await runMount([SLUG]);
+    const { out } = await runMount([SLUG, "--engine", "rclone"]);
 
+    // The drive keeps its VFS cache in its own folder, named by the row's
+    // mount id, so status and unmount can count what has not uploaded.
     expect(out).toMatchObject({
       mounted: true,
       engine: "rclone",
       mountPath: ORG_A_DEFAULT_PATH,
-      mountId: null,
+      mountId: ORG_A_MOUNT_ID,
       access: null,
-      pendingUploads: null
+      pendingUploads: 0
     });
-    const { argv, env } = spawned();
+    const { argv, env, cwd } = spawned();
     expect(argv.slice(0, 3)).toEqual(["mount", ":webdav:", ORG_A_DEFAULT_PATH]);
+    expect(cwd).toBeUndefined();
+    expect(argv.slice(argv.indexOf("--cache-dir"), argv.indexOf("--cache-dir") + 2)).toEqual([
+      "--cache-dir",
+      ORG_A_GATEWAY_CACHE
+    ]);
     expect(env.RCLONE_WEBDAV_URL).toBe(`https://api.nexusgpt.io/api/dav/${SLUG}`);
     expect(env.RCLONE_WEBDAV_HEADERS).toBe("api-key,nxs_a");
     expect(argv.join(" ")).not.toContain("nxs_a");
     expect(mint).not.toHaveBeenCalled();
     expect(registry["org:org_aaa|general-context"]).toMatchObject({
       engine: "rclone",
+      mountId: ORG_A_MOUNT_ID,
       pid: process.pid
     });
   });
 
-  it("on Linux a raw --api-key still has an engine: rclone, at the org-less path", async () => {
+  it("on Linux, a DEAD rclone row holding unsent saves refuses a replacement that would not upload them; an rclone mount drains them", async () => {
     pretendPlatform("linux");
+    registry = { "org:org_aaa|general-context": ORG_A_DEAD_RCLONE_ROW };
+    leaveDirtyItems(ORG_A_MOUNT_ID, 2, ORG_A_GATEWAY_CACHE);
+
+    // A direct mount writes its own cache; the gateway's two saves would sit unsent.
+    const refused = await runMount([SLUG, "--engine", "direct"]);
+    const doc = refused.out as ErrorDocument;
+    expect(doc.error?.message).toContain('2 file(s) saved to "general-context"');
+    expect(doc.error?.message).toContain("previous rclone mount have not uploaded yet");
+    expect(doc.error?.hint).toContain(`nexus workspace remount ${SLUG}`);
+    expect(doc.error?.hint).toContain(ORG_A_GATEWAY_CACHE);
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(registry["org:org_aaa|general-context"]).toEqual(ORG_A_DEAD_RCLONE_ROW);
+
+    // The rclone engine on the same row lands on the same folder, and says what it is uploading.
+    process.exitCode = undefined;
+    const drained = await runMount([SLUG, "--engine", "rclone"]);
+    expect(drained.out).toMatchObject({
+      mounted: true,
+      engine: "rclone",
+      mountId: ORG_A_MOUNT_ID,
+      pendingUploads: 2
+    });
+    expect(spawned().argv).toContain(ORG_A_GATEWAY_CACHE);
+
+    // Nothing pending: the replaced row's empty folder goes with it.
+    registry = { "org:org_aaa|general-context": ORG_A_DEAD_RCLONE_ROW };
+    vi.clearAllMocks();
+    spawn.mockReturnValue({ pid: process.pid, once: vi.fn(), unref: vi.fn() });
+    fs.rmSync(ORG_A_GATEWAY_CACHE, { recursive: true, force: true });
+    fs.mkdirSync(ORG_A_GATEWAY_CACHE, { recursive: true });
+    fs.rmSync(ORG_A_DEFAULT_PATH, { recursive: true, force: true });
+    const replaced = await runMount([SLUG, "--engine", "direct"]);
+    expect(replaced.out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(fs.existsSync(ORG_A_GATEWAY_CACHE)).toBe(false);
+  });
+
+  it("another scope's dead row with unsent saves on this path is refused before rclone is even probed: no plan of ours uploads them", async () => {
+    pretendPlatform("linux");
+    const otherId = "0123456789abcdef";
+    const otherRow = {
+      ...ORG_A_DEAD_RCLONE_ROW,
+      engine: "direct",
+      orgId: "org_bbb",
+      profile: "org-b",
+      mountId: otherId
+    };
+    registry = { "org:org_bbb|general-context": otherRow };
+    leaveDirtyItems(otherId, 1);
+    const refused = await runMount([SLUG, "--engine", "direct"]);
+    expect((refused.out as ErrorDocument).error?.message).toContain(
+      "previous direct mount have not uploaded yet"
+    );
+    expect(
+      execFileSync.mock.calls.some(([command]) => command === "rclone" || command === MANAGED)
+    ).toBe(false);
+  });
+
+  it("on Linux the admin-shared copy of a slug keeps its own folder: the org-owned copy's unsent saves refuse --shared and never count as its", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = [
+      { id: "ws-own", slug: SLUG, isShared: false, kind: "DRIVE" },
+      { id: "ws-shared", slug: SLUG, isShared: true, kind: "DRIVE" }
+    ];
+    // One registry key serves both copies, so one mount id: the folder is per copy.
+    const ownFolder = ORG_A_GATEWAY_CACHE;
+    registry = { "org:org_aaa|general-context": ORG_A_DEAD_RCLONE_ROW };
+    leaveDirtyItems(ORG_A_MOUNT_ID, 1, ownFolder);
+
+    // rclone would file the shared copy under another URL and never drain these.
+    const refused = await runMount([SLUG, "--shared", "--engine", "rclone"]);
+    const doc = refused.out as ErrorDocument;
+    expect(doc.error?.message).toContain('1 file(s) saved to "general-context"');
+    expect(doc.error?.hint).toContain(ownFolder);
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+
+    // Once those are gone, the shared drive runs on its own folder.
+    process.exitCode = undefined;
+    fs.rmSync(ownFolder, { recursive: true, force: true });
+    const shared = await runMount([SLUG, "--shared", "--engine", "rclone"]);
+    expect(shared.out).toMatchObject({
+      mounted: true,
+      engine: "rclone",
+      shared: true,
+      mountId: ORG_A_MOUNT_ID
+    });
+    const { argv, env } = spawned();
+    expect(argv).toContain(gatewayCacheDirFor({ mountId: ORG_A_MOUNT_ID, shared: true }));
+    expect(env.RCLONE_WEBDAV_URL).toBe(`https://api.nexusgpt.io/api/dav/_shared/${SLUG}`);
+  });
+
+  it("on macOS the webdav engine mounts the admin-shared copy at its own gateway path", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = [{ id: "ws-shared", slug: SLUG, isShared: true, kind: "DRIVE" }];
+    const { out } = await runMount([SLUG, "--shared", "--engine", "webdav"]);
+    expect(out).toMatchObject({ mounted: true, engine: "webdav", shared: true });
+    const mountWebdav = execFileSync.mock.calls.find(([command]) => command === "mount_webdav");
+    expect(mountWebdav?.[1]).toEqual([
+      `https://api.nexusgpt.io/api/dav/_t/dav-token/_shared/${SLUG}`,
+      ORG_A_DEFAULT_PATH
+    ]);
+  });
+
+  it('on Linux an rclone cache this CLI cannot read is "unknown" under --json, never null', async () => {
+    // A POSIX-host case by its staging: `chmod 000` makes nothing unreadable on NTFS.
+    pretendPlatform("linux");
+    const locked = path.join(ORG_A_GATEWAY_CACHE, "vfsMeta", "locked");
+    fs.mkdirSync(locked, { recursive: true });
+    fs.writeFileSync(path.join(locked, "item"), '{"Dirty":true}');
+    fs.chmodSync(locked, 0o000);
+    try {
+      const { out } = await runMount([SLUG, "--engine", "rclone"]);
+      expect(out).toMatchObject({ mounted: true, engine: "rclone", pendingUploads: "unknown" });
+    } finally {
+      fs.chmodSync(locked, 0o700);
+    }
+  });
+
+  it("on Linux a raw --api-key still has an engine: auto falls back to rclone at the org-less path, saying why", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = DRIVE_LISTED;
     resolveProfile.mockReturnValue(OVERRIDE_PROFILE);
-    const { out } = await runMount([SLUG]);
+    const { out, warnings } = await runMount([SLUG]);
     expect(out).toMatchObject({
       mounted: true,
       engine: "rclone",
       mountPath: path.join(SANDBOX, "nexus", SLUG)
     });
     expect(spawned().env.RCLONE_WEBDAV_HEADERS).toBe("api-key,nxs_raw_key");
+    expect(warnings).toContain(
+      "Mounting through the rclone engine, not direct: the API key came from --api-key or NEXUS_API_KEY"
+    );
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("auto is direct on macOS: one mint, the direct drive, no fallback line", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = DRIVE_LISTED;
+    const { out, warnings } = await runMount([SLUG]);
+    expect(out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(spawned().argv.slice(0, 2)).toEqual(["mount", "nxws:"]);
+    expect(warnings).not.toContain("not direct");
+  });
+
+  it("auto is direct on Linux: one mint, the direct drive", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = DRIVE_LISTED;
+    const linux = await runMount([SLUG]);
+    expect(linux.out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(mint).toHaveBeenCalledTimes(1);
+  });
+
+  // Its own case, so a Windows host runs it: the Linux half above skips there.
+  it("auto mounts direct on Windows, minting the drive's key, with no fallback line", async () => {
+    pretendPlatform("win32");
+    listedWorkspaces = DRIVE_LISTED;
+    const windows = await runMount([SLUG]);
+    expect(windows.out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(windows.warnings).not.toContain("not direct");
+  });
+
+  it("auto on macOS falls back to webdav, one line each, for a raw --api-key and for FUSE the offer could not install", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = DRIVE_LISTED;
+    resolveProfile.mockReturnValue(OVERRIDE_PROFILE);
+    const rawKey = await runMount([SLUG]);
+    expect(rawKey.out).toMatchObject({ mounted: true, engine: "webdav" });
+    expect(rawKey.warnings).toContain(
+      "Mounting through the webdav engine, not direct: the API key came from"
+    );
+    expect(mint).not.toHaveBeenCalled();
+
+    // No FUSE layer, and no terminal to ask: direct cannot run, webdav needs nothing.
+    vi.clearAllMocks();
+    registry = {};
+    resolveProfile.mockReturnValue(ORG_A_PROFILE);
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
+    const noFuse = await runMount([SLUG]);
+    expect(noFuse.out).toMatchObject({ mounted: true, engine: "webdav" });
+    // One line: no install offer it cannot make (no terminal), and the fix named by flag.
+    expect(noFuse.warnings).toContain(
+      "⚠ Mounting through the webdav engine, not direct: rclone or its FUSE layer cannot be used here " +
+        "(--engine direct says why and offers the fix)."
+    );
+    expect(noFuse.warnings).not.toContain("The CLI can install what is missing");
+    expect(noFuse.warnings).not.toContain("needs a FUSE library");
+    expect(mint).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("auto mounts through the gateway when the workspace list does not answer: the kind is unknown, and no key is minted to learn it", async () => {
+    pretendPlatform("darwin");
+    const { out, warnings } = await runMount([SLUG]);
+    expect(out).toMatchObject({ mounted: true, engine: "webdav" });
+    expect(warnings).toContain(
+      "Mounting through the webdav engine, not direct: the workspace list did not answer"
+    );
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("auto keeps direct when the list does not answer but a dead direct row already proves the workspace is not CODE", async () => {
+    pretendPlatform("darwin");
+    registry = { "org:org_aaa|general-context": { ...ORG_A_DEAD_RCLONE_ROW, engine: "direct" } };
+    const { out, warnings } = await runMount([SLUG]);
+    expect(out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(warnings).not.toContain("the workspace list did not answer");
+  });
+
+  it("on Linux auto keeps rclone for a dead rclone drive whose unsent saves only rclone uploads", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = DRIVE_LISTED;
+    registry = { "org:org_aaa|general-context": ORG_A_DEAD_RCLONE_ROW };
+    leaveDirtyItems(ORG_A_MOUNT_ID, 1, ORG_A_GATEWAY_CACHE);
+
+    const { out, warnings } = await runMount([SLUG]);
+    expect(out).toMatchObject({ mounted: true, engine: "rclone", pendingUploads: 1 });
+    expect(warnings).toContain(
+      "Mounting through the rclone engine, not direct: an earlier rclone mount of this drive left saves"
+    );
+    expect(spawned().argv).toContain(ORG_A_GATEWAY_CACHE);
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("on Linux auto keeps rclone for saves an unmount kept in this drive's rclone folder, though no row is left", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = DRIVE_LISTED;
+    leaveDirtyItems(ORG_A_MOUNT_ID, 1, ORG_A_GATEWAY_CACHE);
+
+    const { out, warnings } = await runMount([SLUG]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "rclone", pendingUploads: 1 });
+    expect(warnings).toContain("an earlier rclone mount of this drive left saves");
+    expect(spawned().argv).toContain(ORG_A_GATEWAY_CACHE);
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("refuses --engine direct on a CODE workspace before it offers any install for an engine that will not mount it", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = [{ id: "ws-code", slug: SLUG, isShared: false, kind: "CODE" }];
+    libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
+
+    const { out, warnings } = await runMount([SLUG, "--engine", "direct"]);
+
+    expect((out as ErrorDocument).error?.message).toContain("is a CODE workspace");
+    expect(process.exitCode).toBe(5);
+    expect(warnings).not.toContain("The CLI can install what is missing");
+    expect(execFileSync).not.toHaveBeenCalledWith("brew", expect.anything(), expect.anything());
+  });
+
+  it("auto on macOS mounts a CODE workspace through webdav, read-only, saying why; --engine direct still refuses it", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = [{ id: "ws-code", slug: SLUG, isShared: false, kind: "CODE" }];
+    const { out, warnings } = await runMount([SLUG]);
+    expect(out).toMatchObject({
+      mounted: true,
+      engine: "webdav",
+      readOnly: true,
+      readOnlyReason: "kind"
+    });
+    expect(warnings).toContain(
+      "Mounting through the webdav engine, not direct: it is a CODE workspace"
+    );
+    expect(mint).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    registry = {};
+    const asked = await runMount([SLUG, "--engine", "direct"]);
+    expect((asked.out as ErrorDocument).error?.message).toContain("is a CODE workspace");
+    expect(process.exitCode).toBe(5);
   });
 
   it("on Windows creates the PARENT and leaves the mount point absent — rclone there wants a non-existent leaf", async () => {
@@ -589,16 +1050,428 @@ describe("nexus workspace mount --engine — which engine runs where, and the de
     expect(fs.existsSync(path.dirname(ORG_A_DEFAULT_PATH))).toBe(true);
     expect(fs.existsSync(ORG_A_DEFAULT_PATH)).toBe(false);
     expect(spawned().argv.slice(0, 3)).toEqual(["mount", ":webdav:", ORG_A_DEFAULT_PATH]);
+    // rclone starts in the CLI's own log folder, never in the folder the mount was typed in.
+    expect(spawned().cwd).toBe(LOG_DIR);
   });
 
-  it("refuses --engine direct on Windows, naming rclone as the default there", async () => {
+  it("on Windows a mount that fails puts back the empty folder it removed for rclone", async () => {
     pretendPlatform("win32");
-    const { out } = await runMount([SLUG, "--engine", "direct"]);
+    fs.mkdirSync(ORG_A_DEFAULT_PATH, { recursive: true });
+    windowsStart = { exited: 2, log: [] };
+
+    const { out } = await runMount([SLUG]);
+
+    expect((out as ErrorDocument).error?.message).toContain("rclone exited immediately");
+    expect(fs.existsSync(ORG_A_DEFAULT_PATH)).toBe(true);
+  });
+
+  it("on Windows a folder that cannot be put back never replaces the mount's own failure", async () => {
+    pretendPlatform("win32");
+    fs.mkdirSync(ORG_A_DEFAULT_PATH, { recursive: true });
+    windowsStart = {
+      exited: 2,
+      log: [],
+      // A file now holds the name, so the folder cannot be created again.
+      then: () => fs.writeFileSync(ORG_A_DEFAULT_PATH, "")
+    };
+
+    const { out } = await runMount([SLUG]);
+
+    expect((out as ErrorDocument).error?.message).toContain("rclone exited immediately");
+  });
+
+  it("on Windows refuses an elevated terminal before any auth: the drive would be invisible to Explorer", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = `Mandatory Label\\High Mandatory Level  Label  ${HIGH_INTEGRITY_SID}\r\n`;
+
+    const { out } = await runMount([SLUG]);
+
     const doc = out as ErrorDocument;
-    expect(doc.error?.message).toContain("not available on Windows");
-    expect(doc.error?.hint).toContain("rclone");
+    expect(doc.error?.message).toContain("runs as administrator");
+    expect(doc.error?.hint).toContain("normal terminal");
+    expect(process.exitCode).toBe(9);
+    expect(mint).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Windows an administrator session with no desktop is refused with a sentence that says so, not one naming a terminal it cannot open", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = `Mandatory Label\\High Mandatory Level  Label  ${HIGH_INTEGRITY_SID}\r\n`;
+    uacPolicy =
+      "EnableLUA=1\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-1111-2222-3333-1001\r\n" +
+      "Account=DESKTOP-1\\jo\r\nComputer=DESKTOP-1\r\nExplorer=\\\r\n";
+
+    const { out } = await runMount([SLUG]);
+
+    const doc = out as ErrorDocument;
+    expect(doc.error?.message).toContain("no desktop");
+    expect(doc.error?.hint).toContain("Sign in");
+    expect(doc.error?.hint).not.toContain("Open a normal terminal");
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("a workspace list the server refuses with 403 refuses the mount on every engine: the key is another organization's", async () => {
+    pretendPlatform("darwin");
+    // The SDK's shape (code, message, status); the spec's mocked class keeps none of it, so the fields are set beside.
+    const message = "You are not a member of the requested organization, or it does not exist.";
+    listFailure = Object.assign(new NexusApiError("ORGANIZATION_ACCESS_DENIED", message, 403), {
+      status: 403,
+      code: "ORGANIZATION_ACCESS_DENIED",
+      message
+    });
+
+    const auto = await runMount([SLUG]);
+    const refused = auto.out as ErrorDocument;
+    expect(refused.error?.message).toContain("was refused (403)");
+    expect(refused.error?.hint).toContain("--profile");
+    expect(refused.error?.code).toBe("ORGANIZATION_ACCESS_DENIED");
+    expect(process.exitCode).toBe(3);
+    expect(mint).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    registry = {};
+    const webdav = await runMount([SLUG, "--engine", "webdav"]);
+    expect((webdav.out as ErrorDocument).error?.message).toContain("was refused (403)");
+    expect(process.exitCode).toBe(3);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("auto on macOS: a key request the server refuses is a clean error naming --engine webdav, and nothing is mounted for the person", async () => {
+    pretendPlatform("darwin");
+    listedWorkspaces = DRIVE_LISTED;
+    const message = "Workspace storage is not configured on this deployment.";
+    mint.mockRejectedValueOnce(
+      Object.assign(new NexusApiError("WORKSPACE_STORAGE_FAILED", message, 500), {
+        status: 500,
+        code: "WORKSPACE_STORAGE_FAILED",
+        message
+      })
+    );
+
+    const { out } = await runMount([SLUG]);
+
+    const doc = out as ErrorDocument;
+    expect(doc.error?.message).toContain("refused the direct engine's key request (500)");
+    expect(doc.error?.hint).toContain("--engine webdav");
+    expect(doc.error?.code).toBe("WORKSPACE_STORAGE_FAILED");
+    expect(process.exitCode).toBe(6);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Windows mounts from an elevated terminal when UAC is off: Explorer runs elevated too and sees the drive", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = `Mandatory Label\\High Mandatory Level  Label  ${HIGH_INTEGRITY_SID}\r\n`;
+    uacPolicy =
+      "EnableLUA=0\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-1111-2222-3333-1001\r\n" +
+      "Account=DESKTOP-1\\jo\r\nComputer=DESKTOP-1\r\nExplorer=DESKTOP-1\\jo\r\n";
+
+    const { out } = await runMount([SLUG]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "rclone" });
+  });
+
+  it("on Windows mounts as the built-in Administrator, whom Admin Approval Mode does not filter", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = `Mandatory Label\\High Mandatory Level  Label  ${HIGH_INTEGRITY_SID}\r\n`;
+    uacPolicy =
+      "EnableLUA=1\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-1111-2222-3333-500\r\n" +
+      "Account=DESKTOP-1\\Administrator\r\nComputer=DESKTOP-1\r\nExplorer=DESKTOP-1\\Administrator\r\n";
+
+    const { out } = await runMount([SLUG]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "rclone" });
+  });
+
+  it("on Windows keeps the elevated refusal when the UAC policy cannot be read, or filters the built-in Administrator", async () => {
+    pretendPlatform("win32");
+    whoamiAnswer = `Mandatory Label\\High Mandatory Level  Label  ${HIGH_INTEGRITY_SID}\r\n`;
+    uacPolicy = Object.assign(new Error("spawnSync powershell.exe ENOENT"), { code: "ENOENT" });
+    expect(((await runMount([SLUG])).out as ErrorDocument).error?.message).toContain(
+      "runs as administrator"
+    );
+
+    uacPolicy =
+      "EnableLUA=1\r\nFilterAdministratorToken=1\r\nUser=S-1-5-21-1111-2222-3333-500\r\n" +
+      "Account=DESKTOP-1\\Administrator\r\nComputer=DESKTOP-1\r\n";
+    expect(((await runMount([SLUG])).out as ErrorDocument).error?.message).toContain(
+      "runs as administrator"
+    );
+
+    uacPolicy =
+      "EnableLUA=1\r\nFilterAdministratorToken=\r\nUser=S-1-5-21-4444-5555-6666-500\r\n" +
+      "Account=CORP\\Administrator\r\nComputer=DESKTOP-1\r\n";
+    expect(((await runMount([SLUG])).out as ErrorDocument).error?.message).toContain(
+      "runs as administrator"
+    );
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Windows a `whoami` that cannot run reads as NOT elevated — a failed probe must not lock a user out", async () => {
+    pretendPlatform("win32");
+    execFileSync.mockImplementationOnce((command: string) => {
+      if (command === WHOAMI_EXE) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      return "";
+    });
+
+    const { out } = await runMount([SLUG]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "rclone" });
+  });
+
+  it("on Windows refuses before the network when WinFsp is not installed: with no terminal, the flag and winpty are named", async () => {
+    pretendPlatform("win32");
+    winFspDir = ""; // the registry key is absent: PowerShell printed nothing
+
+    const { out } = await runMount([SLUG]);
+
+    const doc = out as ErrorDocument;
+    expect(doc.error?.message).toContain("needs WinFsp");
+    expect(doc.error?.hint).toContain("--install-deps");
+    expect(doc.error?.hint).toContain("winpty nexus");
+    expect(doc.error?.hint).toContain("winfsp.dev");
+    expect(doc.error?.hint).toContain("administrator");
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Windows reads a WinFsp whose DLL for this CPU is missing as not installed, and a registry it could not read as fine", async () => {
+    pretendPlatform("win32");
+    libraries = { ...NOTHING_BUT_FUSE_T, [WINFSP_DLL]: false };
+    expect(((await runMount([SLUG])).out as ErrorDocument).error?.message).toContain(
+      "needs WinFsp"
+    );
+
+    registry = {};
+    fs.rmSync(ORG_A_DEFAULT_PATH, { recursive: true, force: true });
+    libraries = { ...NOTHING_BUT_FUSE_T };
+    winFspDir = Object.assign(new Error("spawnSync powershell.exe ENOENT"), { code: "ENOENT" });
+    expect((await runMount([SLUG])).out).toMatchObject({ mounted: true, engine: "rclone" });
+  });
+
+  it("names an rclone the OS refused to run, with the errno, and never offers to reinstall it", async () => {
+    pretendPlatform("win32");
+    rcloneVersion = Object.assign(new Error("spawnSync rclone EACCES"), { code: "EACCES" });
+
+    const { out } = await runMount([SLUG]);
+
+    const doc = out as ErrorDocument;
+    expect(doc.error?.message).toContain("refused to run it (EACCES)");
+    expect(doc.error?.message).toContain("reinstalling will not help");
+    // The hint names the policy, and no install: one would not lift the block.
+    expect(doc.error?.hint).toContain("Allow that file in the policy that blocks it");
+    expect(doc.error?.hint).not.toContain("winget install");
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Windows an OLD WinFsp line from an earlier run is gone — the start rewrites the log — so it never brings the WinFsp advice, nor shows in the tail of a later fail-fast", async () => {
+    pretendPlatform("win32");
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    // Longer than what this run will write: a start that APPENDED would read its
+    // own lines from past the old ones' end and find nothing to show.
+    fs.writeFileSync(
+      path.join(LOG_DIR, `${SLUG}-${ORG_A_MOUNT_ID}.log`),
+      "panic: cgofuse: cannot find winfsp\n".repeat(20)
+    );
+    failFastWriting(["Fatal error: failed to mount FUSE fs: mountpoint X: is in use"]);
+
+    const { out } = await runMount([SLUG]);
+
+    const message = (out as ErrorDocument).error?.message ?? "";
+    expect(message).toContain("rclone exited immediately");
+    expect(message).toContain("mountpoint X: is in use");
+    expect(message).not.toContain("could not load WinFsp");
+    expect(message).not.toContain("cannot find winfsp");
+    expect(process.exitCode).toBe(9);
+  });
+
+  it("on Windows a fail-fast whose WinFsp line a panic trace pushed out of the tail still gets the WinFsp advice", async () => {
+    pretendPlatform("win32");
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const trace = Array.from({ length: 14 }, (_, i) => `goroutine 1 [running]: frame ${String(i)}`);
+    failFastWriting(["panic: cgofuse: cannot find winfsp", ...trace]);
+
+    const { out } = await runMount([SLUG]);
+
+    const message = (out as ErrorDocument).error?.message ?? "";
+    expect(message).toContain("rclone exited immediately");
+    expect(message).toContain("could not load WinFsp");
+    // The witness line is NOT in the ten-line tail: the advice read the whole log.
+    expect(message.split("Recent log:")[1]?.split("Full log:")[0]).not.toContain(
+      "cannot find winfsp"
+    );
+    expect(process.exitCode).toBe(9);
+  });
+
+  it("on Windows --at X: mounts the drive letter as given: no folder created, the volume named after the slug", async () => {
+    pretendPlatform("win32");
+
+    const { out } = await runMount([SLUG, "--at", "x:"]);
+
+    expect(out).toMatchObject({ mounted: true, engine: "rclone", mountPath: "X:" });
+    const { argv } = spawned();
+    expect(argv.slice(0, 3)).toEqual(["mount", ":webdav:", "X:"]);
+    expect(argv.slice(-2)).toEqual(["--volname", SLUG]);
+    expect(fs.existsSync(path.join(process.cwd(), "X:"))).toBe(false);
+  });
+
+  it("on Windows refuses a drive letter a volume already holds, and --at * before any auth", async () => {
+    pretendPlatform("win32");
+    libraries = { ...NOTHING_BUT_FUSE_T, "Y:\\": true };
+    const taken = (await runMount([SLUG, "--at", "Y:"])).out as ErrorDocument;
+    expect(taken.error?.message).toContain("Drive letter Y: is in use");
+    expect(spawn).not.toHaveBeenCalled();
+
+    const star = (await runMount([SLUG, "--at", "*"])).out as ErrorDocument;
+    expect(star.error?.hint).toContain("Name the letter: --at X:");
     expect(process.exitCode).toBe(5);
     expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("on Windows two spellings of one folder that differ only in case are ONE mount point", async () => {
+    pretendPlatform("win32");
+    const upper = path.join(SANDBOX, "Nexus", "Shared");
+    registry = {
+      "org:org_bbb|general-context": orgBRow({
+        engine: "rclone",
+        pid: process.pid,
+        mountPath: upper
+      })
+    };
+
+    const { out } = await runMount([SLUG, "--at", upper.toLowerCase()]);
+
+    expect((out as ErrorDocument).error?.message).toContain('org "Globex"');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("on Linux the rclone engine never hands the shell's RCLONE_* or NEXUS_* to rclone", async () => {
+    pretendPlatform("linux");
+    process.env.RCLONE_DUMP = "headers";
+    process.env.NEXUS_ADMIN_TOKEN = "admin-secret";
+    try {
+      await runMount([SLUG, "--engine", "rclone"]);
+      const { env, argv } = spawned();
+      expect(env.RCLONE_DUMP).toBeUndefined();
+      expect(env.NEXUS_ADMIN_TOKEN).toBeUndefined();
+      expect(env.RCLONE_WEBDAV_URL).toContain(`/api/dav/${SLUG}`);
+      expect(argv).not.toContain("--volname");
+    } finally {
+      delete process.env.RCLONE_DUMP;
+      delete process.env.NEXUS_ADMIN_TOKEN;
+    }
+  });
+
+  it("on Linux the rclone engine's footer names the 100 MiB limit and --engine direct, and inside WSL no unobserved \\\\wsl$ path", async () => {
+    pretendPlatform("linux");
+    process.env.WSL_DISTRO_NAME = "Ubuntu";
+    try {
+      const { lines } = await runMount([SLUG, "--engine", "rclone"], { json: false });
+      const printed = lines.join("\n");
+      expect(printed).toContain("Files over 100 MiB never finish uploading");
+      expect(printed).toContain("--engine direct");
+      expect(printed).not.toContain("wsl$");
+    } finally {
+      delete process.env.WSL_DISTRO_NAME;
+    }
+  });
+
+  it("on Linux a machine with no /dev/fuse (WSL1, a container) is refused before any mint", async () => {
+    pretendPlatform("linux");
+    listedWorkspaces = DRIVE_LISTED;
+    libraries = { ...NOTHING_BUT_FUSE_T, "/dev/fuse": false };
+
+    const { out, warnings } = await runMount([SLUG]);
+
+    // No --engine was typed, so the refusal names none.
+    expect((out as ErrorDocument).error?.message).toContain(
+      "This mount needs the FUSE device /dev/fuse"
+    );
+    expect(mint).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
+    // auto chose direct, and the rclone engine needs the same device: no fallback
+    // line, no second preflight — a second offer would ask the person twice.
+    expect(warnings).not.toContain("not direct");
+  });
+
+  it("on Windows mounts --engine direct: aws.config names renew.cmd bare, renew.cmd runs the renewal, both config files are NUL", async () => {
+    pretendPlatform("win32");
+    const { out } = await runMount([SLUG, "--engine", "direct"]);
+    expect(out).toMatchObject({ mounted: true, engine: "direct" });
+    expect(mint).toHaveBeenCalledTimes(1);
+
+    const mountId = (out as { mountId: string }).mountId;
+    const paths = sessionPathsFor(mountId);
+    expect(fs.readFileSync(paths.awsConfigFile, "utf-8")).toBe(
+      `[profile ${awsProfileFor(mountId)}]\ncredential_process = ${paths.renewCmdFile}\n`
+    );
+    expect(fs.readFileSync(paths.renewCmdFile, "utf-8")).toBe(
+      "@echo off\r\n" +
+        '"%SystemRoot%\\System32\\chcp.com" 65001 >nul\r\n' +
+        "setlocal DisableDelayedExpansion\r\n" +
+        `"${stableNodePath()}" "${process.argv[1]}" workspace credential-process ${mountId}\r\n` +
+        "exit /b %ERRORLEVEL%\r\n"
+    );
+    const { env } = spawned();
+    expect(env.AWS_CONFIG_FILE).toBe(paths.awsConfigFile);
+    expect(env.AWS_SHARED_CREDENTIALS_FILE).toBe("NUL");
+    expect(env.RCLONE_CONFIG).toBe("NUL");
+    // renew.cmd ran once, as rclone's SDK will, under the env rclone got.
+    expect(execFileSync).toHaveBeenCalledWith(
+      system32Exe(process.env, "cmd.exe"),
+      ["/C", paths.renewCmdFile],
+      expect.objectContaining({ env })
+    );
+  });
+
+  it.each([
+    ["aws.config", "awsConfigFile", "[profile earlier]\n"],
+    ["renew.cmd", "renewCmdFile", "@echo earlier\r\n"]
+  ] as const)(
+    "on Windows %s is written whole or not at all: a write that dies mid-way leaves the previous file untouched",
+    async (name, key, earlier) => {
+      pretendPlatform("win32");
+      const paths = sessionPathsFor(ORG_A_MOUNT_ID);
+      fs.mkdirSync(paths.dir, { recursive: true });
+      fs.writeFileSync(paths[key], earlier);
+      const realWrite = fs.writeFileSync;
+      let liveWhenTheWriteDied: string | null = null;
+      const dying = vi.spyOn(fs, "writeFileSync").mockImplementation((file, data, options) => {
+        if (!path.basename(String(file)).startsWith(name)) {
+          realWrite(file, data, options);
+          return;
+        }
+        // Half the bytes land, then the disk is full: what does the LIVE file hold now?
+        realWrite(file, "PARTIAL", options);
+        liveWhenTheWriteDied = fs.readFileSync(paths[key], "utf-8");
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      });
+      try {
+        const { out } = await runMount([SLUG, "--engine", "direct"]);
+        expect((out as ErrorDocument).error?.message).toContain("ENOSPC");
+      } finally {
+        dying.mockRestore();
+      }
+      expect(liveWhenTheWriteDied).toBe(earlier);
+      expect(spawn).not.toHaveBeenCalled();
+    }
+  );
+
+  it("on Windows refuses --engine direct when renew.cmd does not print only the credentials (a cmd AutoRun), before rclone starts", async () => {
+    pretendPlatform("win32");
+    renewalRunOutput = `Active code page: 65001\r\n${RENEWAL_DOCUMENT}`;
+
+    const { out } = await runMount([SLUG, "--engine", "direct"]);
+
+    const message = (out as ErrorDocument).error?.message ?? "";
+    expect(message).toContain("hourly renewal does not run on this machine");
+    expect(message).toContain("renew.cmd");
+    expect(message).toContain('"Active code page: 65001"');
+    expect(process.exitCode).toBe(9);
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("refuses --engine webdav off macOS, before any auth", async () => {
@@ -679,6 +1552,11 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
     expect(doc.error?.message).toContain("needs a saved profile");
     expect(doc.error?.message).toContain("--api-key or NEXUS_API_KEY");
     expect(doc.error?.hint).toContain("nexus auth login");
+    // The way out names this platform's gateway engine by flag, never "the default".
+    const gateway = process.platform === "darwin" ? "webdav" : "rclone";
+    expect(doc.error?.hint).toContain(
+      `Or mount with --engine ${gateway}: the gateway needs none of this.`
+    );
     expect(doc.error?.code).toBe("CLI_INVALID_ARGUMENTS");
     expect(process.exitCode).toBe(5);
     expect(mint).not.toHaveBeenCalled();
@@ -717,14 +1595,14 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
   });
 
   it("probes and spawns the managed rclone by its full address when one exists, whatever PATH holds", async () => {
-    libraries = { ...NOTHING_BUT_FUSE_T, [MANAGED_RCLONE]: true };
+    libraries = { ...NOTHING_BUT_FUSE_T, [MANAGED]: true };
 
     const { out } = await runMount([SLUG, "--engine", "direct"]);
 
     expect(out).toMatchObject({ mounted: true, engine: "direct" });
-    expect(execFileSync).toHaveBeenCalledWith(MANAGED_RCLONE, ["version"], expect.anything());
+    expect(execFileSync).toHaveBeenCalledWith(MANAGED, ["version"], expect.anything());
     expect(execFileSync).not.toHaveBeenCalledWith("rclone", ["version"], expect.anything());
-    expect(spawn.mock.calls[0]?.[0]).toBe(MANAGED_RCLONE);
+    expect(spawned().exe).toBe(MANAGED);
   });
 
   it("--no-install-deps refuses a missing FUSE layer as before the offer existed, and never asks brew", async () => {
@@ -810,13 +1688,34 @@ describe("nexus workspace mount --engine direct — refusals before any mint", (
     }
   });
 
+  it("on Windows refuses a node path holding a % BEFORE any mint, naming the percent sign", async () => {
+    pretendPlatform("win32");
+    const real = Object.getOwnPropertyDescriptor(process, "execPath");
+    if (!real) throw new Error("process.execPath has no descriptor to restore");
+    Object.defineProperty(process, "execPath", { ...real, value: "/opt/100%/bin/node" });
+    try {
+      const { out } = await runMount([SLUG, "--engine", "direct"]);
+      const doc = out as ErrorDocument;
+      expect(doc.error?.message).toBe(
+        "The credential_process line cannot be written: the execPath /opt/100%/bin/node contains a % — cmd.exe would expand it as a variable."
+      );
+      expect(doc.error?.code).toBe("CLI_LOCAL_FAILED");
+      expect(mint).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "execPath", real);
+    }
+  });
+
   it("refuses on macOS when neither macFUSE nor FUSE-T is installed, and when macFUSE is not yet approved", async () => {
     pretendPlatform("darwin");
     libraries = { ...NOTHING_BUT_FUSE_T, [FUSE_T_LIBRARY]: false };
     const none = await runMount([SLUG, "--engine", "direct"]);
     expect((none.out as ErrorDocument).error?.message).toContain("neither macFUSE nor FUSE-T");
     expect((none.out as ErrorDocument).error?.hint).toContain("https://rclone.org/downloads/");
-    expect((none.out as ErrorDocument).error?.hint).toContain("drop --engine direct");
+    expect((none.out as ErrorDocument).error?.hint).toContain(
+      "Or mount with --engine webdav: it needs nothing installed."
+    );
     // No flag and no terminal is a refusal that names the flag — never an
     // install nobody confirmed.
     expect((none.out as ErrorDocument).error?.hint).toContain("No terminal to ask");
@@ -919,11 +1818,16 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
     });
     // The bucket, prefix and region live in rclone's environment, never in the file.
     expect(JSON.stringify(read.session)).not.toMatch(/nxw-|prefix|region/);
-    const awsConfig = fs.readFileSync(sessionPathsFor(mountId).awsConfigFile, "utf-8");
+    // The renewal line sits in aws.config, and on Windows in the renew.cmd it names.
+    const paths = sessionPathsFor(mountId);
+    const renewal = fs.readFileSync(
+      process.platform === "win32" ? paths.renewCmdFile : paths.awsConfigFile,
+      "utf-8"
+    );
     // The PATH-stable spelling of this process's node — `stableNodePath` has its
     // own cases; this pins that the line is built from it and not execPath.
-    expect(awsConfig).toContain(`"${stableNodePath()}"`);
-    expect(awsConfig).toContain(`workspace credential-process ${mountId}`);
+    expect(renewal).toContain(`"${stableNodePath()}"`);
+    expect(renewal).toContain(`workspace credential-process ${mountId}`);
   });
 
   it("retires a DEAD direct row whose path is reused: refuses while its cache holds unsent saves, deletes its session otherwise", async () => {
@@ -1001,30 +1905,28 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
 
   it("on a fail-fast: prints the log tail with the bucket REDACTED, deletes the session, frees the mount point, records nothing", async () => {
     // rclone exits at once — a refused credential, a missing FUSE library. The
-    // log it left names the bucket in its own error line.
-    spawn.mockReturnValue({
-      pid: 4242,
-      once: vi.fn((event: string, handler: (code: number) => void) => {
-        if (event === "exit") handler(1);
-      }),
-      unref: vi.fn()
-    });
+    // log it writes during this run names the bucket in its own error line.
     // The log is per MOUNT, not per slug: two orgs' mounts of one slug never
     // share a file, so a tail can never show the other org's lines.
     const mountId = mountIdFor("org:org_aaa|general-context");
     fs.mkdirSync(LOG_DIR, { recursive: true });
-    fs.writeFileSync(
-      path.join(LOG_DIR, `${SLUG}-${mountId}.log`),
-      `CRITICAL: Failed to create file system for "nxws:": ${BUCKET}/general-context is a file not a directory\n`
+    failFastWriting(
+      [
+        `CRITICAL: Failed to create file system for "nxws:": ${BUCKET}/general-context is a file not a directory`
+      ],
+      { logPath: path.join(LOG_DIR, `${SLUG}-${mountId}.log`) }
     );
 
     const { out } = await runMount([SLUG, "--engine", "direct"]);
 
     const message = (out as ErrorDocument).error?.message ?? "";
     expect(message).toContain("rclone exited immediately");
+    expect(message).toContain(`Full log: ${path.join(LOG_DIR, `${SLUG}-${mountId}.log`)}`);
     expect(message).toContain("<bucket>/general-context");
     expect(message).not.toContain(BUCKET);
-    expect(process.exitCode).toBe(1);
+    // A local failure, like every other refusal of this mount: 9, never the
+    // "unknown" 1 a bare Error would earn.
+    expect(process.exitCode).toBe(9);
     expect(registry).toEqual({});
     // THIS mount's session directory is gone and the empty mount point with it,
     // so the next attempt is not refused as "not empty" and no credential
@@ -1049,8 +1951,10 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
     const advice = onFuseT.error?.message ?? "";
     expect(advice).toContain("FUSE-T did not mount");
     expect(advice.indexOf("Network Volumes")).toBeLessThan(advice.indexOf("macfuse.github.io"));
-    // True for --engine direct, --engine rclone and remount alike: no flag to drop.
-    expect(advice).toContain("default engine (no --engine flag)");
+    // Direct is the default engine, so the way out names webdav by flag.
+    expect(advice).toContain(
+      "Or mount it again with --engine webdav — it needs nothing installed."
+    );
     expect(advice).not.toContain("drop --engine direct");
     expect(advice).not.toContain("brew install");
 
@@ -1071,15 +1975,8 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
     // credential, and that drive stops renewing at its next hour. Only a
     // matching key, or a genuinely absent file, authorises the delete.
     const mountId = mountIdFor("org:org_aaa|general-context");
-    spawn.mockImplementation(() => {
-      fs.writeFileSync(sessionPathsFor(mountId).sessionFile, '{"version":1,"mount');
-      return {
-        pid: 4242,
-        once: vi.fn((event: string, handler: (code: number) => void) => {
-          if (event === "exit") handler(1);
-        }),
-        unref: vi.fn()
-      };
+    failFastWriting([], {
+      meanwhile: () => fs.writeFileSync(sessionPathsFor(mountId).sessionFile, '{"version":1,"mount')
     });
 
     const { out } = await runMount([SLUG, "--engine", "direct"]);
@@ -1112,17 +2009,8 @@ describe("nexus workspace mount --engine direct — the spawn, the record, the c
       expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
       mintedAt: new Date().toISOString()
     };
-    spawn.mockImplementation(() => {
-      // The other mount lands its session between our write and our failure.
-      writeSession(foreign);
-      return {
-        pid: 4242,
-        once: vi.fn((event: string, handler: (code: number) => void) => {
-          if (event === "exit") handler(1);
-        }),
-        unref: vi.fn()
-      };
-    });
+    // The other mount lands its session between our write and our failure.
+    failFastWriting([], { meanwhile: () => writeSession(foreign) });
 
     const { out } = await runMount([SLUG, "--engine", "direct"]);
 

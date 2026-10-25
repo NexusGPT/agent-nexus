@@ -9,17 +9,24 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 // A throwaway HOME, set before mount-registry computes STATE_DIR from it, so
 // `~/.nexus-mcp/bin` below is this spec's own directory and never the developer's.
 const SANDBOX = vi.hoisted(() => {
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-install-rclone-zip-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early): one separator on Windows too.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-install-rclone-zip-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
 });
 
 import type { DepsIo, RunOutcome } from "../../../workspace-direct-mount/deps-io";
-import { MANAGED_RCLONE, MANAGED_RCLONE_DIR } from "../../../workspace-direct-mount/managed-rclone";
+import {
+  MANAGED_RCLONE_DIR,
+  managedRcloneFor
+} from "../../../workspace-direct-mount/managed-rclone";
 import { installRcloneZip } from "./install-rclone-zip";
 
+/** Where the zip lands on macOS and Linux: the POSIX spelling. */
+const MANAGED = managedRcloneFor("darwin");
 const MEMBER = "rclone-v1.74.4-osx-arm64/rclone";
 const BINARY = "#!/bin/sh\necho fake rclone\n";
 
@@ -59,6 +66,7 @@ const io = (
     exists: (file) => fs.existsSync(file),
     rcloneVersion: () => null,
     macFuseApproved: () => "unknown",
+    winFspInstallDir: () => "unknown",
     hasBrew: () => false,
     download: async () => bytes,
     run: run ?? realUnzip,
@@ -81,8 +89,9 @@ describe("installRcloneZip — the binary reaches its path whole, or the disk is
       sha256: sha(bytes),
       member: MEMBER
     });
-    expect(fs.readFileSync(MANAGED_RCLONE, "utf-8")).toBe(BINARY);
-    expect(fs.statSync(MANAGED_RCLONE).mode & 0o111).not.toBe(0);
+    expect(fs.readFileSync(MANAGED, "utf-8")).toBe(BINARY);
+    // The exec bit is a POSIX fact: NTFS has none to set.
+    if (process.platform !== "win32") expect(fs.statSync(MANAGED).mode & 0o111).not.toBe(0);
     expect(fake.runs[0]?.slice(0, 4)).toEqual(["unzip", "-o", "-q", "-j"]);
     // Exactly the binary: no stage and no lock left beside it.
     expect(fs.readdirSync(MANAGED_RCLONE_DIR)).toEqual(["rclone"]);
@@ -121,12 +130,129 @@ describe("installRcloneZip — the binary reaches its path whole, or the disk is
     expect(fs.readdirSync(MANAGED_RCLONE_DIR)).toEqual(["keep.marker"]);
   });
 
+  it("Windows: tar unpacks one member, byte for byte, under the Windows allow-list, and rclone.exe lands beside the POSIX name", async () => {
+    const member = "rclone-v1.74.4-windows-amd64/rclone.exe";
+    const bytes = await zipWith(member, BINARY);
+    // `tar` is faked: it writes the member where bsdtar would, so the rename has a file to move.
+    const fakeTar: DepsIo["run"] = (_file, args, _env) => {
+      const dir = args[args.indexOf("-C") + 1] ?? "";
+      fs.writeFileSync(path.join(dir, "rclone.exe"), BINARY);
+      return { ok: true };
+    };
+    const base = io(bytes, fakeTar);
+    const fake = {
+      ...base,
+      platform: "win32" as const,
+      arch: "x64" as const,
+      env: { ...base.env, SystemRoot: "D:\\Win" }
+    };
+    const runs: string[][] = [];
+    const envs: NodeJS.ProcessEnv[] = [];
+    fake.run = (file, args, env) => {
+      runs.push([file, ...args]);
+      envs.push(env);
+      return fakeTar(file, args, env);
+    };
+    await installRcloneZip(fake, { url: "u", sha256: sha(bytes), member });
+    const zip = path.join(MANAGED_RCLONE_DIR, `.stage-${String(process.pid)}`, "rclone.zip");
+    const stage = path.dirname(zip);
+    // System32's bsdtar by full path: under Git Bash a bare `tar` is GNU tar, which cannot read a zip.
+    expect(runs[0]).toEqual([
+      "D:\\Win\\System32\\tar.exe",
+      "-xf",
+      zip,
+      "-C",
+      stage,
+      "--strip-components=1",
+      member
+    ]);
+    expect(envs[0]?.NEXUS_API_KEY).toBeUndefined();
+    expect(envs[0]?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(fs.readFileSync(managedRcloneFor("win32"), "utf-8")).toBe(BINARY);
+    expect(fs.readdirSync(MANAGED_RCLONE_DIR)).toEqual(["rclone.exe"]);
+  });
+
+  it("Windows: a tar that is not there names its full System32 path and the Windows build that ships it", async () => {
+    const member = "rclone-v1.74.4-windows-amd64/rclone.exe";
+    const bytes = await zipWith(member, BINARY);
+    const fake = {
+      ...io(bytes, () => ({ ok: false, reason: "not-found" })),
+      platform: "win32" as const
+    };
+    await expect(
+      installRcloneZip(fake, { url: "u", sha256: sha(bytes), member })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("C:\\Windows\\System32\\tar.exe is not installed"),
+      hint: expect.stringContaining("Windows 10 1803")
+    });
+  });
+
+  it("a first install whose fresh file an antivirus holds for a moment (EPERM, then free) still lands", async () => {
+    const bytes = await zipWith(MEMBER, BINARY);
+    const realRename = fs.renameSync.bind(fs);
+    const held = Object.assign(new Error("EPERM: operation not permitted, rename"), {
+      code: "EPERM"
+    });
+    const rename = vi
+      .spyOn(fs, "renameSync")
+      .mockImplementationOnce(() => {
+        throw held;
+      })
+      .mockImplementation(realRename);
+    try {
+      await installRcloneZip(io(bytes), { url: "u", sha256: sha(bytes), member: MEMBER });
+      expect(fs.readFileSync(MANAGED, "utf-8")).toBe(BINARY);
+      expect(rename).toHaveBeenCalledTimes(2);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it("a rename held past the bounded retries refuses as in use, and tries a fixed number of times", async () => {
+    const bytes = await zipWith(MEMBER, BINARY);
+    const busy = Object.assign(new Error("EBUSY: resource busy or locked, rename"), {
+      code: "EBUSY"
+    });
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw busy;
+    });
+    try {
+      await expect(
+        installRcloneZip(io(bytes), { url: "u", sha256: sha(bytes), member: MEMBER })
+      ).rejects.toMatchObject({ message: expect.stringContaining("is in use") });
+      expect(rename).toHaveBeenCalledTimes(10);
+      expect(fs.existsSync(MANAGED)).toBe(false);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it("a stage an antivirus still holds after the retries is named and left: the install's own outcome stands", async () => {
+    const bytes = await zipWith(MEMBER, BINARY);
+    const held = Object.assign(new Error("EBUSY: resource busy or locked, rmdir"), {
+      code: "EBUSY"
+    });
+    const realRm = fs.rmSync.bind(fs);
+    const rm = vi.spyOn(fs, "rmSync").mockImplementation((target, options) => {
+      if (String(target).includes(".stage-")) throw held;
+      realRm(target, options);
+    });
+    const installer = io(bytes);
+    try {
+      await installRcloneZip(installer, { url: "u", sha256: sha(bytes), member: MEMBER });
+      expect(fs.readFileSync(MANAGED, "utf-8")).toBe(BINARY);
+      expect(installer.promptLine).toHaveBeenCalledWith(expect.stringContaining(".stage-"));
+    } finally {
+      rm.mockRestore();
+    }
+  });
+
   it("replaces an existing managed copy in one rename", async () => {
     const first = await zipWith(MEMBER, "old\n");
     await installRcloneZip(io(first), { url: "u", sha256: sha(first), member: MEMBER });
     const second = await zipWith(MEMBER, BINARY);
     await installRcloneZip(io(second), { url: "u", sha256: sha(second), member: MEMBER });
-    expect(fs.readFileSync(MANAGED_RCLONE, "utf-8")).toBe(BINARY);
-    expect(path.dirname(MANAGED_RCLONE)).toBe(MANAGED_RCLONE_DIR);
+    expect(fs.readFileSync(MANAGED, "utf-8")).toBe(BINARY);
+    expect(path.dirname(MANAGED)).toBe(MANAGED_RCLONE_DIR);
   });
 });

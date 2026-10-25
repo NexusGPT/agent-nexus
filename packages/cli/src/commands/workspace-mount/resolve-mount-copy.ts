@@ -1,5 +1,6 @@
 import type { createClient } from "../../client";
 import { failure } from "../../errors";
+import { keyRefusalOf } from "./key-refusal";
 import type { MountTarget } from "./mount-target";
 import { resolveMountTargetDetailed } from "./resolve-mount-target-detailed";
 
@@ -14,14 +15,20 @@ export interface MountCopy {
  * BOTH an org-owned workspace and an admin-shared one; the bare slug
  * resolves to the org-owned copy server-side, so without this the user
  * can silently mount the wrong drive (NEX-2362). Best-effort: a list
- * hiccup degrades to the legacy bare-slug mount rather than blocking.
+ * hiccup degrades to the legacy bare-slug mount rather than blocking. A list
+ * the server REFUSED (401, 403) is not a hiccup: the key is not this
+ * organization's (`organization` names it), and no engine may mount on it —
+ * least of all a gateway engine, which would open the key's own organization.
  */
 export async function resolveMountCopy(
   client: ReturnType<typeof createClient>,
   slug: string,
-  shared: boolean
+  shared: boolean,
+  organization: string
 ): Promise<MountCopy> {
   const { target, listError } = await resolveMountTargetDetailed(client, slug, shared);
+  const refused = keyRefusalOf(listError, organization);
+  if (refused !== null) throw refused;
 
   // `--shared` is an explicit request, so never proceed unverified: a
   // missing list (target === null) means we couldn't confirm the shared

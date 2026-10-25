@@ -597,6 +597,12 @@ export interface ExecuteTaskResponse {
   output: unknown;
   /** Output type (e.g. "TEXT", "JSON", "TEMPLATE"). */
   outputType: string;
+  /**
+   * Present only when the task's model is not on the live model list (unknown or
+   * retired) and its provider's fallback answered: `requested` is the id the task
+   * names, `servedBy` the id that ran and was billed.
+   */
+  modelNotice?: { requested: string; servedBy: string };
 }
 
 // ============================================================================

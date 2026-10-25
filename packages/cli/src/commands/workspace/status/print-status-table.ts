@@ -12,12 +12,18 @@ export function printStatusTable(rows: readonly StatusRow[]): void {
   // against the row type now, and the cast would take this call site back
   // out of that check.
   const table = rows.map((row) => row.table);
+  // Expires and Refresh belong to direct rows; Pending to every row whose
+  // cache is counted — direct, and rclone with its own folder.
   const directColumns: Column<(typeof table)[number]>[] = rows.some((row) => row.health !== null)
     ? [
         { key: "expires", label: "Expires" },
-        { key: "refresh", label: "Refresh" },
-        { key: "pending", label: "Pending" }
+        { key: "refresh", label: "Refresh" }
       ]
+    : [];
+  const pendingColumn: Column<(typeof table)[number]>[] = rows.some(
+    (row) => row.json.pendingUploads !== null
+  )
+    ? [{ key: "pending", label: "Pending" }]
     : [];
   printTable(table, [
     { key: "slug", label: "Slug" },
@@ -28,6 +34,7 @@ export function printStatusTable(rows: readonly StatusRow[]): void {
     { key: "kind", label: "Kind" },
     { key: "mountPath", label: "Mount point" },
     { key: "live", label: "Live" },
-    ...directColumns
+    ...directColumns,
+    ...pendingColumn
   ]);
 }

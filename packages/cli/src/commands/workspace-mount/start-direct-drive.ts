@@ -2,23 +2,29 @@ import type { WorkspaceMountCredentials } from "@agent-nexus/sdk";
 
 import { failure } from "../../errors";
 import { ensureStateSubdir } from "../../mount-registry";
-import { writeSecretFile } from "../../util/secret-file";
+import type { AcceptedAwsConfig } from "../../workspace-direct-mount/accepted-aws-config";
 import { writeCacheOwner } from "../../workspace-direct-mount/cache-owner";
 import { checkRefreshPath } from "../../workspace-direct-mount/check-refresh-path";
 import { directMountArgv } from "../../workspace-direct-mount/direct-mount-argv";
 import type { RcloneBinary } from "../../workspace-direct-mount/managed-rclone";
+import type { MountId } from "../../workspace-direct-mount/mount-id";
+import { mountPlatformOf } from "../../workspace-direct-mount/mount-platform";
 import type { MountSession } from "../../workspace-direct-mount/mount-session";
-import { OR_DROP_DIRECT } from "../../workspace-direct-mount/or-drop-direct";
+import { orTheGateway } from "../../workspace-direct-mount/or-the-gateway";
 import { rcloneEnvFor } from "../../workspace-direct-mount/rclone-env";
 import { MOUNT_CACHE_DIR, type SessionPaths } from "../../workspace-direct-mount/session-paths";
-import { writeSession } from "../../workspace-direct-mount/write-session";
+import {
+  writeSecretFileAtomically,
+  writeSession
+} from "../../workspace-direct-mount/write-session";
 import { spawnRcloneMount } from "./spawn-rclone-mount";
+import { renewalDryRunProblem } from "./win32/renewal-dry-run";
 
 /** Everything putting a direct drive on its mount point needs. */
 export interface StartDirectDriveInput {
   readonly slug: string;
   readonly mountPath: string;
-  readonly mountId: string;
+  readonly mountId: MountId;
   readonly paths: SessionPaths;
   readonly session: MountSession;
   readonly minted: WorkspaceMountCredentials;
@@ -26,13 +32,14 @@ export interface StartDirectDriveInput {
   readonly readOnly: boolean;
   /** True when the admin-shared copy is the target; recorded beside the cache. */
   readonly shared: boolean;
-  readonly awsConfig: string;
+  readonly awsConfig: AcceptedAwsConfig;
   readonly binary: RcloneBinary;
 }
 
 /**
- * Write the three files a direct drive renews itself through, prove the refresh
- * path, and spawn rclone. Returns the pid the registry records — `undefined`
+ * Write the files a direct drive renews itself through (on Windows, `renew.cmd`
+ * too), prove the refresh path — on Windows by running `renew.cmd` once as
+ * rclone's SDK will — and spawn rclone. Returns the pid the registry records — `undefined`
  * when the spawn produced none, exactly as `spawnRcloneMount` reports it.
  *
  * Everything here is INSIDE `mountDirect`'s one catch, so a drive that never
@@ -48,7 +55,11 @@ export async function startDirectDrive(input: StartDirectDriveInput): Promise<nu
   // workspace. Written beside the cache, not in the session: a dirty cache
   // deliberately outlives its session, and this fact has to outlive it too.
   writeCacheOwner(paths.cacheOwnerFile, { shared: input.shared });
-  writeSecretFile(paths.awsConfigFile, input.awsConfig);
+  writeSecretFileAtomically(paths.awsConfigFile, input.awsConfig.text);
+  // Windows: the line names renew.cmd, so it is written before the probe reads it.
+  if (input.awsConfig.renewCmd !== null) {
+    writeSecretFileAtomically(paths.renewCmdFile, input.awsConfig.renewCmd);
+  }
 
   // The same probe `credential-process --check` runs, before rclone is
   // spawned: a broken line makes rclone exit 1 with a misleading CRITICAL
@@ -58,8 +69,29 @@ export async function startDirectDrive(input: StartDirectDriveInput): Promise<nu
     throw failure(
       "local-failed",
       `The drive's renewal path is not usable: ${probe.problem}.`,
-      `Reinstall the CLI where node can run it, then mount again.${OR_DROP_DIRECT}`
+      `Reinstall the CLI where node can run it, then mount again.${orTheGateway()}`
     );
+  }
+
+  const env = rcloneEnvFor({
+    inherited: process.env,
+    awsConfigFile: paths.awsConfigFile,
+    mountId: input.mountId,
+    region: minted.storage.region,
+    bucket: minted.storage.bucket,
+    prefix: minted.storage.prefix,
+    platform: mountPlatformOf(process.platform)
+  });
+  // Windows: run renew.cmd once as rclone's SDK will, under rclone's env.
+  if (input.awsConfig.renewCmd !== null) {
+    const problem = renewalDryRunProblem(paths.renewCmdFile, env, minted.credentials.accessKeyId);
+    if (problem !== null) {
+      throw failure(
+        "local-failed",
+        `The drive's hourly renewal does not run on this machine: renew.cmd — ${problem}.`,
+        `Check the Command Processor AutoRun registry value, then mount again.${orTheGateway()}`
+      );
+    }
   }
 
   ensureStateSubdir(MOUNT_CACHE_DIR);
@@ -75,13 +107,6 @@ export async function startDirectDrive(input: StartDirectDriveInput): Promise<nu
       volumeName: session.volumeName,
       readOnly: input.readOnly
     }),
-    rcloneEnvFor({
-      inherited: process.env,
-      awsConfigFile: paths.awsConfigFile,
-      mountId: input.mountId,
-      region: minted.storage.region,
-      bucket: minted.storage.bucket,
-      prefix: minted.storage.prefix
-    })
+    env
   );
 }

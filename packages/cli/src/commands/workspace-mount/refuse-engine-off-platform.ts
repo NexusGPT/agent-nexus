@@ -12,6 +12,7 @@ export function refuseEngineOffPlatform(
   caller: "mount" | "remount" = "mount"
 ): void {
   const rule = PLATFORM_RULES[engine];
+  if (rule.runsOn === "everywhere") return;
   if (rule.runsOn(process.platform)) return;
   // 🔴 `remount` takes NO `--engine` and no `--read-only`: it replays the engine
   // the registry row recorded. `mountFix` names a flag, so on `remount` it is an

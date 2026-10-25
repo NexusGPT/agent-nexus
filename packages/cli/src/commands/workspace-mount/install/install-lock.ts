@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { failure } from "../../../errors";
 import { ensureStateSubdir } from "../../../mount-registry";
+import { errnoOf } from "../../../workspace-direct-mount/errno-of";
 import { MANAGED_RCLONE_DIR } from "../../../workspace-direct-mount/managed-rclone";
 import { releasingOnSignal } from "./release-on-signal";
 
@@ -14,15 +15,18 @@ export const INSTALL_LOCK_DIR = path.join(MANAGED_RCLONE_DIR, ".install-lock");
 const OWNER_FILE = "owner";
 
 /**
- * A lock older than this belongs to a run that died holding it and is taken
- * over; a 30 MB download plus a password prompt fits well inside.
- *
- * debt: a live transfer slower than ~17 KB/s outlives this TTL and a second
- *       mount takes over mid-install — harmless for the rclone zip, a second
- *       sudo prompt on the pkg road. Refresh the lock's mtime on each chunk
- *       when a double install is reported.
+ * A lock older than this belongs to a run that died holding it and is taken over.
+ * A live run moves its lock's mtime forward every {@link INSTALL_LOCK_BEAT_MS} while
+ * the event loop turns (the download), so a slow link never reads as a crash.
  */
+// debt: the install steps (sudo installer, brew, msiexec behind UAC) run through
+//       `execFileSync` and block the loop, so the beat is silent there — a step longer
+//       than the TTL (a password dialog left open) is taken over: a second prompt.
+//       Run the steps through `spawn` when a double install is reported.
 export const INSTALL_LOCK_TTL_MS = 30 * 60 * 1000;
+
+/** The pace a live run refreshes its lock at — far inside the TTL. */
+export const INSTALL_LOCK_BEAT_MS = 60 * 1000;
 
 /**
  * One installer at a time on this machine: two mounts that both find rclone
@@ -48,10 +52,22 @@ export async function withInstallLock<T>(
       `Wait for it to finish, then mount again. If no other mount is running, remove ${INSTALL_LOCK_DIR}.`
     );
   }
+  const beat = setInterval(() => refresh(token, now()), INSTALL_LOCK_BEAT_MS).unref();
   try {
     return await releasingOnSignal(() => release(token), fn);
   } finally {
+    clearInterval(beat);
     release(token);
+  }
+}
+
+/** Move the lock's mtime to now — only while it is still this run's; a taken-over lock is the successor's to keep fresh. */
+function refresh(token: string, nowMs: number): void {
+  if (ownerOf(INSTALL_LOCK_DIR) !== token) return;
+  try {
+    fs.utimesSync(INSTALL_LOCK_DIR, nowMs / 1000, nowMs / 1000);
+  } catch {
+    // Released between the owner read and the touch: nothing to keep fresh.
   }
 }
 
@@ -131,9 +147,4 @@ function ownerOf(lockDir: string): string | null {
   } catch {
     return null;
   }
-}
-
-function errnoOf(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
-  return typeof error.code === "string" ? error.code : undefined;
 }

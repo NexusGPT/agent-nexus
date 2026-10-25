@@ -32,6 +32,7 @@ export const BUILD_RUNNER_TICK_KINDS: ListedDiscriminants<
   race_lost: true,
   org_at_capacity: true,
   region_at_capacity: true,
+  git_host_unavailable: true,
   dispatch_failed_requeued: true,
   dispatch_failed_compensated: true
 };

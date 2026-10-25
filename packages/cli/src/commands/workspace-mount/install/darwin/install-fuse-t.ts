@@ -1,15 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { failure } from "../../../errors";
-import { ensureStateSubdir, STATE_DIR } from "../../../mount-registry";
-import type { DepsIo, RunOutcome } from "../../../workspace-direct-mount/deps-io";
-import type { PasswordPrompt } from "../../../workspace-direct-mount/install/install-plan";
-import { installerEnvFor } from "../../../workspace-direct-mount/install/installer-env";
-import { downloadVerified } from "./download-verified";
-
-/** Where a downloaded installer waits for `installer` to read it; removed as soon as it returns. */
-const DOWNLOADS_DIR = path.join(STATE_DIR, "downloads");
+import { failure } from "../../../../errors";
+import { ensureStateSubdir } from "../../../../mount-registry";
+import type { DepsIo, RunOutcome } from "../../../../workspace-direct-mount/deps-io";
+import type { PasswordPrompt } from "../../../../workspace-direct-mount/install/install-plan";
+import { installerEnvFor } from "../../../../workspace-direct-mount/install/installer-env";
+import { downloadVerified } from "../download-verified";
+import { DOWNLOADS_DIR } from "../downloads-dir";
 
 /**
  * What the macOS password window says. Without it macOS names the program that

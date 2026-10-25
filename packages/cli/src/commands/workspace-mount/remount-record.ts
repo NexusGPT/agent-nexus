@@ -6,8 +6,10 @@ import type { InstallPolicy } from "../../workspace-direct-mount/install/install
 import { mountIdFor } from "../../workspace-direct-mount/mount-id";
 import { mountDirect } from "../workspace-mount-direct";
 import { mountGateway, settleGatewayMount } from "../workspace-mount-gateway";
+import { gatewayMountIdOfRow } from "./gateway-cache";
 import type { MountOutcome } from "./mount-outcome";
 import { planDirectMount } from "./plan-direct-mount";
+import { recordedMountId } from "./recorded-mount-id";
 
 /** Everything replaying one recorded row through its own engine needs. */
 export interface RemountInput {
@@ -35,22 +37,26 @@ const REMOUNT_MINT_TIMEOUT_SECONDS: Seconds = seconds(DEFAULT_REQUEST_TIMEOUT_MS
  * outrank the profile inside `createClient` and mint under a key the hourly
  * renewal can never re-read — and re-uses its mount id, so rclone's cache
  * directory is the one the dead mount wrote into and its unsent saves drain on
- * start.
+ * start. An rclone row re-uses its mount id for the same reason.
  */
 export async function remountRecord(input: RemountInput): Promise<MountOutcome> {
   const { slug, record } = input;
-  const davPath = input.shared ? `_shared/${slug}` : slug;
   switch (input.engine) {
     case "webdav":
     case "rclone":
       return mountGateway({
-        settled: await settleGatewayMount(input.engine, input.policy),
+        settled: await settleGatewayMount(
+          input.engine,
+          input.policy,
+          // Read before the settle, so a corrupt row is refused before anything is installed.
+          input.engine === "rclone" ? gatewayMountIdOfRow(record, input.key) : mountIdFor(input.key)
+        ),
         slug,
-        davPath,
         baseUrl: input.baseUrl,
         apiKey: input.apiKey,
         mountPath: record.mountPath,
         readOnly: input.readOnly,
+        shared: input.shared,
         timeoutSeconds: input.globals.timeout
       });
     case "direct": {
@@ -61,7 +67,8 @@ export async function remountRecord(input: RemountInput): Promise<MountOutcome> 
           orgName: record.orgName ?? input.scope.orgName,
           baseUrl: record.baseUrl
         },
-        record.mountId ?? mountIdFor(input.key),
+        // Refused here when corrupt, before anything is installed or minted.
+        recordedMountId(record, input.key),
         input.policy
       );
       const client = createClient({

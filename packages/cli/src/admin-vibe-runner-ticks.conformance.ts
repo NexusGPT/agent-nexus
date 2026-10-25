@@ -76,6 +76,12 @@ const _buildTickRegionAtCapacity: ArmsAgree<
   WireBuildTick,
   "region_at_capacity"
 > = ARMS_AGREE;
+const _buildTickGitHostUnavailable: ArmsAgree<
+  "AdminVibeBuildRunnerTickResponse.git_host_unavailable",
+  AdminVibeBuildRunnerTickResponse,
+  WireBuildTick,
+  "git_host_unavailable"
+> = ARMS_AGREE;
 const _buildTickRequeued: ArmsAgree<
   "AdminVibeBuildRunnerTickResponse.dispatch_failed_requeued",
   AdminVibeBuildRunnerTickResponse,

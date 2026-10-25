@@ -16,7 +16,8 @@ export interface DirectMountArgvInput {
  *
  * `--devname nexus-<slug>` is what `mount(8)` and `df` print — without it they
  * print rclone's device name, which defaults to the remote string and carries
- * the bucket. `--volname` reaches Finder only. Both are always set because
+ * the bucket. `--volname` is the label Finder or Explorer shows (capped for a
+ * WinFsp label by `toVolumeName`). Both are always set because
  * FUSE-T drops the device name and macFUSE shows the volume name. No
  * `--allow-other`: the same user's shells and Finder read the mount without
  * it, and it would need a sysctl to widen the mount to other users.

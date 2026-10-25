@@ -39,26 +39,31 @@ async function listen(handler: Parameters<typeof createServer>[1]): Promise<stri
 
 describe("downloadWithStallDeadline budgets silence, not duration", () => {
   it("does NOT abort a transfer that keeps arriving past its own budget", async () => {
-    // 10 chunks, ~60 ms apart: ~600 ms of transfer under a 250 ms budget. An
-    // elapsed-time deadline of 250 ms aborts this at chunk 4 with the download
-    // healthy — which is the defect a naive fix introduces, and it is worse
-    // than the hang because it refuses work that was going to succeed.
+    // 30 chunks, ~50 ms apart: ~1,500 ms of transfer under a 1,000 ms budget. An
+    // elapsed-time deadline of 1,000 ms aborts this at about chunk 20 with the
+    // download healthy — which is the defect a naive fix introduces, and it is
+    // worse than the hang because it refuses work that was going to succeed.
+    //
+    // The budget is the margin over the gap, and the gap is what load stretches:
+    // the worst inter-chunk gap measured over 25 runs at load 81 was 68 ms here,
+    // 14.7x under the budget. At 60 ms under 250 ms it was 75 ms, a 3.3x margin a
+    // contended full suite could close.
     const url = await listen((_req, res) => {
       res.writeHead(200, { "content-type": "application/gzip" });
       let sent = 0;
       const tick = setInterval(() => {
         res.write("x".repeat(64));
-        if (++sent === 10) {
+        if (++sent === 30) {
           clearInterval(tick);
           res.end();
         }
-      }, 60);
+      }, 50);
     });
 
-    const { response, body } = await downloadWithStallDeadline(url, {}, { timeout: 250 });
+    const { response, body } = await downloadWithStallDeadline(url, {}, { timeout: 1_000 });
 
     expect(response.status).toBe(200);
-    expect(body.length).toBe(640);
+    expect(body.length).toBe(1_920);
   });
 
   it("abandons a transfer that starts and then goes silent", async () => {

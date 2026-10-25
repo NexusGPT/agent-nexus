@@ -17,6 +17,7 @@ const ioFetching = (download: DepsIo["download"]): DepsIo => ({
   exists: () => false,
   rcloneVersion: () => null,
   macFuseApproved: () => "unknown",
+  winFspInstallDir: () => "unknown",
   hasBrew: () => false,
   download,
   run: vi.fn(),

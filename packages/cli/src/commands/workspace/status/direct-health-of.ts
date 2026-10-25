@@ -4,6 +4,7 @@ import {
   directMountHealth
 } from "../../../workspace-direct-mount/direct-mount-health";
 import { isMountId } from "../../../workspace-direct-mount/mount-id";
+import { PENDING_UPLOADS_UNKNOWN } from "../../../workspace-direct-mount/pending-uploads-unknown";
 import { remountFix } from "../../../workspace-direct-mount/remount-fix";
 
 /**
@@ -33,7 +34,8 @@ export function directHealthOf(
         fix: remountFix(record.slug)
       },
       expiresAt: null,
-      pendingUploads: 0
+      // No cache was looked at, so the count is unknown — never a 0 that says nothing waits.
+      pendingUploads: PENDING_UPLOADS_UNKNOWN
     };
   }
   return directMountHealth({ mountId: record.mountId, slug: record.slug, profileExists, now });

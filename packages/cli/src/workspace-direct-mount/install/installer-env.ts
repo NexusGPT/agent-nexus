@@ -12,7 +12,7 @@
  * list is production-proven and left alone. The installers are three known
  * programs with a knowable need.
  */
-const INSTALLER_KEYS = [
+export const INSTALLER_KEYS = [
   // to run at all, and for sudo to prompt on the user's terminal
   "PATH",
   "HOME",

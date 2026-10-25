@@ -164,11 +164,13 @@ describe("planPush — the cp shape, and what is left out", () => {
   it("two sources on one destination are set apart, naming both — they would race on one key", () => {
     const other = path.join(tree.root, "other");
     fs.mkdirSync(other);
-    const twin = path.join(other, "loose.txt");
-    fs.writeFileSync(twin, "second");
-    const plan = planPush([tree.loose, twin], "", false);
+    const otherFile = path.join(other, "loose.txt");
+    fs.writeFileSync(otherFile, "second");
+    const plan = planPush([tree.loose, otherFile], "", false);
     expect(plan.entries.map((e) => e.localPath)).toEqual([tree.loose]);
-    expect(plan.duplicates).toEqual([{ remotePath: "loose.txt", first: tree.loose, second: twin }]);
+    expect(plan.duplicates).toEqual([
+      { remotePath: "loose.txt", first: tree.loose, second: otherFile }
+    ]);
   });
 
   it("a symlinked file inside a walked folder is followed, like cp -L", () => {

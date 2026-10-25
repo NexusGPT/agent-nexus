@@ -58,6 +58,8 @@ export const CLI_CODES = {
    * the API will help.
    */
   LOCAL_FAILED: "CLI_LOCAL_FAILED",
+  /** Ctrl-C at a question (an install prompt): nothing failed, it exits the shell's `130`. */
+  INTERRUPTED: "CLI_INTERRUPTED",
   /**
    * A global install SUCCEEDED and the shell still resolves a different copy.
    *

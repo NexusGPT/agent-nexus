@@ -20,7 +20,7 @@ export function registerWorkspaceRemountCommand(ws: Command, program: Command): 
     .argument("<slug>", "Workspace slug (see `nexus workspace status`)")
     .option(
       "--install-deps",
-      "Install a missing rclone (macOS, Linux; x64 or arm64) or FUSE-T (macOS) without asking; not on Windows"
+      "Install a missing rclone (x64 or arm64), FUSE-T (macOS) or WinFsp (Windows) without asking"
     )
     .option("--no-install-deps", "Never offer to install them; refuse with the install hint")
     .addHelpText("after", WORKSPACE_REMOUNT_HELP)

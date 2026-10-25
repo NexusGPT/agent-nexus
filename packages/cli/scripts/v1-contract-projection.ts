@@ -1,16 +1,16 @@
 // ⚠️ THE SOURCE, BY RELATIVE PATH — never the `@nexus/types/public-api-v1`
 // specifier. See "WHY THIS IMPORT IS NOT THE PACKAGE SPECIFIER" below; changing
 // it back reintroduces a false green that no gate in this repo can see.
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
 import { ZPublicApiV1 } from "../../types/src/api/public/v1/index";
-import { WORKSPACE_SOURCE_ALIASES } from "../src/vitest.aliases";
+import { WORKSPACE_SOURCE_ALIASES } from "../vitest.aliases";
 
-/** `packages/cli`, the root the alias table's paths are relative to. */
+/** `packages/cli`, this script's package. */
 const CLI_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
@@ -73,7 +73,7 @@ const CLI_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  *     fail on correct trees and pass on stale ones. A heuristic guarding a
  *     dependency we can simply not have.
  *
- * `assertSourceMatchesAliasTable()` below keeps the relative path honest.
+ * `checkContractSource()` below keeps the relative path honest.
  *
  * `zod` is a devDependency of `packages/cli`, declared for this script. It never
  * reaches the published binary: `dependencies` is `commander` alone, and
@@ -166,8 +166,7 @@ function isDescriptor(value: unknown): value is Record<string, unknown> {
  * the generator back on a different copy from everything else. Throws rather
  * than warns: a warning on a build-time script scrolls past.
  */
-function assertSourceMatchesAliasTable(): void {
-  const declared = WORKSPACE_SOURCE_ALIASES["@nexus/types/public-api-v1"];
+export function checkContractSource(cliRoot: string, declared: string | undefined): void {
   if (declared === undefined) {
     throw new Error(
       `WORKSPACE_SOURCE_ALIASES no longer declares "@nexus/types/public-api-v1". This script ` +
@@ -175,25 +174,27 @@ function assertSourceMatchesAliasTable(): void {
     );
   }
 
-  // The table's paths are relative to the PACKAGE ROOT; this file sits in `scripts/`.
-  const fromTable = resolve(CLI_ROOT, declared);
-  const imported = resolve(CLI_ROOT, "..", "types", "src", "api", "public", "v1", "index.ts");
+  // The table's values are absolute paths the derivation resolved through `realpathSync`.
+  // `cliRoot` comes from this module's own URL, which a runner that preserves symlinks
+  // (`--preserve-symlinks`) leaves as the checkout was REACHED — so both sides go through
+  // `realpathSync` before they are compared, one convention for both, never the raw path
+  // against the resolved one.
+  const imported = resolve(cliRoot, "..", "types", "src", "api", "public", "v1", "index.ts");
+  if (!existsSync(imported)) {
+    throw new Error(`The contract source does not exist at ${imported}.`);
+  }
 
-  if (fromTable !== imported) {
+  if (realpathSync(declared) !== realpathSync(imported)) {
     throw new Error(
-      `The contract source moved. This script imports:\n  ${imported}\n` +
-        `WORKSPACE_SOURCE_ALIASES declares:\n  ${fromTable}\n` +
+      `The contract source moved. This script imports:\n  ${realpathSync(imported)}\n` +
+        `WORKSPACE_SOURCE_ALIASES declares:\n  ${realpathSync(declared)}\n` +
         `Point the import at the declared path, or the generator reads a different copy of the ` +
         `contract from the one vitest and tsc read.`
     );
   }
-
-  if (!existsSync(imported)) {
-    throw new Error(`The contract source does not exist at ${imported}.`);
-  }
 }
 
-assertSourceMatchesAliasTable();
+checkContractSource(CLI_ROOT, WORKSPACE_SOURCE_ALIASES["@nexus/types/public-api-v1"]);
 
 /** Every descriptor key the contract composes, sorted. Ordering is never left to iteration. */
 export function descriptorNames(): string[] {

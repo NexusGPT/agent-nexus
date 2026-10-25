@@ -6,14 +6,16 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A throwaway HOME, set before mount-registry computes STATE_DIR from it.
 const SANDBOX = vi.hoisted(() => {
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-install-fuse-t-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early): one separator on Windows too.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-install-fuse-t-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
 });
 
-import type { DepsIo, RunOutcome } from "../../../workspace-direct-mount/deps-io";
+import type { DepsIo, RunOutcome } from "../../../../workspace-direct-mount/deps-io";
 import { DIALOG_PROMPT, installFuseTCask, installFuseTPkg } from "./install-fuse-t";
 
 const PKG = new TextEncoder().encode("a fake installer");
@@ -55,6 +57,7 @@ const io = (answer: RunOutcome): DepsIo & { readonly seen: Seen[] } => {
     exists: () => false,
     rcloneVersion: () => null,
     macFuseApproved: () => "unknown",
+    winFspInstallDir: () => "unknown",
     hasBrew: () => true,
     download: async () => PKG,
     run: (file, args, env) => {
@@ -107,7 +110,7 @@ describe("installFuseTPkg — the pkg road", () => {
     expect(run?.args.slice(0, 3)).toEqual([
       "installer",
       "-pkg",
-      expect.stringMatching(/\/\d+-fuse-t-macos-installer-1\.2\.7\.pkg$/)
+      expect.stringMatching(/[\\/]\d+-fuse-t-macos-installer-1\.2\.7\.pkg$/)
     ]);
     // Apple's `installer` refuses a -pkg path that does not END in `.pkg`
     // ("the package path specified was invalid"), so the pid goes in front.
@@ -125,7 +128,7 @@ describe("installFuseTPkg — the pkg road", () => {
     const [run] = fake.seen;
     expect(run?.file).toBe("osascript");
     const pkg = run?.args[run.args.length - 1] ?? "";
-    expect(pkg).toMatch(/\/\d+-fuse-t-macos-installer-1\.2\.7\.pkg$/);
+    expect(path.basename(pkg)).toMatch(/^\d+-fuse-t-macos-installer-1\.2\.7\.pkg$/);
     // The whole argv, not fragments: the handler that receives the path, the
     // absolute installer, the target, the prompt, the privilege — in order.
     expect(run?.args).toEqual([

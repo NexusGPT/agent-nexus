@@ -18,7 +18,11 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
  * `~/.nexus-mcp`.
  */
 const SANDBOX = vi.hoisted(() => {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/nexus-workspace-mounts-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early), so the
+  // sandbox carries one separator on Windows too.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-workspace-mounts-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
@@ -48,6 +52,7 @@ import { writeCacheOwner } from "./workspace-direct-mount/cache-owner";
 import { cacheProvenanceRefusal } from "./workspace-direct-mount/cache-provenance-refusal";
 import { checkRefreshPath } from "./workspace-direct-mount/check-refresh-path";
 import { countPendingUploads } from "./workspace-direct-mount/count-pending-uploads";
+import { notificationArgv } from "./workspace-direct-mount/darwin/notification-argv";
 import { describeRefresh } from "./workspace-direct-mount/describe-refresh";
 import { DIRECT_REMOTE, directMountArgv } from "./workspace-direct-mount/direct-mount-argv";
 import { directMountHealth } from "./workspace-direct-mount/direct-mount-health";
@@ -57,7 +62,6 @@ import { isMountSession } from "./workspace-direct-mount/is-mount-session";
 import { accessIsLower } from "./workspace-direct-mount/mount-access";
 import { mountIdFor } from "./workspace-direct-mount/mount-id";
 import type { MountSession } from "./workspace-direct-mount/mount-session";
-import { notificationArgv } from "./workspace-direct-mount/notification-argv";
 import { parseAwsConfig } from "./workspace-direct-mount/parse-aws-config";
 import {
   describePendingUploads,
@@ -98,7 +102,12 @@ import {
   shouldNotify
 } from "./workspace-direct-mount/should-notify";
 import { stableNodePath } from "./workspace-direct-mount/stable-node-path";
-import { toVolumeName, VOLUME_NAME_MAX_CHARS } from "./workspace-direct-mount/volume-name";
+import {
+  toVolumeName,
+  VOLUME_NAME_MAX_CHARS,
+  win32VolumeLabel
+} from "./workspace-direct-mount/volume-name";
+import { renewCmdFor } from "./workspace-direct-mount/win32/renew-cmd";
 import { writeSession } from "./workspace-direct-mount/write-session";
 
 afterAll(() => {
@@ -743,6 +752,39 @@ function session(over: Partial<MountSession> = {}): MountSession {
 }
 
 describe("mountIdFor / sessionPathsFor", () => {
+  it("writeSession lands the session when an antivirus holds the rename once (EBUSY), and still refuses on another error", () => {
+    const realRename = fs.renameSync.bind(fs);
+    const held = Object.assign(new Error("EBUSY: resource busy or locked, rename"), {
+      code: "EBUSY"
+    });
+    const rename = vi
+      .spyOn(fs, "renameSync")
+      .mockImplementationOnce(() => {
+        throw held;
+      })
+      .mockImplementation(realRename);
+    try {
+      writeSession(session());
+      expect(rename).toHaveBeenCalledTimes(2);
+      expect(fs.existsSync(sessionPathsFor(MOUNT_ID).sessionFile)).toBe(true);
+      rename.mockImplementationOnce(() => {
+        throw Object.assign(new Error("EXDEV"), { code: "EXDEV" });
+      });
+      expect(() => writeSession(session())).toThrow("EXDEV");
+      // The failed rename's temp file holds the secret too: it is removed, never left beside the session.
+      const paths = sessionPathsFor(MOUNT_ID);
+      const entries = fs.readdirSync(paths.dir);
+      // Floor: the listing reached the directory the session lives in, so an empty
+      // `.tmp` result below is a clean directory and not a read of the wrong one.
+      expect(entries).toContain(path.basename(paths.sessionFile));
+      const left = entries.filter((name) => name.endsWith(".tmp"));
+      expect(left).toEqual([]);
+    } finally {
+      rename.mockRestore();
+      fs.rmSync(sessionPathsFor(MOUNT_ID).dir, { recursive: true, force: true });
+    }
+  });
+
   it("is 16 hex digits, stable for one registry key and distinct across orgs", () => {
     const id = mountIdFor(mountKey(orgA, "support-docs"));
     expect(id).toMatch(/^[0-9a-f]{16}$/);
@@ -752,17 +794,21 @@ describe("mountIdFor / sessionPathsFor", () => {
   });
 
   it("puts the session, the aws config and the cache under the 0700 state tree", () => {
+    const dir = path.join(MOUNT_CREDENTIALS_DIR, MOUNT_ID);
+    const cacheDir = path.join(MOUNT_CACHE_DIR, MOUNT_ID);
     expect(sessionPathsFor(MOUNT_ID)).toEqual({
-      dir: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}`,
-      sessionFile: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}/session.json`,
-      awsConfigFile: `${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}/aws.config`,
-      cacheDir: `${MOUNT_CACHE_DIR}/${MOUNT_ID}`,
+      dir,
+      sessionFile: path.join(dir, "session.json"),
+      awsConfigFile: path.join(dir, "aws.config"),
+      // Named on every platform; only a Windows mount writes it.
+      renewCmdFile: path.join(dir, "renew.cmd"),
+      cacheDir,
       // INSIDE the cache, so it shares its lifetime exactly: kept while saves
       // are pending, removed with the empty cache it describes.
-      cacheOwnerFile: `${MOUNT_CACHE_DIR}/${MOUNT_ID}/owner.json`
+      cacheOwnerFile: path.join(cacheDir, "owner.json")
     });
-    expect(MOUNT_CREDENTIALS_DIR).toMatch(/\.nexus-mcp\/mount-credentials$/);
-    expect(MOUNT_CACHE_DIR).toMatch(/\.nexus-mcp\/cache$/);
+    expect(MOUNT_CREDENTIALS_DIR).toBe(path.join(SANDBOX, ".nexus-mcp", "mount-credentials"));
+    expect(MOUNT_CACHE_DIR).toBe(path.join(SANDBOX, ".nexus-mcp", "cache"));
   });
 
   it("REFUSES an id that is not 16 hex digits, because two of these paths are recursively deleted", () => {
@@ -774,7 +820,7 @@ describe("mountIdFor / sessionPathsFor", () => {
       expect(() => sessionPathsFor(bad)).toThrow(/not 16 hex digits/);
     }
     // The positive control: the real shape still resolves.
-    expect(sessionPathsFor(MOUNT_ID).dir).toBe(`${MOUNT_CREDENTIALS_DIR}/${MOUNT_ID}`);
+    expect(sessionPathsFor(MOUNT_ID).dir).toBe(path.join(MOUNT_CREDENTIALS_DIR, MOUNT_ID));
   });
 });
 
@@ -800,7 +846,8 @@ describe("rcloneEnvFor — the bucket lives in the environment and nowhere else"
     mountId: MOUNT_ID,
     region: "eu-west-3",
     bucket: BUCKET,
-    prefix: "support-docs/"
+    prefix: "support-docs/",
+    platform: "darwin"
   });
 
   it("points rclone at an EMPTY config, so a user's own `nxs3` remote cannot supply the key", () => {
@@ -886,6 +933,39 @@ describe("rcloneEnvFor — the bucket lives in the environment and nowhere else"
     expect(env.RCLONE_CONFIG_NXS3_NO_CHECK_BUCKET).toBe("true");
     expect(env.RCLONE_CONFIG_NXWS_TYPE).toBe("alias");
   });
+
+  it("points both config files at the platform's null device: NUL on Windows, /dev/null elsewhere", () => {
+    const onWindows = rcloneEnvFor({
+      inherited,
+      awsConfigFile: `C:\\Users\\me\\.nexus-mcp\\mount-credentials\\${MOUNT_ID}\\aws.config`,
+      mountId: MOUNT_ID,
+      region: "eu-west-3",
+      bucket: BUCKET,
+      prefix: "support-docs/",
+      platform: "win32"
+    });
+    expect([onWindows.AWS_SHARED_CREDENTIALS_FILE, onWindows.RCLONE_CONFIG]).toEqual([
+      "NUL",
+      "NUL"
+    ]);
+    expect([env.AWS_SHARED_CREDENTIALS_FILE, env.RCLONE_CONFIG]).toEqual([
+      "/dev/null",
+      "/dev/null"
+    ]);
+    const onLinux = rcloneEnvFor({
+      inherited,
+      awsConfigFile: `/home/me/.nexus-mcp/mount-credentials/${MOUNT_ID}/aws.config`,
+      mountId: MOUNT_ID,
+      region: "eu-west-3",
+      bucket: BUCKET,
+      prefix: "support-docs/",
+      platform: "linux"
+    });
+    expect([onLinux.AWS_SHARED_CREDENTIALS_FILE, onLinux.RCLONE_CONFIG]).toEqual([
+      "/dev/null",
+      "/dev/null"
+    ]);
+  });
 });
 
 describe("stableNodePath — the node spelling that survives a node upgrade", () => {
@@ -940,14 +1020,17 @@ describe("awsConfigFor — the credential_process line", () => {
   const execPath = "/Users/Jane Doe/.nvm/versions/node/v24.6.0/bin/node";
   const entry =
     "/Users/Jane Doe/.nvm/versions/node/v24.6.0/lib/node_modules/@agent-nexus/cli/dist/index.js";
+  const renewCmdFile = sessionPathsFor(MOUNT_ID).renewCmdFile;
 
   it("quotes both paths and ends on the unquoted subcommand, so a space in HOME survives", () => {
-    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID });
+    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID }, renewCmdFile, "darwin");
     expect(result).toEqual({
       ok: true,
       text:
         `[profile nexus-mount-${MOUNT_ID}]\n` +
-        `credential_process = "${execPath}" "${entry}" workspace credential-process ${MOUNT_ID}\n`
+        `credential_process = "${execPath}" "${entry}" workspace credential-process ${MOUNT_ID}\n`,
+      // macOS and Linux run the command itself: no wrapper file.
+      renewCmd: null
     });
     if (!result.ok) return;
     // The ini reader strips outer quotes only when the WHOLE value is one
@@ -958,9 +1041,12 @@ describe("awsConfigFor — the credential_process line", () => {
   });
 
   it("reads its own line back, and refuses anything else", () => {
-    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID });
+    const result = awsConfigFor({ execPath, entry, mountId: MOUNT_ID }, renewCmdFile, "darwin");
     if (!result.ok) throw new Error("fixture must be writable");
-    expect(parseAwsConfig(result.text)).toEqual({ execPath, entry, mountId: MOUNT_ID });
+    expect(parseAwsConfig(result.text)).toEqual({
+      kind: "command",
+      input: { execPath, entry, mountId: MOUNT_ID }
+    });
     expect(parseAwsConfig("[default]\nregion = eu-west-3\n")).toBeNull();
     // The line without its profile header is not the file this CLI writes.
     expect(parseAwsConfig(result.text.split("\n")[1] + "\n")).toBeNull();
@@ -980,14 +1066,113 @@ describe("awsConfigFor — the credential_process line", () => {
     "refuses a %s of %j (%s) rather than writing a line that tokenises differently",
     (field, bad, because) => {
       const input = { execPath, entry, mountId: MOUNT_ID, [field]: bad };
-      expect(awsConfigFor(input)).toEqual({ ok: false, refusal: { field, because } });
+      expect(awsConfigFor(input, renewCmdFile, "darwin")).toEqual({
+        ok: false,
+        refusal: { field, because }
+      });
     }
   );
 
   it("accepts `#` and `;` that no whitespace precedes (positive control for the refusal)", () => {
     expect(
-      awsConfigFor({ execPath: "/opt/c#/node", entry: "/opt/a;b/index.js", mountId: MOUNT_ID }).ok
+      awsConfigFor(
+        { execPath: "/opt/c#/node", entry: "/opt/a;b/index.js", mountId: MOUNT_ID },
+        renewCmdFile,
+        "darwin"
+      ).ok
     ).toBe(true);
+  });
+});
+
+describe("awsConfigFor on win32 — credential_process is one bare path to renew.cmd", () => {
+  // cmd.exe keeps the quotes Go adds around a path with a space only while the
+  // value is ONE path with no operator in it; the npm `.cmd` shims have that shape.
+  const input = {
+    execPath: "C:\\Program Files\\nodejs\\node.exe",
+    entry:
+      "C:\\Users\\Jane Doe\\AppData\\Roaming\\npm\\node_modules\\@agent-nexus\\cli\\dist\\index.js",
+    mountId: MOUNT_ID
+  };
+  const renewCmdFile = `C:\\Users\\Jane Doe\\.nexus-mcp\\mount-credentials\\${MOUNT_ID}\\renew.cmd`;
+  const win32With = (field: "execPath" | "entry" | "renewCmd", bad: string) =>
+    field === "renewCmd"
+      ? awsConfigFor(input, bad, "win32")
+      : awsConfigFor({ ...input, [field]: bad }, renewCmdFile, "win32");
+
+  it("writes the wrapper path unquoted, and the command into renew.cmd", () => {
+    expect(awsConfigFor(input, renewCmdFile, "win32")).toEqual({
+      ok: true,
+      text:
+        `[profile nexus-mount-${MOUNT_ID}]\n` +
+        `credential_process = C:\\Users\\Jane Doe\\.nexus-mcp\\mount-credentials\\${MOUNT_ID}\\renew.cmd\n`,
+      renewCmd: renewCmdFor(input)
+    });
+  });
+
+  it("reads the wrapper line back, and refuses a quoted wrapper path or a missing header", () => {
+    const result = awsConfigFor(input, renewCmdFile, "win32");
+    if (!result.ok) throw new Error("fixture must be writable");
+    expect(parseAwsConfig(result.text)).toEqual({ kind: "wrapper", renewCmdFile });
+    const quoted = result.text.replace(`= ${renewCmdFile}`, `= "${renewCmdFile}"`);
+    expect(quoted).not.toBe(result.text);
+    expect(parseAwsConfig(quoted)).toBeNull();
+    expect(parseAwsConfig(result.text.split("\n")[1] + "\n")).toBeNull();
+    const foreign = result.text.replace("[profile nexus-mount-", "[profile work-");
+    expect(foreign).not.toBe(result.text);
+    expect(parseAwsConfig(foreign)).toBeNull();
+  });
+
+  it("accepts a backslash, a $ and a backtick on win32, which darwin and linux refuse", () => {
+    expect(win32With("entry", "C:\\a$b\\`c`\\index.js").ok).toBe(true);
+    for (const platform of ["darwin", "linux"] as const) {
+      expect(awsConfigFor(input, renewCmdFile, platform)).toEqual({
+        ok: false,
+        refusal: { field: "execPath", because: "shell-special" }
+      });
+    }
+  });
+
+  it("accepts a space before # or ; in the node and entry paths, which only renew.cmd holds, never the ini file", () => {
+    expect(win32With("execPath", "D:\\Tools #2\\node.exe").ok).toBe(true);
+    expect(win32With("entry", "D:\\Work ;old\\nexus-cli\\dist\\index.js").ok).toBe(true);
+  });
+
+  it("refuses ! in the wrapper path only: the /C line meets cmd.exe's delayed expansion before renew.cmd can turn it off", () => {
+    expect(win32With("renewCmd", "C:\\Users\\hi!there\\renew.cmd")).toEqual({
+      ok: false,
+      refusal: { field: "renewCmd", because: "cmd-special" }
+    });
+    expect(win32With("execPath", "C:\\hi!there\\node.exe").ok).toBe(true);
+    expect(win32With("entry", "C:\\hi!there\\index.js").ok).toBe(true);
+  });
+
+  it.each([
+    ["execPath", "C:\\Users\\100%\\node.exe"],
+    ["entry", "C:\\%APPDATA%\\npm\\index.js"],
+    ["renewCmd", "C:\\Users\\50%off\\renew.cmd"]
+  ] as const)("refuses a %% in the %s, which cmd.exe would expand", (field, bad) => {
+    expect(win32With(field, bad)).toEqual({ ok: false, refusal: { field, because: "percent" } });
+  });
+
+  it.each(["&", "|", "<", ">", "(", ")", "@", "^", "!", ",", ";", "="])(
+    "refuses %s in the wrapper path only; inside renew.cmd the quotes keep it literal",
+    (operator) => {
+      expect(win32With("renewCmd", `C:\\Users\\a${operator}b\\renew.cmd`)).toEqual({
+        ok: false,
+        refusal: { field: "renewCmd", because: "cmd-special" }
+      });
+      expect(win32With("execPath", `C:\\a${operator}b\\node.exe`).ok).toBe(true);
+      expect(win32With("entry", `C:\\a${operator}b\\index.js`).ok).toBe(true);
+    }
+  );
+
+  it.each([
+    ["renewCmd", 'C:\\Users\\a"b\\renew.cmd', "double-quote"],
+    ["renewCmd", "C:\\Users\\a\nb\\renew.cmd", "newline"],
+    ["renewCmd", "C:\\Users\\a #b\\renew.cmd", "comment-start"],
+    ["execPath", 'C:\\no"de.exe', "double-quote"]
+  ] as const)("refuses a %s of %j (%s) as the ini reader would", (field, bad, because) => {
+    expect(win32With(field, bad)).toEqual({ ok: false, refusal: { field, because } });
   });
 });
 
@@ -1276,7 +1461,7 @@ describe("toVolumeName", () => {
     expect(toVolumeName("Q3: Plans / Drafts")).toBe("Q3 Plans Drafts");
     expect(toVolumeName("Support   Docs", "Acme")).toBe("Support Docs (Acme)");
     expect(toVolumeName("   ")).toBe("Nexus workspace");
-    expect(toVolumeName("x".repeat(100))).toHaveLength(VOLUME_NAME_MAX_CHARS);
+    expect(toVolumeName("x".repeat(100), undefined, "linux")).toHaveLength(VOLUME_NAME_MAX_CHARS);
   });
 
   it("cuts by code point, so a name capped mid-emoji never ends in half a character", () => {
@@ -1284,12 +1469,24 @@ describe("toVolumeName", () => {
     // surrogate: invalid UTF-8 for the FUSE layer, a bare \udXXX escape inside
     // session.json that every later read carries, a tofu glyph in Finder.
     const name = "x".repeat(VOLUME_NAME_MAX_CHARS - 1) + "🙂" + "tail";
-    const volume = toVolumeName(name);
+    const volume = toVolumeName(name, undefined, "linux");
     expect([...volume]).toHaveLength(VOLUME_NAME_MAX_CHARS);
     expect(volume.endsWith("🙂")).toBe(true);
     // The defect stated directly: no unpaired surrogate anywhere in the result.
     expect(/[\uD800-\uDFFF]/.test(volume.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ""))).toBe(
       false
+    );
+  });
+
+  it("on Windows caps the label at the 31 UTF-16 units a WinFsp label holds, never splitting a character", () => {
+    expect(toVolumeName("Quarterly Reports", "Acme Corporation", "win32")).toBe(
+      "Quarterly Reports (Acme Corpora"
+    );
+    expect(win32VolumeLabel("x".repeat(30) + "🙂")).toBe("x".repeat(30));
+    expect(win32VolumeLabel("general-context")).toBe("general-context");
+    // macOS and Linux keep the 64-code-point cap.
+    expect(toVolumeName("Quarterly Reports", "Acme Corporation", "linux")).toBe(
+      "Quarterly Reports (Acme Corporation)"
     );
   });
 });
@@ -1438,10 +1635,10 @@ describe("rcloneBuildVerdict — the token is the capability", () => {
     expect(darwin).not.toContain("brew install");
     expect(darwin).toContain("macFUSE");
     expect(darwin).toContain("FUSE-T");
-    expect(darwin).toContain("drop --engine direct");
+    expect(darwin).toContain("Or mount with --engine webdav: it needs nothing installed.");
     // The other platforms have no engine that needs nothing, so no such offer.
     expect(rcloneInstallHint("linux")).toContain("fuse3");
-    expect(rcloneInstallHint("linux")).not.toContain("drop --engine");
+    expect(rcloneInstallHint("linux")).not.toContain("--engine webdav");
     expect(rcloneInstallHint("win32")).toContain("WinFsp");
   });
 });
@@ -1472,7 +1669,8 @@ describe("directMountArgv — the bucket never enters argv", () => {
       mountId: MOUNT_ID,
       region: "eu-west-3",
       bucket: BUCKET,
-      prefix: "support-docs/"
+      prefix: "support-docs/",
+      platform: "darwin"
     });
     expect(JSON.stringify(env)).toContain(BUCKET);
     expect(argv.join(" ")).not.toContain(BUCKET);
@@ -1558,28 +1756,32 @@ describe("the VFS cache: pending uploads and what unmount may delete", () => {
     expect(cacheProvenanceRefusal(paths, true, "support-docs")).toBeNull();
   });
 
-  it("an UNREADABLE cache is not an empty one — the count is unknown and the cache is held", () => {
-    // The whole point: `unmount` deletes a cache it believes is empty. A
-    // directory read can fail for reasons that say nothing about emptiness, and
-    // reading those as zero is how an unsent save disappears. Chmod 000 the
-    // metadata root and both answers must refuse to call it clean.
-    const unreadable = path.join(cacheDir, "unreadable");
-    fs.mkdirSync(path.join(unreadable, "vfsMeta", "locked"), { recursive: true });
-    fs.writeFileSync(path.join(unreadable, "vfsMeta", "locked", "item"), '{"Dirty":true}');
-    fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o000);
-    try {
-      expect(countPendingUploads(unreadable)).toBe(PENDING_UPLOADS_UNKNOWN);
-      // Both comparisons in the two decision sites must fail SAFE, and they
-      // compare in opposite directions — this is why the sentinel is infinite.
-      expect(countPendingUploads(unreadable) === 0).toBe(false);
-      expect(countPendingUploads(unreadable) > 0).toBe(true);
-      expect(cacheHoldsEntries(unreadable)).toBe(true);
-      expect(describePendingUploads(PENDING_UPLOADS_UNKNOWN)).toBe("An unknown number of");
-      expect(describePendingUploads(3)).toBe("3");
-    } finally {
-      fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o700);
+  // POSIX hosts only: `chmod 000` makes nothing unreadable on NTFS.
+  it.skipIf(process.platform === "win32")(
+    "an UNREADABLE cache is not an empty one — the count is unknown and the cache is held",
+    () => {
+      // The whole point: `unmount` deletes a cache it believes is empty. A
+      // directory read can fail for reasons that say nothing about emptiness, and
+      // reading those as zero is how an unsent save disappears. Chmod 000 the
+      // metadata root and both answers must refuse to call it clean.
+      const unreadable = path.join(cacheDir, "unreadable");
+      fs.mkdirSync(path.join(unreadable, "vfsMeta", "locked"), { recursive: true });
+      fs.writeFileSync(path.join(unreadable, "vfsMeta", "locked", "item"), '{"Dirty":true}');
+      fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o000);
+      try {
+        expect(countPendingUploads(unreadable)).toBe(PENDING_UPLOADS_UNKNOWN);
+        // Both comparisons in the two decision sites must fail SAFE, and they
+        // compare in opposite directions — this is why the sentinel is infinite.
+        expect(countPendingUploads(unreadable) === 0).toBe(false);
+        expect(countPendingUploads(unreadable) > 0).toBe(true);
+        expect(cacheHoldsEntries(unreadable)).toBe(true);
+        expect(describePendingUploads(PENDING_UPLOADS_UNKNOWN)).toBe("An unknown number of");
+        expect(describePendingUploads(3)).toBe("3");
+      } finally {
+        fs.chmodSync(path.join(unreadable, "vfsMeta", "locked"), 0o700);
+      }
     }
-  });
+  );
 
   it("counts the DIRTY items, a metadata file it cannot parse, and nothing that is clean", () => {
     // Asymmetric on purpose: two dirty, one clean. A reader that inverted the
@@ -1618,6 +1820,12 @@ describe("the VFS cache: pending uploads and what unmount may delete", () => {
 describe("checkRefreshPath / directMountHealth — the status verdict from local reads", () => {
   const profileExists = (name: string): boolean => name === "work";
   const input = { mountId: MOUNT_ID, slug: "support-docs", profileExists, now: NOW };
+  // POSIX hosts only: a case that writes the macOS renewal line skips itself on
+  // Windows, where that arm refuses a Windows node path. The Windows shape — the
+  // renew.cmd wrapper — has its own cases below, and those run on every host.
+  const posixOnly = (skip: (note?: string) => void): void => {
+    if (process.platform === "win32") skip("the macOS renewal line refuses a Windows node path");
+  };
 
   /** Records one item in the mount's VFS metadata, as rclone does for a save. */
   function writePendingItem(name: string, dirty: boolean): void {
@@ -1632,11 +1840,11 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
   }
 
   function writeGoodConfig(): void {
-    const config = awsConfigFor({
-      execPath: process.execPath,
-      entry: __filename,
-      mountId: MOUNT_ID
-    });
+    const config = awsConfigFor(
+      { execPath: process.execPath, entry: __filename, mountId: MOUNT_ID },
+      sessionPathsFor(MOUNT_ID).renewCmdFile,
+      "darwin"
+    );
     if (!config.ok) throw new Error("fixture must be writable");
     fs.writeFileSync(sessionPathsFor(MOUNT_ID).awsConfigFile, config.text);
   }
@@ -1660,7 +1868,10 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     );
   });
 
-  it("is broken when the profile the session pins is gone from config.json, naming the sign-in", () => {
+  it("is broken when the profile the session pins is gone from config.json, naming the sign-in", ({
+    skip
+  }) => {
+    posixOnly(skip);
     writeSession(session({ profile: "gone" }));
     writeGoodConfig();
     const health = directMountHealth(input);
@@ -1672,7 +1883,8 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(health.expiresAt).toBe(session().expiresAt);
   });
 
-  it("is broken when aws.config is missing or names a node that is not there", () => {
+  it("is broken when aws.config is missing or names a node that is not there", ({ skip }) => {
+    posixOnly(skip);
     writeSession(session());
     const paths = sessionPathsFor(MOUNT_ID);
     expect(checkRefreshPath(session())).toEqual({
@@ -1684,11 +1896,11 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
       what: `${paths.awsConfigFile} missing`
     });
 
-    const moved = awsConfigFor({
-      execPath: "/nonexistent/node",
-      entry: __filename,
-      mountId: MOUNT_ID
-    });
+    const moved = awsConfigFor(
+      { execPath: "/nonexistent/node", entry: __filename, mountId: MOUNT_ID },
+      paths.renewCmdFile,
+      "darwin"
+    );
     if (!moved.ok) throw new Error("fixture must be writable");
     fs.writeFileSync(paths.awsConfigFile, moved.text);
     const probe = checkRefreshPath(session());
@@ -1701,7 +1913,86 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(checkRefreshPath(session())).toMatchObject({ ok: false });
   });
 
-  it("is ok, dated by the last renewal or the mint, while the access is valid and the path usable", () => {
+  describe("the Windows form: aws.config names renew.cmd, and renew.cmd runs the renewal", () => {
+    const OTHER_ID = "fedcba9876543210";
+    const command = { execPath: process.execPath, entry: __filename, mountId: MOUNT_ID };
+
+    function writeWrapperConfig(forMount: string, wrapperPath: string): void {
+      const config = awsConfigFor({ ...command, mountId: forMount }, wrapperPath, "win32");
+      if (!config.ok) throw new Error("fixture must be writable");
+      fs.writeFileSync(sessionPathsFor(MOUNT_ID).awsConfigFile, config.text);
+    }
+
+    function notOurLine(): { ok: false; problem: string } {
+      const file = sessionPathsFor(MOUNT_ID).awsConfigFile;
+      return {
+        ok: false,
+        problem: `${file} does not carry the credential_process line this CLI writes for mount ${MOUNT_ID}`
+      };
+    }
+
+    it("is broken when renew.cmd is missing, and names renew.cmd", () => {
+      writeSession(session());
+      const paths = sessionPathsFor(MOUNT_ID);
+      writeWrapperConfig(MOUNT_ID, paths.renewCmdFile);
+      expect(checkRefreshPath(session())).toEqual({
+        ok: false,
+        problem: `${paths.renewCmdFile} missing`
+      });
+    });
+
+    it("is broken when renew.cmd runs another mount's renewal, or is not a file this CLI wrote", () => {
+      writeSession(session());
+      const paths = sessionPathsFor(MOUNT_ID);
+      writeWrapperConfig(MOUNT_ID, paths.renewCmdFile);
+      const notOurs = {
+        ok: false,
+        problem: `${paths.renewCmdFile} does not carry the command this CLI writes for mount ${MOUNT_ID}`
+      };
+      fs.writeFileSync(paths.renewCmdFile, renewCmdFor({ ...command, mountId: OTHER_ID }));
+      expect(checkRefreshPath(session())).toEqual(notOurs);
+      fs.writeFileSync(paths.renewCmdFile, "@echo off\r\nexit /b 0\r\n");
+      expect(checkRefreshPath(session())).toEqual(notOurs);
+    });
+
+    it("is broken when the line names another wrapper path, or sits under another mount's profile", () => {
+      writeSession(session());
+      const paths = sessionPathsFor(MOUNT_ID);
+      fs.writeFileSync(paths.renewCmdFile, renewCmdFor(command));
+      writeWrapperConfig(MOUNT_ID, path.join(os.tmpdir(), "renew.cmd"));
+      expect(checkRefreshPath(session())).toEqual(notOurLine());
+      writeWrapperConfig(OTHER_ID, paths.renewCmdFile);
+      expect(checkRefreshPath(session())).toEqual(notOurLine());
+    });
+
+    it("is broken when renew.cmd names a node that is not there", () => {
+      writeSession(session());
+      const paths = sessionPathsFor(MOUNT_ID);
+      writeWrapperConfig(MOUNT_ID, paths.renewCmdFile);
+      fs.writeFileSync(
+        paths.renewCmdFile,
+        renewCmdFor({ ...command, execPath: "/nonexistent/node" })
+      );
+      expect(checkRefreshPath(session())).toEqual({
+        ok: false,
+        problem:
+          "node at /nonexistent/node missing or not usable (node or the CLI moved since the mount)"
+      });
+    });
+
+    it("is ok when the line names this mount's renew.cmd and renew.cmd runs this mount's renewal", () => {
+      writeSession(session());
+      const paths = sessionPathsFor(MOUNT_ID);
+      writeWrapperConfig(MOUNT_ID, paths.renewCmdFile);
+      fs.writeFileSync(paths.renewCmdFile, renewCmdFor(command));
+      expect(checkRefreshPath(session())).toEqual({ ok: true });
+    });
+  });
+
+  it("is ok, dated by the last renewal or the mint, while the access is valid and the path usable", ({
+    skip
+  }) => {
+    posixOnly(skip);
     writeSession(session());
     writeGoodConfig();
     expect(checkRefreshPath(session())).toEqual({ ok: true });
@@ -1728,7 +2019,8 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(directMountHealth(input).verdict).toEqual({ kind: "ok", at: at(-60_000) });
   });
 
-  it("answers BROKEN, not ok, when expiresAt cannot be read", () => {
+  it("answers BROKEN, not ok, when expiresAt cannot be read", ({ skip }) => {
+    posixOnly(skip);
     // `isMountSession` checks `expiresAt` is a STRING, not that it is an
     // instant, so a truncated stamp survives a round trip. `NaN <= now` is
     // FALSE, which fell past the staleness arm to `ok` — and `status` exits 0,
@@ -1746,7 +2038,10 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     writeGoodConfig();
     expect(directMountHealth(input).verdict.kind).toBe("ok");
   });
-  it("is stale — not broken, exit 0 — when the access expired with no failure recorded", () => {
+  it("is stale — not broken, exit 0 — when the access expired with no failure recorded", ({
+    skip
+  }) => {
+    posixOnly(skip);
     writeSession(session({ expiresAt: at(-3 * 60_000) }));
     writeGoodConfig();
     const health = directMountHealth(input);
@@ -1762,7 +2057,10 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(refreshJson(health.verdict)).toMatchObject({ outcome: "stale", at: at(-3 * 60_000) });
   });
 
-  it("is failed with the table's title and hint; transient stays healthy, the rest does not", () => {
+  it("is failed with the table's title and hint; transient stays healthy, the rest does not", ({
+    skip
+  }) => {
+    posixOnly(skip);
     writeSession(
       session({
         lastRefresh: { at: at(-2 * 60_000), outcome: "failed", reason: "not-authenticated" }
@@ -1798,7 +2096,10 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(refreshVerdictIsUnhealthy(offline.verdict)).toBe(false);
   });
 
-  it("counts the cache's pending uploads alongside the verdict, whatever the verdict", () => {
+  it("counts the cache's pending uploads alongside the verdict, whatever the verdict", ({
+    skip
+  }) => {
+    posixOnly(skip);
     writePendingItem("a.md", true);
     writePendingItem("b.md", true);
     writePendingItem("c.md", false);
@@ -1808,7 +2109,8 @@ describe("checkRefreshPath / directMountHealth — the status verdict from local
     expect(directMountHealth(input).pendingUploads).toBe(2);
   });
 
-  it("never names a bucket, a prefix or a credential value in any verdict text", () => {
+  it("never names a bucket, a prefix or a credential value in any verdict text", ({ skip }) => {
+    posixOnly(skip);
     writeSession(
       session({ lastRefresh: { at: at(-1000), outcome: "failed", reason: "remote-error" } })
     );

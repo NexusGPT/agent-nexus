@@ -929,8 +929,8 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
   ],
   [
     "CreateRolePermissionSetBody",
-    "RolePermissionSetCreateV1BodySchema's `surfaces` is z.array(RoleGroupSurfaceValueSchema), and " +
-      "that schema is annotated `z.ZodType<RoleGroupSurfaceValue>` — one type argument. In zod 4 " +
+    "RolePermissionSetCreateV1BodySchema's `surfaces` is z.array(PermissionSetSurfaceValueSchema), and " +
+      "that schema is annotated `z.ZodType<PermissionSetSurfaceValue>` — one type argument. In zod 4 " +
       "the SECOND generic parameter of ZodType is the INPUT, so annotating only the first leaves " +
       "the input `unknown` and the array's input `unknown[]`. The SDK's literal union is " +
       "deliberately NARROWER than that, which is correct for a typed client, so equality is the " +

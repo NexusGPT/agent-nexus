@@ -4,12 +4,12 @@ import {
   notificationArgv,
   notificationTitle,
   RESTORED_NOTIFICATION
-} from "../../workspace-direct-mount/notification-argv";
+} from "../../../workspace-direct-mount/darwin/notification-argv";
 import {
   REFRESH_FAILURE_TABLE,
   type RefreshContext
-} from "../../workspace-direct-mount/refresh-failure-table";
-import type { RefreshRecord } from "../../workspace-direct-mount/refresh-record";
+} from "../../../workspace-direct-mount/refresh-failure-table";
+import type { RefreshRecord } from "../../../workspace-direct-mount/refresh-record";
 
 /**
  * Announce one refresh transition on the desktop, and never fail because of it.

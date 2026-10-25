@@ -12,10 +12,11 @@ import { isMountId } from "./mount-id";
 //
 //   ~/.nexus-mcp/mount-credentials/<mountId>/session.json   the triplet + pins
 //   ~/.nexus-mcp/mount-credentials/<mountId>/aws.config     the credential_process line
+//   ~/.nexus-mcp/mount-credentials/<mountId>/renew.cmd      the line's wrapper (Windows only)
 //   ~/.nexus-mcp/cache/<mountId>/                            rclone's VFS cache
 //
 // The mount id is a function of the registry key, so `mount`, `remount` and the
-// helper all find the same three paths — and rclone, restarted with the same
+// helper all find the same paths — and rclone, restarted with the same
 // cache directory and the same remote definition, drains the saves a dead mount
 // left behind.
 //
@@ -41,13 +42,15 @@ export interface SessionPaths {
   readonly dir: string;
   readonly sessionFile: string;
   readonly awsConfigFile: string;
+  /** The batch file `aws.config` names on Windows — see {@link renewCmdFor}. Named on every platform. */
+  readonly renewCmdFile: string;
   readonly cacheDir: string;
   /** Which copy of the slug the cache belongs to — see {@link cacheProvenanceRefusal}. */
   readonly cacheOwnerFile: string;
 }
 
 /**
- * The five paths one mount owns. `mountId` is CHECKED here rather than trusted,
+ * The six paths one mount owns. `mountId` is CHECKED here rather than trusted,
  * because two of these paths are handed to `fs.rmSync(…, { recursive: true,
  * force: true })` and one of the callers reads the id out of
  * `workspace-mounts.json` — a file `readMounts` parses and casts, so the
@@ -69,6 +72,7 @@ export function sessionPathsFor(mountId: string): SessionPaths {
     dir,
     sessionFile: path.join(dir, "session.json"),
     awsConfigFile: path.join(dir, "aws.config"),
+    renewCmdFile: path.join(dir, "renew.cmd"),
     cacheDir,
     cacheOwnerFile: path.join(cacheDir, "owner.json")
   };

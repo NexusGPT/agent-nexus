@@ -60,6 +60,12 @@ Outcome shapes:
                                     CodeBuild builds, across tenants. The
                                     job stays queued and is admitted once
                                     a build in that region ends.
+  git_host_unavailable              The job clones from its organization's
+                                    own git host, which has no live
+                                    address (or the project has no
+                                    recorded path). The job stays queued,
+                                    is not failed, and is admitted once
+                                    the address returns.
   dispatch_failed_requeued          The executor refused the job with a
                                     retryable error. The job took its one
                                     automatic retry and is queued again

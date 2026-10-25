@@ -20,7 +20,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
  * `~/.nexus-mcp`.
  */
 const SANDBOX = vi.hoisted(() => {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/nexus-workspace-status-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early), so the
+  // sandbox carries one separator on Windows too.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-workspace-status-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
@@ -30,6 +34,8 @@ import { clearConfig, saveProfile } from "../config";
 import { EXIT_CODES } from "../exit-codes";
 import { setJsonMode } from "../output";
 import { awsConfigFor } from "../workspace-direct-mount/aws-config";
+import { mountIdFor } from "../workspace-direct-mount/mount-id";
+import { mountPlatformOf } from "../workspace-direct-mount/mount-platform";
 import type { MountSession } from "../workspace-direct-mount/mount-session";
 import { EXPIRATION_LEAD_MS } from "../workspace-direct-mount/process-credentials-document";
 import { readSession } from "../workspace-direct-mount/read-session";
@@ -38,6 +44,7 @@ import {
   REFRESH_RETRY_DELAY_MS
 } from "../workspace-direct-mount/refresh-retry-budget";
 import { sessionPathsFor } from "../workspace-direct-mount/session-paths";
+import { powerShellExe } from "../workspace-direct-mount/win32/win32-system-exe";
 import { writeSession } from "../workspace-direct-mount/write-session";
 
 /**
@@ -52,12 +59,29 @@ import { writeSession } from "../workspace-direct-mount/write-session";
 // deterministic and never touches the real OS mount table. `spawn` is the
 // same stub the credential-process helper posts its desktop notification
 // through, so a case can read what it would have said.
+// Drive `readMounts()` off an in-memory registry instead of ~/.nexus-mcp (the
+// `node:fs` fake below); `ps` reads it too.
+let registry: Record<string, unknown> = {};
+/** A registry row as the fake reads it: any object, its fields read as unknown. */
+function isRow(value: unknown): value is { readonly pid?: unknown; readonly mountPath?: unknown } {
+  return typeof value === "object" && value !== null;
+}
 vi.mock("node:child_process", () => ({
-  // `ps` reports every recorded pid as an rclone mount, so a row carrying this
-  // process's pid reads live; everything else answers nothing.
-  execFileSync: vi.fn((command: string) =>
-    command === "ps" ? "rclone mount nxws: /home/u/nexus/general-context\n" : ""
-  ),
+  // `ps` — PowerShell on a Windows host — reports a recorded pid as an rclone
+  // mount at the path of the row that recorded it (one process per pid, as the
+  // real probes answer), so a row carrying this process's pid reads live;
+  // everything else answers nothing.
+  execFileSync: vi.fn((command: string, args?: readonly string[]) => {
+    if (command !== "ps" && command !== powerShellExe(process.env)) return "";
+    const pid =
+      command === "ps"
+        ? Number(args?.[4])
+        : Number(/ProcessId = (\d+)/.exec(args?.[3] ?? "")?.[1] ?? "NaN");
+    const row = Object.values(registry)
+      .filter(isRow)
+      .find((candidate) => candidate.pid === pid);
+    return row === undefined ? "" : `rclone mount nxws: ${String(row.mountPath)}\n`;
+  }),
   execSync: vi.fn(() => ""),
   spawn: vi.fn()
 }));
@@ -76,8 +100,6 @@ vi.mock("../client", async (importOriginal) => {
   };
 });
 
-// Drive `readMounts()` off an in-memory registry instead of ~/.nexus-mcp.
-let registry: Record<string, unknown> = {};
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
@@ -93,6 +115,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 import { registerWorkspaceCommands } from "./workspace";
+import { gatewayCacheDirFor } from "./workspace-mount/gateway-cache";
 
 const MOUNT_ID = "0123456789abcdef";
 
@@ -242,6 +265,8 @@ describe("nexus workspace status (NEX-2360/NEX-2372 columns)", () => {
       },
       "org:org_bbb|general-context": {
         ...base,
+        // One pid runs ONE drive: the second live row needs its own alive pid.
+        pid: process.ppid,
         mountPath: "/home/u/nexus/globex/general-context",
         orgId: "org_bbb",
         orgName: "Globex",
@@ -313,27 +338,45 @@ function directRow(over: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
+/** A live rclone row for `tools`, naming no owner and no mount id until a case adds them. */
+function rcloneRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    slug: "tools",
+    engine: "rclone",
+    mountPath: "/home/u/nexus/tools",
+    baseUrl: "https://api.nexusgpt.io",
+    pid: process.pid,
+    mountedAt: "2026-09-07T12:00:00.000Z",
+    ...over
+  };
+}
+
+/**
+ * The renewal config a mount on THIS host writes for `execPath`: aws.config,
+ * and on Windows the renew.cmd it names. Its directory is the session's.
+ */
+function writeRenewalConfig(execPath: string): void {
+  const paths = sessionPathsFor(MOUNT_ID);
+  const config = awsConfigFor(
+    { execPath, entry: fileURLToPath(import.meta.url), mountId: MOUNT_ID },
+    paths.renewCmdFile,
+    mountPlatformOf(process.platform)
+  );
+  if (!config.ok) throw new Error("fixture must be writable");
+  fs.writeFileSync(paths.awsConfigFile, config.text);
+  if (config.renewCmd !== null) fs.writeFileSync(paths.renewCmdFile, config.renewCmd);
+}
+
 /** The profile the session pins, the session itself, and a usable aws.config. */
 function healthyDirectMount(session: MountSession = sessionFixture()): void {
   saveProfile("work", { apiKey: "nxs_work", baseUrl: "https://api.nexusgpt.io" });
   writeSession(session);
-  const config = awsConfigFor({
-    execPath: process.execPath,
-    entry: fileURLToPath(import.meta.url),
-    mountId: MOUNT_ID
-  });
-  if (!config.ok) throw new Error("fixture must be writable");
-  fs.writeFileSync(sessionPathsFor(MOUNT_ID).awsConfigFile, config.text);
+  writeRenewalConfig(process.execPath);
 }
 
-/** Two saves the last mount never uploaded, as rclone's cache records them. */
-function leaveDirtyItems(count: number): void {
-  const metaRoot = path.join(
-    sessionPathsFor(MOUNT_ID).cacheDir,
-    "vfsMeta",
-    "nxws{abc}",
-    "support-docs"
-  );
+/** `count` saves the last mount never uploaded, and one it did, as rclone's cache records them. */
+function leaveDirtyItems(count: number, cacheDir = sessionPathsFor(MOUNT_ID).cacheDir): void {
+  const metaRoot = path.join(cacheDir, "vfsMeta", "nxws{abc}", "support-docs");
   fs.mkdirSync(metaRoot, { recursive: true });
   for (let index = 0; index < count; index += 1) {
     fs.writeFileSync(
@@ -412,20 +455,12 @@ describe("nexus workspace status — a direct row's Expires / Refresh / Pending"
     expect(withDirect.stdout).toMatch(/in \d+[smhd]/);
 
     registry = {
-      "org:org_pinned|tools": {
-        slug: "tools",
-        engine: "rclone",
-        mountPath: "/home/u/nexus/tools",
-        baseUrl: "https://api.nexusgpt.io",
-        readOnly: false,
-        profile: "work",
-        orgId: "org_pinned",
-        pid: process.pid,
-        mountedAt: "2026-09-07T12:00:00.000Z"
-      }
+      "org:org_pinned|tools": rcloneRow({ readOnly: false, profile: "work", orgId: "org_pinned" })
     };
     const withoutDirect = await runStatusDetailed(false);
     expect(withoutDirect.stdout).not.toContain("Refresh");
+    // An rclone row from before drives had their own folder counts nothing: no Pending column.
+    expect(withoutDirect.stdout).not.toContain("Pending");
   });
 
   it("exits local-failed with the fix when the session is missing — the drive cannot renew", async () => {
@@ -488,6 +523,8 @@ describe("nexus workspace status — a direct row's Expires / Refresh / Pending"
     expect(run.stdout).toContain("support-docs");
     expect(run.stdout).toContain("corrupt");
     expect(run.stdout).not.toContain("Refusing to use");
+    // No cache was looked at for it: its Pending is unknown, never a 0 that says nothing waits.
+    expect(run.stdout).toMatch(/^corrupt\b.*An unknown number of\s*$/m);
   });
 
   it("does NOT accuse the profile when config.json is there and UNREADABLE", async () => {
@@ -565,21 +602,36 @@ describe("nexus workspace status — a direct row's Expires / Refresh / Pending"
   });
 
   it("leaves other engines' rows with null in the three fields", async () => {
-    registry = {
-      "org:org_pinned|tools": {
-        slug: "tools",
-        engine: "rclone",
-        mountPath: "/home/u/nexus/tools",
-        baseUrl: "https://api.nexusgpt.io",
-        pid: process.pid,
-        mountedAt: "2026-09-07T12:00:00.000Z"
-      }
-    };
+    registry = { "org:org_pinned|tools": rcloneRow() };
     const run = await runStatusDetailed(true);
     expect((JSON.parse(run.stdout) as Array<Record<string, unknown>>)[0]).toMatchObject({
       expiresAt: null,
       refresh: null,
       pendingUploads: null
+    });
+  });
+
+  it("fills Pending for an rclone row from its own cache folder; a corrupt mount id reads unknown, never 0", async () => {
+    const rcloneId = mountIdFor("org:org_pinned|tools");
+    const cacheDir = gatewayCacheDirFor({ mountId: rcloneId, shared: false });
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+    leaveDirtyItems(1, cacheDir);
+    registry = { "org:org_pinned|tools": rcloneRow({ mountId: rcloneId }) };
+
+    const run = await runStatusDetailed(true);
+    expect((JSON.parse(run.stdout) as Array<Record<string, unknown>>)[0]).toMatchObject({
+      mountId: rcloneId,
+      expiresAt: null,
+      refresh: null,
+      pendingUploads: 1
+    });
+    const table = await runStatusDetailed(false);
+    expect(table.stdout).toMatch(/^tools\b.*\s1\s*$/m);
+
+    registry = { "org:org_pinned|tools": rcloneRow({ mountId: "../../escape" }) };
+    const corrupt = await runStatusDetailed(true);
+    expect((JSON.parse(corrupt.stdout) as Array<Record<string, unknown>>)[0]).toMatchObject({
+      pendingUploads: "unknown"
     });
   });
 });
@@ -734,6 +786,17 @@ describe("nexus workspace credential-process", () => {
     });
     expect(mint).not.toHaveBeenCalled();
     expect(clientOpts).toEqual([]);
+  });
+
+  it("a renewal that outlives an unmount serves its key but never writes the deleted session folder back", async () => {
+    writeSession(staleFixture());
+    mint.mockImplementationOnce(async () => {
+      fs.rmSync(sessionPathsFor(MOUNT_ID).dir, { recursive: true, force: true });
+      return mintedFixture();
+    });
+    const run = await runCredentialProcess([MOUNT_ID]);
+    expect(JSON.parse(run.stdout[0])).toMatchObject({ AccessKeyId: "ASIA_RENEWED_KEY" });
+    expect(fs.existsSync(sessionPathsFor(MOUNT_ID).dir)).toBe(false);
   });
 
   it("renews a stale session through the PINNED profile and org, ignoring the shell's selector", async () => {
@@ -1088,13 +1151,7 @@ describe("nexus workspace credential-process", () => {
     const session = sessionFixture();
     writeSession(session);
     const paths = sessionPathsFor(MOUNT_ID);
-    const good = awsConfigFor({
-      execPath: process.execPath,
-      entry: fileURLToPath(import.meta.url),
-      mountId: MOUNT_ID
-    });
-    if (!good.ok) throw new Error("fixture must be writable");
-    fs.writeFileSync(paths.awsConfigFile, good.text);
+    writeRenewalConfig(process.execPath);
 
     const ok = await runCredentialProcess([MOUNT_ID, "--check"]);
     expect(ok.exitCode).toBe(0);
@@ -1104,13 +1161,7 @@ describe("nexus workspace credential-process", () => {
     expect(everything).not.toContain("not-a-token");
     expect(everything).not.toContain("ASIA_STORED_KEY");
 
-    const moved = awsConfigFor({
-      execPath: "/nonexistent/node",
-      entry: fileURLToPath(import.meta.url),
-      mountId: MOUNT_ID
-    });
-    if (!moved.ok) throw new Error("fixture must be writable");
-    fs.writeFileSync(paths.awsConfigFile, moved.text);
+    writeRenewalConfig("/nonexistent/node");
     const broken = await runCredentialProcess([MOUNT_ID, "--check"]);
     expect(broken.exitCode).toBe(9);
     expect(broken.stderr.join("\n")).toContain("/nonexistent/node");

@@ -8,8 +8,9 @@ import {
   unmountMissMessage,
   writeMounts
 } from "../../mount-registry";
-import { removeDirectSession } from "../../workspace-direct-mount/remove-direct-session";
-import { killRecordedProcess } from "./kill-recorded-process";
+import { assertOursToKill } from "./assert-ours-to-kill";
+import { endRecordedProcess } from "./end-recorded-process";
+import { removeLeftovers } from "./remove-leftovers";
 import { reportUnmount } from "./report-unmount";
 import { resolveScopeBestEffort } from "./resolve-scope-best-effort";
 import { unmountPath } from "./unmount-path";
@@ -37,15 +38,18 @@ export function runWorkspaceUnmount(program: Command, slug: string): void {
     }
     const { key, record } = found;
 
+    // Refused, row kept, before anything is detached: a drive another user
+    // or an administrator started, or a pid Windows could not confirm.
+    const verdict = assertOursToKill(record);
     // OS-level unmount detaches both native WebDAV and rclone-FUSE cleanly.
     unmountPath(record.mountPath);
     // rclone leaves a detached process; reap it if the unmount didn't.
-    killRecordedProcess(record);
-    const leftovers = record.engine === "direct" ? removeDirectSession(record) : null;
+    const asked = endRecordedProcess(record, verdict);
+    const leftovers = removeLeftovers(record);
     delete mounts[key];
     writeMounts(mounts);
 
-    reportUnmount(slug, record, leftovers);
+    reportUnmount(slug, record, leftovers, asked);
   } catch (err) {
     process.exitCode = handleError(err);
   }

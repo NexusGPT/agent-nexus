@@ -1,6 +1,5 @@
-import path from "node:path";
-
 import type { MountRecord } from "./mount-registry.model";
+import { mountPathKey } from "./workspace-direct-mount/mount-path-key";
 
 /**
  * ONE REGISTRY ROW PER MOUNT POINT, ACROSS EVERY SCOPE.
@@ -29,23 +28,24 @@ import type { MountRecord } from "./mount-registry.model";
  * owns its path. Callers use this to hold the invariant: one row per mount
  * point, whatever the scope.
  *
- * Paths are compared after `path.resolve`, so a trailing slash or a relative
- * `--at` still recognises the same directory. Rows with no usable `mountPath`
- * (hand-edited registry) are skipped rather than crashing the compare.
+ * Paths are compared by `mountPathKey` — `path.resolve`, and on Windows case
+ * folded — so a trailing slash, a relative `--at` or another spelling of the
+ * same Windows folder still recognises the same directory. Rows with no usable
+ * `mountPath` (hand-edited registry) are skipped rather than crashing the compare.
  */
 export function findMountsByPath(
   mounts: Record<string, MountRecord>,
   mountPath: string,
   exceptKey?: string
 ): { key: string; record: MountRecord }[] {
-  const target = path.resolve(mountPath);
+  const target = mountPathKey(mountPath);
   return Object.entries(mounts)
     .filter(
       ([key, r]) =>
         key !== exceptKey &&
         typeof r?.mountPath === "string" &&
         r.mountPath.length > 0 &&
-        path.resolve(r.mountPath) === target
+        mountPathKey(r.mountPath) === target
     )
     .map(([key, record]) => ({ key, record }));
 }

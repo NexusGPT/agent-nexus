@@ -80,14 +80,76 @@ describe("installPlanFor — the preflight's two answers, planned at once", () =
     ).toEqual({ kind: "manual", because: "macfuse-not-approved" });
   });
 
-  it("no build to offer → manual: Windows, and any arch the pins do not cover", () => {
-    expect(installPlanFor(RCLONE_MISSING, hostWith("win32", "x64", false))).toEqual({
+  it("no build to offer → manual: any arch the pins do not cover", () => {
+    expect(installPlanFor(RCLONE_MISSING, hostWith("win32", "ia32", false))).toEqual({
       kind: "manual",
       because: "no-build-for-platform"
     });
     expect(installPlanFor(RCLONE_MISSING, hostWith("darwin", "ia32", false))).toEqual({
       kind: "manual",
       because: "no-build-for-platform"
+    });
+  });
+
+  it("Windows: rclone missing → the windows-amd64 zip, no administrator; arm64 → its own build", () => {
+    expect(installPlanFor(RCLONE_MISSING, hostWith("win32", "x64", false))).toEqual({
+      kind: "steps",
+      steps: [{ kind: "rclone-zip", target: "windows-amd64" }]
+    });
+    expect(installPlanFor(RCLONE_MISSING, hostWith("win32", "arm64", false))).toEqual({
+      kind: "steps",
+      steps: [{ kind: "rclone-zip", target: "windows-arm64" }]
+    });
+  });
+
+  it("WinFsp missing → the one MSI step, terminal or not (Windows has no sudo); off Windows a broken invariant", () => {
+    const noWinFsp: PreflightProblems = { rclone: null, fuse: { kind: "no-winfsp" } };
+    for (const terminal of [true, false]) {
+      expect(installPlanFor(noWinFsp, { ...hostWith("win32", "x64", false), terminal })).toEqual({
+        kind: "steps",
+        steps: [{ kind: "winfsp-msi" }]
+      });
+    }
+    expect(() => installPlanFor(noWinFsp, hostWith("darwin", "arm64", true))).toThrow(
+      "no-winfsp planned on darwin"
+    );
+  });
+
+  it("Windows, both missing → two steps behind one question, rclone first, one UAC prompt", () => {
+    const both: PreflightProblems = {
+      rclone: { kind: "rclone-missing" },
+      fuse: { kind: "no-winfsp" }
+    };
+    expect(installPlanFor(both, hostWith("win32", "x64", false))).toEqual({
+      kind: "steps",
+      steps: [{ kind: "rclone-zip", target: "windows-amd64" }, { kind: "winfsp-msi" }]
+    });
+  });
+
+  it("no FUSE device (WSL1, a container) → manual: nothing this CLI installs adds a device", () => {
+    const noDevice: PreflightProblems = { rclone: null, fuse: { kind: "no-fuse-device" } };
+    expect(installPlanFor(noDevice, hostWith("linux", "x64", false))).toEqual({
+      kind: "manual",
+      because: "no-fuse-device"
+    });
+  });
+
+  it("an rclone the OS refused → manual on every platform: no step reinstalls a file that is there", () => {
+    const blocked: PreflightProblems = {
+      rclone: {
+        kind: "rclone-blocked",
+        path: "C:\\Users\\jo\\.nexus-mcp\\bin\\rclone.exe",
+        code: "EACCES"
+      },
+      fuse: null
+    };
+    expect(installPlanFor(blocked, hostWith("win32", "x64", false))).toEqual({
+      kind: "manual",
+      because: "rclone-blocked"
+    });
+    expect(installPlanFor(blocked, hostWith("darwin", "arm64", true))).toEqual({
+      kind: "manual",
+      because: "rclone-blocked"
     });
   });
 

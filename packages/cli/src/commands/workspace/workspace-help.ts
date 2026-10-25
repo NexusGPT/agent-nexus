@@ -39,29 +39,31 @@ which does carry the read (that is the only implication scopes have, and it is
 same-resource only).
 
 THREE ENGINES, AND THEY DIFFER IN WHO HOLDS THE CREDENTIAL:
-  webdav   macOS only, and the default there. Nothing to install. Every request
-           is authorised by Nexus, so a revoked key stops the drive at once.
-  rclone   The default on Linux and Windows: rclone mounting the same gateway
+  direct   The default on macOS, Linux and Windows. rclone signs storage
+           requests itself with a one-hour key that renews itself while you use
+           the drive. Faster, and it needs rclone plus a FUSE layer: macFUSE or
+           FUSE-T on macOS, fuse3 on Linux, WinFsp on Windows. The drive dies
+           at logout or restart; "workspace remount" brings it back and uploads
+           whatever the dead mount had not sent.
+  webdav   macOS only: the default's fallback there, printed as one line when
+           direct cannot run. Nothing to install. Every request is authorised
+           by Nexus, so a revoked key stops the drive at once.
+  rclone   The fallback on Linux and Windows: rclone mounting the same gateway
            over FUSE, authorised by Nexus per request, working with a raw
            --api-key. Retired on macOS, where the two others cover it.
-  direct   Opt-in (--engine direct) on macOS and Linux; not on Windows yet.
-           rclone signs storage requests itself with a one-hour key that renews
-           itself while you use the drive. Faster, and it needs rclone plus a
-           FUSE layer: macFUSE or FUSE-T on macOS, fuse3 on Linux. The drive
-           dies at logout or restart; "workspace remount" brings it back and
-           uploads whatever the dead mount had not sent.
 
 MOUNTING WITH rclone OR direct NEEDS rclone AND A FUSE LAYER. "workspace mount"
 and "workspace remount" check both first and offer to install what is missing:
-the pinned official rclone into ~/.nexus-mcp/bin (macOS and Linux on x64 or
-arm64, no sudo) and, on macOS, FUSE-T. --install-deps installs without asking;
+the pinned official rclone into ~/.nexus-mcp/bin (x64 or arm64, no sudo or
+administrator), FUSE-T on macOS, and WinFsp on Windows behind one UAC prompt.
+--install-deps installs without asking;
 --no-install-deps never offers. By hand:
   Linux    the official rclone, plus: sudo apt-get install fuse3
   Windows  winget install Rclone.Rclone   (plus WinFsp: https://winfsp.dev)
   macOS    the OFFICIAL rclone from https://rclone.org/downloads/ — Homebrew's
            build refuses to mount — plus macFUSE (https://macfuse.github.io) or
            FUSE-T (https://www.fuse-t.org). A macFUSE already installed is
-           used, never replaced. Or use the default engine, which needs nothing.
+           used, never replaced. Or use --engine webdav, which needs nothing.
 
 A SLUG IS NOT UNIQUE. The same slug can name both an org-owned workspace and
 an admin-shared one; the bare slug resolves to the org-owned copy and --shared

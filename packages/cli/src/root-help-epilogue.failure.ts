@@ -16,9 +16,9 @@ export const ROOT_EPILOGUE_FAILURE = `  FAILURE
       8  timed out              9  a local operation failed
       10 the operation ran and the outcome did not happen (retrying is the trap)
       11 the operation ran and the result COULD NOT BE MEASURED
-      130 interrupted (128 + 2 — the shell's number, not ours). ONLY
-          "apps logs --follow" emits it, and only on the SECOND signal;
-          the first Ctrl-C ends that follow at 0.
+      130 interrupted (128 + 2 — the shell's number, not ours). Two emitters:
+          "apps logs --follow" on the SECOND signal (the first Ctrl-C ends that
+          follow at 0), and "workspace mount" on Ctrl-C at its install question.
     Under --json an error is a JSON document on STDOUT:
     {"error":{"message","hint","code"}}, all three keys ALWAYS present, hint null
     when there is none. Without --json the code is printed dim in brackets after

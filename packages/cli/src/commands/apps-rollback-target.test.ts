@@ -136,12 +136,12 @@ describe("resolveRollbackTargetByVersion — it resolves to one row or refuses",
     // makes it impossible — so this asserts the resolver's own contract against
     // a list that arrives over a wire. Guessing here is a wrong production
     // rollback; refusing costs a re-run.
-    const twins = [
+    const counterparts = [
       deployment({ versionNumber: 3, status: "HEALTHY" }),
       deployment({ versionNumber: 2, id: "dep-2a" }),
       deployment({ versionNumber: 2, id: "dep-2b" })
     ];
-    const refusal = refusalOf(resolveRollbackTargetByVersion(APP, twins, 2));
+    const refusal = refusalOf(resolveRollbackTargetByVersion(APP, counterparts, 2));
     expect(refusal.kind).toBe("ambiguous-version");
     expect(refusal.message).toContain("dep-2a");
     expect(refusal.message).toContain("dep-2b");

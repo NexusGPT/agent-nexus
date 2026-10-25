@@ -108,6 +108,12 @@ export type AdminVibeBuildRunnerTickResponse =
       inFlight: number;
       cap: number;
     }
+  | {
+      kind: "git_host_unavailable";
+      buildJobId: string;
+      organizationId: string;
+      reason: string;
+    }
   | { kind: "dispatch_failed_requeued"; buildJobId: string; attempt: number; reason: string }
   | {
       kind: "dispatch_failed_compensated";

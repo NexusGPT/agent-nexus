@@ -14,15 +14,39 @@
  * anything) and the control meant to catch that would never be evaluated.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { stripTsComments } from "./util/strip-ts-comments";
-import { WORKSPACE_SOURCE_ALIASES } from "./vitest.aliases";
 
 const SRC = path.resolve(__dirname);
 const PKG = path.resolve(__dirname, "..");
+
+/**
+ * The entries that have a build to be stale: every entry of every `workspace:` dependency
+ * whose `exports` send vitest to `dist/`, from the derivation `vitest.aliases.ts` is built
+ * on. A workspace specifier outside it — `@nexus/config`'s helpers, which ship as source —
+ * resolves to source with or without an alias, so it is never an unmapped import.
+ */
+const WORKSPACE_SOURCES: typeof import("@nexus/config/lib/workspace-sources.cjs") = createRequire(
+  __filename
+)("@nexus/config/lib/workspace-sources.cjs");
+const DIST_BUILT = WORKSPACE_SOURCES.deriveWorkspaceSources(
+  PKG,
+  WORKSPACE_SOURCES.JEST_CONDITIONS
+).aliases;
+
+/**
+ * The table `vitest.aliases.ts` exports, computed the way that module computes it. That
+ * module sits at the package root, which this `src/` spec cannot import (`TS6059` under
+ * `rootDir: "src"`), so it asks the same derivation for the same directory.
+ */
+const SOURCE_ALIASES: typeof import("@nexus/config/lib/source-aliases.cjs") = createRequire(
+  __filename
+)("@nexus/config/lib/source-aliases.cjs");
+const WORKSPACE_SOURCE_ALIASES = SOURCE_ALIASES.sourceAliasesFor(PKG);
 
 /**
  * `test/` IS SCANNED, and that is not tidiness. Until this package folded its
@@ -89,17 +113,26 @@ describe("workspace imports stay aliased to source", () => {
   it("maps every workspace specifier this package imports", () => {
     const { specifiers } = scan();
     const unmapped = [...specifiers.entries()]
-      .filter(([specifier]) => !(specifier in WORKSPACE_SOURCE_ALIASES))
+      .filter(
+        ([specifier]) => DIST_BUILT.has(specifier) && !(specifier in WORKSPACE_SOURCE_ALIASES)
+      )
       .map(([specifier, files]) => `${specifier} (imported by ${files.join(", ")})`);
 
     expect(
       unmapped,
       "These specifiers resolve through the dependency's `exports` map, which points at " +
         "`dist/`, so this suite would test against whatever was last built rather than " +
-        "against source. REMEDY: add each one to WORKSPACE_SOURCE_ALIASES in " +
-        "packages/cli/src/vitest.aliases.ts, mapped to the entry's SOURCE file. Do not delete " +
+        "against source. The table is derived from each dependency's `exports`, so an " +
+        "unmapped entry is one whose `default` names no source file that exists. REMEDY: " +
+        "give it one. Do not delete " +
         "this assertion — an unmapped specifier is the defect it exists to catch."
     ).toEqual([]);
+  });
+
+  it("CONTROL: the dist-built population holds the entries this package imports from a build", () => {
+    expect([...DIST_BUILT.keys()]).toEqual(
+      expect.arrayContaining(["@agent-nexus/sdk", "@nexus/types", "@nexus/vibe-app-vendoring"])
+    );
   });
 
   it("CONTROL: the scan actually finds the specifier we know is there", () => {

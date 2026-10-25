@@ -2,6 +2,7 @@ import type { createClient } from "../client";
 import type { AcceptedAwsConfig } from "./accepted-aws-config";
 import type { DirectPins } from "./direct-pins";
 import type { RcloneBinary } from "./managed-rclone";
+import type { MountId } from "./mount-id";
 
 /** Everything one direct mount needs, as NAMED fields rather than a positional run. */
 export interface DirectMountRequest {
@@ -12,7 +13,7 @@ export interface DirectMountRequest {
   /** True when the admin-shared copy is the target — the mint then names it by id. */
   readonly shared: boolean;
   readonly workspaceId?: string;
-  readonly mountId: string;
+  readonly mountId: MountId;
   readonly baseUrl: string;
   readonly pins: DirectPins;
   readonly awsConfig: AcceptedAwsConfig;

@@ -5,6 +5,8 @@ import type { WorkspaceMountCredentials } from "@agent-nexus/sdk";
 import { Command } from "commander";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stagePlatform } from "../stage-platform";
+
 /**
  * The state directory is resolved from HOME when `../mount-registry` loads,
  * so the sandbox is set BEFORE any import — `vi.hoisted` runs ahead of them
@@ -13,11 +15,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
  * `~/.nexus-mcp`.
  */
 const SANDBOX = vi.hoisted(() => {
-  // Without the trailing slash macOS puts on TMPDIR: the fs mock below decides
-  // "inside the sandbox" by string prefix, against paths `os.homedir()` has
-  // already normalised.
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-workspace-mount-kind-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early): the fs mock
+  // below decides "inside the sandbox" by string prefix, against paths the
+  // source builds with `path.join` — one separator, and no trailing slash.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-workspace-mount-kind-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
@@ -29,8 +32,11 @@ import {
   FUSE_T_LIBRARY,
   LEGACY_MACFUSE_LIBRARY,
   MACFUSE_LIBRARY
-} from "../workspace-direct-mount/fuse-libraries";
-import { MANAGED_RCLONE } from "../workspace-direct-mount/managed-rclone";
+} from "../workspace-direct-mount/darwin/fuse-libraries";
+import { managedRcloneFor } from "../workspace-direct-mount/managed-rclone";
+import { powerShellExe, system32Exe } from "../workspace-direct-mount/win32/win32-system-exe";
+import { isWinFspArch, winFspLibraryFor } from "../workspace-direct-mount/win32/winfsp-library";
+import { isStartScript, leaveStarted, startedRclone } from "./workspace-mount/win32/started-rclone";
 
 /**
  * NEX-3872: a CODE workspace must never mount READ-WRITE.
@@ -111,16 +117,40 @@ vi.mock("../client", async (importOriginal) => ({
 // Never shell out. `mount_webdav` succeeds silently; the mount table lists
 // whatever `mountTable` holds, so a webdav row can read live; `rclone version`
 // answers the official build's tag line unless a case says otherwise.
+// On a Windows host the direct cases take the Windows road, so its three
+// probes answer too: WinFsp is installed, the terminal is not elevated
+// (`whoami` prints nothing), and renew.cmd prints the minted credentials.
 const spawn = vi.fn();
 let mountTable = "";
 let rcloneVersion = "rclone v1.74.4\n- go/tags: cmount\n";
-const execFileSync = vi.fn((command: string, _args?: readonly string[]) => {
-  if (command === "mount") return mountTable;
-  if (command === "rclone") return rcloneVersion;
-  // Every recorded pid reads as an rclone mount, so a direct row is live.
-  if (command === "ps") return "rclone mount nxws: /Users/me/nexus/acme/docs\n";
-  return "";
+const WINFSP_DIR = "C:\\Program Files (x86)\\WinFsp";
+const WINFSP_DLL = winFspLibraryFor(WINFSP_DIR, isWinFspArch(process.arch) ? process.arch : "x64");
+const RENEWAL_DOCUMENT = JSON.stringify({
+  Version: 1,
+  AccessKeyId: "ASIA_MINTED_KEY",
+  SecretAccessKey: "s",
+  SessionToken: "t"
 });
+const execFileSync = vi.fn(
+  (command: string, args?: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
+    if (command === "mount") return mountTable;
+    // Windows runs only the managed copy, which a Windows host finds in place (the fs fake below).
+    if (command === "rclone" || command === managedRcloneFor("win32")) return rcloneVersion;
+    // Every recorded pid reads as an rclone mount, so a direct row is live.
+    if (command === "ps") return "rclone mount nxws: /Users/me/nexus/acme/docs\n";
+    if (command === system32Exe(process.env, "cmd.exe")) return RENEWAL_DOCUMENT;
+    if (command === powerShellExe(process.env)) {
+      const script = args?.[3] ?? "";
+      // The Windows start: PowerShell leaves this process's pid behind, so the row reads live.
+      if (isStartScript(args)) {
+        leaveStarted(options?.env ?? {}, { pid: process.pid, log: [] });
+        return "";
+      }
+      return script.includes("WinFsp") ? `${WINFSP_DIR}\r\n` : "";
+    }
+    return "";
+  }
+);
 vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => execFileSync(...(args as [string, readonly string[]])),
   execSync: vi.fn(() => ""),
@@ -164,8 +194,12 @@ vi.mock("node:fs", async (importOriginal) => {
       // loader is run and the preflight passes on every platform.
       existsSync: vi.fn((p: string) => {
         if (p === FUSE_T_LIBRARY) return true;
+        // Linux mounts need the FUSE device; this spec's host may have none.
+        if (p === "/dev/fuse") return true;
+        if (p === WINFSP_DLL) return true;
         if (p === MACFUSE_LIBRARY || p === LEGACY_MACFUSE_LIBRARY) return false;
-        if (p === MANAGED_RCLONE) return false;
+        if (p === managedRcloneFor("darwin")) return false;
+        if (p === managedRcloneFor("win32")) return true;
         return actual.existsSync(p);
       }),
       openSync: vi.fn(() => 1)
@@ -239,30 +273,35 @@ function webdavArgs(): string[] {
   return [...(calls[0][1] ?? [])];
 }
 
-/** The argv rclone was actually spawned with — the only proof of the mount mode. */
+/**
+ * The argv rclone was actually started with — the only proof of the mount
+ * mode. On Windows (a Windows host, or the win32-host probe) that is the one
+ * PowerShell Start-Process line, read back; elsewhere the one detached spawn.
+ */
 function rcloneArgs(): string[] {
+  const started = startedRclone(execFileSync.mock.calls, powerShellExe(process.env));
+  if (process.platform === "win32") {
+    expect(spawn).not.toHaveBeenCalled();
+    expect(started).not.toBeNull();
+    return started?.argv ?? [];
+  }
+  expect(started).toBeNull();
   expect(spawn).toHaveBeenCalledTimes(1);
   return spawn.mock.calls[0][1] as string[];
 }
 
 /**
- * `process.platform` is a configurable, non-writable data property, so it is
- * redefined rather than assigned — and restored to its real descriptor after
- * each case, because a leaked fake platform would corrupt every later file in
- * the run rather than fail this one. The WebDAV engine is macOS-only, and its
- * mount is stubbed here, so the cases below run the same on every CI runner.
+ * A case stages a platform through `stagePlatform`, which puts the host's own
+ * back after each case — a leaked fake platform would corrupt every later file
+ * in the run rather than fail this one. The WebDAV engine is macOS-only, and
+ * its mount is stubbed here, so the cases below run the same on every CI runner.
  */
-const REAL_PLATFORM = Object.getOwnPropertyDescriptor(process, "platform");
+const pretendPlatform = stagePlatform();
 function pretendDarwin(): void {
-  if (!REAL_PLATFORM) throw new Error("process.platform has no descriptor to restore");
-  Object.defineProperty(process, "platform", { ...REAL_PLATFORM, value: "darwin" });
+  pretendPlatform("darwin");
 }
 function pretendLinux(): void {
-  if (!REAL_PLATFORM) throw new Error("process.platform has no descriptor to restore");
-  Object.defineProperty(process, "platform", { ...REAL_PLATFORM, value: "linux" });
-}
-function restorePlatform(): void {
-  if (REAL_PLATFORM) Object.defineProperty(process, "platform", REAL_PLATFORM);
+  pretendPlatform("linux");
 }
 
 const MOUNT_TABLE_LIVE = (mountPath: string): string => `nexus on ${mountPath} (webdav)`;
@@ -289,7 +328,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  restorePlatform();
   setJsonMode(false);
   process.exitCode = undefined;
 });
@@ -429,7 +467,7 @@ describe("nexus workspace mount — a CODE workspace is mounted read-only (WebDA
 // and it lets the SERVER's grade, not the local flag alone, decide the mode.
 
 describe("nexus workspace mount --engine direct — kind and grade", () => {
-  it("refuses a CODE workspace outright, before any mint, naming the default engine", async () => {
+  it("refuses a CODE workspace outright, before any mint, naming the gateway engine to mount it with", async () => {
     listed = [{ id: "code-id", slug: "app-src", isShared: false, kind: "CODE" }];
 
     const { out } = (await run("mount", "app-src", "--engine", "direct")) as {
@@ -439,7 +477,11 @@ describe("nexus workspace mount --engine direct — kind and grade", () => {
     const message = out.error?.message ?? "";
     expect(message).toContain('"app-src" is a CODE workspace');
     expect(message).toContain("drop them at upload");
-    expect(out.error?.hint).toContain("Drop --engine direct");
+    // The gateway engine of the platform this spec runs on: webdav on macOS, rclone elsewhere.
+    const gateway = process.platform === "darwin" ? "webdav" : "rclone";
+    expect(out.error?.hint).toContain(
+      `Mount it with --engine ${gateway}: the gateway mounts "app-src" read-only`
+    );
     expect(out.error?.code).toBe("CLI_INVALID_ARGUMENTS");
     expect(process.exitCode).toBe(5);
     // Nothing minted, nothing spawned, nothing recorded.
@@ -495,16 +537,12 @@ describe("nexus workspace mount --engine direct — kind and grade", () => {
     // Linux and Windows — where, under `--vfs-cache-mode writes`, an editor
     // reports a successful save and the bytes are dropped at flush.
     pretendLinux();
-    try {
-      listed = [{ id: "code-id", slug: "docs", isShared: false, kind: "CODE" }];
+    listed = [{ id: "code-id", slug: "docs", isShared: false, kind: "CODE" }];
 
-      const { out } = await run("mount", "docs", "--engine", "rclone");
+    const { out } = await run("mount", "docs", "--engine", "rclone");
 
-      expect(rcloneArgs()).toContain("--read-only");
-      expect(out).toMatchObject({ mounted: true, engine: "rclone", readOnly: true });
-    } finally {
-      restorePlatform();
-    }
+    expect(rcloneArgs()).toContain("--read-only");
+    expect(out).toMatchObject({ mounted: true, engine: "rclone", readOnly: true });
   });
 
   it("asks for read and passes --read-only when the user asks for it", async () => {

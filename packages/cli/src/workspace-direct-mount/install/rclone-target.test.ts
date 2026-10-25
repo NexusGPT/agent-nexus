@@ -1,23 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import { RCLONE_PIN } from "./install-pins";
-import { rcloneTargetFor } from "./rclone-target";
+import { RCLONE_MEMBER_FILE, RCLONE_PIN } from "./install-pins";
+import { rcloneTargetFor, TARGET_PLATFORM } from "./rclone-target";
 
 describe("rcloneTargetFor — platform × arch to one pinned build, or nothing to offer", () => {
   it.each([
     ["darwin", "arm64", "osx-arm64"],
     ["darwin", "x64", "osx-amd64"],
     ["linux", "x64", "linux-amd64"],
-    ["linux", "arm64", "linux-arm64"]
+    ["linux", "arm64", "linux-arm64"],
+    ["win32", "x64", "windows-amd64"],
+    ["win32", "arm64", "windows-arm64"]
   ] as const)("%s/%s → %s, and that build carries a pinned hash", (platform, arch, target) => {
     expect(rcloneTargetFor(platform, arch)).toBe(target);
     // Derived, not duplicated: every answer must be a key of the pin table.
     expect(RCLONE_PIN.sha256[target]).toBeDefined();
+    expect(TARGET_PLATFORM[target]).toBe(platform);
+  });
+
+  it("the Windows builds are the only ones whose binary carries .exe", () => {
+    expect(RCLONE_MEMBER_FILE["windows-amd64"]).toBe("rclone.exe");
+    expect(RCLONE_MEMBER_FILE["windows-arm64"]).toBe("rclone.exe");
+    expect(RCLONE_MEMBER_FILE["osx-arm64"]).toBe("rclone");
+    expect(RCLONE_MEMBER_FILE["linux-amd64"]).toBe("rclone");
   });
 
   it.each([
-    ["win32", "x64"],
-    ["win32", "arm64"],
+    ["win32", "ia32"],
     ["darwin", "ia32"],
     ["linux", "ppc64"],
     ["freebsd", "x64"]

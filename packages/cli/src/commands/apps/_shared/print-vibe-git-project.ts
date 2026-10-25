@@ -4,6 +4,22 @@ import { formatSeededRepoFirstPushHint } from "./format-seeded-repo-first-push-h
 import { formatTimestamp } from "./format-timestamp";
 
 /**
+ * Why there is no build source, in words. `git_host_unavailable` is the case a
+ * dash would hide: the repository is fine, the tenant's git host has no live
+ * address, and builds wait for it rather than fail.
+ */
+function describeMissingBuildSource(state: VibeGitProjectAliasDto["gitRemoteState"]): string {
+  if (state === "git_host_unavailable") {
+    return color.yellow(
+      "unavailable — the tenant git host has no live address right now. " +
+        "Builds wait, queued, and start once it is back; nothing is failed."
+    );
+  }
+  if (state === undefined || state === "none") return "—";
+  return `— (${state})`;
+}
+
+/**
  * `freshlyProvisioned` marks the commands that MINT or re-materialize the repo —
  * the ones after which a first push is imminent. `attach-repo` and `get` pass it
  * false: those speak about a project that already holds the operator's code, so
@@ -30,6 +46,8 @@ export function printVibeGitProject(
 
   const orAbsent = (v: unknown): string =>
     v === undefined ? color.dim("— not sent by this backend") : String(v);
+  const buildSource = (v: unknown): string =>
+    v === null ? describeMissingBuildSource(project.gitRemoteState) : String(v);
 
   printRecord(project, [
     { key: "id", label: "Id" },
@@ -39,7 +57,7 @@ export function printVibeGitProject(
     {
       key: "gitRemoteUrl",
       label: "Build source",
-      format: (v) => (v === null ? "—" : String(v))
+      format: buildSource
     },
     { key: "createdAt", label: "Created", format: (v) => formatTimestamp(String(v)) },
     { key: "updatedAt", label: "Updated", format: (v) => formatTimestamp(String(v)) }

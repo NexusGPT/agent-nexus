@@ -1,5 +1,10 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hostPlatform, stagePlatform } from "../../stage-platform";
 import { promptStream } from "../../util/confirm";
 import type { RcloneBinary } from "../../workspace-direct-mount/managed-rclone";
 
@@ -13,6 +18,8 @@ vi.mock("node:child_process", () => ({
 }));
 
 const { realDepsIo } = await import("./real-deps-io");
+
+const pretendPlatform = stagePlatform();
 
 const withCode = (code: string): Error => Object.assign(new Error(code), { code });
 const withStatus = (status: number): Error =>
@@ -58,6 +65,83 @@ describe("realDepsIo — the real bag, and how it tells failures apart", () => {
     });
     expect(realDepsIo().rcloneVersion(binary)).toBeNull();
   });
+
+  it("rcloneVersion: on Windows the probe runs from the home folder, never the folder the command was typed in", () => {
+    // Windows looks for a bare `rclone` in the working folder before PATH.
+    const cwdOf = (platform: NodeJS.Platform): unknown => {
+      pretendPlatform(platform);
+      execFileSync.mockImplementationOnce(() => "rclone v1.74.4\n");
+      realDepsIo().rcloneVersion("rclone" as RcloneBinary);
+      return (execFileSync.mock.lastCall?.[2] as { cwd?: string }).cwd;
+    };
+    expect(cwdOf("win32")).toBe(os.homedir());
+    expect(cwdOf("darwin")).toBeUndefined();
+    expect(cwdOf("linux")).toBeUndefined();
+  });
+
+  it("rcloneVersion: a bare PATH name is never read for its exec bit — stat would read the working folder's file instead", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-cwd-rclone-"));
+    fs.writeFileSync(path.join(dir, "rclone"), "", { mode: 0o755 });
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      pretendPlatform("linux");
+      execFileSync.mockImplementationOnce(() => {
+        throw withCode("EACCES");
+      });
+      // An executable ./rclone sits here; PATH's rclone is a different file.
+      expect(realDepsIo().rcloneVersion("rclone" as RcloneBinary)).toBeNull();
+    } finally {
+      process.chdir(cwd);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rcloneVersion: an errno other than ENOENT is a refusal on Windows only; macOS and Linux read it as missing, so it is reinstalled", () => {
+    const binary = "rclone" as RcloneBinary;
+    const refusedWith = (platform: NodeJS.Platform, code: string) => {
+      pretendPlatform(platform);
+      execFileSync.mockImplementationOnce(() => {
+        throw withCode(code);
+      });
+      return realDepsIo().rcloneVersion(binary);
+    };
+    // No exec bit, or the wrong CPU: a damaged managed copy the offer heals.
+    expect(refusedWith("darwin", "EACCES")).toBeNull();
+    expect(refusedWith("linux", "ENOEXEC")).toBeNull();
+    // Smart App Control, AppLocker or antivirus: an allow rule, never a reinstall.
+    expect(refusedWith("win32", "EACCES")).toEqual({ refused: "EACCES" });
+    expect(refusedWith("win32", "UNKNOWN")).toEqual({ refused: "UNKNOWN" });
+    expect(refusedWith("win32", "ENOENT")).toBeNull();
+  });
+
+  // POSIX hosts only: the verdict reads the file's exec bit, and NTFS has none.
+  it.skipIf(hostPlatform() === "win32")(
+    "rcloneVersion: an errno that a reinstall cannot fix is a refusal on every platform; one it can fix is missing",
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-exec-bit-"));
+      const file = path.join(dir, "rclone");
+      fs.writeFileSync(file, "", { mode: 0o755 });
+      const refusedWith = (platform: NodeJS.Platform, code: string) => {
+        pretendPlatform(platform);
+        execFileSync.mockImplementationOnce(() => {
+          throw withCode(code);
+        });
+        return realDepsIo().rcloneVersion(file as RcloneBinary);
+      };
+      try {
+        // The exec bit is set and the OS still says no: a noexec mount or SELinux.
+        expect(refusedWith("linux", "EACCES")).toEqual({ refused: "EACCES" });
+        expect(refusedWith("darwin", "EPERM")).toEqual({ refused: "EPERM" });
+        // A wrong-CPU or truncated rclone.exe: the pinned build replaces it.
+        expect(refusedWith("win32", "EFTYPE")).toBeNull();
+        fs.chmodSync(file, 0o644);
+        expect(refusedWith("linux", "EACCES")).toBeNull();
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("hasBrew: true only when `brew --prefix` runs and exits 0", () => {
     execFileSync.mockImplementationOnce(() => "/opt/homebrew\n");

@@ -1,3 +1,4 @@
+import type { ExitCategory } from "./exit-code-categories";
 import { EXIT_CODES } from "./exit-code-table";
 
 /**
@@ -15,11 +16,16 @@ import { EXIT_CODES } from "./exit-code-table";
  * reach a CLI so rarely that inventing a category for them would be a guess with
  * a number attached. The error document's `code` still names what happened.
  */
+export function categoryForHttpStatus(status: number): ExitCategory {
+  if (status === 401) return "not-authenticated";
+  if (status === 403) return "permission-denied";
+  if (status === 404) return "not-found";
+  if (status === 400 || status === 409 || status === 422) return "invalid-input";
+  if (status >= 500) return "remote-error";
+  return "failed";
+}
+
+/** The exit code for an HTTP status: the category above, as its number. */
 export function exitCodeForHttpStatus(status: number): number {
-  if (status === 401) return EXIT_CODES["not-authenticated"];
-  if (status === 403) return EXIT_CODES["permission-denied"];
-  if (status === 404) return EXIT_CODES["not-found"];
-  if (status === 400 || status === 409 || status === 422) return EXIT_CODES["invalid-input"];
-  if (status >= 500) return EXIT_CODES["remote-error"];
-  return EXIT_CODES.failed;
+  return EXIT_CODES[categoryForHttpStatus(status)];
 }

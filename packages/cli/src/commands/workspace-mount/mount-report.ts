@@ -2,6 +2,7 @@ import type { WorkspaceKind } from "@agent-nexus/sdk";
 
 import type { Engine, MountRecord, MountScope } from "../../mount-registry";
 import { color, isJsonMode, printSuccess } from "../../output";
+import { type JsonPendingUploads, jsonPendingUploads } from "./json-pending-uploads";
 import type { MountOutcome } from "./mount-outcome";
 import { printGrantedReadOnly } from "./print-granted-read-only";
 import { printMountFooter } from "./print-mount-footer";
@@ -38,7 +39,9 @@ export interface MountReport {
 }
 
 /** The `--json` document for one mount that succeeded; key order is the shipped contract. */
-export function mountReportJson(report: MountReport): Record<string, unknown> {
+export function mountReportJson(
+  report: MountReport
+): Record<string, unknown> & { readonly pendingUploads: JsonPendingUploads } {
   const { slug, engine, mountPath, useShared, workspaceId, ambiguous, record } = report;
   const { opts, mounted, storageKind, scope, claudeMdTarget } = report;
   return {
@@ -71,7 +74,7 @@ export function mountReportJson(report: MountReport): Record<string, unknown> {
     profile: scope.profile ?? null,
     mountId: record.mountId ?? null,
     access: record.access ?? null,
-    pendingUploads: mounted.pendingUploads,
+    pendingUploads: jsonPendingUploads(mounted.pendingUploads),
     claudeMd: claudeMdTarget
   };
 }
@@ -111,7 +114,7 @@ export function printMountReport(report: MountReport): void {
   if (claudeMdTarget) {
     console.log(color.dim(`  Wrote workspace note to ${claudeMdTarget}`));
   }
-  printMountFooter(engine, slug);
+  printMountFooter(engine, slug, readOnly);
 }
 
 /** Both copies of the slug exist: say which one was mounted and how to get the other. */

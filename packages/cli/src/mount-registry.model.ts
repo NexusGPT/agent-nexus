@@ -9,9 +9,10 @@ import type { WorkspaceMountAccess } from "@agent-nexus/sdk";
 
 /**
  * How a recorded mount is served. `webdav` and `rclone` both speak WebDAV to
- * the gateway — the native macOS client and rclone over FUSE, the latter the
- * Linux and Windows default; `direct` is rclone signing S3 requests itself with
- * a one-hour credential the CLI refreshes through `workspace credential-process`.
+ * the gateway — the native macOS client and rclone over FUSE on Linux and
+ * Windows; `direct` is rclone signing S3 requests itself with a one-hour
+ * credential the CLI refreshes through `workspace credential-process`. Which
+ * one `auto` picks per platform is `platform-rules.ts`'s table.
  * The one list every engine gate and table derives from.
  */
 export const ENGINES = ["webdav", "rclone", "direct"] as const;
@@ -56,9 +57,11 @@ export interface MountRecord {
   mountPath: string;
   baseUrl: string;
   /**
-   * The direct engine's per-mount id: the first 16 hex digits of the sha256 of
-   * the registry key, so one org + slug always maps to one session directory
-   * and one rclone cache directory across remounts. Absent on other engines.
+   * The per-mount id of the engines that cache: the first 16 hex digits of the
+   * sha256 of the registry key, so one org + slug always maps to one rclone
+   * cache directory (and, on the direct engine, one session directory) across
+   * remounts. Absent on the webdav engine, and on an rclone row mounted before
+   * drives had their own cache folder.
    */
   mountId?: string;
   /** The access the server GRANTED at mint time. Direct engine only. */

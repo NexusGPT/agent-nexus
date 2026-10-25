@@ -52,7 +52,8 @@ import { toLogQuery } from "./to-log-query";
  *
  * 🚨 THIS FILE'S PATH AND THIS FUNCTION'S SHAPE ARE BOTH READ BY GATES.
  * The `process.exit(EXIT_CODES.interrupted)` below is the package's ONLY
- * producer of 130, so `src/every-zero-exit-path-is-ledgered.test.ts` keys its
+ * process-level producer of 130 (the other producer is a thrown `interrupted`
+ * failure, in `commands/workspace-mount/local-failure-of.ts`), so `src/every-zero-exit-path-is-ledgered.test.ts` keys its
  * ledger on this path, `src/exit-code-taxonomy.test.ts` asserts an
  * exactly-one-element array naming it, and `src/exit-code-reachability.test.ts`
  * reads this path for the `interrupted` producer — moving this file means

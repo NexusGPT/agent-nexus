@@ -34,6 +34,18 @@ describe("secretFreeEnv — one strip rule for every child of a mount", () => {
     expect(env.NEXUS_UNRELATED).toBe("kept");
   });
 
+  it("matches names in any case: Windows reads rclone_dump as RCLONE_DUMP, so it is stripped", () => {
+    const env = secretFreeEnv({
+      PATH: "C:\\Windows",
+      rclone_dump: "headers",
+      Aws_Secret_Access_Key: "wJalr-static",
+      nexus_api_key: "nx-secret",
+      Nexus_Admin_Token: "nx-admin",
+      nexus_unrelated: "kept"
+    });
+    expect(env).toEqual({ PATH: "C:\\Windows", nexus_unrelated: "kept" });
+  });
+
   it("returns a copy: the caller's environment is untouched", () => {
     const before = { ...SHELL };
     secretFreeEnv(SHELL);

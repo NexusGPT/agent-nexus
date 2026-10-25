@@ -13,6 +13,7 @@ import {
 import { type AdminVibeBuildRunnerTickResponse } from "../admin-wire-types";
 import { color, printRecord } from "../output";
 import { isListedVariant } from "../vibe-unlisted-variant";
+import { printGitHostUnavailable } from "./admin-vibe-build-runner.print-git-host-unavailable";
 import { printUnlistedOutcome } from "./print-unlisted-outcome";
 
 /** One member of the tick union, selected by its discriminant. */
@@ -68,6 +69,10 @@ export function printTickRecord(data: AdminVibeBuildRunnerTickReadResponse): voi
           { key: "inFlight", label: "Region builds in flight" }
         ]
       );
+      return;
+    }
+    case "git_host_unavailable": {
+      printGitHostUnavailable(data);
       return;
     }
     case "dispatch_failed_requeued": {

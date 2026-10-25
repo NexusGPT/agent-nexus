@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-import { MACFUSE_LOADER } from "../../workspace-direct-mount/fuse-libraries";
+import { MACFUSE_LOADER } from "../../../workspace-direct-mount/darwin/fuse-libraries";
 
 /**
  * Whether macFUSE's kernel extension is approved: `load_macfuse` exits 0.

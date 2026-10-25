@@ -5,14 +5,21 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A throwaway HOME, set before mount-registry computes STATE_DIR from it.
 const SANDBOX = vi.hoisted(() => {
-  const tmp = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const dir = `${tmp}/nexus-install-lock-${process.pid}`;
+  // Joined by the host's own `path` (no import exists this early): one separator on Windows too.
+  const dir = process
+    .getBuiltinModule("node:path")
+    .join(process.env.TMPDIR ?? "/tmp", `nexus-install-lock-${process.pid}`);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;
 });
 
-import { INSTALL_LOCK_DIR, INSTALL_LOCK_TTL_MS, withInstallLock } from "./install-lock";
+import {
+  INSTALL_LOCK_BEAT_MS,
+  INSTALL_LOCK_DIR,
+  INSTALL_LOCK_TTL_MS,
+  withInstallLock
+} from "./install-lock";
 
 describe("withInstallLock — one installer at a time", () => {
   beforeEach(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
@@ -42,6 +49,47 @@ describe("withInstallLock — one installer at a time", () => {
         hint: expect.stringContaining(INSTALL_LOCK_DIR)
       });
     });
+  });
+
+  it("a live run moves its lock's mtime forward each beat, so a slow install never reads as a crashed one", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // The run's own clock, far past the TTL: the beat writes it as the lock's mtime.
+    const farAhead = Date.now() + 2 * INSTALL_LOCK_TTL_MS;
+    try {
+      await withInstallLock(
+        async () => {
+          const before = fs.statSync(INSTALL_LOCK_DIR).mtimeMs;
+          vi.advanceTimersByTime(INSTALL_LOCK_BEAT_MS);
+          const after = fs.statSync(INSTALL_LOCK_DIR).mtimeMs;
+          expect(after - before).toBeGreaterThan(INSTALL_LOCK_TTL_MS);
+        },
+        () => farAhead
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fs.existsSync(INSTALL_LOCK_DIR)).toBe(false);
+  });
+
+  it("a run whose lock was taken over does not keep the successor's lock fresh", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const farAhead = Date.now() + 2 * INSTALL_LOCK_TTL_MS;
+    try {
+      await withInstallLock(
+        async () => {
+          // The successor's claim: the owner file now names another run.
+          fs.writeFileSync(path.join(INSTALL_LOCK_DIR, "owner"), "another-run");
+          const before = fs.statSync(INSTALL_LOCK_DIR).mtimeMs;
+          vi.advanceTimersByTime(INSTALL_LOCK_BEAT_MS);
+          expect(fs.statSync(INSTALL_LOCK_DIR).mtimeMs).toBe(before);
+        },
+        () => farAhead
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    // Its release declines too: the successor's lock stands.
+    expect(fs.existsSync(INSTALL_LOCK_DIR)).toBe(true);
   });
 
   it("takes over a lock older than the TTL — a crashed run's — and not one younger", async () => {

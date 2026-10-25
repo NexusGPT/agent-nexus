@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { failure, handleError } from "./errors";
 import { callsProcessExitWith } from "./exit-code-process-exit-call.testkit";
 import { codeOnly, productionSources, renderedHelp, SRC_DIR } from "./exit-code-sources.testkit";
 import { EXIT_CATEGORIES, EXIT_CODES } from "./exit-codes";
@@ -314,7 +315,7 @@ describe("the root --help exit-code table is true of the code", () => {
 const COMPATIBILITY_DOC = join(SRC_DIR, "..", "COMPATIBILITY.md");
 
 describe("every surface that describes 130 describes the same 130", () => {
-  it("has exactly ONE producer in the whole package — the claim the prose rests on", () => {
+  it("has exactly ONE process-level producer in the whole package — the claim the prose rests on", () => {
     const producers = productionSources().filter((file) =>
       callsProcessExitWith(readFileSync(file, "utf8"), "interrupted")
     );
@@ -323,10 +324,18 @@ describe("every surface that describes 130 describes the same 130", () => {
     ]);
   });
 
-  it("the root --help says which command emits it and that the first Ctrl-C does not", () => {
+  it("the other producer is a thrown failure, not a process exit: Ctrl-C at workspace mount's install question", () => {
+    const stopped = failure("interrupted", "The question was interrupted. Nothing was mounted.");
+    expect(stopped.code).toBe("CLI_INTERRUPTED");
+    expect(stopped.exitCode).toBe(130);
+    expect(handleError(stopped)).toBe(130);
+  });
+
+  it("the root --help names both emitters, and that a follow's first Ctrl-C is not one", () => {
     const root = renderedHelp().find(([path]) => path === "nexus")?.[1] ?? "";
     expect(root).toContain("apps logs --follow");
     expect(root).toContain("SECOND signal");
+    expect(root).toContain('"workspace mount" on Ctrl-C at its install question');
   });
 
   it("the producing command's own --help names the second signal and both kinds", () => {
@@ -339,11 +348,12 @@ describe("every surface that describes 130 describes the same 130", () => {
     expect(help).toContain("SIGTERM");
   });
 
-  it("COMPATIBILITY.md names the producer, the second signal and both kinds", () => {
+  it("COMPATIBILITY.md names both producers, the second signal and both kinds", () => {
     const doc = readFileSync(COMPATIBILITY_DOC, "utf8");
     expect(doc).toContain("nexus apps logs --follow");
     expect(doc).toContain("SECOND");
     expect(doc).toContain("SIGTERM");
+    expect(doc).toContain("`nexus workspace mount` exits `130`");
   });
 
   it("no surface still calls 130 something the CLI never chooses", () => {

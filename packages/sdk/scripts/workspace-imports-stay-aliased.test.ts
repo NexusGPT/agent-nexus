@@ -65,6 +65,14 @@ const splitSpecifier = (specifier: string): [string, string] => {
   return [`${scope}/${name}`, rest.length === 0 ? "." : `./${rest.join("/")}`];
 };
 
+/**
+ * The workspace specifiers this package imports. The runtime arm below loads only these:
+ * the table is derived from every dependency's `exports`, so it also carries entries this
+ * package never imports — `@nexus/types/server` and the node-only `testing/*` harness
+ * among them — and loading one of those here would test an import that is never made.
+ */
+const IMPORTED = new Set(scan().specifiers.keys());
+
 describe("workspace imports stay aliased to source", () => {
   it("maps every workspace specifier this package imports", () => {
     const { specifiers } = scan();
@@ -76,8 +84,9 @@ describe("workspace imports stay aliased to source", () => {
       unmapped,
       "These specifiers resolve through the dependency's `exports` map, whose `node` " +
         "condition points at `dist/`, so this suite would test against whatever was last " +
-        "built rather than against source. REMEDY: add each one to WORKSPACE_SOURCE_ALIASES " +
-        "in packages/sdk/vitest.aliases.ts, mapped to the entry's SOURCE file. Do not delete " +
+        "built rather than against source. The table is derived from each dependency's " +
+        "`exports`, so an unmapped entry is one whose `default` names no source file that " +
+        "exists. REMEDY: give it one. Do not delete " +
         "this assertion — an unmapped specifier is the defect it exists to catch."
     ).toEqual([]);
   });
@@ -175,8 +184,8 @@ describe("workspace imports stay aliased to source", () => {
 
   it.each(
     eachOrRefuse(
-      Object.entries(WORKSPACE_SOURCE_ALIASES),
-      "the workspace specifiers vitest.config.ts aliases to source"
+      Object.entries(WORKSPACE_SOURCE_ALIASES).filter(([specifier]) => IMPORTED.has(specifier)),
+      "the aliased workspace specifiers this package imports"
     )
   )(
     "%s resolves, at run time, to the module its alias names",

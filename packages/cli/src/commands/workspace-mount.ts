@@ -14,7 +14,10 @@ export function registerWorkspaceMountCommand(ws: Command, program: Command): vo
   ws.command("mount")
     .description("Mount a workspace as a live drive so local Claude Code can use it")
     .argument("<slug>", "Workspace slug (see `nexus workspace list`)")
-    .option("--at <path>", "Mount point (default: ~/nexus/<org>/<slug>)")
+    .option(
+      "--at <path>",
+      "Mount point (default: ~/nexus/<org>/<slug>); on Windows also a free drive letter: --at X:"
+    )
     .option(
       "--read-only",
       "Mount read-only (a CODE workspace is read-only regardless — this can only add it)"
@@ -32,7 +35,7 @@ export function registerWorkspaceMountCommand(ws: Command, program: Command): vo
     .option("--claude-md", "Write a managed note about the mount into ./CLAUDE.md")
     .option(
       "--install-deps",
-      "Install a missing rclone (macOS, Linux; x64 or arm64) or FUSE-T (macOS) without asking; not on Windows"
+      "Install a missing rclone (x64 or arm64), FUSE-T (macOS) or WinFsp (Windows) without asking"
     )
     .option("--no-install-deps", "Never offer to install them; refuse with the install hint")
     .addHelpText("after", WORKSPACE_MOUNT_HELP)

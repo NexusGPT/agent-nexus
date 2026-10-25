@@ -1,10 +1,13 @@
+import fs from "node:fs";
+
 import { printWarning } from "../../output";
 import type { MountSession } from "../../workspace-direct-mount/mount-session";
 import { REFRESH_FAILURE_TABLE } from "../../workspace-direct-mount/refresh-failure-table";
 import type { RefreshRecord } from "../../workspace-direct-mount/refresh-record";
+import { sessionPathsFor } from "../../workspace-direct-mount/session-paths";
 import { announced, shouldNotify } from "../../workspace-direct-mount/should-notify";
 import { writeSession } from "../../workspace-direct-mount/write-session";
-import { notifyDesktop } from "../workspace-mount/notify-desktop";
+import { notifyDesktop } from "../workspace-mount/darwin/notify-desktop";
 import { describeError } from "./describe-error";
 import { refreshContextOf } from "./refresh-context-of";
 
@@ -31,6 +34,8 @@ export function recordRefreshOutcome(
     lastRefresh: record,
     ...(notify ? { lastNotified: announced(session, record) } : {})
   };
+  // Unmount deleted the folder while this helper ran: the drive is gone, and a write would bring it back.
+  if (!fs.existsSync(sessionPathsFor(session.mountId).dir)) return;
   try {
     writeSession(next);
   } catch (error) {

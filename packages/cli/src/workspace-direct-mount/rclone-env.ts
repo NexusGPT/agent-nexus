@@ -1,5 +1,17 @@
 import { awsProfileFor } from "./mount-id";
+import type { MountPlatform } from "./mount-platform";
 import { secretFreeEnv } from "./secret-free-env";
+
+/**
+ * The path each platform reserves for "no file". rclone compares its config
+ * path to Go's `os.DevNull` (`NUL` on Windows) and then keeps its config in
+ * memory only.
+ */
+const NULL_DEVICE_FOR = {
+  darwin: "/dev/null",
+  linux: "/dev/null",
+  win32: "NUL"
+} as const satisfies Record<MountPlatform, string>;
 
 export interface RcloneEnvInput {
   readonly inherited: NodeJS.ProcessEnv;
@@ -9,6 +21,8 @@ export interface RcloneEnvInput {
   readonly region: string;
   readonly bucket: string;
   readonly prefix: string;
+  /** Picks the null device the two config-file variables point at. */
+  readonly platform: MountPlatform;
 }
 
 /**
@@ -31,8 +45,9 @@ export interface RcloneEnvInput {
  * ours — contributes their own `access_key_id`, and rclone's s3 backend honours
  * `env_auth` only while that key is BLANK. Observed against the real bucket:
  * with such a file the mount answers `InvalidAccessKeyId`; with `RCLONE_CONFIG`
- * pointed away it lists normally. So the config file is pointed at nothing, and
- * the remotes below are the only ones this process has.
+ * pointed away it lists normally. So the config file is pointed at the
+ * platform's null device, and the remotes below are the only ones this process
+ * has.
  *
  * The BUCKET lives here and nowhere on a command line: the remote rclone is
  * pointed at is the alias `nxws:`, which resolves to `nxs3:<bucket>/<prefix>`
@@ -48,10 +63,10 @@ export function rcloneEnvFor(input: RcloneEnvInput): NodeJS.ProcessEnv {
     ...secretFreeEnv(input.inherited),
     AWS_CONFIG_FILE: input.awsConfigFile,
     AWS_PROFILE: awsProfileFor(input.mountId),
-    AWS_SHARED_CREDENTIALS_FILE: "/dev/null",
+    AWS_SHARED_CREDENTIALS_FILE: NULL_DEVICE_FOR[input.platform],
     AWS_EC2_METADATA_DISABLED: "true",
     // The user's own remotes merge by NAME, and `nxs3` is a name we chose.
-    RCLONE_CONFIG: "/dev/null",
+    RCLONE_CONFIG: NULL_DEVICE_FOR[input.platform],
     RCLONE_CONFIG_NXS3_TYPE: "s3",
     RCLONE_CONFIG_NXS3_PROVIDER: "AWS",
     RCLONE_CONFIG_NXS3_ENV_AUTH: "true",

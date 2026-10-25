@@ -4,6 +4,7 @@ import type { Engine } from "../../mount-registry";
 import { color } from "../../output";
 import { writeSecretFile } from "../../util/secret-file";
 import { DIRECT_MOUNT_INTRO_MARKER } from "../../workspace-direct-mount/session-paths";
+import { printMountNotes } from "./print-mount-notes";
 
 /**
  * True exactly once per machine: the first direct mount writes the marker.
@@ -42,12 +43,13 @@ function printDirectMountFooter(slug: string): void {
   }
 }
 
-/** The line every engine's mount ends with, then the direct engine's own. */
-export function printMountFooter(engine: Engine, slug: string): void {
+/** The line every engine's mount ends with, the engine's own notes, then the direct engine's footer. */
+export function printMountFooter(engine: Engine, slug: string, readOnly: boolean): void {
   console.log(
     color.dim(
       `  Live shared drive — teammates and agents share these files. Unmount: nexus workspace unmount ${slug}`
     )
   );
+  printMountNotes(engine, readOnly);
   if (engine === "direct") printDirectMountFooter(slug);
 }

@@ -18,6 +18,6 @@ export function refuseWrongCacheCopy(paths: SessionPaths, shared: boolean, slug:
   throw failure(
     "local-failed",
     wrongCopy,
-    `Mount the other copy so they upload — ${mountFix(slug, !shared)} — or ${discardPendingSavesHint(paths.cacheDir)}.`
+    `Mount the other copy so they upload — ${mountFix(slug, !shared, "direct")} — or ${discardPendingSavesHint(paths.cacheDir)}.`
   );
 }

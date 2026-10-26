@@ -1,5 +1,24 @@
 # @agent-nexus/sdk
 
+## 4.9.0
+### Minor Changes
+
+- 6f98b74: `task execute` says which model answered when the task's model is not available
+  
+  `client.skills.executeTask()` returns an optional `modelNotice: { requested,
+  servedBy }` when the task's stored model is not on the live model list (unknown
+  or retired). The run is not refused: the provider's fallback model answers it,
+  and `servedBy` is the model that ran and was billed. Without a notice the task's
+  own model answered.
+  
+  `nexus task execute` prints that notice as a warning on STDERR, in `--json` mode
+  too, so STDOUT stays the task's answer and a pipe stays parseable.
+  
+  ## Why `minor`
+  
+  Additive. One optional field on one response; a client that does not read it
+  behaves as before, and nothing already sent changes meaning.
+
 ## 4.8.0
 ### Minor Changes
 

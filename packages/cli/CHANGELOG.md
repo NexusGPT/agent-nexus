@@ -1,5 +1,101 @@
 # @agent-nexus/cli
 
+## 1.14.0
+### Minor Changes
+
+- c4ee9cd: An `--engine rclone` drive (Linux, Windows) keeps its cache in its own folder and counts the saves it has not uploaded
+  
+  **What a person sees.** A save on an rclone drive reaches the workspace a few seconds after the app says "saved"; until then it exists only in rclone's cache on this machine. `workspace status` now shows how many such saves wait, in the Pending column it already had for direct drives. `workspace unmount` counts them after it stops rclone, keeps the cache when any wait, and prints `N file(s) not yet uploaded; nexus workspace mount <slug> --engine rclone uploads them` (with `--shared` when the drive was the admin-shared copy of the slug). The next mount of the same workspace copy, on the same engine and under the same organization and profile, uploads them and says how many. A new mount over a dead rclone drive with waiting saves is refused when it would not upload them — another engine, or the other copy of the slug (org-owned vs `--shared`) — naming the cache folder and the `remount` that uploads them.
+  
+  **What changes on disk.** Each rclone drive's cache is `~/.nexus-mcp/gateway-cache/<mountId>` (`<mountId>-shared` for the admin-shared copy; under `%USERPROFILE%` on Windows), deleted by `unmount` only when it holds nothing. It was rclone's default cache folder. Saves an earlier version left unsent in that default folder are not uploaded by this version; `mount` and `remount` say so when they take over such a drive. The rclone engine's log is `~/.nexus-mcp/logs/<slug>-<mountId>.log`, where it was `<slug>.log`: two mounts of one slug, under two organizations or as the org-owned and the `--shared` copy, no longer write one file.
+  
+  **`--json`.** An rclone mount now carries `mountId` (the id its cache folder is named by) in `mount`, `remount` and `status`, and `pendingUploads` in all four drive verbs, where both were `null`: a count, or the string `"unknown"` when the cache cannot be read. `mount` and `remount` now print that string for an unreadable cache on the direct engine too, where they printed `null`, and a direct row whose mount id is corrupt reads `"unknown"`, where it read `0`. A drive mounted before this version keeps `null` until it is mounted again.
+- 72d5ed1: `nexus workspace mount` with no `--engine` now mounts the direct engine on macOS, Linux and Windows, and falls back to the gateway with one line where direct cannot serve the mount
+  
+  **This moves the default a script or a person relies on.** `auto` (no `--engine`) was `webdav` on macOS and `rclone` on Linux and Windows; it is now `direct` on all three, the fast engine, with a local write cache and a one-hour key the drive renews itself. `auto` reads the workspace list first, and where direct cannot serve the mount it mounts the gateway engine instead — `webdav` on macOS, `rclone` on Linux — printing one line on stderr that says why: the list did not answer, a CODE workspace, an earlier rclone mount of the same workspace copy that left unsent saves only rclone uploads (a dead drive, or saves `unmount` kept), a raw `--api-key` or `NEXUS_API_KEY`, a profile with no organization, a node or CLI path the renewal line cannot hold, or, on macOS, an rclone or FUSE-T it cannot use (not installed and not installed now, not approved, blocked, or an install that broke; `--engine direct` says which and offers the fix). Ctrl-C at the install question stops the command (exit `130`, `interrupted`); it never falls back and mounts. A key request the server refuses (no sandbox role on the deployment, a key kind it denies, an older server) is a clean error that names `--engine webdav` (`rclone` on Linux) to type; nothing is mounted for you after that point. `--json` still prints one document; its `engine` field names the engine that mounted.
+  
+  **Two things come with direct.** A revoked key stops a direct drive within the hour, not at once. A save reaches the workspace a few seconds after the app says "saved", and a drive that dies first keeps the save on this machine until it is mounted again.
+  
+  **Unchanged.** On Linux, a missing rclone or FUSE is still refused (the gateway needs the same). `--engine webdav|rclone|direct` behave as before, and `remount` replays the engine a drive was mounted with.
+  
+  **Also changed.** On Windows, rclone is started through a hidden Windows PowerShell (`Start-Process -WindowStyle Hidden`) instead of as a detached child: a detached rclone has no console, so the `cmd.exe` its hourly key renewal runs opened a console window over whatever you were doing, at the first read and every hour after. The drive is otherwise the same — same pid in the registry, same `unmount`; rclone's log is rewritten at each start rather than appended to. A security tool that flags "a program starting a hidden PowerShell" will see this CLI do exactly that, once per mount. On every platform, the direct engine's `session.json`, `aws.config` and `renew.cmd` are written to a temporary file and renamed over the live one; a rename refused with `EPERM` or `EBUSY` (on Windows, an antivirus or the indexer holding the file for a moment) is tried again up to 10 times, 100 ms apart, where it failed at once. That Linux refusal now says "This mount needs …" rather than naming a flag nobody typed. A registry row whose mount id is corrupt is now refused by `remount` with "unmount, then mount it again", exit 9. The texts that pointed at "the default engine" as the one needing nothing now name the gateway engine by flag.
+- 6f98b74: `task execute` says which model answered when the task's model is not available
+  
+  `client.skills.executeTask()` returns an optional `modelNotice: { requested,
+  servedBy }` when the task's stored model is not on the live model list (unknown
+  or retired). The run is not refused: the provider's fallback model answers it,
+  and `servedBy` is the model that ran and was billed. Without a notice the task's
+  own model answered.
+  
+  `nexus task execute` prints that notice as a warning on STDERR, in `--json` mode
+  too, so STDOUT stays the task's answer and a pipe stays parseable.
+  
+  ## Why `minor`
+  
+  Additive. One optional field on one response; a client that does not read it
+  behaves as before, and nothing already sent changes meaning.
+- 3eef4c6: `nexus workspace mount` on Windows installs what the drive needs and never stops a process it cannot prove is the drive
+  
+  **Windows, installing.** A missing rclone is offered as the pinned official build for x64 or arm64, placed at `%USERPROFILE%\.nexus-mcp\bin\rclone.exe` with no administrator prompt. A missing WinFsp is offered as the vendor's signed MSI, pinned by sha256, run through `msiexec` behind one UAC prompt; only the installer is elevated, never the CLI or rclone. The MSI is hashed a second time through a file handle that stays open, shared for reading only, until `msiexec` has finished, so no program running under your account can swap the file between the check and the install; a file that no longer matches, or cannot be read back, is refused before any prompt appears. `--install-deps` now works on Windows. An rclone found on PATH is not used on Windows: the drive runs only the copy the CLI installed under `%USERPROFILE%\.nexus-mcp\bin`, and a machine without it gets the offer. A restart the driver needs, a declined prompt and a failed install each get their own sentence, and a failed install whose sentence names the installer's log keeps that log. Every Windows system program the workspace drive runs (PowerShell, `cmd.exe`, `msiexec`, `tar`, `whoami`) is run by its System32 address, and rclone starts in the CLI's own log folder, so a same-named file in the folder where `nexus` was typed is not run in their place.
+  
+  **Windows, safety.** `unmount` reads the recorded process's command line and ends it only when it is still `rclone mount`: after a reboot the same process id can belong to another program, and that program is no longer ended. When the command line cannot be read, `unmount` refuses with the registry row kept. Before any kill, `unmount` tells rclone to exit on its own, with a Ctrl-C to the hidden console the drive runs in: a drive rclone closes itself leaves Explorer's "This PC" at once, where one ended by force stayed there as a dead drive, opening to "Location is not available", until the window was refreshed. An rclone still running 5 seconds later is ended as before, and so is one with no console to tell — a drive an earlier version started. A terminal running as administrator is refused by `mount` and `remount` while Explorer runs at a lower level — UAC on, or a terminal opened as another account — because a drive mounted from it is invisible to Explorer; with UAC off, or as this machine's built-in Administrator, the mount goes ahead. An administrator session with no desktop at all (SSH, a service, CI) is refused with a sentence that says so, not one naming a terminal it cannot open. WinFsp is checked before any network call, and an rclone Windows refused to run (Smart App Control, AppLocker) is named instead of reinstalled.
+  
+  **Windows, mount points.** `--at X:` mounts a free drive letter; `--at *` is refused ("name the letter"), and so are a network path, a folder inside OneDrive and names Windows reserves. Two spellings of one folder that differ only in case are one mount point. Explorer shows the drive by its workspace name. WinFsp needs the mount folder itself absent, so the CLI removes an empty one before it mounts; a mount that then fails puts that folder back.
+  
+  **Every platform.** A workspace list the server refuses with 401 or 403 refuses `mount` and `remount` with the server's message: the key is not this organization's, and a gateway engine would otherwise have opened the key's own organization under this organization's row. A drive started under another account or by an administrator is reported as running by `status` ("yes (another user / administrator)") and is refused by `unmount` with its row kept; it was read as dead before. `unmount` ends a recorded process only when its command line names this drive's mount path, so a process id another drive's rclone now holds is left running. A registry row whose process id is not a positive whole number names no process, and nothing is signalled for it. A managed rclone the system refuses by policy (a noexec mount, SELinux) is named, and a damaged copy is reinstalled. The rclone engine no longer passes the shell's `AWS_*` and `RCLONE_*` variables, nor `NEXUS_API_KEY`, `NEXUS_ADMIN_TOKEN`, `NEXUS_PROFILE` and `NEXUS_ORGANIZATION_ID`, to rclone — the same rule the direct engine already followed. On Linux, a machine with no `/dev/fuse` (WSL1, most containers) is refused before any network call. The rclone engine's footer for a read-write mount says files over 100 MiB never finish uploading there, and names the way around: `--engine direct` on Linux and Windows (`workspace push` refuses every file of 45 MiB or more).
+  
+  **Windows, `--engine direct`.** `--engine direct` is available on Windows; its hourly renewal runs through a `renew.cmd` wrapper beside the drive's `aws.config`, and `mount` runs that wrapper once through `cmd.exe` before rclone starts, refusing the mount if it does not print the drive's credentials. `auto` mounts it on Windows too, falling back to `rclone` where direct cannot serve the mount.
+
+### Patch Changes
+
+- c4be754: `nexus workspace mount` and `remount` exit `9` when rclone dies at start, where they exited `1`
+  
+  **This moves an exit code a script reads.** When rclone exits within its first two
+  seconds of a `--engine direct` or `--engine rclone` mount (a refused credential, a
+  missing FUSE library, a busy mount point), the CLI exited `1`, the generic "failed"
+  category, and the error document said `code: CLI_UNKNOWN_ERROR`. It now exits `9` (`local-failed`)
+  with `code: CLI_LOCAL_FAILED`, the same answer every other local refusal of the mount
+  already gives (the install declined, the renewal path unusable). The message and the
+  FUSE-T advice are unchanged. The log tail now shows only the lines this start wrote:
+  on macOS and Linux the log is appended to, and the last ten lines could belong to an
+  earlier start of the same drive, or to another organization's mount of the same slug.
+  
+  `1` still means what it meant: a failure the CLI could not classify. This case was
+  never one of those; it was filed there by accident.
+- a36e2ea: A git project's build source says when the tenant git host is unavailable, and the build-runner tick names the new `git_host_unavailable` outcome
+  
+  The backend no longer answers a hosted repository's clone URL with the last
+  address its git host had — that private IP may be dead, or reassigned to another
+  machine. While the git host has no live address it sends `gitRemoteUrl: null`
+  with a new `gitRemoteState` field set to `git_host_unavailable`.
+  
+  ## What changes on screen
+  
+  `nexus apps git-project get` (and every command that prints a git project) shows
+  the build source in words in that case — "unavailable — the tenant git host has
+  no live address right now. Builds wait, queued, and start once it is back;
+  nothing is failed." — where it printed a bare `—`. A project with no remote at
+  all still prints `—`.
+  
+  `nexus admin vibe-build-runner tick` prints the new `git_host_unavailable`
+  outcome — the build stays queued and is admitted once the address returns —
+  with its organization and reason, and its `--help` lists it.
+  
+  ## What a script sees
+  
+  The `--json` document of a git project gains `gitRemoteState`, one of
+  `available`, `none` or `git_host_unavailable`. It is additive: no key was
+  removed, renamed or changed type, and `gitRemoteUrl` keeps its type. A backend
+  that predates the field omits it.
+  
+  ## Why `patch`
+  
+  An additive field on a read, a new printed outcome, and no change to exit codes,
+  flags or request bodies.
+- ceabd85: The workspace mount note calls the assistant Cue
+  
+  The `CLAUDE.md` note that `workspace-mount` writes into a mounted workspace now says "including Cue" where it used to say "including Ultimate Cue", matching the product's name. No command, flag, exit code or request body changed.
+
 ## 1.13.2
 ### Patch Changes
 

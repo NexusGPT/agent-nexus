@@ -30,7 +30,7 @@
  * that would clean up after exactly this, and no such job had ever been written;
  * prose is measured not to fire. A test does.
  */
-import { stripHashComments } from "@nexus/types/testing/hash-comments";
+import { stripHashComments } from "@nexus/types-testing/hash-comments";
 import * as fs from "fs";
 import * as path from "path";
 import { describe, expect, it } from "vitest";
@@ -93,26 +93,26 @@ describe("the helper supplies what the call sites no longer have to remember", (
     // #3664: a destructive command refuses without it when stdin is not a tty.
     const fn = /cleanup_delete\(\)\s*\{[\s\S]*?\n\}/.exec(lib);
     expect(fn, "cleanup_delete must exist in lib.sh").not.toBeNull();
-    expect(fn![0]).toContain("--yes");
+    expect(fn?.[0] ?? "").toContain("--yes");
   });
 
   it("cleanup_delete records a failure rather than only printing one", () => {
     const fn = /cleanup_delete\(\)\s*\{[\s\S]*?\n\}/.exec(lib);
-    expect(fn![0]).toContain("E2E_LEAK_COUNT");
+    expect(fn?.[0] ?? "", "cleanup_delete must exist in lib.sh").toContain("E2E_LEAK_COUNT");
   });
 
   it("cleanup_verdict turns a PASSING flow red on a leak", () => {
     const fn = /cleanup_verdict\(\)\s*\{[\s\S]*?\n\}/.exec(lib);
     expect(fn, "cleanup_verdict must exist in lib.sh").not.toBeNull();
-    expect(fn![0]).toContain("E2E_LEAK_EXIT");
+    expect(fn?.[0] ?? "").toContain("E2E_LEAK_EXIT");
   });
 
   it("the leak exit code is distinct from an assertion failure and a precondition failure", () => {
     // 1 = an assertion failed. 2 = a precondition failed (no jq, no binary,
     // unsafe target). A leak must be neither, or a reader cannot tell a broken
     // CONTRACT from a dirty ORG without parsing prose.
-    const declared = /E2E_LEAK_EXIT=(\d+)/.exec(lib);
-    expect(declared).not.toBeNull();
-    expect(["1", "2"]).not.toContain(declared![1]);
+    const declared = /E2E_LEAK_EXIT=(\d+)/.exec(lib)?.[1];
+    expect(declared, "E2E_LEAK_EXIT must be declared in lib.sh").toBeDefined();
+    expect(["1", "2"]).not.toContain(declared);
   });
 });

@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isHashCommentLine } from "@nexus/types/testing/hash-comments";
+import { isHashCommentLine } from "@nexus/types-testing/hash-comments";
 import { describe, expect, it } from "vitest";
 
 import { isShellCommentLine, shellCode } from "./shell-code.testkit";

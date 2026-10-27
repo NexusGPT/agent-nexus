@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.14.0 ───────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.15.0 ───────────────────────────────────────────────────
  *
  * 560 promised paths — 492 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.14.0",
+  version: "1.15.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -482,7 +482,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "tracing summary", shape: "08c3cda4a0da", tier: "STABLE" },
     { path: "tracing timeline", shape: "06fd1bb2d8a5", tier: "STABLE" },
     { path: "tracing trace", shape: "7e29b25d63c6", tier: "STABLE" },
-    { path: "tracing traces", shape: "3a2c10730917", tier: "STABLE" },
+    { path: "tracing traces", shape: "ec924d7e9d76", tier: "STABLE" },
     { path: "tracks agent beat", shape: "1052e73b2706", tier: "STABLE" },
     { path: "tracks agent close", shape: "fdc352f433ce", tier: "STABLE" },
     { path: "tracks agent list", shape: "beb800012415", tier: "STABLE" },

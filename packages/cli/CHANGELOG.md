@@ -1,5 +1,12 @@
 # @agent-nexus/cli
 
+## 1.15.0
+### Minor Changes
+
+- 25646f7: The trace source `ultimate-cue` and the role surface `ultimate_cue` are now `cue`
+  
+  `nexus tracing traces --source` takes `cue` instead of `ultimate-cue`, and the SDK's `TraceSource` and role surface types name `cue`. The old values are no longer accepted, so a script that passes `--source ultimate-cue`, or a role that names the `ultimate_cue` surface, must switch to `cue`.
+
 ## 1.14.0
 ### Minor Changes
 

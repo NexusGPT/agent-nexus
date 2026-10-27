@@ -129,7 +129,7 @@ export const TRACING_LIST_TRACES__PARAMS_SOURCE = {
   path: "TracingListTraces.Params.source",
   contractValues: [
     "chatId",
-    "ultimate-cue",
+    "cue",
     "workflow",
     "voice-relay",
     "agent-creation",
@@ -227,6 +227,6 @@ export const TRACING_LIST_TRACES_CONTRACT = {
     { path: "Params.sortBy", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["startedAt", "totalCostUsd", "totalDurationMs"] },
     { path: "Params.order", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["asc", "desc"] },
     { path: "Params.tags", slot: "Params", type: "unknown", required: false, depth: 0 },
-    { path: "Params.source", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["chatId", "ultimate-cue", "workflow", "voice-relay", "agent-creation", "prompt-assistant", "ai-task-creation"] }
+    { path: "Params.source", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["chatId", "cue", "workflow", "voice-relay", "agent-creation", "prompt-assistant", "ai-task-creation"] }
   ]
 } as const satisfies ProjectedDescriptor;

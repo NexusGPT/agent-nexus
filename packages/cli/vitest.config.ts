@@ -34,6 +34,25 @@ export default defineConfig({
     // and reports any test file no glob here reaches, which is what stops a new
     // directory going invisible the way `test/unit` did.
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+    // THE REPOSITORY'S EVENT-LOOP STALL GUARD, the one the root config installs for
+    // `scripts/__tests__`: a turn of the worker's loop before and after every test,
+    // and a refusal for a test or hook that holds it past a third of vitest's 60s
+    // worker-RPC timeout. Without it a file of synchronous cases never turns the
+    // loop, its `onTaskUpdate` replies go unread, and the run ends `Timeout calling
+    // "onTaskUpdate"` with every test passed and no file named — `main` post-merge
+    // run 40474993876, from `src/exit-code-reachability.test.ts`. The guard's header
+    // carries the mechanism; `test/unit/event-loop-stall-guard-is-installed.test.ts`
+    // proves this line put it in the worker.
+    //
+    // A PATH, not an import, so this config still LOADS where `scripts/` is absent.
+    // debt: the agent-nexus mirror ships no `scripts/test-runner/`, so a `vitest run`
+    //       there fails at setup rather than running unguarded. Nothing there runs
+    //       vitest today — its workflows are e2e shell flows, the sweep and releases.
+    //       Upgrade trigger: the mirror starts running this suite; the guard then
+    //       moves into `@nexus/config/test-runner/`, as the V8 workaround did.
+    setupFiles: [
+      path.resolve(__dirname, "../../scripts/test-runner/event-loop-stall-guard.setup.ts")
+    ],
     // `test/unit/help-truth.test.ts` and `descriptor-match.test.ts` build the
     // WHOLE command tree and scan every leaf's `--help` in a `beforeAll`, which
     // runs for tens of seconds. Under `tsx --test` that was free: node:test

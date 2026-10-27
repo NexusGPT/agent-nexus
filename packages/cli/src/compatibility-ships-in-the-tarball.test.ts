@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { captureHelp } from "./command-universe";
 import { buildRootProgram, VERSION } from "./root-program";
@@ -63,7 +63,7 @@ import { buildRootProgram, VERSION } from "./root-program";
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * A pack manifest can be wrong in two directions, and only one of them is loud.
- * If the subprocess fails, `execFileSync` throws and the spec is red. The quiet
+ * If the subprocess fails, `packedPaths` rejects and the spec is red. The quiet
  * direction is a manifest that lists EVERYTHING — a broken `files` array makes
  * npm fall back to the whole directory, and `COMPATIBILITY.md` is then present
  * for a reason that has nothing to do with it being declared. So this file also
@@ -95,28 +95,101 @@ interface PackManifest {
   readonly files: readonly { readonly path: string }[];
 }
 
+interface Packed {
+  readonly manifest: PackManifest;
+  readonly paths: readonly string[];
+}
+
 /**
  * Everything `npm publish` would put in the tarball, asked of npm rather than
  * inferred from `package.json`.
+ *
+ * 🚨 ASYNC, AND IT USED TO BE `execFileSync` AT MODULE SCOPE. `npm pack` held
+ * this worker's event loop for the whole child — an event-loop heartbeat read
+ * ONE 35,835 ms stretch on the Endurance — and vitest's worker RPC rejects any
+ * call left unanswered past 60s, ending the run with every test passed and no
+ * file named. `scripts/test-runner/event-loop-stall-guard.ts` carries the
+ * mechanism, and `scripts/__tests__/cli-tests-run-no-new-sync-child-process.spec.ts`
+ * refuses a new synchronous child process in this package's tests.
  */
-function packedPaths(): { manifest: PackManifest; paths: string[] } {
-  const stdout = execFileSync("npm", ["pack", "--dry-run", "--json", PACKAGE_ROOT], {
-    encoding: "utf8",
-    // stderr is npm's notices; only stdout carries the JSON. Inheriting stderr
-    // would scatter npm chatter through the reporter for no gain.
-    stdio: ["ignore", "pipe", "pipe"]
+function packedPaths(): Promise<Packed> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "npm",
+      ["pack", "--dry-run", "--json", PACKAGE_ROOT],
+      // stderr is npm's notices; only stdout carries the JSON.
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        try {
+          resolve(manifestOf(stdout));
+        } catch (parseError) {
+          reject(parseError instanceof Error ? parseError : new Error(String(parseError)));
+        }
+      }
+    );
   });
+}
 
+/** The one manifest `npm pack --json` printed, or a refusal naming its output. */
+function manifestOf(stdout: string): Packed {
   const parsed = JSON.parse(stdout) as PackManifest[];
-  const [manifest] = parsed;
-  if (manifest === undefined) {
+  const [first] = parsed;
+  if (first === undefined) {
     throw new Error(`npm pack --json returned no manifest. Raw output: ${stdout}`);
   }
 
-  return { manifest, paths: manifest.files.map((file) => file.path) };
+  return { manifest: first, paths: first.files.map((file) => file.path) };
 }
 
-const { manifest, paths } = packedPaths();
+/**
+ * The one `npm pack` this file runs, started by the `beforeAll` below and read by
+ * every test through `pack.manifest` and `pack.paths`.
+ *
+ * ⚠️ A `const` FROM ONE CALL, READ BY PROPERTY — NEVER DESTRUCTURED INTO `let`s.
+ * `packages/types/src/testing/ledger-gates-do-not-refuse-their-cure.test.ts` reads
+ * what every `expect` here is built on. `({ manifest, paths } = await packedPaths())`
+ * in the hook is a destructuring write of an `await`, which
+ * `ledger-assertion-scan/hook-assigned-let.ts` excludes, so `manifest` counted as a
+ * table the gate could not LOOK at and `paths`'s `= []` read as one written by hand.
+ * Destructuring the subject inside each `it` instead is worse, not better: a
+ * destructured name is a binding the scan does not record, so it stops being
+ * COUNTED at all and the bound falls over the same unread value.
+ */
+const pack = packOnce();
+
+beforeAll(() => pack.load(), 120_000);
+
+/** A holder that runs `npm pack` once, asynchronously, and refuses a read before it has. */
+function packOnce(): {
+  load(): Promise<void>;
+  readonly manifest: PackManifest;
+  readonly paths: readonly string[];
+} {
+  let held: Packed | undefined;
+  const read = (): Packed => {
+    if (held === undefined) {
+      throw new Error(
+        "the pack manifest was read before the beforeAll that runs npm pack resolved"
+      );
+    }
+    return held;
+  };
+  return {
+    async load() {
+      held = await packedPaths();
+    },
+    get manifest() {
+      return read().manifest;
+    },
+    get paths() {
+      return read().paths;
+    }
+  };
+}
 
 /** The basename the root help's compatibility URL points at. */
 const linkedDocument = (() => {
@@ -131,12 +204,12 @@ describe("the published tarball carries the stability contract", () => {
   it("asked npm about this package and got a real manifest", () => {
     // Anti-vacuity. A manifest for the wrong package, or an empty file list,
     // makes every assertion below pass by matching nothing.
-    expect(manifest.name).toBe("@agent-nexus/cli");
-    expect(paths.length).toBeGreaterThan(0);
-    expect(manifest.entryCount).toBe(paths.length);
+    expect(pack.manifest.name).toBe("@agent-nexus/cli");
+    expect(pack.paths.length).toBeGreaterThan(0);
+    expect(pack.manifest.entryCount).toBe(pack.paths.length);
     // npm carries these two whatever `files` says, so they prove the manifest
     // describes a package rather than an empty glob.
-    expect(paths).toContain("package.json");
+    expect(pack.paths).toContain("package.json");
   });
 
   it.each(eachOrRefuse(MUST_NOT_SHIP, "the package files npm must not publish"))(
@@ -151,20 +224,20 @@ describe("the published tarball carries the stability contract", () => {
       // absence would keep passing while proving nothing — the exact rot this
       // suite exists to catch, one level down.
       expect(existsSync(join(PACKAGE_ROOT, excluded))).toBe(true);
-      expect(paths).not.toContain(excluded);
+      expect(pack.paths).not.toContain(excluded);
     }
   );
 
   it("publishes no source and no spec", () => {
-    expect(paths.filter((path) => path.startsWith("src/"))).toEqual([]);
-    expect(paths.filter((path) => path.endsWith(".test.ts"))).toEqual([]);
+    expect(pack.paths.filter((path) => path.startsWith("src/"))).toEqual([]);
+    expect(pack.paths.filter((path) => path.endsWith(".test.ts"))).toEqual([]);
   });
 
   it("ships COMPATIBILITY.md, so the promise is readable from an install", () => {
     // The defect: `files: ["dist"]` published the binary and no contract, so the
     // only copy of the promise a user could reach was a branch URL describing a
     // version they were not running.
-    expect(paths).toContain("COMPATIBILITY.md");
+    expect(pack.paths).toContain("COMPATIBILITY.md");
   });
 
   it("ships the document the root help sends people to", () => {
@@ -172,6 +245,6 @@ describe("the published tarball carries the stability contract", () => {
     // and not `files` — or `files` and not the epilogue — leaves a live pointer
     // at a document nobody receives.
     expect(linkedDocument).toBe("COMPATIBILITY.md");
-    expect(paths).toContain(linkedDocument);
+    expect(pack.paths).toContain(linkedDocument);
   });
 });

@@ -11,7 +11,7 @@ import type { ModelProvider } from "./common";
  */
 export type TraceSource =
   | "chatId"
-  | "ultimate-cue"
+  | "cue"
   | "workflow"
   | "voice-relay"
   | "agent-creation"

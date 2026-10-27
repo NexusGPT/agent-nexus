@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -26,6 +26,18 @@ import { getGlobalInstallCommand, type PackageManager } from "../../src/util/pac
  * Nothing here holds state or builds anything. The build is the spec's, on
  * purpose: it must happen exactly once per run, and a module-level build here
  * would fire once per importing worker.
+ *
+ * 🚨 EVERY CHILD PROCESS HERE IS AWAITED, NEVER `spawnSync`/`execFileSync`.
+ * A pack, a global install and a build each run for seconds to tens of seconds,
+ * and a synchronous one holds this worker's event loop for all of it. Measured
+ * with an event-loop heartbeat on the Endurance while these were synchronous:
+ * ONE 41,107 ms stretch in `the-install-step-executes.test.ts`. vitest's worker
+ * RPC rejects a call left unanswered past 60s and a reply cannot be read while
+ * the loop is held, so that file was two thirds of the way to ending the whole
+ * run with every test passed and no file named.
+ * `scripts/test-runner/event-loop-stall-guard.ts` carries the mechanism, and
+ * `scripts/__tests__/cli-tests-run-no-new-sync-child-process.spec.ts` refuses a
+ * new synchronous child process in this package's tests.
  */
 
 const HARNESS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +73,63 @@ export const LONG_SUPERSEDED = "0.22.4";
 
 /** Long enough for a pack of an ~11 MB tree plus a global install, on a loaded box. */
 export const SLOW = 300_000;
+
+/** What a finished child printed, and how it ended. */
+export interface ChildResult {
+  /** The exit code, or `null` when a signal — the {@link SLOW} timeout included — ended it. */
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Run `command` to completion WITHOUT holding the event loop.
+ *
+ * A failure to START rejects, naming the command, rather than reading as a
+ * non-zero status — the two call for different repairs.
+ */
+export function runChild(
+  command: string,
+  args: readonly string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; inheritOutput?: boolean } = {}
+): Promise<ChildResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      timeout: SLOW,
+      stdio: [
+        "ignore",
+        options.inheritOutput === true ? "inherit" : "pipe",
+        options.inheritOutput === true ? "inherit" : "pipe"
+      ]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => (stdout += chunk));
+    child.stderr?.on("data", (chunk: string) => (stderr += chunk));
+    child.on("error", (error) => reject(new Error(`could not start ${command}: ${error.message}`)));
+    // `close`, not `exit`: `exit` can fire before the pipes have flushed.
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+/** {@link runChild}, refusing a non-zero exit the way `execFileSync` threw on one. */
+async function runChildOrThrow(
+  command: string,
+  args: readonly string[],
+  options: { cwd?: string; inheritOutput?: boolean } = {}
+): Promise<string> {
+  const result = await runChild(command, args, options);
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} exited ${String(result.status)}. stderr:\n${result.stderr}`
+    );
+  }
+  return result.stdout;
+}
 
 /**
  * Every directory this run created, so none of them outlives it.
@@ -131,12 +200,12 @@ export interface PackManifest {
 }
 
 /** `npm pack` for real — a `.tgz` on disk, not `--dry-run`'s manifest alone. */
-export function pack(from: string, into: string): { tarball: string; manifest: PackManifest } {
-  const stdout = execFileSync("npm", ["pack", "--json", "--pack-destination", into, from], {
-    encoding: "utf8",
-    // stderr is npm's notices; only stdout carries the JSON.
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+export async function pack(
+  from: string,
+  into: string
+): Promise<{ tarball: string; manifest: PackManifest }> {
+  // stderr is npm's notices; only stdout carries the JSON.
+  const stdout = await runChildOrThrow("npm", ["pack", "--json", "--pack-destination", into, from]);
   const [manifest] = JSON.parse(stdout) as PackManifest[];
   if (manifest === undefined) {
     throw new Error(`npm pack --json returned no manifest. Raw output: ${stdout}`);
@@ -227,14 +296,14 @@ export function buildShippedCommand(manager: PackageManager): string {
  * Install via the SHIPPED command. Every case in the suite goes through here,
  * so the verb and flags under test are the ones a user actually runs.
  */
-export function installGlobally(
+export async function installGlobally(
   tarball: string,
   prefix: string,
   manager: PackageManager = "npm"
-): { status: number | null; stderr: string; command: string } {
+): Promise<{ status: number | null; stderr: string; command: string }> {
   const command = shippedInstallCommand(tarball, prefix, manager);
-  const result = spawnSync("sh", ["-c", command], { encoding: "utf8", timeout: SLOW });
-  return { status: result.status, stderr: result.stderr ?? "", command };
+  const result = await runChild("sh", ["-c", command]);
+  return { status: result.status, stderr: result.stderr, command };
 }
 
 /** The path a shell would run after a global install into `prefix`. */
@@ -248,17 +317,24 @@ export function installedPackageRoot(prefix: string): string {
 }
 
 /** Run an installed binary and return what it printed. */
-export function runInstalled(
+export async function runInstalled(
   prefix: string,
   home: string,
   args: string[]
-): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(installedBinary(prefix), args, {
-    encoding: "utf8",
-    timeout: SLOW,
-    env: sealedEnv(home)
-  });
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+): Promise<ChildResult> {
+  try {
+    return await runChild(installedBinary(prefix), args, { env: sealedEnv(home) });
+  } catch (error) {
+    // A binary that is not there is a RESULT here, not a harness fault: the
+    // negative control installs a tarball whose `bin` names a missing file and
+    // asserts exactly this. `spawnSync` reported it as a null status, and so
+    // does this, with the reason in `stderr`.
+    return {
+      status: null,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 /**
@@ -345,7 +421,7 @@ export function stageAtVersion(version: string): string {
  * it is never skipped — a skip here is indistinguishable from the hole this
  * suite was written to close.
  */
-export function ensureBuilt(): void {
+export async function ensureBuilt(): Promise<void> {
   if (existsSync(join(PACKAGE_ROOT, "dist", "index.js"))) return;
-  execFileSync("pnpm", ["run", "build"], { cwd: PACKAGE_ROOT, stdio: "inherit" });
+  await runChildOrThrow("pnpm", ["run", "build"], { cwd: PACKAGE_ROOT, inheritOutput: true });
 }

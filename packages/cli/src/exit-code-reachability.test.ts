@@ -138,6 +138,47 @@ describe("every declared exit category is reachable, and produces its own number
  * whose reds are mostly wrong is a gate somebody loosens, so it is scoped to
  * functions that provably reach the process's status.
  */
+/**
+ * 🚨 EVERY PRODUCTION SOURCE IS READ AND BLANKED ONCE PER FILE RUN, NEVER PER
+ * QUESTION — AND THE REASON IS VITEST'S WORKER RPC, NOT SPEED.
+ *
+ * This file is synchronous from its first line to its last: `readFileSync`,
+ * `codeOnly`'s character walk and a regex, with no `await` anywhere, so it never
+ * turns its worker's event loop on its own. vitest's worker reports progress with
+ * `onTaskUpdate` calls that birpc rejects if no reply has been READ within 60s
+ * (`DEFAULT_TIMEOUT = 6e4`, inlined into vitest 3.2.4's dist, no knob), and a
+ * reply is only read when the loop turns. Hold it past that and the run ends
+ * `Errors 1 error` — `[vitest-worker]: Timeout calling "onTaskUpdate"` — with
+ * every test PASSED and no file named.
+ *
+ * When `bodiesOf` and `exitProducingFunctions` each re-read and re-blanked the
+ * whole of `src/` on every call, the walk ran once per name per fixed-point pass,
+ * again for each of the three `it.each` tables built at collection, and again in
+ * every case. Measured: `main` post-merge run 40474993876 spent 69,074 ms in this
+ * file's cases — the first one alone 36,519 ms — and ended on exactly that error.
+ * Amplified to three copies of the describe below, on the Endurance: 65,538 ms of
+ * cases, `232 passed`, `Errors 1 error`, exit 1; memoised, the same three copies
+ * ran their cases in 9 ms.
+ *
+ * So the walk is done once and both derivations are memoised, which bounds the
+ * hold by the size of `src/` read ONCE rather than by names × files × passes —
+ * the product that grows. `scripts/test-runner/event-loop-stall-guard.ts`, wired
+ * into `vitest.config.ts`, turns the loop between cases and refuses a single case
+ * that holds it too long.
+ */
+let code: readonly { readonly file: string; readonly source: string }[] | undefined;
+let producers: readonly string[] | undefined;
+const bodies = new Map<string, readonly { file: string; body: string }[]>();
+
+/** Every production source, read and reduced to code exactly once. */
+function productionCode(): readonly { readonly file: string; readonly source: string }[] {
+  code ??= productionSources().map((file) => ({
+    file,
+    source: codeOnly(readFileSync(file, "utf8"))
+  }));
+  return code;
+}
+
 const EXIT_PRODUCER_CALL = /process\.exitCode\s*=\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
 const EXIT_PRODUCER_EXIT = /process\.exit\(\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/g;
 
@@ -146,9 +187,9 @@ const EXIT_PRODUCER_EXIT = /process\.exit\(\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*
  * closed over return-position calls to a fixed point.
  */
 function exitProducingFunctions(): readonly string[] {
+  if (producers !== undefined) return producers;
   const names = new Set<string>();
-  for (const file of productionSources()) {
-    const source = codeOnly(readFileSync(file, "utf8"));
+  for (const { source } of productionCode()) {
     for (const [, name] of source.matchAll(EXIT_PRODUCER_CALL)) names.add(name);
     for (const [, name] of source.matchAll(EXIT_PRODUCER_EXIT)) names.add(name);
   }
@@ -169,7 +210,8 @@ function exitProducingFunctions(): readonly string[] {
     }
   }
 
-  return [...names].sort();
+  producers = [...names].sort();
+  return producers;
 }
 
 /**
@@ -194,9 +236,10 @@ function exitProducingFunctions(): readonly string[] {
  * must say so, not pick.
  */
 function bodiesOf(name: string): readonly { file: string; body: string }[] {
+  const cached = bodies.get(name);
+  if (cached !== undefined) return cached;
   const found: { file: string; body: string }[] = [];
-  for (const file of productionSources()) {
-    const source = codeOnly(readFileSync(file, "utf8"));
+  for (const { file, source } of productionCode()) {
     const pattern = new RegExp(`function ${name}\\s*\\(`, "g");
     for (const match of source.matchAll(pattern)) {
       const open = source.indexOf("{", match.index + match[0].length - 1);
@@ -214,6 +257,7 @@ function bodiesOf(name: string): readonly { file: string; body: string }[] {
       }
     }
   }
+  bodies.set(name, found);
   return found;
 }
 

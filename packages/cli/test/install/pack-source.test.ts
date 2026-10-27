@@ -18,10 +18,9 @@ afterAll(() => {
 });
 
 /** The paths `npm pack` puts in the tarball, sorted so two trees compare cleanly. */
-function packedPaths(dir: string): string[] {
-  return pack(dir, tempDir("packed"))
-    .manifest.files.map((file) => file.path)
-    .sort();
+async function packedPaths(dir: string): Promise<string[]> {
+  const { manifest } = await pack(dir, tempDir("packed"));
+  return manifest.files.map((file) => file.path).sort();
 }
 
 describe("mirrorPackageInto", () => {
@@ -45,7 +44,7 @@ describe("mirrorPackageInto", () => {
     }
   });
 
-  it("packs the same files from the mirror as from the real tree", () => {
+  it("packs the same files from the mirror as from the real tree", async () => {
     const outside = tempDir("outside");
     writeFileSync(join(outside, "LICENSE-real.txt"), "MIT\n");
     writeFileSync(join(outside, "README-real.txt"), "# fixture\n");
@@ -65,8 +64,8 @@ describe("mirrorPackageInto", () => {
     const mirror = tempDir("mirror");
     mirrorPackageInto(root, mirror);
 
-    const paths = packedPaths(root);
-    expect(packedPaths(mirror)).toEqual(paths);
+    const paths = await packedPaths(root);
+    expect(await packedPaths(mirror)).toEqual(paths);
 
     // The lists agree because both drop the symlinked files, not because both
     // are empty.

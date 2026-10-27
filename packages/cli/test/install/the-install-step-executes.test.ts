@@ -102,14 +102,14 @@ import { forgetPackSource, packSource } from "./pack-source";
 let realTarball: string;
 let realManifest: PackManifest;
 
-beforeAll(() => {
-  ensureBuilt();
+beforeAll(async () => {
+  await ensureBuilt();
   // `packSource()` is PACKAGE_ROOT with `node_modules` omitted, hard-linked so
   // npm reads the same inodes. `pack-source.ts` carries the measurement and the
   // two assertions that make the omission provably free; the short version is
   // that npm walks the pnpm symlink store to build a tarball containing none of
   // it, and that walk was the largest single cost in this file.
-  const packed = pack(packSource(), tempDir("artifact"));
+  const packed = await pack(packSource(), tempDir("artifact"));
   realTarball = packed.tarball;
   realManifest = packed.manifest;
 }, 900_000);
@@ -134,10 +134,10 @@ describe("the packed tarball installs and the installed binary runs", () => {
   let sharedPrefix: string;
   let sharedHome: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     sharedPrefix = tempDir("prefix");
     sharedHome = tempDir("home");
-    const install = installGlobally(realTarball, sharedPrefix);
+    const install = await installGlobally(realTarball, sharedPrefix);
     expect({ status: install.status, stderr: install.stderr }).toMatchObject({ status: 0 });
   }, SLOW);
 
@@ -152,14 +152,14 @@ describe("the packed tarball installs and the installed binary runs", () => {
 
   it(
     "installs into a throwaway prefix and creates the binary the bin mapping names",
-    () => {
+    async () => {
       const prefix = tempDir("prefix");
 
       // The prefix is empty BEFORE the install. Without this, a binary found
       // afterwards proves nothing about the install having created it.
       expect(existsSync(installedBinary(prefix))).toBe(false);
 
-      const install = installGlobally(realTarball, prefix);
+      const install = await installGlobally(realTarball, prefix);
       // The stderr rides along so a failure names npm's reason rather than
       // printing `null !== 0`.
       expect({ status: install.status, stderr: install.stderr }).toMatchObject({ status: 0 });
@@ -170,8 +170,8 @@ describe("the packed tarball installs and the installed binary runs", () => {
 
   it(
     "reports the version this checkout declares, read back by RUNNING it",
-    () => {
-      const version = runInstalled(sharedPrefix, sharedHome, ["--version"]);
+    async () => {
+      const version = await runInstalled(sharedPrefix, sharedHome, ["--version"]);
       expect(version.status).toBe(0);
       expect(version.stdout.trim()).toBe(DECLARED_VERSION);
     },
@@ -180,15 +180,15 @@ describe("the packed tarball installs and the installed binary runs", () => {
 
   it(
     "executes a real command, not only --version",
-    () => {
+    async () => {
       // `--help` on the very command under test. A binary that starts but whose
       // command tree failed to build exits non-zero here, while `--version` is
       // answered before the tree is walked and would still look fine.
-      const help = runInstalled(sharedPrefix, sharedHome, ["upgrade", "--help"]);
+      const help = await runInstalled(sharedPrefix, sharedHome, ["upgrade", "--help"]);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain("upgrade");
 
-      const root = runInstalled(sharedPrefix, sharedHome, ["--help"]);
+      const root = await runInstalled(sharedPrefix, sharedHome, ["--help"]);
       expect(root.status).toBe(0);
       expect(root.stdout).toContain("upgrade");
     },
@@ -214,20 +214,22 @@ describe("the packed tarball installs and the installed binary runs", () => {
 
   it(
     "NEGATIVE CONTROL: a tarball whose bin names a missing file yields no working binary",
-    () => {
+    async () => {
       // Proves the cases above have teeth. If they were passing because some
       // other `nexus` was reachable, or because a spawn failure was being read
       // as success, this case would pass too — and it must not.
       const staged = stagePublishedTree((pkg) => {
         pkg.bin = { nexus: "dist/does-not-exist.js" };
       });
-      const broken = pack(staged, tempDir("artifact"));
+      const broken = await pack(staged, tempDir("artifact"));
       const prefix = tempDir("prefix");
       const home = tempDir("home");
 
-      installGlobally(broken.tarball, prefix);
+      await installGlobally(broken.tarball, prefix);
 
-      expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).not.toBe(DECLARED_VERSION);
+      expect((await runInstalled(prefix, home, ["--version"])).stdout.trim()).not.toBe(
+        DECLARED_VERSION
+      );
     },
     SLOW
   );
@@ -265,17 +267,19 @@ describe("the command getGlobalInstallCommand builds is the one that gets run", 
 
   it(
     "installs a working binary using that exact verb and flags",
-    () => {
+    async () => {
       // Not a re-assertion of the string: the command is EXECUTED, and the
       // binary it produces is run. A verb that parses and does not install
       // passes the case above and fails this one.
       const prefix = tempDir("prefix");
       const home = tempDir("home");
-      const install = installGlobally(realTarball, prefix, "npm");
+      const install = await installGlobally(realTarball, prefix, "npm");
 
       expect({ status: install.status, stderr: install.stderr }).toMatchObject({ status: 0 });
       expect(install.command.startsWith("npm install -g ")).toBe(true);
-      expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).toBe(DECLARED_VERSION);
+      expect((await runInstalled(prefix, home, ["--version"])).stdout.trim()).toBe(
+        DECLARED_VERSION
+      );
     },
     SLOW
   );
@@ -369,9 +373,9 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
    */
   let oldRelease: { tarball: string; digest: string } | undefined;
 
-  function oldReleaseTarball(): string {
+  async function oldReleaseTarball(): Promise<string> {
     if (oldRelease === undefined) {
-      const packed = pack(stageAtVersion(LONG_SUPERSEDED), tempDir("artifact"));
+      const packed = await pack(stageAtVersion(LONG_SUPERSEDED), tempDir("artifact"));
       oldRelease = { tarball: packed.tarball, digest: digestOf(packed.tarball) };
     } else {
       expect(digestOf(oldRelease.tarball)).toBe(oldRelease.digest);
@@ -380,15 +384,15 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
   }
 
   /** A prefix carrying a genuinely npm-installed OLD build. */
-  function prefixWithOldInstall(): { prefix: string; home: string } {
-    const oldTarball = oldReleaseTarball();
+  async function prefixWithOldInstall(): Promise<{ prefix: string; home: string }> {
+    const oldTarball = await oldReleaseTarball();
     const prefix = tempDir("prefix");
     const home = tempDir("home");
 
-    expect(installGlobally(oldTarball, prefix).status).toBe(0);
+    expect((await installGlobally(oldTarball, prefix)).status).toBe(0);
     // The premise of every case below. If the old install did not take, an
     // "upgraded" verdict afterwards would be measuring nothing.
-    expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).toBe(LONG_SUPERSEDED);
+    expect((await runInstalled(prefix, home, ["--version"])).stdout.trim()).toBe(LONG_SUPERSEDED);
 
     return { prefix, home };
   }
@@ -409,6 +413,11 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
       currentVersion: LONG_SUPERSEDED,
       fetchLatest: () => Promise.resolve(DECLARED_VERSION),
       installCommand: () => command,
+      // SYNCHRONOUS, AND THE ONE CHILD IN THIS FILE THAT IS: `runUpgrade` calls
+      // `env.install` without awaiting it, because the shipped install is
+      // `execSync`. The seam is the production contract, so it blocks exactly as
+      // production does — one install per case, bounded on both sides by the
+      // awaited setup and read-back, so the loop turns between cases.
       install: (toRun) => {
         execFileSync("sh", ["-c", toRun], { stdio: "pipe" });
       },
@@ -420,7 +429,7 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
   it(
     "replaces an installed old version, and the new binary is what the shell then runs",
     async () => {
-      const { prefix, home } = prefixWithOldInstall();
+      const { prefix, home } = await prefixWithOldInstall();
 
       await runUpgrade(
         environmentInstalling(shippedInstallCommand(realTarball, prefix), prefix, home)
@@ -433,7 +442,9 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
       // The machine, read back independently of anything the command printed.
       // THIS is the claim: an installed old version, an upgrade, and the new
       // binary in place, verified by running it.
-      expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).toBe(DECLARED_VERSION);
+      expect((await runInstalled(prefix, home, ["--version"])).stdout.trim()).toBe(
+        DECLARED_VERSION
+      );
     },
     SLOW * 2
   );
@@ -441,7 +452,7 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
   it(
     "NEGATIVE CONTROL: a corrupted package spec fails the upgrade and leaves the old binary",
     async () => {
-      const { prefix, home } = prefixWithOldInstall();
+      const { prefix, home } = await prefixWithOldInstall();
 
       await runUpgrade(
         environmentInstalling(
@@ -460,7 +471,7 @@ describe("nexus upgrade executes the install and verifies the new binary", () =>
 
       // And the prefix is exactly as it was. A case reading only the exit code
       // could not tell a refused install from a half-completed one.
-      expect(runInstalled(prefix, home, ["--version"]).stdout.trim()).toBe(LONG_SUPERSEDED);
+      expect((await runInstalled(prefix, home, ["--version"])).stdout.trim()).toBe(LONG_SUPERSEDED);
     },
     SLOW * 2
   );

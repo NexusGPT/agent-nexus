@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   afterAll,
@@ -29,11 +28,14 @@ const SANDBOX = vi.hoisted(() => {
   return dir;
 });
 
-import { matchesInCode } from "../../../scripts/_lib/strip-comments.mjs";
-import { DASHBOARD_PATHS, dashboardUrlFor } from "./dashboard-url";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
+
+import { DASHBOARD_ROUTES, dashboardPathMatches } from "./dashboard-routes.conformance";
+import { DASHBOARD_PATHS, type DashboardResource, dashboardUrlFor } from "./dashboard-url";
 
 /**
- * THE GATE UNDER `dashboard-url.ts` — every pattern is a route the SPA declares.
+ * THE GATE UNDER `dashboard-url.ts` — every link this CLI builds lands on a
+ * dashboard route the console has PUBLISHED.
  *
  * The whole argument for returning a `dashboardUrl` field rather than printing
  * a pattern into `--help` is that ONE copy of the pattern is something a gate
@@ -41,119 +43,82 @@ import { DASHBOARD_PATHS, dashboardUrlFor } from "./dashboard-url";
  * pattern as before, one package further from the router, and wearing the
  * authority of a computed value.
  *
- * ── WHY IT READS THE ROUTE TABLE AND NOT A LIST ─────────────────────────────
+ * ── WHY IT READS A PUBLISHED LIST AND NOT THE ROUTE TABLE ────────────────────
  *
- * `apps/frontend/src/routes.tsx` is an explicit literal `path -> import` table
- * by deliberate design — its own header says so — so the paths can be read out
- * of it without a bundler, a parser or a running app. A hand-written list of
- * "routes we believe exist" beside it is the exact defect this file exists to
- * catch, one directory over.
+ * The console ships from its own repository, so this package cannot read its
+ * route table. The routes a linker may target are published in `@nexus/types`
+ * as `DASHBOARD_ROUTES` (read here through `dashboard-routes.conformance.ts`, the
+ * one kind of module this package lets import it), and the console's own test requires its route table to
+ * declare every one of them. The two halves meet at that list; neither reads the
+ * other's source. A route the console renames reds THERE, and a link this CLI
+ * builds to a route nobody published reds HERE.
  *
- * ⚠️ THIS IS A CI GATE, NOT A RUNTIME ONE. A published tarball carries `dist/`
- * and no `apps/`, so the check SKIPS when the monorepo is absent — and it skips
- * LOUDLY rather than passing, because a green tick over a check that read
- * nothing is the reading this repository refuses everywhere else.
+ * It asserts on the URLs `dashboardUrlFor` actually BUILDS, not on the patterns
+ * in `DASHBOARD_PATHS`, so a defect in the substitution is inside the gate too.
+ * `dashboardPathMatches` is published with the list, so "does this URL match"
+ * has one definition on both sides — including which tab keys a link may name.
  */
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const ROUTES = path.resolve(here, "../../../apps/frontend/src/routes.tsx");
-
-const ROUTE_LITERAL = /"(app\/[A-Za-z0-9:/*.-]+)"/g;
+const HOST = "https://links.test";
+const SAMPLE_ID = "res-1";
 
 /**
- * Every `"app/..."` literal the SPA registers, normalised to a leading slash — at a
- * CODE position, so its opening quote is a real string's. A route commented out of
- * the table, or quoted inside another string, is not declared: a raw read counted a
- * commented-out route as live, and the link it backed would 404.
+ * THE FLOORS. Nine resources and eight routes are published as this is written;
+ * each floor sits under its count so an ordinary removal never touches it, and
+ * far enough above zero that a population which lost its source — an import
+ * resolving to an empty object, a list emptied by mistake — cannot pass every
+ * case below by having no cases.
  */
-function declaredRoutes(): string[] {
-  const text = fs.readFileSync(ROUTES, "utf8");
-  return matchesInCode(text, ROUTE_LITERAL).map((m) => `/${m[1]}`);
+const RESOURCE_FLOOR = 6;
+const PUBLISHED_ROUTE_FLOOR = 6;
+
+function isDashboardResource(key: string): key is DashboardResource {
+  return key in DASHBOARD_PATHS;
 }
 
-/**
- * Every `"app/..."` literal anywhere in the file, comments included. A NEGATIVE
- * control reads this one: a route the SPA must not match is refused even in prose,
- * which is the strict direction for a "never".
- */
-function routeLiteralsAnywhere(): string[] {
-  const text = fs.readFileSync(ROUTES, "utf8");
-  return [...text.matchAll(ROUTE_LITERAL)].map((m) => `/${m[1]}`);
-}
-
-/**
- * Would the SPA's `route` match a URL built from `pattern`?
- *
- * 🚨 THIS IS AN INSTANCE TEST, NOT AN EQUALITY, AND THE DIFFERENCE IS THE AGENT
- * LINK. The SPA declares `/app/my-agents/:agent-id/tabs/:tab-key`, and the
- * pattern this CLI ships pins the second parameter to a LITERAL — `prompt`.
- * Comparing normalised shapes reports that as a mismatch, which is the opposite
- * of the truth: a concrete value in a parameter slot is exactly what the route
- * is for.
- *
- * So a route segment matches when it is a parameter (`:x`), or when it is the
- * same literal. `{id}` on this side is a parameter too. The control below is
- * what keeps that from degenerating into "everything matches": a renamed first
- * segment is a literal-vs-literal mismatch and still fails.
- */
-function routeAccepts(route: string, pattern: string): boolean {
-  const left = route.split("/");
-  const right = pattern.split("/");
-  if (left.length !== right.length) return false;
-
-  return left.every((segment, index) => {
-    if (segment.startsWith(":")) return true;
-    return segment === right[index] || right[index] === "{id}";
-  });
-}
-
-describe("dashboard-url — every pattern is a route the SPA actually declares", () => {
-  const monorepo = fs.existsSync(ROUTES);
-
-  it("finds the SPA route table (this gate is worthless without it)", () => {
-    // A skip that reads as a pass is how a check dies quietly. If the file moves,
-    // this case names the path it looked for.
-    expect(monorepo, `no route table at ${ROUTES} — running outside the monorepo?`).toBe(true);
+/** One row per resource: the path of the URL this CLI builds for it, host stripped. */
+const BUILT = Object.keys(DASHBOARD_PATHS)
+  .filter(isDashboardResource)
+  .map((resource) => {
+    const url = dashboardUrlFor(resource, SAMPLE_ID, { dashboardUrl: HOST });
+    return [resource, url?.startsWith(HOST) ? url.slice(HOST.length) : url] as const;
   });
 
-  it("reads a plausible number of routes, so a broken regex cannot pass", () => {
-    if (!monorepo) return;
-    // CONTROL. A regex that matched nothing would make every case below vacuous:
-    // an empty haystack contains no counter-example either.
-    expect(declaredRoutes().length).toBeGreaterThan(50);
+describe("dashboard-url — every link lands on a published dashboard route", () => {
+  it("CONTROL — the published route list is a real contract", () => {
+    expect(DASHBOARD_ROUTES.length).toBeGreaterThanOrEqual(PUBLISHED_ROUTE_FLOOR);
+    expect(DASHBOARD_ROUTES).toContain("/app/workflows/:id");
   });
 
-  for (const [resource, pattern] of Object.entries(DASHBOARD_PATHS)) {
-    it(`${resource} -> ${pattern}`, () => {
-      if (!monorepo) return;
-      const accepted = declaredRoutes().filter((route) => routeAccepts(route, pattern));
-      expect(accepted, `no SPA route matches ${pattern}`).not.toHaveLength(0);
-    });
-  }
-
-  it("CONTROL — a route the SPA does not declare is NOT matched", () => {
-    if (!monorepo) return;
-    const renamed = "/app/my-agents-renamed/{id}/tabs/prompt";
-    expect(routeLiteralsAnywhere().filter((route) => routeAccepts(route, renamed))).toHaveLength(0);
+  it("CONTROL — builds a link for a plausible number of resources", () => {
+    expect(BUILT.length).toBeGreaterThanOrEqual(RESOURCE_FLOOR);
+    expect(BUILT.map(([resource]) => resource)).toContain("agent");
   });
 
-  it("CONTROL — a tab key the agent page does not offer is NOT matched", () => {
-    if (!monorepo) return;
-    // The route table alone cannot catch a wrong tab: `:tab-key` accepts any
-    // string, so `/tabs/promt` passes the check above. The tab list is the only
-    // place that knows, and both keys this CLI links to must be in it.
-    const view = path.resolve(here, "../../../apps/frontend/src/modules/Profiles/ProfileView.tsx");
-    expect(fs.existsSync(view), `no ProfileView at ${view}`).toBe(true);
+  it.each(eachOrRefuse(BUILT, "every resource this CLI builds a dashboard link for"))(
+    "%s -> a published route",
+    (_resource: DashboardResource, builtPath: string | undefined) => {
+      expect(builtPath, "no link was built at all").toMatch(/^\/app\//);
+      const accepting = DASHBOARD_ROUTES.filter((route) =>
+        dashboardPathMatches(route, builtPath ?? "")
+      );
+      expect(accepting, `no published route matches ${builtPath}`).not.toHaveLength(0);
+    }
+  );
 
-    // The keys the page offers are read at CODE positions, so a key commented out of the
-    // list is not offered; the "never" below reads every key in the file, prose included.
-    const source = fs.readFileSync(view, "utf8");
-    const tabKey = /key:\s*"([a-z-]+)"/g;
-    const keys = matchesInCode(source, tabKey).map((m) => m[1]);
-    expect(keys.length).toBeGreaterThan(3);
-    expect(keys).toContain("prompt");
-    expect(keys).toContain("skills");
-    expect([...source.matchAll(tabKey)].map((m) => m[1])).not.toContain("promt");
+  it("CONTROL — a route nobody published is NOT matched", () => {
+    // A renamed first segment is a literal-vs-literal mismatch. Without this the
+    // matcher could degenerate into "everything matches" and every case above
+    // would pass over links that 404.
+    const renamed = `/app/my-agents-renamed/${SAMPLE_ID}/tabs/prompt`;
+    expect(DASHBOARD_ROUTES.filter((route) => dashboardPathMatches(route, renamed))).toEqual([]);
+  });
+
+  it("CONTROL — a tab key the console does not offer is NOT matched", () => {
+    // `:tab-key` accepts any string to the router, so `/tabs/promt` renders an
+    // empty agent page. The published tab keys are the only thing that knows.
+    const misspelt = `/app/my-agents/${SAMPLE_ID}/tabs/promt`;
+    expect(DASHBOARD_ROUTES.filter((route) => dashboardPathMatches(route, misspelt))).toEqual([]);
   });
 });
 

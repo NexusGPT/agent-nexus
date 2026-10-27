@@ -146,6 +146,7 @@
     "src/contract-help.codegen.consts.ts",
     "src/contract-help.codegen.names.ts",
     "src/contract-help.codegen.ts",
+    "src/dashboard-routes.conformance.ts",
     "src/deprecation-cycle.model.ts",
     "src/docs-page.divergences.ts",
     "src/docs-page.frontmatter.ts",

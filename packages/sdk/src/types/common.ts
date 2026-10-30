@@ -141,8 +141,9 @@ export interface ModelConfig {
    * `"none"` turns thinking off on a model that can stop thinking. A write
    * carrying it is refused until the platform enables it.
    *
-   * The four provider-prefixed fields below are the pre-collapse spellings. They
-   * are still accepted and still read, so nothing you already send breaks.
+   * It is the only level field. The four provider-prefixed names it replaced
+   * (`thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel`,
+   * `kimiReasoningEffort`) are refused with a 400 that names `reasoningLevel`.
    */
   reasoningLevel?:
     | "low"
@@ -157,56 +158,10 @@ export interface ModelConfig {
     | "minimal"
     | "none";
   /**
-   * Anthropic thinking level.
-   *
-   * Two vocabularies, and both are accepted on every model — the platform maps
-   * a legacy value onto an adaptive model and back:
-   *
-   * - legacy (Claude 4.6 and earlier): `"fast"`, `"detailed"`, `"extended"`.
-   * - adaptive (Claude 4.7+): `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`.
-   *
-   * `"none"` turns thinking off on a model that can stop thinking. A write
-   * carrying it is refused until the platform enables it.
-   *
-   * This type offered the legacy three only, matching a v1 contract that had
-   * drifted from the platform's own shape, so an adaptive level was a 400 on
-   * `agents.create` and `agents.update` and unrepresentable on `AgentDetail`
-   * (NEX-3869).
-   */
-  thinkingLevel?:
-    | "fast"
-    | "detailed"
-    | "extended"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | "max"
-    | "none";
-  /**
    * Anthropic adaptive thinking display mode — whether the model's thinking is
    * summarized back to you or withheld. Anthropic-only; ignored elsewhere.
    */
   thinkingDisplay?: "summarized" | "omitted";
-  /**
-   * OpenAI reasoning effort: "minimal" (gpt-5 family), "low", "medium", "high",
-   * "xhigh", or "max" (select models only). "none" turns reasoning off on a model
-   * that can stop reasoning; a write carrying it is refused until the platform
-   * enables it.
-   */
-  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "none";
-  /**
-   * Google AI thinking level: "dynamic", "minimal", "low", "medium", "high".
-   * "none" turns thinking off on a model that can stop thinking; a write carrying
-   * it is refused until the platform enables it.
-   */
-  geminiThinkingLevel?: "dynamic" | "minimal" | "low" | "medium" | "high" | "none";
-  /**
-   * Kimi reasoning effort: "low", "high", or "max". Fixed for the conversation.
-   * "none" turns reasoning off; a write carrying it is refused until the platform
-   * enables it.
-   */
-  kimiReasoningEffort?: "low" | "high" | "max" | "none";
   /** Sampling temperature (0-1). */
   temperature?: number;
   /**

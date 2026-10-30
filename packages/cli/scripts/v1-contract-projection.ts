@@ -137,6 +137,7 @@ type JsonSchemaNode = {
   anyOf?: JsonSchemaNode[];
   oneOf?: JsonSchemaNode[];
   allOf?: JsonSchemaNode[];
+  not?: JsonSchemaNode;
 };
 
 /**
@@ -201,10 +202,37 @@ export function descriptorNames(): string[] {
   return Object.keys(DESCRIPTORS).sort();
 }
 
+/**
+ * A key whose schema accepts no JSON value at all — `z.never()`, or `z.undefined()`, which a
+ * JSON body cannot carry — is a REFUSAL, not a field. The four retired level names
+ * (`packages/types/src/schemas/ModelConfig/retired-effort-level-fields.ts`) are the case: each
+ * parses only when absent and answers any value with a 400 naming `reasoningLevel`.
+ *
+ * The shared converter cannot say so on its own. With `unrepresentable: "any"`, `z.undefined()`
+ * converts to `{}` — the schema that accepts EVERYTHING — so before this the contract the CLI
+ * advertised listed every refused key as an optional field of `type: "unknown"`, the exact
+ * opposite of what the server does with it. The override marks it `{ not: {} }`, the JSON
+ * Schema spelling of "no value is valid", which `z.never()` already converts to; both then
+ * leave the projection through {@link acceptsNoValue}.
+ *
+ * The override is local to this projection. The MCP catalog's own converter
+ * (`build-tool-input-schema.ts`) is untouched, and what it advertises is not this file's call.
+ */
 function convert(schema: z.ZodType): JsonSchemaNode {
-  const generated = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" });
+  const generated = z.toJSONSchema(schema, {
+    io: "input",
+    unrepresentable: "any",
+    override: ({ zodSchema, jsonSchema }) => {
+      if (zodSchema._zod.def.type === "undefined") jsonSchema.not = {};
+    }
+  });
   const { $schema: _dialect, ...rest } = generated as JsonSchemaNode & { $schema?: unknown };
   return rest;
+}
+
+/** `{ not: {} }`: the node no value satisfies. See {@link convert}. */
+function acceptsNoValue(node: JsonSchemaNode): boolean {
+  return node.not !== undefined && Object.keys(node.not).length === 0;
 }
 
 /**
@@ -285,6 +313,8 @@ function walk(
   const required = new Set(resolved.required ?? []);
 
   for (const [key, rawChild] of Object.entries(resolved.properties ?? {})) {
+    // A refused key is not something the endpoint takes, so it is not a field. See `convert`.
+    if (acceptsNoValue(rawChild)) continue;
     const child = flattenAllOf(unwrapSingleArm(rawChild));
     const path = prefix === "" ? `${slot}.${key}` : `${prefix}.${key}`;
     const type = Array.isArray(child.type) ? child.type.join("|") : (child.type ?? "unknown");

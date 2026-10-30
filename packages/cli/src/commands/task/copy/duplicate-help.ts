@@ -27,10 +27,9 @@ Notes:
   the original was tuned, and nothing reports the change.
 
   NAMING A MODEL CLEARS THE PROVIDER TUNING, exactly as "task update" does.
-  thinkingLevel, thinkingDisplay, reasoningEffort and the rest are specific to a
-  provider and a model generation, so they are rebuilt from what you send rather
-  than carried across a model change; send them under --body to set them on the
-  copy. Omit the model flags and the copy keeps the source's model config whole.
+  reasoningLevel and thinkingDisplay are specific to a model's thinking dialect,
+  so they are rebuilt from what you send rather than carried across a model
+  change; send them under --body to set them on the copy. Omit the model flags and the copy keeps the source's model config whole.
 
   --model-name AND --model-provider TRAVEL TOGETHER. One without the other is
   refused, because completing the pair from the source task is exactly the silent

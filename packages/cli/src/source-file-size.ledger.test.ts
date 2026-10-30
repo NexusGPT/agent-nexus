@@ -166,7 +166,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   // `none` on every level field. Splitting is not available: the size is a function of
   // the contract it mirrors, and the next generation would undo the split. A SIZE
   // BUDGET, not a violation count.
-  "commands/agent.contract.generated.ts": 341,
+  "commands/agent.contract.generated.ts": 233,
   "commands/analytics.contract.generated.ts": 169,
   // +6, RAISED: one import and one `onDeprecation:` line, plus why the raw
   // `nexus api <path>` door needed wiring — it is the only way onto a route with
@@ -183,7 +183,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "commands/permissions.contract.generated.ts": 167,
   "commands/role.contract.generated.ts": 553,
   // GENERATED, same reason as the agent contract above.
-  "commands/task.contract.generated.ts": 338,
+  "commands/task.contract.generated.ts": 284,
   "commands/tracing.contract.generated.ts": 232,
   "commands/tracks.contract.generated.ts": 581,
   "docs-page.frontmatter.ts": 381,

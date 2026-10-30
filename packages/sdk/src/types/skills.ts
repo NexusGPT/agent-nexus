@@ -132,12 +132,9 @@ export interface TaskModelTuning {
   /**
    * How hard the model thinks — ONE field for every provider.
    *
-   * Typed as the exact union the contract publishes rather than as `string`,
-   * unlike the four provider-prefixed fields below. Those are exempted from
-   * `v1-response-types-match-the-contract.test.ts` by `SKILL_TUNING_PATHS`
-   * because they are `string` here against literal unions there; a new field
-   * does not need to inherit that, and typing it exactly keeps it out of that
-   * list.
+   * Typed as the exact union the contract publishes rather than as `string`.
+   * The four provider-prefixed names it replaced are refused with a 400 that
+   * names `reasoningLevel`.
    *
    * Which values a given model accepts depends on its thinking dialect — read
    * `supportedReasoningLevels` off `GET /models`.
@@ -154,19 +151,8 @@ export interface TaskModelTuning {
     | "dynamic"
     | "minimal"
     | "none";
-  /**
-   * Anthropic thinking level. `"fast" | "detailed" | "extended"` on legacy
-   * models; `"low" | "medium" | "high" | "xhigh" | "max"` on adaptive ones.
-   */
-  thinkingLevel?: string;
   /** Anthropic adaptive thinking display mode. */
   thinkingDisplay?: string;
-  /** OpenAI reasoning effort. Which values a model accepts varies by model. */
-  reasoningEffort?: string;
-  /** Google AI thinking level. */
-  geminiThinkingLevel?: string;
-  /** Kimi reasoning effort. Its value set differs from OpenAI's — not interchangeable. */
-  kimiReasoningEffort?: string;
   /**
    * Id of the custom model (BYOM) this task runs on, when one is attached.
    *
@@ -492,9 +478,8 @@ export interface GenerateDocumentTemplateResponse {
  *   named. Set it here to override onto a custom endpoint.
  * - The provider knobs are NOT inherited from the task, not even on the same
  *   provider. An override that names none runs with none — name the one you
- *   want here. (`thinkingLevel` is specific to a provider and to a model
- *   generation, so carrying one across a model change is not the safe default
- *   it looks like.)
+ *   want here. (A level is specific to a model's thinking dialect, so carrying
+ *   one across a model change is not the safe default it looks like.)
  */
 export interface AiTaskModelOverride {
   /** Model id from the catalog, e.g. "claude-haiku-4-5". */
@@ -506,12 +491,9 @@ export interface AiTaskModelOverride {
   /**
    * How hard the model thinks — ONE field for every provider.
    *
-   * Typed as the exact union the contract publishes rather than as `string`,
-   * unlike the four provider-prefixed fields below. Those are exempted from
-   * `v1-response-types-match-the-contract.test.ts` by `SKILL_TUNING_PATHS`
-   * because they are `string` here against literal unions there; a new field
-   * does not need to inherit that, and typing it exactly keeps it out of that
-   * list.
+   * Typed as the exact union the contract publishes rather than as `string`.
+   * The four provider-prefixed names it replaced are refused with a 400 that
+   * names `reasoningLevel`.
    *
    * Which values a given model accepts depends on its thinking dialect — read
    * `supportedReasoningLevels` off `GET /models`.
@@ -527,16 +509,8 @@ export interface AiTaskModelOverride {
     | "extended"
     | "dynamic"
     | "minimal";
-  /** Anthropic thinking level. */
-  thinkingLevel?: string;
   /** Anthropic adaptive thinking display mode. */
   thinkingDisplay?: string;
-  /** OpenAI reasoning effort. */
-  reasoningEffort?: string;
-  /** Google AI thinking level. */
-  geminiThinkingLevel?: string;
-  /** Kimi reasoning effort. */
-  kimiReasoningEffort?: string;
 }
 
 /** Body for `client.skills.executeTask()`. */
@@ -578,7 +552,7 @@ export interface DuplicateTaskBody {
    *
    * Naming a model rebuilds the routing: temperature and the rest of the
    * non-routing config carry over from the source, but the provider tuning
-   * (`thinkingLevel`, `reasoningEffort`, …) is cleared, exactly as it is on
+   * (`reasoningLevel`, `thinkingDisplay`) is cleared, exactly as it is on
    * `updateTask()`. Omit the model fields entirely and the copy keeps the
    * source's model configuration whole.
    */

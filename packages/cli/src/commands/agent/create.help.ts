@@ -46,8 +46,9 @@ Notes:
   --body accepts JSON string, .json file, or '-' for stdin. Flags override --body
   fields. It also takes shortBio, bio, tags, gender, playgroundFirstMessage,
   model (the legacy enum) and modelConfig{modelName, modelProvider, reasoningLevel,
-  thinkingLevel, thinkingDisplay, reasoningEffort, geminiThinkingLevel,
-  kimiReasoningEffort, temperature, customModelId}.
+  thinkingDisplay, temperature, customModelId}. thinkingLevel, reasoningEffort,
+  geminiThinkingLevel and kimiReasoningEffort are retired: each is a 400 naming
+  reasoningLevel.
   TAGS IS ONE STRING DESPITE THE PLURAL NAME. Sending an array is a 400 naming
   the field; put your own separator inside the string.
   AN UNKNOWN --body KEY IS SILENTLY STRIPPED, not refused. A typo returns 201

@@ -2,14 +2,11 @@
  * The body-only declarations `agent create` and `agent update` share.
  *
  * The TUNING enums under modelConfig have no flag and are declared body-only
- * rather than exposed. They are not interchangeable knobs: all but
- * `reasoningLevel` belong to ONE provider family — thinkingLevel and
- * thinkingDisplay to Anthropic, reasoningEffort to OpenAI-shaped models,
- * geminiThinkingLevel to Google, kimiReasoningEffort to Kimi — and are silently
- * ignored for whatever other provider you picked. A flag per tuning field, each
- * one's validity decided by the model named in a different flag, is a worse
- * surface than one JSON object, and --body already carries the whole
- * modelConfig.
+ * rather than exposed. `thinkingDisplay` belongs to ONE provider family —
+ * Anthropic — and is silently ignored for whatever other provider you picked. A
+ * flag per tuning field, each one's validity decided by the model named in a
+ * different flag, is a worse surface than one JSON object, and --body already
+ * carries the whole modelConfig.
  *
  * 🚨 NO COUNT OF THESE FIELDS GOES IN THIS DOCBLOCK, AND CORRECTING ONE TO THE
  * RIGHT NUMBER IS THE WRONG FIX — it is the same cache with a fresher value in
@@ -64,10 +61,6 @@ const FLAT_MIRROR_IS_THE_SAME_FLAG =
 
 export const MODEL_CONFIG_TUNING = {
   "Body.modelConfig.reasoningLevel": LEVEL_VOCABULARY_IS_PER_MODEL,
-  "Body.modelConfig.thinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
   "Body.modelConfig.thinkingDisplay": TUNING_IS_PROVIDER_SPECIFIC,
-  "Body.modelConfig.reasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
-  "Body.modelConfig.geminiThinkingLevel": TUNING_IS_PROVIDER_SPECIFIC,
-  "Body.modelConfig.kimiReasoningEffort": TUNING_IS_PROVIDER_SPECIFIC,
   "Body.modelProvider": FLAT_MIRROR_IS_THE_SAME_FLAG
 };

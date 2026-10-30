@@ -42,10 +42,11 @@ Notes:
     --custom-model-id to point this call at a custom endpoint instead.
 
     THE PROVIDER TUNING IS NOT INHERITED BY AN OVERRIDE — not even on the same
-    provider. These have no flag: reasoningLevel, thinkingLevel, thinkingDisplay,
-    reasoningEffort, geminiThinkingLevel, kimiReasoningEffort.
-    Name the one you want under --body, or the call runs with none:
-      --body '{"input":"...","modelOverride":{"modelName":"gpt-5","modelProvider":"OPEN_AI","reasoningEffort":"low"}}'
+    provider. These have no flag: reasoningLevel, thinkingDisplay. Name the one you
+    want under --body, or the call runs with none:
+      --body '{"input":"...","modelOverride":{"modelName":"gpt-5","modelProvider":"OPEN_AI","reasoningLevel":"low"}}'
+    thinkingLevel, reasoningEffort, geminiThinkingLevel and kimiReasoningEffort are
+    retired: each is a 400 naming reasoningLevel.
     Same rule as "task update", because it is the same code — these knobs are
     specific to a provider AND to a model generation, so carrying one across a
     model change is not the safe default it looks like.

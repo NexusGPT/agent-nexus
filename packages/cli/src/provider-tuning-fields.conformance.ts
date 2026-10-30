@@ -1,4 +1,9 @@
-import { AiTaskModelOverrideSchema, DbEnum, PROVIDER_TUNING_FIELDS } from "@nexus/types";
+import {
+  AiTaskModelOverrideSchema,
+  DbEnum,
+  PROVIDER_TUNING_FIELDS,
+  RETIRED_EFFORT_LEVEL_FIELDS
+} from "@nexus/types";
 
 /**
  * WHICH PROVIDER-TUNING FIELDS A MODEL OVERRIDE ACTUALLY HAS, AND WHETHER THE
@@ -58,8 +63,17 @@ import { AiTaskModelOverrideSchema, DbEnum, PROVIDER_TUNING_FIELDS } from "@nexu
  *    lacks is how the next reader stops looking.
  */
 
-/** Every provider-tuning field name, as the contract derives them. */
-export const PROVIDER_TUNING_FIELD_NAMES: readonly string[] = [...PROVIDER_TUNING_FIELDS];
+/**
+ * Every provider-tuning field name a caller can still SEND, as the contract derives them.
+ *
+ * `ModelConfigBaseShape` still declares the four retired level names, but only as
+ * refusals — each parses as a 400 naming `reasoningLevel` — so they are no field an
+ * operator may set and no name the published help may offer. Excluded by the contract's
+ * own list rather than spelled here, so a name leaving retirement re-enters unedited.
+ */
+export const PROVIDER_TUNING_FIELD_NAMES: readonly string[] = PROVIDER_TUNING_FIELDS.filter(
+  (field) => !(RETIRED_EFFORT_LEVEL_FIELDS as readonly string[]).includes(field)
+);
 
 /** The minimum an override must carry — both halves of the routing pair. */
 const ROUTING_ONLY: Readonly<Record<string, string>> = {

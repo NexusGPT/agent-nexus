@@ -204,13 +204,13 @@ describe("task execute", () => {
       "--input",
       "x",
       "--body",
-      '{"modelOverride":{"modelName":"gpt-5","modelProvider":"OPEN_AI","reasoningEffort":"low"}}'
+      '{"modelOverride":{"modelName":"gpt-5","modelProvider":"OPEN_AI","reasoningLevel":"low"}}'
     ]);
 
     expect(executed[0].body.modelOverride).toEqual({
       modelName: "gpt-5",
       modelProvider: "OPEN_AI",
-      reasoningEffort: "low"
+      reasoningLevel: "low"
     });
   });
 });

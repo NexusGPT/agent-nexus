@@ -2309,16 +2309,16 @@ const V1_RESPONSE_DRIFT: Record<string, string> = {
     "`AgentToolConfig.config` is `unknown` here against a seven-key object in the contract (`toolId`, `workflowId`, `collectionId`, `action`, `toolCredentialId`, `instructions`, `parameters`). Opaque BY DESIGN — the shape varies by tool type and the SDK deliberately refuses to pick one. Typing it means modelling the per-type union first.",
   // GET /public/v1/skills/tasks/:taskId  ->  client.skills.getTask()
   SkillsGetTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "`thinkingDisplay` is `string` here against the `summarized` | `omitted` literal union in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The union is Anthropic-specific and belongs to the model-provider surface, so narrowing it here is a contract question rather than a transcription fix.",
   // POST /public/v1/skills/tasks  ->  client.skills.createTask()
   SkillsCreateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "`thinkingDisplay` is `string` here against the `summarized` | `omitted` literal union in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The union is Anthropic-specific and belongs to the model-provider surface, so narrowing it here is a contract question rather than a transcription fix.",
   // POST /public/v1/skills/tasks/:taskId/duplicate  ->  client.skills.duplicateTask()
   SkillsDuplicateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "`thinkingDisplay` is `string` here against the `summarized` | `omitted` literal union in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The union is Anthropic-specific and belongs to the model-provider surface, so narrowing it here is a contract question rather than a transcription fix.",
   // PATCH /public/v1/skills/tasks/:taskId  ->  client.skills.updateTask()
   SkillsUpdateTask:
-    "Five reasoning knobs — `thinkingLevel`, `thinkingDisplay`, `reasoningEffort`, `geminiThinkingLevel`, `kimiReasoningEffort` — are `string` here against literal unions in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The unions are provider-specific and belong to the model-provider surface, so narrowing them here is a contract question rather than a transcription fix.",
+    "`thinkingDisplay` is `string` here against the `summarized` | `omitted` literal union in the contract. The SDK is WIDER, so no field is hidden; what is lost is the ability to name a legal value. The union is Anthropic-specific and belongs to the model-provider surface, so narrowing it here is a contract question rather than a transcription fix.",
   // GET /public/v1/access-cards/available-actions  ->  client.credentials.cards.availableActions()
   AccessCardAvailableActions:
     "`ParameterDefinition.type` is `string` here against a nine-member literal union (`string`/`number`/`boolean`/`object`/`array`/`text`/`url`/`email`/`phone`). The SDK is WIDER, so nothing is hidden; a caller rendering a form input per type cannot exhaust it.",
@@ -2776,16 +2776,10 @@ const AGENT_MODEL_PATHS = ["model"] as const;
 /** `status` is `WorkflowStatus` here and bare `string` in the contract. */
 const WORKFLOW_STATUS_PATHS = ["status"] as const;
 
-/** The five reasoning knobs are `string` here against literal unions in the
- * contract. They sit on `TaskModelTuning`, which `TaskDetail` extends, so each
- * is a TOP-LEVEL key of the response rather than a nested one. */
-const SKILL_TUNING_PATHS = [
-  "thinkingLevel",
-  "thinkingDisplay",
-  "reasoningEffort",
-  "geminiThinkingLevel",
-  "kimiReasoningEffort"
-] as const;
+/** `thinkingDisplay` is `string` here against a literal union in the contract. It
+ * sits on `TaskModelTuning`, which `TaskDetail` extends, so it is a TOP-LEVEL key of
+ * the response rather than a nested one. */
+const SKILL_TUNING_PATHS = ["thinkingDisplay"] as const;
 
 /** Both causes the row names, at the paths they actually occupy.
  *

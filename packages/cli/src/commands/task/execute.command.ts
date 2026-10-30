@@ -61,11 +61,7 @@ function bindTaskExecuteContract(execute: Command): void {
     // The routing pair has flags; the provider TUNING does not, and the note at
     // the command spells out how to send it.
     "Body.modelOverride.reasoningLevel": TUNING_IS_BODY_ONLY,
-    "Body.modelOverride.thinkingLevel": TUNING_IS_BODY_ONLY,
-    "Body.modelOverride.thinkingDisplay": TUNING_IS_BODY_ONLY,
-    "Body.modelOverride.reasoningEffort": TUNING_IS_BODY_ONLY,
-    "Body.modelOverride.geminiThinkingLevel": TUNING_IS_BODY_ONLY,
-    "Body.modelOverride.kimiReasoningEffort": TUNING_IS_BODY_ONLY
+    "Body.modelOverride.thinkingDisplay": TUNING_IS_BODY_ONLY
   });
 }
 

@@ -110,61 +110,11 @@ export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_REASONING_LEVEL = {
   ]
 } as const satisfies ContractEnum;
 
-export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_THINKING_LEVEL = {
-  path: "SkillsExecuteTask.Body.modelOverride.thinkingLevel",
-  contractValues: [
-    "fast",
-    "detailed",
-    "extended",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "none"
-  ]
-} as const satisfies ContractEnum;
-
 export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_THINKING_DISPLAY = {
   path: "SkillsExecuteTask.Body.modelOverride.thinkingDisplay",
   contractValues: [
     "summarized",
     "omitted"
-  ]
-} as const satisfies ContractEnum;
-
-export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_REASONING_EFFORT = {
-  path: "SkillsExecuteTask.Body.modelOverride.reasoningEffort",
-  contractValues: [
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "none"
-  ]
-} as const satisfies ContractEnum;
-
-export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_GEMINI_THINKING_LEVEL = {
-  path: "SkillsExecuteTask.Body.modelOverride.geminiThinkingLevel",
-  contractValues: [
-    "dynamic",
-    "low",
-    "medium",
-    "high",
-    "minimal",
-    "none"
-  ]
-} as const satisfies ContractEnum;
-
-export const SKILLS_EXECUTE_TASK__BODY_MODEL_OVERRIDE_KIMI_REASONING_EFFORT = {
-  path: "SkillsExecuteTask.Body.modelOverride.kimiReasoningEffort",
-  contractValues: [
-    "low",
-    "high",
-    "max",
-    "none"
   ]
 } as const satisfies ContractEnum;
 
@@ -284,11 +234,7 @@ export const SKILLS_EXECUTE_TASK_CONTRACT = {
     { path: "Body.modelOverride.modelProvider", slot: "Body", type: "string", required: true, depth: 1, enumValues: ["OPEN_AI", "ANTHROPIC", "GOOGLE_AI", "KIMI", "JEV"] },
     { path: "Body.modelOverride.customModelId", slot: "Body", type: "string", required: false, depth: 1 },
     { path: "Body.modelOverride.reasoningLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["minimal", "low", "medium", "high", "xhigh", "max", "fast", "detailed", "extended", "dynamic", "none"] },
-    { path: "Body.modelOverride.thinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["fast", "detailed", "extended", "low", "medium", "high", "xhigh", "max", "none"] },
-    { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] },
-    { path: "Body.modelOverride.reasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["minimal", "low", "medium", "high", "xhigh", "max", "none"] },
-    { path: "Body.modelOverride.geminiThinkingLevel", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["dynamic", "low", "medium", "high", "minimal", "none"] },
-    { path: "Body.modelOverride.kimiReasoningEffort", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["low", "high", "max", "none"] }
+    { path: "Body.modelOverride.thinkingDisplay", slot: "Body", type: "string", required: false, depth: 1, enumValues: ["summarized", "omitted"] }
   ]
 } as const satisfies ProjectedDescriptor;
 

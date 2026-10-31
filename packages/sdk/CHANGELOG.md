@@ -1,5 +1,10 @@
 # @agent-nexus/sdk
 
+## 5.0.0
+### Major Changes
+
+- 0beee49: `reasoningLevel` is now the only reasoning-level field. `thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel` and `kimiReasoningEffort` are removed from the SDK's `ModelConfig`, `TaskDetail` tuning and `AiTaskModelOverride` types, and the API refuses each of them with a `400` naming `reasoningLevel` instead of ignoring it — on agent `modelConfig`, task create and update, and a task execution's `modelOverride`. Send the level as `reasoningLevel`, using a value from the model's `supportedReasoningLevels` on `GET /models`. The CLI's help and bundled skills now teach `reasoningLevel`; no flag changed.
+
 ## 4.10.0
 ### Minor Changes
 

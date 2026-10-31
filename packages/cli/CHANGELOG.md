@@ -1,5 +1,38 @@
 # @agent-nexus/cli
 
+## 1.15.1
+### Patch Changes
+
+- 0beee49: `reasoningLevel` is now the only reasoning-level field. `thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel` and `kimiReasoningEffort` are removed from the SDK's `ModelConfig`, `TaskDetail` tuning and `AiTaskModelOverride` types, and the API refuses each of them with a `400` naming `reasoningLevel` instead of ignoring it — on agent `modelConfig`, task create and update, and a task execution's `modelOverride`. Send the level as `reasoningLevel`, using a value from the model's `supportedReasoningLevels` on `GET /models`. The CLI's help and bundled skills now teach `reasoningLevel`; no flag changed.
+- 819c1eb: The printed contract stops listing the retired level fields, and the bundled skills pin to upstream main
+  
+  `thinkingLevel`, `reasoningEffort`, `geminiThinkingLevel` and `kimiReasoningEffort`
+  are refused by the API with a 400 that names `reasoningLevel`. The contract the CLI
+  prints with `--print-contract` for `agent create`, `agent update`, `task create`,
+  `task update` and `task execute` still listed all four as optional fields of type
+  `unknown` — the opposite of what the server does with them. A key whose schema accepts
+  no value is a refusal, not a field, so the contract no longer lists it.
+  `reasoningLevel` is listed exactly as before.
+  
+  The bundled skills move to `NexusGPT/claude-code-skills-nexus@9e04e953ad30`, the
+  `main` commit that landed the `reasoningLevel` skills change. The previous pin was that
+  change's unmerged branch head, so the level guidance the bundle carries is the same;
+  what the move adds is the rest of upstream `main` that the branch head did not carry.
+  
+  ## What did NOT change
+  
+  - **What the CLI sends.** The contract is printed, never used to build a request:
+    a `--body` carrying one of the four names still reaches the API and is still
+    refused there with the same 400.
+  - **Every other contract field.** No other descriptor's projection moved.
+  
+  ## Why `patch`
+  
+  No command or flag changes. `--print-contract` and `--help` stop describing four keys
+  the API has already stopped accepting, and the bundled skills — what `nexus skills
+  install` uses offline, on an error, or with `--bundled` — are pinned to a commit on
+  upstream `main` rather than to a branch head.
+
 ## 1.15.0
 ### Minor Changes
 

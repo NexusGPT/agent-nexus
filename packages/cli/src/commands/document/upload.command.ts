@@ -35,7 +35,11 @@ Notes:
   the server classifies the document itself and reports that as type.
 
   Metadata set here is what "collection query --filter" matches on. Adding it
-  later needs a "document reprocess" to take effect, so set it now.`;
+  later needs a "document reprocess" to take effect, so set it now.
+
+  A --metadata KEY USES LETTERS, DIGITS, - OR _, DOES NOT START WITH _, AND IS
+  AT MOST 64 CHARACTERS. Any other key is refused before the request is sent,
+  naming the key and the rule.`;
 
 /**
  * `nexus document upload`

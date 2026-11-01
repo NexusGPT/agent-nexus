@@ -67,6 +67,10 @@ Notes:
   --metadata is inherited by every crawled page, which is what makes
   "collection query --filter" usable across a whole site.
 
+  A --metadata KEY USES LETTERS, DIGITS, - OR _, DOES NOT START WITH _, AND IS
+  AT MOST 64 CHARACTERS. Any other key is refused before the request is sent,
+  naming the key and the rule.
+
   The pages land in the KNOWLEDGE BASE, not in a collection. Attach the folder
   to one afterwards — "collection attach-documents" expands a folder id to all
   the pages under it at attach time. Pages crawled later are not pulled in;

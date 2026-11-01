@@ -33,7 +33,11 @@ Notes:
   content is "./body.txt" means the file was not readable from here.
   Escape sequences
   in a shell string are passed through literally — pipe a file when the content
-  has real newlines in it.`;
+  has real newlines in it.
+
+  A --metadata KEY USES LETTERS, DIGITS, - OR _, DOES NOT START WITH _, AND IS
+  AT MOST 64 CHARACTERS. Any other key is refused before the request is sent,
+  naming the key and the rule.`;
 
 /** `nexus document create-text` */
 export function registerDocumentCreateTextCommand(document: Command, program: Command): Command {

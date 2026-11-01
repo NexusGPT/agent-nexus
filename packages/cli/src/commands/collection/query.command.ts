@@ -39,6 +39,10 @@ Notes:
   which looks exactly like an empty collection or a bad query. Drop the filter
   and re-run: if the documents come back, the attribute was an array.
 
+  A --filter key follows the same rule as a document's metadata key: letters,
+  digits, - or _, no leading _, at most 64 characters. Any other key is refused
+  before the request is sent.
+
   THERE IS NO DOCUMENT NAME ON A RESULT. It is content, score, documentId and
   metadata. Mapping a hit back to something readable takes a second call,
   "nexus document get <documentId>". "collection search" does return

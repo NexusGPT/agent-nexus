@@ -27,7 +27,11 @@ Notes:
   --metadata flag alongside the one you are changing.
 
   This changes the document's labels, never its CONTENT. Replacing the text
-  means uploading a new document, or reprocessing the source.`;
+  means uploading a new document, or reprocessing the source.
+
+  A --metadata KEY USES LETTERS, DIGITS, - OR _, DOES NOT START WITH _, AND IS
+  AT MOST 64 CHARACTERS. Any other key is refused before the request is sent,
+  naming the key and the rule.`;
 
 /**
  * `nexus document update`

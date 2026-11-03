@@ -123,7 +123,10 @@ export class WorkflowExecutionsResource extends BaseResource {
    *
    * Rejects with 404 when the execution is not yours or the node names nothing
    * inside it, and with 400 when the node is not in `ERROR` or its type is not
-   * retryable.
+   * retryable. Rejects with 503 when the run changed while the retry was
+   * starting and the server could not read its state: nothing was written and
+   * the node is still retryable, so the same call is safe to send again. The
+   * client does not replay a 503 on a POST by itself.
    *
    * @param executionId - Execution UUID.
    * @param nodeId - Graph node id, or the execution-node row id. Either is

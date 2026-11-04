@@ -751,6 +751,13 @@ export class SkillsResource extends BaseResource {
   /**
    * Execute an AI task with input and get the output.
    *
+   * Rejects with 400 `AI_TASK_IMAGE_INPUT_REFUSED` when an image input cannot be
+   * sent to the model: its bytes are not PNG, JPEG, GIF or WebP, a `data:` URI is
+   * not base64, the image is over 20 MiB (over 10 MiB of base64 on Anthropic), or
+   * the call's images together pass the provider's per-request budget. Nothing
+   * reaches a model and nothing is billed; the message names the image and the
+   * reason, and the same input is refused the same way on every retry.
+   *
    * @param taskId - AI Task UUID.
    * @param body - Input to the task, and optionally the model to run it on.
    * @returns Task output and output type.

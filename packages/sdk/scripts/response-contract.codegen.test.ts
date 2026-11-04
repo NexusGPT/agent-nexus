@@ -181,6 +181,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "CustomModelList",
   "CustomModelUpdate",
   "CustomerAddNote",
+  "ChatHistoryList",
   "ChatStopTurn",
   "ChatTurnStatus",
   "ChatUploadAttachments",

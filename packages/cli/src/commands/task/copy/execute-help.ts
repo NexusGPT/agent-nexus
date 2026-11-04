@@ -73,6 +73,12 @@ Notes:
   A jsonOutputSchema whose root is not an object (a top-level array or scalar)
   fails here with a 400 EVERY time, however well the task saved.
 
+  AI_TASK_IMAGE_INPUT_REFUSED IS A 400 ABOUT ONE IMAGE IN THE INPUT, and no model
+  ran. Its message names the image and the reason: not a PNG, JPEG, GIF or WebP,
+  a data: URI that is not base64, over 20 MiB (over 10 MiB of base64 on
+  ANTHROPIC), or the call's images together past the provider's budget. Replace
+  or shrink the image named; re-running the same input is refused the same way.
+
   Only one flag per command may read standard input. Passing "-" to two of them
   — "--body -" alongside "--input -", say — is refused with an error naming
   both, and no request is sent. Give one of them a literal value or a file path.`;

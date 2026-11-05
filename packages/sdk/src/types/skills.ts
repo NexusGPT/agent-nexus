@@ -368,7 +368,7 @@ export interface CreateTaskBody {
   customModelId?: string;
   /** Prompt template. */
   prompt?: string;
-  /** Temperature (0-2, default 0.7). */
+  /** Temperature (0-1, default 0.7). A value above 1 is refused with `VALIDATION_ERROR`. */
   temperature?: number;
   /**
    * How hard the model thinks — the same field, with the same values, as an

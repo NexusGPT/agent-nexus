@@ -186,10 +186,52 @@ export interface CostBreakdownEntry {
   unpricedGenerationCount: number;
 }
 
+/** The row grain a cost-breakdown dimension was resolved at. */
+export type CostBreakdownGrain = "generation" | "trace";
+
+/**
+ * The spend no entry could be placed in, as one bucket.
+ *
+ * 🔴 `sum(entries.totalCostUsd) + unattributed.totalCostUsd` is the exact total
+ * spend of the window this breakdown read. An entry is emitted only for a call
+ * carrying EVERY requested dimension, so the entries alone are a lower bound;
+ * the two filters are complements over one population, so nothing falls between
+ * them.
+ *
+ * Always present, and zeroed when nothing was dropped — an optional field would
+ * make that sum unverifiable from the outside.
+ *
+ * ⚠️ FIVE OF THE SIX FIELDS ADD UP WITH THE ENTRIES; `traceCount` DOES NOT,
+ * wherever `grains` says `generation`. It counts DISTINCT traces, so a trace
+ * whose calls fall under two group keys is counted under both and a trace
+ * carrying one attributed and one unattributed call is counted here and in an
+ * entry. At `trace` grain each trace lands in exactly one group and it does add
+ * up.
+ */
+export interface CostBreakdownUnattributed {
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  traceCount: number;
+  generationCount: number;
+  /** The unpriced part of `generationCount`, exactly as on an entry. */
+  unpricedGenerationCount: number;
+}
+
 export interface CostBreakdown {
   /** Echoes the requested dimensions in order. Length 1 = single-dimension. */
   dimensions: CostBreakdownGroupBy[];
+  /**
+   * The grain each requested dimension was resolved at, keyed by dimension.
+   *
+   * `generation` is the attribution recorded on the call itself; `trace` the one
+   * recorded on the conversation it belonged to, inherited by every call under
+   * it. `workflow` is always `trace`, and a combination carrying it resolves
+   * EVERY member at `trace` grain — one query reads one table.
+   */
+  grains: Record<string, CostBreakdownGrain>;
   entries: CostBreakdownEntry[];
+  unattributed: CostBreakdownUnattributed;
 }
 
 export interface TimelinePoint {

@@ -61,6 +61,22 @@ export class TracingResource extends BaseResource {
     });
   }
 
+  /**
+   * Spend grouped by 1–3 dimensions.
+   *
+   * 🔴 `entries` IS NOT THE WHOLE WINDOW. Only a call carrying every requested
+   * dimension can be placed in an entry, so `sum(entries.totalCostUsd)` is a
+   * lower bound on spend. `unattributed` is the rest — one bucket, the same six
+   * metric fields an entry carries — and the two together are the window's
+   * exact total. It is always present and zeroed when nothing was dropped, so a
+   * consumer can check that sum rather than assume it.
+   *
+   * `grains` says which row each dimension's attribution was read off:
+   * `generation` is the attribution recorded on the call, `trace` the one
+   * recorded on the conversation it belonged to. `workflow` is `trace` grain and
+   * drags every dimension combined with it to `trace` grain too, because one
+   * query reads one table.
+   */
   async getCostBreakdown(params?: CostBreakdownParams): Promise<CostBreakdown> {
     // groupBy may be a single dimension or an array; the http layer serializes
     // arrays as repeated query params, which the API parses into a 1–3 dim list.

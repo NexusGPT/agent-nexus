@@ -1,9 +1,10 @@
+import type { CostBreakdown } from "@agent-nexus/sdk";
 import { Command } from "commander";
 
 import { createClient } from "../../client";
 import { bindCommand, enumOption } from "../../contract-binding";
 import { handleError } from "../../errors";
-import { printEnvelope, printList } from "../../output";
+import { color, printEnvelope, printList } from "../../output";
 import {
   TRACING_ANALYTICS_COST_BREAKDOWN__PARAMS_BUCKET,
   TRACING_ANALYTICS_COST_BREAKDOWN_CONTRACT
@@ -17,6 +18,37 @@ import { TRACING_COST_BREAKDOWN_HELP } from "./copy/cost-breakdown-help";
 // subset is nowhere in the contract, so a local check would be a hand-typed
 // second copy of a server rule — the exact drift this binding exists to kill.
 // The server refuses by name; the Notes say so.
+
+/**
+ * The two lines under the table that make the table readable.
+ *
+ * Its own function rather than part of the registration body, which the
+ * `max-lines-per-function` cap already held at 80 before this existed — and the
+ * footer is a second job anyway: the table renders rows, this renders what the
+ * rows are NOT.
+ *
+ * UNATTRIBUTED is the spend whose own calls carry none of the requested
+ * dimensions. The table alone is therefore a lower bound and the two together
+ * are the window's total, which is the only reason ranking the rows is safe.
+ *
+ * GRAIN is per DIMENSION, never one value for the command: `workflow` is trace
+ * grain and every other dimension is generation grain, and a combination
+ * carrying `workflow` reads ALL of its dimensions at trace grain.
+ */
+function printBreakdownFooter(result: CostBreakdown): void {
+  const u = result.unattributed;
+  console.log(
+    `\nUNATTRIBUTED  $${u.totalCostUsd.toFixed(4)}  ` +
+      `${u.traceCount} traces  ${u.generationCount} gens  ${u.unpricedGenerationCount} unpriced`
+  );
+  console.log(
+    color.dim(`              spend carrying no ${(result.dimensions ?? []).join(" + ")} of its own`)
+  );
+  const grains = Object.entries(result.grains ?? {})
+    .map(([dim, grain]) => `${dim}=${grain}`)
+    .join("  ");
+  if (grains) console.log(color.dim(`GRAIN         ${grains}`));
+}
 
 /** `nexus tracing cost-breakdown` — spend grouped by one fixed set of dimensions. */
 export function registerTracingCostBreakdownCommand(tracing: Command, program: Command): void {
@@ -69,6 +101,8 @@ export function registerTracingCostBreakdownCommand(tracing: Command, program: C
             { key: "totalInputTokens", label: "IN TOKENS", width: 12 },
             { key: "totalOutputTokens", label: "OUT TOKENS", width: 12 }
           ]);
+
+          printBreakdownFooter(result);
         });
       } catch (err) {
         process.exitCode = handleError(err);

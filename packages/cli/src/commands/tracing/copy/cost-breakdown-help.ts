@@ -26,14 +26,27 @@ Notes:
   neither a display name nor a primary email.
   workflowExecution LABELS THE WORKFLOW, NOT THE RUN, so two runs of one
   workflow carry the same LABEL and are told apart only by KEY.
-  THE ROWS DO NOT ADD UP TO YOUR BILL. Grouped by agent or workflow, only
-  generations that name one are counted — anything run outside an agent or a
-  workflow is in no row at all, so the column total is a lower bound on spend,
-  never the whole of it. The agent is read from the agent column first and the
-  recorded context second, which is the same resolution "tracing traces
-  --agent-id" filters on.
+  THE ROWS ALONE DO NOT ADD UP; THE ROWS PLUS UNATTRIBUTED DO. Only calls that
+  name every grouping you asked for can be placed in a row, so the COST column
+  on its own is a lower bound. The UNATTRIBUTED line under the table is the
+  rest of the window — spend whose own calls carry none of those dimensions —
+  and the two together are the window's total. Read it before ranking rows: on
+  a measured 7-day window it was 32% of the total for customer and 95% for
+  workflowExecution. Under --json it is .unattributed, with the same fields a
+  row carries. COST, both TOKEN columns, GENS and UNPRICED all add up that way.
+  TRACES DOES NOT when GRAIN is generation: it counts DISTINCT traces, so one
+  trace spread over two rows is counted in both. At trace grain it does add up.
+  GRAIN SAYS WHICH ROW THE ATTRIBUTION WAS READ OFF, per dimension. generation
+  means the attribution recorded on the CALL; trace means the one recorded on
+  the conversation it belonged to, inherited by every call under it. workflow
+  is trace grain because a call cannot carry a workflow id; everything else is
+  generation grain. ASKING FOR workflow ALONGSIDE ANOTHER DIMENSION PUTS BOTH
+  AT TRACE GRAIN — one query reads one table — and GRAIN is where that shows.
+  The agent is read from the agent column first and the recorded context
+  second, which is the same resolution "tracing traces --agent-id" filters on.
   TRACES is DISTINCT traces touching that group, so summing the TRACES column
-  double-counts any trace that used two models.
+  double-counts any trace that used two models — and, with --bucket, any trace
+  whose calls fall in two buckets.
   UNPRICED > 0 MEANS THAT ROW'S COST ($) IS LOW BY AN UNKNOWN AMOUNT. Those
   calls had no price to look up, so they are in the row's cost at $0 — a group
   whose whole traffic is unpriced reads as $0.0000, i.e. indistinguishable from

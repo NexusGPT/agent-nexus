@@ -1,3 +1,4 @@
+// @ts-check
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 

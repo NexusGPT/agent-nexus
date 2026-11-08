@@ -17,6 +17,17 @@
 
 import type { ProjectedDescriptor } from "../contract-help.render";
 
+export const CHAT_HISTORY_LIST_CONTRACT = {
+  name: "ChatHistoryList",
+  method: "GET",
+  route: "/public/v1/deployments/:deploymentId/chat/messages",
+  fields: [
+    { path: "PathVars.deploymentId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "Params.before", slot: "Params", type: "string", required: false, depth: 0 },
+    { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const CHAT_RESUME_STREAM_CONTRACT = {
   name: "ChatResumeStream",
   method: "GET",
@@ -44,7 +55,11 @@ export const CHAT_SEND_MESSAGE_STREAM_CONTRACT = {
     { path: "Body.messageId", slot: "Body", type: "string", required: false, depth: 0 },
     { path: "Body.knowledgeIds", slot: "Body", type: "array", required: false, depth: 0 },
     { path: "Body.images", slot: "Body", type: "array", required: false, depth: 0 },
-    { path: "Body.metadata", slot: "Body", type: "object", required: false, depth: 0, opaque: true }
+    { path: "Body.metadata", slot: "Body", type: "object", required: false, depth: 0, opaque: true },
+    { path: "Body.visitor", slot: "Body", type: "object", required: false, depth: 0 },
+    { path: "Body.visitor.customerId", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.visitor.customerName", slot: "Body", type: "string", required: false, depth: 1 },
+    { path: "Body.visitor.customerEmail", slot: "Body", type: "string", required: false, depth: 1 }
   ]
 } as const satisfies ProjectedDescriptor;
 

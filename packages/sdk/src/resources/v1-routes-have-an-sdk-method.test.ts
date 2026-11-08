@@ -229,8 +229,11 @@ import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";
  * surface. ONE ORDINARY DEBT ROW: a chat-session-token GET with a JSON page,
  * the exact shape `ChatResource.status` already reaches, so the method that
  * retires it is `ChatResource.history` and nothing about the route resists one.
+ *
+ * 24 → 23. `ChatResource.history` landed and took that row with it, as its reason
+ * said it would.
  */
-const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 24;
+const V1_ROUTES_WITHOUT_AN_SDK_METHOD_CEILING = 23;
 
 const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // ── Analytics reports: scheduled-report CRUD, no SDK resource ────────────
@@ -284,12 +287,9 @@ const V1_ROUTES_WITHOUT_AN_SDK_METHOD: Record<string, string> = {
   // them. Do not re-add either — see the ceiling's docblock for why the second
   // row's "impossible" reason was a fact about this client, not about the route.
   //
-  // `ChatResumeStream`, `ChatStopTurn` and `ChatTurnStatus` were here too and
-  // are gone: `ChatResource.resume` / `.resumeRaw` / `.stop` / `.status` reach
-  // them, on the same chat-session token.
-  ChatHistoryList:
-    "no SDK method yet — retired the day ChatResource grows a history(deploymentId, auth, page) " +
-    "method on the chat-session token, exactly as .status reaches ChatTurnStatus",
+  // `ChatResumeStream`, `ChatStopTurn`, `ChatTurnStatus` and `ChatHistoryList`
+  // were here too and are gone: `ChatResource.resume` / `.resumeRaw` / `.stop` /
+  // `.status` / `.history` reach them, on the same chat-session token.
   WorkflowOverviewValidateNodeVariables: "editor-only validation probe, no CLI verb",
   TracingAnalyticsExport: "no SDK method — export is unexposed"
 };

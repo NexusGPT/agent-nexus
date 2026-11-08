@@ -36,6 +36,9 @@ export function placeholderFor(name: string, sandboxDir: string): string {
 
 /** commander declares whether an option takes a value and whether it is required. */
 function optionValue(option: Option, sandboxDir: string): string[] {
+  /* eslint-disable-next-line nexus/blank-defeats-nullish-fallback -- commander sets
+     `long` and `short` from the flags string and leaves an absent one `undefined`,
+     never `""`, so no blank reaches this chain. */
   const flag = option.long ?? option.short ?? "";
   if (!option.required && !option.optional) return [flag];
   const choices = option.argChoices;

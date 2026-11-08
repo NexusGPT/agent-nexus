@@ -140,6 +140,40 @@ export interface SendChatMessageBody {
   knowledgeIds?: string[];
   /** Image URLs to attach to this turn. */
   images?: string[];
+  /**
+   * Host-page context for the agent, as a flat string map — the headless
+   * equivalent of the console widget's `embedData`. Read only on the turn that
+   * CREATES the conversation; every later turn may send it and it is ignored.
+   * The server refuses the reserved identity names (`customer_id`,
+   * `external_user_id`, …) in any spelling here: a visitor naming goes on
+   * {@link SendChatMessageBody.visitor}.
+   */
+  metadata?: Record<string, string>;
+  /**
+   * The visitor the host page named — the console widget's `cid` / `cname` /
+   * `cemail`. Read only on the turn that creates the conversation, like
+   * `metadata`. See {@link SendChatVisitor} for what the server does with it.
+   */
+  visitor?: SendChatVisitor;
+}
+
+/**
+ * The visitor a host page names on the first send of a conversation.
+ *
+ * A NAMING, never an identification: the server stores all three values as
+ * context the agent can read, and links the conversation to a customer only
+ * through the session token's own HMAC-proven identity. `customerId` is checked
+ * against that proven customer and dropped when it names anyone else; name and
+ * email fill blanks on the proven customer alone.
+ *
+ * The keys are closed — the server refuses any other key here — and
+ * `customerId` must be a UUID. The server also bounds `customerName` and
+ * `customerEmail`; read its 400 for the limits rather than a copy here.
+ */
+export interface SendChatVisitor {
+  customerId?: string;
+  customerName?: string;
+  customerEmail?: string;
 }
 
 /**

@@ -75,9 +75,11 @@ describe("every track banner names a command this CLI registers", () => {
     const leaves = new Set(await deriveCommandLeaves());
     const rows = Object.entries(TRACK_BANNER_COMMANDS);
 
-    // The map is not empty. An empty map satisfies the loop having checked
-    // nothing, and it is what a generator bug would produce.
-    expect(rows.length).toBeGreaterThan(0);
+    // The map holds the action both banner forms render. An empty map satisfies
+    // the loop having checked nothing, and it is what a generator bug would
+    // produce — so the control names the row the renderer needs rather than
+    // counting rows, and a map that lost it reds here by name.
+    expect(rows.map(([action]) => action)).toContain("claimTask");
 
     for (const [action, invocation] of rows) {
       const path = commandPathOf(invocation);
@@ -96,8 +98,8 @@ describe("every track banner names a command this CLI registers", () => {
       // Each rendered form must carry at least one KNOWN command. A new banner
       // form built from a hand-typed string fails here rather than shipping an
       // instruction nothing generated.
-      const carried = [...known].filter((invocation) => banner.includes(invocation));
-      expect({ banner, carried: carried.length }).toEqual({ banner, carried: 1 });
+      const carriesAKnownCommand = [...known].some((invocation) => banner.includes(invocation));
+      expect({ banner, carriesAKnownCommand }).toEqual({ banner, carriesAKnownCommand: true });
     }
   });
 

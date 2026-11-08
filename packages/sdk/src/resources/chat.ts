@@ -15,6 +15,7 @@ import type {
   StopChatTurnBody,
   UploadChatAttachmentsResponse
 } from "../types/chat";
+import type { ChatHistoryPage, ChatHistoryQuery } from "../types/chat-history";
 import { BaseResource } from "./base-resource";
 
 /**
@@ -46,11 +47,11 @@ function cursorHeaders(lastEventId: string | undefined): Record<string, string> 
  * {@link createSession} authenticates with the org API key this client was
  * constructed with — it is a privileged act and belongs on a server.
  * {@link refresh}, {@link stream}, {@link streamRaw}, {@link resume},
- * {@link resumeRaw}, {@link stop} and {@link status} authenticate with the
- * SESSION TOKEN and send NO api-key at all, because the server refuses a
- * request that carries both. That asymmetry is the security property, not an
- * inconvenience: the token names one deployment and one conversation, and
- * holds no scopes.
+ * {@link resumeRaw}, {@link stop}, {@link status} and {@link history}
+ * authenticate with the SESSION TOKEN and send NO api-key at all, because the
+ * server refuses a request that carries both. That asymmetry is the security
+ * property, not an inconvenience: the token names one deployment and one
+ * conversation, and holds no scopes.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * THE CONTROL SURFACE — what turns a demo into a product
@@ -63,6 +64,7 @@ function cursorHeaders(lastEventId: string | undefined): Record<string, string> 
  * | send a message | {@link stream} · {@link streamRaw} |
  * | a Stop button | {@link stop} |
  * | "is it still running" | {@link status} |
+ * | show a returning visitor where they left off | {@link history} |
  * | reconnect after a reload or a dropped socket | {@link resume} · {@link resumeRaw} |
  * | keep the SAME conversation across a stale token | {@link refresh} |
  *
@@ -370,6 +372,53 @@ export class ChatResource extends BaseResource {
   async status(deploymentId: string, auth: ChatStreamAuth): Promise<ChatTurnStatus> {
     return this.http.request<ChatTurnStatus>("GET", `/deployments/${deploymentId}/chat/status`, {
       chatSessionToken: auth.token
+    });
+  }
+
+  /**
+   * One page of the conversation's transcript, oldest first within the page.
+   *
+   * What lets a returning visitor see where they left off: the conversation is
+   * the session token's own claim, so this reads exactly the chat the token
+   * names and no request can point it at another. A DELETED conversation is
+   * refused, as every route on this surface refuses one.
+   *
+   * Uses the SESSION TOKEN, like every method here except {@link createSession}.
+   *
+   * ```ts
+   * let page = await client.chat.history(deploymentId, auth);
+   * render(page.messages);
+   * while (page.hasMore) {
+   *   page = await client.chat.history(deploymentId, auth, { before: page.messages[0].id });
+   *   prepend(page.messages);
+   * }
+   * ```
+   *
+   * 🔑 **THE NEWEST PAGE COMES FIRST, AND EACH PAGE IS OLDEST-FIRST INSIDE.**
+   * So the cursor for the page before is the FIRST message you hold, never the
+   * last. `hasMore` is never `true` over an empty page.
+   *
+   * ⚠️ **A MESSAGE IS ITS `parts`, NOT ITS `text`.** `text` is a plain-string
+   * fallback; a card, an attachment, a code-interpreter block and a failed
+   * turn's error exist only as parts. Render the parts with the same code that
+   * renders the live stream's matching frames.
+   *
+   * ⚠️ **A token minted with no `chatId` reserves a conversation that has no
+   * row yet**, so its transcript is an empty page — the correct answer, not a
+   * missing one.
+   *
+   * @param deploymentId - The deployment the session token was minted for.
+   * @param auth - The session token. The conversation is its own claim.
+   * @param query - `before` pages backwards; `limit` is 1-50, server default 20.
+   */
+  async history(
+    deploymentId: string,
+    auth: ChatStreamAuth,
+    query: ChatHistoryQuery = {}
+  ): Promise<ChatHistoryPage> {
+    return this.http.request<ChatHistoryPage>("GET", `/deployments/${deploymentId}/chat/messages`, {
+      chatSessionToken: auth.token,
+      query: { before: query.before, limit: query.limit }
     });
   }
 

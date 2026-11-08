@@ -44,7 +44,7 @@
     "build": "tsup && tsc -p tsconfig.build.json && node ../../scripts/assert-declarations.mjs dist",
     "dev": "tsup --watch",
     "start:stdio": "node dist/cli.js",
-    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit --skipLibCheck",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit --skipLibCheck && node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.vitest.json",
     "lint": "eslint . --max-warnings 0",
     "test": "node --no-sparkplug ./node_modules/vitest/vitest.mjs run",
     "prepublishOnly": "pnpm run build"
@@ -57,6 +57,6 @@
     "@types/node": "24.6.2",
     "tsup": "^8.5.0",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.7"
   }
 }

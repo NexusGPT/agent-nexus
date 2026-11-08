@@ -816,6 +816,8 @@ export type V1ResponseAssertions = [
   Expect<Equals<ResponseOf<"ChatStopTurn">, MethodResult<NexusClient["chat"]["stop"]>>>,
   // ChatTurnStatus  GET /public/v1/deployments/:deploymentId/chat/status  ->  client.chat.status()
   Expect<Equals<ResponseOf<"ChatTurnStatus">, MethodResult<NexusClient["chat"]["status"]>>>,
+  // ChatHistoryList  GET /public/v1/deployments/:deploymentId/chat/messages  ->  client.chat.history()
+  Expect<Equals<ResponseOf<"ChatHistoryList">, MethodResult<NexusClient["chat"]["history"]>>>,
   // ChatUploadAttachments  POST /public/v1/deployments/:deploymentId/chat/attachments  ->  client.chat.uploadAttachments()
   Expect<
     Equals<
@@ -1871,6 +1873,7 @@ export type V1ResponseAssertions = [
 const GATED_ROUTES = [
   "ChatStopTurn",
   "ChatTurnStatus",
+  "ChatHistoryList",
   "ChatUploadAttachments",
   "CueTranscriptsListConversations",
   "CueTranscriptsGetTranscript",
@@ -3291,7 +3294,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 347;
+const GATED_ROUTE_COUNT = 348;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();
@@ -3578,10 +3581,34 @@ describe("every v1 response schema matches its SDK method's return type", () => 
     expect(reachedWithResponse.length).toBe(
       GATED_ROUTES.length + Object.keys(V1_RESPONSE_DRIFT).length
     );
+  });
 
-    // A route with NO Response is outside this gate BY CONSTRUCTION, not clean.
-    // It is a separate and much larger population, and conflating the two makes
-    // the coverage read far better than it is.
-    expect(withoutResponse.length).toBeGreaterThan(reachedWithResponse.length / 4);
+  /**
+   * THE CLASSIFIER NEVER READS A DECLARED ABSENCE AS A `Response`.
+   *
+   * Every count in this file rests on `hasResponse`, and every descriptor
+   * declares exactly one of three keys: `Response`, the declared-absence
+   * `noResponse`, or `rawResponse` for a stream or a binary body. A classifier
+   * that conflated them — the obvious spelling is a key-suffix test, which
+   * matches all three — would read EVERY route as gated-able: the uncovered
+   * population collapses to nothing, and the coverage reads far better than it
+   * is with no arm here able to say so.
+   *
+   * 🔴 STATED AGAINST THE DESCRIPTOR'S OWN DECLARATION, NEVER AS A RATIO. This
+   * intent used to be `withoutResponse.length > reachedWithResponse.length / 4`,
+   * which caught that collapse and was also refused by ordinary progress: gating
+   * `ChatHistoryList` alone took it to 96 against 384 / 4. A route that gains a
+   * `Response` leaves the absence set here instead of eroding a ratio, and the
+   * set never empties — the `rawResponse` streams declare their absence for good.
+   */
+  it("never reads a declared absence of a Response as a Response", () => {
+    const declaredAbsent = Object.entries(ZPublicApiV1 as Record<string, object>)
+      .filter(([, descriptor]) => "noResponse" in descriptor || "rawResponse" in descriptor)
+      .map(([name]) => name);
+    const live = new Map(routes.map((route) => [route.name, route]));
+
+    // The denominator: a scan that found no declared absence proves nothing below.
+    expect(declaredAbsent.length).toBeGreaterThan(0);
+    expect(declaredAbsent.filter((name) => live.get(name)?.hasResponse === true)).toEqual([]);
   });
 });

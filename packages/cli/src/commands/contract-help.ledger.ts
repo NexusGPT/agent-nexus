@@ -364,13 +364,13 @@ export const GENERATED_NAMESPACE_LEDGER = [
     // `--print-contract`), which a stream has exactly like any other route;
     // nothing here describes the response.
     //
-    // The control half — stop, status, resume — takes the same session token as
-    // the stream, so its three descriptors sit here rather than in a namespace
-    // of their own: they address one conversation named by one credential.
+    // The control half — stop, status, resume, history — takes the stream's own token, so its
+    // descriptors sit here, not in a namespace of their own: one conversation, one credential.
     namespace: "chat",
     descriptors: [
       "ChatSendMessageStream",
       "ChatResumeStream",
+      "ChatHistoryList",
       "ChatStopTurn",
       "ChatTurnStatus",
       "DeploymentChatSessionCreate"

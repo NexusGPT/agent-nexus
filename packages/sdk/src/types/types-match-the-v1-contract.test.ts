@@ -92,6 +92,7 @@ import {
   RoleVariablesV1ResponseSchema,
   RoleWorkingYearV1BodySchema,
   RoleWorkspaceGrantsV1ResponseSchema,
+  SendChatMessageBodySchema,
   SkillFolderSchema,
   TraceDetailSchema,
   TraceSummarySchema,
@@ -113,6 +114,7 @@ import { describe, expect, it } from "vitest";
 import type { Equals, Expect, Received, Sent } from "../v1-contract-equality";
 import type { ApiKeyConnection, ApiKeyService } from "./api-key-connections";
 import type { Asset, AssetDeleteResult } from "./assets";
+import type { SendChatMessageBody } from "./chat";
 import type {
   AgentModel,
   AgentToolConfigType,
@@ -748,7 +750,20 @@ export type V1ContractAssertions = [
   >,
   Expect<
     Equals<UpdateCollectionBody["reranker"], Sent<typeof UpdateCollectionBodySchema>["reranker"]>
-  >
+  >,
+
+  // ── chat send ── POST /public/v1/deployments/:deploymentId/chat
+  //
+  // The two host-page fields, rather than the whole body: `messages` is the AI
+  // SDK's own `UiMessage`, which this package publishes in its SDK-facing shape
+  // and the server validates more loosely, so a whole-body pair would gate that
+  // gap instead of these fields. `visitor` is what the embed sends on the first
+  // turn, and its keys are closed on the server — a renamed key here is a 400
+  // that costs the visitor their first message.
+  Expect<
+    Equals<SendChatMessageBody["metadata"], Sent<typeof SendChatMessageBodySchema>["metadata"]>
+  >,
+  Expect<Equals<SendChatMessageBody["visitor"], Sent<typeof SendChatMessageBodySchema>["visitor"]>>
 ];
 
 /**
@@ -883,7 +898,10 @@ const GATED_PAIRS = [
   "ConnectToolBody ↔ ConnectToolBodySchema",
 
   "CreateCollectionBody.reranker ↔ CreateCollectionBodySchema.reranker",
-  "UpdateCollectionBody.reranker ↔ UpdateCollectionBodySchema.reranker"
+  "UpdateCollectionBody.reranker ↔ UpdateCollectionBodySchema.reranker",
+
+  "SendChatMessageBody.metadata ↔ SendChatMessageBodySchema.metadata",
+  "SendChatMessageBody.visitor ↔ SendChatMessageBodySchema.visitor"
 ] as const;
 
 /**
@@ -1075,7 +1093,10 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
 // SDK's `RerankerModel` union is hand-mirrored from the contract's enum, and
 // these two pairs are the only thing that reds when the enum gains or loses a
 // model without the union following it (NEX-4608).
-const GATED_PAIR_FLOOR = 115;
+//
+// +2: the chat send body's `metadata` and `visitor` — the host-page context and
+// the visitor naming the dedicated embed sends on a conversation's first turn.
+const GATED_PAIR_FLOOR = 117;
 
 /**
  * The COMPILE-TIME half of the ratchet.

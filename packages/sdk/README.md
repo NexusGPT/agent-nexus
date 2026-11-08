@@ -211,6 +211,7 @@ A turn is not only started. It is stopped, watched, and picked back up.
 | a Stop button                                | `stop`                 |
 | "is it still running"                        | `status`               |
 | reconnect after a reload or a dropped socket | `resume` · `resumeRaw` |
+| show a returning visitor where they left off | `history`              |
 
 ```typescript
 // The Stop button. `accepted` says a live turn was FOUND, never that it has stopped.
@@ -230,6 +231,13 @@ for await (const chunk of chat.resume(deploymentId, auth, {
   onEventId: (id) => void (cursor = id)
 })) {
   if (chunk.type === "text-delta") append(chunk.delta);
+}
+
+// The transcript: newest page first, each page oldest-first. Page backwards with
+// the FIRST message's id. Render `parts` — a card or a file exists only there.
+let page = await chat.history(deploymentId, auth);
+while (page.hasMore) {
+  page = await chat.history(deploymentId, auth, { before: page.messages[0].id });
 }
 ```
 

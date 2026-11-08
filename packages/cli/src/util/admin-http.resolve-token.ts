@@ -1,5 +1,6 @@
 import { AdminCliError } from "./admin-errors";
 import type { AdminHttpOptions } from "./admin-http.types";
+import { firstNonBlankOr } from "./present-text";
 
 /**
  * Resolve the admin token: `--admin-token` first, then `NEXUS_ADMIN_TOKEN`.
@@ -13,9 +14,13 @@ import type { AdminHttpOptions } from "./admin-http.types";
  * DevTools, which is where `AdminCliError.missingToken`'s own hint sends the
  * operator to find it — so pasting the whole header value works rather than
  * producing `Bearer Bearer …` on the wire.
+ *
+ * Blank-aware, not `??`: `--admin-token "$UNSET"` arrives as `""`, which a
+ * `??` chain stops on, throwing `missingToken` with a real token in the
+ * environment. The helper is this package's own copy — see `present-text.ts`.
  */
 export function resolveAdminToken(opts: AdminHttpOptions): string {
-  const raw = opts.adminToken ?? process.env.NEXUS_ADMIN_TOKEN ?? "";
+  const raw = firstNonBlankOr([opts.adminToken, process.env.NEXUS_ADMIN_TOKEN], "");
   const stripped = raw.replace(/^Bearer\s+/i, "").trim();
   if (!stripped) {
     throw AdminCliError.missingToken();

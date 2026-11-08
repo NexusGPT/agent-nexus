@@ -1,0 +1,18 @@
+// Typechecks this package's vitest tier file, which `tsconfig.json` cannot.
+//
+// `tsconfig.json` has `rootDir: "./src"`, which refuses `vitest.config.ts` beside
+// `src/` with TS6059, and `tsconfig.build.json` extends it — so widening it would
+// put a file the published build reads into this change. This program reads the
+// config on its own, the way vitest loads it: bundler resolution, ESM, no emit.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": null,
+    "outDir": null,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

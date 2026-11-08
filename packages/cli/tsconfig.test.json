@@ -19,6 +19,6 @@
     "rootDir": null,
     "outDir": null
   },
-  "include": ["src", "test/**/*.ts", "scripts/**/*.ts"],
+  "include": ["src", "test/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

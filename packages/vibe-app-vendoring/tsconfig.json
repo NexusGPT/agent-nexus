@@ -10,13 +10,17 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    // The package root, not `src`: this program is `typecheck`'s, which never
+    // emits, and it reads `vitest.config.ts` beside `src/` — a `src` rootDir
+    // refuses that with TS6059. `tsconfig.build.json` is the emitting program and
+    // sets `rootDir: "./src"` itself, so the published layout is unchanged.
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "types": ["node"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

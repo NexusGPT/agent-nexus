@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { NexusApiError } from "../errors";
 import { HttpClient } from "../http-client";
 import type { ChatStreamChunk } from "../types/chat";
+import type { ChatHistoryPage } from "../types/chat-history";
 import { ChatResource } from "./chat";
 
 /**
@@ -276,6 +277,26 @@ describe("chat.stream — hop two, spending the SESSION TOKEN", () => {
     expect(JSON.parse(seen[0].body ?? "null")).toEqual(body);
   });
 
+  it("carries visitor and metadata on the body, byte for byte", async () => {
+    const { chat, seen } = chatFor(() => sseResponse(A_TEXT_TURN));
+
+    const body = {
+      content: "hi",
+      metadata: { shop: "brussels-1" },
+      visitor: {
+        customerId: "0b8f3c1e-2a4d-4e6f-8a9b-1c2d3e4f5a6b",
+        customerName: "Ada",
+        customerEmail: "ada@example.test"
+      }
+    };
+
+    for await (const _chunk of chat.stream(DEPLOYMENT, body, { token: TEST_SESSION_TOKEN })) {
+      // drained
+    }
+
+    expect(JSON.parse(seen[0].body ?? "null")).toEqual(body);
+  });
+
   it("maps a refusal to a NexusApiError carrying the server's own code", async () => {
     const { chat } = chatFor(
       () =>
@@ -476,6 +497,80 @@ describe("chat.status — the fact the stop route deliberately does not claim", 
       lastEventId: null,
       frameCount: 0
     });
+  });
+});
+
+/**
+ * A transcript page carrying one of every part arm a restored message can hold,
+ * so a method that reshaped or filtered the page would drop one visibly.
+ */
+const A_HISTORY_PAGE: ChatHistoryPage = {
+  messages: [
+    {
+      id: "m1",
+      role: "user",
+      text: "show me the plans",
+      parts: [{ type: "text", text: "show me the plans" }],
+      createdAt: "2026-11-06T09:00:00.000Z"
+    },
+    {
+      id: "m2",
+      role: "assistant",
+      text: "Pick one",
+      parts: [
+        { type: "text", text: "Pick one" },
+        {
+          type: "file",
+          url: "https://cdn.example/plan.pdf",
+          mediaType: "application/pdf",
+          providerMetadata: { nexus: { filename: "plan.pdf" } }
+        },
+        {
+          type: "data-nexus-html-template",
+          id: "m2",
+          data: { messageId: "m2", html: "<button>Pro</button>", text: "Pick one" }
+        },
+        { type: "data-nexus-code-block", id: "m2", data: { messageId: "m2", blocks: [] } },
+        { type: "data-nexus-error", data: { code: "UPSTREAM", message: "provider 500" } }
+      ],
+      createdAt: "2026-11-06T09:00:01.000Z"
+    }
+  ],
+  hasMore: true
+};
+
+describe("chat.history — the transcript a returning visitor reloads", () => {
+  it("GETs the messages route with the session token and NO api-key", async () => {
+    const { chat, seen } = chatFor(() => jsonResponse(A_HISTORY_PAGE));
+
+    const page = await chat.history(DEPLOYMENT, { token: TEST_SESSION_TOKEN });
+
+    expect(page).toEqual(A_HISTORY_PAGE);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe("GET");
+    // No query string at all when no page is named: the server's own default
+    // (the newest 20) is the answer, and a `limit=` the caller never chose would
+    // override it.
+    expect(seen[0].url).toBe(
+      `https://api-staging.gpt.nexus/api/public/v1/deployments/${DEPLOYMENT}/chat/messages`
+    );
+    expect(seen[0].headers["x-chat-session-token"]).toBe(TEST_SESSION_TOKEN);
+    expect(seen[0].headers).not.toHaveProperty("api-key");
+  });
+
+  it("sends `before` and `limit` as the query, which is how a client pages backwards", async () => {
+    const { chat, seen } = chatFor(() => jsonResponse({ messages: [], hasMore: false }));
+
+    const before = "55555555-5555-4555-8555-555555555555";
+    await chat.history(DEPLOYMENT, { token: TEST_SESSION_TOKEN }, { before, limit: 50 });
+
+    const url = new URL(seen[0].url);
+    expect(url.pathname).toBe(`/api/public/v1/deployments/${DEPLOYMENT}/chat/messages`);
+    expect(url.searchParams.get("before")).toBe(before);
+    expect(url.searchParams.get("limit")).toBe("50");
+    // No body on a GET, and the conversation is never a parameter: it is the token's claim.
+    expect(seen[0].body).toBeUndefined();
+    expect([...url.searchParams.keys()].sort()).toEqual(["before", "limit"]);
   });
 });
 

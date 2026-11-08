@@ -429,6 +429,9 @@ function driveOption(option: Option, value: string): void {
   probe.name("probe").exitOverride();
   probe.addOption(option);
   probe.action(() => {});
+  /* eslint-disable-next-line nexus/blank-defeats-nullish-fallback -- commander sets
+     `long` and `short` from the flags string and leaves an absent one `undefined`,
+     never `""`, so no blank reaches this chain. */
   probe.parse(["node", "probe", option.long ?? option.short ?? "", value]);
 }
 

@@ -2,6 +2,7 @@ import { Command } from "commander";
 
 import { bindCommand } from "../contract-binding";
 import {
+  CHAT_HISTORY_LIST_CONTRACT,
   CHAT_RESUME_STREAM_CONTRACT,
   CHAT_SEND_MESSAGE_STREAM_CONTRACT,
   CHAT_STOP_TURN_CONTRACT,
@@ -9,6 +10,7 @@ import {
   DEPLOYMENT_CHAT_SESSION_CREATE_CONTRACT
 } from "./chat.contract.generated";
 import { CHAT_HELP } from "./chat/chat-help";
+import { registerChatHistoryCommand } from "./chat/history.command";
 import { registerChatResumeCommand } from "./chat/resume.command";
 import { registerChatSendCommand } from "./chat/send.command";
 import { registerChatSessionCommand } from "./chat/session.command";
@@ -48,6 +50,7 @@ export function registerChatCommands(program: Command): void {
   const stop = registerChatStopCommand(chat, program);
   const status = registerChatStatusCommand(chat, program);
   const resume = registerChatResumeCommand(chat, program);
+  const history = registerChatHistoryCommand(chat, program);
 
   // Bound LAST, after every option exists — see `bindCommand`. One descriptor
   // per leaf, one per HOP.
@@ -56,4 +59,5 @@ export function registerChatCommands(program: Command): void {
   bindCommand(stop, CHAT_STOP_TURN_CONTRACT);
   bindCommand(status, CHAT_TURN_STATUS_CONTRACT);
   bindCommand(resume, CHAT_RESUME_STREAM_CONTRACT);
+  bindCommand(history, CHAT_HISTORY_LIST_CONTRACT);
 }

@@ -53,8 +53,7 @@ export function renderSurfaceHeader(projection: Projection): string {
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * ${projection.nodeCount} command nodes; ${leaves.length} invocable leaves.
- * ${projection.topLevel.total} top-level commands — ${projection.topLevel.visible} visible, ${projection.topLevel.hidden} hidden.
+ * ${projection.nodeCount} command nodes; ${leaves.length} invocable leaves; ${projection.topLevel.total} top-level commands — ${projection.topLevel.visible} visible, ${projection.topLevel.hidden} hidden.
  * Leaves with no root-program binding: ${unjoinedSummary(projection.unjoined)}.
  *
  *   tier         ${tally(leaves.map((leaf) => leaf.tier))}

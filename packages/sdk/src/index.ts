@@ -95,11 +95,14 @@ export { DEFAULT_REQUEST_TIMEOUT_MS, LONG_RUNNING_TIMEOUT_MS } from "./timeouts"
 
 // Types
 export type {
+  AwaitThreadOptions,
+  AwaitThreadResult,
   ListPromptAssistantThreadsParams,
   PromptAssistantChatBody,
   PromptAssistantChatResponse,
   PromptAssistantTerminalStatus,
   PromptAssistantThreadMessage,
+  PromptAssistantThreadProgress,
   PromptAssistantThreadResponse,
   PromptAssistantThreadSummary,
   PromptAssistantWaitUntil,
@@ -109,6 +112,7 @@ export type {
 } from "./resources/prompt-assistant";
 export {
   isPromptAssistantTerminalStatus,
+  PROMPT_ASSISTANT_MAX_WAIT_SECONDS,
   PROMPT_ASSISTANT_TERMINAL_STATUSES
 } from "./resources/prompt-assistant";
 /**

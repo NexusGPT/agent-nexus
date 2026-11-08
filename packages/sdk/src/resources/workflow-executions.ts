@@ -123,10 +123,22 @@ export class WorkflowExecutionsResource extends BaseResource {
    *
    * Rejects with 404 when the execution is not yours or the node names nothing
    * inside it, and with 400 when the node is not in `ERROR` or its type is not
-   * retryable. Rejects with 503 when the run changed while the retry was
-   * starting and the server could not read its state: nothing was written and
-   * the node is still retryable, so the same call is safe to send again. The
-   * client does not replay a 503 on a POST by itself.
+   * retryable. Rejects with a 503 whose `code` is `"RUN_STATE_UNKNOWN"` when
+   * the run changed while the retry was starting and the server could not read
+   * its state: nothing was written and the node is still retryable, so the same
+   * call is safe to send again.
+   *
+   * Read `code`, not `status`. Any other 503 says nothing about whether the
+   * retry was admitted: the server's own `"SERVICE_UNAVAILABLE"` (it could not
+   * get a database connection), or a proxy's or load balancer's 503, which this
+   * client surfaces as `"HTTP_503"`. After one of those, read the node with
+   * {@link getNodeResult} and compare it with what you read before the retry:
+   * a `status` other than `ERROR` means the retry was admitted; `ERROR` with a
+   * changed `completedAt` means it was admitted and ended in `ERROR` again, so
+   * a new retry is a new attempt; `ERROR` with the same `completedAt` means it
+   * was not admitted, so send it again. A second retry of an admitted failure
+   * is refused with a 400, never run twice. The client does not replay a 503 on
+   * a POST by itself.
    *
    * @param executionId - Execution UUID.
    * @param nodeId - Graph node id, or the execution-node row id. Either is

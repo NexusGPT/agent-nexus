@@ -241,11 +241,11 @@ export const COMMAND_CLASSIFICATION: Readonly<Record<string, CommandDisposition>
   // CREDENTIAL — a bearer token for a deployment — and a sweep's output is a CI
   // log. "writes no row" is true and is the wrong question; the answer belongs
   // to nobody once it is printed.
-  // The control half — stop, status and resume — is `registration-only` rather
-  // than `never-execute`, and the distinction is the declared one: each needs a
-  // required option (the conversation, by token or by id), and `stop` mutates a
-  // live turn. None of the three PRINTS a credential, which is what put the two
-  // above out of reach of a sweep whose output is a CI log.
+  // The control half — stop, status, resume, history — is `registration-only` rather than
+  // `never-execute`, and the distinction is the declared one: each needs a required option (the
+  // conversation, by token or by id), and `stop` mutates a live turn. None of the four PRINTS a
+  // credential, which is what put the two above out of reach of a sweep whose output is a CI log.
+  "chat history": "registration-only",
   "chat resume": "registration-only",
   "chat send": "never-execute",
   "chat session": "never-execute",

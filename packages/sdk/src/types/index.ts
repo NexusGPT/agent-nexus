@@ -30,6 +30,7 @@ export type * from "./api-key-connections";
 export type * from "./assets";
 export type * from "./channels";
 export type * from "./chat";
+export type * from "./chat-history";
 export type * from "./cloud-imports";
 export type * from "./common";
 export type * from "./conversations";

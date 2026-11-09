@@ -1,15 +1,15 @@
 /** Appended to `nexus tool connect`. */
 export const TOOL_CONNECT_HELP = `
 Examples:
-  $ nexus tool connect 11111111-1111-4111-8111-111111111111 --service GOOGLE_SHEETS
+  $ nexus tool connect 11111111-1111-4111-8111-111111111111
   $ nexus tool connect 11111111-1111-4111-8111-111111111111 --auth-type http --api-key-value sk-abc123 --name "Production key"
   $ nexus tool connect 11111111-1111-4111-8111-111111111111 --body '{"authType":"http","apiKey":"sk-abc"}'
 
 Notes:
-  --service names the account to authorize, and the tool ID does not imply it:
-  neither "nexus tool search" nor "nexus tool get" returns it. Use the built-in
-  OAuth service name (GOOGLE_SHEETS, GMAIL, NOTION, ...) or the Pipedream app
-  slug (google_sheets).
+  THE TOOL ID DECIDES WHICH SIGN-IN STARTS. A catalog tool opens its own
+  sign-in, whatever its display name. Any other tool answers 422 and names the
+  route that fits it. A built-in service (GMAIL, NOTION, ...) has no tool ID:
+  connect it with "nexus credential connect --service <service>".
 
   --auth-type http IS NARROWER THAN IT SOUNDS, AND ITS REFUSAL NAMES THE WRONG
   THING. It fits ONE kind of tool: the marketplace calls that kind "user_http".
@@ -19,9 +19,8 @@ Notes:
   typo in your flag when it is really the wrong tool for this branch.
 
   MOST TOOLS CONNECT ON THE DEFAULT PATH, API KEY OR NOT. Leave --auth-type
-  alone, pass --service, and follow the link the response returns; the key is
-  entered there. Reach for --auth-type http only after the default path has
-  refused you.
+  alone and follow the link the response returns; the key is entered there.
+  Reach for --auth-type http only after the default path has refused you.
 
   CONNECTING WITH --auth-type http ADDS A CREDENTIAL, IT DOES NOT REPLACE ONE.
   A tool holds many, so a second key for the same tool is a second row and both

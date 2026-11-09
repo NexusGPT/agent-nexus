@@ -16,7 +16,7 @@ import { BaseResource } from "./base-resource";
  *
  * ```
  * // OAuth flow
- * const result = await client.toolConnection.connect(toolId, { authType: "oauth", service: "GOOGLE_SHEETS" });
+ * const result = await client.toolConnection.connect(toolId, { authType: "oauth" });
  * console.log("Open:", result.authorizationUrl);
  * const status = await client.toolConnection.waitForConnection(result.handshakeId);
  *

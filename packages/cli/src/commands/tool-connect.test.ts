@@ -13,15 +13,12 @@ import { setJsonMode } from "../output";
  * ever have shown them is the request body, so that is what these assert —
  * against the real SDK resource over a fake transport, never a mocked resource.
  *
- * The three, each with its own case below:
+ * The two, each with its own case below:
  *
- *  1. The OAuth arm sent `{ authType: "oauth" }` with no `service`, which
- *     `ConnectToolOAuthBodySchema` requires. The default path could not pass
- *     validation, and there was no `--service` flag to fix it with.
- *  2. `--auth-header` sent `authorizationType`, which is on no arm of the
+ *  1. `--auth-header` sent `authorizationType`, which is on no arm of the
  *     server's union. Zod stripped it, the server created the credential, and
  *     the CLI printed success — a setting that silently did not exist.
- *  3. `--auth-type` carried a commander default, so it merged over `--body` and
+ *  2. `--auth-type` carried a commander default, so it merged over `--body` and
  *     flipped the discriminant of the command's own documented example.
  */
 
@@ -108,15 +105,9 @@ describe("nexus tool connect", () => {
     expect(sentBody()).toEqual({ authType: "oauth", service: "GOOGLE_SHEETS" });
   });
 
-  it("refuses locally when OAuth has no service, instead of sending a request that cannot validate", async () => {
-    const doc = await refusalDocument(["tool", "connect", TOOL_ID]);
-    expect(request).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(EXIT_CODES["invalid-input"]);
-    expect(doc.message).toContain("--service");
-    // The example belongs in the hint, where a caller reads it, rather than
-    // glued onto the message a script surfaces.
-    expect(doc.hint).toContain("--service <service>");
-    expect(doc.code).toBe("CLI_INVALID_ARGUMENTS");
+  it("starts OAuth from the tool ID alone, with no service", async () => {
+    await run(["tool", "connect", TOOL_ID]);
+    expect(sentBody()).toEqual({ authType: "oauth" });
   });
 
   it("keeps the authType the operator put in --body", async () => {

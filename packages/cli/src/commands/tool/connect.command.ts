@@ -30,8 +30,8 @@ function isConnectAuthType(value: string): value is ConnectAuthType {
 // Each branch builds a member of the server's own discriminated union
 // (`ConnectToolBodySchema`, packages/types/src/api/public/v1/schemas/
 // tool-connection.schemas.ts) as a TYPED literal, so the compiler holds
-// the request to the contract: the OAuth arm cannot be built without a
-// `service`, and a field the union does not declare cannot be added.
+// the request to the contract: a field the union does not declare cannot be
+// added.
 //
 // The previous shape — an untyped bag asserted with `as any` at the
 // call — could express neither constraint, and shipped three defects
@@ -53,7 +53,7 @@ export function registerToolConnectCommand(tool: Command, program: Command): voi
     .option("--auth-type <type>", `Auth type: ${CONNECT_AUTH_TYPES.join(" or ")} (default: oauth)`)
     .option(
       "--service <service>",
-      "OAuth service or Pipedream app slug to authorize (e.g. GOOGLE_SHEETS, google_sheets). Required for OAuth"
+      "Ignored: the tool ID decides which sign-in starts. Accepted so existing scripts keep working"
     )
     .option("--api-key-value <key>", "API key for HTTP auth")
     .option("--name <name>", "Label for the credential HTTP auth creates")
@@ -96,16 +96,10 @@ export function registerToolConnectCommand(tool: Command, program: Command): voi
         }
 
         const service = readStringField(opts.service, base, "service");
-        if (service === undefined) {
-          process.exitCode = refuse(
-            '--service is required for OAuth. Pass it as a flag, or as "service" inside --body (the flag wins if you supply both).',
-            "nexus tool connect <id> --service <service>\n" +
-              '  nexus tool connect <id> --body \'{"authType":"oauth","service":"GOOGLE_SHEETS"}\'\n' +
-              "  e.g. --service GOOGLE_SHEETS (built-in OAuth) or --service google_sheets (Pipedream app slug)"
-          );
-          return;
-        }
-        const oauthBody: ConnectToolOAuthBody = { authType: "oauth", service };
+        const oauthBody: ConnectToolOAuthBody = {
+          authType: "oauth",
+          ...(service !== undefined && { service })
+        };
         const result = await client.toolConnection.connect(id, oauthBody);
         printSuccess("OAuth flow initiated.", result);
       } catch (err) {

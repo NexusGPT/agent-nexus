@@ -5,7 +5,11 @@
 /** Body for connecting a tool via OAuth. */
 export interface ConnectToolOAuthBody {
   authType: "oauth";
-  service: string;
+  /**
+   * Ignored. The tool passed to `connect()` decides which sign-in starts; the
+   * field stays accepted so callers that still send it keep working.
+   */
+  service?: string;
 }
 
 /** Body for connecting a tool via HTTP API key. */

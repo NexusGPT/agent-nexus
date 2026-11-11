@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 1.15.1 ───────────────────────────────────────────────────
+ * ── THE SURFACE AT 1.16.0 ───────────────────────────────────────────────────
  *
- * 560 promised paths — 492 STABLE, 68 UNSTABLE.
+ * 561 promised paths — 493 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "1.15.1",
+  version: "1.16.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -153,6 +153,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "channel whatsapp-template list", shape: "81243a0e370b", tier: "STABLE" },
     { path: "channel whatsapp-template submit-approval", shape: "16f944ced1a6", tier: "STABLE" },
     { path: "channel whatsapp-template test-send", shape: "699894480862", tier: "STABLE" },
+    { path: "chat history", shape: "69a4c3c479e3", tier: "STABLE" },
     { path: "chat resume", shape: "616dbcd12829", tier: "STABLE" },
     { path: "chat send", shape: "3609d9836cb0", tier: "STABLE" },
     { path: "chat session", shape: "b8847c9f9e3b", tier: "STABLE" },

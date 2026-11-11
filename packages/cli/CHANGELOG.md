@@ -1,5 +1,40 @@
 # @agent-nexus/cli
 
+## 1.16.0
+### Minor Changes
+
+- bca4360: Read a chat conversation's transcript with `client.chat.history()` and `nexus chat history`
+  
+  - **`client.chat.history(deploymentId, { token }, { before?, limit? })`** reads one page of the conversation a chat-session token names — `GET /public/v1/deployments/:deploymentId/chat/messages` — so a returning visitor sees where they left off. It authenticates with the session token and sends no API key, exactly like `status()`, and it is on the browser client `createBrowserChatClient()` returns, because that client is a `ChatResource`.
+  - **The newest page comes first, and each page is oldest-first inside.** Page backwards by passing the FIRST message's id as `before` while `hasMore` is `true`. `limit` is 1-50; omitted, the server returns 20.
+  - **A message is its `parts`.** `text` is a plain-string fallback; a card (`data-nexus-html-template`), an attachment (`file`), code-interpreter blocks (`data-nexus-code-block`) and a failed turn's error (`data-nexus-error`) exist only as parts, and each carries the same `data` the matching live stream frame does. The new types are `ChatHistoryPage`, `ChatHistoryMessage`, `ChatHistoryPart` and `ChatHistoryQuery`.
+  - **`nexus chat history <deployment-id>`** takes the conversation the way `chat status` does — `--session-token`, or `--chat-id` for an existing conversation — plus `--before` and `--limit`. The table names each message's part types; `--json` prints the server's page whole, `hasMore` included.
+- 0e1491e: `nexus tool connect <id>` starts the OAuth sign-in of the tool you name, with no `--service`
+  
+  The tool ID now decides which sign-in starts, so a catalog tool whose display
+  name is not its app slug, such as Linear (OAuth), connects like any other.
+  
+  - CLI: `tool connect` no longer requires `--service`. The flag is still
+    accepted and ignored. A built-in service such as `GMAIL` connects with
+    `nexus credential connect --service <service>`.
+  - SDK: `ConnectToolOAuthBody.service` is optional.
+  - Types: `ConnectToolOAuthBodySchema.service` is optional, so the exported
+    contract shows it.
+
+### Patch Changes
+
+- b0eb15b: A blank `--admin-token` no longer hides `NEXUS_ADMIN_TOKEN`; the CLI falls through to the env token.
+- 6c1dceb: The contract section of `nexus chat send --help` now lists the `visitor` body field and its three members, `visitor.customerId`, `visitor.customerName` and `visitor.customerEmail`, which the v1 chat route accepts on a conversation's first turn. The command's own flags and behaviour are unchanged.
+- 6db4c90: `GET /public/v1/tracing/analytics/cost-breakdown` publishes the spend it cannot place in any entry, and the grain each dimension was read at
+  
+  - **Two new response fields, both always present.** `unattributed` is one bucket carrying the same six metrics an entry carries — cost, both token sums, the trace count, the generation count and the unpriced part of it — holding every call that does not carry each requested dimension. `sum(entries.totalCostUsd) + unattributed.totalCostUsd` is the window's exact total, because the two are complementary filters over one population. It is zeroed rather than omitted when nothing was dropped, so a consumer can verify that sum instead of assuming it. `totalInputTokens`, `totalOutputTokens`, `generationCount` and `unpricedGenerationCount` add up the same way; `traceCount` does not at `generation` grain, because it counts distinct traces and one trace can fall under two group keys — the field documentation says so rather than leaving it to be assumed from "they are complements". `grains` names the grain per dimension: `generation` is the attribution recorded on the call, `trace` the one recorded on the conversation it belonged to. They ship as `CostBreakdownUnattributedSchema`, `CostBreakdownGrainSchema` and their inferred types in `@nexus/types`, and as the matching types in `@agent-nexus/sdk`.
+  - **`entries` was never the whole window and nothing said so.** Only a call carrying every requested dimension can be placed in an entry, so the entries' costs sum to a lower bound on spend. Measured over a 7-day window on one production tenant, that lower bound omitted 32% of total spend for `customer`, 25% for `deployment`, 24% for `agent` and 95% for `workflowExecution` — and the total it would have to be compared against lives on the summary endpoint, so no consumer could detect the gap.
+  - **`agent`, `deployment`, `customer` and `workflowExecution` now resolve at generation grain**, reading the attribution recorded on the call rather than the one its conversation inherited. The first three drop materially less. `workflow` stays at trace grain because a generation cannot carry a workflow id, and a request combining `workflow` with another dimension resolves every member at trace grain — which is why `grains` is keyed per dimension rather than published once per response.
+  - `nexus tracing cost-breakdown` prints an `UNATTRIBUTED` line and a `GRAIN` line under the table, and its notes say the rows plus that line are the whole window rather than that the rows do not add up.
+  - The reference page documents all six `groupBy` dimensions, the `bucket` parameter and the multi-dimension composite key, none of which it named before.
+  - One open question for whoever cuts this release: `@agent-nexus/sdk` is declared `patch` because it is a pass-through whose surface is defined in `@nexus/types`, following `.changeset/embed-chat-transcript-and-host-thread-resume.md`, which declares that same shape `minor` for types and `patch` for the SDK. The SDK does ship a hand-written mirror of the response type, and that mirror gained two fields and two exported names here, so a case exists for `minor` instead. Either is defensible; this follows the precedent.
+- 9534288: `skills.executeTask` and `nexus task execute` document the 400 `AI_TASK_IMAGE_INPUT_REFUSED`: an image input that cannot be sent to the model — not a PNG, JPEG, GIF or WebP, a `data:` URI that is not base64, over 20 MiB (over 10 MiB of base64 on Anthropic), or the call's images together past the provider's budget — is refused before any model runs. The message names the image and the reason, and the same input is refused the same way on every retry.
+
 ## 1.15.1
 ### Patch Changes
 

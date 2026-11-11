@@ -18,7 +18,7 @@ import { NexusClient } from "../client";
  *   enough that `types/evaluations.ts` documented the missing method by name
  *   (`client.evaluations.uploadDataset()`) in two docstrings (NEX-2961).
  * - A field name that does not match is a 400 from multer reading
- *   `Unexpected field`, which names the field the CLIENT sent and never the one
+ *   `Unexpected file field`, which names the field the CLIENT sent and never the one
  *   the server wanted.
  *
  * `--max-warnings 0` and `tsc` cannot see any of it: a wrong string literal is
@@ -276,7 +276,7 @@ describe("every v1 multipart route has an SDK method that matches the contract",
       expect(
         sent,
         `${key} sends no part named "${route.multipart.field}". multer rejects such a ` +
-          `request with "Unexpected field", naming the field the client sent.`
+          `request with "Unexpected file field", naming the field the client sent.`
       ).toBeInstanceOf(File);
 
       // A bare Blob carries no name, so this can only have arrived through the

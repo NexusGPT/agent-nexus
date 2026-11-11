@@ -15,7 +15,7 @@ import { readUploadBlob, resolveUploadPath } from "./upload-file";
  * and a route that ever chose a different name is a flag on this command
  * rather than a hunt through call sites.
  *
- * multer rejects a file arriving under any other name with `Unexpected field`,
+ * multer rejects a file arriving under any other name with `Unexpected file field`,
  * a 400 that names the field the CLIENT sent and never the one the server
  * wanted.
  */

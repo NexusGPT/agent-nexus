@@ -23,7 +23,7 @@ const ENV_READ =
  *    expression is dropped. Code inside `${…}` stays code in both, so a read
  *    interpolated into a template still counts.
  *
- * The walk and not the TypeScript parse (`@nexus/types/testing/blank-comments-ts`):
+ * The walk and not the TypeScript parse (`@nexus/types-testing/blank-comments-ts`):
  * this package has no `.tsx`, so JSX text, the one place the walk reads a comment
  * that is not one, cannot occur, and over every file this scan reads the two
  * projections are byte-identical.

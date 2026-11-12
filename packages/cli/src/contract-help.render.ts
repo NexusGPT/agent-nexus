@@ -61,13 +61,10 @@ export { SLOTS } from "./contract-help.types";
  * `--print-contract` prints every field. The block is the summary; the flag is
  * the escape hatch.
  *
- * ⚠️ `required` is the CONTRACT's opinion, and the contract is wrong at least
- * once. `DeploymentList.Params.isActive` is
- * `z.preprocess(fn, z.boolean().optional())` — the `.optional()` sits INSIDE the
- * pipe, so the outer type is not optional and this prints it as required. The
- * live `deployment_list` MCP tool advertises it as required for exactly the same
- * reason, from the same converter. Printing what the contract says is correct
- * here; the fix belongs in `packages/types`.
+ * ⚠️ `required` is the CONVERTER's reading of the contract, not a second
+ * opinion. `z.toJSONSchema` decides it, and the live MCP catalog reads the same
+ * converter, so the two agree by construction. Where the converter is wrong the
+ * fix belongs in `packages/types` or in the converter, never here.
  */
 export function renderHelpBlock(
   descriptor: ProjectedDescriptor,

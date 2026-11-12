@@ -103,12 +103,11 @@ const CLI_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * disagree with the MCP catalog about what an endpoint accepts.
  *
  * A consequence worth stating, because it cuts both ways: this projection
- * inherits that converter's faults. `ListDeploymentsParamsSchema.isActive` is
- * `z.preprocess(fn, z.boolean().optional())` — the `.optional()` is INSIDE the
- * preprocess, so the outer pipe is not optional and both this projection and the
- * live `deployment_list` MCP tool report `isActive` as REQUIRED. That is a real
- * defect in the schema, surfaced rather than papered over: see the `requiredKeys`
- * note in `contract-help.codegen.ts`.
+ * inherits that converter's judgement of what is required. For a key that is a
+ * `z.preprocess(fn, inner)` the converter reads the optionality of `inner` — so
+ * `ListDeploymentsParamsSchema.isActive` (`z.boolean().optional()` inside the
+ * preprocess) and the phone-number search flags (`.default(false)` inside it) are
+ * listed optional, which is what the server does with an absent one.
  */
 /**
  * The data shapes live in the PURE module, not here.
@@ -217,17 +216,73 @@ export function descriptorNames(): string[] {
  *
  * The override is local to this projection. The MCP catalog's own converter
  * (`build-tool-input-schema.ts`) is untouched, and what it advertises is not this file's call.
+ *
+ * ── The two zod 4.6 re-spellings this projection undoes ─────────────────────
+ *
+ * zod 4.6 added two passes to the converter's `finalize` that rewrite a schema
+ * into an equivalent JSON Schema with a different shape. Every walk below was
+ * written against the zod 4.1 shapes, and both rewrites change what it projects:
+ *
+ *   · `foldIntersection` folds an intersection's `allOf` into one object — and,
+ *     when a member is a union, DISTRIBUTES over it: `A & (X | Y)` is emitted as
+ *     `oneOf: [A&X, A&Y]`. `ScoreRecord`'s body is exactly that shape, so it came
+ *     out as a three-arm `oneOf`, {@link unwrapSingleArm} declined it, the body
+ *     projected to zero fields, and `contract-binding.offer.ts` threw on the enum
+ *     binding that could no longer find `scorableType`. The override below hands
+ *     each intersection's `allOf` a fresh array: the fold finds its work by the
+ *     IDENTITY of the array the intersection processor recorded, so a copy is
+ *     left as the `allOf` 4.1 emitted and {@link flattenAllOf} reads it as before.
+ *   · `compactTypeUnion` rewrites `anyOf: [{type: "a"}, {type: "b"}]` to
+ *     `type: ["a", "b"]`. That turned every nullable scalar into a `string|null`
+ *     field where {@link unwrapSingleArm} used to drop the null arm.
+ *     {@link expandTypeArrays} restores the `anyOf`. The rewrite is the ONLY
+ *     source of a type array — every processor assigns a single type — so the
+ *     inverse is exact.
+ *
+ * debt: the fold is suppressed through a zod 4.6 INTERNAL — `finalize` matching
+ *       `ctx.intersections` to `allOf` arrays by identity — not a public option.
+ *       Ceiling: correct for zod 4.6.x as read in 4.6.7's `to-json-schema.js`.
+ *       Upgrade trigger: any zod minor or major bump. A bump that stops honouring
+ *       the copy is loud, not silent: `ScoreRecord` projects no fields again,
+ *       `gen:contract-help` throws in `contract-binding.offer.ts`, and
+ *       `scripts/generated-drift.mjs` reds on the regenerated files.
  */
 function convert(schema: z.ZodType): JsonSchemaNode {
   const generated = z.toJSONSchema(schema, {
     io: "input",
     unrepresentable: "any",
     override: ({ zodSchema, jsonSchema }) => {
-      if (zodSchema._zod.def.type === "undefined") jsonSchema.not = {};
+      const { def } = zodSchema._zod;
+      if (def.type === "undefined") jsonSchema.not = {};
+      if (def.type === "intersection" && Array.isArray(jsonSchema.allOf)) {
+        jsonSchema.allOf = [...jsonSchema.allOf];
+      }
     }
   });
   const { $schema: _dialect, ...rest } = generated as JsonSchemaNode & { $schema?: unknown };
-  return rest;
+  return expandTypeArrays(rest);
+}
+
+/**
+ * `type: ["a", "b"]` back to `anyOf: [{type: "a"}, {type: "b"}]`, at every
+ * schema position this projection reads. See {@link convert}.
+ */
+function expandTypeArrays(node: JsonSchemaNode): JsonSchemaNode {
+  const { type, properties, items, anyOf, oneOf, allOf, not, ...rest } = node;
+  const out: JsonSchemaNode = { ...rest };
+  if (Array.isArray(type)) out.anyOf = type.map((member) => ({ type: member }));
+  else if (type !== undefined) out.type = type;
+  if (properties) {
+    out.properties = Object.fromEntries(
+      Object.entries(properties).map(([key, child]) => [key, expandTypeArrays(child)])
+    );
+  }
+  if (items) out.items = expandTypeArrays(items);
+  if (anyOf) out.anyOf = [...(out.anyOf ?? []), ...anyOf.map(expandTypeArrays)];
+  if (oneOf) out.oneOf = oneOf.map(expandTypeArrays);
+  if (allOf) out.allOf = allOf.map(expandTypeArrays);
+  if (not) out.not = expandTypeArrays(not);
+  return out;
 }
 
 /** `{ not: {} }`: the node no value satisfies. See {@link convert}. */

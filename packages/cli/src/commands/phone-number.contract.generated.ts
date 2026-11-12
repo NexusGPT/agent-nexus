@@ -35,8 +35,8 @@ export const PHONE_NUMBER_SEARCH_AVAILABLE_CONTRACT = {
     { path: "Params.areaCode", slot: "Params", type: "string", required: false, depth: 0 },
     { path: "Params.type", slot: "Params", type: "string", required: false, depth: 0, enumValues: ["mobile", "local"] },
     { path: "Params.limit", slot: "Params", type: "integer", required: false, depth: 0 },
-    { path: "Params.sms", slot: "Params", type: "boolean", required: true, depth: 0 },
-    { path: "Params.mms", slot: "Params", type: "boolean", required: true, depth: 0 },
-    { path: "Params.voice", slot: "Params", type: "boolean", required: true, depth: 0 }
+    { path: "Params.sms", slot: "Params", type: "boolean", required: false, depth: 0 },
+    { path: "Params.mms", slot: "Params", type: "boolean", required: false, depth: 0 },
+    { path: "Params.voice", slot: "Params", type: "boolean", required: false, depth: 0 }
   ]
 } as const satisfies ProjectedDescriptor;

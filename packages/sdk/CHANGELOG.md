@@ -1,5 +1,30 @@
 # @agent-nexus/sdk
 
+## 5.1.1
+### Patch Changes
+
+- 2a19130: zod moves to 4.6 for GHSA-mrhx-c7xc-m3w5, with every contract behaving as it did on zod 4.1
+  
+  `@nexus/types` now resolves zod `^4.6.6`, which fixes memory exhaustion when validating
+  oversized constrained collections. zod 4.6 changed two behaviours the contracts were
+  written against, and both are restored:
+  
+  - An absent key whose schema accepts `undefined` parses again, instead of failing with
+    `expected: "nonoptional"`.
+  - A key written `.optional().refine(...)` runs its refinement again when the key is
+    absent. This restores the `DELETE_ALL_CACHE` confirmation on the admin flush-all.
+  - Date-time fields accept a minute-precision `Z` or offset timestamp again.
+  
+  Measured over 60,889 exported key paths, none differs from zod 4.1.13. The module
+  refuses to load if a later zod stops honouring the restoration.
+  
+  `@agent-nexus/cli`: `nexus deployment list --help` no longer prints `isActive` as
+  required, and `nexus phone-number search` no longer prints `sms`, `mms` and `voice` as
+  required. The server always accepted all four absent.
+  
+  `@agent-nexus/sdk`: the response check for `GET /scores` still reports `unchecked`, and
+  its reason now says the payload is a union. Previously it called the payload typeless.
+
 ## 5.1.0
 ### Minor Changes
 

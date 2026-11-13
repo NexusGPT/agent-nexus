@@ -1,5 +1,19 @@
 # @agent-nexus/mcp-server
 
+## 1.2.2
+### Patch Changes
+
+- 3e23d4f: Move `@modelcontextprotocol/sdk` to `^1.32.2`.
+  
+  This reaches consumers: the published package's `dependencies` decide what an install
+  resolves, and every release in the `~1.25.3` range it replaces carries five HIGH advisories
+  fixed between 1.26.0 and 1.32.0 — GHSA-345p-7cg4-v4c7 (cross-client data leak through a
+  shared server/transport instance), GHSA-f897-62hf-6gxq (no request-body size limit on the
+  HTTP transports), GHSA-6qxp-vccf-f47h (OAuth credentials sent to an authorization server the
+  server chose), GHSA-46jr-4wx8-v453 (one request within the default size limit exhausting
+  memory) and GHSA-22jm-h49p-29qw (experimental tasks not tied to the session that created
+  them). The server talks stdio and imports the same SDK subpaths as before.
+
 ## 1.2.1
 ### Patch Changes
 

@@ -15,9 +15,9 @@ import { shellCodeLine } from "./shell-code-line.testkit";
 /**
  * Is this whole line a `#` comment — nothing but whitespace before the `#`?
  *
- * 🚨 THIS IS `isHashCommentLine` FROM `@nexus/types/testing/hash-comments`, AND
+ * 🚨 THIS IS `isHashCommentLine` FROM `@nexus/types-testing/hash-comments`, AND
  * IT CANNOT BE IMPORTED FROM HERE. The public mirror ships every file under
- * `packages/cli/src/` and strips `@nexus/types` from the mirrored manifest, so an
+ * `packages/cli/src/` and strips `@nexus/types-testing` from the mirrored manifest, so an
  * import of it from this file is a bundle the mirror cannot build —
  * `mirror-manifests.spec.ts` refuses it by name.
  *

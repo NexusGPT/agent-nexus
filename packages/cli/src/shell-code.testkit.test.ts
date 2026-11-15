@@ -3,7 +3,7 @@
  * through, and the `#` predicate it restates.
  *
  * The predicate is restated rather than imported because the public mirror
- * ships every `packages/cli/src/` file and strips `@nexus/types`. A spec is not
+ * ships every `packages/cli/src/` file and strips `@nexus/types-testing`. A spec is not
  * shipped, so it may import the shared predicate, and it holds the copy EQUAL
  * to it so the two cannot drift.
  *

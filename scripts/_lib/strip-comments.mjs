@@ -10,5 +10,10 @@
  * run under plain `node` in CI jobs and hooks, and the repository root declares no
  * workspace dependency. The public mirror carries both files, which is why
  * `MIRROR_ROOT_PATHS` in `.github/workflows/mirror-public-packages.yml` names both.
+ *
+ * debt: one walk, two spellings of where it lives. Upgrade trigger: this path's entry in
+ *       `apps/backend/src/__governance__/shim-importers.ledger.ts` is empty — then delete
+ *       this file, its `RE_EXPORT_SHIMS` registration, its `MIRROR_ROOT_PATHS` line and
+ *       that entry.
  */
 export * from "../../packages/config/lib/strip-comments.mjs";

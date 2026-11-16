@@ -25,9 +25,13 @@ export async function resolveApiKey(
   let apiKey = provided;
 
   if (!apiKey) {
-    console.log(`Opening ${color.cyan(SETTINGS_URL)} ...`);
-    console.log("Create or copy an API key from the settings page.\n");
-    openUrl(SETTINGS_URL);
+    if (process.stdin.isTTY) {
+      console.log(`Opening ${color.cyan(SETTINGS_URL)} ...`);
+      console.log("Create or copy an API key from the settings page.\n");
+      openUrl(SETTINGS_URL);
+    } else {
+      console.log(`Create or copy an API key at ${color.cyan(SETTINGS_URL)}\n`);
+    }
 
     apiKey = (await ask("Paste your API key (nxs_...): ")).trim();
   }

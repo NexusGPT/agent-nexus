@@ -23,9 +23,13 @@ export async function loginCommand(args: string[]): Promise<void> {
   const baseUrl = config.baseUrl ?? resolveBaseUrl();
 
   // Step 1: Open browser to settings page
-  console.log(`Opening ${SETTINGS_URL} ...`);
-  console.log("Create or copy an API key from the settings page.\n");
-  openUrl(SETTINGS_URL);
+  if (stdin.isTTY) {
+    console.log(`Opening ${SETTINGS_URL} ...`);
+    console.log("Create or copy an API key from the settings page.\n");
+    openUrl(SETTINGS_URL);
+  } else {
+    console.log(`Create or copy an API key at ${SETTINGS_URL}\n`);
+  }
 
   // Step 2: Prompt for the key
   const rl = readline.createInterface({ input: stdin, output: stdout });
@@ -67,7 +71,12 @@ export async function loginCommand(args: string[]): Promise<void> {
 }
 
 function openUrl(url: string): void {
-  const platform = process.platform;
-  const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
-  exec(`${cmd} ${JSON.stringify(url)}`);
+  exec(openCommand(process.platform, url), { windowsHide: true });
+}
+
+function openCommand(platform: NodeJS.Platform, url: string): string {
+  const quoted = JSON.stringify(url);
+  if (platform === "darwin") return `open ${quoted}`;
+  if (platform === "win32") return `start "" ${quoted}`;
+  return `xdg-open ${quoted}`;
 }

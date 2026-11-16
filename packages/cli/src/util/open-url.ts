@@ -19,7 +19,12 @@ import { exec } from "node:child_process";
  * platform that needs a different command still has to be taught twice.
  */
 export function openUrl(url: string): void {
-  const platform = process.platform;
-  const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
-  exec(`${cmd} ${JSON.stringify(url)}`);
+  exec(openCommand(process.platform, url), { windowsHide: true });
+}
+
+export function openCommand(platform: NodeJS.Platform, url: string): string {
+  const quoted = JSON.stringify(url);
+  if (platform === "darwin") return `open ${quoted}`;
+  if (platform === "win32") return `start "" ${quoted}`;
+  return `xdg-open ${quoted}`;
 }

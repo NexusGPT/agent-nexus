@@ -1,5 +1,13 @@
 # @agent-nexus/mcp-server
 
+## 1.2.3
+### Patch Changes
+
+- 76829b0: `nexus auth login` on Windows opens the API keys page instead of an empty Command Prompt, and opens nothing when a program answers the prompt
+  
+  - On Windows the page was opened with `start "<address>"`, which Windows reads as "a new Command Prompt titled `<address>`". That window appeared in place of the browser, and the login did not exit until someone closed it. The command is now `start "" "<address>"`, run with no console window. `nexus channel connect-waba` and `nexus-mcp login` opened pages the same way and are fixed with it.
+  - `nexus auth login` and `nexus-mcp login` open the page only when a person is at a terminal. When stdin is not a terminal, a program is answering the key prompt, so the login prints `Create or copy an API key at <address>` where it printed `Opening <address> ...`, and opens nothing. A script that matched the `Opening` line on piped input must match the new one.
+
 ## 1.2.2
 ### Patch Changes
 

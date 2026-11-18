@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resolveCommandPath } from "./command-path";

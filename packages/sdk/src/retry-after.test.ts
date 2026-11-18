@@ -1,4 +1,4 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HttpClient, type HttpClientOptions } from "./http-client";

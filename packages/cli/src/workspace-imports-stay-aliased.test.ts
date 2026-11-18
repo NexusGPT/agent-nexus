@@ -25,18 +25,44 @@ const SRC = path.resolve(__dirname);
 const PKG = path.resolve(__dirname, "..");
 
 /**
- * The entries that have a build to be stale: every entry of every `workspace:` dependency
- * whose `exports` send vitest to `dist/`, from the derivation `vitest.aliases.ts` is built
- * on. A workspace specifier outside it — `@nexus/config`'s helpers, which ship as source —
- * resolves to source with or without an alias, so it is never an unmapped import.
+ * Where a specifier LANDS with no alias applied, asked of node's own resolver.
+ *
+ * 🔴 THIS REPLACED A LOOKUP IN THE DERIVED TABLE, AND THE TABLE WAS SILENT ON TWO
+ * CLASSES THE MESSAGE BELOW CLAIMS TO CATCH. That table is derived from each
+ * `workspace:` dependency's `exports`, so a specifier is absent from it whenever the
+ * dependency declares no `exports` at all — which is also true of a SUBPATH naming a
+ * file that is not on disk, and of a package that is not installed here at all. Both
+ * were reported `ok`. Measured in this package: `DIST_BUILT.size` 71, holding
+ * `@nexus/types`, and both of those classes absent from it.
+ *
+ * `require.resolve` IS the resolution, so there is no model of `exports` conditions,
+ * `main`, `module` or the legacy subpath rule to get subtly wrong — and a specifier
+ * that resolves nowhere is reported rather than silently passed. The classification
+ * is shared with the SDK's and the frontend's twins of this gate, in
+ * `@nexus/config/lib/unaliased-resolution.cjs`, so the three cannot disagree about
+ * what counts as a build read. The SCAN below stays this package's own.
+ *
+ * REQUIRED at run time, typed by its `.d.cts`: a value import would put the CommonJS
+ * file into this package's `tsc` program, which refuses it.
  */
-const WORKSPACE_SOURCES: typeof import("@nexus/config/lib/workspace-sources.cjs") = createRequire(
+const RESOLUTION: typeof import("@nexus/config/lib/unaliased-resolution.cjs") = createRequire(
   __filename
-)("@nexus/config/lib/workspace-sources.cjs");
-const DIST_BUILT = WORKSPACE_SOURCES.deriveWorkspaceSources(
-  PKG,
-  WORKSPACE_SOURCES.JEST_CONDITIONS
-).aliases;
+)("@nexus/config/lib/unaliased-resolution.cjs");
+
+/** Read off the function rather than imported, so the two cannot drift. */
+type UnaliasedResolution = ReturnType<typeof RESOLUTION.unaliasedResolution>;
+
+const unaliasedResolution = (specifier: string): UnaliasedResolution =>
+  RESOLUTION.unaliasedResolution(specifier, PKG);
+
+/**
+ * The two verdicts that need no alias. `source` is a real file outside the
+ * dependency's build output. `published` is a REGISTRY dependency's own build, which
+ * belongs to its publisher and which nothing in this repository can make stale —
+ * this package imports no such specifier today, and `apps/frontend` imports 1,537
+ * of them, which is why the verdict exists rather than being a guard against nothing.
+ */
+const NEEDS_NO_ALIAS: ReadonlySet<UnaliasedResolution["kind"]> = new Set(["source", "published"]);
 
 /**
  * The table `vitest.aliases.ts` exports, computed the way that module computes it. That
@@ -113,26 +139,74 @@ describe("workspace imports stay aliased to source", () => {
   it("maps every workspace specifier this package imports", () => {
     const { specifiers } = scan();
     const unmapped = [...specifiers.entries()]
-      .filter(
-        ([specifier]) => DIST_BUILT.has(specifier) && !(specifier in WORKSPACE_SOURCE_ALIASES)
-      )
-      .map(([specifier, files]) => `${specifier} (imported by ${files.join(", ")})`);
+      .filter(([specifier]) => !(specifier in WORKSPACE_SOURCE_ALIASES))
+      .map(([specifier, files]) => ({ specifier, files, at: unaliasedResolution(specifier) }))
+      .filter(({ at }) => !NEEDS_NO_ALIAS.has(at.kind))
+      .map(
+        ({ specifier, files, at }) =>
+          `${specifier} [${at.kind}: ${at.detail}] (imported by ${files.join(", ")})`
+      );
 
     expect(
       unmapped,
-      "These specifiers resolve through the dependency's `exports` map, which points at " +
-        "`dist/`, so this suite would test against whatever was last built rather than " +
-        "against source. The table is derived from each dependency's `exports`, so an " +
-        "unmapped entry is one whose `default` names no source file that exists. REMEDY: " +
-        "give it one. Do not delete " +
-        "this assertion — an unmapped specifier is the defect it exists to catch."
+      "Each of these imports is absent from `vitest.aliases.ts` AND does not resolve to " +
+        "something this suite may safely read. `build` means it resolves into a " +
+        "`workspace:` dependency's build output, so the suite tests whatever was last built " +
+        "rather than source — the alias table is derived from that dependency's `exports`, " +
+        "so such an entry is one whose `default` names no source file that exists, and the " +
+        "REMEDY is to give it one. `absent` means it resolves nowhere at all — a renamed or " +
+        "deleted file, or a package that is not a dependency here — and the remedy is to fix " +
+        "the specifier or declare the dependency. Do not delete this assertion, and do not " +
+        "exempt a package to satisfy it: a specifier that genuinely ships as source already " +
+        "passes, because this arm asks node where it lands rather than whether somebody " +
+        "listed it, and so does one into a REGISTRY dependency's own build."
     ).toEqual([]);
   });
 
-  it("CONTROL: the dist-built population holds the entries this package imports from a build", () => {
-    expect([...DIST_BUILT.keys()]).toEqual(
-      expect.arrayContaining(["@agent-nexus/sdk", "@nexus/types", "@nexus/vibe-app-vendoring"])
-    );
+  it("CONTROL: the dependencies this package reads from a build are reported as `build`", () => {
+    // 🔴 THE ARM ABOVE EXEMPTS EVERY `source` AND `published` VERDICT, so a classifier
+    // that answered one of those for everything would satisfy it over any tree at all.
+    // This is the non-zero control, and it is the SAME claim the old `DIST_BUILT`
+    // population control made — that these three are read from a build when unaliased —
+    // measured through the live classifier instead of through a model of `exports`.
+    //
+    // Every verdict is collected and asserted ONCE: three `expect`s in a row would stop
+    // at the first failure, leaving the other two unscored by any mutant that moves them
+    // together. Spelled whole rather than assembled, because `SPECIFIER` matches only a
+    // quote preceded by `from` or `import` and an array element is neither.
+    const subjects = ["@agent-nexus/sdk", "@nexus/types", "@nexus/vibe-app-vendoring"];
+    expect(
+      subjects.map((specifier) => `${specifier}: ${unaliasedResolution(specifier).kind}`),
+      "Each of these routes its `node` condition to `dist/` and is a `workspace:` dependency " +
+        "here, so with no alias applied each must be reported as a build read. Anything else " +
+        "means `unaliasedResolution` can no longer tell a build from source, and the arm " +
+        "above is passing vacuously."
+    ).toEqual(subjects.map((specifier) => `${specifier}: build`));
+  });
+
+  it("CONTROL: a specifier naming a file that does not exist is reported as `absent`", () => {
+    // The strengthening over a table lookup, pinned. A table is silent about a
+    // specifier nobody ever listed; this arm is not. The name is ASSEMBLED, never
+    // written whole: this file sits inside the tree `scan()` walks, and a literal
+    // would be read as a genuine import and fail the arm above on its own fixture.
+    const coined = `@nexus${"/"}config/lib/${"no-such-helper"}.mjs`;
+    expect(
+      unaliasedResolution(coined),
+      "A subpath into an `exports`-less dependency resolves to the literal file path, so one " +
+        "naming a file that is not on disk resolves nowhere and must be reported. If this " +
+        "reads `source`, the resolution is not being attempted at all."
+    ).toMatchObject({ kind: "absent" });
+  });
+
+  it("CONTROL: a specifier into a package that is not installed is reported as `absent`", () => {
+    // The second class the derived table was silent on. ASSEMBLED for the same reason.
+    const coined = `@nexus${"/"}absent-${"package"}/x.js`;
+    expect(
+      unaliasedResolution(coined),
+      "A package with no `node_modules` entry here resolves nowhere, and a derived table " +
+        "built from installed dependencies cannot see it. If this reads anything but " +
+        "`absent`, the link check is not running."
+    ).toMatchObject({ kind: "absent" });
   });
 
   it("CONTROL: the scan actually finds the specifier we know is there", () => {

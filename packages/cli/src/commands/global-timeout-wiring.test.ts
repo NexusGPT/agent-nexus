@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
-import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
+import { shrinkOnlyLedger } from "@nexus/types-testing/shrink-only-ledger";
 import { Command } from "commander";
 import ts from "typescript";
 import { beforeEach, describe, expect, it, vi } from "vitest";

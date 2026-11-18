@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { EXIT_CODES } from "../exit-codes";

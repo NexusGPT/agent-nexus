@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 /**

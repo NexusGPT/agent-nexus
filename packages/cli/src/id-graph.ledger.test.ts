@@ -1,5 +1,5 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
-import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
+import { shrinkOnlyLedger } from "@nexus/types-testing/shrink-only-ledger";
 import { describe, expect, it } from "vitest";
 
 import { deriveIdGraph } from "./id-graph";

@@ -1,5 +1,5 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
 import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { describe, expect, it } from "vitest";
 
 import { collectRoutes, reachedBySdk } from "./v1-route-scan.conformance";

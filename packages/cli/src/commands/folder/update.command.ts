@@ -29,9 +29,12 @@ Notes:
   --parent-id null MOVES THE FOLDER TO ROOT. "null" is the literal token this
   CLI accepts for it; omitting the flag leaves the parent alone. Absence cannot
   say both, which is why the token exists.
-  NOTHING PREVENTS A CYCLE. Setting a folder's parent to one of its own
-  descendants is accepted at 200 and takes both branches off the root tree.
-  There is no unlink command — fix it with another --parent-id null.
+  A MOVE INTO THE FOLDER'S OWN SUBTREE IS REFUSED. Setting a folder's parent to
+  itself or one of its own descendants answers 400 FOLDER_PARENT_CYCLE and
+  nothing is stored.
+  The parent must be a folder of your organization. A parent id that exists
+  nowhere and one belonging to another organization both answer the same 404
+  FOLDER_PARENT_NOT_FOUND.
   AN EMPTY UPDATE IS A SUCCESS THAT CHANGES NOTHING. Every field is optional,
   so calling this with no flags answers 200 with the folder untouched.
   A folder your key cannot see answers the same 404 as an id that exists

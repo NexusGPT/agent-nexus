@@ -1,4 +1,4 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { describe, expect, it } from "vitest";
 
 import { collectionPrefix, deriveIdGraph, pluralsFor, residues, routeParams } from "./id-graph";

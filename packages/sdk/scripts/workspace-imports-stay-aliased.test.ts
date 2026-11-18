@@ -1,8 +1,9 @@
 /**
  * The alias in `vitest.config.ts` maps only the specifiers `vitest.aliases.ts`
  * NAMES. A workspace specifier this package imports that is absent from that list
- * resolves through `@nexus/types`'s `exports` map instead, whose `node` condition
- * points at `dist/` — so the suite reads whatever was last built.
+ * is resolved by the runner on its own terms — and for `@nexus/types`, whose
+ * `exports` map points its `node` condition at `dist/`, that means the suite reads
+ * whatever was last built.
  *
  * Nothing else notices that. `tsc` resolves the same specifier to source (it does
  * not match `node` under `moduleResolution: "bundler"`), ESLint has no opinion,
@@ -10,25 +11,97 @@
  * thing standing between one new import line and a silent return to reading a
  * stale build.
  *
- * Imports are read with `ts.preProcessFile`, the compiler's own import scanner,
- * rather than a regex: it skips comments, string literals and template literals
- * by construction, so prose that quotes an import line is never an import, and it
- * still reports `import type`, `export … from`, `import()` and `require()`.
+ * 🔴 ABSENT FROM THE TABLE IS NOT THE SAME QUESTION AS RESOLVES TO A BUILD, and
+ * conflating them makes this gate refuse correct code. The table is derived from
+ * each dependency's `exports`, so a dependency that declares NO `exports` map
+ * contributes no rows to it and every specifier into that package is absent by
+ * construction — while node resolves a SUBPATH into such a package to the literal
+ * file path, which is source unless the written path says `dist/`. `@nexus/config`
+ * is exactly that: no `exports`, no `main`, helpers that ship as source. So
+ * `@nexus/config/lib/strip-comments.mjs` already resolves to the file this gate
+ * wants, and demanding a row for it is a remedy nobody can write — the derivation
+ * has no `exports` entry to give a source target to.
+ *
+ * ⚠️ The narrowing is to SUBPATHS and the distinction is load-bearing. A BARE
+ * specifier into an `exports`-less package resolves through `main`, which can name
+ * a build as readily as a source file — so exempting a package wholesale would open
+ * the hole this gate exists to close. Measured under this repo's own vitest and
+ * under node, on a fixture package carrying `main: "./dist/index.js"` and no
+ * `exports`: the bare specifier resolved to `dist/index.js`, the subpath
+ * `lib/helper.mjs` to that literal source file, and the subpath `dist/deep.mjs`
+ * into the build — because the written path said so.
+ *
+ * ✅ So the offender arm below asks the question it means, and it asks it of node's
+ * OWN resolver rather than of a model of one. A model would have to re-derive
+ * `exports` conditions, `main`, `module` and the legacy subpath rule, and be wrong
+ * about whichever it got subtly different; `require.resolve` IS the resolution, so
+ * there is nothing to get wrong. It is also STRICTLY STRONGER than asking the
+ * derived table: a specifier naming a file that is not on disk resolves nowhere and
+ * is reported here, where a table lookup is silent about it.
+ *
+ * The classification itself is `@nexus/config/lib/unaliased-resolution.cjs`, shared
+ * with the CLI's and the frontend's twins of this gate so the three cannot disagree
+ * about what counts as a build read. The SCAN below stays this package's own.
+ *
+ * Imports are read off the AST by `moduleLoadsIn`, the reader this repository's
+ * governance scans share, rather than a regex. It walks import NODES — `import type`,
+ * `export … from`, `import x = require()`, `require()`, `import()` and a type-position
+ * `typeof import()` — so prose that quotes an import line is not a node and is never
+ * an import, whatever else the file contains.
+ *
+ * 🔴 NOT `ts.preProcessFile`, THE COMPILER'S OWN IMPORT SCANNER, AND THE REASON IS
+ * MEASURED RATHER THAN STYLISTIC. It is a TOKEN scanner that does not recognise a
+ * regex literal, so the `"`, `'` and backtick characters inside one are read as
+ * string and template delimiters. That desynchronises its tracking, and a LATER
+ * template literal's CONTENTS are then scanned as code — so an import line quoted
+ * inside a template is reported as an import. Comments and quoted strings it does
+ * skip correctly, which is why the control arm below passed under it for as long as
+ * its fixture held only those two. `moduleLoadsIn`'s own header carries the second
+ * defect — a method named `require` read as a load, 17 of them in `apps/vibe-provisioner`
+ * — and the measurement of what this reader costs.
+ *
+ * Measured on typescript 6.0.3: this package's 156 scanned files leak NOTHING through
+ * either scanner — in BOTH directions, so the swap changes no verdict here. The one
+ * that did is `apps/frontend`, which holds such a regex in a `vi.mock` matcher and
+ * leaked four specifiers through it. The reader is shared so that the two gates cannot
+ * differ in what counts as an import, and so the defect does not wait in this tree for
+ * the first regex of that shape to be written.
  *
  * Each control is its OWN `it`, deliberately. Folded into one block, a broken scan
  * would satisfy the invariant vacuously (an empty set is a subset of anything) and
  * the control meant to catch that would never be evaluated.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
-import ts from "typescript";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
+import { moduleLoadsIn } from "@nexus/types-testing/module-loads";
 import { describe, expect, it } from "vitest";
 
 import { WORKSPACE_SOURCE_ALIASES } from "../vitest.aliases";
 
 const PKG = path.resolve(__dirname, "..");
+
+/**
+ * REQUIRED at run time, typed by its `.d.cts`, for `BUILD_OUTPUT_DIR` — the one
+ * spelling of the directory a workspace build writes, shared with the derivation
+ * behind `vitest.aliases.ts` so the two cannot disagree about what "built" means.
+ */
+const WORKSPACE_SOURCES: typeof import("@nexus/config/lib/workspace-sources.cjs") = createRequire(
+  __filename
+)("@nexus/config/lib/workspace-sources.cjs");
+
+/**
+ * The shared classifier: where a specifier lands with no alias applied, asked of
+ * node's own resolver. REQUIRED at run time for the same reason as the line above.
+ */
+const RESOLUTION: typeof import("@nexus/config/lib/unaliased-resolution.cjs") = createRequire(
+  __filename
+)("@nexus/config/lib/unaliased-resolution.cjs");
+
+/** Read off the function rather than imported, so the two cannot drift. */
+type UnaliasedResolution = ReturnType<typeof RESOLUTION.unaliasedResolution>;
 
 /** Every tree `vitest.config.ts`'s `include` reaches, and so every tree an alias must cover. */
 const SCANNED_TREES = ["src", "scripts"].map((tree) => path.join(PKG, tree));
@@ -42,28 +115,64 @@ const walk = (dir: string): string[] =>
     return full.endsWith(".ts") ? [full] : [];
   });
 
-const importsOf = (source: string): string[] =>
-  ts.preProcessFile(source, true, true).importedFiles.map((ref) => ref.fileName);
+const importsOf = (file: string, source: string): string[] =>
+  moduleLoadsIn(file, source).filter((specifier): specifier is string => specifier !== null);
 
-const scan = (): { files: string[]; specifiers: Map<string, string[]> } => {
+/**
+ * The scanned files that load a module by a COMPUTED specifier, each with its reason.
+ *
+ * `moduleLoadsIn` reports one as `null`, because `import(name)` names no module a scan
+ * could judge. Counted rather than dropped: a file loading `` import(`@nexus/${entry}`) ``
+ * would import a workspace entry this gate could never see, and a scanner allowed to
+ * shrug at an unplaceable load has a denominator of whatever it happened to understand.
+ *
+ * No file under `src` is here, and that is the property that makes this gate's
+ * population complete: nothing this package SHIPS loads a module by a name the scan
+ * cannot read.
+ */
+const COMPUTED_LOADS_ALLOWED: ReadonlyArray<string> = [
+  // This gate's own runtime arm, which imports each specifier under test to prove
+  // where it LANDS — the one thing a literal specifier cannot express.
+  path.join("scripts", "workspace-imports-stay-aliased.test.ts")
+];
+
+const scan = (): {
+  files: string[];
+  specifiers: Map<string, string[]>;
+  computed: string[];
+} => {
   const files = SCANNED_TREES.flatMap(walk);
   const specifiers = new Map<string, string[]>();
+  const computed: string[] = [];
   for (const file of files) {
-    for (const specifier of importsOf(fs.readFileSync(file, "utf-8"))) {
-      if (!WORKSPACE_SCOPE.test(specifier)) continue;
+    const relative = path.relative(PKG, file);
+    const loads = moduleLoadsIn(relative, fs.readFileSync(file, "utf-8"));
+    if (loads.some((specifier) => specifier === null)) computed.push(relative);
+    for (const specifier of loads) {
+      if (specifier === null || !WORKSPACE_SCOPE.test(specifier)) continue;
       const seen = specifiers.get(specifier) ?? [];
-      seen.push(path.relative(PKG, file));
+      seen.push(relative);
       specifiers.set(specifier, seen);
     }
   }
-  return { files, specifiers };
+  return { files, specifiers, computed };
 };
 
-/** `@nexus/types/testing/x` → `["@nexus/types", "./testing/x"]`. */
-const splitSpecifier = (specifier: string): [string, string] => {
-  const [scope, name, ...rest] = specifier.split("/");
-  return [`${scope}/${name}`, rest.length === 0 ? "." : `./${rest.join("/")}`];
-};
+const splitSpecifier = RESOLUTION.splitWorkspaceSpecifier;
+
+/**
+ * Where a specifier lands with no alias applied, asked from THIS package so
+ * `node_modules` resolution starts where the suite runs.
+ *
+ * `build` and `absent` are the two defects. `source` and `published` need no alias:
+ * a real file outside the dependency's build output, and a REGISTRY dependency's
+ * build, which belongs to its publisher and which nothing here can make stale.
+ */
+const unaliasedResolution = (specifier: string): UnaliasedResolution =>
+  RESOLUTION.unaliasedResolution(specifier, PKG);
+
+/** The two verdicts that need no alias, in one place so every arm agrees. */
+const NEEDS_NO_ALIAS: ReadonlySet<UnaliasedResolution["kind"]> = new Set(["source", "published"]);
 
 /**
  * The workspace specifiers this package imports. The runtime arm below loads only these:
@@ -74,21 +183,65 @@ const splitSpecifier = (specifier: string): [string, string] => {
 const IMPORTED = new Set(scan().specifiers.keys());
 
 describe("workspace imports stay aliased to source", () => {
-  it("maps every workspace specifier this package imports", () => {
+  it("maps every workspace specifier this package would otherwise read from a build", () => {
     const { specifiers } = scan();
     const unmapped = [...specifiers.entries()]
       .filter(([specifier]) => !(specifier in WORKSPACE_SOURCE_ALIASES))
-      .map(([specifier, files]) => `${specifier} (imported by ${files.join(", ")})`);
+      .map(([specifier, files]) => ({ specifier, files, at: unaliasedResolution(specifier) }))
+      .filter(({ at }) => !NEEDS_NO_ALIAS.has(at.kind))
+      .map(
+        ({ specifier, files, at }) =>
+          `${specifier} [${at.kind}: ${at.detail}] (${files.join(", ")})`
+      );
 
     expect(
       unmapped,
-      "These specifiers resolve through the dependency's `exports` map, whose `node` " +
-        "condition points at `dist/`, so this suite would test against whatever was last " +
-        "built rather than against source. The table is derived from each dependency's " +
-        "`exports`, so an unmapped entry is one whose `default` names no source file that " +
-        "exists. REMEDY: give it one. Do not delete " +
-        "this assertion — an unmapped specifier is the defect it exists to catch."
+      "Each of these imports is absent from `vitest.aliases.ts` AND does not resolve to a " +
+        "source file of its own dependency, so this suite reads it from somewhere it should " +
+        "not. `build` means the specifier resolves into the dependency's build output, so " +
+        "the suite tests whatever was last built rather than source — the table is derived " +
+        "from each dependency's `exports`, so such an entry is one whose `default` names no " +
+        "source file that exists, and the REMEDY is to give it one. `absent` means it " +
+        "resolves nowhere at all — a renamed or deleted file, or a package that is not a " +
+        "dependency here — and the remedy is to fix the specifier or declare the dependency. " +
+        "Do not delete this assertion, and do not exempt a package to satisfy it: a " +
+        "specifier that genuinely ships as source already passes, because this arm asks " +
+        "node where it lands rather than whether somebody listed it, and so does one into a " +
+        "REGISTRY dependency's own build, which no change in this repository can make stale."
     ).toEqual([]);
+  });
+
+  it("CONTROL: an unaliased dist-built specifier is reported as `build`", () => {
+    // 🔴 THE ARM ABOVE EXEMPTS EVERY `source` VERDICT, so a resolver that answered
+    // `source` for everything would satisfy it over any tree at all. This is the
+    // non-zero control: the specifier this package imports most is genuinely served
+    // from `dist/` when no alias applies, which is the whole reason the table exists.
+    // Without it, the arm above and a broken classifier are the same green.
+    const at = unaliasedResolution("@nexus/types");
+    expect(
+      at,
+      "`@nexus/types` resolves its `node` condition to `dist/`, so with no alias applied it " +
+        "must be reported as a build read. Anything else means `unaliasedResolution` can no " +
+        "longer tell a build from source, and the arm above is passing vacuously."
+    ).toMatchObject({ kind: "build" });
+    expect(
+      at.detail,
+      "the reported path should name the build output directory it was found in"
+    ).toContain(WORKSPACE_SOURCES.BUILD_OUTPUT_DIR);
+  });
+
+  it("CONTROL: a specifier naming a file that does not exist is reported as `absent`", () => {
+    // The strengthening over a table lookup, pinned. A table is silent about a
+    // specifier nobody ever listed; this arm is not. The name is ASSEMBLED, never
+    // written whole: this file sits inside the tree `scan()` walks, and a literal
+    // would be read as a genuine import and fail the arm above on its own fixture.
+    const coined = `@nexus${"/"}config/lib/${"no-such-helper"}.mjs`;
+    expect(
+      unaliasedResolution(coined),
+      "A subpath into an `exports`-less dependency resolves to the literal file path, so one " +
+        "naming a file that is not on disk resolves nowhere and must be reported. If this " +
+        "reads `source`, the resolution is not being attempted at all."
+    ).toMatchObject({ kind: "absent" });
   });
 
   it("CONTROL: the scan finds the specifier this package is known to import", () => {
@@ -137,10 +290,62 @@ describe("workspace imports stay aliased to source", () => {
       `const e = await import("${at("dynamic")}");`
     ].join("\n");
     expect(
-      importsOf(doc),
+      importsOf("fixture.ts", doc),
       "The import reader is reporting text inside a comment or a string as an import, or " +
         "missing a real import form. Either way the scan above is measuring the wrong text."
     ).toEqual([at("type-only"), at("re-export"), at("dynamic")]);
+  });
+
+  it("CONTROL: a regex literal does not make a later template literal read as code", () => {
+    // 🔴 THE ARM ABOVE PASSES ON A TOKEN SCANNER, AND THIS ONE DOES NOT. Its fixture
+    // holds a comment and a single-quoted string, both of which `ts.preProcessFile`
+    // skips correctly — so for as long as the reader was that scanner, the arm above
+    // was a true statement about two of the three things it appeared to cover.
+    //
+    // The third is template literals, and a token scanner does not recognise a regex
+    // literal: the `"`, `'` and backtick below are read as string and template
+    // delimiters, which desynchronises its tracking and makes a LATER template
+    // literal's contents scan as code. Measured on typescript 6.0.3, this fixture
+    // reports `at("in-a-template")` through `preProcessFile` and nothing through this
+    // reader.
+    //
+    // 🔴 THE REGEX IS COPIED FROM THE SHAPE THAT DOES IT IN `apps/frontend`, AND THAT IS
+    // NOT COSMETIC — WHETHER A GIVEN REGEX DESYNCHRONISES DEPENDS ON THE ARRANGEMENT OF
+    // THOSE CHARACTERS, NOT ON THERE BEING A BACKTICK. Measured, same fixture otherwise:
+    // this spelling leaks and `/["'`]/g` does NOT, because in the shorter one the
+    // opening `"` runs a string over the backtick. Written with that spelling the arm
+    // passes under BOTH readers and discriminates nothing.
+    //
+    // This package holds no such regex today, so the arm guards the reader rather than
+    // a live leak: `apps/frontend` does hold one, and leaked four specifiers through it.
+    const at = (name: string): string => `@nexus${"/"}${name}`;
+    const flipped = [
+      // The trigger, in the spelling measured to do it.
+      `const QUOTED = /["'\`]([^"'\`]+)["'\`]/g`,
+      `const t = \`import x from "${at("in-a-template")}"\``,
+      // The POSITIVE twin, so this arm cannot be satisfied by a reader that reports
+      // nothing at all: a real import AFTER the flip must still be reported.
+      `import { Y } from "${at("after-the-flip")}";`
+    ].join("\n");
+    expect(
+      importsOf("fixture.ts", flipped),
+      "The import reader is reporting the contents of a template literal as an import. " +
+        "That is the `ts.preProcessFile` desynchronisation, and it manufactures workspace " +
+        "specifiers in whichever file holds a regex literal of this shape — a false " +
+        "offender in exactly the circumstance this gate exists to fire in."
+    ).toEqual([at("after-the-flip")]);
+  });
+
+  it("CONTROL: a load this scan cannot place is counted, not dropped", () => {
+    // An exact set rather than a ceiling, so adding a computed load reds AND removing
+    // one reds: a bound that only grows is satisfied by the act it exists to notice.
+    expect(
+      [...scan().computed].sort(),
+      "A scanned file loads a module by a computed specifier that `COMPUTED_LOADS_ALLOWED` " +
+        "does not name. `import(name)` names no module the scan can judge, so a workspace " +
+        "entry loaded that way is invisible to the arm above. Confirm the new load cannot " +
+        "name a workspace specifier, then add it there with that reason."
+    ).toEqual([...COMPUTED_LOADS_ALLOWED].sort());
   });
 
   it("CONTROL: every alias points at a source file that exists", () => {

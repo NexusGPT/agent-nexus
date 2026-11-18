@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
-import { shrinkOnlyLedger } from "@nexus/types/testing/shrink-only-ledger";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
+import { shrinkOnlyLedger } from "@nexus/types-testing/shrink-only-ledger";
 import { describe, expect, it } from "vitest";
 
 import { listFilesRecursively } from "./util/list-files-recursively";
@@ -140,28 +140,15 @@ const CEILING_LINES = 150;
 /**
  * EXACT CURRENT LINE COUNT, per non-test file over {@link CEILING_LINES}.
  * Sorted by path so a row moves only when its own file does.
+ *
+ * 🚨 EVERY NUMBER HERE IS RE-READ FROM THE COMMITTED BYTES, NOT FROM THE BYTES
+ * THAT WERE MEASURED. `format-gate` reformats on commit and stages the result,
+ * so a count taken before it runs can be stale by the time it lands — it once
+ * added 6 lines after a row was written and that row shipped wrong. Rows are
+ * pinned to EQUALITY in both directions, so a stale one reds either way.
  */
 const LEDGER: Readonly<Record<string, number>> = {
   "cli-surface.generated.ts": 639,
-  // THE DECLARED COMMAND TABLE, and the only part of the command universe that
-  // needs a row: its siblings in that directory are all 150 or fewer. Its length
-  // is a function of how many leaves the CLI registers — one line each, sorted —
-  // which is the smallest honest representation of that set there is.
-  // A SIZE BUDGET, not a violation count.
-  //
-  // Splitting it further is the wrong cure and would be a REGRESSION. `classify.ts`
-  // diffs the derived tree against ONE table, so per-namespace shards would make a
-  // leaf missing from whichever shard nobody updated read as unclassified, and a
-  // leaf declared in two shards read as classified twice. The gate's whole claim is
-  // that an unclassified leaf is impossible to add silently, and that claim needs a
-  // single denominator.
-  //
-  // 🚨 THIS NUMBER IS RE-READ FROM THE COMMITTED BYTES, NOT FROM THE BYTES THAT
-  // WERE MEASURED. `format-gate` reformats on commit and stages the result, so a
-  // count taken before it runs can be stale by the time it lands — it once added 6
-  // lines after a row was written and that row shipped wrong. The row is pinned to
-  // EQUALITY in both directions, so a stale one reds either way.
-  "command-universe/command-classification.ts": 930,
   // GENERATED from the v1 contract, which carries `reasoningLevel` and the stored-only
   // `none` on every level field. Splitting is not available: the size is a function of
   // the contract it mirrors, and the next generation would undo the split. A SIZE
@@ -207,7 +194,7 @@ const LEDGER: Readonly<Record<string, number>> = {
  * explicit decision this gate exists to buy. Draining rows lowers it in the same
  * change and passes in silence.
  */
-const LEDGER_CEILING = 22;
+const LEDGER_CEILING = 21;
 
 /** The directory this spec lives in, which IS `packages/cli/src`. */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url));

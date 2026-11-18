@@ -224,7 +224,7 @@ const CLAIMS: readonly HelpClaim[] = [
     path: ["update"],
     phrases: [
       "SEND outputFormat LOWERCASE, AT THE BODY ROOT",
-      "CHANGING --model-provider DISCARDS THE PROVIDER-SPECIFIC MODEL SETTINGS"
+      "SENDING --model-provider DISCARDS THE PROVIDER-SPECIFIC MODEL SETTINGS"
     ]
   },
   {

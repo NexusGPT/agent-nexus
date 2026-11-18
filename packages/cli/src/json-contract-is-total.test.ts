@@ -1,4 +1,4 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import type { Command } from "commander";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -47,7 +47,7 @@ import { buildRootProgram } from "./root-program";
  *
  * 🚨 AND AN EMPTY `.each` TABLE IS SILENTLY DROPPED BY VITEST — zero tests
  * registered, file reported PASSED, exit 0. Every table here goes through
- * {@link eachOrRefuse} for that reason; `@nexus/types/testing/each-or-refuse`
+ * {@link eachOrRefuse} for that reason; `@nexus/types-testing/each-or-refuse`
  * carries the measurement.
  *
  * ══════════════════════════════════════════════════════════════════════════════

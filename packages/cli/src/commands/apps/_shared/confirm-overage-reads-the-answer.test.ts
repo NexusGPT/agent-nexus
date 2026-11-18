@@ -34,9 +34,31 @@ const { question, close } = vi.hoisted(() => ({ question: vi.fn(), close: vi.fn(
 
 // The prompt reaches readline through a DYNAMIC import, so the mock stands in
 // for the module rather than for a helper this file owns.
-vi.mock("node:readline/promises", () => ({
-  createInterface: () => ({ question, close })
-}));
+//
+// ⚠️ `once` IS LOAD-BEARING AND WAS MISSING. `askLine` chains
+// `rl.once("SIGINT", …).once("close", …)` inside the abort promise's executor
+// before it asks. Without it that executor throws, the promise REJECTS, and
+// `askLine`'s own `stopped.catch` swallows it — so every arm below passed only
+// because the already-resolved `rl.question` won `Promise.race` on array order.
+// The arms were right; the reason was an accident. Returning the same object
+// makes the chain real and leaves the abort promise pending, which is what the
+// production path does when no signal arrives.
+// The three members `askLine` touches, annotated because `once` returns the
+// object it lives on and an inferred self-reference is TS7022.
+interface ReadlineStandIn {
+  readonly question: typeof question;
+  readonly close: typeof close;
+  readonly once: () => ReadlineStandIn;
+}
+
+vi.mock("node:readline/promises", () => {
+  const rl: ReadlineStandIn = {
+    question,
+    close,
+    once: () => rl
+  };
+  return { createInterface: () => rl };
+});
 
 const { confirmOverageInteractively } = await import("./confirm-overage-interactively");
 

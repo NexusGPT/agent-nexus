@@ -3,10 +3,13 @@ import type { Command } from "commander";
 import { createClient } from "../../client";
 import { bindCommand } from "../../contract-binding";
 import { handleError, refuse, reportFailure } from "../../errors";
-import { color, printEnvelope } from "../../output";
-import { parseJsonObjectFlag } from "../../util/json-object-flag";
+import { printEnvelope } from "../../output";
 import { MCP_SERVER_TOOL_CALL_CONTRACT } from "../mcp-server.contract.generated";
 import { CALL_HELP } from "./call.help";
+import { buildMcpCallBody } from "./call-body";
+import { describeMcpCallFailure } from "./call-failure";
+import { resolveMcpCallInputs } from "./call-inputs";
+import { renderMcpCallResult } from "./call-render";
 
 /** `nexus mcp-server call` */
 export function registerMcpServerCallCommand(mcpServer: Command, program: Command): Command {
@@ -37,38 +40,17 @@ export function registerMcpServerCallCommand(mcpServer: Command, program: Comman
         }
       ) => {
         try {
-          const args = parseJsonObjectFlag(opts.arguments, "--arguments");
-          if ("reason" in args) {
-            process.exitCode = refuse(
-              args.reason,
-              `Run "nexus mcp-server get ${serverId}" for the tool's approved input schema.`
-            );
-            return;
-          }
-          const cardVariables = parseJsonObjectFlag(opts.cardVariables, "--card-variables");
-          if ("reason" in cardVariables) {
-            process.exitCode = refuse(
-              cardVariables.reason,
-              "A card that declares variables is unusable without values for them."
-            );
+          const inputs = resolveMcpCallInputs(opts, serverId);
+          if ("reason" in inputs) {
+            process.exitCode = refuse(inputs.reason, inputs.hint);
             return;
           }
 
           const client = createClient(program.optsWithGlobals());
-          const result = await client.mcpServers.callTool(serverId, {
-            toolName,
-            arguments: args.object,
-            ...(opts.credentialId === undefined ? {} : { credentialId: opts.credentialId }),
-            ...(opts.accessCardId === undefined ? {} : { accessCardId: opts.accessCardId }),
-            ...(opts.cardVariables === undefined
-              ? {}
-              : { cardVariableValues: cardVariables.object }),
-            // WRITTEN EVEN WHEN ABSENT, because the SDK's body makes this key
-            // required with an optional VALUE: declining to pin has to be an act.
-            // `undefined` and not `null` — the route spells the field optional, not
-            // nullable, and the body is strict, so `null` is a 400.
-            expectedSchemaHash: opts.expectedSchemaHash
-          });
+          const result = await client.mcpServers.callTool(
+            serverId,
+            buildMcpCallBody(toolName, opts, inputs)
+          );
 
           // 🔴 THE FAILURE BRANCH RETURNS BEFORE THE PAYLOAD IS PRINTED, AND THE
           // ORDER IS THE WHOLE POINT. Printing the result first and reporting the
@@ -79,36 +61,16 @@ export function registerMcpServerCallCommand(mcpServer: Command, program: Comman
           // `error-masked` and its ceiling is ZERO — correctly, because a script
           // reading stdout cannot tell that run from a success.
           //
-          // So the tool's own text travels INSIDE the error document instead. It is
-          // the answer to a failed call, so losing it is not an option either.
-          //
-          // `remote-error` is the category: the request arrived, Nexus reached the
-          // remote, and the TOOL refused. Not `invalid-input` — nothing about the
-          // invocation was wrong, and a script must not read it as its own bug.
+          // `call-failure.ts` owns what the document SAYS and why its category is
+          // `remote-error`; this branch owns only that it comes first.
           if (result.isError) {
-            const media =
-              result.mediaBlocks.length === 0
-                ? ""
-                : ` ${String(result.mediaBlocks.length)} media block(s) are dropped on this path.`;
-            process.exitCode = reportFailure(
-              "remote-error",
-              `Tool "${result.toolName}" reported that the call failed: ${result.text}`,
-              `That text is the tool's own answer and is what to read to recover.${media}`
-            );
+            const failed = describeMcpCallFailure(result);
+            process.exitCode = reportFailure(failed.cause, failed.message, failed.hint);
             return;
           }
 
           printEnvelope(result, () => {
-            console.log(color.bold(result.toolName));
-            console.log(result.text);
-            if (result.mediaBlocks.length > 0) {
-              console.log();
-              console.log(
-                color.dim(
-                  `${String(result.mediaBlocks.length)} image block(s) returned — read --json for the base64 data.`
-                )
-              );
-            }
+            renderMcpCallResult(result);
           });
         } catch (err) {
           process.exitCode = handleError(err);

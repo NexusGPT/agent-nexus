@@ -35,6 +35,11 @@ Notes:
   A 404 means the execution is not yours or does not exist, or the node names
   nothing inside it. A 400 means it was found and refused, and the message says
   which of the reasons above applied.
+  A 503 WITH CODE RUN_STATE_UNKNOWN means the run changed while the retry was
+  starting and its state could not be read. Nothing was written and the node
+  is still retryable, so the same command is safe to run again. Any other 503
+  (a proxy's, or SERVICE_UNAVAILABLE) says nothing about whether the retry was
+  admitted: read the node before sending it again.
   "RETRYING" IS ACCEPTANCE, NOT COMPLETION. The node is queued and runs
   asynchronously; watch it with "execution follow <id>".
   To re-run a node OUTSIDE its original execution, use

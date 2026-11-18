@@ -7,7 +7,7 @@ import {
   NexusConnectionError,
   NexusTimeoutError
 } from "@agent-nexus/sdk";
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { describe, expect, it } from "vitest";
 
 import { EXIT_INSTALLED_BUT_NOT_RESOLVED, EXIT_VERIFICATION_NOT_YOURS } from "./commands/upgrade";

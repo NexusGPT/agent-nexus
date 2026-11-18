@@ -31,13 +31,17 @@ import { McpServerToolCountsSchema } from "@nexus/types/public-api-v1";
  * where the real contract is legal to import and the binary is not. Same shape,
  * and same three walls, as `ready-set-ceiling.conformance.ts`.
  *
- * 🚨 DO NOT REACH FOR A DEEPER SUBPATH TO AVOID THIS FILE. That gate's matcher
- * allows ONE path segment — `@nexus/types/public-api-v1` is caught and
- * `@nexus/types/testing/each-or-refuse` is not — so a two-segment import from an
- * ordinary module is invisible to it and bypasses the rule rather than satisfying
- * it. Measured 2026-10-07: 20 non-conformance files under `src/` already hold
- * such an import and none is reported. The +5MB the rule exists to keep out of
- * the published bundle does not care which spelling let it in.
+ * 🚨 A DEEPER SUBPATH DOES NOT AVOID THIS FILE. That gate's matcher is unbounded
+ * in depth, so `@nexus/types/public-api-v1` and
+ * `@nexus/types/schemas/Deployment/deploymentSettings/WhatsApp/__json.schema` are
+ * caught alike, and a conformance module is the only place any of them is legal.
+ * The +5MB the rule exists to keep out of the published bundle does not care
+ * which spelling let it in, and neither does the gate.
+ *
+ * The test harness is the one thing that LOOKS like an exception and is not:
+ * `@nexus/types-testing` is a different package, depending on `zod` alone and
+ * never on `@nexus/types`, so importing it from an ordinary spec ships nothing
+ * and needs no gate beside it.
  *
  * ── WHAT THIS PINS, AND WHAT IT HONESTLY CANNOT ─────────────────────────────
  *

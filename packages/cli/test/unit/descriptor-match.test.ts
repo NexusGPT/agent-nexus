@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { beforeAll, test } from "vitest";
 
 import { resolveCommandRoutes, type RouteResolution } from "./help-truth-rules";

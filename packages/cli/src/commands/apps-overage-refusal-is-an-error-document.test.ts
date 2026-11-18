@@ -51,6 +51,23 @@ vi.mock("../util/tenant-http", async (importOriginal) => {
   return { ...actual, tenantRequest };
 });
 
+// 🚨 A HANG IS WORSE THAN A RED, AND WITHOUT THIS A REGRESSION HERE PRODUCES A
+// HANG. Both cases below must reach the spend gate's NO-TERMINAL refusal. Let a
+// change send them to the question instead and the real `readline` opens an
+// interface on the runner's stdin and waits for a keystroke that never arrives —
+// the file blocks until CI's job timeout, with no failing assertion anywhere to
+// read. Measured while building this gate's battery: inverting the gate's
+// condition did exactly that, and the run had to be killed by hand.
+//
+// Refusing here converts that silence into a named failure. This mock is not a
+// stand-in for a question these cases are allowed to ask; it is the assertion
+// that they never ask one.
+vi.mock("node:readline/promises", () => ({
+  createInterface: () => {
+    throw new Error("the spend gate reached readline — with no terminal it must refuse, never ask");
+  }
+}));
+
 const { registerAppsCommands } = await import("./apps");
 
 interface Driven {
@@ -87,6 +104,20 @@ async function drive(argv: readonly string[]): Promise<Driven> {
   const previous = process.exitCode;
   process.exitCode = undefined;
 
+  // 🚨 PINNED, NOT INHERITED. The spend gate refuses on `!process.stdin.isTTY`
+  // and on nothing else, so both cases below reach their refusal through THIS
+  // property. The runner's ambient value is `undefined`, which happens to be
+  // falsy — so leaving it unset passes for a reason no line in this file states,
+  // and a runner that ever attached a TTY would send both cases into `readline`,
+  // which nothing here mocks: a hang rather than a failure. Stating it costs two
+  // lines and removes the dependency on the harness.
+  const realStdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: false,
+    configurable: true,
+    writable: true
+  });
+
   try {
     const program = new Command();
     program.name("nexus").option("--json", "Output as JSON").option("--api-key <key>", "key");
@@ -100,6 +131,11 @@ async function drive(argv: readonly string[]): Promise<Driven> {
     process.stdout.write = realStdoutWrite;
     process.stderr.write = realStderrWrite;
     setJsonMode(false);
+    if (realStdinIsTty === undefined) {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    } else {
+      Object.defineProperty(process.stdin, "isTTY", realStdinIsTty);
+    }
   }
 
   const exitCode = process.exitCode;

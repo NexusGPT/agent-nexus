@@ -35,8 +35,33 @@ function sourceFiles(dir = SRC_DIR): string[] {
   return out;
 }
 
-const IMPORTS_NEXUS_TYPES =
-  /\bfrom\s+["']@nexus\/types(?:\/[\w-]+)?["']|\brequire\(\s*["']@nexus\/types/;
+/**
+ * A LOAD of `@nexus/types`, at ANY subpath depth and in every loader shape.
+ *
+ * Two halves, and both are load-bearing.
+ *
+ * The SPECIFIER half is `@nexus/types` followed by `(?:\/[^"']*)?` and then the
+ * closing quote. Depth is unbounded on purpose: the package publishes subpaths
+ * four segments deep (`@nexus/types/schemas/Deployment/deploymentSettings/
+ * WhatsApp/__json.schema`), and a deep import drags in exactly the Zod and
+ * generated Prisma enums a shallow one does. A matcher allowing ONE segment
+ * reads every deeper import as compliant, which is a gate whose stated rule is
+ * broader than what it enforces. The closing quote is what keeps
+ * `@nexus/types-testing` out: that is a different package — the dev-only test
+ * harness, which depends on `zod` alone and never on this package — so after
+ * `types` the next character must be `/` or the quote, never `-`.
+ *
+ * The POSITION half is `(?:from|import|require)\s*\(?\s*`, and it is what
+ * separates a LOAD from a MENTION. This file does not strip comments (see
+ * `workspace-imports-stay-aliased.test.ts`, which strips them and explains why
+ * the two guards must fail in opposite directions), and the package name appears
+ * as a bare string in this file's own `devDependencies` assertions below. A
+ * matcher on the specifier alone would report those as imports. The optional
+ * `\(?` covers `import(...)` and `require(...)` alongside `from "..."` and a
+ * side-effect `import "..."`; it is the same prefix the sibling guard in this
+ * directory already uses, so the two cannot disagree about what counts as a load.
+ */
+const IMPORTS_NEXUS_TYPES = /\b(?:from|import|require)\s*\(?\s*["']@nexus\/types(?:\/[^"']*)?["']/;
 
 /**
  * `@nexus/types` must not reach the published CLI.
@@ -53,10 +78,22 @@ const IMPORTS_NEXUS_TYPES =
  * makes it a property of the build.
  *
  * The check is deliberately stricter than reachability: NO file outside a
- * conformance module may import it, reachable or not. A reachability walk would
- * have to model re-exports, dynamic imports and `import type` elision, and every
- * one of those is a place for the walk to under-report. Nothing else in this
- * package has a legitimate reason to want the import.
+ * conformance module may import it, reachable or not, AT ANY SUBPATH DEPTH. A
+ * reachability walk would have to model re-exports, dynamic imports and
+ * `import type` elision, and every one of those is a place for the walk to
+ * under-report. Nothing else in this package has a legitimate reason to want
+ * the import.
+ *
+ * 🔴 A STATED SCOPE THE MATCHER DOES NOT HOLD IS THE FAILURE THIS GATE HAS
+ * ALREADY HAD. The matcher allowed ONE path segment while the rule above said
+ * "no file outside a conformance module", so `@nexus/types/public-api-v1` was
+ * caught and `@nexus/types/testing/each-or-refuse` was not — and 20 test files
+ * under `src/` accumulated the deeper spelling, every one reading as compliant.
+ * A deep import costs the same +5MB as a shallow one, so the hole was the whole
+ * rule for anything two segments down. The matcher is unbounded in depth now,
+ * and the two `the matcher reads …` arms below pin that: a gate whose model is
+ * narrower than its rule cannot report the difference, so the model gets arms
+ * of its own rather than being trusted because the sweep over the tree is green.
  */
 describe("@nexus/types stays out of the published bundle", () => {
   const files = sourceFiles();
@@ -73,6 +110,56 @@ describe("@nexus/types stays out of the published bundle", () => {
     expect(files.length).toBeGreaterThan(10);
     expect(conformance.length).toBeGreaterThan(0);
     expect(wireTypes.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Every fixture below is ASSEMBLED, never written whole, and that is
+   * load-bearing: this spec is a non-conformance file inside the very
+   * population it judges, so a fixture spelling the specifier as one literal
+   * would make this file an offender of its own gate. The same reason
+   * `shims-gain-no-importers.spec.ts` assembles its old paths.
+   */
+  const PKG = `@nexus${"/"}types`;
+  /**
+   * A DIFFERENT package that this one's name is a prefix of — the dev-only test
+   * harness, which depends on `zod` alone and never on `@nexus/types`, so
+   * importing it ships nothing. The closing quote in the matcher is the only
+   * thing that separates the two, which is why it gets arms rather than trust.
+   */
+  const HARNESS = `${PKG}-testing`;
+
+  /** Loads of this package. Every one must be CAUGHT, whatever its depth or shape. */
+  const LOADS: readonly string[] = [
+    `import { A } from "${PKG}";`,
+    `import type { A } from "${PKG}/public-api-v1";`,
+    `import { eachOrRefuse } from "${PKG}/testing/each-or-refuse";`,
+    `import { S } from "${PKG}/schemas/Deployment/deploymentSettings/WhatsApp/__json.schema";`,
+    `export * from "${PKG}/core";`,
+    `import "${PKG}/domain";`,
+    `const m = await import("${PKG}");`,
+    `const e = require("${PKG}/db-enum");`
+  ];
+
+  /** Not loads of this package. Every one must be MISSED, or the gate cries wolf. */
+  const NOT_LOADS: readonly string[] = [
+    `import { eachOrRefuse } from "${HARNESS}/each-or-refuse";`,
+    `const t = require("${HARNESS}/tracked-files");`,
+    `expect(Object.keys(pkg.devDependencies)).toContain("${PKG}");`,
+    `expect(names).toEqual(["@agent-nexus/sdk", "${PKG}"]);`
+  ];
+
+  it("the matcher reads a load of this package at any subpath depth", () => {
+    // The floor is SECOND on purpose. A failing assertion aborts the rest of its
+    // own block, so a count above these names would steal the kill from every
+    // mutant that moves both — and a drained table satisfies the filter
+    // vacuously, which is the one thing the floor is here to catch.
+    expect(LOADS.filter((line) => !IMPORTS_NEXUS_TYPES.test(line))).toEqual([]);
+    expect(LOADS.length).toBe(8);
+  });
+
+  it("the matcher reads neither a sibling package nor a bare mention as a load", () => {
+    expect(NOT_LOADS.filter((line) => IMPORTS_NEXUS_TYPES.test(line))).toEqual([]);
+    expect(NOT_LOADS.length).toBe(4);
   });
 
   /**

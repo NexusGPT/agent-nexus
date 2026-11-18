@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 

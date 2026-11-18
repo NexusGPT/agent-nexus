@@ -29,9 +29,10 @@ Notes:
   rolling back means publishing IT, not the CHECKPOINT above it. The first
   --prompt on an agent that never had one writes a single row.
   ONE MODEL FLAG MERGES, BOTH REPLACE. --model-name or --model-provider alone is
-  merged into the stored modelConfig, keeping temperature and thinking level;
-  sending both replaces the whole config and DROPS those settings. To change the
-  model and keep them, send --body '{"modelConfig":{...}}' carrying every field.
+  merged into the stored modelConfig, keeping temperature and reasoningLevel
+  (a change of provider clears reasoningLevel); sending both replaces the whole
+  config and DROPS those settings. To change the model and keep them, send
+  --body '{"modelConfig":{...}}' carrying every field.
   A CUSTOM MODEL IS ATTACHED BY ID, NEVER BY --model-provider: the
   "CUSTOM_<PROTOCOL>" string "nexus model list" prints on the row is not one of
   that flag's values.

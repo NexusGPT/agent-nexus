@@ -33,9 +33,11 @@ Notes:
   a schema together in one body is refused with a 400, because that combination
   could never take effect. A schema on its own is always persisted.
 
-  CHANGING --model-provider DISCARDS THE PROVIDER-SPECIFIC MODEL SETTINGS —
-  thinking level, thinking display and reasoning effort are stripped, because
-  they mean nothing to the new provider. Nothing in the response says so.
+  SENDING --model-provider DISCARDS THE PROVIDER-SPECIFIC MODEL SETTINGS, even
+  when it names the provider the task already has: reasoningLevel and
+  thinkingDisplay are stripped. Send reasoningLevel in --body beside it to set
+  one. --model-name alone keeps them. Nothing in the response warns you; the
+  fields are simply absent from it.
 
   --custom-model-id ATTACHES A CUSTOM ENDPOINT; CHANGING THE MODEL WITHOUT IT
   DETACHES ONE. A PATCH carrying --model-name or --model-provider and no

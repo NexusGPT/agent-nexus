@@ -119,10 +119,8 @@ Notes:
     $ nexus task create --type decision --name Triage --model-name jev-1.13.0 --model-provider JEV \\
         --prompt "Judge the ticket." --body '{"outputFormat":"json","generation":{"expectedInput":"A support ticket","jsonOutputSchema":{"urgent":{"type":"boolean","description":"Is the ticket urgent?"},"team":{"type":"string","enum":["billing","bug","other"]},"severity":{"type":"integer","minimum":1,"maximum":5}}}}'
 
-  temperature defaults to 0.7 and is --body only. IT IS STORED AND NEVER READ
-  BACK: "task get" returns no temperature field at any value, so a missing
-  temperature is not a discarded write and there is no way to confirm one from
-  this API.
+  temperature defaults to 0.7, is --body only, and runs 0 to 1: above 1 is 400
+  VALIDATION_ERROR naming temperature. "task get --json" reads it back.
 
   Only one flag per command may read standard input. Passing "-" to two of them
   — "--body -" alongside "--prompt -", say — is refused with an error naming
@@ -134,9 +132,8 @@ Notes:
   nothing in it says the prompt landed, which format was stored, or whether a
   schema was kept.
   VERIFY WITH "nexus task get <id> --json" — that read carries prompt,
-  inputFormat, outputFormat and both schemas, and it is the only confirmation
-  this API offers. temperature is the exception: it is stored and never read
-  back, so no read can confirm one.
+  inputFormat, outputFormat, temperature and both schemas, and it is the only
+  confirmation this API offers.
 
   THE PROMPT IS OPTIONAL HERE AND REQUIRED AT EXECUTE. A create carrying
   "generation" but no prompt answers 201 and leaves a task that cannot run —

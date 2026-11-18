@@ -27,6 +27,11 @@ Notes:
   four of those; url and size are --json only, and url is the field you actually
   need, because there is no download here.
 
+  url EXPIRES FOR FILES UPLOADED THROUGH "ticket attach". It is a fresh link to
+  a private copy, minted on every list and valid 90 days. Re-run this command
+  for a new one rather than storing it. Older uploads, and anything linked by
+  another system, keep the url as it was stored.
+
   contentType AND size ARE NULLABLE, and a row with both null is not a broken
   upload. An attachment does not have to be a file this CLI sent: anything that
   links itself to the ticket lands in the same list, and then filename is

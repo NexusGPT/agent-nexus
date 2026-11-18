@@ -17,7 +17,8 @@ Notes:
   the agent sends. Name both, in the same command.
   --template-group is the STANDARD-template map (baseName, availableLanguages,
   defaultLanguage). --carousel-template-group is the carousel one. Naming BOTH
-  is a 400 — they are mutually exclusive.
+  is a 400 — they are mutually exclusive. --type carousel with --template-group
+  is also a 400: a carousel takes --carousel-template-group.
   A DRAFT OR REJECTED TEMPLATE ATTACHES WITHOUT AN ERROR. Approval is not
   checked here; the failure arrives when the agent sends. Confirm with
   "nexus channel whatsapp-template approvals" first.

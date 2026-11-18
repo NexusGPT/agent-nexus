@@ -1,4 +1,4 @@
-import { eachOrRefuse } from "@nexus/types/testing/each-or-refuse";
+import { eachOrRefuse } from "@nexus/types-testing/each-or-refuse";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { captureHelp, deriveCommandNodes } from "./command-universe";

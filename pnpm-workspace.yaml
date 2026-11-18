@@ -1,2 +1,33 @@
 packages:
   - "packages/*"
+
+# Security floors. This file is owned by the mirror: the monorepo's sync workflow
+# (mirror-public-packages.yml) overwrites packages/ and regenerates pnpm-lock.yaml with
+# `pnpm install --lockfile-only`, but never copies or stages this file. So a floor
+# declared here is re-applied on every sync, where a floor placed only in the lockfile
+# would survive only as long as nothing re-resolved it.
+#
+# Each entry is scoped to one major line (`pkg@^N`), so it raises the version inside
+# that line and cannot drag a consumer of a different major across a breaking change.
+overrides:
+  # GHSA-27r3-jxmh-p828: DoS via trailing bytes after a compressed body. express 5.
+  "body-parser@^2": ^2.4.0
+  # GHSA-mrhx-c7xc-m3w5: memory exhaustion on oversized constrained collections.
+  "zod@^4": ^4.6.6
+  # GHSA-587h-7wmj-h5pm: launch-editor existence-check bypass. vitest's dev server.
+  "vite@^7": ^7.3.7
+  # GHSA-68fv-2mgg-jv7q: event-loop DoS through indexed source-map section offsets.
+  "source-map-js@^1": ^1.2.2
+  # GHSA-jqcg-44mw-7w3h: IP spoofing via an IPv4-mapped IPv6 trust subnet. express 5.
+  "proxy-addr@^2": ^2.0.8
+  # GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr: prototype-pollution gadgets to RCE in
+  # worker and run() options. vitest 3 declares `tinypool: ^1.1.1`, and 1.1.1 is the
+  # last 1.x release, so no fix exists on that line and this floor crosses a major.
+  # Delete it when the mirrored packages move to vitest 4, which does not use tinypool.
+  "tinypool@^1": ^2.1.2
+  # GHSA-qw65-cvwx-89v3 and five earlier fast-uri advisories (host confusion, SSRF).
+  "fast-uri@^3": ^3.1.7
+  # GHSA-2v37-7h3g-55p8, GHSA-28wg-ghj8-5hjv: generators loop on a zero or negative size.
+  "nanoid@^3": ^3.3.18
+  # GHSA-r28c-9q8g-f849: path traversal through sourceMappingURL auto-loading.
+  "postcss@^8": ^8.5.18

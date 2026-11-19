@@ -1,3 +1,5 @@
+import { isJsonObject } from "./is-json-object";
+
 /**
  * The shape rules the `workflow test` / `workflow test-node` body builders share.
  *
@@ -6,10 +8,6 @@
  * second copy of that rule is how one position starts dropping silently again
  * (NEX-2483).
  */
-
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Coerce a value supplied under a structured key (`triggerData` / `input` /
@@ -23,7 +21,7 @@ export function coerceStructuredObject(
   label: string
 ): Record<string, unknown> | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!isPlainObject(value)) {
+  if (!isJsonObject(value)) {
     throw new Error(
       `${label} must be a JSON object, got ${Array.isArray(value) ? "array" : typeof value}`
     );

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { isJsonObject } from "../util/is-json-object";
 import { filesUnder } from "./files-under";
-import { isRecord } from "./is-record";
 import { PENDING_UPLOADS_UNKNOWN } from "./pending-uploads-unknown";
 
 // rclone keeps one metadata file per cached item under `<cacheDir>/vfsMeta`,
@@ -25,7 +25,7 @@ function itemIsPending(metaFile: string): boolean {
   } catch {
     return true;
   }
-  return isRecord(parsed) && parsed.Dirty === true;
+  return isJsonObject(parsed) && parsed.Dirty === true;
 }
 
 /**

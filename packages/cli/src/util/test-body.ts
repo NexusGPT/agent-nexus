@@ -13,7 +13,8 @@
  * preserving the already-working structured form (so it is not double-wrapped).
  */
 
-import { coerceStructuredObject, isPlainObject, omitEmpty } from "./test-body.shape";
+import { isJsonObject } from "./is-json-object";
+import { coerceStructuredObject, omitEmpty } from "./test-body.shape";
 
 /**
  * Parse a raw `--input` flag value into an object, with a friendly error.
@@ -27,7 +28,7 @@ export function parseInputFlag(raw: string | undefined): Record<string, unknown>
   } catch {
     throw new Error(`Invalid JSON in --input: ${raw.length > 120 ? raw.slice(0, 120) + "…" : raw}`);
   }
-  if (!isPlainObject(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw new Error(
       `--input must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`
     );
@@ -62,7 +63,7 @@ export function buildTestWorkflowBody(
   let triggerData: Record<string, unknown> | undefined;
   let bodySampleConfig: Record<string, unknown> | undefined;
 
-  if (isPlainObject(base)) {
+  if (isJsonObject(base)) {
     const hasStructuredKeys = "triggerData" in base || "sampleConfig" in base;
     if (hasStructuredKeys) {
       triggerData = coerceStructuredObject(base.triggerData, "triggerData in --body");
@@ -112,7 +113,7 @@ export function buildTestNodeBody(
 ): { input: Record<string, unknown> } | undefined {
   let nodeInput: Record<string, unknown> | undefined;
 
-  if (isPlainObject(base)) {
+  if (isJsonObject(base)) {
     if ("input" in base) {
       nodeInput = coerceStructuredObject(base.input, "input in --body");
     } else {

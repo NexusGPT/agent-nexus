@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { isJsonObject } from "./is-json-object";
 import { readUploadBlob, resolveUploadPath } from "./upload-file";
 
 /**
@@ -20,25 +21,6 @@ import { readUploadBlob, resolveUploadPath } from "./upload-file";
  * wanted.
  */
 export const MULTIPART_FILE_FIELD = "file";
-
-/**
- * The one test that separates a shape `Object.entries` can walk from every JSON
- * value that only looks like one.
- *
- * `resolveBody` types its result as a `Record` but only casts a bare
- * `JSON.parse`, so ANY of the seven JSON shapes reaches its callers wearing the
- * object type. Six are caught by `typeof` and `Array.isArray`. The seventh is
- * `null`, and `typeof null === "object"` — the oldest hole in the language — so
- * a guard written from `typeof` alone lets it straight through to a raw
- * `TypeError` that reads as a CLI bug rather than as bad input.
- *
- * Spelled as a type guard rather than three inline conditions so the narrowing
- * is real: the caller takes `unknown`, and this is the only way to reach the
- * loop.
- */
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Build the `multipart/form-data` body for `nexus api --file`.
@@ -70,8 +52,10 @@ export function buildMultipartBody(filePath: string, fields: unknown): FormData 
   if (fields === undefined) return form;
 
   // Refuse by runtime shape, because the declared type is a lie the whole way
-  // down (see `isJsonObject`). Silently iterating an array's indices would send
-  // parts named "0" and "1".
+  // down: `resolveBody` types its result as a `Record` but only casts a bare
+  // `JSON.parse`, so any JSON value arrives here wearing the object type —
+  // `null` included, which `typeof` alone lets through to a raw `TypeError`.
+  // Silently iterating an array's indices would send parts named "0" and "1".
   if (!isJsonObject(fields)) {
     throw new Error("--body must be a JSON object when --file is used.");
   }

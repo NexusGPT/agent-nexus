@@ -282,7 +282,7 @@ const UNGATED_WITH_REASON: ReadonlyArray<readonly [string, string]> = [
   ],
   [
     "BatchResult",
-    "POST /workflows/:id/batch declares no Response schema; BatchResult is a private interface inside WorkflowBatchService"
+    "POST /workflows/:id/batch declares no Response schema; BatchResult is a private interface inside ExecuteWorkflowBatchUseCase"
   ],
   [
     "ListWorkflowsParams.page / .limit",

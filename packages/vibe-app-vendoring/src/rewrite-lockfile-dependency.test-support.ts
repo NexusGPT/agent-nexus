@@ -1,5 +1,6 @@
 /** The vendored package, a lockfile builder, and the rewrite every lockfile test drives. */
 
+import { isRecord } from "./json-guards";
 import { rewriteLockfileToVendoredTarball } from "./rewrite-lockfile-dependency";
 
 export const PKG = "@agent-nexus/apps-ui";
@@ -10,11 +11,6 @@ export const INTEGRITY = "sha512-VENDOREDBYTES";
 
 /** One `packages` entry of a rewritten lockfile, read without trusting its shape. */
 type LockEntry = Readonly<Record<string, unknown>>;
-
-/** A JSON object, as opposed to an array, a primitive or null. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function lockfile(options: {
   rootField?: "dependencies" | "devDependencies" | "optionalDependencies";

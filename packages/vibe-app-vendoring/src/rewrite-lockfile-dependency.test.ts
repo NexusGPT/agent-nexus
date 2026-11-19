@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isRecord } from "./json-guards";
 import {
   lockedVersionOf,
   NPM_LOCKFILE_NAMES,
@@ -7,7 +8,6 @@ import {
 } from "./rewrite-lockfile-dependency";
 import {
   INTEGRITY,
-  isRecord,
   KEY,
   lockfile,
   PKG,

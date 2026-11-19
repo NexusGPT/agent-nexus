@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { isJsonObject } from "../util/is-json-object";
 import { writeSecretFile } from "../util/secret-file";
-import { isRecord } from "./is-record";
 
 /**
  * Which COPY of a slug a cache directory belongs to.
@@ -41,7 +41,7 @@ export function readCacheOwner(cacheOwnerFile: string): CacheOwner | null {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isRecord(parsed) && typeof parsed.shared === "boolean"
+    return isJsonObject(parsed) && typeof parsed.shared === "boolean"
       ? { shared: parsed.shared }
       : null;
   } catch {

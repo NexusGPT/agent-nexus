@@ -1,3 +1,5 @@
+import { isJsonObject } from "../util/is-json-object";
+
 /**
  * The wire shapes of the platform's CLI skills routes (`/api/cli/skills/*`).
  *
@@ -62,16 +64,13 @@ const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 const isMinCliVersion = (value: unknown): value is string | null =>
   value === null || (typeof value === "string" && VERSION.test(value));
 
 /** The manifest inside a `{ success, data }` envelope, or null when the body is not one. */
 export function parseManifestEnvelope(body: unknown): CliSkillsManifestWire | null {
-  const data = isRecord(body) && body.success === true ? body.data : undefined;
-  if (!isRecord(data)) return null;
+  const data = isJsonObject(body) && body.success === true ? body.data : undefined;
+  if (!isJsonObject(data)) return null;
   const { schemaVersion, commitSha, sha256, size, minCliVersion, publishedAt } = data;
   if (
     schemaVersion !== 1 ||
@@ -92,7 +91,7 @@ export function parseManifestEnvelope(body: unknown): CliSkillsManifestWire | nu
 
 /** The corpus document, or null when it is not one. */
 export function parseCorpus(body: unknown): CliSkillsCorpusWire | null {
-  if (!isRecord(body)) return null;
+  if (!isJsonObject(body)) return null;
   const { schemaVersion, commitSha, minCliVersion, files } = body;
   // Every version this CLI interprets correctly. A version NOT here — a newer platform
   // than this CLI — is refused, which is the whole point of the field.
@@ -107,7 +106,7 @@ export function parseCorpus(body: unknown): CliSkillsCorpusWire | null {
   }
   const parsedFiles: CliSkillsCorpusFileWire[] = [];
   for (const file of files) {
-    if (!isRecord(file) || typeof file.path !== "string" || typeof file.content !== "string") {
+    if (!isJsonObject(file) || typeof file.path !== "string" || typeof file.content !== "string") {
       return null;
     }
     // An encoding this CLI does not read means the corpus was written by a newer

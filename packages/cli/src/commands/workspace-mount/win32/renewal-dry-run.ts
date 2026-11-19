@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 
+import { isJsonObject } from "../../../util/is-json-object";
 import { errnoOf } from "../../../workspace-direct-mount/errno-of";
-import { isRecord } from "../../../workspace-direct-mount/is-record";
 import { system32Exe } from "../../../workspace-direct-mount/win32/win32-system-exe";
 
 /** The AWS SDK's own limit for one credential_process run. */
@@ -39,7 +39,7 @@ export function renewalDryRunProblem(
 function runFailure(error: unknown): string {
   const code = errnoOf(error);
   if (code !== undefined) return code;
-  const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
+  const status = isJsonObject(error) && typeof error.status === "number" ? error.status : null;
   return status === null ? "no exit code" : `exit ${String(status)}`;
 }
 
@@ -56,6 +56,7 @@ function credentialsProblem(stdout: string, accessKeyId: string): string | null 
       : `"${firstLine.slice(0, 200)}"`;
     return `its output is not only the credentials document; it starts with ${shown}`;
   }
-  if (isRecord(parsed) && parsed.Version === 1 && parsed.AccessKeyId === accessKeyId) return null;
+  if (isJsonObject(parsed) && parsed.Version === 1 && parsed.AccessKeyId === accessKeyId)
+    return null;
   return "its output is a JSON document, but not this drive's credentials";
 }

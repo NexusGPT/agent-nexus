@@ -1,4 +1,4 @@
-import { isRecord } from "./is-record";
+import { isJsonObject } from "../util/is-json-object";
 import { isMountAccess } from "./mount-access";
 import { isMountId } from "./mount-id";
 import type { MountSession, NotifiedAt } from "./mount-session";
@@ -15,7 +15,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isRefreshRecord(value: unknown): value is RefreshRecord {
-  if (!isRecord(value) || !isString(value.at)) return false;
+  if (!isJsonObject(value) || !isString(value.at)) return false;
   if (value.outcome === "ok") return value.reason === undefined;
   return value.outcome === "failed" && isRefreshFailureReason(value.reason);
 }
@@ -30,7 +30,7 @@ function isRefreshOutcome(value: string): value is RefreshOutcome {
 
 function isOptionalNotifiedAt(value: unknown): value is NotifiedAt | undefined {
   if (value === undefined) return true;
-  if (!isRecord(value)) return false;
+  if (!isJsonObject(value)) return false;
   return Object.entries(value).every(([outcome, at]) => isRefreshOutcome(outcome) && isString(at));
 }
 
@@ -41,17 +41,17 @@ function isOptionalNotifiedAt(value: unknown): value is NotifiedAt | undefined {
  * crash — a truncated write is the ordinary way that happens.
  */
 export function isMountSession(value: unknown): value is MountSession {
-  if (!isRecord(value) || value.version !== 1) return false;
+  if (!isJsonObject(value) || value.version !== 1) return false;
   if (!isString(value.mountId) || !isMountId(value.mountId)) return false;
   if (!isNonEmptyString(value.profile) || !isNonEmptyString(value.baseUrl)) return false;
   if (!isNonEmptyString(value.orgId)) return false;
   const workspace = value.workspace;
-  if (!isRecord(workspace)) return false;
+  if (!isJsonObject(workspace)) return false;
   if (!isString(workspace.id) || !isString(workspace.slug)) return false;
   if (typeof workspace.shared !== "boolean") return false;
   if (!isMountAccess(value.access) || !isNonEmptyString(value.volumeName)) return false;
   const credentials = value.credentials;
-  if (!isRecord(credentials)) return false;
+  if (!isJsonObject(credentials)) return false;
   if (!isString(credentials.accessKeyId) || !isString(credentials.secretAccessKey)) return false;
   if (!isString(credentials.sessionToken)) return false;
   if (!isString(value.expiresAt) || !isString(value.mintedAt)) return false;

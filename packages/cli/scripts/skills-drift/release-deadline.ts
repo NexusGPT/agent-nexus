@@ -14,9 +14,11 @@ import type { GitHubReader } from "./upstream";
  * Bounded from both sides by measurement. Above: 1.3.0's missing fix landed 19h20m
  * before its release merged, so anything at or past that would wave 1.3.0 through.
  * Below: a release PR's checks complete in about 13 minutes (#6931, 2026-10-05),
- * and the hourly re-cut in `release-version.yml` moves `cut` forward whenever
- * upstream content moved — so a release PR is never more than about an hour behind
- * its own cut, and six leaves room for that run being late or failing once.
+ * and each re-cut must also reach `staging` through a sync pull request before
+ * the release can merge (`release-version.yml`, "THE BUNDLED SKILLS HAVE ONE LINE
+ * OF HISTORY"). The hourly `recut` step reads THIS value and re-cuts once a cut
+ * whose upstream has moved is within an hour of it, so a release PR always has a
+ * cut young enough to be judged at, and the hour is room for that sync to merge.
  */
 export const RELEASE_STALENESS_TOLERANCE_HOURS = 6;
 

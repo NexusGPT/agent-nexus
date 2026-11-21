@@ -1,5 +1,56 @@
 # @agent-nexus/cli
 
+## 1.16.3
+### Patch Changes
+
+- 7715ee8: `apps deploy`/`apps rollback` now ask the spend-confirmation question under `--json` when
+  there is a terminal to ask
+  
+  The soft-limit gate tested `isJsonMode() || !process.stdin.isTTY`, so `--json` at a
+  terminal refused a question the operator was standing right there to answer — costing them
+  a whole re-run with `--confirm-overage` for nothing. It now gates on `!process.stdin.isTTY`
+  alone, which is what `confirmDestructive` and every other confirmation in this binary
+  already do: `--json` describes the OUTPUT, and stdin is the only statement about who is
+  answering.
+  
+  Nothing a script sees changes. The no-terminal arm is untouched, so a piped or CI run still
+  refuses with the same `CLI_REMOTE_ERROR` document on stdout and the same non-zero exit, and
+  the prompt itself goes to stderr whenever stdout is a pipe or a file — so the one document
+  `--json` promises a parser is unaffected. What changes is the interactive `--json` case:
+  the operator is now asked instead of refused.
+- 35c05fd: `--help` text now matches the server. `nexus agent update` and `nexus task update` name `reasoningLevel` as the setting a provider change clears; `task update` also says that sending `--model-provider` strips it even when the provider is unchanged. `nexus task create` documents temperature's 0–1 range and no longer claims `task get` cannot read it back. `nexus ticket attachments` says `url` is a 90-day link for files uploaded through `ticket attach`. `nexus execution retry` describes the `503 RUN_STATE_UNKNOWN` retry as safe to repeat, and no other 503. `nexus deployment template attach` says `--type carousel` with `--template-group` is a 400. `nexus folder update` no longer says a cycle is accepted: a move into the folder's own subtree answers `400 FOLDER_PARENT_CYCLE`, and a parent outside your organization `404 FOLDER_PARENT_NOT_FOUND`. Command flags and behaviour are unchanged.
+- 89244cc: Read JSON objects through one internal guard instead of four identical local copies. No behaviour change.
+- cac2001: `nexus mcp-server call` registers through four helpers instead of one 109-line function
+  
+  No behaviour change, and that is asserted rather than claimed: a dump of the
+  `mcp-server` subtree's descriptions, arguments, option flags, mandatoriness, choices and
+  rendered help text — `addHelpText` included, so `CALL_HELP` is inside the comparison —
+  is byte-identical before and after. The same comparator, run against a planted one-word
+  change to an option description, reports it on both the structured field and the
+  rendered help, so its silence is a reading rather than an absence.
+  
+  What moved out of the action body, each as a pure function with its own arms in
+  `call.helpers-hold-their-contracts.test.ts`:
+  
+  - `resolveMcpCallInputs` — `--arguments` and `--card-variables`, parsed together.
+    `--arguments` is resolved first, so a call with both flags malformed reports the one
+    the operator has to fix to get anywhere; that ordering is now a stated contract with a
+    test, not an accident of statement order.
+  - `buildMcpCallBody` — the request body. `expectedSchemaHash` is written even when the
+    flag is absent, because the route's body makes the key required with an optional
+    value, and `cardVariableValues` keys off the FLAG rather than the parsed object, so
+    `--card-variables '{}'` is still sent as an explicit empty map.
+  - `describeMcpCallFailure` — the error document for a result whose `isError` is true. It
+    describes and does not print, so the emission stays visible at the leaf's exit where
+    the one-document gate can read it, and its category stays `remote-error`: the request
+    arrived and the TOOL refused, which a script must not read as its own bug.
+  - `renderMcpCallResult` — the human rendering, still inside `printEnvelope`'s callback so
+    it cannot write a second document to the stream `--json` consumers parse.
+  
+  `McpCallResult` and `McpCallBody` are derived from the shipping client with
+  `Awaited<ReturnType<…>>` and `Parameters<…>[1]` rather than re-declared, so a field
+  leaving the SDK reds every reader instead of leaving a replica compiling for ever.
+
 ## 1.16.2
 ### Patch Changes
 

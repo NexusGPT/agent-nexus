@@ -1,5 +1,184 @@
 # @agent-nexus/cli
 
+## 2.0.0
+### Major Changes
+
+- e81754c: 🔴 BREAKING: `nexus access-card delete` now asks before it destroys, so a script
+  without `--yes` refuses instead of deleting
+  
+  **What a script loses.** `nexus access-card delete <id>` with no terminal and no
+  `--yes` used to exit `0` with the card gone. It now exits `5` (`invalid-input`)
+  with the card intact and an error document naming the missing terminal and the
+  `--yes` re-run. Any pipeline, CI job or cron that deleted an access card must add
+  `--yes`. Nothing else about the command moves: the name, the required `<id>`, the
+  success envelope and the `--json` shape are unchanged, and `--yes` behaves exactly
+  as it does on the other 46 destructive verbs.
+  
+  **Why this is major and not a patch.** `COMPATIBILITY.md` lists "making a
+  currently-succeeding one exit non-zero" as a break in the STABLE exit-code
+  surface, and a break in a STABLE surface takes a major bump under that document's
+  own policy table. The new behaviour being the safer one does not change what a
+  script that relied on the old one experiences.
+  
+  **What it was.** `access-card delete` was the one entry in
+  `UNCONFIRMED_DESTRUCTIVE` whose siblings — `user-group delete`,
+  `custom-model delete`, `html-template delete` — all refuse off a terminal. It
+  declared no `--yes`, asked nothing, and its own `--help` Notes said so. Deleting a
+  card an agent or workflow still names makes every call through it fail
+  `403 ACCESS_CARD_NOT_FOUND` at run time, and the only warning was that line of
+  help text. It now declares `--yes` through `confirmable()` and asks through
+  `confirmDestructive()` — the one helper, so there is no second spelling of consent
+  and no second behaviour behind the flag. There is deliberately no `--force`: in
+  this CLI that flag means CASCADE, and this verb cascades nothing.
+  
+  `UNCONFIRMED_DESTRUCTIVE` goes 21 → 20 and `CONFIRMS_BEFORE_ACTING` 46 → 47, so
+  the three published figures in `COMPATIBILITY.md` move with it;
+  `compatibility-figures.test.ts` holds all three to the live command tree.
+  `COMPATIBILITY.md` now also states that clearing a ledger line is itself a
+  major-version act, which is the sequencing note the ledger's own header asked for
+  and nobody had written down.
+
+### Minor Changes
+
+- 49ea0fd: `prompt-assistant chat --json` says whether the wait resolved, instead of only when it did not
+  
+  `nexus prompt-assistant chat --json` emitted `timedOut` **only when it was `true`**. So an
+  absent key meant either _this run did not time out_ or _this build of the CLI does not report
+  timing out_, and a consumer had to guess — the guess that breaks in silence the day the key is
+  renamed or dropped.
+  
+  The document now carries the three waiting keys the WhatsApp-template verbs already publish, on
+  every outcome:
+  
+  ```
+  wait      "not-requested" | "resolved" | "timed-out"
+  waited    boolean, derived from wait
+  timedOut  boolean, derived from wait
+  ```
+  
+  They come from the same module those three verbs route through, not from a fourth copy of the
+  rule — so a script can ask one question of four verbs, and the shapes cannot diverge without
+  deleting that module.
+  
+  `wait` is `"resolved"` on every outcome where the poll reached the state the invocation asked
+  for, and `"timed-out"` only when the budget was spent with the status still moving. That
+  includes the outcome most easily mistaken for a timeout: the assistant has replied and the
+  prompt is still being written. Without `--wait` that IS the declared target, so the wait ended
+  on it; `--wait` polls through it and only its own deadline produces `"timed-out"`.
+  `not-requested` is unreachable on this verb — the document only exists once a poll has run —
+  and the key ships anyway, because reading every verb with one expression is the point.
+  
+  The exit code is unchanged: a timeout still exits `8`, and it is still not a failure. The
+  server is still working, and the caller resumes with
+  `nexus prompt-assistant get-thread <id> --wait`.
+  
+  ## Additive, with one reading that moves
+  
+  No key is removed, no key is renamed, and no key's value changes for any run. `wait` and
+  `waited` are new; `timedOut` keeps its meaning and is now always there, so `if (doc.timedOut)`
+  behaves exactly as before — absent and `false` are both falsy.
+  
+  **What moves is a PRESENCE test.** A consumer branching on `"timedOut" in doc` or
+  `doc.timedOut !== undefined` saw `false` on a resolved wait and now sees `true`. That reading
+  was only ever possible because the key was conditional, which is the defect being removed. No
+  consumer in this repository does it.
+  
+  ## `promptResult` stays conditional, deliberately
+  
+  It is a payload, not a terminal-state flag. Its absence means _no prompt yet_, which is what
+  absence natively says, and nothing has to be decoded from it — the terminal state is already
+  spelled out by `status` and `wait`. `timedOut`'s absence had to be read as `false`, and that is
+  the whole difference.
+
+### Patch Changes
+
+- 31002ed: A destructive confirmation now refuses when both output streams are redirected, instead of
+  blocking on a keystroke for a question nobody can see
+  
+  `nexus <destructive verb> >out.log 2>err.log`, typed at a real keyboard, left stdin a
+  terminal — so the gate on stdin alone let the ask happen. `promptStream()` then resolved to
+  stderr, which is the file, so the terminal stayed blank while the process waited for an
+  answer to a question that had been written into the log. No document, no exit code, nothing
+  to read; in CI it burned to the job's timeout.
+  
+  `confirmDestructive` now gates on `canAsk()`, which is both halves of the conversation: a
+  readable stdin for the answer AND a visible prompt stream for the question. Where either is
+  missing it refuses through the same error document as before, on stdout under `--json`,
+  naming the cause and the `--yes` re-run. Refusing costs one retry; the alternatives cost
+  more — hanging gives the caller nothing to read, and writing to the controlling terminal
+  instead would fix POSIX only, since Windows has no `/dev/tty` and the refusal would have to
+  exist there anyway.
+  
+  Scripts and CI are unaffected: a piped or redirected run with no terminal refused before and
+  refuses now, with the same exit code and the same document. `--yes` and `--force` still
+  proceed with nothing visible. What changes is the one case that used to hang — it is now a
+  refusal the operator can read out of the file they redirected to.
+- a4fd161: `apps deploy --sha` and `apps rollback --to` now exit `6` (`CLI_REMOTE_ERROR`) when the
+  spend gate refuses, matching the code their own error document already named
+  
+  The refusal emitted a document stamped `CLI_REMOTE_ERROR` and then exited `1`. One output
+  answered a scripted consumer two contradictory ways: `reportFailure("remote-error", …)`
+  resolves that cause to `CLI_REMOTE_ERROR` for the document **and** to `6` for the status,
+  and its return value was discarded while each command assigned a bare
+  `process.exitCode = 1` instead.
+  
+  The disagreement is load-bearing in the worst direction. `1` is `failed`, and a caller
+  reading it alongside the document's `CLI_REMOTE_ERROR` had to pick one; a caller reading
+  only the status was told a generic failure where the document said _the request was
+  accepted and the server answered_ — which is retryable the moment the spend period resets.
+  
+  What changes for a script: a non-interactive `apps deploy --sha` or `apps rollback --to`
+  that hits the organization's usage soft limit now exits `6` where it exited `1`. The
+  document on stdout, its `code`, its message and its hint are all unchanged, as is the fact
+  that the refusal is non-zero and deploys nothing. A script branching on the document's
+  `code` — the machine-readable half the `--json` contract promises — is unaffected; one
+  branching on `exit == 1` for this specific refusal needs `6`, or `!= 0`.
+  
+  Declining the question at an interactive prompt still exits `1`: an operator who typed `n`
+  was answered rather than refused, and that path emits no error document for a status to
+  contradict.
+  
+  The exit code is now assigned from `reportFailure`'s own return value at the site that
+  prints the document — the shape `confirmDestructive` already uses — so the document's
+  `code` and the process's status cannot be decided apart again.
+- 3c868b9: The remaining three ask sites now refuse instead of blocking when their question would be
+  written to a redirected stream
+  
+  `canAsk()` closed this for `confirmDestructive`, and three other blocking reads each carried
+  their own copy of the stdin test, so none of them inherited it. All three are now gated on
+  the same primitive:
+  
+  - **`apps deploy` / `apps rollback` spend confirmation.** `apps deploy >out.log 2>err.log`
+    typed at a real keyboard left stdin a terminal, so the gate on stdin alone let the ask
+    happen; the figures and the `[y/N]` went into err.log, the terminal stayed blank, and the
+    process waited for a keystroke nobody had been asked for — on a spend gate, whose whole
+    purpose is to refuse safely. It now refuses through the same `CLI_REMOTE_ERROR` document
+    and the same non-zero exit it already used for a piped run.
+  - **`skills update` location picker.** Same shape: three candidate paths and
+    `Choose [1/2/3]` written into the log file while the command appeared to stop. With
+    nowhere to ask it now keeps the auto-detected root, which is what `--json`, `--yes` and a
+    piped stdin already did.
+  - **`workspace-mount` dependency install.** `Install it now? [y/N]` behind a multi-line
+    install offer, both in the log file. It now refuses with the manual commands and the
+    `--install-deps` re-run, so `--engine auto` can fall back instead of hanging.
+  
+  **The mount seam carries two booleans, not one widened one.** `DepsIo.stdinIsTTY` is also
+  read by `installPlanFor`, where it decides WHERE the administrator password is asked for:
+  `sudo` on the terminal against macOS's own password window. `sudo` uses `/dev/tty`, so
+  redirecting this process's stdout takes nothing away from it — widening that one field would
+  have swapped a working `brew install` + sudo prompt for a downloaded pkg behind a GUI dialog
+  on every redirected mount typed at a keyboard. `canAsk` is a new, separate field for "can
+  this process hold a conversation"; `stdinIsTTY` keeps its meaning. Both are internal: this
+  package publishes a binary and no types.
+  
+  **Why patch and not major.** `COMPATIBILITY.md` names "making a currently-succeeding one
+  exit non-zero" as the break in the STABLE exit-code surface. No invocation that previously
+  terminated changes behaviour here: the only stream state that moves is a terminal on stdin
+  with BOTH outputs redirected, and in that state all three sites previously blocked forever.
+  Scripts and CI are untouched — a piped or redirected run with no terminal behaved this way
+  already, with the same codes and the same documents — and `--yes`, `--force`,
+  `--confirm-overage` and `--install-deps` all still proceed with nothing visible.
+
 ## 1.16.3
 ### Patch Changes
 

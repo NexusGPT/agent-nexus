@@ -1,5 +1,15 @@
 # @agent-nexus/sdk
 
+## 5.1.2
+### Patch Changes
+
+- 5503047: The published response-contract declaration names the script that really writes it
+  
+  The header of `response-contract.generated.d.ts` pointed readers at
+  `response-contract.project.conformance.ts`, a file that has never existed. It now names
+  `scripts/response-contract.project.ts`, the projector that generates it. No type, value or
+  route in the contract changed.
+
 ## 5.1.1
 ### Patch Changes
 

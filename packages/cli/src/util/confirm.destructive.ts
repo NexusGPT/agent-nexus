@@ -1,6 +1,6 @@
 import { refuse } from "../errors";
 import { askYesNo } from "./ask";
-import { promptLine, promptStream } from "./confirm.stream";
+import { canAsk, promptLine, promptStream } from "./confirm.stream";
 
 /**
  * Ask before an irreversible action.
@@ -16,6 +16,23 @@ import { promptLine, promptStream } from "./confirm.stream";
  * Passing the line here gets the hint without a second implementation of the
  * rule — and the prompt already lands on stderr, so a `--json` run's stdout
  * stays one document either way.
+ *
+ * ── WHY THE GATE IS `canAsk()` AND NOT `process.stdin.isTTY` ────────────────
+ *
+ * A confirmation is a conversation, so it needs a stream in each direction, and
+ * the stdin test covers one of them. `nexus <destructive> >out.log 2>err.log`
+ * from a keyboard has a readable stdin and NO visible output stream: the stdin
+ * test passed it through, the question went into err.log, and the process sat on
+ * a keystroke nobody had been asked for. {@link canAsk} is both halves, so the
+ * precondition is symmetric and neither direction can be forgotten here.
+ *
+ * REFUSING COSTS ONE RETRY AND THE OTHER TWO OPTIONS COST MORE, which is what
+ * decides the direction. Hanging costs the operator a Ctrl-C and a CI job its
+ * whole timeout, with no document and no exit code to read. Writing the question
+ * to the controlling terminal instead would answer it on POSIX only — Windows
+ * has no `/dev/tty`, so the hang would survive there and this refusal would have
+ * to exist anyway — and it would split the dialogue, since a child process's
+ * output still goes to the redirected descriptor.
  */
 export async function confirmDestructive(
   question: string,
@@ -23,14 +40,21 @@ export async function confirmDestructive(
 ): Promise<boolean> {
   if (opts.yes || opts.force) return true;
 
-  if (!process.stdin.isTTY) {
+  if (!canAsk()) {
     // A REFUSAL, so it owes the caller a document. `console.error` + exit 1 left
     // stdout empty under --json, and this helper is shared — so the one defect
     // reached every destructive verb that routes through it, none of which the
     // driven scan can see (the argv synthesizer passes `--yes`, which is the
     // arm that returns early above).
+    //
+    // The two causes get different sentences because they prescribe the same
+    // remedy from different situations, and an operator who can see neither
+    // stream reads this out of the file they redirected to. "No terminal" over a
+    // run typed at a terminal would send them looking for the wrong thing.
     process.exitCode = refuse(
-      `${question} — refusing without a terminal to ask.`,
+      process.stdin.isTTY === true
+        ? `${question} — refusing with nowhere to show the question: stdout and stderr are both redirected.`
+        : `${question} — refusing without a terminal to ask.`,
       opts.rerun === undefined
         ? "Pass --yes to confirm in a script."
         : `Re-run with --yes:  ${opts.rerun}`

@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { stripComments } from "@nexus/config/lib/strip-comments.mjs";
@@ -87,6 +87,53 @@ function sourceFiles(dir = SRC_DIR): string[] {
 const IMPORTS_NEXUS_TYPES = /\b(?:from|import|require)\s*\(?\s*["']@nexus\/types(?:\/[^"']*)?["']/;
 
 /**
+ * The SECOND spelling of the same load: a RELATIVE path into `packages/types/`.
+ *
+ * The matcher above is the package name and only the package name, so it reads
+ * `import … from "../../types/src/api/public/v1/response-shape"` as no load at
+ * all. That is not a hypothetical spelling — `scripts/response-contract.project.ts`
+ * uses exactly it, deliberately, and is unreachable by DIRECTORY rather than by
+ * anything this file matches. Move that file under `src/` and the matcher above
+ * stays silent while Zod and the generated Prisma enums reach the bundle, which
+ * is the one outcome every assertion here exists to prevent.
+ *
+ * ## Why both spellings and not a widened regex
+ *
+ * A relative specifier cannot be classified by its TEXT: whether `../../types`
+ * escapes this package depends on how deep the IMPORTING file sits, so
+ * `../../types/x` is outside from `src/` and inside from `src/resources/a/b`.
+ * The question is therefore answered by RESOLVING, against the importer's own
+ * directory, and comparing the result to the types package root. No regex over
+ * the specifier can do that, which is why this is a function and not a sibling
+ * of the pattern above.
+ *
+ * `TYPES_DIR` is derived from this package's own location rather than written
+ * out, so moving either package keeps this honest.
+ *
+ * The POSITION half is the same as the matcher above and is load-bearing for the
+ * same reason: these docblocks cite sibling paths in prose constantly, and
+ * `CODE` keeps literal text. Requiring `from`/`import`/`require` in front is
+ * what keeps a quoted path that is merely MENTIONED from counting as an edge.
+ */
+const TYPES_DIR = join(PKG_DIR, "..", "types");
+const RELATIVE_LOAD = /\b(?:from|import|require)\s*\(?\s*["'](\.[^"']*)["']/g;
+
+/**
+ * Every relative specifier in `code` that resolves inside `packages/types/`.
+ *
+ * @param file the importing module, relative to `src/` — the specifier is
+ *   resolved against ITS directory, which is the whole point.
+ */
+function relativeLoadsOfNexusTypes(file: string, code: string): string[] {
+  const out: string[] = [];
+  for (const [, specifier] of code.matchAll(RELATIVE_LOAD)) {
+    const resolved = resolve(dirname(join(SRC_DIR, file)), specifier);
+    if (resolved === TYPES_DIR || resolved.startsWith(`${TYPES_DIR}/`)) out.push(specifier);
+  }
+  return out;
+}
+
+/**
  * `@nexus/types` must not reach the published SDK.
  *
  * The package is a devDependency, added so the v1 contract gates under
@@ -146,6 +193,11 @@ describe("@nexus/types stays out of the published bundle", () => {
     .map(([file]) => file);
   const publishable = files.filter((f) => !isUnpublishable(f));
   const unpublishable = files.filter(isUnpublishable);
+
+  /** `<file> -> <specifier>` for every relative load of `packages/types/`. */
+  const relativeReaches = [...CODE].flatMap(([file, code]) =>
+    relativeLoadsOfNexusTypes(file, code).map((s) => `${file} -> ${s}`)
+  );
 
   it("read the source tree", () => {
     // Guards the gate itself. A moved `src/` or a broken walk would otherwise
@@ -212,6 +264,85 @@ describe("@nexus/types stays out of the published bundle", () => {
   it("the matcher reads neither a sibling package nor a bare mention as a load", () => {
     expect(NOT_LOADS.filter((line) => IMPORTS_NEXUS_TYPES.test(line))).toEqual([]);
     expect(NOT_LOADS.length).toBe(4);
+  });
+
+  /**
+   * ASSEMBLED, with one tooth more than the fixtures above need.
+   *
+   * A literal relative specifier in import position ANYWHERE in this file would
+   * make THIS FILE a relative reacher of `packages/types/`, and the arm below
+   * would then red on its own fixtures — the same self-reference the `PKG`
+   * fixtures dodge, except here it reds instead of passing vacuously, so it
+   * would at least be loud. Assembled anyway, because a gate that cannot state
+   * its own counter-examples is a gate nobody can extend.
+   */
+  const UP = "..";
+  const INTO_TYPES = `${UP}/${UP}/types/src/api/public/v1/response-shape`;
+
+  it("the relative resolver reads a load of packages/types at any importer depth", () => {
+    // The SAME specifier text resolves differently per importer depth, which is
+    // the whole reason this is a resolver and not a pattern: from `src/` it
+    // escapes to `packages/types`, and from one directory deeper it does not.
+    expect(
+      relativeLoadsOfNexusTypes("response-contract.ts", `import { S } from "${INTO_TYPES}";`)
+    ).toEqual([INTO_TYPES]);
+    expect(
+      relativeLoadsOfNexusTypes("resources/chat.ts", `import { S } from "${UP}/${INTO_TYPES}";`)
+    ).toEqual([`${UP}/${INTO_TYPES}`]);
+    // The identical text one level deeper lands INSIDE this package, so it is
+    // not a load. This pair is the discrimination; either alone is not.
+    expect(
+      relativeLoadsOfNexusTypes("resources/chat.ts", `import { S } from "${INTO_TYPES}";`)
+    ).toEqual([]);
+    // Every loader shape, as above.
+    expect(
+      relativeLoadsOfNexusTypes(
+        "response-contract.ts",
+        [
+          `export * from "${INTO_TYPES}";`,
+          `import "${INTO_TYPES}";`,
+          `const m = await import("${INTO_TYPES}");`,
+          `const e = require("${INTO_TYPES}");`
+        ].join("\n")
+      ).length
+    ).toBe(4);
+  });
+
+  it("the relative resolver reads neither a sibling package, this package's own `types/`, nor a mention", () => {
+    const NOT: readonly string[] = [
+      // `packages/types-testing` — a DIFFERENT package. The trailing separator
+      // in the prefix test is the only thing separating the two, exactly as the
+      // closing quote is for the package-name matcher above.
+      `import { eachOrRefuse } from "${UP}/${UP}/types-testing/src/each-or-refuse";`,
+      // This package's OWN `src/types/` barrel. A text-level matcher looking for
+      // `types/` would read this as a load; resolving it cannot.
+      `import type { Chat } from "./types/chat";`,
+      `import { checker } from "./response-contract";`
+    ];
+    expect(
+      NOT.filter((line) => relativeLoadsOfNexusTypes("response-contract.ts", line).length > 0)
+    ).toEqual([]);
+    expect(NOT.length).toBe(3);
+    // A MENTION rather than a load — the POSITION half. `CODE` keeps literal
+    // text, so without it every docblock quoting a path would be an edge.
+    expect(
+      relativeLoadsOfNexusTypes("response-contract.ts", `const doc = "${INTO_TYPES}";`)
+    ).toEqual([]);
+  });
+
+  it("no publishable module reaches @nexus/types by a relative path", () => {
+    // The spelling the package-name matcher above structurally cannot see.
+    // `scripts/response-contract.project.ts` uses exactly it and is unreachable
+    // by DIRECTORY — outside `rootDir`, outside this population, outside the
+    // published `files` globs. This arm is what refuses it if it is ever moved
+    // under `src/`, where all three of those stop holding at once.
+    //
+    // 🚨 THIS ARM IS SATISFIED BY AN EMPTY POPULATION AND TODAY THE POPULATION
+    // IS EMPTY: measured over 152 modules and 456 relative specifiers, NONE
+    // resolves outside this package. So its green says nothing on its own, and
+    // the two arms above are what prove the resolver can fire at all. Treat a
+    // green here as meaningful only while those two are also green.
+    expect(relativeReaches).toEqual([]);
   });
 
   it("is imported only from modules that cannot be published", () => {

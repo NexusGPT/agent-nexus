@@ -63,7 +63,10 @@ export async function rcloneReadiness(
   }
   // `--no-install-deps` is today's behaviour byte for byte, and process for
   // process: refused before a plan is built, so `brew` is never probed for it.
-  const decision = installDecision(policy, io.stdinIsTTY);
+  //
+  // 🚨 `io.canAsk` HERE, `io.stdinIsTTY` AT `terminal:` BELOW — TWO FIELDS, TWO
+  // QUESTIONS, AND MERGING THEM REROUTES AN INSTALL STEP. `deps-io.ts` owns both.
+  const decision = installDecision(policy, io.canAsk);
   if (decision.kind === "refuse" && decision.because === "never") {
     return { ok: false, refusal: todaysRefusal(first.problems, asker, io.platform) };
   }

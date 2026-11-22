@@ -75,7 +75,9 @@ const CONFIRMATION_REQUIRED: Extract<
 
 const RERUN = "nexus apps deploy app-1 --sha 1a2b3c4 --confirm-overage";
 
-let realStdinIsTty: PropertyDescriptor | undefined;
+const STREAMS = ["stdin", "stdout", "stderr"] as const;
+
+let realIsTty: Partial<Record<(typeof STREAMS)[number], PropertyDescriptor | undefined>> = {};
 let realStderrWrite: typeof process.stderr.write;
 let realStdoutWrite: typeof process.stdout.write;
 
@@ -83,14 +85,32 @@ beforeEach(() => {
   question.mockReset();
   close.mockReset();
 
-  // A TTY, because the non-interactive arm returns before readline is ever
-  // reached and every case below is about what happens once it IS reached.
-  realStdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
-  Object.defineProperty(process.stdin, "isTTY", {
-    value: true,
-    configurable: true,
-    writable: true
-  });
+  // 🚨 ALL THREE STREAMS, NOT STDIN ALONE — THE GATE IS `canAsk()` NOW.
+  // Every arm below is about what happens once readline IS reached, so the ask
+  // has to be reachable; `canAsk()` requires stdin AND the prompt stream, so a
+  // spec pinning only stdin reads the RUNNER'S ambient stdout/stderr. Measured
+  // under this runner: all three are `undefined`, which is not a terminal — so
+  // the stdin-only form made `canAsk()` false and every case here returned
+  // before asking. Worse, it made the file's verdict depend on whether the
+  // developer's own terminal was attached, so it could pass by hand and fail in
+  // CI. `t f t` is the row chosen: stdin answers, stderr carries the question,
+  // and `promptStream()` resolves to stderr, which is the ordinary case.
+  realIsTty = {};
+  for (const stream of STREAMS) {
+    realIsTty[stream] = Object.getOwnPropertyDescriptor(process[stream], "isTTY");
+  }
+  // A BLOCK body, not an expression one: `Object.defineProperty` RETURNS the
+  // object, and an expression-bodied arrow annotated `: void` is TS2322.
+  const pin = (stream: (typeof STREAMS)[number], value: boolean): void => {
+    Object.defineProperty(process[stream], "isTTY", {
+      value,
+      configurable: true,
+      writable: true
+    });
+  };
+  pin("stdin", true);
+  pin("stdout", false);
+  pin("stderr", true);
 
   // The preamble and the acknowledgement go to `promptStream()`. Swallow both
   // streams so a deliberate exercise of this branch does not decorate the run.
@@ -103,10 +123,13 @@ beforeEach(() => {
 afterEach(() => {
   process.stderr.write = realStderrWrite;
   process.stdout.write = realStdoutWrite;
-  if (realStdinIsTty === undefined) {
-    delete (process.stdin as { isTTY?: boolean }).isTTY;
-  } else {
-    Object.defineProperty(process.stdin, "isTTY", realStdinIsTty);
+  for (const stream of STREAMS) {
+    const descriptor = realIsTty[stream];
+    if (descriptor === undefined) {
+      delete (process[stream] as { isTTY?: boolean }).isTTY;
+    } else {
+      Object.defineProperty(process[stream], "isTTY", descriptor);
+    }
   }
 });
 

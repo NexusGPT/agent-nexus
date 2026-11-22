@@ -29,8 +29,37 @@ export interface DepsIo {
   readonly arch: NodeJS.Architecture;
   /** The environment the CLI itself received; read for `CGOFUSE_LIBFUSE_PATH` and stripped for children. */
   readonly env: NodeJS.ProcessEnv;
-  /** Whether a person can type an answer: `process.stdin.isTTY`, decided on STDIN, never stdout. */
+  /**
+   * A terminal on stdin: `process.stdin.isTTY`, decided on STDIN, never stdout.
+   *
+   * 🚨 THIS IS NOT "CAN WE ASK" — {@link canAsk} IS, AND THE TWO MUST NOT BE
+   *    MERGED INTO ONE FLAG.
+   *
+   * What this answers is whether a CHILD PROCESS has a tty to prompt on, which
+   * is the only thing `installPlanFor` uses it for: `host.terminal` chooses
+   * `sudo` on the terminal (`fuse-t-cask`, or `fuse-t-pkg` with
+   * `password: "terminal"`) over macOS's own password DIALOG
+   * (`password: "dialog"`). `sudo` reads and writes `/dev/tty`, so redirecting
+   * this process's stdout takes nothing away from it — and widening this field
+   * to `canAsk()` would reroute a real install step on every
+   * `nexus workspace-mount … >out 2>err` typed at a keyboard, swapping a
+   * working `sudo` prompt for a GUI dialog. That is a behaviour change in the
+   * installer, not a hang fix, which is why the seam carries two booleans
+   * rather than one.
+   */
   readonly stdinIsTTY: boolean;
+  /**
+   * Whether this process can hold a CONVERSATION at all — `canAsk()` from
+   * `util/confirm`, which is stdin AND the prompt stream in one answer.
+   *
+   * Gate every question on this and never on {@link stdinIsTTY}. stdin says an
+   * ANSWER can arrive; the prompt stream says the QUESTION can be read, and a
+   * site checking one of them has a hang on whichever it left out:
+   * `nexus workspace-mount … >out.log 2>err.log` at a real keyboard passes a
+   * stdin gate, writes `Install it now? [y/N]` into err.log, and blocks on a
+   * keystroke nobody was asked for. `util/confirm.stream.ts` owns the reasoning.
+   */
+  readonly canAsk: boolean;
 
   /** `fs.existsSync`: the managed rclone, the FUSE libraries, WinFsp's DLL. */
   exists(file: string): boolean;

@@ -46,10 +46,21 @@ export { constNameFor, shapeConstNameFor } from "./contract-help.codegen.names";
  * fields in contract declaration order, and nothing here reads the filesystem or
  * iterates an object whose key order it did not establish. Two runs over the
  * same contract produce identical bytes.
+ *
+ * 🚨 `writerModule` IS A CITATION THIS FUNCTION CANNOT CHECK, so the caller must
+ * resolve it against the filesystem and REFUSE when it does not exist.
+ * `scripts/generate-contract-help.ts` owns that, and the reason is a measured
+ * defect rather than caution: this header used to interpolate `<namespace>.ts`,
+ * which is a silent default — correct for 44 namespaces by coincidence and dead
+ * for the two whose command module is not named after them, so
+ * `html-template.contract.generated.ts` cited an `html-template.ts` that has
+ * never existed. A default that is usually right is what minted that, which is
+ * why the resolution refuses instead of falling back.
  */
 export function renderGeneratedModule(
   namespace: string,
-  descriptors: readonly ProjectedDescriptor[]
+  descriptors: readonly ProjectedDescriptor[],
+  writerModule: string
 ): string {
   const enumFields = descriptors.flatMap((descriptor) =>
     descriptor.fields.filter((field) => field.enumValues).map((field) => ({ descriptor, field }))
@@ -103,9 +114,9 @@ export function renderGeneratedModule(
 // staging/main.
 //
 // 🚨 THIS FILE IS ONE OF TWO OPINIONS, NEVER THE AUTHORITY. Where the CLI offers
-// fewer values than the contract lists, the reason is declared at the flag in
-// \`${namespace}.ts\` and printed in --help. The contract has already been the
-// wrong one: it lists a deployment type the server 500s on.
+// fewer values than the contract lists, the reason is declared at the flag itself and printed in --help;
+// the flag sits in a command module pulled in by this namespace's registrar, \`commands/${writerModule}\`.
+// The contract has already been the wrong one: it lists a deployment type the server 500s on.
 
 ${enumImport}import type { ProjectedDescriptor } from "../contract-help.render";
 

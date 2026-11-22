@@ -1,7 +1,7 @@
 import { reportFailure } from "../../../errors";
 import { color } from "../../../output";
 import { askYesNo } from "../../../util/ask";
-import { promptLine, promptStream } from "../../../util/confirm";
+import { canAsk, promptLine, promptStream } from "../../../util/confirm";
 import { type TriggerDeploymentResponse } from "../../../vibe-wire-types";
 
 /**
@@ -11,14 +11,60 @@ import { type TriggerDeploymentResponse } from "../../../vibe-wire-types";
  * Interactive: print the situation and ask y/N through {@link askYesNo}, which
  * is the same primitive `confirmDestructive` asks through.
  *
- * No terminal to ask (piped, CI): NEVER auto-confirm and never exit clean.
- * Refuse with a document naming the exact re-run with `--confirm-overage`, and
- * return false so the command exits non-zero — a scripted deploy that silently
- * stops while reporting success is the worst possible outcome for a spend gate.
+ * Nowhere to hold the conversation (piped, CI, both outputs redirected): NEVER
+ * auto-confirm and never exit clean. Refuse with a document naming the exact
+ * re-run with `--confirm-overage`, and return false so the command exits
+ * non-zero — a scripted deploy that silently stops while reporting success is
+ * the worst possible outcome for a spend gate.
  *
- * `--json` is NOT part of that test. It describes the OUTPUT, and stdin is the
- * only statement about who is answering — so `--json` at a terminal asks, like
- * every other confirmation in this binary.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE GATE IS `canAsk()`, AND BOTH NARROWER SPELLINGS LEFT A DEFECT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * stdin says whether an ANSWER can arrive; it is silent on whether the QUESTION
+ * can be read. `apps deploy >out.log 2>err.log` typed at a real keyboard passes
+ * a gate on `process.stdin.isTTY`; {@link promptStream} then resolves to
+ * err.log, and the operator watches a blank terminal while the process blocks on
+ * a keystroke nobody was asked for — on a SPEND gate, where the entire purpose
+ * is to refuse safely. In CI it burns to the job timeout with no document and no
+ * exit code to read.
+ *
+ * Gating on STDOUT is the opposite error, and was the state before that: it
+ * refused an `apps deploy > log` typed at an operator's own keyboard, who could
+ * have answered.
+ *
+ * {@link canAsk} is both halves in one answer, so the ask is unreachable in
+ * exactly the case where the question would be invisible, and the refusal lands
+ * in the file the operator redirected to. `util/confirm.stream.ts` owns the
+ * reasoning; this file is one of its callers and owes it the same test every
+ * other ask site in this binary does.
+ *
+ * `--json` is NOT part of that test. It describes the OUTPUT, and only the
+ * streams say whether anyone can be asked — so `--json` at a terminal asks,
+ * like every other confirmation in this binary.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * 🚨 THE DOCUMENT'S `code` AND THE PROCESS'S STATUS ARE ONE DECISION, AND THIS
+ *    FILE USED TO MAKE IT TWICE.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `reportFailure` resolves `remote-error` to `CLI_REMOTE_ERROR` in the document
+ * AND returns 6 for the status, from one lookup pair. That return value was
+ * DISCARDED here, while `deploy/deploy.command.ts` and
+ * `deploy/redeploy-sha.handler.ts` each assigned a bare `process.exitCode = 1`
+ * instead — so one output answered a scripted consumer two contradictory ways.
+ *
+ * The disagreement is load-bearing in the worst direction. `1` is `failed`, so
+ * a caller reading only the status was told a generic failure where the
+ * document said *the request was accepted and the server answered* — which is
+ * retryable the moment the organization's spend period resets.
+ *
+ * Assigning it HERE is `confirmDestructive`'s shape (`util/confirm.destructive.ts`:
+ * "On a refusal it has already reported and set `process.exitCode`, so the
+ * caller returns without acting"). The code travels with the document that
+ * names it, so the two cannot be decided apart again. Both callers now write
+ * `process.exitCode ??= EXIT_CODES.failed`, which preserves whatever an arm
+ * set and still grades the DECLINED arm below, which deliberately sets none.
  */
 export async function confirmOverageInteractively(
   data: Extract<TriggerDeploymentResponse, { status: "confirmation_required" }>,
@@ -40,18 +86,16 @@ export async function confirmOverageInteractively(
   // could not ask" with a document; so does this. Both arms are one branch now
   // because they are one answer — nobody said yes, so nothing was deployed.
   //
-  // STDIN, not stdout, because that is the stream the answer arrives on.
-  // Testing stdout refused an `apps deploy > log` typed at an operator's own
-  // keyboard.
+  // 🚨 `canAsk()`, NEVER `process.stdin.isTTY` — the header owns why, and the
+  // short version is that a stdin gate leaves a hang here.
   //
-  // 🚨 AND STDIN ALONE — `isJsonMode()` WAS A SECOND DISJUNCT HERE AND IT WAS
-  // DRIFT. `confirmDestructive` gates on stdin alone; this file is the copy that
+  // 🚨 AND NOT `isJsonMode()` — IT WAS A SECOND DISJUNCT HERE AND IT WAS DRIFT.
+  // `confirmDestructive` gates on `canAsk()` alone; this file is the copy that
   // was kept for its re-run hint and then diverged, so `--json` at a terminal
   // refused a question a person was standing right there to answer, costing them
   // a whole re-run with `--confirm-overage` for nothing. The safety it looked
-  // like it bought is already bought: the `!isTTY` arm below blocks every
-  // scripted path, which is the one condition that guarantees nobody is present
-  // to notice.
+  // like it bought is already bought: the arm below blocks every scripted path,
+  // which is the one condition that guarantees nobody is present to notice.
   //
   // ASKING CANNOT CORRUPT THE `--json` DOCUMENT, which is the only reason the
   // disjunct could have been load-bearing. `promptStream()` returns stdout ONLY
@@ -59,8 +103,11 @@ export async function confirmOverageInteractively(
   // question landing on stdout has stdout on a terminal, where nothing is
   // parsing it. A caller that parses stdout has a pipe or a file there, and the
   // question goes to stderr by construction. See `util/confirm.stream.ts`.
-  if (!process.stdin.isTTY) {
-    reportFailure(
+  if (!canAsk()) {
+    // ASSIGNED, never discarded — the header owns why. This verb decides the
+    // document's `code` and the exit status together; dropping the return value
+    // is what let a caller publish `CLI_REMOTE_ERROR` beside a bare `1`.
+    process.exitCode = reportFailure(
       "remote-error",
       `Spend confirmation required — nothing was deployed. ${data.reason.message}`,
       `Cost-safety status: ${data.reason.costSafetyStatus}\n  Re-run confirmed:\n  ${rerun}`
@@ -78,6 +125,8 @@ export async function confirmOverageInteractively(
   // `askYesNo`, not a hand-rolled interface. This site closed on the happy path
   // only — so a read that threw held stdin and the process never exited — and
   // lower-cased without trimming, so `"y "` and a CRLF `"y\r"` were read as NO.
+  // DECLINED SETS NO EXIT CODE, DELIBERATELY: there is no error document here to
+  // disagree with, so the caller's `failed` backstop grades it. See the header.
   if (!(await askYesNo("Deploy anyway and accept the additional spend?", promptStream()))) {
     promptLine("Aborted.");
     promptLine(color.dim(`Re-run confirmed:\n  ${rerun}`));

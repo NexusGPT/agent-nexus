@@ -36,6 +36,7 @@ const io = (
     arch: fake.arch ?? "arm64",
     env: fake.env ?? {},
     stdinIsTTY: true,
+    canAsk: true,
     exists: (file) => present.has(file),
     // A file that is not there answers ENOENT (null), as the real probe does; the
     // PATH name stands for a binary PATH resolves.

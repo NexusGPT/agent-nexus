@@ -316,7 +316,7 @@ category a particular failure falls into is EVOLVING — see below.
 
 ### A destructive command with no terminal refuses
 
-**46 commands declare `--yes`**, and every one of them behaves identically:
+**47 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
 - No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
@@ -326,11 +326,11 @@ category a particular failure falls into is EVOLVING — see below.
 The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
 the prompt and `nexus … > log.txt` cannot delete silently.
 
-All 46 declare the flag through `confirmable()` and ask through
+All 47 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
 one helper, and no command parses `--yes` for itself.
 
-**All 46 refuse, and that is DRIVEN rather than asserted from the source.**
+**All 47 refuse, and that is DRIVEN rather than asserted from the source.**
 `destructive-confirmation.driven.test.ts` runs each one with `stdin.isTTY` forced
 false and no `--yes`, in a sandboxed `HOME` and working directory with the network
 seams stubbed, and requires the refusal. Its spy calls THROUGH to the real helper
@@ -345,7 +345,7 @@ still cannot separate enforced from unenforced.
 **You may rely on:** a command that declares `--yes` never acting without it.
 Refusing costs one retry; proceeding costs the data.
 
-🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 21 DESTRUCTIVE
+🚨 **DECLARING `--yes` IS NOT THE SAME AS BEING DESTRUCTIVE, AND 20 DESTRUCTIVE
 COMMANDS DO NOT CONFIRM.** `destructiveCandidates()` in
 `destructive-confirmation.scan.ts` derives **71** candidates by verb —
 `delete`, `purge`, `revoke`, `rotate`, `wipe` and 19 more — and every one must
@@ -353,11 +353,11 @@ appear in exactly one of three declared sets:
 
 | Set                       | Count | What it means                                             |
 | ------------------------- | ----- | --------------------------------------------------------- |
-| `CONFIRMS_BEFORE_ACTING`  | 46    | destroys, and confirms. The promise above covers these.   |
+| `CONFIRMS_BEFORE_ACTING`  | 47    | destroys, and confirms. The promise above covers these.   |
 | `NOT_DESTRUCTIVE`         | 4     | carries a destructive-sounding verb and destroys nothing. |
-| `UNCONFIRMED_DESTRUCTIVE` | 21    | **destroys and does NOT confirm.** Named debt.            |
+| `UNCONFIRMED_DESTRUCTIVE` | 20    | **destroys and does NOT confirm.** Named debt.            |
 
-**Those 21 are a hole in the promise above, and they are written down rather than
+**Those 20 are a hole in the promise above, and they are written down rather than
 implied.** They are driven too, and REQUIRED TO STILL FAIL, so one that starts
 confirming must move to the obligation set and the ledger cannot rot in the
 shrinking direction either. Read the ledger before scripting a destructive verb;
@@ -367,8 +367,19 @@ The verb list is a heuristic and is admitted as one — the ledger is the artifa
 A destructive command whose name carries none of those 24 verbs is outside the
 population by construction, and nothing detects it.
 
+🔴 **CLEARING A LINE FROM THAT LEDGER IS A MAJOR-VERSION ACT, AND IT IS A BREAK
+OF THE EXIT-CODE PROMISE RATHER THAN OF THIS SECTION'S.** The entry destroyed
+without asking, so a pipeline that ran it with no terminal and no `--yes`
+SUCCEEDED; once it confirms, that same invocation exits `5` and destroys nothing.
+"Making a currently-succeeding one exit non-zero" is named above as a break in the
+STABLE exit-code surface, so a cleared line ships with a major bump and a
+changelog entry naming the old behaviour and the new one — never as a patch,
+however plainly the new behaviour is the safer one. `access-card delete` is the
+worked example; search `CHANGELOG.md` for it to read what a script lost.
+
 **A break here means:** a command in `CONFIRMS_BEFORE_ACTING` proceeding without an
-explicit confirmation when no terminal is present.
+explicit confirmation when no terminal is present — or a command LEAVING
+`UNCONFIRMED_DESTRUCTIVE` in anything but a major release.
 
 ### Scope semantics
 

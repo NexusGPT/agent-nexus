@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { handleError } from "../../../errors";
+import { EXIT_CODES } from "../../../exit-codes";
 import { isJsonMode } from "../../../output";
 import { printTriggeredDeployment } from "../_shared/print-triggered-deployment";
 import { resolveTenantOpts } from "../_shared/resolve-tenant-opts";
@@ -120,7 +121,9 @@ export function registerAppsDeployCommand(apps: Command, program: Command): Comm
           // Already printed, and the exit already set to `unmeasured` — never success.
           if (data === TRIGGER_ANSWER_UNLISTED) return;
           if (data === null) {
-            process.exitCode = 1;
+            // `??=`, never `= 1` — a bare 1 overwrote the code the refusal's own
+            // document named. `_shared/confirm-overage-interactively.ts` header.
+            process.exitCode ??= EXIT_CODES.failed;
             return;
           }
 

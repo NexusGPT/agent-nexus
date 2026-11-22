@@ -80,10 +80,14 @@ describe("the module refuses a name it cannot emit safely", () => {
     // 🚨 THE FALSE-POSITIVE DIRECTION, and it is the one that decides whether
     // this guard survives. A refusal that fires on correct work gets deleted,
     // and then the real collisions flow again.
-    const module = renderGeneratedModule("probe", [
-      descriptor("ProbeCreate", [field("Body.kind", ["a", "b"]), field("Body.name")]),
-      descriptor("ProbeList", [field("Params.status", ["OPEN"])])
-    ]);
+    const module = renderGeneratedModule(
+      "probe",
+      [
+        descriptor("ProbeCreate", [field("Body.kind", ["a", "b"]), field("Body.name")]),
+        descriptor("ProbeList", [field("Params.status", ["OPEN"])])
+      ],
+      "probe.ts"
+    );
     expect(exportedNames(module)).toEqual([
       "PROBE_CREATE__BODY_KIND",
       "PROBE_LIST__PARAMS_STATUS",
@@ -96,12 +100,16 @@ describe("the module refuses a name it cannot emit safely", () => {
     // The hole the sanitisation opens, closed. `twilio/text` and `twilio-text`
     // are different keys and one const cannot serve both.
     expect(() =>
-      renderGeneratedModule("probe", [
-        descriptor("ProbeCreate", [
-          field("Body.types.twilio/text.kind", ["a"]),
-          field("Body.types.twilio-text.kind", ["b"])
-        ])
-      ])
+      renderGeneratedModule(
+        "probe",
+        [
+          descriptor("ProbeCreate", [
+            field("Body.types.twilio/text.kind", ["a"]),
+            field("Body.types.twilio-text.kind", ["b"])
+          ])
+        ],
+        "probe.ts"
+      )
     ).toThrow(/one const for 1 set\(s\) of distinct contract fields/);
   });
 
@@ -110,12 +118,16 @@ describe("the module refuses a name it cannot emit safely", () => {
     // work out which two fields made it. Both paths are the whole message.
     let message = "";
     try {
-      renderGeneratedModule("probe", [
-        descriptor("ProbeCreate", [
-          field("Body.types.twilio/text.kind", ["a"]),
-          field("Body.types.twilio-text.kind", ["b"])
-        ])
-      ]);
+      renderGeneratedModule(
+        "probe",
+        [
+          descriptor("ProbeCreate", [
+            field("Body.types.twilio/text.kind", ["a"]),
+            field("Body.types.twilio-text.kind", ["b"])
+          ])
+        ],
+        "probe.ts"
+      );
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -134,10 +146,14 @@ describe("the module refuses a name it cannot emit safely", () => {
     // is the scope a module actually has, not because the cross pair is
     // reachable. What IS reachable is this pair.
     expect(() =>
-      renderGeneratedModule("probe", [
-        descriptor("Probe/One", [field("Body.name")]),
-        descriptor("Probe-One", [field("Body.name")])
-      ])
+      renderGeneratedModule(
+        "probe",
+        [
+          descriptor("Probe/One", [field("Body.name")]),
+          descriptor("Probe-One", [field("Body.name")])
+        ],
+        "probe.ts"
+      )
     ).toThrow(/PROBE_ONE_CONTRACT/);
   });
 
@@ -146,12 +162,16 @@ describe("the module refuses a name it cannot emit safely", () => {
     // an emitted name that is not a legal identifier is refused, so a green
     // `gen:contract-help` over the real 39 namespaces IS the evidence that none
     // of them collides. Asserted here on the shape most likely to break it.
-    const module = renderGeneratedModule("channel", [
-      descriptor("ChannelWhatsappTemplateCreate", [
-        field("Body.types.twilio/call-to-action.actions[].type", ["URL", "PHONE_NUMBER"]),
-        field("Body.types.twilio/carousel.cards[].actions[].type", ["QUICK_REPLY", "URL"])
-      ])
-    ]);
+    const module = renderGeneratedModule(
+      "channel",
+      [
+        descriptor("ChannelWhatsappTemplateCreate", [
+          field("Body.types.twilio/call-to-action.actions[].type", ["URL", "PHONE_NUMBER"]),
+          field("Body.types.twilio/carousel.cards[].actions[].type", ["QUICK_REPLY", "URL"])
+        ])
+      ],
+      "channel.ts"
+    );
     for (const name of exportedNames(module)) expect(name).toMatch(/^[A-Z][A-Z0-9_]*$/);
   });
 });

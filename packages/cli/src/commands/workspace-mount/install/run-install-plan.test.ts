@@ -62,6 +62,7 @@ const io: DepsIo = {
   arch: "arm64",
   env: {},
   stdinIsTTY: true,
+  canAsk: true,
   exists: () => false,
   rcloneVersion: () => null,
   macFuseApproved: () => "unknown",

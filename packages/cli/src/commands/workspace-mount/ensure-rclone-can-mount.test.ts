@@ -41,6 +41,7 @@ const machine = (m: Machine = {}) => {
     arch: "arm64",
     env: {},
     stdinIsTTY: m.tty ?? true,
+    canAsk: m.tty ?? true,
     exists: (file) => present.has(file),
     rcloneVersion: (binary) => {
       if (m.rcloneRefused !== undefined) return { refused: m.rcloneRefused };

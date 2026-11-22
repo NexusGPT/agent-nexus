@@ -17,7 +17,7 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  *   tier         493 STABLE, 68 UNSTABLE
  *   disposition  27 never-execute, 468 registration-only, 61 safe, 5 safe-with-fixture
- *   --yes        46 destructive — 46 confirmable
+ *   --yes        47 destructive — 47 confirmable
  *   --json       449 answered, 112 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
@@ -64,7 +64,7 @@ import type { SurfaceLeaf } from "./cli-surface.model";
 export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "access-card available-actions", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: [], flags: ["!--credential-id <id>"], aliases: [], hidden: false, confirm: null, json: "list", shape: "05036a35dcc1" },
   { path: "access-card create", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: [], flags: ["--credential-id <id>", "--name <name>", "--description <text>", "--color <color>", "--data <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "18251f2155ff" },
-  { path: "access-card delete", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "success", shape: "91b3aa13358d" },
+  { path: "access-card delete", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: ["<id>"], flags: ["--yes"], aliases: [], hidden: false, confirm: "confirmable", json: "success", shape: "f2f2833ff79a" },
   { path: "access-card get", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: ["<id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "bca3e447b5de" },
   { path: "access-card list", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: [], flags: ["!--credential-id <id>"], aliases: [], hidden: false, confirm: null, json: "list", shape: "15a70c590fd4" },
   { path: "access-card update", tier: "STABLE", module: "access-card.ts", disposition: "registration-only", args: ["<id>"], flags: ["--name <name>", "--description <text>", "--color <color>", "--data <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "73815ef702b8" },

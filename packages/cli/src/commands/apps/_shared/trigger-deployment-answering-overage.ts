@@ -90,12 +90,19 @@ export async function triggerDeploymentAnsweringOverage(
       // is refused AGAIN created nothing, so under --json it owes an error
       // document rather than the payload of the thing that did not happen.
       if (isJsonMode()) {
-        reportFailure(
+        // The exit code rides with the document, for the reason
+        // `confirm-overage-interactively.ts`'s HEADER owns: this envelope names
+        // `CLI_REMOTE_ERROR`, so the process owes 6 and not the bare `1` the
+        // callers used to assign over the top of it.
+        process.exitCode = reportFailure(
           "remote-error",
           `Spend confirmation required again — nothing was deployed. ${data.reason.message}`,
           `Cost-safety status: ${data.reason.costSafetyStatus}\n  The organization's spend state moved mid-flight. Re-run: ${rerun}`
         );
       } else {
+        // No error document on this branch — the payload is printed as the
+        // server's own word — so there is no `code` for a status to contradict,
+        // and the caller's `failed` backstop grades it exactly as before.
         printTriggeredDeployment(data, appId);
       }
       return null;

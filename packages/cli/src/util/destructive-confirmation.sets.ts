@@ -7,6 +7,7 @@
  * by name on the very next run.
  */
 export const CONFIRMS_BEFORE_ACTING: readonly string[] = [
+  "access-card delete",
   "agent delete",
   "agent-skill delete",
   "agent-tool delete",

@@ -162,20 +162,30 @@ describe("user-group writes", () => {
 });
 
 describe("user-group delete", () => {
-  const originalIsTTY = process.stdin.isTTY;
+  const originalStdinIsTTY = process.stdin.isTTY;
+  const originalStderrIsTTY = process.stderr.isTTY;
 
   beforeEach(() => {
     request.mockReset();
     question.mockReset();
     request.mockResolvedValue({ deleted: true, revokedPermissionCount: 4 });
-    // STDIN, because that is the stream the confirmation reads. Without a TTY
-    // the command REFUSES, so the decline path below would never be reached and
-    // the test would pass vacuously.
+    // BOTH DIRECTIONS, because a confirmation is a conversation and `canAsk()`
+    // is both halves of it. stdin is the stream the answer arrives on; a visible
+    // prompt stream is where the question goes, and with neither output a
+    // terminal the command refuses rather than asking an invisible question.
+    //
+    // 🚨 EITHER HALF LEFT OUT MAKES THE DECLINE ARM BELOW VACUOUS, AND IT STAYS
+    // GREEN EITHER WAY. "Calls nothing when the operator declines" is equally
+    // satisfied by a refusal that never asked at all, so the setup is what makes
+    // that arm mean anything — which is why it is stated here rather than left
+    // to whoever reads the arm.
     process.stdin.isTTY = true;
+    process.stderr.isTTY = true;
   });
 
   afterEach(() => {
-    process.stdin.isTTY = originalIsTTY;
+    process.stdin.isTTY = originalStdinIsTTY;
+    process.stderr.isTTY = originalStderrIsTTY;
   });
 
   it("deletes on --yes without prompting", async () => {

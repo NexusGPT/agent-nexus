@@ -3,7 +3,7 @@
 //
 // The published shape of every Public API v1 response, projected from the Zod
 // schemas in `@nexus/types` down to plain data that carries no dependency.
-// `response-contract.ts` reads it; `response-contract.project.conformance.ts`
+// `response-contract.ts` reads it; `response-contract.project.ts`
 // writes it; `response-contract.codegen.test.ts` refuses a stale copy.
 //
 // Field types are a sorted string of letters — s string, n number, b boolean,

@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { EXIT_CODES } from "../../../exit-codes";
 import { isJsonMode } from "../../../output";
 import { type TenantHttpOptions } from "../../../util/tenant-http";
 import { printTriggeredDeployment } from "../_shared/print-triggered-deployment";
@@ -73,7 +74,9 @@ export async function redeployShaForRollback(
   // Already printed, and the exit already set to `unmeasured` — never success.
   if (data === TRIGGER_ANSWER_UNLISTED) return;
   if (data === null) {
-    process.exitCode = 1;
+    // Same rule as `deploy.command.ts`; the reasoning is in
+    // `_shared/confirm-overage-interactively.ts`'s header.
+    process.exitCode ??= EXIT_CODES.failed;
     return;
   }
   // Same single-document rule as `deploy --watch`; see there.

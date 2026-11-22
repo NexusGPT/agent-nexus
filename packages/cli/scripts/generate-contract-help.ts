@@ -37,7 +37,7 @@
  * is left to ordinary diff review; read it before widening either.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +51,65 @@ const CLI_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 function outputPath(namespace: string): string {
   return join(CLI_ROOT, "src", "commands", `${namespace}.contract.generated.ts`);
+}
+
+/*
+ * ── THE WRITER CITATION, AND WHY IT IS RESOLVED RATHER THAN DERIVED ─────────
+ *
+ * Each generated module's header names the command module that registers its
+ * namespace, so a reader of a committed artifact can get from it to the flags.
+ * That citation used to be `${namespace}.ts`, interpolated — a SILENT DEFAULT,
+ * and it was wrong in the only way a silent default ever is. 44 of the ledger's
+ * namespaces happen to have a `src/commands/<namespace>.ts`, so the default was
+ * right by coincidence; the two whose command module is not named after them
+ * cited a file that has never existed in this repo:
+ *
+ *   html-template.contract.generated.ts  ->  `html-template.ts`   (no such file)
+ *   task-eval.contract.generated.ts      ->  `task-eval.ts`       (no such file)
+ *
+ * Both are committed artifacts held BYTE-FOR-BYTE by `generated-drift.mjs`, so
+ * the dead name could not be corrected in the artifact — only here, in what the
+ * renderer is handed.
+ *
+ * 🚨 SO THE CONVENTION IS KEPT AND VERIFIED, NEVER TRUSTED. A namespace whose
+ * module is not `<namespace>.ts` must say so below, and anything that resolves
+ * to a file which does not exist is REFUSED rather than written. That is the
+ * same disposition as `refuseOnUndeclaredDisagreement` above: this generator
+ * does not guess, because a guess with generated authority behind it is worse
+ * than a stop. A future namespace whose module is named differently now gets a
+ * refusal naming the remedy, instead of minting a third dead citation.
+ */
+const WRITER_MODULE_OVERRIDES: Readonly<Record<string, string>> = {
+  "html-template": "html-message-template.ts",
+  "task-eval": "evaluation.ts"
+};
+
+function resolveWriterModule(namespace: string): string {
+  const override = WRITER_MODULE_OVERRIDES[namespace];
+  const file = override ?? `${namespace}.ts`;
+
+  if (!existsSync(join(CLI_ROOT, "src", "commands", file))) {
+    throw new Error(
+      `REFUSING "${namespace}" — its generated header would cite a command module that ` +
+        `does not exist.\n\n` +
+        `  cited            : src/commands/${file}\n` +
+        `  resolved from    : ${
+          override
+            ? "WRITER_MODULE_OVERRIDES in scripts/generate-contract-help.ts"
+            : 'the "<namespace>.ts" convention, with no override declared'
+        }\n\n` +
+        `A committed artifact pointing at a file nobody can open is the defect this ` +
+        `resolution exists to prevent, and it is held byte-for-byte by\n` +
+        `scripts/generated-drift.mjs, so it cannot be corrected in the artifact.\n\n` +
+        `Fix it one of two ways, then re-run:\n` +
+        `  1. The module was RENAMED -> update WRITER_MODULE_OVERRIDES to its new name.\n` +
+        `  2. This namespace's command module is simply not named after it -> add an\n` +
+        `     entry to WRITER_MODULE_OVERRIDES naming the module that registers it\n` +
+        `     (the registrar is wired in src/commands/contract-help/namespace-registrars.ts).`
+    );
+  }
+
+  return file;
 }
 
 /** Every leaf under a namespace, flattened. */
@@ -266,7 +325,11 @@ async function main(): Promise<void> {
       );
     }
 
-    const rendered = renderGeneratedModule(entry.namespace, descriptors);
+    const rendered = renderGeneratedModule(
+      entry.namespace,
+      descriptors,
+      resolveWriterModule(entry.namespace)
+    );
     const target = outputPath(entry.namespace);
 
     let existing: string | undefined;

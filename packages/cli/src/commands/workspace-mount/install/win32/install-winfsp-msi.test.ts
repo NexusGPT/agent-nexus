@@ -52,6 +52,7 @@ const io = (answer: RunOutcome, writeLog = true): DepsIo & { readonly seen: Seen
     arch: "x64",
     env: { Path: "C:\\Windows\\System32", NEXUS_API_KEY: "nxs_secret", ComSpec: "cmd.exe" },
     stdinIsTTY: true,
+    canAsk: true,
     exists: () => false,
     rcloneVersion: () => null,
     macFuseApproved: () => "unknown",

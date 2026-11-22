@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
 import { askYesNo } from "../../util/ask";
-import { promptLine, promptStream } from "../../util/confirm";
+import { canAsk, promptLine, promptStream } from "../../util/confirm";
 import {
   DOWNLOAD_STALL_DEFAULT_TIMEOUT_MS,
   downloadWithStallDeadline
@@ -20,7 +20,11 @@ export function realDepsIo(): DepsIo {
     platform: process.platform,
     arch: process.arch,
     env: process.env,
+    // TWO booleans, deliberately, and the seam's own header says why: this one
+    // is what `sudo` needs, `canAsk` is what a QUESTION needs, and redirecting
+    // stdout removes the second without touching the first.
     stdinIsTTY: process.stdin.isTTY === true,
+    canAsk: canAsk(),
     // The DEFAULT `fs` import, on purpose: the driven mount specs fake
     // `node:fs` through its default export only, so a named `existsSync`
     // would read the developer's real disk under them.

@@ -3,7 +3,7 @@ import path from "node:path";
 import { color, isJsonMode } from "../../output";
 import { askLine } from "../../util/ask";
 import { type ClaudeTarget, resolveClaudeTarget } from "../../util/claude-target";
-import { promptLine, promptStream } from "../../util/confirm";
+import { canAsk, promptLine, promptStream } from "../../util/confirm";
 import { type SkillsInstallOpts } from "../claude-code";
 import { describeReason } from "./_shared/describe-reason";
 
@@ -15,27 +15,31 @@ import { describeReason } from "./_shared/describe-reason";
  * the detected default.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * 🚨 IT DECIDES ON STDIN, AND IT USED TO DECIDE ON STDOUT
+ * 🚨 IT DECIDES ON {@link canAsk}, AND BOTH NARROWER GATES LEFT A HANG
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * This is not the destructive confirmation — that one lives in
  * `runSkillsInstallToTarget` and has always gone through `confirmDestructive`.
- * It is the OTHER question this command asks, and it carried the exact defect
- * `util/confirm` exists to delete, three ways over:
+ * It is the OTHER question this command asks, and it has now carried the defect
+ * `util/confirm` exists to delete in both of its spellings:
  *
- *   - `nexus skills update > log` from a real keyboard. stdout is a pipe, so the
- *     picker was skipped and dozens of files went to the detected root with
- *     nobody asked which root that was.
- *   - `echo 2 | nexus skills update` at a terminal. stdout is a terminal, so it
- *     asked — and consumed an answer arriving from a script rather than a person.
- *   - `nexus skills update < /dev/null` at a terminal. It asked, stdin had
- *     already ended, and nothing could ever settle the promise. The question
- *     printed and the process sat there.
+ *   - Gating on STDOUT. `nexus skills update > log` from a real keyboard: stdout
+ *     is a pipe, so the picker was skipped and dozens of files went to the
+ *     detected root with nobody asked which root that was. And `echo 2 | nexus
+ *     skills update` at a terminal asked, consuming an answer arriving from a
+ *     script rather than a person — while `nexus skills update < /dev/null`
+ *     asked with stdin already ended, so nothing could settle the promise.
+ *   - Gating on STDIN. `nexus skills update >out.log 2>err.log` from a real
+ *     keyboard: stdin is a terminal, so the picker ran, and {@link promptStream}
+ *     wrote three paths and a `Choose [1/2/3]` into err.log. The terminal stayed
+ *     blank and the process blocked on a keystroke nobody was asked for.
  *
- * A question is answered on STDIN, so stdin is the only stream that says whether
- * anyone can answer. And the question goes to {@link promptStream} — stderr in
- * every case a person can read it — so redirecting stdout no longer hides the
- * prompt behind the wait.
+ * Both halves of the conversation have to exist, and that is one question rather
+ * than two tests typed here: stdin says whether an ANSWER can arrive, the prompt
+ * stream says whether the QUESTION can be read, and a site checking one of them
+ * has a hang on whichever it left out. With nowhere to ask, detection stands —
+ * the same disposition as `--json` and a piped stdin, because this is a
+ * disambiguation rather than a destructive confirmation.
  */
 export async function maybePickLocation(
   detected: ClaudeTarget,
@@ -49,8 +53,10 @@ export async function maybePickLocation(
 
   // Nothing to disambiguate: explicit flag, already in the root, --json (the
   // picker would block on stdin and corrupt the JSON document), --yes/--force,
-  // or nobody is there to answer. Detection stands.
-  if (isExplicit || sameAsHere || isJsonMode() || opts.yes || opts.force || !process.stdin.isTTY) {
+  // or there is no conversation to have — `canAsk()` and never `stdin.isTTY`,
+  // because a readable answer with no readable question is the hang, not an ask.
+  // Detection stands.
+  if (isExplicit || sameAsHere || isJsonMode() || opts.yes || opts.force || !canAsk()) {
     return detected;
   }
 

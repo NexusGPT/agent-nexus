@@ -11,9 +11,9 @@
 // staging/main.
 //
 // 🚨 THIS FILE IS ONE OF TWO OPINIONS, NEVER THE AUTHORITY. Where the CLI offers
-// fewer values than the contract lists, the reason is declared at the flag in
-// `collection.ts` and printed in --help. The contract has already been the
-// wrong one: it lists a deployment type the server 500s on.
+// fewer values than the contract lists, the reason is declared at the flag itself and printed in --help;
+// the flag sits in a command module pulled in by this namespace's registrar, `commands/collection.ts`.
+// The contract has already been the wrong one: it lists a deployment type the server 500s on.
 
 import type { ContractEnum } from "../contract-binding";
 import type { ProjectedDescriptor } from "../contract-help.render";

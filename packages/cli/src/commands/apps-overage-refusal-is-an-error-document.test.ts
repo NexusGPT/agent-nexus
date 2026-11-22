@@ -2,6 +2,12 @@ import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 
 import { installArgumentRefusalReporting } from "../errors";
+import {
+  FAILURE_CAUSE_CODES,
+  FAILURE_CAUSE_EXIT_CATEGORIES,
+  type FailureCause
+} from "../errors-failure-cause";
+import { EXIT_CODES } from "../exit-codes";
 import { installJsonTerminalContract } from "../json-terminal-contract";
 import { setJsonMode } from "../output";
 import { describeStdout } from "./json-one-document.scan";
@@ -147,6 +153,29 @@ interface ErrorDocument {
   readonly error: { readonly message: string; readonly hint: string | null; readonly code: string };
 }
 
+/**
+ * THE EXIT CODE THE TAXONOMY BINDS TO A DOCUMENT'S `code`, or `null` when that
+ * string is bound to none.
+ *
+ * Resolved through the SAME two maps the production path reads
+ * (`errors-report.ts`'s `reportFailure` is `FAILURE_CAUSE_CODES[cause]` for the
+ * document and `EXIT_CODES[FAILURE_CAUSE_EXIT_CATEGORIES[cause]]` for the
+ * status), inverted — so an arm comparing against this is asserting the two
+ * halves of one decision agree, rather than restating a literal that could be
+ * edited to match whatever the binary happens to do.
+ */
+function exitCodeNamedByDocument(code: string): number | null {
+  for (const [cause, causeCode] of Object.entries(FAILURE_CAUSE_CODES)) {
+    if (causeCode === code) return EXIT_CODES[FAILURE_CAUSE_EXIT_CATEGORIES[cause as FailureCause]];
+  }
+  return null;
+}
+
+/** The `[CLI_…]` the human channel trails every error with — `errors-document.ts`. */
+function codeInHumanOutput(text: string): string | null {
+  return /\[(CLI_[A-Z_]+)\]/.exec(text)?.[1] ?? null;
+}
+
 describe("apps deploy refuses the spend gate with an ERROR document under --json", () => {
   it("puts the documented envelope on stdout, never the confirmation payload", async () => {
     tenantRequest.mockReset();
@@ -187,7 +216,15 @@ describe("apps deploy refuses the spend gate with an ERROR document under --json
     // field carrying two opposite meanings.
     expect(run.stdout).not.toContain("confirmation_required");
 
-    expect(run.exitCode).toBe(1);
+    // 🚨 6, AND IT MUST NOT GO BACK TO 1. This arm pinned `1` while the
+    // assertion eleven lines above pinned `CLI_REMOTE_ERROR` — one output
+    // answering a scripted consumer two contradictory ways, with the spec
+    // holding BOTH halves of the contradiction in place. `reportFailure`
+    // resolves `remote-error` to 6; the callers discarded that and assigned a
+    // bare 1. `INVALID_ARGUMENTS` tells a script to stop retrying, and a spend
+    // cap is retryable the moment the period resets — so the cheap-looking
+    // "just match what it does" edit is the one that reopens the defect.
+    expect(run.exitCode).toBe(EXIT_CODES["remote-error"]);
   });
 
   it("still prints the human preamble and exits non-zero WITHOUT --json", async () => {
@@ -206,6 +243,90 @@ describe("apps deploy refuses the spend gate with an ERROR document under --json
 
     expect(tenantRequest).toHaveBeenCalledTimes(1);
     expect(`${run.stdout}${run.stderr}`).toContain("--confirm-overage");
-    expect(run.exitCode).toBe(1);
+    // 6 on the human channel too, and for the same reason — see the `--json`
+    // arm above. The refusal is one decision; `--json` only changes how it is
+    // RENDERED, so a status that differed between the two would make the exit
+    // code depend on an output flag.
+    expect(run.exitCode).toBe(EXIT_CODES["remote-error"]);
   });
+});
+
+/**
+ * THE EQUALITY ITSELF, AS ITS OWN ARMS: the code the document NAMES is the code
+ * the process RETURNS.
+ *
+ * Separate `it`s, one `expect` each, deliberately. A failing assertion throws
+ * and aborts the rest of its own block, so an equality arm written underneath
+ * the envelope assertions above would go unscored by every mutant that moves
+ * the envelope — the block would red, the kill would be credited to this
+ * property, and this property would never have been evaluated.
+ *
+ * And the comparison is RESOLVED rather than written: `exitCodeNamedByDocument`
+ * inverts the two maps `reportFailure` reads, so the arm fails if EITHER half
+ * moves. Asserting `exitCode === 6` beside `code === "CLI_REMOTE_ERROR"` is two
+ * literals that can be edited apart, which is exactly how the defect shipped.
+ */
+describe("the document's code and the process's exit status are one decision", () => {
+  const DEPLOY_ARGV = ["apps", "deploy", APP_ID, "--sha", "1a2b3c4", "--api-key", "nxs_stub"];
+  // The SECOND command site. `rollback --to` is not a rollback — it is an
+  // ordinary redeploy through `redeploy-sha.handler.ts`, which carried its own
+  // copy of the bare `= 1`. Driving only `deploy` would leave that site's
+  // status unasserted while reading as covered.
+  const ROLLBACK_ARGV = ["apps", "rollback", APP_ID, "--to", "1a2b3c4", "--api-key", "nxs_stub"];
+
+  it.each([
+    ["apps deploy --sha", DEPLOY_ARGV],
+    ["apps rollback --to", ROLLBACK_ARGV]
+  ] as readonly (readonly [string, readonly string[]])[])(
+    "%s under --json: the emitted document's own code resolves to the process's exit code",
+    async (_label: string, argv: readonly string[]) => {
+      tenantRequest.mockReset();
+      tenantRequest.mockResolvedValue(CONFIRMATION_REQUIRED);
+
+      const run = await drive([...argv, "--json"]);
+      expect(tenantRequest).toHaveBeenCalledTimes(1);
+
+      const document = JSON.parse(run.stdout.trim()) as ErrorDocument;
+      const bound = exitCodeNamedByDocument(document.error.code);
+      // A THROW, not an `expect` — an unresolvable code would make the one
+      // assertion below compare against `null` and pass only by accident, and a
+      // precondition that can go vacuous is not a precondition.
+      if (bound === null) {
+        throw new Error(
+          `the document names ${document.error.code}, which the taxonomy binds to no exit ` +
+            "code — the equality below would be measuring nothing"
+        );
+      }
+      expect(run.exitCode).toBe(bound);
+    }
+  );
+
+  it.each([
+    ["apps deploy --sha", DEPLOY_ARGV],
+    ["apps rollback --to", ROLLBACK_ARGV]
+  ] as readonly (readonly [string, readonly string[]])[])(
+    "%s without --json: the code trailing the human line resolves to the process's exit code",
+    async (_label: string, argv: readonly string[]) => {
+      tenantRequest.mockReset();
+      tenantRequest.mockResolvedValue(CONFIRMATION_REQUIRED);
+
+      const run = await drive(argv);
+      expect(tenantRequest).toHaveBeenCalledTimes(1);
+
+      const printed = codeInHumanOutput(`${run.stdout}\n${run.stderr}`);
+      if (printed === null) {
+        throw new Error(
+          "no [CLI_…] code in the human output — `errors-document.ts` trails every error " +
+            "with one, so its absence means this run never reached the refusal"
+        );
+      }
+      const bound = exitCodeNamedByDocument(printed);
+      if (bound === null) {
+        throw new Error(
+          `the human line names ${printed}, which the taxonomy binds to no exit code`
+        );
+      }
+      expect(run.exitCode).toBe(bound);
+    }
+  );
 });

@@ -54,6 +54,7 @@ const io = (answer: RunOutcome): DepsIo & { readonly seen: Seen[] } => {
     arch: "arm64",
     env: { PATH: "/opt/homebrew/bin:/usr/bin", HOME: SANDBOX, NEXUS_API_KEY: "nx-secret" },
     stdinIsTTY: true,
+    canAsk: true,
     exists: () => false,
     rcloneVersion: () => null,
     macFuseApproved: () => "unknown",

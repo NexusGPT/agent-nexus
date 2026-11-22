@@ -63,6 +63,7 @@ const io = (
       AWS_SECRET_ACCESS_KEY: "aws-secret"
     },
     stdinIsTTY: true,
+    canAsk: true,
     exists: (file) => fs.existsSync(file),
     rcloneVersion: () => null,
     macFuseApproved: () => "unknown",

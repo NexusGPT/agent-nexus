@@ -56,11 +56,13 @@
  *
  *   `.flag.ts`         declaring `--yes`, and the WeakSet that lets the gate
  *                      see a confirmation exists at all
- *   `.stream.ts`       which stream a question and its conversation go on
+ *   `.stream.ts`       which stream a question and its conversation go on, and
+ *                      `canAsk()` — whether either direction of the
+ *                      conversation exists at all
  *   `.destructive.ts`  the ask itself, and the refusal when there is no
- *                      terminal to ask
+ *                      conversation to have
  */
 
 export { confirmDestructive } from "./confirm.destructive";
 export { confirmable, isConfirmable, YES_FLAG_DESCRIPTION } from "./confirm.flag";
-export { promptLine, promptStream } from "./confirm.stream";
+export { canAsk, promptLine, promptStream } from "./confirm.stream";

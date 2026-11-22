@@ -14,12 +14,21 @@
  * ⚠️ CLEARING A LINE IS A BREAKING CHANGE TO A SCRIPT, WHICH IS WHY THEY ARE
  * STILL HERE. Making one of these confirm means it starts REFUSING when run
  * from a pipeline without `--yes` — the correct direction, and the same
- * direction the 44 commands in `CONFIRMS_BEFORE_ACTING` already took, but a CLI
+ * direction every command in `CONFIRMS_BEFORE_ACTING` already took, but a CLI
  * compatibility note belongs with it. That is the sequencing, not a doubt about
- * the fix.
+ * the fix. No count for either set is written here: both move whenever a line
+ * is cleared, and `COMPATIBILITY.md` carries the published figures with
+ * `compatibility-figures.test.ts` holding them to the live tree.
+ *
+ * `access-card delete` is the worked example of a line being cleared rather
+ * than kept: it moved to `CONFIRMS_BEFORE_ACTING`, its `--yes` went in through
+ * `confirmable()`, the three figures in `COMPATIBILITY.md` moved with it, and a
+ * MAJOR changeset carried the break — `CHANGELOG.md` is generated from those at
+ * release time, so the changeset is where the entry is written and never the
+ * changelog itself. That is the whole cost of clearing one, and it is the shape
+ * the next one takes.
  */
 export const UNCONFIRMED_DESTRUCTIVE: Readonly<Record<string, string>> = {
-  "access-card delete": "Deletes an access card, and with it whatever it was scoping.",
   "admin vibe-tenant-cluster disable":
     "Opts an org out of its dedicated cluster. DISABLED_RETAINED keeps the data, and the " +
     "org still loses its cluster with nobody asked.",

@@ -2,10 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hostPlatform, stagePlatform } from "../../stage-platform";
-import { promptStream } from "../../util/confirm";
+import { canAsk, promptStream } from "../../util/confirm";
 import type { RcloneBinary } from "../../workspace-direct-mount/managed-rclone";
 
 // Only execFileSync is faked: the seam must not reach for spawnSync, because
@@ -155,5 +155,82 @@ describe("realDepsIo — the real bag, and how it tells failures apart", () => {
 
   it("stdinIsTTY is decided on stdin, and is false here where no terminal is attached", () => {
     expect(realDepsIo().stdinIsTTY).toBe(process.stdin.isTTY === true);
+  });
+
+  /**
+   * 🚨 THE TWO FIELDS ARE PINNED ON THE ONE ROW WHERE THEY DISAGREE, BECAUSE
+   * EVERY OTHER ROW MAKES THIS VACUOUS. Under this runner all three streams are
+   * ambiently `undefined`, so `stdinIsTTY` and `canAsk` are both false and an
+   * arm comparing them would pass with the seam wired to either one — including
+   * wired to `stdinIsTTY` twice, which is the mistake it exists to catch.
+   * `stdin` a terminal with BOTH outputs redirected is the only row that tells
+   * them apart, and it is also the hang the gate was added for.
+   */
+  describe("stdinIsTTY and canAsk are different facts", () => {
+    const STREAMS = ["stdin", "stdout", "stderr"] as const;
+    const was = new Map<string, PropertyDescriptor | undefined>();
+
+    const pin = (stdin: boolean, stdout: boolean, stderr: boolean): void => {
+      const values = { stdin, stdout, stderr };
+      for (const stream of STREAMS) {
+        was.set(stream, Object.getOwnPropertyDescriptor(process[stream], "isTTY"));
+        Object.defineProperty(process[stream], "isTTY", {
+          value: values[stream],
+          configurable: true,
+          writable: true
+        });
+      }
+    };
+
+    afterEach(() => {
+      for (const stream of STREAMS) {
+        const descriptor = was.get(stream);
+        if (descriptor === undefined) {
+          delete (process[stream] as { isTTY?: boolean }).isTTY;
+        } else {
+          Object.defineProperty(process[stream], "isTTY", descriptor);
+        }
+      }
+      was.clear();
+    });
+
+    it("canAsk is FALSE where stdinIsTTY is TRUE — a keyboard and no readable output", () => {
+      pin(true, false, false);
+
+      const io = realDepsIo();
+      // Asserted as the pair, in one arm, because the whole claim is that they
+      // DISAGREE here: two separate arms would each pass over a seam that wired
+      // both fields to the same source.
+      expect({ stdinIsTTY: io.stdinIsTTY, canAsk: io.canAsk }).toEqual({
+        stdinIsTTY: true,
+        canAsk: false
+      });
+    });
+
+    it("CONTROL: both are TRUE when the conversation is possible", () => {
+      // Without this, the row above is satisfied by a `canAsk` hardcoded to
+      // false, which is not a wiring at all.
+      pin(true, false, true);
+
+      const io = realDepsIo();
+      expect({ stdinIsTTY: io.stdinIsTTY, canAsk: io.canAsk }).toEqual({
+        stdinIsTTY: true,
+        canAsk: true
+      });
+    });
+
+    it("canAsk tracks the live streams, not a value captured at construction", () => {
+      // `realDepsIo()` reads `canAsk()` eagerly, so this records that the bag is
+      // a SNAPSHOT: a caller holding one across a stream change holds a stale
+      // answer. Nothing in the mount path does, and this is what would red if
+      // that ever stopped being true.
+      pin(true, false, true);
+      const io = realDepsIo();
+      expect(io.canAsk).toBe(true);
+
+      Object.defineProperty(process.stderr, "isTTY", { value: false, configurable: true });
+      expect(io.canAsk).toBe(true);
+      expect(canAsk()).toBe(false);
+    });
   });
 });

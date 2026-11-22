@@ -167,8 +167,11 @@ describe("codeOnly reads code, not prose", () => {
  * give the site a category from `EXIT_CODES`, not to write its file down.
  */
 const EXPECTED_BARE_ONE_SITES: readonly string[] = [
-  "commands/apps/deploy/deploy.command.ts",
-  "commands/apps/deploy/redeploy-sha.handler.ts",
+  // DRAINED, and the list is the count — `commands/apps/deploy/deploy.command.ts`
+  // and `commands/apps/deploy/redeploy-sha.handler.ts` have gone. Both graded the
+  // spend-gate refusal a bare `1` over a document already stamped
+  // `CLI_REMOTE_ERROR`; they now take the code `reportFailure` returns, and
+  // `process.exitCode ??= EXIT_CODES.failed` grades the arm that names no code.
   "commands/auth/switch.command.ts",
   "commands/auth/switch.here.ts",
   "commands/auth/switch.session.ts",

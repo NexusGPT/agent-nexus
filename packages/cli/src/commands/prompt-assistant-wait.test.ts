@@ -121,6 +121,31 @@ describe("chat --wait waits for the prompt, not for the generation to START", ()
     expect(process.exitCode).toBeUndefined();
   });
 
+  /**
+   * 🔴 THE DOCUMENT ON STDOUT SAYS THE WAIT RESOLVED, where it used to say
+   * nothing at all. `timedOut` was spread in only when it was `true`, so a run
+   * that did not time out shipped no waiting key and a consumer had to read an
+   * absent key as `false` — indistinguishable from a CLI that cannot report a
+   * timeout. `_shared/wait-document.test.ts` pins the EXACT key set per
+   * outcome, which `toMatchObject` cannot: it fails on neither a missing key it
+   * does not name nor an extra one. This arm is the narrower claim it CAN make
+   * — that the three keys reach stdout, through the real command.
+   */
+  it("says the wait RESOLVED, rather than leaving the caller to infer it", async () => {
+    const out = await run([
+      "prompt-assistant",
+      "chat",
+      "--message",
+      "hi",
+      "--mode",
+      "agent",
+      "--wait",
+      "--json"
+    ]);
+
+    expect(JSON.parse(out)).toMatchObject({ wait: "resolved", waited: true, timedOut: false });
+  });
+
   it("honours --wait-timeout, in seconds", async () => {
     await run([
       "prompt-assistant",

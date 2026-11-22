@@ -10,15 +10,29 @@ import type { Equals, Expect } from "../src/v1-contract-equality";
 /**
  * Render `response-contract.generated.ts` from the published v1 contract.
  *
- * ## Why this file carries the `.conformance.ts` suffix
+ * ## Why this file lives in `scripts/` and not in `src/`
  *
- * It imports `@nexus/types`, and `wire-types-bundle.test.ts` refuses that
- * import from any file the published package can reach. The suffix is what
- * makes it unpublishable — matched by SUFFIX rather than by an allowlist, so
- * this file is outside the bundle by construction rather than by a name someone
- * remembered to add.
+ * It imports `@nexus/types`, which nothing the published package can reach may
+ * import. What keeps this file out of that reach is its DIRECTORY, and three
+ * independent things make `scripts/` unreachable: `tsconfig.build.json` sets
+ * `rootDir` to `./src` and includes only `src`, so the declaration program never
+ * reads this file; `tsup.config.ts`'s entries are both under `src/`, so no
+ * bundle walks it; and `package.json`'s `files` publishes `dist/` alone, so no
+ * `.ts` here ships in its own right. Move this file into `src/` and all three
+ * stop holding at once.
  *
- * That constraint is the reason the manifest is GENERATED rather than computed.
+ * 🚨 THE SUFFIX IS NOT THE GUARD HERE, AND NEITHER IS THE BUNDLE GATE'S IMPORT
+ * MATCHER. `wire-types-bundle.test.ts` matches unpublishable modules by the
+ * `.test.ts` / `.conformance.ts` suffix, and this file carries neither — it does
+ * not need to, because that gate's population is `src/` and this file is outside
+ * it. Renaming this file to carry a suffix would buy nothing. Nor would moving
+ * it into `src/` be caught for you: the import below is a RELATIVE path into
+ * `packages/types/`, and that gate's package-name matcher cannot see a relative
+ * specifier. The arm that CAN see it is
+ * `no publishable module reaches @nexus/types by a relative path` in that same
+ * gate, and it is what refuses this file if it is ever moved under `src/`.
+ *
+ * That directory is the reason the manifest is GENERATED rather than computed.
  * `@nexus/types` pulls Zod and the generated Prisma enums, Zod does not resolve
  * from this package at all, and a consumer installing `@agent-nexus/sdk` from
  * npm has neither. The schemas cannot travel; their projected shape can, as
@@ -127,7 +141,7 @@ export function renderResponseContractModule(): string {
 //
 // The published shape of every Public API v1 response, projected from the Zod
 // schemas in \`@nexus/types\` down to plain data that carries no dependency.
-// \`response-contract.ts\` reads it; \`response-contract.project.conformance.ts\`
+// \`response-contract.ts\` reads it; \`response-contract.project.ts\`
 // writes it; \`response-contract.codegen.test.ts\` refuses a stale copy.
 //
 // Field types are a sorted string of letters — s string, n number, b boolean,

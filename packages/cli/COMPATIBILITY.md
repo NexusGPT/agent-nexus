@@ -319,12 +319,24 @@ category a particular failure falls into is EVOLVING — see below.
 **47 commands declare `--yes`**, and every one of them behaves identically:
 
 - `--yes` (or `--force`) → proceed.
-- No `--yes`, stdin is a terminal → prompt, and treat anything but `y` as abort.
-- No `--yes`, **stdin is not a terminal** → **refuse**, exit non-zero, emit the
-  error document.
+- No `--yes`, and the question can be both asked and answered → prompt, and treat
+  anything but `y` as abort.
+- No `--yes`, and **either half of that conversation is missing** → **refuse**,
+  exit non-zero, emit the error document.
 
-The refusal is gated on **stdin**, not stdout, so redirecting output does not skip
-the prompt and `nexus … > log.txt` cannot delete silently.
+A confirmation needs a stream in each direction, so both are tested. An answer
+can only arrive when stdin is a terminal. The question goes to stderr, or to
+stdout in the one combination where stdout is a terminal and stderr is not. So
+`nexus … > log.txt` still prompts — the question moves to stderr and the operator
+standing there answers it — while `nexus … > out.log 2> err.log` has nowhere left
+to show it and refuses rather than waiting for an answer to a question nobody was
+shown.
+
+Redirecting output therefore never turns the prompt into a silent proceed: it
+either moves the question to a stream you can still see, or it stops the command.
+`confirm-refuses-when-the-question-cannot-be-seen.test.ts` asserts that whole
+eight-row truth table in a single arm, beside a control proving the refusal's own
+deadline fires.
 
 All 47 declare the flag through `confirmable()` and ask through
 `confirmDestructive()`, both in `src/util/confirm.ts`; the refusal lives in that
@@ -683,6 +695,14 @@ in `--help`. Nothing currently relies on this tier.
 Everything on stderr is prose for a human: the profile banner, warnings, progress,
 the update notice, commander's own refusal sentence, and the non-JSON error line.
 It is formatted for a terminal and rewritten whenever it reads badly.
+
+**An interactive PROMPT is prose for a human too, so it goes here as well** — the
+question, its preamble and its acknowledgement. A prompt is written to stderr
+whenever stderr is a terminal, and to stdout only in the one combination where
+stdout is a terminal and stderr is not. Where neither can be seen, the command
+refuses rather than waiting for an answer to a question nobody was shown. This is
+what keeps a question out of the single stdout document above: `nexus auth login`
+used to write its prompts to stdout unconditionally.
 
 Do not parse stderr. The error document on stdout is the machine surface.
 

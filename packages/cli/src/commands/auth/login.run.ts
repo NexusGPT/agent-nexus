@@ -16,7 +16,13 @@ import { printLoginTips } from "./login.tips";
  */
 export async function runLogin(input: {
   ask: Prompter["ask"];
-  effective: { apiKey?: string; profile?: string; env?: string; timeout?: number };
+  effective: {
+    apiKey?: string;
+    profile?: string;
+    env?: string;
+    timeout?: number;
+    overwrite?: boolean;
+  };
   baseUrl: string | undefined;
   dashboardUrl: string | undefined;
   resolvedBaseUrl: string;
@@ -49,7 +55,12 @@ export async function runLogin(input: {
     console.log(`User: ${color.cyan(userEmail)}`);
   }
 
-  const profileName = await resolveProfileName({ ask, provided: effective.profile, orgName });
+  const profileName = await resolveProfileName({
+    ask,
+    provided: effective.profile,
+    orgName,
+    overwrite: effective.overwrite
+  });
   if (profileName === null) return;
 
   saveLoginProfile({

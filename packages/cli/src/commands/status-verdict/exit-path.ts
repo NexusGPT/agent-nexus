@@ -67,8 +67,9 @@ export function governingConditions(node: ts.Node, stop: ts.Node): ts.Expression
  * `refuse`, `reportFailure` and `printNotFound` PRINT the error document and
  * RETURN a code; `printFailure` returns `void` and has, in its own words, "NO
  * opinion about the exit code". None of the four touches `process.exitCode`. The
- * caller does — `process.exitCode = reportFailure(…)` — and every correct site in
- * this package is written that way.
+ * caller does — `process.exitCode = reportFailure(…)`. The arm named "does NOT
+ * count a bare reportFailure(...)" in `commands/status-verdict.test.ts` is what
+ * pins that this scan refuses to bless a site which only CALLS one.
  *
  * An earlier version of this file listed those helper NAMES as exit paths. That
  * blessed the exact defect one layer in: a check verb that reads a failing
@@ -77,12 +78,29 @@ export function governingConditions(node: ts.Node, stop: ts.Node): ts.Expression
  * covered. Found by review, not by any mutation — mine all mutated the
  * ASSIGNMENT, which is the form that was already right.
  *
- * So the three forms below are the whole list, and each genuinely ends the
+ * So these are the three forms this test COUNTS, and each genuinely ends the
  * process non-zero:
  *
  *   · `process.exitCode = …` — whatever the right-hand side is;
  *   · `process.exit(…)`;
  *   · a `throw`, which the action's own `catch` maps through `handleError`.
+ *
+ * 🚨 THEY ARE NOT EVERY FORM THAT EXITS, AND THE OMISSION IS DELIBERATE.
+ * `process.exitCode ??= …` is an established idiom here — the `apps`
+ * confirm-and-abort arms use it so their own assignment cannot clobber a more
+ * specific code the refusal already set — and this test does not match it. Two
+ * reasons, and the second is load-bearing. `??=` is CONDITIONAL: `0 ??= n` keeps
+ * `0`, so it ends the process non-zero only while nothing has assigned `0`
+ * first, which nothing in this package does and nothing enforces. And matching
+ * it could only ever SUPPRESS a finding, because `coveredVerdictFields` in
+ * `covered-verdicts.ts` is the one consumer and a wider exit set can only grow
+ * `covered` — so excluding it fails toward a false ALARM a reader resolves,
+ * never toward a tick over a verdict nothing gates. Measured in both
+ * directions: planting `??=` on the cured `external-tool test-auth` arm makes
+ * this scan report that leaf, and matching `??=` makes the report vanish. Read
+ * the sites rather than counting them, because a count rots:
+ *
+ *     /usr/bin/grep -rn 'process\.exitCode ??=' src --include='*.ts'
  *
  * ⚠️ Every action in this package ends with
  * `catch (err) { process.exitCode = handleError(err) }`, which IS an exit path by

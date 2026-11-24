@@ -1,6 +1,7 @@
 import type { NexusClient } from "@agent-nexus/sdk";
 
 import { color } from "../../../output";
+import { promptLine } from "../../../util/confirm";
 import { editInEditor } from "./edit-in-editor";
 
 /** What the candidate loop decided, once it hands control back to the user loop. */
@@ -28,9 +29,12 @@ export async function runCandidateLoop(
   let checkpointOn = true;
 
   for (;;) {
-    console.log(`agent › ${candidate.content}`);
+    // DIALOGUE, and the sharpest case in either file: the prompt below asks the
+    // operator to [a]ccept THIS text. On stdout it goes to the log file while
+    // the question reaches the terminal, so the decision cannot be made at all.
+    promptLine(`agent › ${candidate.content}`);
     if (candidate.toolCalls.length > 0) {
-      console.log(color.dim(`tools: ${candidate.toolCalls.map((t) => t.name).join(", ")}`));
+      promptLine(color.dim(`tools: ${candidate.toolCalls.map((t) => t.name).join(", ")}`));
     }
     const action = await nextLine(
       `[a]ccept  [e]dit  [r]egenerate  [c]heckpoint ${checkpointOn ? "on" : "off"}  [d]one › `
@@ -50,7 +54,9 @@ export async function runCandidateLoop(
       case "e": {
         const edited = await editInEditor(candidate.content);
         if (edited === null) {
-          console.log(
+          // DIALOGUE: it acknowledges the `e` just typed and names the keys to
+          // answer with instead, so it belongs beside the prompt it re-asks.
+          promptLine(
             color.dim("editor unavailable — accept, regenerate, or edit later with set-golden")
           );
           continue;
@@ -64,7 +70,10 @@ export async function runCandidateLoop(
         return { stop: false, acceptedIndex: turn.index };
       }
       case "r": {
-        process.stdout.write(color.dim("agent … regenerating\n"));
+        // CONVERSATION, not a result: it tells the operator to wait, between a
+        // prompt and its answer. `run-authoring-repl.ts`'s header owns the
+        // reasoning; this is the identical write and moves with it.
+        promptLine(color.dim("agent … regenerating"));
         candidate = (await client.goldenConversations.generate(conversationId)).candidate;
         continue;
       }
@@ -76,7 +85,9 @@ export async function runCandidateLoop(
       case "done":
         return { stop: true, acceptedIndex: null };
       default:
-        console.log(
+        // DIALOGUE: the only reply to an unrecognised keystroke. On stdout the
+        // operator retypes into a silent prompt with no idea what is valid.
+        promptLine(
           color.dim("a = accept, e = edit, r = regenerate, c = checkpoint toggle, d = done")
         );
         continue;

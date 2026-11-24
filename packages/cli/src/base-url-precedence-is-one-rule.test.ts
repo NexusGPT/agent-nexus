@@ -139,7 +139,7 @@ const SANCTIONED_HOST_TABLE_IMPORTERS = [
  * ordinary command is a hole.
  */
 const SANCTIONED_PARTIAL_CALLERS: Readonly<Record<string, string>> = {
-  "cli/src/commands/auth/login.command.ts":
+  "cli/src/commands/auth/login.resolve-options.ts":
     "login CREATES the profile it is named with, so there is no stored profile to " +
     "read a host from — `--profile` here is the name to save as. The override IS " +
     "passed; only the profile argument is absent."

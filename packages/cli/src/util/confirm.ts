@@ -46,8 +46,16 @@
  *     form asks; stdin has already ended, so nothing can settle the promise.
  *     The question prints and the process sits there forever.
  *
- * Redirecting output is not a statement about who is answering. Reading stdin
- * is the only test of that, so it is the only one used here.
+ * Redirecting output is not a statement about who is answering, and reading
+ * stdin is the only test of that — so stdin decides whether an ANSWER can
+ * arrive, and it is never replaced by a test on an output stream.
+ *
+ * ⚠️ IT IS NOT THE ONLY TEST, THOUGH, AND A SECOND ONE IS NOT A RELAPSE INTO
+ * THE THREE CASES ABOVE. Whether the QUESTION can be read is a separate
+ * question with a separate answer, and `canAsk()` in `.stream.ts` asks both:
+ * an output stream is consulted to find a stream that can CARRY the question,
+ * never as a proxy for who will answer it. Where neither output can be seen
+ * there is no conversation to have, and that is a refusal.
  *
  * ── WHERE EACH PART LIVES ───────────────────────────────────────────────────
  *
@@ -56,13 +64,14 @@
  *
  *   `.flag.ts`         declaring `--yes`, and the WeakSet that lets the gate
  *                      see a confirmation exists at all
- *   `.stream.ts`       which stream a question and its conversation go on, and
+ *   `.stream.ts`       which stream a question and its conversation go on,
  *                      `canAsk()` — whether either direction of the
- *                      conversation exists at all
+ *                      conversation exists at all — and `askWouldHang()`, the
+ *                      half of it an ask site gates on BEFORE acting
  *   `.destructive.ts`  the ask itself, and the refusal when there is no
  *                      conversation to have
  */
 
 export { confirmDestructive } from "./confirm.destructive";
 export { confirmable, isConfirmable, YES_FLAG_DESCRIPTION } from "./confirm.flag";
-export { canAsk, promptLine, promptStream } from "./confirm.stream";
+export { askWouldHang, canAsk, promptLine, promptStream } from "./confirm.stream";

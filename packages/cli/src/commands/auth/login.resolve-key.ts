@@ -1,9 +1,11 @@
 import { refuse } from "../../errors";
 import { color } from "../../output";
+import { askWouldHang, promptLine } from "../../util/confirm";
 import { openUrl } from "../../util/open-url";
 import { isCrossOrgToken, PLATFORM_OPERATOR_TOKEN_PREFIX } from "./_shared/token-prefixes";
 import type { Prompter } from "./login.prompter";
 import { SETTINGS_URL } from "./login.settings-url";
+import { KEY_PROMPT, unseeableQuestionRefusal } from "./login.unseeable-question";
 
 export interface ResolvedKey {
   readonly apiKey: string;
@@ -25,15 +27,29 @@ export async function resolveApiKey(
   let apiKey = provided;
 
   if (!apiKey) {
+    // 🚨 THE GATE IS HERE, ABOVE `openUrl`, AND NOT AT THE `ask` BELOW. With it
+    // at the ask, `nexus auth login >out.log 2>err.log` from a keyboard OPENED A
+    // BROWSER WINDOW and printed a preamble for a login that then refused — a
+    // side effect plus an error, which is not a refusal. `ask` keeps its own copy
+    // of the test for the four later prompts; this is the one that has to fire
+    // first. Inside `if (!apiKey)` on purpose: a `--api-key` run asks nothing, so
+    // it must not be refused for a question it never reaches.
+    if (askWouldHang()) throw unseeableQuestionRefusal(KEY_PROMPT);
+
+    // 🚨 THE URL IS PART OF THE QUESTION. `Paste your API key (nxs_...):` is
+    // unanswerable without the page the key comes from, so both branches'
+    // preamble goes on the question's own stream — `nexus auth login > out.log`
+    // otherwise showed the bare prompt on the terminal and put the address in
+    // the file. `promptLine` exists for exactly this; see `util/confirm.stream`.
     if (process.stdin.isTTY) {
-      console.log(`Opening ${color.cyan(SETTINGS_URL)} ...`);
-      console.log("Create or copy an API key from the settings page.\n");
+      promptLine(`Opening ${color.cyan(SETTINGS_URL)} ...`);
+      promptLine("Create or copy an API key from the settings page.\n");
       openUrl(SETTINGS_URL);
     } else {
-      console.log(`Create or copy an API key at ${color.cyan(SETTINGS_URL)}\n`);
+      promptLine(`Create or copy an API key at ${color.cyan(SETTINGS_URL)}\n`);
     }
 
-    apiKey = (await ask("Paste your API key (nxs_...): ")).trim();
+    apiKey = (await ask(KEY_PROMPT)).trim();
   }
 
   if (!apiKey) {

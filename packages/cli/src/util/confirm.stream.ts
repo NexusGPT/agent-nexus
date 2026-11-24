@@ -1,4 +1,44 @@
 /**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ⚠️ THIS FILE IS MIRRORED, BYTE FOR BYTE, BETWEEN `@agent-nexus/cli` AND
+ *    `@agent-nexus/mcp-server`.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Both packages ask a human for an API key and write the SAME
+ * `~/.nexus-mcp/config.json`, and there is no dependency edge between them:
+ * neither depends on the other, and `@agent-nexus/cli` declares no `main`,
+ * `types` or `exports` at all, so nothing can import from it. This predicate
+ * cannot be shared by import. `nexus-mcp login > out.log` blocked on a question
+ * written into the log file for exactly that reason — the reasoning below
+ * already existed, one package away, and could not be reached.
+ *
+ * It is shared by COPY, and `confirm.stream.mirrored.test.ts` in
+ * `packages/mcp-server/src` fails when the copies drift, and when one side gains
+ * a `confirm.stream.*` file the other lacks. That gate is the enforceable form
+ * of "one predicate" across a boundary with no edge to route through — the same
+ * arrangement, for the same reason, as the `secret-file.*` family beside this
+ * file in both packages, whose header carries the argument in full.
+ *
+ * There are no imports below, and that is load-bearing rather than incidental:
+ * it is what lets the copies be byte-IDENTICAL rather than merely equivalent, so
+ * the gate can compare content instead of behaviour.
+ *
+ * debt: duplicated across two independently published binaries instead of
+ *       extracted. A shared workspace package for one `process.std*.isTTY`
+ *       predicate costs every worktree a build target in its reconcile and every
+ *       release a third version to coordinate; adding `exports` to
+ *       `@agent-nexus/cli` would turn a published binary into a library.
+ *       Ceiling: TWO byte-identical copies of a PURE PLATFORM predicate — it
+ *       reads `process.std*` and nothing else, imports nothing, and knows
+ *       nothing about either package's domain.
+ *       Upgrade trigger: EITHER a third site needs it, OR one of the two needs
+ *       this to behave differently, or it acquires an import. That second half
+ *       fires with only two copies in the tree — byte equality is then the wrong
+ *       invariant, and the cure is extraction with a parameter rather than a
+ *       third copy.
+ */
+
+/**
  * The stream a QUESTION is written on.
  *
  * 🚨 IT IS NOT `process.stdout`, AND THIS IS THE OTHER HALF OF READING STDIN.
@@ -53,6 +93,32 @@ export function promptStream(): NodeJS.WriteStream {
  */
 export function canAsk(): boolean {
   return process.stdin.isTTY === true && promptStream().isTTY === true;
+}
+
+/**
+ * Whether asking here would HANG: somebody is waiting, and no stream can show
+ * them the question.
+ *
+ * 🔴 IT IS NOT `!canAsk()`, AND THE DIFFERENCE IS A SHIPPED MODE. {@link canAsk}
+ * also demands a terminal on STDIN, so it is false for every piped run — and a
+ * pipe hangs on nothing, because the answer arrives off it and no question has to
+ * be read by anybody. `printf 'nxs_…\nwork\n' | nexus auth login` is what the
+ * login prompter's line queue exists for, and `nexus eval conv new`'s help says
+ * "SCRIPTED STDIN WORKS" with the published CHANGELOG agreeing. A gate spelled
+ * `!canAsk()` refuses all of them, and it passes every arm that only asks whether
+ * a refusal happens.
+ *
+ * So this is {@link canAsk}'s QUESTION half, asked only when stdin is a terminal
+ * and a person is therefore waiting for something to appear.
+ *
+ * 🚨 ASK IT BEFORE THE FIRST IRREVERSIBLE ACT, NOT AT THE READ. A refusal that
+ * arrives after a browser window has opened, or after a remote draft has been
+ * created, is a side effect plus an error rather than a refusal — measured on
+ * both, and the fix was to hoist the call rather than to change this condition.
+ * At the read it stays as defence in depth for whatever prompts come later.
+ */
+export function askWouldHang(): boolean {
+  return process.stdin.isTTY === true && !canAsk();
 }
 
 /**

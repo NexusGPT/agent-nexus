@@ -14,11 +14,10 @@ import { CategorizedCliError, EXIT_CODES } from "./exit-codes";
  * 🚨 `console.error(…); process.exitCode = 1; return;` LEAVES STDOUT EMPTY.
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * That three-line shape appears in 52 command actions and it is the second half
- * of the same defect `installArgumentRefusalReporting` closes: the caller gets
- * exit 1 and NOTHING to parse, on the flag whose whole promise is that a failure
- * is a document. Commander's own refusals now have a funnel; a hand-rolled one
- * has this verb.
+ * That shape is the second half of the same defect
+ * `installArgumentRefusalReporting` closes: the caller gets exit 1 and NOTHING
+ * to parse, on the flag whose whole promise is that a failure is a document.
+ * Commander's own refusals now have a funnel; a hand-rolled one has this verb.
  *
  * It is deliberately NOT a new envelope — it emits the same
  * `{"error":{"message","hint","code"}}` every other failure emits, so a script
@@ -46,9 +45,16 @@ export function refuse(message: string, hint?: string): number {
  * parameter at all means the wrong label is not a mistake anyone can make.
  *
  * @returns the exit code for `cause` — assign it to `process.exitCode`. The
- * cause the caller already had to name IS the exit category, so the 40 call
- * sites that adopted this verb got a specific exit code for free, and none of
- * them had to be edited to get it.
+ * cause the caller already had to name IS the exit category, so a call site
+ * gets its specific code out of an argument it was already required to pass,
+ * rather than choosing one.
+ *
+ * 🚨 ASSIGNING THE RETURN IS NOT OPTIONAL. This function prints and returns and
+ * touches `process.exitCode` nowhere, so a site that calls it as a bare
+ * statement prints a perfect error document and still exits 0.
+ * `commands/status-verdict/exit-path.ts` owns that distinction, and the
+ * status-verdict scan enforces it for CHECK-SHAPED LEAVES only — nowhere else in
+ * this package is a discarded return refused by anything.
  */
 export function reportFailure(cause: FailureCause, message: string, hint?: string): number {
   printCliError(message, hint, FAILURE_CAUSE_CODES[cause]);

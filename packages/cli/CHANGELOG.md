@@ -1,5 +1,72 @@
 # @agent-nexus/cli
 
+## 2.2.0
+### Minor Changes
+
+- 8c8ed46: New global flag `--api-region <eu|us>` targets a Nexus deployment by name. `--base-url` still wins when both are given, and `--api-region` wins over a named profile's stored host, `NEXUS_BASE_URL`, the active profile and `NEXUS_ENV`. `nexus auth login --api-region us` stores that deployment's host on the profile. With neither flag set, every command targets the same host as before. The flag is not spelled `--region` because four subcommands already use `--region` for an AWS or Twilio region.
+- ad77e3a: `nexus workflow node webhook-secret <workflow-id> <node-id>` reads the secret a published webhook trigger's sender must present
+  
+  A new command. Nothing existing changes.
+  
+  A webhook trigger created since 2026-10-31 refuses a delivery to its production URL
+  that does not prove its secret, with `401 WEBHOOK_VERIFICATION_FAILED`, and until now
+  the secret could only be read in the dashboard's trigger panel. A workflow built and
+  published from the CLI therefore ended in a URL that refused every call, with nothing
+  in `workflow get`, `node get` or any `--help` saying why (NEX-7576).
+  
+  - The command prints `secret`, `enforced`, `issuedAt` and the two header names a
+    sender may use (`x-nexus-webhook-secret` for the secret itself, `x-nexus-signature`
+    for an HMAC of the body). `--json` is that one flat object.
+  - It needs the `workflows:write` scope: the secret is what lets a sender start runs.
+  - The trigger exists only while the workflow is published, so on a draft, or on a node
+    that is not a `webhookTrigger`, it exits non-zero with `TRIGGER_WEBHOOK_NOT_FOUND`.
+  - `secret` is `null` and `enforced` is `false` on a trigger first published before
+    2026-10-31.
+  - `workflow publish --help` and `workflow unpublish --help` now name this command
+    where they say a webhook trigger requires a secret.
+  
+  Rotating and enforcing a secret are not CLI commands; they stay in the dashboard.
+- 2f415da: A collection search with no `includeMetadata` follows the collection's own setting
+  
+  `SearchCollectionBodySchema.includeMetadata` is now optional instead of
+  `.default(false)`, so `POST /skills/collections/:collectionId/search` reads a
+  request that leaves the flag out the way `query` already did: the collection's
+  own `includeMetadata` decides, and an explicit `true` or `false` overrides it for
+  that call. A collection that never turned metadata on answers exactly as before.
+  
+  `nexus collection search` and `nexus collection query` gain
+  `--no-include-metadata`, which sends an explicit `false` so a caller can leave
+  metadata out of one call on a collection that has it on. With neither flag the
+  body carries no key, as before. The SDK's `SearchCollectionBody` and
+  `QueryCollectionBody` document the same precedence.
+
+### Patch Changes
+
+- 61b4720: `nexus collection attach-documents --help` no longer says a malformed document id lands in a 404 that names no id. The route now answers a malformed id exactly as it answers an unknown one — `404 DOCUMENTS_NOT_FOUND`, with the id quoted in the message and listed under `error.details.missingDocumentIds` — and the help text says so. Nothing about the command's behaviour changes.
+- af5dbba: `nexus folder --help`, `nexus folder update --help` and `nexus folder assign --help` now state how folder visibility actually works: agent folders are shared across the organization, so every key in the organization — member or admin — lists, reads and changes any of its folders, subject only to the key's `folders:read`, `folders:write` and `folders:delete` scopes. The help no longer claims that a member key sees only the folders its own user created, that `folder list` can come back empty while the organization has folders, or that another user's folder id answers 404. Only a folder from another organization answers 404.
+- 655573e: `nexus workflow publish --help` and `unpublish --help` stop sending you through unpublish to refresh a live workflow
+  
+  Help text only. No command, flag, exit code or `--json` shape changes.
+  
+  The hosted API now republishes a `PUBLISHED` workflow in place, so `workflow publish`
+  on a live workflow answers success where it used to answer
+  `409 WORKFLOW_ALREADY_PUBLISHED`. The help said the opposite and named unpublish,
+  publish as "the only refresh path":
+  
+  - `workflow publish --help` now says to run it again after editing a live workflow,
+    and that the production triggers are updated, not deleted.
+  - `workflow unpublish --help` now says the production triggers are DELETED, that it
+    is not a refresh, and that the webhook trigger the next publish creates requires a
+    new secret on every delivery. That detour is what answered a customer's lead
+    intake with `401 WEBHOOK_VERIFICATION_FAILED` (NEX-7576).
+  - `workflow get --help` no longer says "unpublish and publish again".
+  - `WORKFLOW_ALREADY_PUBLISHED` was the example of an API refusal's own code in
+    `nexus --help`, `workflow --help` and `COMPATIBILITY.md`. The API no longer returns
+    it, so the example is now `WORKFLOW_NOT_PUBLISHED`.
+  
+  A script that branched on `WORKFLOW_ALREADY_PUBLISHED` to detect a live workflow no
+  longer sees it: read `status` from `workflow get` instead.
+
 ## 2.1.0
 ### Minor Changes
 

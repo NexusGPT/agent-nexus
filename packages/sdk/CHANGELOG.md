@@ -1,5 +1,51 @@
 # @agent-nexus/sdk
 
+## 5.2.0
+### Minor Changes
+
+- 8c8ed46: `NexusClient` accepts a `region` option — `"eu"` or `"us"` — to target a Nexus deployment by name. Precedence is `baseUrl` > `region` > `NEXUS_BASE_URL` > the EU default (`https://api.nexusgpt.io`), so a client constructed with none of them behaves exactly as before. An unknown region throws a `NexusError` instead of falling back to the default. The table is exported as `NEXUS_REGION_BASE_URLS`, alongside `NEXUS_REGIONS`, `isNexusRegion()`, `DEFAULT_NEXUS_REGION` and `DEFAULT_NEXUS_BASE_URL`.
+- ad77e3a: `workflows.getWebhookSecret(workflowId, nodeId)` reads the secret a published webhook trigger's sender must present
+  
+  A new method and a new exported type, `WebhookSecret`. Nothing existing changes.
+  
+  It calls `GET /workflows/:workflowId/nodes/:nodeId/webhook-secret` and returns
+  `{ secret, enforced, issuedAt, headerName, signatureHeaderName,
+  signatureToleranceSeconds }`. The two header names and the tolerance are literal
+  types, held equal to the v1 response schema by the contract gate, so a renamed header
+  is a compile error here rather than a type that names one the endpoint stopped reading.
+  
+  The route needs the `workflows:write` scope. It throws a `404`
+  (`TRIGGER_WEBHOOK_NOT_FOUND`) for a workflow that is not published and for a node that
+  is not a webhook trigger. `secret` is `null` for a trigger first published before
+  2026-10-31 that has not been published again since (NEX-7576).
+
+### Patch Changes
+
+- 2f415da: A collection search with no `includeMetadata` follows the collection's own setting
+  
+  `SearchCollectionBodySchema.includeMetadata` is now optional instead of
+  `.default(false)`, so `POST /skills/collections/:collectionId/search` reads a
+  request that leaves the flag out the way `query` already did: the collection's
+  own `includeMetadata` decides, and an explicit `true` or `false` overrides it for
+  that call. A collection that never turned metadata on answers exactly as before.
+  
+  `nexus collection search` and `nexus collection query` gain
+  `--no-include-metadata`, which sends an explicit `false` so a caller can leave
+  metadata out of one call on a collection that has it on. With neither flag the
+  body carries no key, as before. The SDK's `SearchCollectionBody` and
+  `QueryCollectionBody` document the same precedence.
+- eb80f2e: Every workflow-execution read now reports one `startedAt`, `completedAt` and `duration` for one execution. `list` and `get` used to start the run at its creation time while `diagnose` and the testing API's execution status used the time it actually started, so the two disagreed whenever a run was queued; all of them now report the time the run started (its creation time only for a run that never started), and `duration` no longer includes queue time on `list` and `get`. `completedAt` is now decided by status on every surface: `null` while the run is `PENDING` or `RUNNING` — so `diagnose` no longer reports a run reopened by a node retry as already completed — and set on every `COMPLETED`, `FAILED` or `CANCELLED` run, including older runs that ended without a `finishedAt`, which `list`, `get` and the testing API's execution status reported as unfinished. The `ExecutionSummary`, `ExecutionDiagnose`, `ExecutionPollResponse` and `ExecutionStatus` docstrings now say what each timestamp means. No field or type changes.
+- 655573e: `workflows.publish` and `workflows.unpublish` document the in-place republish
+  
+  Documentation only — no signature or behaviour change in the SDK. It reaches the
+  published package because the declaration program copies this JSDoc into the `.d.ts`.
+  
+  The hosted API now republishes a `PUBLISHED` workflow in place instead of answering
+  `409 WORKFLOW_ALREADY_PUBLISHED`. `publish` says to call it again to move a later
+  edit into the live graph, `unpublish` says it deletes the production triggers and is
+  not a refresh, and `WorkflowDetail.agentInputSchema` no longer says "unpublished and
+  published again" (NEX-7576).
+
 ## 5.1.2
 ### Patch Changes
 

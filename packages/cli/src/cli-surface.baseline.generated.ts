@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 2.1.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 2.2.0 ────────────────────────────────────────────────────
  *
- * 561 promised paths — 493 STABLE, 68 UNSTABLE.
+ * 562 promised paths — 494 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "2.1.0",
+  version: "2.2.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -177,9 +177,9 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "collection documents", shape: "8301bae390fd", tier: "STABLE" },
     { path: "collection get", shape: "ca7309624567", tier: "STABLE" },
     { path: "collection list", shape: "6b2e4d4dde12", tier: "STABLE" },
-    { path: "collection query", shape: "f263ac1e134c", tier: "STABLE" },
+    { path: "collection query", shape: "1291e862ec49", tier: "STABLE" },
     { path: "collection remove-document", shape: "1b01878ed460", tier: "STABLE" },
-    { path: "collection search", shape: "3dc20a12dcce", tier: "STABLE" },
+    { path: "collection search", shape: "e53fbe17c80c", tier: "STABLE" },
     { path: "collection search-multiple", shape: "e36c673b9971", tier: "STABLE" },
     { path: "collection stats", shape: "91f419b9c827", tier: "STABLE" },
     { path: "collection update", shape: "2e99fe93339c", tier: "STABLE" },
@@ -554,6 +554,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "workflow node test-payload", shape: "56ae20bc0757", tier: "STABLE" },
     { path: "workflow node update", shape: "5c6d6e023b39", tier: "STABLE" },
     { path: "workflow node variables", shape: "349ace2c476e", tier: "STABLE" },
+    { path: "workflow node webhook-secret", shape: "31186c35f896", tier: "STABLE" },
     { path: "workflow node-type", shape: "146d12347ace", tier: "STABLE" },
     { path: "workflow node-types", shape: "d97f512739cd", tier: "STABLE" },
     { path: "workflow overview", shape: "845f8c28feb3", tier: "STABLE" },

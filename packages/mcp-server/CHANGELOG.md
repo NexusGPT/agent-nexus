@@ -1,5 +1,10 @@
 # @agent-nexus/mcp-server
 
+## 1.3.0
+### Minor Changes
+
+- 8c8ed46: The bridge accepts `--base-url <url>` and `--region <eu|us>` on its own command line, and `nexus-mcp whoami` accepts the same two flags. Precedence is `--base-url` > `--region` > `NEXUS_BASE_URL` > the stored config > `NEXUS_ENV` > the EU default (`https://api.nexusgpt.io`), so a host configured with no flags talks to the same deployment as before. An unknown region is refused rather than resolved to the default. `resolveBaseUrl()` takes an optional `{ override, region }` selection, typed as the newly exported `BaseUrlSelection`.
+
 ## 1.2.4
 ### Patch Changes
 

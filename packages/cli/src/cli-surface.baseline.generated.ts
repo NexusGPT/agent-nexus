@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 2.0.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 2.1.0 ────────────────────────────────────────────────────
  *
  * 561 promised paths — 493 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "2.0.0",
+  version: "2.1.0",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },
@@ -130,7 +130,7 @@ export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
     { path: "asset list", shape: "58d77235db56", tier: "STABLE" },
     { path: "asset upload", shape: "da2c338b04e5", tier: "STABLE" },
     { path: "auth list", shape: "84e48d65a1fa", tier: "STABLE" },
-    { path: "auth login", shape: "8a56e0157c6b", tier: "STABLE" },
+    { path: "auth login", shape: "1bbbfdc48350", tier: "STABLE" },
     { path: "auth logout", shape: "1cb920df48ef", tier: "STABLE" },
     { path: "auth orgs", shape: "e54a636d1281", tier: "STABLE" },
     { path: "auth pin", shape: "b53ac0ef0d37", tier: "STABLE" },

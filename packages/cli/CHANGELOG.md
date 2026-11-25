@@ -1,5 +1,199 @@
 # @agent-nexus/cli
 
+## 2.1.0
+### Minor Changes
+
+- 5adb7fc: `nexus auth login --overwrite` consents to replacing an existing profile, so a scripted
+  re-login is no longer blocked on a prompt
+  
+  `nexus auth login --api-key nxs_… --profile <existing>` answers every question it is asked
+  except one: `Profile "<name>" already exists. Overwrite? [y/N]`. There was no flag for it, so
+  the one invocation a deploy script actually makes — log in again to the profile it already
+  uses — could not be completed without a terminal. Since the login prompts started refusing
+  rather than hanging it is blocked by a refusal instead of a hang, which is better and still
+  blocked.
+  
+  `--overwrite` answers that question and nothing else. Without it the prompt is unchanged,
+  including that anything but `y` still aborts with "Aborted." and a successful exit.
+  
+  **MINOR, not major: no currently-succeeding invocation changes.** COMPATIBILITY.md's stable
+  break is "making a currently-failing invocation exit 0, making a currently-succeeding one
+  exit non-zero, or giving one of these numbers a different meaning". This adds a flag; an
+  invocation that does not pass it behaves exactly as before, pinned by an arm that still
+  asserts the abort path. The only newly-succeeding invocation is one that could not have been
+  written before, because the flag did not exist.
+  
+  ### Why the flag is `--overwrite` and not `--yes`
+  
+  `destructiveCandidates()` unions the destructive-verb leaves with every leaf declaring an
+  option whose `long` is `--yes`. Declaring `--yes` here — through `confirmable()` or by hand —
+  would therefore make `auth login` a destructive candidate, and the partition demands it
+  appear in exactly one of three named sets. None can hold it honestly:
+  
+  - `CONFIRMS_BEFORE_ACTING` requires the action to be observed entering `confirmDestructive`.
+    That helper gates on a bare `canAsk()`, false whenever stdin is a pipe, so it would refuse
+    `printf 'nxs_…\nwork\ny\n' | nexus auth login` — the flow the prompter's line queue exists
+    for. It also opens its own readline interface over the stdin the prompter already holds.
+  - `NOT_DESTRUCTIVE` requires a written reason nothing stored can be lost, and an overwrite
+    replaces a stored API key that the config cannot give back.
+  - `UNCONFIRMED_DESTRUCTIVE` requires the leaf to act without asking. It asks.
+  
+  So `--yes` is this CLI's vocabulary for a confirmation routed through `confirmDestructive`,
+  and this is a pre-answer to one question in a command whose purpose is to write the profile.
+  
+  ### A false promise in the published contract, corrected
+  
+  `COMPATIBILITY.md` ships to npm beside `dist`, and its destructive-confirmation section said
+  the refusal "is gated on **stdin**, not stdout, so redirecting output does not skip the
+  prompt". That stopped being true when the confirmation began testing both halves of the
+  conversation: redirecting stdout alone moves the question to stderr and still prompts, and
+  redirecting both leaves nowhere to show it, so the command refuses. The section now states
+  what the code does, and names the spec that holds the whole truth table.
+
+### Patch Changes
+
+- c1e9fff: `nexus auth login` now shows its prompts when stdout is redirected, instead of blocking on a
+  question written into the log file
+  
+  `nexus auth login > out.log`, typed at a real keyboard, hung. stdin was a terminal, so nothing
+  in the run doubted there was an operator to ask — and `login.prompter.ts` named `stdout` twice,
+  for the readline interface's `output` and for the hand-written question write, so neither
+  consulted `promptStream()`. The question went into out.log, the terminal stayed blank, and the
+  process waited for a keystroke nobody had been shown. All five `auth login` prompts funnel
+  through that one `ask` (API key, platform-operator org, org selection, profile name, overwrite
+  consent), so the whole command had it.
+  
+  **A wider class than the one `canAsk()` closed.** The sites that landed with `canAsk()` already
+  chose their stream through `promptStream()`, so they needed BOTH outputs redirected before a
+  question became invisible. This one chose nothing, so a single `> out.log` was the whole defect.
+  
+  **Routing first, then the gate, and the order is the fix rather than a detail.** The question and
+  the interface now both go to `promptStream()`, so with stdout alone redirected the question lands
+  on the terminal and the ask SUCCEEDS — the operator is right there and can answer, which is a
+  better outcome than a refusal. Only where NO stream can carry a question — a keyboard with stdout
+  AND stderr both redirected — is there nothing to ask on, and that refuses: one
+  `{"error":{"message","hint","code"}}` document, exit `5` (`invalid-input`), and a hint naming
+  `--api-key` and `--profile`, the two flags that answer a prompt up front. A gate without the
+  routing would have turned the working single-redirect ask into a refusal.
+  
+  **The gate is not `canAsk()` itself, and that is deliberate.** `canAsk()` also requires a terminal
+  on stdin, and this command supports a pipe there: the prompter's line queue exists so that
+  `printf 'nxs_…\nwork\n' | nexus auth login` works at all. A bare `!canAsk()` gate refuses every
+  one of those runs even though nothing hangs — the answer arrives off the pipe and no question has
+  to be read by anyone. Measured: with that gate in place, both piped arms of the new spec red,
+  including the regression arm for the second prompt. So the refusal is `canAsk()`'s question half,
+  asked only when stdin is a terminal and a person is therefore waiting.
+  
+  **A categorized refusal out of the run now keeps its own exit code.** `login.command.ts`'s catch
+  restamped every throw as `local-failed`, which would have given this refusal exit `9` under a
+  document whose own `code` said the invocation was refused — the same disagreement between status
+  and document that `apps deploy`'s spend gate had. A throw carrying its own category now goes
+  through `handleError`; an ordinary failure still reports `local-failed`, which the new spec's
+  control arm pins.
+  
+  **Why patch and not major.** `COMPATIBILITY.md` names the break in the STABLE exit-code surface as
+  "making a currently-succeeding one exit non-zero, or making a currently-failing one exit 0".
+  Neither happens: the only invocations whose behaviour changes are the ones that previously BLOCKED
+  FOREVER, which have no terminating behaviour to break. A keyboard with stdout redirected now
+  completes the login it used to hang on; a keyboard with both outputs redirected now refuses where
+  it used to hang. Scripts and CI are untouched — a piped run behaved and still behaves exactly as
+  before, with the same codes and the same prompts answered off the pipe — and `--api-key` plus
+  `--profile` still skip the asks entirely.
+  
+  The one other observable move is WHERE a prompt's text appears in a non-interactive run: it goes
+  to stderr rather than stdout. That is the contract `promptStream()` already states for every other
+  prompt in the CLI — a RESULT goes on stdout because a caller parses it, a PROMPT goes on stderr
+  because a person reads it — and it keeps a question out of a `--json` document on stdout by
+  construction.
+  
+  Not an addition to a published surface, either: this package declares no `main`, `types` or
+  `exports`, only `bin.nexus`, so the new internal helper is not reachable by any consumer.
+- b71e714: `nexus eval conv new` now shows its whole dialogue when stdout is redirected, instead of
+  blocking on a prompt written into the log file
+  
+  `nexus eval conv new … > out.log`, typed at a real keyboard, hung. stdin was a terminal, so
+  nothing in the run doubted there was an operator to ask, and `run-authoring-repl.ts` named
+  `process.stdout` directly for the prompt write. The prompt went into out.log, the terminal
+  stayed blank, and the process waited for a keystroke for a question nobody had been shown.
+  Every prompt in the session funnels through that one `nextLine` — this loop's `you › ` and the
+  `[a]ccept [e]dit [r]egenerate …` action line it hands to `runCandidateLoop` — so one write was
+  the whole defect.
+  
+  ONE ROUTING HALF, not the two `auth login` had: this readline interface passes no `output` and
+  `terminal: false`, so readline neither echoes keystrokes nor has a stream to echo them to.
+  
+  **Routing the prompt alone is not the fix.** A visible question whose preamble went to the log
+  file is unanswerable, and it passes every arm that asks where the question went. So every write
+  in the REPL is classified, and the whole dialogue moves to the prompt stream:
+  
+  - the `[d]one`/Ctrl-D legend — the only statement of how to answer at all
+  - `you › ` and the action prompt
+  - `agent … generating` and `agent … regenerating` — wait, do not type
+  - `agent › <content>` and its `tools:` line — what `[a]ccept` accepts. Invisible, the
+    accept/reject decision cannot be made at all
+  - `editor unavailable …` and the key legend — replies to a keystroke
+  
+  The RESULT side deliberately stays on stdout, which is what a `>` is for: the
+  `Authoring <title> (<id>)` banner, whose conversation ID is the one machine-usable datum and
+  which no prompt refers to, and the closing `No turns accepted …` / `<title> is READY (<id>)`.
+  
+  **The one behaviour change a scripted caller can see:** a run that redirects stdout no longer
+  captures the agent's generated text in that file. It is on stderr with the rest of the
+  dialogue, so `2> transcript.txt` captures it — and the REPL's own help already says it is sugar
+  over `eval conv create/add-user/generate/accept/checkpoint/ready`, whose output is the checked
+  surface for anything scripted.
+  
+  Routed, a lone `> out.log` reaches the terminal and the REPL works, which beats a refusal
+  because the operator is right there. Only where NO stream can carry a prompt — a keyboard with
+  stdout AND stderr both redirected — does it refuse: one error document, exit 5
+  (`invalid-input`), naming the prompt that stopped the run and the pipe that removes it. The
+  refusal throws rather than returning `null`, because `null` is this REPL's end-of-input signal
+  and returning it would finish the session silently under a cheerful closing line.
+  
+  The gate is NOT `canAsk()` itself. `canAsk()` also demands a terminal on stdin, and a pipe
+  there is a shipped promise for this command: its help says "SCRIPTED STDIN WORKS", a published
+  changelog entry says the REPL "works with scripted stdin", and `edit-in-editor.ts` already
+  carries a `!process.stdin.isTTY` fallback written for that mode. Nothing hangs in those runs —
+  the lines arrive off the pipe, so no prompt has to be read. So the gate is `canAsk()`'s question
+  half, asked only when stdin is a terminal and a person is therefore waiting.
+  
+  Proven against the pre-fix code rather than asserted: eight mutants, each proved landed by
+  content digest and restored by digest equality against the stored pristine text. Restoring each
+  hardcoded write reds that line's presence and absence arms; deleting the gate reds every
+  refusal arm, named by a 2,000 ms deadline instead of hanging the suite; the bare `canAsk()`
+  gate reds both piped arms; a refusal that returns `null` reds the silent-exit arm; and
+  over-routing the banner reds the result-boundary arms, which is the opposite failure nobody
+  writes an arm for.
+- 8662441: Internal documentation only: two exit-code docblocks in the CLI stated counts and a
+  completeness claim that were false about their own tree. Nothing a caller sees changes —
+  no command, flag, exit code, error document or output shape moved, and the diff is
+  comment-only.
+  
+  `reportFailure`'s `@returns` named a number of call sites and asserted that none of them
+  had to be edited to adopt the verb. Neither half held: the figure never matched a census
+  of the call expressions, and the two sites that discarded the return value were edited by
+  the spend-refusal work that shipped alongside this. The count is gone and the invariant is
+  stated instead — this helper prints and returns and touches `process.exitCode` nowhere, so
+  a site that calls it as a bare statement prints a perfect error document and still exits
+  `0`. The same file's opening claimed the hand-rolled `console.error` plus exit-1 shape
+  appears in a fixed number of command actions; every remaining occurrence of that shape in
+  the package is prose describing it, so the sentence now carries no figure.
+  
+  The status-verdict scan's `isExitPath` docblock claimed its three forms "are the whole
+  list" of ways a path ends non-zero, in the same scan whose sibling gate opens by saying
+  that a gate claiming completeness is how a whole class reads as closed. Seven sites in the
+  package use `process.exitCode ??=`, which the test does not match. The docblock now says
+  what the test COUNTS and names that form as deliberately excluded, with the reasons: the
+  operator is conditional, so it ends the process non-zero only while nothing assigned `0`
+  first; and matching it could only ever suppress a finding, since the sole consumer treats a
+  wider exit set as wider coverage. Excluding it therefore fails toward a false alarm a
+  reader resolves rather than toward a tick over a verdict nothing gates. The scanner itself
+  is unchanged.
+  
+  A sentence asserting that "every correct site in this package is written that way" is also
+  gone: the word "correct" made it unfalsifiable, so it read as a coverage claim while
+  asserting nothing. The spec arm that does pin the property is named in its place.
+
 ## 2.0.0
 ### Major Changes
 

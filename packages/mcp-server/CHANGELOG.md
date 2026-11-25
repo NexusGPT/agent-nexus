@@ -1,5 +1,74 @@
 # @agent-nexus/mcp-server
 
+## 1.2.4
+### Patch Changes
+
+- 77a9553: `nexus-mcp login` shows its prompt and the page to copy a key from when stdout is redirected, instead of blocking on a question written into the log file
+  
+  `nexus-mcp login > out.log`, typed at a real keyboard, hung. stdin was a terminal, so nothing in
+  the run doubted there was an operator to ask — and the readline interface's `output` was
+  `stdout`, so `rl.question()` wrote `Paste your API key (nxs_...):` into out.log. The terminal
+  showed nothing and the process waited for a keystroke nobody had been shown. **One redirect was
+  enough**, because the interface chose no stream: it named `stdout` directly.
+  
+  **Routing first, then the gate, and the order is the fix rather than a detail.** The interface
+  now opens on the prompt stream, so with stdout alone redirected the question lands on the
+  terminal and the login SUCCEEDS — the operator is right there and can answer, which is a better
+  outcome than a refusal. Only where NO stream can carry a question — a keyboard with stdout AND
+  stderr both redirected — is there nothing to ask on, and that now refuses: two stderr lines
+  naming the question it could not show and the remedy, and exit code `1`. A gate without the
+  routing would have turned the working single-redirect run into a refusal.
+  
+  **The whole DIALOGUE moves, not just the question, because routing the question alone makes it
+  unanswerable instead of invisible.** The preamble names the page the key is copied from, so left
+  on stdout it goes into out.log while `Paste your API key (nxs_...):` sits on the terminal with no
+  address beside it. So `Opening <address> ...`, `Create or copy an API key …` and `Validating...`
+  now go to the prompt stream — stderr, except in the one combination where stderr is redirected
+  and stdout is a terminal. `Logged in successfully. Config saved to …` is this command's RESULT
+  and stays on stdout, which is what a `>` redirect exists to capture; the three existing
+  refusals were already on stderr and are unchanged.
+  
+  ⚠️ **One observable move for a script that parses stdout.** On a run with no terminal — a pipe or
+  CI — `Opening <address> ...` / `Create or copy an API key at <address>` and `Validating...` used
+  to appear on stdout and now appear on stderr. A script matching those lines on stdout must read
+  stderr, or match `Logged in successfully` instead, which is the line that actually reports the
+  outcome. Release `1.2.3` changed the text of that same preamble line for the same reason and
+  named the same obligation.
+  
+  **A piped run is untouched.** Measured against the pre-fix code: `printf 'nxs_…\n' | nexus-mcp
+  login` resolves the question off the pipe and saves the key, so the gate is deliberately NOT
+  `canAsk()` — which also demands a terminal on stdin and would refuse every one of those runs even
+  though nothing hangs. The refusal is `canAsk()`'s question half, asked only when stdin is a
+  terminal and a person is therefore waiting for something to appear.
+  
+  **Why patch and not major.** The STABLE exit-code surface names a break as "making a
+  currently-failing invocation exit 0, making a currently-succeeding one exit non-zero, or giving
+  one of these numbers a different meaning". None of the three happens. The only invocations whose
+  behaviour changes are the two that previously BLOCKED FOREVER — a keyboard with stdout
+  redirected, and a keyboard with both outputs redirected — and a run that never terminates has no
+  exit code to change. The first now completes the login it used to hang on; the second now exits
+  `1` where it used to hang. Every other invocation keeps its code. (`@agent-nexus/mcp-server`
+  carries no compatibility document of its own; this is `packages/cli/COMPATIBILITY.md`'s
+  definition, applied to the sibling binary that ships the same login.)
+  
+  **How the predicate got here, and why `@agent-nexus/cli` declares no release for it.** The
+  predicate that decides which stream a question goes on — `promptStream`, `canAsk`, `promptLine`
+  in `confirm.stream.ts` — is now MIRRORED byte for byte into `@agent-nexus/mcp-server`. The two
+  packages both ask for an API key, both write the same `~/.nexus-mcp/config.json`, and have no
+  dependency edge: neither depends on the other, and the CLI declares no `main`, `types` or
+  `exports` at all, so nothing can import from it. This hang existed precisely because that
+  reasoning sat one package away and could not be reached. Both copies now carry the mirror
+  obligation and one `debt:` marker in their shared header, and a gate in
+  `packages/mcp-server/src/confirm.stream.mirrored.test.ts` fails when they drift or when one side
+  gains a `confirm.stream.*` leaf the other lacks — the same arrangement, for the same reason, as
+  the `secret-file.*` family beside them.
+  
+  The CLI's own copy gains only that header, so nothing a CLI consumer installs moved — measured by
+  `scripts/check-release-intent.mjs`, which reports the file _inert_ ("only whole-line comments in
+  statement lists changed") and reaching the published package not at all, so it requires no release
+  declaration and gets none. Nothing is added to `@agent-nexus/mcp-server`'s published surface
+  either: the mirrored file is not re-exported from its `index.ts`.
+
 ## 1.2.3
 ### Patch Changes
 

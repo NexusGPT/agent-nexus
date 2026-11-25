@@ -87,6 +87,20 @@ Add to your MCP settings:
 | `NEXUS_PROFILE`         | Which stored profile to use          | the active profile        |
 | `NEXUS_ORGANIZATION_ID` | Organization a cross-org key acts on | the profile's `orgId`     |
 
+**Which deployment you talk to.** Pass `--base-url <url>` or `--region <eu|us>`
+on the bridge's own command line (`"args": ["-y", "@agent-nexus/mcp-server", "--region", "us"]`
+in a host config). The first that applies wins:
+
+1. `--base-url <url>` — any host; wins over `--region`.
+2. `--region <eu|us>` — `eu` = `https://api.nexusgpt.io`, `us` = `https://api.us.gpt.nexus`.
+   Any other name is refused.
+3. `NEXUS_BASE_URL`.
+4. The `baseUrl` stored in `~/.nexus-mcp/config.json`.
+5. `NEXUS_ENV` (`production` or `dev`).
+6. The EU default, `https://api.nexusgpt.io` — what you get with nothing set.
+
+`nexus-mcp whoami` accepts the same two flags and prints which one chose the host.
+
 **Which organization you get.** An org-scoped key (`nxs_`) reaches exactly one
 organization and needs nothing here. A personal cross-org key (`nxs_p_`) belongs
 to none: the one it acts on is whatever `organization-id` names, which is
@@ -99,9 +113,10 @@ tool call lands in.
 
 ```
 nexus-mcp              Start the stdio MCP server (default)
+                         [--base-url <url>] [--region <eu|us>]
 nexus-mcp login        Store API key in ~/.nexus-mcp/config.json
 nexus-mcp logout       Remove stored credentials
-nexus-mcp whoami       Show current configuration
+nexus-mcp whoami       Show current configuration (same two flags)
 ```
 
 ## Available Tools

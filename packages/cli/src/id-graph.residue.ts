@@ -54,6 +54,18 @@ export const RESIDUE: readonly ResidueEntry[] = [
       "encoding that shape here, and the shape is the thing the sweep exists to check."
   },
   {
+    leaf: "workflow node webhook-secret",
+    param: "nodeId",
+    reason: "payload-field",
+    because:
+      "A workflow's node ids exist only inside the workflow's own detail body - `workflow get` " +
+      "returns them under `.nodes[].id`. There is no collection route that lists a workflow's " +
+      "nodes, so the value cannot be listed, only read out of that response, which is the " +
+      "payload-field source this graph deliberately does not have. The leaf also answers with " +
+      "a CREDENTIAL, so it is one the sweep should not be executing against a live " +
+      "organisation and printing: staying unresolved here is what keeps it out of that run."
+  },
+  {
     leaf: "agent-tool get",
     param: "toolId",
     reason: "producer-needs-its-own-id",

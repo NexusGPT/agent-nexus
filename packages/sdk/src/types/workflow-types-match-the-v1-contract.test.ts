@@ -22,7 +22,8 @@ import {
   WorkflowDetailResponseSchema,
   WorkflowGraphEdgeSchema,
   WorkflowGraphNodeSchema,
-  WorkflowSummaryResponseSchema
+  WorkflowSummaryResponseSchema,
+  WorkflowWebhookSecretResponseSchema
 } from "@nexus/types/public-api-v1";
 import { describe, expect, it } from "vitest";
 
@@ -45,6 +46,7 @@ import type {
   UpdateBranchBody,
   UpdateNodeBody,
   UpdateWorkflowBody,
+  WebhookSecret,
   WfSummary,
   WorkflowDetail,
   WorkflowEdge,
@@ -113,6 +115,11 @@ export type WorkflowContractAssertions = [
       Omit<Sent<typeof ListWorkflowsParamsSchema>, "page" | "limit">
     >
   >,
+
+  // The header names and the tolerance are LITERALS on both sides, so a renamed
+  // header reds here rather than shipping a type that names one the endpoint no
+  // longer reads.
+  Expect<Equals<WebhookSecret, Received<typeof WorkflowWebhookSecretResponseSchema>>>,
 
   // ── the graph shapes the detail payload embeds ──
   Expect<Equals<WorkflowNode, Received<typeof WorkflowGraphNodeSchema>>>,
@@ -208,6 +215,7 @@ const GATED_PAIRS = [
   "CreateWorkflowBody ↔ CreateWorkflowBodySchema",
   "UpdateWorkflowBody ↔ UpdateWorkflowBodySchema",
   "ListWorkflowsParams (filters only) ↔ ListWorkflowsParamsSchema",
+  "WebhookSecret ↔ WorkflowWebhookSecretResponseSchema",
   "WorkflowNode ↔ WorkflowGraphNodeSchema",
   "WorkflowEdge ↔ WorkflowGraphEdgeSchema",
   "NodeResponse ↔ NodeResponseSchema",
@@ -299,7 +307,7 @@ describe("workflow types match the v1 contract", () => {
     // The floor is a literal. Deleting an assertion above without deleting its
     // name here leaves this green; deleting BOTH takes it red, which is the
     // point — a shrinking gate has to be a deliberate act.
-    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(22);
+    expect(GATED_PAIRS.length).toBeGreaterThanOrEqual(23);
     expect(new Set(GATED_PAIRS).size).toBe(GATED_PAIRS.length);
   });
 
@@ -358,5 +366,6 @@ describe("workflow types match the v1 contract", () => {
     expect(NodeTypeSchemaResponseSchema).toBeDefined();
     expect(Object.keys(WorkflowSummaryResponseSchema.shape)).toContain("iconUrl");
     expect(Object.keys(WorkflowGraphEdgeSchema.shape)).toContain("targetHandle");
+    expect(Object.keys(WorkflowWebhookSecretResponseSchema.shape)).toContain("headerName");
   });
 });

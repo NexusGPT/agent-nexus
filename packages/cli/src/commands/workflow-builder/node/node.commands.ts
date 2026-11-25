@@ -9,6 +9,7 @@ import { registerWorkflowNodeTestCommand } from "./test.command";
 import { registerWorkflowNodeTestPayloadCommand } from "./test-payload.command";
 import { registerWorkflowNodeUpdateCommand } from "./update.command";
 import { registerWorkflowNodeVariablesCommand } from "./variables.command";
+import { registerWorkflowNodeWebhookSecretCommand } from "./webhook-secret.command";
 
 /** `nexus workflow node …` — the node sub-group. */
 export function registerWorkflowNodeCommands(workflow: Command, program: Command): void {
@@ -22,5 +23,6 @@ export function registerWorkflowNodeCommands(workflow: Command, program: Command
   registerWorkflowNodeVariablesCommand(node, program);
   registerWorkflowNodeOutputFormatCommand(node, program);
   registerWorkflowNodeTestPayloadCommand(node, program);
+  registerWorkflowNodeWebhookSecretCommand(node, program);
   registerWorkflowNodeReloadPropsCommand(node, program);
 }

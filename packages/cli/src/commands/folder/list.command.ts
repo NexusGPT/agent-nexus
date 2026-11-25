@@ -30,7 +30,8 @@ Notes:
   table and are read under --json.
   A blank PARENT column is a root-level folder; anything else is the id of the
   folder it nests under.
-  Unpaginated, and scoped to what your key can see (see "nexus folder --help").`
+  Unpaginated, and every folder of the organization, whoever created it (see
+  "nexus folder --help").`
     )
     .action(async () => {
       try {

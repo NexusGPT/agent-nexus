@@ -157,7 +157,7 @@ export interface WorkflowDetail {
    * On a PUBLISHED workflow this is the LIVE contract — derived from the
    * `agentInputTrigger` in {@link publishedNodes}, the graph a calling agent
    * actually invokes — so a trigger edit made after publishing does NOT appear
-   * here until the workflow is unpublished and published again. That edit is on
+   * here until the workflow is published again. That edit is on
    * this same payload, under the trigger node's `data.parameters` in
    * {@link nodes}. On a DRAFT there is no published graph, so this tracks the
    * draft trigger.
@@ -878,6 +878,38 @@ export type WebhookTestPayload =
     };
 
 /**
+ * The secret a published webhook trigger's sender must present, and how to send
+ * it. Returned by `getWebhookSecret`.
+ *
+ * Send `secret` verbatim in the {@link headerName} header, or sign the body with
+ * it and send the signature in {@link signatureHeaderName} as
+ * `t=<unix seconds>,v1=<hex>`, where `<hex>` is the HMAC-SHA256 of
+ * `<t>.<raw request body>`. A delivery that does neither is answered
+ * `401 WEBHOOK_VERIFICATION_FAILED` when {@link enforced} is true.
+ *
+ * Treat `secret` as a credential: whoever holds it can start runs of the
+ * published workflow.
+ */
+export interface WebhookSecret {
+  /**
+   * The secret, or `null` for a trigger first published before 2026-10-31 that
+   * has not been published again since: it has none yet, and publishing the
+   * workflow again issues one without enforcing it.
+   */
+  secret: string | null;
+  /** Whether a delivery that does not prove the secret is refused today. */
+  enforced: boolean;
+  /** When this secret was issued (ISO 8601), or `null` when there is none. */
+  issuedAt: string | null;
+  /** The header that carries the secret itself. */
+  headerName: "x-nexus-webhook-secret";
+  /** The header that carries a signature of the body. */
+  signatureHeaderName: "x-nexus-signature";
+  /** How old a signature's timestamp may be, in seconds, before it is refused. */
+  signatureToleranceSeconds: 300;
+}
+
+/**
  * Status of a workflow execution.
  *
  * ⚠️ Per-node state arrives as `nodeResults`, a MAP KEYED BY NODE ID — not an
@@ -888,8 +920,12 @@ export type WebhookTestPayload =
 export interface ExecutionStatus {
   id: string;
   status: WorkflowExecutionStatus;
-  /** ISO timestamp. Always present — falls back to the row's creation time. */
+  /**
+   * ISO timestamp the run started executing, falling back to its creation time
+   * for a run that never started — the same value the executions API reports.
+   */
   startedAt: string;
+  /** ISO timestamp the run ended; `null` exactly while `status` is `PENDING` or `RUNNING`. */
   completedAt: string | null;
   nodeResults: Record<
     string,

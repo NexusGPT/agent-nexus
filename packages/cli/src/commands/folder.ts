@@ -22,11 +22,12 @@ revokes nothing. Use "nexus role" for who reaches what.
 
 An agent sits in exactly ONE folder, so "folder assign" is a MOVE.
 
-WHAT YOUR KEY CAN SEE: a key whose user role is org:member sees only the
-folders that user created. "folder list" can therefore come back empty while
-the organization has folders, and another user's folder id answers 404 on
-get/update/delete/assign. An admin key, or a legacy key carrying no user, sees
-the whole organization.`
+WHAT YOUR KEY CAN SEE: folders are shared across the organization, whoever
+created them. Any key in the organization — member or admin — lists, reads
+and changes every one of its folders, subject only to the key's scopes:
+folders:read for "folder list", folders:write for create/update/assign, and
+folders:delete for delete. Only a folder id from another organization answers
+404, the same 404 as an id that exists nowhere.`
   );
 
   registerFolderListCommand(folder, program);

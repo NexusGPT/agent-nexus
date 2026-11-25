@@ -23,6 +23,12 @@ export default defineConfig((options) => ({
   target: "es2020",
   outDir: "dist",
   skipNodeModulesBundle: true,
+  // The one exception to the line above: the SDK's region table is BUNDLED, so
+  // the published bridge carries the hosts it was built with and needs no
+  // `@agent-nexus/sdk` at runtime — it is a devDependency for exactly that
+  // reason. tsup's external plugin tests `noExternal` before it applies
+  // `skipNodeModulesBundle`, so this wins.
+  noExternal: ["@agent-nexus/sdk"],
   silent: true,
   banner: ({ format }) => {
     // Inject shebang for CLI entrypoints in CJS format

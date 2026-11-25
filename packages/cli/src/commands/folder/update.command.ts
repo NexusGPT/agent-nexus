@@ -37,8 +37,9 @@ Notes:
   FOLDER_PARENT_NOT_FOUND.
   AN EMPTY UPDATE IS A SUCCESS THAT CHANGES NOTHING. Every field is optional,
   so calling this with no flags answers 200 with the folder untouched.
-  A folder your key cannot see answers the same 404 as an id that exists
-  nowhere — the two are deliberately indistinguishable.
+  Any folder of your organization can be updated, whoever created it. A folder
+  of another organization answers the same 404 as an id that exists nowhere —
+  the two are deliberately indistinguishable.
   This is a PATCH: an omitted field is left alone, never cleared.`
     )
     .action(async (id: string, opts) => {

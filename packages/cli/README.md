@@ -3,7 +3,7 @@
 Official CLI for the [Nexus](https://nexusgpt.io) AI agent platform. Manage agents, workflows, deployments, knowledge bases, and more from your terminal.
 
 - Wraps the full [Nexus Public API v1](../sdk)
-- 54 command groups, 561 invocable subcommands
+- 54 command groups, 562 invocable subcommands
 - Table, record, and JSON output modes
 - Pipe-friendly: stdin input, `--json` output, composable with `jq`
 - Zero config after `nexus auth login`
@@ -119,13 +119,20 @@ The CLI resolves the API key in this order (first match wins):
 
 ### Base URL Resolution
 
-| Priority | Source                   | Default                                                                                                                                                                           |
-| -------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | `--base-url` flag        |                                                                                                                                                                                   |
-| 2        | `NEXUS_BASE_URL` env var |                                                                                                                                                                                   |
-| 3        | Config file              |                                                                                                                                                                                   |
-| 4        | `NEXUS_ENV` env var      | `production` = `https://api.nexusgpt.io`, `staging` = `https://api-staging.gpt.nexus`, `dev` = `http://localhost:3001`. Any other value is REFUSED, never resolved to production. |
-| 5        | Default                  | `https://api.nexusgpt.io`                                                                                                                                                         |
+Which Nexus deployment a command talks to. The first row that applies wins:
+
+| Priority | Source                                 | Notes                                                                                                                                                    |
+| -------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | `--base-url <url>` flag                | Any host. Wins over `--api-region` when both are given.                                                                                                  |
+| 2        | `--api-region <eu\|us>` flag           | A deployment by name: `eu` = `https://api.nexusgpt.io`, `us` = `https://api.us.gpt.nexus`. Any other name is refused.                                    |
+| 3        | `--profile <name>`'s stored base URL   | A profile named on this invocation outranks the env var.                                                                                                 |
+| 4        | `NEXUS_BASE_URL` env var               |                                                                                                                                                          |
+| 5        | The active profile's stored base URL   | Written by `nexus auth login --base-url …` (or `--api-region …`).                                                                                        |
+| 6        | `NEXUS_ENV` env var, else `production` | `production` = `https://api.nexusgpt.io` (EU), `staging` = `https://api-staging.gpt.nexus`, `dev` = `http://localhost:3001`. Any other value is REFUSED. |
+
+With nothing set, the CLI targets the EU deployment, `https://api.nexusgpt.io`.
+`--api-region` is not spelled `--region` because four subcommands already use
+`--region` for an AWS or Twilio region.
 
 ### Multi-Profile Support
 
@@ -264,16 +271,17 @@ nexus emulator send <deployment-id> <session-id> \
 
 These flags are available on every command:
 
-| Flag                  | Description                                                                  |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `--json`              | Output results as JSON (for scripting and piping)                            |
-| `--api-key <key>`     | Override the API key for this invocation                                     |
-| `--base-url <url>`    | Override the API base URL                                                    |
-| `--profile <name>`    | Use a specific named profile                                                 |
-| `--timeout <seconds>` | HTTP request timeout in seconds (default 30; `task execute` defaults to 600) |
-| `--no-auto-update`    | Disable automatic CLI updates for this invocation                            |
-| `-v, --version`       | Print the CLI version and exit                                               |
-| `--help`              | Show help for any command or subcommand                                      |
+| Flag                    | Description                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `--json`                | Output results as JSON (for scripting and piping)                            |
+| `--api-key <key>`       | Override the API key for this invocation                                     |
+| `--base-url <url>`      | Override the API base URL                                                    |
+| `--api-region <eu\|us>` | Target a Nexus deployment by name; `--base-url` wins over it                 |
+| `--profile <name>`      | Use a specific named profile                                                 |
+| `--timeout <seconds>`   | HTTP request timeout in seconds (default 30; `task execute` defaults to 600) |
+| `--no-auto-update`      | Disable automatic CLI updates for this invocation                            |
+| `-v, --version`         | Print the CLI version and exit                                               |
+| `--help`                | Show help for any command or subcommand                                      |
 
 ### Environment Variables
 

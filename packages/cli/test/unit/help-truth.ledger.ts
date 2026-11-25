@@ -230,8 +230,9 @@ export const CLEAN_NAMESPACES: readonly string[] = [
   "cloud-import",
   // `collection remove-document` types its documentId as a UUID while
   // `attach-documents` types the SAME id as a plain string, so a malformed id is
-  // named at the edge on one route and reaches the database on the other. The
-  // attach help now says so, because no schema will.
+  // refused with a 400 at the edge on one route and answered as an unknown id —
+  // the 404 naming it — on the other. The attach help says so, because no
+  // schema will.
   "collection",
   "conversation",
   "credential",

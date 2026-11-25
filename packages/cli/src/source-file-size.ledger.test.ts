@@ -148,7 +148,7 @@ const CEILING_LINES = 150;
  * pinned to EQUALITY in both directions, so a stale one reds either way.
  */
 const LEDGER: Readonly<Record<string, number>> = {
-  "cli-surface.generated.ts": 639,
+  "cli-surface.generated.ts": 642,
   // GENERATED from the v1 contract, which carries `reasoningLevel` and the stored-only
   // `none` on every level field. Splitting is not available: the size is a function of
   // the contract it mirrors, and the next generation would undo the split. A SIZE
@@ -161,7 +161,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   // would mean moving an unrelated concern out to make room: the wrong reason.
   "commands/channel.contract.generated.ts": 167,
   "commands/collection.contract.generated.ts": 174,
-  "commands/contract-help.ledger.ts": 583,
+  "commands/contract-help.ledger.ts": 584,
   "commands/conversation.contract.generated.ts": 168,
   "commands/customer.contract.generated.ts": 151,
   "commands/deployment.contract.generated.ts": 304,
@@ -176,7 +176,7 @@ const LEDGER: Readonly<Record<string, number>> = {
   "docs-page.frontmatter.ts": 381,
   "id-graph.leaf-residue.ts": 161,
   "id-graph.uncovered.generated.ts": 357,
-  "json-shape.generated.ts": 473,
+  "json-shape.generated.ts": 474,
   "probe-barrier.ts": 642
 };
 

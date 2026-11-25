@@ -54,6 +54,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@agent-nexus/sdk": "workspace:*",
     "@types/node": "24.6.2",
     "tsup": "^8.5.0",
     "typescript": "^6.0.3",

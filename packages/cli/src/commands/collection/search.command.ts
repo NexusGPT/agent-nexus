@@ -6,18 +6,7 @@ import { handleError } from "../../errors";
 import { isJsonMode } from "../../output";
 import { SKILLS_SEARCH_COLLECTION_CONTRACT } from "../collection.contract.generated";
 
-/** `nexus collection search` */
-export function registerCollectionSearchCommand(collection: Command, program: Command): Command {
-  const leaf = collection
-    .command("search")
-    .description("Search a collection by document name (slug match — not content)")
-    .argument("<id>", "Collection ID")
-    .requiredOption("--query <query>", "Substring to match against document names")
-    .option("--limit <number>", "Max results", parseInt)
-    .option("--include-metadata", "Include each document's stored search metadata")
-    .addHelpText(
-      "after",
-      `
+const SEARCH_HELP = `
 Matches document NAMES only (case-insensitive substring). To search document
 CONTENT (the semantic retrieval your agents use), use "nexus collection query".
 
@@ -41,7 +30,10 @@ Notes:
   built from a website crawl therefore looks empty here while answering
   "collection query" perfectly. Search CONTENT for crawled material.
 
-  metadata IS A LITERAL null WITHOUT --include-metadata. With the flag it is the
+  WITH NEITHER FLAG THE COLLECTION'S OWN includeMetadata DECIDES: metadata is a
+  literal null unless the collection turns it on. --no-include-metadata forces
+  the null; --include-metadata forces the bag. Either flag beats the
+  collection's setting for this call only. With metadata on it is the
   DOCUMENT's own attribute bag — the same one "nexus document get --json" prints
   under this same name — so it still reads null for a document that carries
   none. The flag on "collection query" fills the same field from a DIFFERENT
@@ -51,8 +43,22 @@ Notes:
   READ IT UNDER --json. The table output is score and name only, so
   --include-metadata on its own changes nothing you can see.
 
-  Only documents linked DIRECTLY to the collection are searched.`
+  Only documents linked DIRECTLY to the collection are searched.`;
+
+/** `nexus collection search` */
+export function registerCollectionSearchCommand(collection: Command, program: Command): Command {
+  const leaf = collection
+    .command("search")
+    .description("Search a collection by document name (slug match — not content)")
+    .argument("<id>", "Collection ID")
+    .requiredOption("--query <query>", "Substring to match against document names")
+    .option("--limit <number>", "Max results", parseInt)
+    .option("--include-metadata", "Include each document's stored search metadata")
+    .option(
+      "--no-include-metadata",
+      "Leave it out, even when the collection's own includeMetadata is on"
     )
+    .addHelpText("after", SEARCH_HELP)
     .action(async (id: string, opts) => {
       try {
         const client = createClient(program.optsWithGlobals());

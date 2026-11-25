@@ -49,9 +49,10 @@ Notes:
   documentName, so a reader arriving from that command finds the field missing
   here rather than renamed.
 
-  metadata IS THE SNIPPET'S, NOT THE DOCUMENT'S. Without --include-metadata the
-  collection's own includeMetadata setting decides: it is a literal null unless
-  the collection turns metadata on. When present it is the retrieval provider's
+  metadata IS THE SNIPPET'S, NOT THE DOCUMENT'S. With neither --include-metadata
+  nor --no-include-metadata the collection's own includeMetadata setting
+  decides: it is a literal null unless the collection turns metadata on. Either
+  flag beats the collection's setting for this call only. When present it is the retrieval provider's
   own snippet payload minus this pipeline's injected keys — and still null when
   the provider attached none. So a null never means "you forgot the flag", and
   a document whose stored metadata "document get" shows can answer null here
@@ -74,6 +75,10 @@ export function registerCollectionQueryCommand(collection: Command, program: Com
     .requiredOption("--query <query>", "Natural-language question or phrase")
     .option("--limit <number>", "Max results", parseInt)
     .option("--include-metadata", "Include document metadata in results")
+    .option(
+      "--no-include-metadata",
+      "Leave it out, even when the collection's own includeMetadata is on"
+    )
     .option(
       "--filter <key=value...>",
       "Restrict retrieval to documents matching metadata (repeatable).",

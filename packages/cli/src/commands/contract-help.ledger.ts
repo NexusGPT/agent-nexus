@@ -142,7 +142,8 @@ export const GENERATED_NAMESPACE_LEDGER = [
       "WorkflowList",
       "WorkflowNodeReplaceTrigger",
       "WorkflowBatchExecute",
-      "WorkflowEdgeCreate"
+      "WorkflowEdgeCreate",
+      "WorkflowGetWebhookSecret"
     ]
   },
   {

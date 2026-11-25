@@ -44,12 +44,32 @@ console.log(`Created agent: ${agent.id}`);
 ```typescript
 const client = new NexusClient({
   apiKey: "nxs_...", // Required (or set NEXUS_API_KEY env var)
-  baseUrl: "https://api.nexusgpt.io", // Optional, defaults to production
+  baseUrl: "https://api.nexusgpt.io", // Optional; see "Choosing a deployment" below
+  region: "eu", // Optional, "eu" or "us"; ignored when baseUrl is set
   timeout: 30000, // Optional; see "Timeouts" below before setting it
   defaultHeaders: {}, // Optional, extra headers per request
   fetch: customFetch // Optional, custom fetch implementation
 });
 ```
+
+### Choosing a deployment
+
+Nexus runs more than one deployment. Pick one with `baseUrl` (any host) or
+`region` (a deployment by name). The first that applies wins:
+
+1. `baseUrl` — wins over `region` when both are passed.
+2. `region` — `"eu"` = `https://api.nexusgpt.io`, `"us"` = `https://api.us.gpt.nexus`.
+   Any other name throws a `NexusError` rather than falling back.
+3. The `NEXUS_BASE_URL` environment variable.
+4. The EU default, `https://api.nexusgpt.io` — what you get with nothing set.
+
+```typescript
+const client = new NexusClient({ apiKey: "nxs_...", region: "us" });
+```
+
+The table is exported as `NEXUS_REGION_BASE_URLS`, with `NEXUS_REGIONS`,
+`isNexusRegion()` and `DEFAULT_NEXUS_BASE_URL`, so your own code can offer the
+same choice without spelling a host.
 
 ### Checking responses against the published contract
 
@@ -108,10 +128,10 @@ whether the first attempt landed.
 
 ### Environment Variables
 
-| Variable         | Description                                         |
-| ---------------- | --------------------------------------------------- |
-| `NEXUS_API_KEY`  | API key (used if `apiKey` option is not provided)   |
-| `NEXUS_BASE_URL` | Base URL (used if `baseUrl` option is not provided) |
+| Variable         | Description                                                   |
+| ---------------- | ------------------------------------------------------------- |
+| `NEXUS_API_KEY`  | API key (used if `apiKey` option is not provided)             |
+| `NEXUS_BASE_URL` | Base URL (used if neither `baseUrl` nor `region` is provided) |
 
 ## API Reference
 

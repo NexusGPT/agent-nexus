@@ -18,8 +18,9 @@ async function main() {
     }
 
     case "whoami": {
+      const { parseHostArgs } = await import("./host-args");
       const { whoamiCommand } = await import("./commands/whoami");
-      await whoamiCommand();
+      await whoamiCommand(parseHostArgs(args.slice(1)));
       break;
     }
 
@@ -27,8 +28,12 @@ async function main() {
       // No subcommand (or unknown) → start the stdio MCP bridge. Backwards
       // compatible: a host configured to run `nexus-mcp` with no args still gets
       // an MCP server on stdio — only the tools now come from the live API.
+      //
+      // `--base-url` / `--region` pick the deployment; see `host-args.ts`.
+      const { parseHostArgs } = await import("./host-args");
+      const { resolveBaseUrl } = await import("./config");
       const { startStdioProxy } = await import("./proxy");
-      await startStdioProxy();
+      await startStdioProxy({ baseUrl: resolveBaseUrl(parseHostArgs(args)) });
       break;
     }
   }

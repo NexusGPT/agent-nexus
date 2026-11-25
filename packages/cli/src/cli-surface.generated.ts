@@ -12,13 +12,13 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *
  * ── THE TREE TODAY ──────────────────────────────────────────────────────────
  *
- * 656 command nodes; 561 invocable leaves; 54 top-level commands — 54 visible, 0 hidden.
+ * 657 command nodes; 562 invocable leaves; 54 top-level commands — 54 visible, 0 hidden.
  * Leaves with no root-program binding: none.
  *
- *   tier         493 STABLE, 68 UNSTABLE
- *   disposition  27 never-execute, 468 registration-only, 61 safe, 5 safe-with-fixture
+ *   tier         494 STABLE, 68 UNSTABLE
+ *   disposition  27 never-execute, 469 registration-only, 61 safe, 5 safe-with-fixture
  *   --yes        47 destructive — 47 confirmable
- *   --json       449 answered, 112 abstain
+ *   --json       450 answered, 112 abstain
  *
  * ── THE TIER IS ABOUT THE PATH AND THE REQUIRED POSITIONALS ─────────────────
  *
@@ -55,6 +55,7 @@ import type { SurfaceLeaf } from "./cli-surface.model";
  *   --json
  *   --api-key <key>
  *   --base-url <url>
+ *   --api-region <region> {eu|us}
  *   --dashboard-url <url>
  *   --profile <name>
  *   --timeout <seconds>
@@ -219,9 +220,9 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "collection documents", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--page <number>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "list", shape: "8301bae390fd" },
   { path: "collection get", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "ca7309624567" },
   { path: "collection list", tier: "STABLE", module: "collection.ts", disposition: "safe", args: [], flags: ["--search <query>", "--limit <number>", "--offset <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "array", shape: "6b2e4d4dde12" },
-  { path: "collection query", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--filter <key=value...>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "f263ac1e134c" },
+  { path: "collection query", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--no-include-metadata", "--filter <key=value...>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "1291e862ec49" },
   { path: "collection remove-document", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>", "<document-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "1b01878ed460" },
-  { path: "collection search", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "3dc20a12dcce" },
+  { path: "collection search", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["!--query <query>", "--limit <number>", "--include-metadata", "--no-include-metadata", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "e53fbe17c80c" },
   { path: "collection search-multiple", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: [], flags: ["!--query <query>", "!--collection-ids <ids>", "--limit <number>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "(abstains)", shape: "e36c673b9971" },
   { path: "collection stats", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "91f419b9c827" },
   { path: "collection update", tier: "STABLE", module: "collection.ts", disposition: "registration-only", args: ["<id>"], flags: ["--display-name <name>", "--description <text>", "--k <number>", "--reranker <model> {cohere-rerank-4-fast|bge-reranker-v2-m3|pinecone-rerank-v0}", "--body <json>", "--print-contract"], aliases: [], hidden: false, confirm: null, json: "success", shape: "2e99fe93339c" },
@@ -596,6 +597,7 @@ export const CLI_SURFACE: readonly SurfaceLeaf[] = [
   { path: "workflow node test-payload", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<wf-id>", "<node-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "56ae20bc0757" },
   { path: "workflow node update", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<wf-id>", "<node-id>"], flags: ["!--body <json-or-file-or-->"], aliases: [], hidden: false, confirm: null, json: "record", shape: "5c6d6e023b39" },
   { path: "workflow node variables", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<wf-id>", "<node-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "349ace2c476e" },
+  { path: "workflow node webhook-secret", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<workflow-id>", "<node-id>"], flags: ["--print-contract"], aliases: [], hidden: false, confirm: null, json: "record", shape: "31186c35f896" },
   { path: "workflow node-type", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<type>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "146d12347ace" },
   { path: "workflow node-types", tier: "STABLE", module: "workflow.ts", disposition: "safe", args: [], flags: [], aliases: [], hidden: false, confirm: null, json: "list", shape: "d97f512739cd" },
   { path: "workflow overview", tier: "STABLE", module: "workflow.ts", disposition: "registration-only", args: ["<wf-id>"], flags: [], aliases: [], hidden: false, confirm: null, json: "record", shape: "845f8c28feb3" },
@@ -631,6 +633,7 @@ export const CLI_GLOBAL_OPTIONS: readonly string[] = [
   "--json",
   "--api-key <key>",
   "--base-url <url>",
+  "--api-region <region> {eu|us}",
   "--dashboard-url <url>",
   "--profile <name>",
   "--timeout <seconds>",

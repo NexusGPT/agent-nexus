@@ -29,9 +29,9 @@ Notes:
   A DOCUMENT ID IS A UUID, AND THIS ROUTE IS THE ONE THAT DOES NOT SAY SO.
   AttachCollectionDocumentsBodySchema types documentIds as a plain string array,
   while "collection remove-document" types the same id as a UUID and refuses
-  anything else with a 400. So a malformed id reaches the database here instead
-  of being named at the edge — it lands in the all-or-nothing 404 below, which
-  names no id.
+  anything else with a 400. So a malformed id is not refused at the edge here —
+  it names no document, so it lands in the all-or-nothing 404 below exactly as
+  an unknown id does, listed among the ids it could not resolve.
 
   A FOLDER ID EXPANDS TO ITS CONTENTS. Any id naming a folder — FOLDER, a
   website folder from "document add-website", the folder an imported Google

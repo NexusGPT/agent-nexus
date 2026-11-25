@@ -1,4 +1,4 @@
-export type { NexusMcpConfig } from "./config";
+export type { BaseUrlSelection, NexusMcpConfig } from "./config";
 export {
   loadConfig,
   resolveApiKey,

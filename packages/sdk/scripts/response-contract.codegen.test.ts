@@ -419,6 +419,7 @@ const MUST_CHECK_THE_PAYLOAD: readonly string[] = [
   "WorkflowExecutionPollByToken",
   "WorkflowExecutionRetryNode",
   "WorkflowGet",
+  "WorkflowGetWebhookSecret",
   "WorkflowList",
   "WorkflowNodeCreate",
   "WorkflowNodeDelete",

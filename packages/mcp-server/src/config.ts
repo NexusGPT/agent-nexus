@@ -2,14 +2,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { isNexusRegion, NEXUS_REGION_BASE_URLS, NEXUS_REGIONS } from "@agent-nexus/sdk";
+
 import { warnIfLoosePermissions, writeSecretFile } from "./secret-file";
 
 // ---------------------------------------------------------------------------
 // URL map
 // ---------------------------------------------------------------------------
 
+/**
+ * `NEXUS_ENV` names. `production` is the EU deployment's host, read off the
+ * SDK's region table (bundled into this package at build time) so that host is
+ * spelled in one place for all three clients.
+ */
 const URL_MAP: Record<string, string> = {
-  production: "https://api.nexusgpt.io",
+  production: NEXUS_REGION_BASE_URLS.eu,
   dev: "http://localhost:3001"
 };
 
@@ -147,18 +154,41 @@ export function saveConfig(config: NexusMcpConfig): void {
 
 /** How the host the next request goes to was determined. */
 export type BaseUrlSource =
+  | "flag" // --base-url on the bridge's command line
+  | "region" // --region on the bridge's command line, through the SDK's region table
   | "env" // NEXUS_BASE_URL — per-shell, does not touch the config file
   | "config" // the stored config file's baseUrl
   | "env-name" // NEXUS_ENV named an environment in the URL map
   | "default"; // nothing selected — the production default
 
 /**
+ * What the bridge's own command line selected — `--base-url` and `--region`.
+ *
+ * `region` is a plain string rather than the SDK's `NexusRegion`: this type is
+ * published in this package's declarations, and the SDK is bundled, not a
+ * runtime dependency a consumer's type-checker could resolve. An unknown name
+ * is refused at resolution time instead.
+ */
+export interface BaseUrlSelection {
+  /** `--base-url <url>` — wins over everything. */
+  override?: string;
+  /** `--region <eu|us>` — a named deployment; loses to `override`, beats the env. */
+  region?: string;
+}
+
+/**
  * Resolve the API base URL, WITH the selector that chose it.
  *
- * Priority: NEXUS_BASE_URL env → config file → NEXUS_ENV-based URL → production
- * default. It matches the CLI's `resolveBaseUrl` for every term the two have in
- * common; the CLI's two extra terms are a `--base-url` flag and a named
- * `--profile`, neither of which exists here.
+ * Priority: `--base-url` → `--region` → NEXUS_BASE_URL env → config file →
+ * NEXUS_ENV-based URL → the EU default. Both flags are typed into THIS
+ * invocation, so both outrank an exported variable; the explicit URL is the
+ * more specific of the two and wins when both are given. It matches the CLI's
+ * order for every term the two have in common (the CLI spells the region flag
+ * `--api-region`, because `--region` is taken there); the CLI's extra term is a
+ * named `--profile`, which does not exist here.
+ *
+ * 🔴 AN UNKNOWN REGION IS REFUSED, NEVER RESOLVED — falling through to the
+ * default would point a bridge somebody aimed at another deployment at this one.
  *
  * 🚨 THE SOURCE COMES OUT OF THE SAME CALL AS THE VALUE. `whoami` used to print
  * which selector had answered by re-testing the environment ITSELF, beside a
@@ -168,7 +198,23 @@ export type BaseUrlSource =
  * fix it already got. A status surface that derives its label separately from
  * the thing it is labelling can say "production" over a request to staging.
  */
-export function resolveBaseUrlWithSource(): { baseUrl: string; source: BaseUrlSource } {
+export function resolveBaseUrlWithSource(selection: BaseUrlSelection = {}): {
+  baseUrl: string;
+  source: BaseUrlSource;
+} {
+  const { override, region } = selection;
+  if (override) return { baseUrl: override, source: "flag" };
+
+  if (region !== undefined) {
+    if (!isNexusRegion(region)) {
+      throw new Error(
+        `Unknown region "${region}". Accepted: ${NEXUS_REGIONS.join(", ")}. ` +
+          "Pass --base-url instead to target any other host."
+      );
+    }
+    return { baseUrl: NEXUS_REGION_BASE_URLS[region], source: "region" };
+  }
+
   if (process.env.NEXUS_BASE_URL) {
     return { baseUrl: process.env.NEXUS_BASE_URL, source: "env" };
   }
@@ -189,8 +235,8 @@ export function resolveBaseUrlWithSource(): { baseUrl: string; source: BaseUrlSo
  * cannot change, its BODY can, and a body that re-tests the environment is the
  * second copy of the precedence this file exists to not have.
  */
-export function resolveBaseUrl(): string {
-  return resolveBaseUrlWithSource().baseUrl;
+export function resolveBaseUrl(selection: BaseUrlSelection = {}): string {
+  return resolveBaseUrlWithSource(selection).baseUrl;
 }
 
 /**

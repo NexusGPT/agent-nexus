@@ -201,6 +201,7 @@ function selectorOrderOf(body: string[]): string[] {
   };
   for (const line of codeLinesOf(body.join("\n"))) {
     if (/\boverride\b/.test(line)) add("override");
+    if (/\bregion\b/.test(line)) add("region");
     if (/resolveProfile\(\{/.test(line)) add("named-profile");
     if (BASE_URL_ENV_READS.some((token) => line.includes(token))) add("env");
     if (/resolveProfile\(\)/.test(line)) add("active-profile");
@@ -275,11 +276,18 @@ describe("the base URL precedence is one rule", () => {
   });
 
   it("keeps the bridge's resolver on the same order for the terms it has", () => {
-    // The bridge has no `--base-url`, no `--profile` and no profile store, so
-    // three of the CLI's five selectors cannot exist here. What CAN agree is the
-    // relative order of the ones that do: the env var outranks the stored
-    // config, and the NEXUS_ENV map is last.
+    // The bridge has no `--profile` and no profile store, so two of the CLI's
+    // selectors cannot exist here. What CAN agree is the relative order of the
+    // ones that do: its `--base-url` (the `override`) first, the env var above
+    // the stored config, and the NEXUS_ENV map last.
+    //
+    // `region` is the bridge's `--region`, between the explicit URL and the env
+    // var. The CLI has the same term and its resolver does not: `--api-region`
+    // is translated into the `--base-url` override before the resolver runs
+    // (`root-api-region.ts`), so the CLI's order above holds no `region`.
     expect(selectorOrderOf(bodyOf(mcpSource, "resolveBaseUrlWithSource") ?? [])).toEqual([
+      "override",
+      "region",
       "env",
       "config-file",
       "env-name"
@@ -301,7 +309,9 @@ describe("the base URL precedence is one rule", () => {
     // closed; this arm names the function that has to keep delegating.
     const body = bodyOf(mcpSource, "resolveBaseUrlWithSource");
     expect(body).not.toBeNull();
-    expect(bodyOf(mcpSource, "resolveBaseUrl")?.join("\n")).toContain("resolveBaseUrlWithSource()");
+    expect(bodyOf(mcpSource, "resolveBaseUrl")?.join("\n")).toContain(
+      "resolveBaseUrlWithSource(selection)"
+    );
   });
 
   it("reads the base-URL env var in exactly the three sanctioned resolvers", () => {

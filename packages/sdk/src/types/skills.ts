@@ -916,7 +916,10 @@ export interface SearchCollectionBody {
   query: string;
   /** Maximum hits to return. */
   limit?: number;
-  /** Include each document's stored search metadata. */
+  /**
+   * Include each document's stored search metadata. Omitted, the collection's
+   * own `includeMetadata` decides; `true` or `false` overrides it for this call.
+   */
   includeMetadata?: boolean;
 }
 
@@ -926,7 +929,10 @@ export interface QueryCollectionBody {
   query: string;
   /** Maximum hits to return. */
   limit?: number;
-  /** Include each hit's stored search metadata. */
+  /**
+   * Include each hit's stored search metadata. Omitted, the collection's own
+   * `includeMetadata` decides; `true` or `false` overrides it for this call.
+   */
   includeMetadata?: boolean;
   /** Restrict hits to documents whose metadata matches these values. */
   metadataFilter?: Record<string, string | string[]>;

@@ -98,11 +98,20 @@ export interface ExecutionSummary {
   workflowName: string | null;
   /** Lifecycle status. */
   status: WorkflowExecutionStatus;
-  /** ISO 8601 start timestamp, or `null` while still pending. */
+  /**
+   * ISO 8601 time the run started executing. For a run that never started —
+   * still queued, or cancelled before it ran — the time it was created, so it is
+   * never `null` in practice. `list`, `get`, `diagnose` and the testing API's
+   * execution status all report the same value for one execution.
+   */
   startedAt: string | null;
-  /** ISO 8601 completion timestamp, or `null` while unfinished. */
+  /**
+   * ISO 8601 time the run ended. `null` whenever `status` is `PENDING` or
+   * `RUNNING` — including after a node retry reopens the run to `RUNNING` — and
+   * set whenever it is `COMPLETED`, `FAILED` or `CANCELLED`.
+   */
   completedAt: string | null;
-  /** Wall-clock duration in milliseconds, or `null` while unfinished. */
+  /** `completedAt − startedAt` in milliseconds — queue time excluded — or `null` while `completedAt` is. */
   duration: number | null;
   /** What this row is — see {@link WorkflowExecutionType}. */
   executionType: WorkflowExecutionType;
@@ -148,9 +157,16 @@ export interface ExecutionPollResponse {
   status: WorkflowExecutionStatus;
   /** Final output payload, absent until the execution completes. */
   outputData: unknown;
-  /** ISO 8601 creation timestamp. */
+  /**
+   * ISO 8601 time the execution was created — earlier than the other
+   * endpoints' `startedAt` whenever the run was queued before it started.
+   */
   createdAt: string;
-  /** ISO 8601 finish timestamp, or `null` while still running. */
+  /**
+   * ISO 8601 finish timestamp, or `null` while still running. Some older ended
+   * runs also carry `null` here; {@link ExecutionSummary.completedAt} is set on
+   * every ended run.
+   */
   finishedAt: string | null;
 }
 
@@ -321,11 +337,11 @@ export interface ExecutionDiagnose {
   workflowName: string | null;
   /** Execution status. */
   status: string;
-  /** Wall-clock duration in milliseconds, or `null` while unfinished. */
+  /** Same as {@link ExecutionSummary.duration} for this execution. */
   duration: number | null;
-  /** ISO 8601 start timestamp, or `null` while pending. */
+  /** Same as {@link ExecutionSummary.startedAt} for this execution. */
   startedAt: string | null;
-  /** ISO 8601 completion timestamp, or `null` while unfinished. */
+  /** Same as {@link ExecutionSummary.completedAt} for this execution. */
   completedAt: string | null;
   /**
    * What this row is — see {@link WorkflowExecutionType}. A loop pass otherwise

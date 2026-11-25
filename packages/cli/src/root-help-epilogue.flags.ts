@@ -1,3 +1,5 @@
+import { NEXUS_REGION_BASE_URLS } from "@agent-nexus/sdk";
+
 /**
  * THE GLOBAL FLAGS, THE UPDATE CONTRACT, AND HOW TO READ THE OUTPUT.
  *
@@ -17,6 +19,10 @@ export const ROOT_EPILOGUE_FLAGS = `  Global flags work anywhere in the line, be
     --profile <name>       use a named profile instead of the active one
     --api-key <key>        override the key for this invocation
     --base-url <url>       point at another environment
+    --api-region <region>  target a deployment by name: eu (the default,
+                           ${NEXUS_REGION_BASE_URLS.eu}) or us
+                           (${NEXUS_REGION_BASE_URLS.us}). --base-url wins over
+                           it; it wins over NEXUS_BASE_URL and stored profiles
     --timeout <seconds>    client-side only; default 30, and 600 for the
                            operations that run a model before they answer
                            (task execute, tool execute, external-tool test, …)

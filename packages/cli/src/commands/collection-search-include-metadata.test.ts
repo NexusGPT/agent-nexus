@@ -79,14 +79,27 @@ describe("collection search", () => {
     expect(searched[0].body).toMatchObject({ query: "invoice", includeMetadata: true });
   });
 
-  it("leaves includeMetadata undefined when the flag is absent, so the route default decides", async () => {
+  it("leaves includeMetadata undefined when the flag is absent, so the collection's setting decides", async () => {
     await run(["collection", "search", COLLECTION_ID, "--query", "invoice"]);
 
     expect(searched).toHaveLength(1);
-    // Not `false`: the CLI must not overwrite the schema's own `.default(false)`
-    // with a value the operator never typed. `undefined` is dropped by
-    // JSON.stringify, so the route sees an absent key.
+    // Not `false`: an absent key is what lets the collection's own
+    // `includeMetadata` decide, and the CLI must not overrule it with a value
+    // the operator never typed. `undefined` is dropped by JSON.stringify.
     expect(searched[0].body.includeMetadata).toBeUndefined();
+  });
+
+  it("sends includeMetadata: false when --no-include-metadata is given", async () => {
+    await run([
+      "collection",
+      "search",
+      COLLECTION_ID,
+      "--query",
+      "invoice",
+      "--no-include-metadata"
+    ]);
+
+    expect(searched[0].body.includeMetadata).toBe(false);
   });
 
   it("carries the flag alongside --limit, so neither displaces the other", async () => {
@@ -138,6 +151,18 @@ describe("collection query", () => {
     ]);
 
     expect(queried[0].body).toMatchObject({ includeMetadata: true });
+  });
+
+  it("sends includeMetadata: false when --no-include-metadata is given", async () => {
+    await run(["collection", "query", COLLECTION_ID, "--query", "pin", "--no-include-metadata"]);
+
+    expect(queried[0].body.includeMetadata).toBe(false);
+  });
+
+  it("leaves includeMetadata undefined with neither flag, so the collection's setting decides", async () => {
+    await run(["collection", "query", COLLECTION_ID, "--query", "pin"]);
+
+    expect(queried[0].body.includeMetadata).toBeUndefined();
   });
 });
 

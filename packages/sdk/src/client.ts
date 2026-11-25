@@ -1,6 +1,13 @@
 import type { DeprecationNotice } from "./deprecation";
 import { NexusError } from "./errors";
 import { HttpClient, type RetryNotice } from "./http-client";
+import {
+  DEFAULT_NEXUS_BASE_URL,
+  isNexusRegion,
+  NEXUS_REGION_BASE_URLS,
+  NEXUS_REGIONS,
+  type NexusRegion
+} from "./regions";
 import { AgentCollectionsResource } from "./resources/agent-collections";
 import { AgentsResource } from "./resources/agents";
 import { AnalyticsResource } from "./resources/analytics";
@@ -60,10 +67,23 @@ export interface NexusClientOptions {
   apiKey?: string;
 
   /**
-   * Base URL of the Nexus API. Falls back to `NEXUS_BASE_URL` env var,
-   * then defaults to `https://api.nexusgpt.io`.
+   * Base URL of the Nexus API. Wins over `region` and over the `NEXUS_BASE_URL`
+   * env var; with none of the three set the client targets the EU deployment,
+   * `https://api.nexusgpt.io`.
+   *
+   * Precedence: `baseUrl` > `region` > `NEXUS_BASE_URL` > the EU default.
    */
   baseUrl?: string;
+
+  /**
+   * The Nexus deployment to target by name — `"eu"` (`https://api.nexusgpt.io`)
+   * or `"us"` (`https://api.us.gpt.nexus`). See `NEXUS_REGION_BASE_URLS`.
+   *
+   * Ignored when `baseUrl` is also passed; wins over `NEXUS_BASE_URL`. A name
+   * the table does not hold is refused with a `NexusError` rather than
+   * resolved to the default deployment.
+   */
+  region?: NexusRegion;
 
   /**
    * Custom `fetch` implementation (e.g., for testing or non-standard runtimes).
@@ -219,6 +239,23 @@ function firstNonBlankOr(candidates: readonly (string | undefined)[], fallback: 
     if (typeof candidate === "string" && candidate.trim().length > 0) return candidate;
   }
   return fallback;
+}
+
+/**
+ * The API host `region` names, or `undefined` when no region was passed.
+ *
+ * 🔴 AN UNKNOWN NAME IS REFUSED, NEVER RESOLVED. The option is typed, but a
+ * JavaScript caller or a value read from configuration reaches here untyped,
+ * and falling through to the EU default would send a caller who asked for
+ * another deployment to this one with nothing on screen saying so.
+ */
+function regionBaseUrl(region: string | undefined): string | undefined {
+  if (region === undefined) return undefined;
+  if (isNexusRegion(region)) return NEXUS_REGION_BASE_URLS[region];
+  throw new NexusError(
+    `Unknown region "${region}". Accepted: ${NEXUS_REGIONS.join(", ")}. ` +
+      "Pass `baseUrl` instead to target any other host."
+  );
 }
 
 // ============================================================================
@@ -437,9 +474,12 @@ export class NexusClient {
     // The two chains beside this one are deliberately left as `??`: `apiKey`
     // is followed by `if (!apiKey) throw` and `organizationId` by a truthiness
     // test, so a blank is already caught in both.
+    //
+    // The order IS the precedence: an explicit `baseUrl`, then the named
+    // `region`, then the env var, then the EU default. `regions.ts` states why.
     const baseUrl = firstNonBlankOr(
-      [opts.baseUrl, getEnv("NEXUS_BASE_URL")],
-      "https://api.nexusgpt.io"
+      [opts.baseUrl, regionBaseUrl(opts.region), getEnv("NEXUS_BASE_URL")],
+      DEFAULT_NEXUS_BASE_URL
     );
 
     // Personal (cross-org) tokens select their acting org via the

@@ -2,6 +2,17 @@
 export type { NexusClientOptions } from "./client";
 export { NexusClient } from "./client";
 
+// Regions — the deployments a client can target by name, and the one table
+// every Nexus client reads them from.
+export type { NexusRegion } from "./regions";
+export {
+  DEFAULT_NEXUS_BASE_URL,
+  DEFAULT_NEXUS_REGION,
+  isNexusRegion,
+  NEXUS_REGION_BASE_URLS,
+  NEXUS_REGIONS
+} from "./regions";
+
 // Errors
 export {
   NexusApiError,

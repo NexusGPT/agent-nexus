@@ -106,6 +106,16 @@ export const WORKFLOW_EDGE_CREATE_CONTRACT = {
   ]
 } as const satisfies ProjectedDescriptor;
 
+export const WORKFLOW_GET_WEBHOOK_SECRET_CONTRACT = {
+  name: "WorkflowGetWebhookSecret",
+  method: "GET",
+  route: "/public/v1/workflows/:workflowId/nodes/:nodeId/webhook-secret",
+  fields: [
+    { path: "PathVars.workflowId", slot: "PathVars", type: "string", required: true, depth: 0 },
+    { path: "PathVars.nodeId", slot: "PathVars", type: "string", required: true, depth: 0 }
+  ]
+} as const satisfies ProjectedDescriptor;
+
 export const WORKFLOW_LIST_CONTRACT = {
   name: "WorkflowList",
   method: "GET",

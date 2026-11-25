@@ -1,3 +1,4 @@
+import { DEFAULT_NEXUS_BASE_URL } from "@agent-nexus/sdk";
 import type { Command } from "commander";
 
 import { listProfiles } from "../../config";
@@ -13,7 +14,7 @@ Notes:
   next command uses — NEXUS_API_KEY, NEXUS_PROFILE and a .nexusrc pin all outrank
   it. "nexus auth whoami" resolves the one that actually wins.
   A row shows the profile name, its organization and its base URL. A profile with
-  no stored baseUrl is listed against the default, https://api.nexusgpt.io, so
+  no stored baseUrl is listed against the default, ${DEFAULT_NEXUS_BASE_URL}, so
   that column is never blank and never proves the value was set explicitly.
   EMPTY ANSWERS DIFFERENTLY IN THE TWO MODES. With no profiles saved, --json is
   \`[]\` and the plain form is a human sentence pointing at "nexus auth login" —
@@ -52,7 +53,7 @@ export function registerAuthListCommand(auth: Command, _program: Command): Comma
         marker: name === activeProfile ? "▸" : " ",
         name,
         orgName: profiles[name].orgName ?? color.dim("—"),
-        baseUrl: profiles[name].baseUrl ?? "https://api.nexusgpt.io"
+        baseUrl: profiles[name].baseUrl ?? DEFAULT_NEXUS_BASE_URL
       }));
 
       printTable(rows, [

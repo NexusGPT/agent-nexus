@@ -48,7 +48,7 @@ publish; nothing runs it for you.
 
 THE API'S NAMED ERROR CODES DO REACH THIS CLI — BRANCH ON THE CODE, NOT THE
 MESSAGE. Every refusal below (EDGE_SELF_LOOP, EDGE_DUPLICATE, BRANCH_NOT_FOUND,
-NODE_IS_TRIGGER, WORKFLOW_ALREADY_PUBLISHED and the rest) carries a
+NODE_IS_TRIGGER, WORKFLOW_NOT_PUBLISHED and the rest) carries a
 machine-readable code on the HTTP response, and this CLI passes that code
 through unchanged. Under --json the payload is {"error":{"message","hint","code"}}
 — all three keys ALWAYS present, hint null when there is none — and without

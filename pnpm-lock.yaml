@@ -51,6 +51,9 @@ importers:
         specifier: ^4.1.12
         version: 4.6.7
     devDependencies:
+      '@agent-nexus/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@types/node':
         specifier: 24.6.2
         version: 24.6.2

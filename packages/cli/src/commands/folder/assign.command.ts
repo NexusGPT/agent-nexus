@@ -80,7 +80,8 @@ Notes:
   --agent-id IS NOT CHECKED FOR EXISTENCE. It must be a UUID, but a deleted or
   non-existent agent is accepted and the assignment is written, reporting the
   same success as a real one. Only --folder-id is verified against your
-  organization, and a folder that is not yours answers 404.
+  organization: any folder of the organization is accepted, whoever created
+  it, and a folder of another organization answers 404.
   Verify with "nexus api GET /folders" and read assignments[] — no folder
   command prints them.`
     )

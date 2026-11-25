@@ -36,7 +36,7 @@ Notes:
   agentInputSchema IS THE LIVE CONTRACT ON A PUBLISHED WORKFLOW, NOT YOUR DRAFT.
   It is derived from the agentInputTrigger in publishedNodes — the graph a
   calling agent actually invokes — so a parameter you add after publishing does
-  NOT appear here until you unpublish and publish again. Your edit is not lost:
+  NOT appear here until you publish again. Your edit is not lost:
   it is on this same document at
   .nodes[] | select(.type=="agentInputTrigger") | .data.parameters. On a DRAFT
   there is no published graph, so the field tracks the draft trigger. Read-only

@@ -1,3 +1,5 @@
+import { NEXUS_REGION_BASE_URLS } from "@agent-nexus/sdk";
+
 /**
  * THE TWO HOST TABLES `NEXUS_ENV` SELECTS BETWEEN, AND THE ONE KEY THEY SHARE.
  *
@@ -50,7 +52,9 @@ export type NexusEnvName = (typeof NEXUS_ENV_NAMES)[number];
  * the other points the CLI at a host that serves nothing.
  */
 export const URL_MAP: Record<NexusEnvName, string> = {
-  production: "https://api.nexusgpt.io",
+  // The EU deployment, read off the SDK's region table so the host is spelled
+  // once for every client.
+  production: NEXUS_REGION_BASE_URLS.eu,
   staging: "https://api-staging.gpt.nexus",
   dev: "http://localhost:3001"
 };

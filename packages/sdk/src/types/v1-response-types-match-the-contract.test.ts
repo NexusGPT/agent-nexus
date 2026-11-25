@@ -907,6 +907,13 @@ export type V1ResponseAssertions = [
   >,
   // WorkflowNodeGet  GET /public/v1/workflows/:workflowId/nodes/:nodeId  ->  client.workflows.getNode()
   Expect<Equals<ResponseOf<"WorkflowNodeGet">, MethodResult<NexusClient["workflows"]["getNode"]>>>,
+  // WorkflowGetWebhookSecret  GET /public/v1/workflows/:workflowId/nodes/:nodeId/webhook-secret  ->  client.workflows.getWebhookSecret()
+  Expect<
+    Equals<
+      ResponseOf<"WorkflowGetWebhookSecret">,
+      MethodResult<NexusClient["workflows"]["getWebhookSecret"]>
+    >
+  >,
   // WorkflowNodeDelete  DELETE /public/v1/workflows/:workflowId/nodes/:nodeId  ->  client.workflows.deleteNode()
   Expect<
     Equals<ResponseOf<"WorkflowNodeDelete">, MethodResult<NexusClient["workflows"]["deleteNode"]>>
@@ -2027,6 +2034,7 @@ const GATED_ROUTES = [
   "WorkflowNodeCreate",
   "WorkflowNodeDelete",
   "WorkflowNodeGet",
+  "WorkflowGetWebhookSecret",
   "WorkflowNodeUpdate",
   "WorkflowExecutionPollByToken",
   "WorkflowExecutionPoll",
@@ -3294,7 +3302,7 @@ const NARROWABLE_LEDGER_ROUTES: readonly string[] = [
  * that grew by 52 in that same window: that one stays a floor, and the
  * difference between the two is churn, not taste.
  */
-const GATED_ROUTE_COUNT = 348;
+const GATED_ROUTE_COUNT = 349;
 
 describe("every v1 response schema matches its SDK method's return type", () => {
   const routes = collectRoutes();

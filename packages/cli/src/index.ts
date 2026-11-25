@@ -3,11 +3,9 @@
 import { Command } from "commander";
 
 import packageJson from "../package.json" with { type: "json" };
-import { getBanner } from "./banner";
 import { parseTimeoutSeconds } from "./client";
-import { registerHelpScopeFooter } from "./help-scope";
-import { addGlobalFlagsFooter } from "./root-global-flags-footer";
-import { ROOT_EPILOGUE } from "./root-help-epilogue";
+import { apiRegionOption } from "./root-api-region";
+import { decorateRootHelp } from "./root-help-decorations";
 import { registerNamespaces } from "./root-namespace-registrars";
 import { rootPreAction } from "./root-pre-action";
 import { runCli } from "./root-run-cli";
@@ -68,6 +66,7 @@ export function buildRootProgram(version: string = VERSION): Command {
     .option("--json", "Output as JSON")
     .option("--api-key <key>", "Override API key for this invocation")
     .option("--base-url <url>", "Override API base URL")
+    .addOption(apiRegionOption())
     .option("--dashboard-url <url>", "Override dashboard URL (for browser links)")
     .option("--profile <name>", "Use a specific named profile")
     .option(
@@ -90,19 +89,8 @@ export function buildRootProgram(version: string = VERSION): Command {
     .option("--no-auto-update", "Do not self-update on exit (the default)")
     .hook("preAction", rootPreAction);
 
-  // Prepend banner to top-level --help only (not subcommands)
-  program.addHelpText("before", getBanner(version));
-  program.addHelpText("after", ROOT_EPILOGUE);
-  program.configureHelp({ sortSubcommands: true });
-
-  // BEFORE the scope footer, so the derived global-flag block renders above it.
-  addGlobalFlagsFooter(program);
-
-  // The scope footer, on EVERY help screen at every depth. One registration:
-  // commander fires `afterAll` on the helped command and all its ancestors.
-  // Read `help-scope.ts` before moving, rewording or removing this — the
-  // position below the command's own Notes block is the point of it.
-  registerHelpScopeFooter(program, version);
+  // Banner, epilogue, global-flag footer and scope footer, in their required order.
+  decorateRootHelp(program, version);
 
   registerNamespaces(program);
   applyFinishedTreeDecorations(program);

@@ -1,4 +1,5 @@
 import {
+  type BaseUrlSelection,
   type BaseUrlSource,
   loadConfig,
   resolveBaseUrlWithSource,
@@ -7,8 +8,12 @@ import {
 
 /**
  * Print the current configuration: base URL, masked API key, env.
+ *
+ * `selection` is the same `--base-url` / `--region` the bridge itself accepts,
+ * so `nexus-mcp whoami --region us` reports the host `nexus-mcp --region us`
+ * would talk to.
  */
-export async function whoamiCommand(): Promise<void> {
+export async function whoamiCommand(selection: BaseUrlSelection = {}): Promise<void> {
   const config = loadConfig();
 
   // The LABEL comes out of the same call as the value, for the same reason the
@@ -21,7 +26,7 @@ export async function whoamiCommand(): Promise<void> {
   // is not in the URL map, so the resolver fell through to production while the
   // label read `NEXUS_ENV=banana` — the one line whose job is saying where the
   // host came from, naming a selector that did not choose it.
-  const { baseUrl, source: baseUrlSource } = resolveBaseUrlWithSource();
+  const { baseUrl, source: baseUrlSource } = resolveBaseUrlWithSource(selection);
   const urlSource = labelFor(baseUrlSource);
 
   // Determine API key source + mask
@@ -78,6 +83,10 @@ export async function whoamiCommand(): Promise<void> {
  */
 function labelFor(source: BaseUrlSource): string {
   switch (source) {
+    case "flag":
+      return "--base-url";
+    case "region":
+      return "--region";
     case "env":
       return "NEXUS_BASE_URL env";
     case "config":

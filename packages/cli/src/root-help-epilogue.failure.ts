@@ -26,7 +26,7 @@ export const ROOT_EPILOGUE_FAILURE = `  FAILURE
     THE EXIT CODE IS THE CATEGORY; THE CODE FIELD IS THE CONDITION. Branch on $?
     to decide whether to RETRY, on the code to decide WHAT to say. An API
     refusal's own name comes through unchanged (NODE_IS_TRIGGER,
-    WORKFLOW_ALREADY_PUBLISHED, …); a refusal the API sent without one falls
+    WORKFLOW_NOT_PUBLISHED, …); a refusal the API sent without one falls
     back to HTTP_<status>; and a CLI_ prefix means the
     failure never reached the server at all. Match on the code, never on the
     message, which is prose and gets rewritten.

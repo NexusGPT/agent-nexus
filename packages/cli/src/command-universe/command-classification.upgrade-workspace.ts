@@ -22,7 +22,7 @@
 
 import type { CommandDisposition } from "./disposition";
 
-/** 63 leaves, `upgrade` … `workspace unmount`. */
+/** 64 leaves, `upgrade` … `workspace unmount`. */
 export const UPGRADE_TO_WORKSPACE: Readonly<Record<string, CommandDisposition>> = {
   // ── upgrade ────────────────────────────────────────────────────────────────
   // Reinstalls the binary the sweep is running. Its `update`, `latest` and `up`
@@ -70,6 +70,7 @@ export const UPGRADE_TO_WORKSPACE: Readonly<Record<string, CommandDisposition>> 
   "workflow node test-payload": "registration-only",
   "workflow node update": "registration-only",
   "workflow node variables": "registration-only",
+  "workflow node webhook-secret": "registration-only",
   "workflow node-type": "registration-only",
   "workflow node-types": "safe",
   "workflow overview": "registration-only",

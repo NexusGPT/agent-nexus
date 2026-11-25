@@ -36,6 +36,7 @@ import type {
   UpdateNodeBody,
   UpdateWorkflowBody,
   ValidationReport,
+  WebhookSecret,
   WebhookTestPayload,
   WfSummary,
   WorkflowArchiveResult,
@@ -128,7 +129,13 @@ export class WorkflowsResource extends BaseResource {
   }
 
   /**
-   * Publish a workflow, making it available for execution.
+   * Publish a workflow: its draft becomes the live graph.
+   *
+   * Call it again on a workflow that is already published to move a later edit
+   * into the live graph. That republishes in place and keeps the production
+   * triggers, so a webhook trigger keeps its URL and its secret. Do not
+   * {@link unpublish} first: that deletes the triggers, and the webhook trigger
+   * the next publish creates requires a new secret.
    *
    * @param workflowId - Workflow UUID.
    * @returns Publish confirmation with updated status.
@@ -138,7 +145,9 @@ export class WorkflowsResource extends BaseResource {
   }
 
   /**
-   * Unpublish a workflow, reverting it to draft status.
+   * Unpublish a workflow, reverting it to draft status and deleting its
+   * production triggers. It takes the workflow offline; it is not how a live
+   * workflow is refreshed — call {@link publish} again for that.
    *
    * @param workflowId - Workflow UUID.
    * @returns Unpublish confirmation with updated status.
@@ -493,6 +502,30 @@ export class WorkflowsResource extends BaseResource {
     return this.http.request<WebhookTestPayload>(
       "GET",
       `/workflows/${workflowId}/nodes/${nodeId}/test-payload`
+    );
+  }
+
+  /**
+   * Read the secret a published webhook trigger's sender must present.
+   *
+   * A webhook trigger created since 2026-10-31 refuses a delivery that does not
+   * prove this secret, with `401 WEBHOOK_VERIFICATION_FAILED`. Configure the
+   * sender with it once: it stays the same across every later {@link publish} of
+   * the workflow, and is replaced by a new one if the workflow is
+   * {@link unpublish | unpublished} and published again.
+   *
+   * The trigger exists only while the workflow is published, so this throws a
+   * `404` (`TRIGGER_WEBHOOK_NOT_FOUND`) on a draft, and for a node that is not a
+   * webhook trigger. Requires the `workflows:write` scope.
+   *
+   * @param workflowId - Workflow UUID.
+   * @param nodeId - Webhook trigger node ID.
+   * @returns The secret, whether it is enforced, and the headers to send it in.
+   */
+  async getWebhookSecret(workflowId: string, nodeId: string): Promise<WebhookSecret> {
+    return this.http.request<WebhookSecret>(
+      "GET",
+      `/workflows/${workflowId}/nodes/${nodeId}/webhook-secret`
     );
   }
 

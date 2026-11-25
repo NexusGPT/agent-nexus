@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import { UPGRADE_ALIASES } from "./commands/upgrade";
 import { assertKnownNexusEnv, resolveProfile } from "./config";
 import { isJsonMode, printContextBanner, setJsonMode } from "./output";
+import { applyApiRegion } from "./root-api-region";
 
 /**
  * Commands that print their own output and must not be preceded by the profile
@@ -35,6 +36,10 @@ const BANNER_FREE_COMMANDS: readonly string[] = [
  * invocation on the leaf being run.
  */
 export function rootPreAction(thisCommand: Command): void {
+  // FIRST, so every read of the globals below — and in the action — sees the
+  // host `--api-region` names as the `--base-url` it stands for.
+  applyApiRegion(thisCommand);
+
   const opts = thisCommand.optsWithGlobals();
   if (opts.json) setJsonMode(true);
 

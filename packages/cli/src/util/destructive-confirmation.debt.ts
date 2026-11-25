@@ -63,7 +63,7 @@ export const UNCONFIRMED_DESTRUCTIVE: Readonly<Record<string, string>> = {
     '"permanent, no confirmation" — written down, and until now checked by nothing.',
   "user-group remove-member": "Removes one user from a group.",
   "workflow unpublish":
-    "Takes a published workflow back to DRAFT and DEACTIVATES its production triggers. " +
+    "Takes a published workflow back to DRAFT and DELETES its production triggers. " +
     'Its own help calls it "a disabling, not a tidy-up" — a live webhook or schedule stops ' +
     "firing and agents holding it as a tool stop being able to run it."
 };

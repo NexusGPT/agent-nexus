@@ -10,7 +10,7 @@
 // o object, a array, 0 null. An EMPTY string is the projection declining to
 // make a claim, and matches every value.
 //
-// 499 routes: 396 with a checkable shape, 96 publishing no
+// 500 routes: 397 with a checkable shape, 96 publishing no
 // response schema, 7 whose payload has no key set to check.
 
 import type { RouteShapeManifest } from "./response-contract";
@@ -264,6 +264,7 @@ export const V1_RESPONSE_CONTRACT: RouteShapeManifest = {
   "GET /workflows/:workflowId/nodes/:nodeId/output-format": {name:"WorkflowOverviewGetOutputFormat",method:"GET",path:"/workflows/:workflowId/nodes/:nodeId/output-format",payload:{kind:"undeclared",why:"noResponse"}},
   "GET /workflows/:workflowId/nodes/:nodeId/test-payload": {name:"WorkflowTestingGetWebhookTestPayload",method:"GET",path:"/workflows/:workflowId/nodes/:nodeId/test-payload",payload:{kind:"undeclared",why:"noResponse"}},
   "GET /workflows/:workflowId/nodes/:nodeId/validate-variables": {name:"WorkflowOverviewValidateNodeVariables",method:"GET",path:"/workflows/:workflowId/nodes/:nodeId/validate-variables",payload:{kind:"undeclared",why:"noResponse"}},
+  "GET /workflows/:workflowId/nodes/:nodeId/webhook-secret": {name:"WorkflowGetWebhookSecret",method:"GET",path:"/workflows/:workflowId/nodes/:nodeId/webhook-secret",payload:{kind:"object",fields:{"enforced":"b","headerName":"s","issuedAt":"0s","secret":"0s","signatureHeaderName":"s","signatureToleranceSeconds":"n"},required:["enforced","headerName","issuedAt","secret","signatureHeaderName","signatureToleranceSeconds"]}},
   "GET /workflows/:workflowId/overview": {name:"WorkflowOverviewGet",method:"GET",path:"/workflows/:workflowId/overview",payload:{kind:"undeclared",why:"noResponse"}},
   "GET /workflows/:workflowId/validate": {name:"WorkflowOverviewValidate",method:"GET",path:"/workflows/:workflowId/validate",payload:{kind:"undeclared",why:"noResponse"}},
   "GET /workflows/executions": {name:"WorkflowExecutionList",method:"GET",path:"/workflows/executions",payload:{kind:"undeclared",why:"noResponse"}},

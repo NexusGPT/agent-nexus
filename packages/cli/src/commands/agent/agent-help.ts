@@ -12,5 +12,5 @@ Three facts that decide whether a write does what you meant:
     Read the prompt back with "nexus agent get", at top-level .prompt.
   • model READS "DEFAULT", NOT null, ON AN AGENT THAT WAS NEVER GIVEN ONE, so a
     "model === null" test never fires. It is the legacy enum, and the model
-    actually used is modelConfig.modelName, which create defaults to
-    gpt-5.6-sol / OPEN_AI.`;
+    actually used is modelConfig.modelName, which create defaults to the
+    model your deployment offers (gpt-5.6-sol / OPEN_AI where OpenAI is on).`;

@@ -53,18 +53,20 @@ export function registerAgentCreateCommand(agent: Command, program: Command): Co
         if (opts.bio !== undefined) flags.bio = opts.bio;
         if (opts.shortBio !== undefined) flags.shortBio = opts.shortBio;
         if (opts.model !== undefined) flags.model = opts.model;
-        if (
-          opts.modelName !== undefined ||
-          opts.modelProvider !== undefined ||
-          opts.customModelId !== undefined
-        ) {
+        if (opts.customModelId !== undefined) {
+          // The custom model rides INSIDE modelConfig — there is no top-level mirror
+          // for it — and modelConfig requires the platform model it falls back to.
           flags.modelConfig = {
             modelName: opts.modelName ?? "gpt-5.6-sol",
             modelProvider: opts.modelProvider ?? "OPEN_AI",
-            // The custom model rides INSIDE modelConfig — there is no top-level
-            // mirror for it, unlike modelName / modelProvider.
-            ...(opts.customModelId !== undefined && { customModelId: opts.customModelId })
+            customModelId: opts.customModelId
           };
+        } else {
+          // The flat mirrors, sent only as given: the SERVER fills a missing half from
+          // what was named and picks the default THIS deployment offers when neither
+          // is sent, so the CLI never pins a provider the deployment may switch off.
+          if (opts.modelName !== undefined) flags.modelName = opts.modelName;
+          if (opts.modelProvider !== undefined) flags.modelProvider = opts.modelProvider;
         }
         if (opts.prompt) flags.prompt = await resolveInputValue(opts.prompt);
 

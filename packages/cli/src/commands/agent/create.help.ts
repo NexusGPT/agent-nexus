@@ -23,11 +23,12 @@ Notes:
   objective, tone, explanation and behaviour are REMOVED fields — sending any of
   them, as a flag or inside --body, is a 400 DEPRECATED_FIELDS. Behavioural rules
   go in the system prompt via --prompt.
-  PASS BOTH MODEL FLAGS OR NEITHER. --model-name alone fills the provider with
-  OPEN_AI and --model-provider alone fills the name with gpt-5.6-sol, so
-  "--model-provider ANTHROPIC" stores an OpenAI model name under Anthropic and
-  nothing reports it. Omitting both stores gpt-5.6-sol / OPEN_AI. Take the pair
-  from "nexus model list" (modelId → --model-name, provider → --model-provider).
+  THE SERVER FILLS A MISSING MODEL FLAG. --model-name alone takes that model's own
+  provider, --model-provider alone takes that provider's designated agent model,
+  and omitting both takes the default your deployment offers (gpt-5.6-sol /
+  OPEN_AI where OpenAI is offered). A model whose provider your deployment does
+  not offer is a 400. Take the pair from "nexus model list" (modelId →
+  --model-name, provider → --model-provider).
   THAT PAIR RULE DOES NOT APPLY TO YOUR OWN MODELS, AND FOLLOWING IT ON ONE IS A
   400. "nexus model list" also returns the endpoints you added with
   "nexus custom-model create", as source "custom", provider "CUSTOM_<PROTOCOL>"

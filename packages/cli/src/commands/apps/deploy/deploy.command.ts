@@ -20,9 +20,12 @@ forward asynchronously. If the app has approvals enabled, the deploy waits
 in AWAITING_APPROVAL until a reviewer decides.
 
 Usage soft limit: if the org is over its Vibe usage cap for the current
-billing period, the deploy is not refused — it ASKS. Interactively you get
-a y/N prompt; non-interactively nothing is deployed and the command exits
-non-zero, printing the exact --confirm-overage re-run. Pass
+billing period, the deploy is not refused — it ASKS. When stdin is a
+terminal and the question can be shown on one, you get a y/N prompt, under
+--json too (the prompt goes to stderr when stdout is piped, so the JSON
+document stays clean). Otherwise — stdin piped (CI), or stdout and stderr
+both redirected — nothing is deployed and the command exits non-zero,
+printing the exact --confirm-overage re-run. Pass
 --confirm-overage upfront to answer the question in advance. It does NOT
 bypass an admin suspension, which still fails with 403.
 

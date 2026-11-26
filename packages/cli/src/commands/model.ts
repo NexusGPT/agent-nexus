@@ -60,7 +60,9 @@ Notes:
     supportsThinking · supportsReasoning
                    DEPRECATED and derived from thinkingDialect; they are slated
                    for removal, so read thinkingDialect instead
-    deprecated     boolean — a deprecated model is still listed and still usable
+    deprecated     boolean — a deprecated model is still listed and still usable;
+                   a retired platform model is listed as deprecated, and its
+                   calls run on its named replacement
     source         "system" or "custom" (see above)
 
   THERE ARE NO FILTER FLAGS AND NO PAGINATION. No --provider, no --deprecated,

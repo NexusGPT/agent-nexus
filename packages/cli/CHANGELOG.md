@@ -1,5 +1,21 @@
 # @agent-nexus/cli
 
+## 2.2.1
+### Patch Changes
+
+- 74b176b: A blank agent is born on a model the deployment offers
+  
+  - `@nexus/types`: `AGENT_DEFAULT_MODEL_IDS` names the model an agent is born on per
+    provider, in fallback order — `gpt-5.6-sol`, `claude-sonnet-5-5`, `gemini-4-carbon`,
+    `kimi-k3`. `DEFAULT_AGENT_MODEL_ID` is its head and is unchanged.
+  - `@agent-nexus/cli`: `nexus agent create` no longer fills a missing `--model-name` with
+    `gpt-5.6-sol` or a missing `--model-provider` with `OPEN_AI`. It sends only the flags
+    given, and the server fills the rest: a model's own provider, a provider's designated
+    model, or — with neither — the default the deployment offers. Passing only
+    `--model-provider ANTHROPIC` now stores an Anthropic model rather than an OpenAI id
+    under Anthropic. The `--custom-model-id` fallback pair is unchanged.
+- 8610631: `--help` text now matches the CLI and the server. `nexus apps deploy` says the over-cap spend question is asked only when stdin is a terminal AND the question can be shown on one: with stdin piped, or with stdout and stderr both redirected, nothing is deployed and the `--confirm-overage` re-run is printed. `nexus model list` says a retired platform model is listed as `deprecated` and its calls run on its named replacement. Command flags and behaviour are unchanged.
+
 ## 2.2.0
 ### Minor Changes
 

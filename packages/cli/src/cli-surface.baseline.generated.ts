@@ -12,13 +12,13 @@ import type { SurfaceBaseline } from "./cli-surface.baseline.model";
  * rather than a convention. See `cli-surface.baseline.model.ts` for what each
  * field is for and for the one thing this file cannot defend against.
  *
- * ── THE SURFACE AT 2.2.0 ────────────────────────────────────────────────────
+ * ── THE SURFACE AT 2.2.1 ────────────────────────────────────────────────────
  *
  * 562 promised paths — 494 STABLE, 68 UNSTABLE.
  * 0 declared deprecations carried into this release.
  */
 export const CLI_SURFACE_BASELINE: SurfaceBaseline = {
-  version: "2.2.0",
+  version: "2.2.1",
   leaves: [
     { path: "access-card available-actions", shape: "05036a35dcc1", tier: "STABLE" },
     { path: "access-card create", shape: "18251f2155ff", tier: "STABLE" },

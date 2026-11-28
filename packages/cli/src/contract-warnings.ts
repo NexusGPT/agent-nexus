@@ -26,8 +26,9 @@ import { printWarning } from "./output";
  * decided by MEASUREMENT rather than by preference. Swept against staging over
  * every reachable Public API v1 GET route: 132 reads scored across 90 routes,
  * ZERO false positives, and the single mismatch it did report was a real
- * contract violation (`GET /documents/:id` publishes `size` as `number | null`
- * and sends a decimal string, because the column is a Prisma `BigInt?`).
+ * contract violation (`GET /documents/:id` published `size` as `number | null`
+ * and sent a decimal string, because the column is a Prisma `BigInt?`; the
+ * server converts it to a number before it serialises).
  *
  * ## What it deliberately does not say
  *

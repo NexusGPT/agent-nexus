@@ -50,12 +50,11 @@
  * ⚠️ The first failure is the visible one: a leaf is reported `FAILED` with
  * "exit=0 but the response is not JSON" about a response that IS JSON. That is
  * a false statement about the product, and its remedy points at the CLI when
- * the finding is about the API. `document get` is where it landed —
- * `GET /documents/:documentId` publishes `size` as `number | null` and the
- * server sends a decimal string, because `Document.size` is Prisma `BigInt?`
- * and `main.ts` installs `BigInt.prototype.toJSON`. That drift is real, known
- * and owned elsewhere (NEX-4123); the contract warning reporting it is the
- * CLI working, not breaking.
+ * the finding is about the API. `document get` is where it landed: the route
+ * publishes `size` as `number | null`, the server sent a decimal string for
+ * it, and the contract warning reporting that was the CLI working, not
+ * breaking. A contract warning on stderr is commentary about the document,
+ * never part of it.
  *
  * ── WHY THE MERGED TEXT IS STILL RETURNED ───────────────────────────────────
  *

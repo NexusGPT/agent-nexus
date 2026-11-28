@@ -13,11 +13,11 @@
  * `--json`, each says so at its own declaration.
  *
  * The VISIBLE half was a false verdict: `document get` reported `FAILED — exit=0
- * but the response is not JSON` about a response that is JSON, because
- * `GET /documents/:documentId` publishes `size` as `number | null` and the
- * server sends a decimal string (`Document.size` is Prisma `BigInt?`, and
- * `main.ts` installs `BigInt.prototype.toJSON`). That API drift is real and is
- * owned elsewhere — NEX-4123 — and the warning reporting it is the CLI working.
+ * but the response is not JSON` about a response that is JSON, because the
+ * payload carried a contract warning on stderr: `GET /documents/:documentId`
+ * publishes `size` as `number | null`, and the payload held a string. The
+ * warning reporting such a drift is the CLI working. `DOCUMENT` below keeps
+ * that string as a synthetic specimen of a mismatching payload.
  *
  * 🔴 THE SILENT HALF IS THE ONE THAT MATTERS. `scan-response.py` parses before
  * it walks: `scan()` returns `1, []` the instant `json.loads` fails, so
